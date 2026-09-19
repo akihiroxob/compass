@@ -107,7 +107,7 @@ Human → Intent 登録 (Compass)
 - `active` の間は title / desiredState / completionDefinition の3項目を Human が編集できる（updatedAt を更新）。
 - `abandoned` / `achieved` は編集不可。
 - 更新は Project の編集と同じ部分更新方式: 未指定は変更なし、`completionDefinition` は `null` / 空文字でクリア、title / desiredState は空白のみを拒否する。
-- Outcome 追加後の変更規則（Intent の意味変更を許すか等）は **Step 3 で固定する**。Step 2 では Outcome / Decision が無く、履歴を壊す参照者がいないため、編集を許す。
+- Outcome 追加後の変更規則（Intent の意味変更を許すか等）は **Step 3 で固定する**（[step-3-outcome-design.md](step-3-outcome-design.md) の「Intent との関係」: Outcome を持つ Intent は `desiredState` / `completionDefinition` の変更不可、`title` のみ可。Task 10 で実装）。Step 2 では Outcome / Decision が無く、履歴を壊す参照者がいないため、編集を許す。
 
 ## Web / MCP 操作
 
