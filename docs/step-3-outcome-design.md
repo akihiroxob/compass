@@ -1,6 +1,6 @@
 # Step 3: Outcome と成功条件 初期仕様
 
-> **状態: Step 3 の初期仕様（確定）。実装は Task 10（未着手）。**
+> **状態: Step 3 の初期仕様（確定）。Task 10 で実装済み（「実装状況と検証」参照）。**
 > 事前のユーザー確認は設けない。追加資料に定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選んだ。完成後のフィードバックに応じて修正する。選択理由と将来の変更点は各節と「選択理由と将来変更できる箇所」に記録する。
 
 ## 根拠資料と優先順位
@@ -207,6 +207,32 @@ Evaluation / Evidence / Research / Decision Entity、Outcome の `evaluating` / 
 | MCP でも書込を公開 | Step 1・2 と同じ trusted local 前提。Human と Agent の同一入口を保つ | 認証・actor 記録の導入時に、Strategist 以外の書込制限を検討する |
 | ネストした API、応答の非埋め込み | Project / Intent の既存契約を変えず、ID の取り違えを 404 で区別する | 必要になれば Intent 応答へ Active Outcome の要約を追加する |
 
-## 実装状況
+## 実装状況と検証
 
-Task 09 時点で **未実装**（仕様のみ）。Task 10 で実装し、実装状況と検証結果を本書の末尾に追記する。この仕様で Task 10 は着手可能であり、ユーザー確認待ちは設けない。
+実装済み（Task 10）: `outcome` / `success_criterion` table、`Outcome` / `OutcomeRepository`（Criterion の更新・削除メソッドなし）、5つの use case（`CreateOutcome` / `ListOutcomes` / `GetOutcome` / `UpdateOutcome` / `CancelOutcome`）、`shared/outcomeSchema.ts`、Web API、MCP tool 5件、Intent 詳細の Outcome section、Project 詳細の Active Outcomes、Outcome の作成・詳細・編集・取消画面。Intent 放棄時の連動取消と、Outcome を持つ Intent の意味変更拒否も実装した（`SQLiteIntentRepository`、同一 transaction）。
+
+| 区分 | 実装 |
+| --- | --- |
+| Web API | 「Web / MCP 操作」の表のとおり。応答は `{ outcome }` / `{ outcomes }`（成功条件を position 順に含む）。取消は本文なしでも受け付け、理由なしとして `VALIDATION_ERROR`（path `reason`） |
+| MCP | `create_outcome` / `list_outcomes` / `get_outcome` / `update_outcome` / `cancel_outcome`。応答は Web と同じ `{ outcome }` / `{ outcomes }`。Project / Intent tool の入出力は不変（Intent tool の応答の形は従来どおり） |
+| UI | `/projects/:projectId/intents/:intentId/outcomes/new`、`.../outcomes/:outcomeId`、`.../outcomes/:outcomeId/edit`。作成後の成功条件の編集 UI は無い |
+| DB | `outcome.status` の check は予約済みの5値を含む。`success_criterion` は `(outcome_id, position)` の一意 index を持つ |
+
+仕様の解釈・補足（実装時に選んだ点）:
+
+- **Intent の意味変更拒否は「保存済みの値と異なる場合」だけ**。編集フォームは 3 項目を常に送るため、`title` だけを変えた保存は Outcome があっても成功する。`fixedFields` には実際に変更しようとした項目（`desiredState,completionDefinition` の該当分）を入れる。
+- Outcome の PATCH で固定項目（`description` / `rationale` / `successCriteria`）を検出する処理は、「更新項目が 1 件以上」の検査より先に行う。固定項目だけの PATCH も 409 になる（`title` 等の値の検証と Project の存在確認は先に行う）。
+- MCP `update_outcome` の入力 schema は固定項目も（`unknown` として）宣言する。宣言しないと zod が黙って捨て、Web と違い拒否されないため。
+- Intent 放棄で取り消す Outcome の `cancelReason` は `Intent abandoned`、放棄理由があれば `Intent abandoned: <理由>`。
+- ID の取り違えの区別は、Project → Intent → Outcome の順に存在確認し、メッセージ先頭（`Project <id>` / `Intent <id>` / `Outcome <id>`）で判別する。
+
+検証（自動）: `npm test`（Outcome の永続化・再起動後保持・入力検証と部分保存なし・DB 制約・複数 active・固定項目の 409・title / hypothesis 更新・取消・他 Project / 他 Intent の 404・Intent 放棄との連動と rollback・意味変更拒否・Web と MCP の相互参照・フロントの純関数）、`npm run typecheck`、`npm run lint`、`npm run build`。実サーバー（別 port・一時 DB）で、作成 → 不正入力の 400（path `successCriteria.1.measurement`）→ 再起動 → Web `GET` と MCP `get_outcome` で保持 → 固定項目 PATCH の 409 → Intent 放棄で Outcome が `cancelled`（成功条件は保持）を確認した。
+
+画面確認手順（手動）: `npm start` 後、Project 詳細で Intent を登録 → Intent 詳細の「Outcomeを登録」→ 成功条件を追加・削除して登録 → 詳細で成功条件が入力順に表示され、編集画面ではタイトルと仮説だけ変更できることを確認する。取消（理由必須の確認パネル）後は編集・取消の導線が消え、Intent を放棄すると Active Outcome が取り消されることを確認する。
+
+## 未実施・制約
+
+- 実ブラウザでの Outcome 画面の目視・keyboard 操作・狭い画面の確認は未実施（この実行環境から実ブラウザを操作していない）。型検査・build・API smoke・SPA の URL が配信されることの確認のみ。
+- 同時編集の検出（楽観ロック）はなく、後から保存した内容が反映される。
+- Biome は本リポジトリに未導入のため、`lint` は型検査のみ。
+- フォームのエラー要約 UI が Project / Intent / Outcome で 3 箇所目の重複になり、`main.tsx` も肥大している。Task 10 の範囲外のため既存に合わせて複製し、整理は別 Task とする。

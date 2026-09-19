@@ -11,6 +11,11 @@ export type ChangeIntentResult =
   | { kind: "not_found" }
   | { kind: "not_active"; status: IntentStatus };
 
+/** `meaning_locked`は、Outcomeを持つIntentの意味（desiredState / completionDefinition）を変更しようとした場合。 */
+export type MeaningLockedResult = { kind: "meaning_locked"; fields: string[] };
+
+export type UpdateIntentResult = ChangeIntentResult | MeaningLockedResult;
+
 export interface IntentRepository {
   /** Projectにつきactiveは最大1件。既にあれば作成せず、そのIDを返す。 */
   create(projectId: string, input: CreateIntentInput): Promise<CreateIntentResult>;
@@ -18,6 +23,8 @@ export interface IntentRepository {
   findByProject(projectId: string): Promise<Intent[]>;
   /** 他Projectのintent IDはnullとして扱う。 */
   findById(projectId: string, intentId: string): Promise<Intent | null>;
-  update(projectId: string, intentId: string, input: UpdateIntentInput): Promise<ChangeIntentResult>;
+  /** Outcomeを持つIntentは、保存済みと異なるdesiredState / completionDefinitionを拒否する（titleは変更できる）。 */
+  update(projectId: string, intentId: string, input: UpdateIntentInput): Promise<UpdateIntentResult>;
+  /** 放棄と同一transactionで、そのIntentのactiveなOutcomeをcancelledにする。 */
   abandon(projectId: string, intentId: string, reason: string | null): Promise<ChangeIntentResult>;
 }

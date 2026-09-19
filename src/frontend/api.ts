@@ -76,8 +76,18 @@ const topLevelLabels: Record<string, string> = {
   desiredState: "実現したい状態",
   completionDefinition: "完了の定義",
   reason: "放棄の理由",
+  hypothesis: "仮説",
+  rationale: "判断理由",
+  successCriteria: "成功条件",
 };
-const linkFieldLabels: Record<string, string> = { name: "名前", url: "URL", kind: "種類" };
+const linkFieldLabels: Record<string, string> = {
+  name: "名前",
+  url: "URL",
+  kind: "種類",
+  description: "内容",
+  measurement: "測定方法",
+  target: "目標値",
+};
 
 /** サーバーのissue path（例 `repositories.0.url`）を、フォームのaria-labelと同じ表記へ変換する。 */
 export const formatIssuePath = (path: string): string => {

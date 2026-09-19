@@ -76,6 +76,53 @@ export const createApp = (services: ApplicationServices = applicationServices) =
     );
     return c.json({ intent });
   });
+
+  const outcomesPath = "/api/projects/:projectId/intents/:intentId/outcomes";
+  app.post(outcomesPath, async (c) => {
+    const input = await readJsonBody(c.req.raw, "Outcome");
+    const outcome = await services.createOutcomeUseCase.execute(
+      c.req.param("projectId"),
+      c.req.param("intentId"),
+      input,
+    );
+    return c.json({ outcome }, 201);
+  });
+  app.get(outcomesPath, async (c) =>
+    c.json({
+      outcomes: await services.listOutcomesUseCase.execute(c.req.param("projectId"), c.req.param("intentId")),
+    }),
+  );
+  app.get(`${outcomesPath}/:outcomeId`, async (c) =>
+    c.json({
+      outcome: await services.getOutcomeUseCase.execute(
+        c.req.param("projectId"),
+        c.req.param("intentId"),
+        c.req.param("outcomeId"),
+      ),
+    }),
+  );
+  app.patch(`${outcomesPath}/:outcomeId`, async (c) => {
+    const input = await readJsonBody(c.req.raw, "Outcome");
+    const outcome = await services.updateOutcomeUseCase.execute(
+      c.req.param("projectId"),
+      c.req.param("intentId"),
+      c.req.param("outcomeId"),
+      input,
+    );
+    return c.json({ outcome });
+  });
+  app.post(`${outcomesPath}/:outcomeId/cancel`, async (c) => {
+    // 本文なしの要求は、理由なしとしてuse caseのVALIDATION_ERRORにする。
+    const hasBody = (await c.req.raw.clone().text()).trim() !== "";
+    const input = hasBody ? await readJsonBody(c.req.raw, "Outcome") : {};
+    const outcome = await services.cancelOutcomeUseCase.execute(
+      c.req.param("projectId"),
+      c.req.param("intentId"),
+      c.req.param("outcomeId"),
+      input,
+    );
+    return c.json({ outcome });
+  });
   app.all("/api/*", (c) => c.json({ error: { code: "NOT_FOUND", message: "Not Found" } }, 404));
 
   app.all("/mcp", async (c) => {

@@ -49,6 +49,31 @@ const intentUpdateSchema = {
   completionDefinition: z.string().nullable().optional(),
 };
 
+// Outcomeの入力規則もshared/outcomeSchemaが持つ。成功条件は作成時に固定され、更新用のschemaには含めない。
+const outcomeCreateSchema = {
+  projectId: z.string().min(1),
+  intentId: z.string().min(1),
+  title: z.string(),
+  description: z.string(),
+  hypothesis: z.string().nullable().optional(),
+  rationale: z.string(),
+  successCriteria: z.array(
+    z.object({ description: z.string(), measurement: z.string(), target: z.string().nullable().optional() }),
+  ),
+};
+
+const outcomeUpdateSchema = {
+  projectId: z.string().min(1),
+  intentId: z.string().min(1),
+  outcomeId: z.string().min(1),
+  title: z.string().optional(),
+  hypothesis: z.string().nullable().optional(),
+  // 固定項目は受け付けないが、schemaに無いとzodが黙って捨てるため宣言し、use caseがCONFLICTで拒否できるようにする。
+  description: z.unknown().optional(),
+  rationale: z.unknown().optional(),
+  successCriteria: z.unknown().optional(),
+};
+
 const result = (value: unknown) => {
   const plainValue = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
   return {
@@ -176,6 +201,73 @@ export const createMcpServer = (services: ApplicationServices) => {
     },
     ({ projectId, intentId, reason }) =>
       execute(() => services.abandonIntentUseCase.execute(projectId, intentId, { reason })),
+  );
+
+  server.registerTool(
+    "create_outcome",
+    {
+      title: "Create Outcome",
+      description:
+        "Register an Outcome (with its Success Criteria) under an active Intent as the result of a Strategist/Human decision. " +
+        "rationale records why this Outcome was chosen. Success Criteria are fixed at creation (1-10 items) and cannot be edited later; " +
+        "to change them, cancel the Outcome and create a new one. Outcomes are never generated from an Intent automatically, " +
+        "and Research is not required.",
+      inputSchema: outcomeCreateSchema,
+    },
+    ({ projectId, intentId, ...input }) =>
+      execute(async () => ({ outcome: await services.createOutcomeUseCase.execute(projectId, intentId, input) })),
+  );
+  server.registerTool(
+    "list_outcomes",
+    {
+      title: "List Outcomes",
+      description: "List the Outcomes of an Intent with their Success Criteria, newest first.",
+      inputSchema: { projectId: z.string().min(1), intentId: z.string().min(1) },
+    },
+    ({ projectId, intentId }) =>
+      execute(async () => ({ outcomes: await services.listOutcomesUseCase.execute(projectId, intentId) })),
+  );
+  server.registerTool(
+    "get_outcome",
+    {
+      title: "Get Outcome",
+      description: "Get an Outcome and its Success Criteria by ID within a Project and Intent.",
+      inputSchema: { projectId: z.string().min(1), intentId: z.string().min(1), outcomeId: z.string().min(1) },
+    },
+    ({ projectId, intentId, outcomeId }) =>
+      execute(async () => ({ outcome: await services.getOutcomeUseCase.execute(projectId, intentId, outcomeId) })),
+  );
+  server.registerTool(
+    "update_outcome",
+    {
+      title: "Update Outcome",
+      description:
+        "Update title or hypothesis of an active Outcome. Omitted fields are unchanged; null or an empty string clears hypothesis. " +
+        "description, rationale and successCriteria are fixed at creation and are rejected with CONFLICT. Cancelled Outcomes cannot be edited.",
+      inputSchema: outcomeUpdateSchema,
+    },
+    ({ projectId, intentId, outcomeId, ...input }) =>
+      execute(async () => ({
+        outcome: await services.updateOutcomeUseCase.execute(projectId, intentId, outcomeId, input),
+      })),
+  );
+  server.registerTool(
+    "cancel_outcome",
+    {
+      title: "Cancel Outcome",
+      description:
+        "Cancel an active Outcome with a required reason. Cancelled Outcomes keep their Success Criteria and cannot be reactivated.",
+      inputSchema: {
+        projectId: z.string().min(1),
+        intentId: z.string().min(1),
+        outcomeId: z.string().min(1),
+        reason: z.string(),
+      },
+    },
+    ({ projectId, intentId, outcomeId, reason }) =>
+      execute(async () => ({
+        outcome: await services.cancelOutcomeUseCase.execute(projectId, intentId, outcomeId, { reason }),
+      })),
   );
 
   return server;

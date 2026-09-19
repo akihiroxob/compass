@@ -25,6 +25,13 @@ export class UpdateIntentUseCase {
         status: result.status,
       });
     }
+    if (result.kind === "meaning_locked") {
+      throw new ConflictError(
+        `Intent ${intentId} has Outcomes, so ${result.fields.join(" and ")} can no longer be changed; ` +
+          "abandon the Intent and create a new one to change its meaning",
+        { fixedFields: result.fields.join(",") },
+      );
+    }
     return result.intent;
   }
 }

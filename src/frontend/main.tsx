@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { ApiError, classifyError, fieldId, request, type ErrorKind } from "./api";
 import { emptyIntentFormValues, formValuesFromIntent, intentStatusLabels, splitIntents, type Intent, type IntentFormValues } from "./intentForm";
+import { emptyOutcomeFormValues, emptyCriterion, formValuesFromOutcome, maxSuccessCriteria, outcomeStatusLabels, splitOutcomes, type Outcome, type OutcomeFormValues } from "./outcomeForm";
 import { emptyFormValues, formValuesFromProject, type LinkInput, type Project, type ProjectFormValues } from "./projectForm";
 import "./styles.css";
 
@@ -72,7 +73,7 @@ const IntentSection = ({ projectId }: { projectId: string }) => {
   const { active, past } = splitIntents(intents ?? []);
   return <section className="detail-section intent-section" aria-labelledby="intent-heading"><h2 id="intent-heading">Intent</h2><p className="section-note">Humanが今実現したい状態です。Missionとは別に、達成や放棄で終わります。</p>
     {error ? <ErrorState message={`Intentの読み込みに失敗しました: ${error}`} /> : intents === null ? <Loading /> : <>
-      {active ? <article className="intent-card"><span className="status-badge">{intentStatusLabels.active}</span><h3>{active.title}</h3><IntentFacts intent={active} /><Link to={intentPath(projectId, active.id)} className="secondary-button">詳細・編集</Link></article> : <div className="intent-empty"><p className="unset">Intentは未登録です</p><Link to={intentPath(projectId, "new")} className="button">Intentを登録</Link></div>}
+      {active ? <article className="intent-card"><span className="status-badge">{intentStatusLabels.active}</span><h3>{active.title}</h3><IntentFacts intent={active} /><ActiveOutcomes projectId={projectId} intentId={active.id} /><Link to={intentPath(projectId, active.id)} className="secondary-button">詳細・編集</Link></article> : <div className="intent-empty"><p className="unset">Intentは未登録です</p><Link to={intentPath(projectId, "new")} className="button">Intentを登録</Link></div>}
       {past.length > 0 && <details className="past-intents"><summary>過去のIntent（{past.length}件）</summary><ul>{past.map((intent) => <li key={intent.id}><Link to={intentPath(projectId, intent.id)}><span className="status-badge muted">{intentStatusLabels[intent.status]}</span> {intent.title}</Link></li>)}</ul></details>}
     </>}
   </section>;
@@ -116,11 +117,98 @@ const IntentDetailPage = () => {
   return <Shell><main className="narrow"><Link to={`/projects/${projectId}`} className="back-link">← Project詳細</Link>{error ? <ErrorState message={error} /> : !intent ? <Loading /> : <>
     <div className="detail-hero"><p className="eyebrow">Intent</p><h1>{intent.title}</h1><p><span className={`status-badge${intent.status === "active" ? "" : " muted"}`}>{intentStatusLabels[intent.status]}</span></p><time>{new Date(intent.updatedAt).toLocaleString("ja-JP")} 更新</time></div>
     <section className="detail-section"><IntentFacts intent={intent} /></section>
+    <OutcomeSection projectId={projectId} intent={intent} />
     {intent.status === "abandoned" && <section className="detail-section"><h2>放棄</h2><p>{intent.abandonedReason ?? <span className="unset">理由は記録されていません</span>}</p><p className="section-note">放棄したIntentはActiveに戻せません。続ける場合は新しいIntentを登録してください。</p><Link to={intentPath(projectId, "new")} className="secondary-button">新しいIntentを登録</Link></section>}
     {intent.status === "active" && <div className="action-row"><Link to={intentPath(projectId, intent.id, "/edit")} className="button">Intentを編集</Link><button type="button" className="secondary-button danger" aria-expanded={confirming} onClick={() => setConfirming(true)}>Intentを放棄</button></div>}
-    {intent.status === "active" && confirming && <form className="abandon-panel" onSubmit={abandon}><h2>このIntentを放棄しますか？</h2><p>放棄すると編集できず、Activeに戻せません。新しいIntentを登録してやり直せます。</p><label>放棄の理由（任意）<textarea autoFocus maxLength={2000} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} /></label>{abandonError && <div className="state-card error" role="alert">{abandonError}</div>}<div className="form-actions"><button type="button" className="secondary-button" onClick={() => { setConfirming(false); setAbandonError(null); }}>やめる</button><button className="button danger" disabled={isAbandoning}>{isAbandoning ? "放棄中..." : "放棄する"}</button></div></form>}
+    {intent.status === "active" && confirming && <form className="abandon-panel" onSubmit={abandon}><h2>このIntentを放棄しますか？</h2><p>放棄すると編集できず、Activeに戻せません。ActiveなOutcomeがあれば同時に取り消されます。新しいIntentを登録してやり直せます。</p><label>放棄の理由（任意）<textarea autoFocus maxLength={2000} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} /></label>{abandonError && <div className="state-card error" role="alert">{abandonError}</div>}<div className="form-actions"><button type="button" className="secondary-button" onClick={() => { setConfirming(false); setAbandonError(null); }}>やめる</button><button className="button danger" disabled={isAbandoning}>{isAbandoning ? "放棄中..." : "放棄する"}</button></div></form>}
   </>}</main></Shell>;
 };
 
-const App = () => <Routes><Route path="/" element={<ProjectListPage />} /><Route path="/projects/new" element={<ProjectCreatePage />} /><Route path="/projects/:projectId" element={<ProjectDetailPage />} /><Route path="/projects/:projectId/edit" element={<ProjectEditPage />} /><Route path="/projects/:projectId/intents/new" element={<IntentCreatePage />} /><Route path="/projects/:projectId/intents/:intentId" element={<IntentDetailPage />} /><Route path="/projects/:projectId/intents/:intentId/edit" element={<IntentEditPage />} /></Routes>;
+// ---- Outcome（Step 3）。Evaluation・Execution・Decision・Research・Strategistは未実装のため、達成率や進行状況を表示しない。 ----
+// フォームのエラー要約はProject / Intent / Outcomeで3箇所目の重複。共通化はTask 10の範囲外のため、既存に合わせて複製している。
+const outcomePath = (projectId: string, intentId: string, outcomeId?: string, suffix = "") => `${intentPath(projectId, intentId)}/outcomes${outcomeId ? `/${outcomeId}` : ""}${suffix}`;
+
+/** IntentのOutcome一覧の取得。Project詳細とIntent詳細の両方が使う。 */
+const useOutcomes = (projectId: string, intentId: string) => {
+  const [state, setState] = useState<{ outcomes: Outcome[] | null; error: string | null }>({ outcomes: null, error: null });
+  useEffect(() => { request<{ outcomes: Outcome[] }>(`/api/projects/${projectId}/intents/${intentId}/outcomes`).then(({ outcomes }) => setState({ outcomes, error: null })).catch((reason: unknown) => setState({ outcomes: null, error: loadFailureMessage(classifyError(reason), "ProjectまたはIntentが見つかりません。") })); }, [projectId, intentId]);
+  return state;
+};
+
+const OutcomeLinks = ({ projectId, outcomes }: { projectId: string; outcomes: Outcome[] }) => <ul className="outcome-list">{outcomes.map((outcome) => <li key={outcome.id}><Link to={outcomePath(projectId, outcome.intentId, outcome.id)}><span className={`status-badge${outcome.status === "active" ? "" : " muted"}`}>{outcomeStatusLabels[outcome.status]}</span> {outcome.title}<small>成功条件 {outcome.successCriteria.length}件</small></Link></li>)}</ul>;
+
+/** Project詳細のActive Intent内に表示する、ActiveなOutcomeの一覧。成功条件はOutcome詳細で見る。 */
+const ActiveOutcomes = ({ projectId, intentId }: { projectId: string; intentId: string }) => {
+  const { outcomes, error } = useOutcomes(projectId, intentId); const { active } = splitOutcomes(outcomes ?? []);
+  return <div className="outcome-block"><p className="section-label">Active Outcomes</p>{error ? <p className="unset" role="alert">Outcomeを読み込めませんでした: {error}</p> : outcomes === null ? <p className="unset" role="status">読み込み中...</p> : active.length ? <OutcomeLinks projectId={projectId} outcomes={active} /> : <p className="unset">Outcomeは未登録です</p>}</div>;
+};
+
+const OutcomeSection = ({ projectId, intent }: { projectId: string; intent: Intent }) => {
+  const { outcomes, error } = useOutcomes(projectId, intent.id); const { active, past } = splitOutcomes(outcomes ?? []);
+  return <section className="detail-section" aria-labelledby="outcome-heading"><h2 id="outcome-heading">Outcome</h2><p className="section-note">Intentへ近づくために達成すべき、観測可能な状態です。Strategist（またはHuman）の判断結果として、成功条件とともに登録します。</p>
+    {error ? <ErrorState message={`Outcomeの読み込みに失敗しました: ${error}`} /> : outcomes === null ? <Loading /> : <>
+      {active.length ? <OutcomeLinks projectId={projectId} outcomes={active} /> : <p className="unset">{past.length ? "ActiveなOutcomeはありません" : "Outcomeは未登録です"}</p>}
+      {intent.status === "active" && <div className="action-row"><Link to={outcomePath(projectId, intent.id, "new")} className="button">Outcomeを登録</Link></div>}
+      {past.length > 0 && <details className="past-intents"><summary>取消済みなどのOutcome（{past.length}件）</summary><OutcomeLinks projectId={projectId} outcomes={past} /></details>}
+    </>}</section>;
+};
+
+type OutcomeFormProps = { projectId: string; intentId: string; mode: "create" | "edit"; initial: OutcomeFormValues; heading: { eyebrow: string; title: string; lede: string }; submitLabel: string; pendingLabel: string; cancelTo: string; save: (values: OutcomeFormValues) => Promise<Outcome> };
+
+const OutcomeForm = ({ projectId, intentId, mode, initial, heading, submitLabel, pendingLabel, cancelTo, save }: OutcomeFormProps) => {
+  const navigate = useNavigate(); const [title, setTitle] = useState(initial.title); const [description, setDescription] = useState(initial.description); const [hypothesis, setHypothesis] = useState(initial.hypothesis); const [rationale, setRationale] = useState(initial.rationale); const [criteria, setCriteria] = useState(initial.successCriteria); const [error, setError] = useState<FormError | null>(null); const [isSubmitting, setIsSubmitting] = useState(false); const errorRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (error) { errorRef.current?.focus(); errorRef.current?.scrollIntoView({ block: "center" }); } }, [error]);
+  const invalid: ReadonlySet<string> = new Set(error?.kind === "validation" ? error.issues.flatMap((issue) => issue.fieldId ? [issue.fieldId] : []) : []);
+  const updateCriterion = (index: number, changes: Partial<(typeof criteria)[number]>) => setCriteria(criteria.map((item, i) => i === index ? { ...item, ...changes } : item));
+  // 保存に失敗しても入力state（上のuseState）は維持し、そのまま再送信できる。
+  const submit = async (event: FormEvent) => { event.preventDefault(); setError(null); setIsSubmitting(true); try { const outcome = await save({ title, description, hypothesis, rationale, successCriteria: criteria }); navigate(outcomePath(projectId, intentId, outcome.id)); } catch (reason) { const classified = classifyError(reason); setError(classified.kind === "not_found" ? { kind: "other", message: "Project、Intent、またはOutcomeが見つかりません。削除された可能性があります。" } : classified); } finally { setIsSubmitting(false); } };
+  return <Shell><main className="narrow"><Link to={cancelTo} className="back-link">← 戻る</Link><div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div><p className="lede">{heading.lede}</p>
+    {error && <div className="state-card error" role="alert" id={summaryId} tabIndex={-1} ref={errorRef}>{error.kind === "validation" ? <><p className="error-title">入力内容を確認してください</p><ul>{error.issues.map((issue, index) => <li key={index}>{issue.fieldId ? <a href={`#${issue.fieldId}`}>{issue.label}</a> : issue.label}: {issue.message}</li>)}</ul></> : error.kind === "conflict" ? <><p className="error-title">この操作は現在のIntentまたはOutcomeの状態と競合しています。</p><p>{error.message}</p><Link to={intentPath(projectId, intentId)} className="text-link">Intentを開く →</Link></> : <><p className="error-title">保存に失敗しました。時間をおいて再試行してください。</p><p>{error.message}</p></>}</div>}
+    <form onSubmit={submit} className="project-form"><section className="form-section"><label>タイトル <span>必須</span><small>Outcomeを一言で表す名前（100文字まで）</small><input {...fieldProps(invalid, "field-title")} required aria-required="true" maxLength={100} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+      {mode === "create" && <><label>達成すべき状態 <span>必須</span><small>Intentへ近づくために達成すべき、観測可能な状態。作成後は変更できません。</small><textarea {...fieldProps(invalid, "field-description")} required aria-required="true" maxLength={2000} rows={5} value={description} onChange={(event) => setDescription(event.target.value)} /></label></>}
+      <label>仮説<small>これを達成するとIntentへ近づくと考える理由（任意）</small><textarea {...fieldProps(invalid, "field-hypothesis")} maxLength={2000} rows={3} value={hypothesis} onChange={(event) => setHypothesis(event.target.value)} /></label>
+      {mode === "create" && <label>判断理由（Strategistの判断） <span>必須</span><small>Strategist（またはHuman）が、なぜこのOutcomeを今選んだか。判断の記録として作成後は変更できません。</small><textarea {...fieldProps(invalid, "field-rationale")} required aria-required="true" maxLength={2000} rows={4} value={rationale} onChange={(event) => setRationale(event.target.value)} /></label>}</section>
+    {mode === "create" ? <section className="form-section"><h2>成功条件</h2><p className="fixed-note">成功条件は作成時に固定され、後から編集できません。変更する場合は、このOutcomeを取り消して新しいOutcomeを作成します。1〜{maxSuccessCriteria}件。</p>
+      <fieldset className="repeat-field" {...fieldProps(invalid, "field-successCriteria")}><legend className="visually-hidden">成功条件の一覧</legend>{criteria.map((criterion, index) => <fieldset className="criterion-row" key={index}><legend>成功条件 {index + 1}</legend>
+        <label>内容 <span>必須</span><small>何を満たせば成功か（例: duplicate_claim_count = 0）</small><input {...fieldProps(invalid, fieldId(`successCriteria.${index}.description`))} required aria-required="true" maxLength={500} value={criterion.description} onChange={(event) => updateCriterion(index, { description: event.target.value })} /></label>
+        <label>測定方法 <span>必須</span><small>どう観測し、どの証拠があれば成立と言えるか。「できた」という主張だけでは成立にできません。</small><textarea {...fieldProps(invalid, fieldId(`successCriteria.${index}.measurement`))} required aria-required="true" maxLength={1000} rows={3} value={criterion.measurement} onChange={(event) => updateCriterion(index, { measurement: event.target.value })} /></label>
+        <label>目標値<small>任意（例: = 0、100%）</small><input {...fieldProps(invalid, fieldId(`successCriteria.${index}.target`))} maxLength={200} value={criterion.target} onChange={(event) => updateCriterion(index, { target: event.target.value })} /></label>
+        <button type="button" className="remove" disabled={criteria.length <= 1} aria-label={`成功条件 ${index + 1}を削除`} onClick={() => setCriteria(criteria.filter((_, i) => i !== index))}>この成功条件を削除</button></fieldset>)}
+        <button type="button" className="add-row" disabled={criteria.length >= maxSuccessCriteria} onClick={() => setCriteria([...criteria, emptyCriterion])}>＋ 成功条件を追加</button></fieldset></section> : <p className="fixed-note">達成すべき状態・判断理由・成功条件は作成時に固定されており、編集できるのはタイトルと仮説だけです。</p>}
+    <div className="form-actions"><Link to={cancelTo} className="secondary-button">キャンセル</Link><button className="button" disabled={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</button></div></form></main></Shell>;
+};
+
+const OutcomeCreatePage = () => { const { projectId = "", intentId = "" } = useParams(); return <OutcomeForm projectId={projectId} intentId={intentId} mode="create" initial={emptyOutcomeFormValues} heading={{ eyebrow: "New outcome", title: "Outcomeを登録", lede: "Strategist（またはHuman）の判断結果として、Intentへ近づくためのOutcomeと成功条件を登録します。Researchは必須ではありません。" }} submitLabel="Outcomeを登録" pendingLabel="登録中..." cancelTo={intentPath(projectId, intentId)} save={async (values) => (await request<{ outcome: Outcome }>(`/api/projects/${projectId}/intents/${intentId}/outcomes`, jsonPost(values))).outcome} />; };
+
+/** サーバーのNOT_FOUNDメッセージ（先頭語がProject / Intent / Outcomeで異なる）から、どれが存在しないかを区別する。 */
+const outcomeLoadFailure = (reason: unknown) => reason instanceof ApiError && reason.status === 404 ? (reason.message.startsWith("Outcome") ? "Outcomeが見つかりません。" : reason.message.startsWith("Intent") ? "Intentが見つかりません。" : "Projectが見つかりません。") : loadFailureMessage(classifyError(reason), "Outcomeが見つかりません。");
+const useOutcomePage = (projectId: string, intentId: string, outcomeId: string) => {
+  const [state, setState] = useState<{ outcome: Outcome | null; error: string | null }>({ outcome: null, error: null });
+  useEffect(() => { request<{ outcome: Outcome }>(`/api/projects/${projectId}/intents/${intentId}/outcomes/${outcomeId}`).then(({ outcome }) => setState({ outcome, error: null })).catch((reason: unknown) => setState({ outcome: null, error: outcomeLoadFailure(reason) })); }, [projectId, intentId, outcomeId]);
+  return { ...state, setOutcome: (outcome: Outcome) => setState({ outcome, error: null }) };
+};
+
+const OutcomeEditPage = () => {
+  const { projectId = "", intentId = "", outcomeId = "" } = useParams(); const { outcome, error } = useOutcomePage(projectId, intentId, outcomeId); const back = outcomePath(projectId, intentId, outcomeId);
+  if (error) return <Shell><main className="narrow"><Link to={intentPath(projectId, intentId)} className="back-link">← Intent詳細</Link><ErrorState message={error} /></main></Shell>;
+  if (!outcome) return <Shell><main className="narrow"><Loading /></main></Shell>;
+  if (outcome.status !== "active") return <Shell><main className="narrow"><Link to={back} className="back-link">← Outcome詳細</Link><ErrorState message={`${outcomeStatusLabels[outcome.status]}のOutcomeは編集できません。`} /></main></Shell>;
+  return <OutcomeForm projectId={projectId} intentId={intentId} mode="edit" initial={formValuesFromOutcome(outcome)} heading={{ eyebrow: "Edit outcome", title: "Outcomeを編集", lede: "変更した内容は保存するまで反映されません。キャンセルすると保存済みの内容のままです。" }} submitLabel="変更を保存" pendingLabel="保存中..." cancelTo={back} save={async (values) => (await request<{ outcome: Outcome }>(`/api/projects/${projectId}/intents/${intentId}/outcomes/${outcomeId}`, jsonInit("PATCH", { title: values.title, hypothesis: values.hypothesis }))).outcome} />;
+};
+
+const OutcomeDetailPage = () => {
+  const { projectId = "", intentId = "", outcomeId = "" } = useParams(); const { outcome, error, setOutcome } = useOutcomePage(projectId, intentId, outcomeId);
+  const [confirming, setConfirming] = useState(false); const [reason, setReason] = useState(""); const [isCancelling, setIsCancelling] = useState(false); const [cancelError, setCancelError] = useState<string | null>(null);
+  const cancel = async (event: FormEvent) => { event.preventDefault(); setCancelError(null); setIsCancelling(true); try { setOutcome((await request<{ outcome: Outcome }>(`/api/projects/${projectId}/intents/${intentId}/outcomes/${outcomeId}/cancel`, jsonPost({ reason }))).outcome); setConfirming(false); } catch (failure) { const classified = classifyError(failure); setCancelError(classified.kind === "validation" ? classified.issues.map((issue) => `取消の理由: ${issue.message}`).join(" / ") : classified.kind === "not_found" ? "Outcomeが見つかりません。" : classified.message); } finally { setIsCancelling(false); } };
+  return <Shell><main className="narrow"><Link to={intentPath(projectId, intentId)} className="back-link">← Intent詳細</Link>{error ? <ErrorState message={error} /> : !outcome ? <Loading /> : <>
+    <div className="detail-hero"><p className="eyebrow">Outcome</p><h1>{outcome.title}</h1><p><span className={`status-badge${outcome.status === "active" ? "" : " muted"}`}>{outcomeStatusLabels[outcome.status]}</span></p><time>{new Date(outcome.updatedAt).toLocaleString("ja-JP")} 更新</time></div>
+    <section className="detail-section"><dl className="intent-facts"><dt>達成すべき状態</dt><dd>{outcome.description}</dd><dt>仮説</dt><dd>{outcome.hypothesis ?? <span className="unset">未設定</span>}</dd><dt>判断理由（Strategistの判断）</dt><dd>{outcome.rationale}</dd></dl></section>
+    <section className="detail-section" aria-labelledby="criteria-heading"><h2 id="criteria-heading">成功条件</h2><p className="section-note">成功条件は作成時に固定されます。変更する場合は、このOutcomeを取り消して新しいOutcomeを作成します。</p><ol className="criteria-list">{outcome.successCriteria.map((criterion) => <li key={criterion.id}><p className="criterion-title">{criterion.description}</p><dl><dt>測定方法</dt><dd>{criterion.measurement}</dd>{criterion.target && <><dt>目標値</dt><dd>{criterion.target}</dd></>}</dl></li>)}</ol></section>
+    {outcome.status === "cancelled" && <section className="detail-section"><h2>取消</h2><p>{outcome.cancelReason}</p><p className="section-note">取り消したOutcomeはActiveに戻せません。続ける場合は新しいOutcomeを登録してください。</p></section>}
+    {outcome.status === "active" && <div className="action-row"><Link to={outcomePath(projectId, intentId, outcome.id, "/edit")} className="button">タイトル・仮説を編集</Link><button type="button" className="secondary-button danger" aria-expanded={confirming} onClick={() => setConfirming(true)}>Outcomeを取消</button></div>}
+    {outcome.status === "active" && confirming && <form className="abandon-panel" onSubmit={cancel}><h2>このOutcomeを取り消しますか？</h2><p>取り消すと編集できず、Activeに戻せません。成功条件を変えたい場合は、新しいOutcomeを登録してやり直せます。</p><label>取消の理由 <span>必須</span><textarea autoFocus required aria-required="true" maxLength={2000} rows={3} value={reason} onChange={(event) => setReason(event.target.value)} /></label>{cancelError && <div className="state-card error" role="alert">{cancelError}</div>}<div className="form-actions"><button type="button" className="secondary-button" onClick={() => { setConfirming(false); setCancelError(null); }}>やめる</button><button className="button danger" disabled={isCancelling}>{isCancelling ? "取消中..." : "取り消す"}</button></div></form>}
+  </>}</main></Shell>;
+};
+
+const App = () => <Routes><Route path="/" element={<ProjectListPage />} /><Route path="/projects/new" element={<ProjectCreatePage />} /><Route path="/projects/:projectId" element={<ProjectDetailPage />} /><Route path="/projects/:projectId/edit" element={<ProjectEditPage />} /><Route path="/projects/:projectId/intents/new" element={<IntentCreatePage />} /><Route path="/projects/:projectId/intents/:intentId" element={<IntentDetailPage />} /><Route path="/projects/:projectId/intents/:intentId/edit" element={<IntentEditPage />} /><Route path="/projects/:projectId/intents/:intentId/outcomes/new" element={<OutcomeCreatePage />} /><Route path="/projects/:projectId/intents/:intentId/outcomes/:outcomeId" element={<OutcomeDetailPage />} /><Route path="/projects/:projectId/intents/:intentId/outcomes/:outcomeId/edit" element={<OutcomeEditPage />} /></Routes>;
 createRoot(document.getElementById("root")!).render(<StrictMode><BrowserRouter><App /></BrowserRouter></StrictMode>);
