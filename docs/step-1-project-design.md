@@ -186,7 +186,7 @@ Intent、Outcome、Execution Summary、Activity は未実装のため、空デ�
 - 同時編集の検出（楽観ロック）
 - Mission / Vision / Principles / Constraints を独立 aggregate にする時期
 - Repository / Resource の認証情報、疎通確認、provider 固有 metadata
-- Intent の状態、同時 active 数、更新規則
+- Intent の状態、同時 active 数、更新規則（Step 2 のドラフトは [step-2-intent-design.md](step-2-intent-design.md)。未合意）
 - Outcome、SuccessCriterion、Wacha 連携、Runtime、評価・改善ループ
 - 最終的な workspace / package 分割
 
