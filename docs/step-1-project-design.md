@@ -18,7 +18,7 @@ src/
 ├── presentation/
 │   └── mcp/                Streamable HTTP MCP adapter
 ├── shared/                 Web API と MCP が共有する入力 schema
-├── frontend/               React / Vite SPA
+├── frontend/               React / Vite SPA（features/ に画面、components/ に共通UI）
 ├── app.ts                  Web API route、/mcp、静的 Web UI の結合
 └── server.ts               同一ポートの起動口
 ```

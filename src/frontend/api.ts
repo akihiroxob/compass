@@ -133,3 +133,16 @@ export const classifyError = (error: unknown): ErrorKind => {
   }
   return { kind: "other", message: error.message };
 };
+
+export const jsonInit = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(body),
+});
+
+/** bodyを省略した場合はJSON bodyなしのPOSTになる（放棄・取消以外の状態遷移用）。 */
+export const jsonPost = (body?: unknown): RequestInit => (body === undefined ? { method: "POST" } : jsonInit("POST", body));
+
+/** 読み込み失敗時に画面へ出す文言。not_foundだけは画面ごとの文言を渡す。 */
+export const loadFailureMessage = (classified: ErrorKind, notFound: string): string =>
+  classified.kind === "not_found" ? notFound : classified.kind === "validation" ? "入力内容が不正です" : classified.message;

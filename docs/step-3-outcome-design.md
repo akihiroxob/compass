@@ -235,4 +235,4 @@ Evaluation / Evidence / Research / Decision Entity、Outcome の `evaluating` / 
 - 実ブラウザでの Outcome 画面の目視・keyboard 操作・狭い画面の確認は未実施（この実行環境から実ブラウザを操作していない）。型検査・build・API smoke・SPA の URL が配信されることの確認のみ。
 - 同時編集の検出（楽観ロック）はなく、後から保存した内容が反映される。
 - Biome は本リポジトリに未導入のため、`lint` は型検査のみ。
-- フォームのエラー要約 UI が Project / Intent / Outcome で 3 箇所目の重複になり、`main.tsx` も肥大している。Task 10 の範囲外のため既存に合わせて複製し、整理は別 Task とする。
+- フォームのエラー要約 UI の重複と `main.tsx` の肥大は、後続の整理 Task で解消した。エラー要約・確認パネル・Shell などは `src/frontend/components/`、画面は `src/frontend/features/{project,intent,outcome}/`（各 `index.ts` が公開 API）へ分けた。振る舞いは変えていない。
