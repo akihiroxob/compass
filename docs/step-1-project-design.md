@@ -108,7 +108,7 @@ project_resource
 | `GET` | `/api/projects/:projectId` | Project 詳細、存在しなければ `404` |
 | `GET` | `/health` | server の生存確認 |
 
-入力違反は `400` と機械判定可能な error code、予期しない失敗は `500` を返す。
+入力違反（不正JSON・空bodyを含む）は `400` と機械判定可能な error code、予期しない失敗は `500` を返す。
 
 ### MCP
 

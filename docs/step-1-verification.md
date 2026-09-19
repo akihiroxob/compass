@@ -6,7 +6,7 @@
 
 | Command | Result |
 | --- | --- |
-| `npm test` | 成功、8 tests |
+| `npm test` | 成功、9 tests |
 | `npm run typecheck` | 成功 |
 | `npm run lint` | 成功（現時点ではserver/frontendのTypeScript検査） |
 | `npm run build` | 成功、React SPAを`public/`へ生成 |
