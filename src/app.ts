@@ -14,16 +14,19 @@ export const createApp = (services: ApplicationServices = applicationServices) =
   const publicRoot = fileURLToPath(new URL("../public", import.meta.url));
 
   app.use(logger());
-  app.use("*", cors({ origin: "*", allowMethods: ["GET", "POST", "OPTIONS"] }));
+  app.use("*", cors({ origin: "*", allowMethods: ["GET", "POST", "PATCH", "OPTIONS"] }));
 
   app.get("/health", (c) => c.json({ status: "ok", service: "compass" }));
   app.get("/api", (c) => c.json({ service: "compass", status: "ok" }));
-  app.post("/api/projects", async (c) => {
-    const input = await c.req.json().catch(() => {
+  const readJsonBody = (request: Request) =>
+    request.json().catch(() => {
       throw new ValidationError("Project input is invalid", [
         { path: "", message: "request body must be valid JSON" },
       ]);
     });
+
+  app.post("/api/projects", async (c) => {
+    const input = await readJsonBody(c.req.raw);
     const project = await services.createProjectUseCase.execute(input);
     return c.json({ project }, 201);
   });
@@ -33,6 +36,11 @@ export const createApp = (services: ApplicationServices = applicationServices) =
   app.get("/api/projects/:projectId", async (c) =>
     c.json({ project: await services.getProjectUseCase.execute(c.req.param("projectId")) }),
   );
+  app.patch("/api/projects/:projectId", async (c) => {
+    const input = await readJsonBody(c.req.raw);
+    const project = await services.updateProjectUseCase.execute(c.req.param("projectId"), input);
+    return c.json({ project });
+  });
   app.all("/api/*", (c) => c.json({ error: { code: "NOT_FOUND", message: "Not Found" } }, 404));
 
   app.all("/mcp", async (c) => {

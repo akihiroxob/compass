@@ -116,7 +116,7 @@ test("Web API rejects malformed, empty, null and array bodies with the same 400 
   await database.destroy();
 });
 
-test("MCP lists the three Project tools and reports errors", async () => {
+test("MCP lists the Project tools and reports errors", async () => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
   const app = createApp(createApplicationServices(database));
@@ -127,7 +127,7 @@ test("MCP lists the three Project tools and reports errors", async () => {
   const tools = await readMcpData(toolsResponse);
   assert.deepEqual(
     tools.result.tools.map((tool: { name: string }) => tool.name),
-    ["create_project", "list_projects", "get_project"],
+    ["create_project", "update_project", "list_projects", "get_project"],
   );
 
   const missingResponse = await mcpRequest(app, {
@@ -139,5 +139,117 @@ test("MCP lists the three Project tools and reports errors", async () => {
   const missing = await readMcpData(missingResponse);
   assert.equal(missing.result.isError, true);
   assert.equal(missing.result.structuredContent.error.code, "NOT_FOUND");
+  await database.destroy();
+});
+
+const patchProject = (app: ReturnType<typeof createApp>, projectId: string, body: string) =>
+  app.request(`/api/projects/${projectId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+
+const callTool = async (
+  app: ReturnType<typeof createApp>,
+  id: number,
+  name: string,
+  args: object,
+) => {
+  const response = await mcpRequest(app, {
+    jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args },
+  });
+  return (await readMcpData(response)).result;
+};
+
+test("Web APIの更新はMCPから、MCPの更新はWeb APIから参照でき、同じ入力規則が働く", async () => {
+  const database = createDatabase(":memory:");
+  await initializeSchema(database);
+  const app = createApp(createApplicationServices(database));
+
+  const created = (await (
+    await app.request("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(projectInput),
+    })
+  ).json()) as { project: { id: string; repositories: { id: string }[] } };
+  const projectId = created.project.id;
+  const repositoryId = created.project.repositories[0]!.id;
+
+  const patched = await patchProject(app, projectId, JSON.stringify({
+    name: "Edited on Web",
+    description: "",
+    repositories: [{ id: repositoryId, name: "Renamed", url: "https://github.com/example/compass" }],
+  }));
+  assert.equal(patched.status, 200);
+  const patchedBody = (await patched.json()) as { project: Record<string, unknown> };
+  assert.equal(patchedBody.project.id, projectId);
+  assert.equal(patchedBody.project.description, null);
+  assert.equal(patchedBody.project.mission, projectInput.mission);
+
+  const viaMcp = (await callTool(app, 1, "get_project", { projectId })).structuredContent;
+  assert.equal(viaMcp.name, "Edited on Web");
+  assert.equal(viaMcp.description, null);
+  assert.equal(viaMcp.repositories[0].id, repositoryId);
+  assert.equal(viaMcp.repositories[0].name, "Renamed");
+
+  const mcpUpdated = await callTool(app, 2, "update_project", {
+    projectId,
+    mission: "Edited via MCP",
+    vision: null,
+    principles: [],
+  });
+  assert.equal(mcpUpdated.isError, undefined);
+  const viaApi = (await (await app.request(`/api/projects/${projectId}`)).json()) as {
+    project: { name: string; mission: string; vision: string | null; principles: string[] };
+  };
+  assert.equal(viaApi.project.mission, "Edited via MCP");
+  assert.equal(viaApi.project.vision, null);
+  assert.deepEqual(viaApi.project.principles, []);
+  assert.equal(viaApi.project.name, "Edited on Web");
+
+  const invalidViaMcp = await callTool(app, 3, "update_project", { projectId, name: " " });
+  assert.equal(invalidViaMcp.isError, true);
+  assert.equal(invalidViaMcp.structuredContent.error.code, "VALIDATION_ERROR");
+  assert.equal(invalidViaMcp.structuredContent.error.issues[0].path, "name");
+  const invalidViaApi = await patchProject(app, projectId, JSON.stringify({ name: " " }));
+  assert.equal(invalidViaApi.status, 400);
+
+  const missingViaMcp = await callTool(app, 4, "update_project", { projectId: "missing", name: "x" });
+  assert.equal(missingViaMcp.isError, true);
+  assert.equal(missingViaMcp.structuredContent.error.code, "NOT_FOUND");
+  await database.destroy();
+});
+
+test("PATCH /api/projects/:id は不正入力を400、存在しないIDを404で返し、データを変更しない", async () => {
+  const database = createDatabase(":memory:");
+  await initializeSchema(database);
+  const app = createApp(createApplicationServices(database));
+  const created = (await (
+    await app.request("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(projectInput),
+    })
+  ).json()) as { project: { id: string } };
+  const before = await (await app.request(`/api/projects/${created.project.id}`)).json();
+
+  for (const body of ["{not json", "", "null", "[]", "{}", '{"repositories":[{"name":"x","url":"nope"}]}']) {
+    const response = await patchProject(app, created.project.id, body);
+    assert.equal(response.status, 400, `body: ${JSON.stringify(body)}`);
+    const { error } = (await response.json()) as { error: { code: string; issues: unknown[] } };
+    assert.equal(error.code, "VALIDATION_ERROR");
+    assert.ok(error.issues.length > 0);
+  }
+  const urlIssue = (await (
+    await patchProject(app, created.project.id, '{"repositories":[{"name":"x","url":"nope"}]}')
+  ).json()) as { error: { issues: { path: string }[] } };
+  assert.equal(urlIssue.error.issues[0]?.path, "repositories.0.url");
+
+  const missing = await patchProject(app, "missing", JSON.stringify({ name: "x" }));
+  assert.equal(missing.status, 404);
+  assert.equal(((await missing.json()) as { error: { code: string } }).error.code, "NOT_FOUND");
+
+  assert.deepEqual(await (await app.request(`/api/projects/${created.project.id}`)).json(), before);
   await database.destroy();
 });

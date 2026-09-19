@@ -18,6 +18,20 @@ const projectInputSchema = {
   resources: z.array(z.object({ ...namedLink, kind: nullableText(100) })).optional(),
 };
 
+const projectUpdateSchema = {
+  projectId: z.string().min(1),
+  name: z.string().optional(),
+  description: nullableText(1_000),
+  mission: z.string().optional(),
+  vision: nullableText(2_000),
+  principles: z.array(z.string()).optional(),
+  constraints: z.array(z.string()).optional(),
+  repositories: z.array(z.object({ id: z.string().optional(), ...namedLink })).optional(),
+  resources: z
+    .array(z.object({ id: z.string().optional(), ...namedLink, kind: nullableText(100) }))
+    .optional(),
+};
+
 const result = (value: unknown) => {
   const plainValue = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
   return {
@@ -56,6 +70,18 @@ export const createMcpServer = (services: ApplicationServices) => {
     "create_project",
     { title: "Create Project", description: "Create a Compass Project.", inputSchema: projectInputSchema },
     (input) => execute(() => services.createProjectUseCase.execute(input)),
+  );
+  server.registerTool(
+    "update_project",
+    {
+      title: "Update Project",
+      description:
+        "Update a Compass Project. Omitted fields are unchanged; null or an empty string clears description and vision; " +
+        "principles, constraints, repositories and resources replace the whole list when given. " +
+        "Repository/Resource items keep their identity when their existing id is included.",
+      inputSchema: projectUpdateSchema,
+    },
+    ({ projectId, ...input }) => execute(() => services.updateProjectUseCase.execute(projectId, input)),
   );
   server.registerTool(
     "list_projects",
