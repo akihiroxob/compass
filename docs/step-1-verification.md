@@ -49,7 +49,7 @@ npm install
 npm start
 ```
 
-1. `http://localhost:51743/`を開き、空状態から「Projectを作成」を選ぶ。
+1. `http://localhost:51800/`を開き、空状態から「Projectを作成」を選ぶ。
 2. name、missionと任意項目を入力する。Principles、Constraints、Repositories、Resourcesは複数追加できる。
 3. 作成後の詳細画面で入力内容を確認する。
 4. 空白だけのProject名や、空のPrinciples行を追加したまま送信し、エラー一覧に項目名・行番号と理由が表示され、該当入力が強調されることを確認する。
