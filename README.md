@@ -42,5 +42,5 @@ npm run build
 ```
 
 Step 1 の Project 仕様は [docs/step-1-project-design.md](docs/step-1-project-design.md) に記載しています。
-Step 2 の Intent 仕様は未合意のドラフトです（[docs/step-2-intent-design.md](docs/step-2-intent-design.md)）。合意まで実装していません。
+Step 2 の Intent 初期仕様は [docs/step-2-intent-design.md](docs/step-2-intent-design.md) に記載しています（仕様は確定済みで、Intent の実装は Task 08 で行います。未実装の間は Project 機能のみ利用できます）。事前のユーザー確認は設けず、完成後のフィードバックに応じて修正します。
 Coordination and Operations Management Platform for Autonomous Software Systems

@@ -64,7 +64,7 @@ type ProjectResource = {
 
 ### 入力規則
 
-以下の必須/任意、文字数・件数の上限、Step 1 の公開操作範囲は、追加資料に定めがないため設計上の提案であり、ユーザーの Step 1 確認で合意を取るまで確定事項として扱わない。
+以下の必須/任意、文字数・件数の上限、Step 1 の公開操作範囲は、追加資料に定めがないため設計上の初期選択であり、Step 1 完成後のフィードバックに応じて修正する（事前の合意取得は要しない）。
 
 | 項目 | 初回作成 | 規則 |
 | --- | --- | --- |
@@ -79,7 +79,7 @@ type ProjectResource = {
 
 `id`、`createdAt`、`updatedAt` は server が生成する。URL は `http:` または `https:` に限定する。入力違反は入口によらず application boundary の共通 schema で拒否する。更新時の規則は「Project の編集」を参照する。
 
-初回画面は全項目を作成フォームで入力できるようにする。Step 1 の公開操作は作成・更新・一覧・詳細とし、削除は後続の合意対象とする。Project status は追加資料の画面案に現れる一方、状態と遷移が定義されていないため Step 1 では持たせない。
+初回画面は全項目を作成フォームで入力できるようにする。Step 1 の公開操作は作成・更新・一覧・詳細とし、削除は後続の対象とする。Project status は追加資料の画面案に現れる一方、状態と遷移が定義されていないため Step 1 では持たせない。
 
 ## Project の編集
 
@@ -186,7 +186,7 @@ Intent、Outcome、Execution Summary、Activity は未実装のため、空デ�
 - 同時編集の検出（楽観ロック）
 - Mission / Vision / Principles / Constraints を独立 aggregate にする時期
 - Repository / Resource の認証情報、疎通確認、provider 固有 metadata
-- Intent の状態、同時 active 数、更新規則（Step 2 のドラフトは [step-2-intent-design.md](step-2-intent-design.md)。未合意）
+- Intent の状態、同時 active 数、更新規則（Step 2 の初期仕様は [step-2-intent-design.md](step-2-intent-design.md) で定める。Step 1 では扱わない）
 - Outcome、SuccessCriterion、Wacha 連携、Runtime、評価・改善ループ
 - 最終的な workspace / package 分割
 
