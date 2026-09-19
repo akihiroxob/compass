@@ -42,5 +42,5 @@ npm run build
 ```
 
 Step 1 の Project 仕様は [docs/step-1-project-design.md](docs/step-1-project-design.md) に記載しています。
-Step 2 の Intent 初期仕様は [docs/step-2-intent-design.md](docs/step-2-intent-design.md) に記載しています（仕様は確定済みで、Intent の実装は Task 08 で行います。未実装の間は Project 機能のみ利用できます）。事前のユーザー確認は設けず、完成後のフィードバックに応じて修正します。
+Step 2 の Intent 仕様と実装状況・検証手順は [docs/step-2-intent-design.md](docs/step-2-intent-design.md) に記載しています。Intent は Project 配下に保存され、Web UI（Project 詳細の Intent section）、Web API（`/api/projects/:projectId/intents`）、MCP（`create_intent` / `list_intents` / `get_intent` / `update_intent` / `abandon_intent`）から作成・参照・更新・放棄できます。Strategist・Research・Outcome は未実装です。事前のユーザー確認は設けず、完成後のフィードバックに応じて修正します。
 Coordination and Operations Management Platform for Autonomous Software Systems

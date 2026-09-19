@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { ConflictError } from "../../application/error/ConflictError.ts";
 import { NotFoundError } from "../../application/error/NotFoundError.ts";
 import { ValidationError } from "../../application/error/ValidationError.ts";
 import type { ApplicationServices } from "../../container.ts";
@@ -32,6 +33,22 @@ const projectUpdateSchema = {
     .optional(),
 };
 
+// Intentの入力規則はshared/intentSchemaが持つ。ここでは型だけを宣言し、上限などはuse caseで検証する。
+const intentCreateSchema = {
+  projectId: z.string().min(1),
+  title: z.string(),
+  desiredState: z.string(),
+  completionDefinition: z.string().nullable().optional(),
+};
+
+const intentUpdateSchema = {
+  projectId: z.string().min(1),
+  intentId: z.string().min(1),
+  title: z.string().optional(),
+  desiredState: z.string().optional(),
+  completionDefinition: z.string().nullable().optional(),
+};
+
 const result = (value: unknown) => {
   const plainValue = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
   return {
@@ -44,13 +61,18 @@ const execute = async (operation: () => Promise<unknown>) => {
   try {
     return result(await operation());
   } catch (error) {
-    if (error instanceof ValidationError || error instanceof NotFoundError) {
+    if (
+      error instanceof ValidationError ||
+      error instanceof NotFoundError ||
+      error instanceof ConflictError
+    ) {
       return {
         ...result({
           error: {
             code: error.code,
             message: error.message,
             ...(error instanceof ValidationError ? { issues: error.issues } : {}),
+            ...(error instanceof ConflictError ? error.details : {}),
           },
         }),
         isError: true,
@@ -96,6 +118,64 @@ export const createMcpServer = (services: ApplicationServices) => {
       inputSchema: { projectId: z.string().min(1) },
     },
     ({ projectId }) => execute(() => services.getProjectUseCase.execute(projectId)),
+  );
+
+  server.registerTool(
+    "create_intent",
+    {
+      title: "Create Intent",
+      description:
+        "Create an active Intent in a Project. A Project has at most one active Intent; " +
+        "creating another while one is active fails with CONFLICT. Creating an Intent does not start Strategist or Research.",
+      inputSchema: intentCreateSchema,
+    },
+    ({ projectId, ...input }) => execute(() => services.createIntentUseCase.execute(projectId, input)),
+  );
+  server.registerTool(
+    "list_intents",
+    {
+      title: "List Intents",
+      description: "List the Intents of a Project, newest first.",
+      inputSchema: { projectId: z.string().min(1) },
+    },
+    ({ projectId }) =>
+      execute(async () => ({ intents: await services.listIntentsUseCase.execute(projectId) })),
+  );
+  server.registerTool(
+    "get_intent",
+    {
+      title: "Get Intent",
+      description: "Get an Intent by ID within a Project.",
+      inputSchema: { projectId: z.string().min(1), intentId: z.string().min(1) },
+    },
+    ({ projectId, intentId }) => execute(() => services.getIntentUseCase.execute(projectId, intentId)),
+  );
+  server.registerTool(
+    "update_intent",
+    {
+      title: "Update Intent",
+      description:
+        "Update title, desiredState or completionDefinition of an active Intent. Omitted fields are unchanged; " +
+        "null or an empty string clears completionDefinition. Abandoned or achieved Intents cannot be edited (CONFLICT).",
+      inputSchema: intentUpdateSchema,
+    },
+    ({ projectId, intentId, ...input }) =>
+      execute(() => services.updateIntentUseCase.execute(projectId, intentId, input)),
+  );
+  server.registerTool(
+    "abandon_intent",
+    {
+      title: "Abandon Intent",
+      description:
+        "Abandon an active Intent with an optional reason. Abandoned Intents cannot be reactivated; create a new Intent instead.",
+      inputSchema: {
+        projectId: z.string().min(1),
+        intentId: z.string().min(1),
+        reason: z.string().nullable().optional(),
+      },
+    },
+    ({ projectId, intentId, reason }) =>
+      execute(() => services.abandonIntentUseCase.execute(projectId, intentId, { reason })),
   );
 
   return server;

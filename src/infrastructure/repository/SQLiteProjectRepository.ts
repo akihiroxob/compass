@@ -101,6 +101,15 @@ export class SQLiteProjectRepository implements ProjectRepository {
     return Promise.all(rows.map(async ({ id }) => (await this.findById(id))!));
   }
 
+  async exists(projectId: string): Promise<boolean> {
+    const row = await this.database
+      .selectFrom("project")
+      .select("id")
+      .where("id", "=", projectId)
+      .executeTakeFirst();
+    return row !== undefined;
+  }
+
   async findById(projectId: string): Promise<Project | null> {
     const row = await this.database
       .selectFrom("project")

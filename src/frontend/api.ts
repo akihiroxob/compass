@@ -6,6 +6,8 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly issues: ApiIssue[] = [],
+    /** 409 CONFLICTで、既にActiveなIntentがある場合のID。 */
+    readonly activeIntentId: string | null = null,
   ) {
     super(message);
   }
@@ -40,6 +42,7 @@ export const toApiError = (status: number, body: unknown): ApiError => {
     typeof error.code === "string" ? error.code : "HTTP_ERROR",
     typeof error.message === "string" ? error.message : `Request failed (${status})`,
     readIssues(error.issues),
+    typeof error.activeIntentId === "string" ? error.activeIntentId : null,
   );
 };
 
@@ -69,6 +72,10 @@ const topLevelLabels: Record<string, string> = {
   constraints: "Constraints",
   repositories: "Repositories",
   resources: "Resources",
+  title: "タイトル",
+  desiredState: "実現したい状態",
+  completionDefinition: "完了の定義",
+  reason: "放棄の理由",
 };
 const linkFieldLabels: Record<string, string> = { name: "名前", url: "URL", kind: "種類" };
 
@@ -92,6 +99,7 @@ export type FormIssue = { fieldId: string | null; label: string; message: string
 export type ErrorKind =
   | { kind: "validation"; issues: FormIssue[] }
   | { kind: "not_found" }
+  | { kind: "conflict"; message: string; activeIntentId: string | null }
   | { kind: "other"; message: string };
 
 export const classifyError = (error: unknown): ErrorKind => {
@@ -110,5 +118,8 @@ export const classifyError = (error: unknown): ErrorKind => {
     };
   }
   if (error.status === 404 && error.code === "NOT_FOUND") return { kind: "not_found" };
+  if (error.status === 409 && error.code === "CONFLICT") {
+    return { kind: "conflict", message: error.message, activeIntentId: error.activeIntentId };
+  }
   return { kind: "other", message: error.message };
 };

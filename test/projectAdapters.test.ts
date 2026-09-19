@@ -125,8 +125,11 @@ test("MCP lists the Project tools and reports errors", async () => {
     jsonrpc: "2.0", id: 1, method: "tools/list", params: {},
   });
   const tools = await readMcpData(toolsResponse);
+  // Intent toolはtest/intentAdapters.test.tsで確認する。ここではProject toolが変わっていないことを固定する。
   assert.deepEqual(
-    tools.result.tools.map((tool: { name: string }) => tool.name),
+    tools.result.tools
+      .map((tool: { name: string }) => tool.name)
+      .filter((name: string) => name.endsWith("_project") || name.endsWith("_projects")),
     ["create_project", "update_project", "list_projects", "get_project"],
   );
 

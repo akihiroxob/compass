@@ -7,4 +7,5 @@ export interface ProjectRepository {
   update(projectId: string, input: UpdateProjectInput): Promise<Project | null>;
   findAll(): Promise<Project[]>;
   findById(projectId: string): Promise<Project | null>;
+  exists(projectId: string): Promise<boolean>;
 }

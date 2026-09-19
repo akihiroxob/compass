@@ -1,0 +1,30 @@
+import type { Intent } from "../../domain/model/Intent.ts";
+import type { IntentRepository } from "../../domain/repository/IntentRepository.ts";
+import type { ProjectRepository } from "../../domain/repository/ProjectRepository.ts";
+import { parseUpdateIntentInput } from "../../shared/intentSchema.ts";
+import { ConflictError } from "../error/ConflictError.ts";
+import { NotFoundError } from "../error/NotFoundError.ts";
+
+export class UpdateIntentUseCase {
+  constructor(
+    private readonly projectRepository: ProjectRepository,
+    private readonly intentRepository: IntentRepository,
+  ) {}
+
+  async execute(projectId: string, intentId: string, input: unknown): Promise<Intent> {
+    const parsed = parseUpdateIntentInput(input);
+    if (!(await this.projectRepository.exists(projectId))) {
+      throw new NotFoundError(`Project ${projectId} was not found`);
+    }
+    const result = await this.intentRepository.update(projectId, intentId, parsed);
+    if (result.kind === "not_found") {
+      throw new NotFoundError(`Intent ${intentId} was not found in Project ${projectId}`);
+    }
+    if (result.kind === "not_active") {
+      throw new ConflictError(`Intent ${intentId} is ${result.status} and can no longer be edited`, {
+        status: result.status,
+      });
+    }
+    return result.intent;
+  }
+}

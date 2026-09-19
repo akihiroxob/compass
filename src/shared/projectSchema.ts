@@ -1,14 +1,14 @@
 import { z } from "zod";
 import { ValidationError } from "../application/error/ValidationError.ts";
 
-const trimmedText = (label: string, maximum: number) =>
+export const trimmedText = (label: string, maximum: number) =>
   z
     .string()
     .trim()
     .min(1, `${label} is required`)
     .max(maximum, `${label} must be ${maximum} characters or fewer`);
 
-const optionalText = (maximum: number) =>
+export const optionalText = (maximum: number) =>
   z
     .string()
     .trim()
@@ -18,7 +18,7 @@ const optionalText = (maximum: number) =>
     .transform((value) => value || null);
 
 /** 更新時の任意値。`null`と空文字は「クリア」を意味し、未指定（undefined）は変更なしとして残す。 */
-const clearableText = (maximum: number) =>
+export const clearableText = (maximum: number) =>
   z
     .string()
     .trim()
@@ -89,12 +89,16 @@ export const updateProjectSchema = z
 
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 
-const parseWith = <T extends z.ZodType>(schema: T, input: unknown): z.output<T> => {
+export const parseWith = <T extends z.ZodType>(
+  schema: T,
+  input: unknown,
+  subject = "Project",
+): z.output<T> => {
   const result = schema.safeParse(input);
   if (result.success) return result.data;
 
   throw new ValidationError(
-    "Project input is invalid",
+    `${subject} input is invalid`,
     result.error.issues.map((issue) => ({
       path: issue.path.join("."),
       message: issue.message,

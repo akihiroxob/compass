@@ -145,6 +145,8 @@ Streamable HTTP endpoint を `/mcp` に置き、次を公開する。
 - `list_projects`
 - `get_project`
 
+Step 2 で `create_intent` / `list_intents` / `get_intent` / `update_intent` / `abandon_intent` を追加した。上記 Project tool の入出力は変えていない。
+
 Step 1 の Compass MCP はローカル利用を前提にし、Project 作成の Role Grant や Claim は導入しない。Wacha の実行権限モデルを Direction の Project 作成へ転用しない。Web API で作成した Project を MCP で参照でき、その逆も成立する。
 
 ## Web UI
@@ -156,7 +158,7 @@ Step 1 の Compass MCP はローカル利用を前提にし、Project 作成の 
 - ルーティング: `/` を一覧、`/projects/new` を作成、`/projects/:projectId` を詳細、`/projects/:projectId/edit` を編集とする。
 - キーボードだけで作成でき、狭い画面では1カラムに折り返す。
 
-Intent、Outcome、Execution Summary、Activity は未実装のため、空データや仮データを表示しない。
+Intent、Outcome、Execution Summary、Activity は Step 1 の時点では未実装のため、空データや仮データを表示しない（Step 2 で Project 詳細に Intent section を追加した。[step-2-intent-design.md](step-2-intent-design.md) 参照。Outcome / Execution Summary / Activity は引き続き未実装）。
 
 ## 受け入れ例
 

@@ -102,4 +102,4 @@ production起動（`PORT=51997`、一時DB）で、`POST` → `PATCH`（Web）�
 - Intent、Outcome、Wacha実行状況は未実装で、画面には表示していない。
 - 認証はまだ導入していない。trusted local環境での利用を前提とする。
 
-Step 2（Intent）は、ユーザーの画面確認や仕様合意を待たずに、[docs/step-2-intent-design.md](step-2-intent-design.md)の初期仕様で着手する。上記の未実施項目は別の検証事項として残し、完成後のフィードバックに応じて修正する。
+Step 2（Intent）は、ユーザーの画面確認や仕様合意を待たずに、[docs/step-2-intent-design.md](step-2-intent-design.md)の初期仕様で着手し、実装済み（検証結果は同文書）。上記の未実施項目は別の検証事項として残し、完成後のフィードバックに応じて修正する。

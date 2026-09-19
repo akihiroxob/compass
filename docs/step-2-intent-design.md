@@ -1,6 +1,6 @@
 # Step 2: Intent 初期仕様
 
-> **状態: Step 2 の初期仕様（確定）。Task 08 は本書の内容で着手できる。**
+> **状態: Step 2 の初期仕様（確定）。Task 08 で実装済み（「実装状況と検証」参照）。**
 > 事前のユーザー確認は設けない。追加資料に定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選んだ。完成後のフィードバックに応じて修正する。選択理由と将来の変更点は各節と「将来変更できる箇所」に記録する。
 
 ## 根拠資料と優先順位
@@ -179,7 +179,30 @@ Outcome / SuccessCriterion、Research / Evidence / Decision / Evaluation Entity�
 | MCP でも書込を公開 | Step 1 と同じ trusted local 前提。Human と Agent の同一入口を保つ | 認証・actor 記録の導入時に、Agent による書込の制限を検討する |
 | ネストした API、応答の非埋め込み | Project の既存契約を変えず、ID 取り違えを 404 で区別する | 必要になれば Project 応答へ Active Intent の要約を追加する |
 
+## 実装状況と検証
+
+実装済み（Task 08）: `intent` table（部分一意 index）、`Intent` / `IntentRepository`、5つの use case、`shared/intentSchema.ts`、Web API、MCP tool 5件、Project 詳細の Intent section と作成・詳細・編集・放棄画面。
+
+| 区分 | 実装 |
+| --- | --- |
+| Web API | `POST/GET /api/projects/:projectId/intents`、`GET/PATCH .../intents/:intentId`、`POST .../intents/:intentId/abandon`（本文なしは理由なし）。応答は `{ intent }` / `{ intents }` |
+| MCP | `create_intent` / `list_intents` / `get_intent` / `update_intent` / `abandon_intent`。応答は Intent 本体（一覧は `{ intents }`）。Project tool の入出力は不変 |
+| エラー | `VALIDATION_ERROR`（400、`Intent input is invalid`）、`NOT_FOUND`（404。メッセージ先頭が `Project <id>` か `Intent <id>` かで区別）、`CONFLICT`（409。Active 重複は `activeIntentId`、非 Active への更新・放棄は `status` を含む） |
+| UI | `/projects/:projectId/intents/new`、`.../intents/:intentId`、`.../intents/:intentId/edit` |
+
+仕様との差異・補足:
+
+- 入力検証は作成・更新・放棄とも use case 内で行う。無効な入力は Project の存在確認より先に `VALIDATION_ERROR` になる（Project 更新と同じ順序）。
+- 更新入力に `status` など未知の項目が含まれても無視され、状態は変わらない。
+- MCP の tool 入力 schema は型だけを宣言し、文字数上限などは共通 schema（Web API と同一）で検証する。
+
+検証（自動）: `npm test`（Intent の永続化・再起動後保持・部分一意 index・別 Project 混同・409・validation・Web と MCP の相互参照・既存 Project tool 不変）、`npm run typecheck`、`npm run lint`、`npm run build`。単独起動で作成 → 409 → 再起動 → `GET`・MCP `list_intents` で保持を確認した。
+
+画面確認手順（手動）: `npm start` 後、Project 詳細で「Intentを登録」→ 詳細で編集・放棄（確認パネル）→ 過去の Intent が折りたたみに表示されることを確認する。Active がある状態で `/projects/<id>/intents/new` から登録すると、競合エラーと Active Intent への導線が表示される。
+
 ## 未実施・制約
 
-- 本書は仕様であり、実装・テストの追加は Task 08 で行う。
+- 実ブラウザでの Intent 画面の目視・keyboard 操作・狭い画面の確認は未実施（この実行環境から実ブラウザを操作していない）。型検査・build・API smoke のみ。
+- 同時編集の検出（楽観ロック）はなく、後から保存した内容が反映される。
+- Biome は本リポジトリに未導入のため、`lint` は型検査のみ。
 - Step 1 の実ブラウザでの目視・keyboard・responsive 確認は未完了のまま（`docs/step-1-verification.md` 参照）。これは別の検証事項として残り、Step 2 の着手を止めない。確認結果が得られたら Step 1 の検証記録へ追記する。
