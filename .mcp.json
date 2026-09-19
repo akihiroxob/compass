@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "wacha": {
+      "type": "http",
+      "url": "http://localhost:51743/mcp",
+      "headers": {
+        "Authorization": "Bearer ${WACHA_AGENT_NAME}"
+      }
+    }
+  }
+}
