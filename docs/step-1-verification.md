@@ -6,7 +6,7 @@
 
 | Command | Result |
 | --- | --- |
-| `npm test` | 成功、9 tests |
+| `npm test` | 成功、16 tests |
 | `npm run typecheck` | 成功 |
 | `npm run lint` | 成功（現時点ではserver/frontendのTypeScript検査） |
 | `npm run build` | 成功、React SPAを`public/`へ生成 |
@@ -21,6 +21,7 @@
 - Web APIで作成したProjectをMCPから参照できる
 - MCPで作成したProjectをWeb APIから参照できる
 - MCPのtool一覧と正常・異常応答
+- フロントエンドのエラー分類（入力エラー / not found / その他）。issue pathの項目名・行番号への対応、500・非JSON応答・接続失敗を入力エラーにしないこと
 
 ## production起動と再起動
 
@@ -51,9 +52,10 @@ npm start
 1. `http://localhost:51743/`を開き、空状態から「Projectを作成」を選ぶ。
 2. name、missionと任意項目を入力する。Principles、Constraints、Repositories、Resourcesは複数追加できる。
 3. 作成後の詳細画面で入力内容を確認する。
-4. 一覧へ戻り、cardにProject名、説明、Missionが表示されることを確認する。
-5. browser幅を700px未満にし、form・詳細・cardが1 columnになることを確認する。
-6. Tab / Shift+TabとEnterだけで入力、追加・削除、送信、画面遷移ができることを確認する。
+4. 空白だけのProject名や、空のPrinciples行を追加したまま送信し、エラー一覧に項目名・行番号と理由が表示され、該当入力が強調されることを確認する。
+5. 一覧へ戻り、cardにProject名、説明、Missionが表示されることを確認する。
+6. browser幅を700px未満にし、form・詳細・cardが1 columnになることを確認する。
+7. Tab / Shift+TabとEnterだけで入力、追加・削除、送信、画面遷移ができることを確認する。
 
 ## 未実施と既知の制限
 
