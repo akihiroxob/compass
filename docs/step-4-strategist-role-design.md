@@ -24,8 +24,8 @@
 
 ## 設計原則
 
-1. **機械的に完結する**: Role 発行 → Instruction 取得 → Context 取得 → Outcome 作成は、API・CLI・MCP だけで実行できる。Human の確認・承認・画面操作を前提条件・状態遷移・完了条件に入れない。
-2. **Web UI は任意**: Human が後から観察し、必要なら同じ application 処理を手で使う入口。UI 固有の確認パネルは手動操作の誤操作防止であり、API / CLI には確認工程を設けない。
+1. **機械的に完結する**: Role 発行 → Instruction 取得 → Context 取得 → Outcome 作成は、自動検証では API・CLI・MCP だけで実行できる。Human の確認・承認・画面操作を前提条件・状態遷移・開発の完了条件に入れない（Human の確認を必須 gate にしないという意味であり、Human の製品操作の入口を Web UI 以外にするという意味ではない）。
+2. **操作主体ごとの正規入口**: Human の通常操作は Web UI が正規入口で、Human 向け機能を CLI・MCP・DB 直接操作だけで完結させない。Agent は MCP が正規入口。Web API は Web UI と外部 Runtime の接続面。CLI は開発・移行・障害復旧・自動検証の保守用途に限り、Human の通常操作手順や製品要件の前提にしない。Cloudflare 等へのリモート配置を想定し、Human が server の filesystem や SQLite へ直接触る設計を採らない。UI 固有の確認パネルは Human の誤操作防止であり、API / CLI には確認工程を設けない。
 3. **Role Grant は Agent を起動しない**: Grant は「この Principal がこの Project で Strategist として振る舞ってよい」という認可の記録。起動条件の監視・Agent 実行・Run の所有は外部 Runtime の責務で、Compass に持ち込まない（追加資料2: Runtime は「どの Role を起動する条件が成立したか」だけを扱う）。
 4. **認可は application 層**: 認可検査は共通の application service が行い、MCP の handler や Web の route に散らさない。Web / CLI / MCP は同じ use case へ委譲する。
 5. **trusted-local**: Wacha と同じく Bearer の値をそのまま Principal とする。秘密の検証はなく**セキュリティ境界ではない**（Agent 名を偽称できる）。信頼できないネットワークへ公開しない。将来の認証 adapter（token / OIDC 等）は `Principal` の解決部分だけを差し替える。
@@ -37,7 +37,7 @@
 | Principal | 呼び出し主体。MCP の `Authorization: Bearer <AgentName>` の `<AgentName>`。tool 入力・request body・MCP session ID で指定・上書きしない |
 | Role | Principal が Project で担う役割。本 Step では `strategist` のみ。値は `src/constants/ProjectRole.ts`（新規）に置き、追加時に型と検証が追随する |
 | Role Grant | `(projectId, principalId, role)` の永続化された許可。Project scope。1 Principal が複数 Project・将来は複数 Role を持てる |
-| Operator plane | Web API / Web UI / CLI。Project・Intent・Grant を管理する trusted-local の管理面。**Principal を持たず Role 検証もしない**（Step 1〜3 と同じ）。Human・外部 Runtime・運用スクリプトのいずれもここを使う |
+| Operator plane | Web API / Web UI / CLI。Project・Intent・Grant を管理する trusted-local の管理面。**Principal を持たず Role 検証もしない**（Step 1〜3 と同じ）。Human の正規入口は Web UI、Web API は Web UI と外部 Runtime の接続面、CLI は開発・移行・障害復旧・自動検証用（Human の通常操作手順にしない） |
 | Agent plane | MCP。Bearer で Principal を解決し、tool ごとに Grant を検査する |
 
 ## 権限表
@@ -60,7 +60,7 @@
 | Success Criterion の編集、Outcome の `achieved` 等への遷移、Task 分解、実行、Research / Evaluation | — | — | — | 対応する tool・API が存在しない（Step 3 から不変） |
 
 - **職務分離ガード**: Strategist は Intent を変更しない。Intent / Project の書込 tool は、Bearer があり、かつその Principal が対象 Project の Strategist Grant を持つ場合に `FORBIDDEN`。検査は application service の 1 箇所（`requireNotRole`）に置く。Bearer なし・Grant なしの呼び出しは従来どおり許可される（Operator plane の互換）。**Agent 名を変えれば回避できるため、trusted-local では「構造上の保証（Strategist 用 tool に Intent 変更が無い）」が本体で、このガードは誤用防止**と位置づける。
-- Outcome 書込を Bearer なしで拒否するのは MCP だけ。Web API / UI の Outcome 作成・更新・取消は従来どおり Principal なしで動く（Human の任意操作。既存の Web の挙動を変えない）。
+- Outcome 書込を Bearer なしで拒否するのは MCP だけ。Web API / UI の Outcome 作成・更新・取消は従来どおり Principal なしで動く（Human は Web UI から操作する。既存の Web の挙動を変えない）。
 - Outcome に作成者（Principal）を記録する項目は Step 4 では追加しない（DB 変更を最小にする。将来の変更点）。
 
 ### Web API（Operator plane）
@@ -151,7 +151,7 @@ Wacha の `POST/DELETE /api/projects/:projectId/grants` に倣う。取消だけ
 
 ## CLI
 
-Wacha の `grant-project-role` と同じく DB へ直接つなぎ、**サーバーを起動していなくても**動く（空 DB からの準備・再起動検証に使うため）。同じ use case と同じ `COMPASS_DB_PATH` を使う。
+開発・移行・障害復旧・自動検証のための保守用途で、Human の通常操作手順ではない（Human の Grant 発行・取消は Web UI）。Wacha の `grant-project-role` と同じく DB へ直接つなぎ、**サーバーを起動していなくても**動く（空 DB からの準備・再起動検証に使うため）。同じ use case と同じ `COMPASS_DB_PATH` を使う。CLI が SQLite file へ直接触るのはローカル保守に限り、リモート配置した server の filesystem / SQLite を Human が直接操作する前提は置かない。
 
 ```bash
 npm run cli -- grant  <projectId> <AgentName> strategist
@@ -165,7 +165,9 @@ npm run cli -- grants <projectId>
 - 実行中のサーバーと同じ DB file を書いても、認可は毎回 DB を読むため取消・発行は即時に反映される。
 - 実装上の注意: `container.ts` は import 時に DB を開く。CLI は `createApplicationServices(createDatabase())` を使い、singleton を import しない。factory だけを `src/createApplicationServices.ts` へ移し、`container.ts` は再 export を残した（既存 test の import を変えない最小変更）。CLI の本体は `src/presentation/cli/runCli.ts`（テスト可能な関数）と、DB を開く `main.ts`。
 
-## Web UI（任意）
+## Web UI（Human の正規入口）
+
+Human が Grant を発行・取消する正規の入口。Web API を通じて同じ use case を呼ぶ。
 
 - **Project 詳細**に「Strategist」section を追加する。`src/frontend/features/grant/`（`index.ts` が公開 API。API client は `api.ts` に追加）。
 - 表示: 発行済み Agent 名と発行日時の一覧（0 件なら「Strategist は未割当です」）。発行フォーム（Agent 名の 1 項目）。取消ボタンと確認パネル（既存の確認パネルを再利用）。
@@ -240,14 +242,14 @@ Runtime による Agent の自動起動・監視、Research / Researcher Entity�
 | Bearer は Wacha と同じく Agent 名をそのまま Principal | 参照実装と同じ trusted-local。認証 adapter を後から差し替えられる | token / OIDC 検証に置き換える（`Principal` の解決部のみ） |
 | Bearer なしを MCP 全体で拒否せず、Strategist 要求の tool でのみ拒否 | 既存の Project / Intent / 読み取りの MCP 利用（Step 1〜3）を壊さない。Task の受け入れ条件は Strategist tool の拒否 | 認証を導入する時に全 tool へ広げる |
 | 形式不正の Authorization は 401 | 誤設定を anonymous として黙って通さない | — |
-| Web API / CLI は Principal なし・Role 検証なし | 管理面は trusted-local。Human・Runtime・スクリプトが同じ入口を使う（Human 専用にしない） | 管理面の認証を導入する時に Operator Role を追加する |
+| Web API / CLI は Principal なし・Role 検証なし | 管理面は trusted-local。Human は Web UI、Web API は Web UI と外部 Runtime の接続面、CLI は保守・自動検証用と入口を分けるが、いずれも同じ use case へ委譲し規則を重複させない | 管理面の認証を導入する時に Operator Role を追加する |
 | 職務分離ガード（Strategist は Intent / Project を書けない） | 権限表の「Strategist は Intent を変更しない」を application 層で表現する。安価に 1 箇所へ置ける | 認証導入後は、管理操作を専用 Role に限定する形へ置き換える |
 | Outcome 書込 tool のみ Strategist 必須、読み取りは不変 | 既存の読み取り利用を維持。書込だけが Decision の登録に当たる | 読み取りにも Project scope を課す |
 | Grant 検査を存在確認より先に置く | 権限のない Principal に Project の存在を漏らさない | — |
 | MCP に Grant 管理 tool を作らない | Agent の権限自己拡張を構造的に防ぐ（Wacha と同じ） | Runtime 向けの管理 API に認証を付けて公開する |
 | `role` に DB check を置かない | Role 追加で table 再作成を要さない。検証は application 層 | — |
 | 取消は path、発行は本文 | 冪等な取消（`revoked:false`）と URL エンコードを素直に表す | — |
-| CLI は DB へ直接つなぐ | サーバー停止中でも準備・検証できる（Wacha と同じ）。認可は毎回 DB を読むので稼働中サーバーへ即時反映 | HTTP client 方式への切替（別ホストの管理） |
+| CLI は DB へ直接つなぐ（保守・自動検証用途に限る。Human の通常操作にせず、Human が server の SQLite へ直接触る前提も置かない） | サーバー停止中でも準備・検証できる（Wacha と同じ）。認可は毎回 DB を読むので稼働中サーバーへ即時反映 | HTTP client 方式への切替（別ホストの管理） |
 | Context に `unavailable` を含める | 未実装の Research / Evaluation / Evidence を Agent が仮定・捏造しない | 実装時に要素を外し、実データを追加する |
 | Context の Outcome は全状態 | 取り消した過去の試行を重複提案の回避に使う | 件数が増えたら期間・件数で絞る |
 

@@ -32,6 +32,17 @@ PORT=52000 npm start
 npm run dev
 ```
 
+## 操作主体と入口
+
+| 主体 | 正規の入口 | 備考 |
+| --- | --- | --- |
+| Human | Web UI | Project・Intent・Outcome・Role Grant など製品の通常操作は Web UI で行います。Human 向け機能を CLI・MCP・DB の直接操作だけで完結させません |
+| Agent | MCP | Strategist などの Agent は MCP から操作します。Human 向けの管理操作（Grant の発行・取消、Project の archive など）は MCP へ公開しません |
+| Web UI・外部 Runtime | Web API | Web API は Web UI と外部 Runtime の接続面です |
+| 開発者・保守 | CLI | ローカル開発・移行・障害復旧・自動検証用です。Human の通常操作手順ではありません |
+
+Web UI と MCP は同じ application 層へ委譲し、業務規則を入口ごとに重複させません。Cloudflare 等へのリモート配置を想定しているため、Human が server の filesystem や SQLite file へ直接アクセスすることを前提にしません（CLI が SQLite file を直接使うのはローカルの保守・自動検証に限ります）。
+
 ## MCP Registration
 
 Compass MCP は Streamable HTTP の `http://localhost:51800/mcp` で接続します。Outcome を作成する
@@ -127,7 +138,7 @@ Step 4 の Strategist Role と認可境界（Project 単位の Role Grant、`Aut
   - `Authorization` が有るのに形式不正（`Basic ...`、値なし、101 文字以上、制御文字）の `/mcp` は HTTP `401`（JSON-RPC `-32001`）で、tool へ進みません。ヘッダー無しの `initialize` / `tools/list` と読み取り tool は従来どおり使えます。
   - tool 入力の `role` / `principalId`・MCP session ID は認証情報として使いません。Grant は呼び出しごとに DB を読むため、取消は次の呼び出しから反映されます。Web API / CLI は従来どおり Principal なしです。
 - **実装済み（Task 16）**: Instruction 配信。repo 直下の `agent/role-policy.md`（共通 Policy）と `agent/strategist.md`（Role 文書）を `InstructionService` が読み、MCP `get_role_instructions({ role: "strategist", includeShared?: boolean })` が Wacha と同じ `{ role, includeShared, files: [{ path, kind: "shared" | "role", content }] }` で返します（`includeShared: true` で共通 Policy が先頭）。Bearer・Grant は不要です。ファイルを読めない場合は `INSTRUCTION_UNAVAILABLE`（対象 path 入り、`isError: true`）で、部分的な応答は返しません。`role` は `strategist` のみで、Role を足すときは `ProjectRole` と `agent/<role>.md` の追加で同じ経路を使えます。Instruction を読んで動く Agent の自動起動（Runtime）は未接続です。
-- **実装済み（Task 17）**: 自動統合検証（`test/strategistIntegration.test.ts`）。実 HTTP サーバー・CLI プロセス・MCP SDK client で、空 DB から Project・Intent（API）→ Grant（CLI / API）→ Instruction・Context・`create_outcome`（MCP + Bearer）→ Web 参照までを Human 操作なしで通し、権限なし・別 Project・取消済み・Bearer なし・Role 不一致・Instruction 欠落の拒否と、同じ DB・同じ port での再起動後の Grant 保持を確認します。MCP には Grant 管理 tool を設けないため、Grant の発行は API / CLI です。Runtime による Agent の自律起動は未接続で、テスト内の MCP client は自律運転の実証ではありません。
+- **実装済み（Task 17）**: 自動統合検証（`test/strategistIntegration.test.ts`）。実 HTTP サーバー・CLI プロセス・MCP SDK client で、空 DB から Project・Intent（API）→ Grant（CLI / API）→ Instruction・Context・`create_outcome`（MCP + Bearer）→ Web 参照までを Human 操作なしで通し、権限なし・別 Project・取消済み・Bearer なし・Role 不一致・Instruction 欠落の拒否と、同じ DB・同じ port での再起動後の Grant 保持を確認します。MCP には Grant 管理 tool を設けないため、Human の Grant 発行は Web UI（Project 詳細の Strategist section）で行い、この自動検証は Web API / CLI で発行します。Runtime による Agent の自律起動は未接続で、テスト内の MCP client は自律運転の実証ではありません。
 
 Step 5 の Project archive（active → archived の不可逆な遷移、理由の保持、archived 時に拒否する操作と参照できる操作）は [docs/step-5-project-archive-design.md](docs/step-5-project-archive-design.md) に**設計のみ**を記載しています。**実装は未着手**（永続化・Web API・状態ガードは Task 20、Web UI は Task 21）で、現時点の Project に状態・archive の API・UI はありません。archive は Web UI（Web API）だけに公開し、MCP tool と CLI には追加しません。
 
