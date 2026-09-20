@@ -1,8 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { ProjectRole } from "../../constants/ProjectRole.ts";
+import { ProjectRole, projectRoles } from "../../constants/ProjectRole.ts";
 import { ConflictError } from "../../application/error/ConflictError.ts";
 import { ForbiddenError } from "../../application/error/ForbiddenError.ts";
+import { InstructionUnavailableError } from "../../application/error/InstructionUnavailableError.ts";
 import { NotFoundError } from "../../application/error/NotFoundError.ts";
 import { UnauthenticatedError } from "../../application/error/UnauthenticatedError.ts";
 import { ValidationError } from "../../application/error/ValidationError.ts";
@@ -95,7 +96,8 @@ const execute = async (operation: () => Promise<unknown>) => {
       error instanceof NotFoundError ||
       error instanceof ConflictError ||
       error instanceof ForbiddenError ||
-      error instanceof UnauthenticatedError
+      error instanceof UnauthenticatedError ||
+      error instanceof InstructionUnavailableError
     ) {
       return {
         ...result({
@@ -224,6 +226,18 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
       ),
   );
 
+  // Role文書は静的で機密を含まない。Agentが起動直後に自力で読めるよう、Bearerもgrantも要求しない。
+  server.registerTool(
+    "get_role_instructions",
+    {
+      title: "Get Role Instructions",
+      description:
+        "Get operational instructions for a Project Role. With includeShared=true the shared agent/role-policy.md is returned first. " +
+        "No Authorization is required. Fails with INSTRUCTION_UNAVAILABLE if an instruction file cannot be read.",
+      inputSchema: { role: z.enum(projectRoles), includeShared: z.boolean().optional() },
+    },
+    ({ role, includeShared }) => execute(() => services.instructionService.getRoleInstructions(role, includeShared)),
+  );
   server.registerTool(
     "get_strategist_context",
     {

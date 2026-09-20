@@ -1,3 +1,4 @@
+import { InstructionService } from "./application/service/InstructionService.ts";
 import { ProjectAuthorizationService } from "./application/service/ProjectAuthorizationService.ts";
 import { AbandonIntentUseCase } from "./application/usecase/AbandonIntentUseCase.ts";
 import { CancelOutcomeUseCase } from "./application/usecase/CancelOutcomeUseCase.ts";
@@ -25,13 +26,17 @@ import type { Kysely } from "kysely";
 import type { Database } from "./infrastructure/database/schema.ts";
 
 /** DBを開かずにUse Caseを組み立てる。containerはimport時にDBを開くため、CLIなどはこちらを使う。 */
-export const createApplicationServices = (applicationDatabase: Kysely<Database>) => {
+export const createApplicationServices = (
+  applicationDatabase: Kysely<Database>,
+  instructionService: InstructionService = new InstructionService(),
+) => {
   const projectRepository = new SQLiteProjectRepository(applicationDatabase);
   const intentRepository = new SQLiteIntentRepository(applicationDatabase);
   const outcomeRepository = new SQLiteOutcomeRepository(applicationDatabase);
   const projectGrantRepository = new SQLiteProjectGrantRepository(applicationDatabase);
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
   return {
+    instructionService,
     projectAuthorizationService,
     createProjectUseCase: new CreateProjectUseCase(projectRepository),
     updateProjectUseCase: new UpdateProjectUseCase(projectRepository),

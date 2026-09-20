@@ -5,8 +5,8 @@
 > | 範囲 | 状態 |
 > | --- | --- |
 > | Grant の永続化・Command API・CLI・Web UI（本書「永続化」「入力規則」「Command API」「CLI」「Web UI」、Task 14 の受け入れ例） | **実装済み**（Task 14）。API・CLI・repository・use case は自動テスト済み。Web UI は型・build と純関数のテストまでで、実ブラウザでの操作確認は未実施 |
-> | MCP の Principal 認証、Strategist 認可、`get_strategist_context`、職務分離ガード（「権限表」「認可の順序」「Strategist Context」、Task 15） | **実装済み**（Task 15）。自動テスト済み（`test/strategistMcp.test.ts`）。`get_role_instructions` は Task 16 のため tool 一覧にまだ無い |
-> | Instruction 配信（Task 16） | 設計済み・**未実装**（Task 15 の受け入れ例 9 のうち `get_role_instructions` の公開は Task 16 で満たす） |
+> | MCP の Principal 認証、Strategist 認可、`get_strategist_context`、職務分離ガード（「権限表」「認可の順序」「Strategist Context」、Task 15） | **実装済み**（Task 15）。自動テスト済み（`test/strategistMcp.test.ts`） |
+> | Instruction 配信（「Instruction 配信」、Task 16） | **実装済み**（Task 16）。自動テスト済み（`test/instruction.test.ts`。Task 15 の受け入れ例 9 の `get_role_instructions` の公開も満たす）。Instruction を読んで動く Agent の自動起動（Runtime）は未接続 |
 > | 統合検証（Task 17） | 未実施 |
 >
 > Outcome 等の現行の挙動は [step-3-outcome-design.md](step-3-outcome-design.md) を参照する。
@@ -201,6 +201,7 @@ npm run cli -- grants <projectId>
 - MCP tool `get_role_instructions({ role: "strategist", includeShared?: boolean })`。応答は Wacha と同形: `{ role, includeShared, files: [{ path, kind: "shared" | "role", content }] }`（`includeShared: true` で `agent/role-policy.md` を先頭に含める）。`role` の enum は `["strategist"]`。
 - ファイルが無い・読めない場合は `InstructionUnavailableError`（`INSTRUCTION_UNAVAILABLE`、対象 path を message に含める）を tool error（`isError: true`）で返す。空の応答や黙った代替を返さない。
 - Instruction に書く tool 名・権限・エラーコードは、本書の権限表と実装に一致させる（Task 16 で tool 名の一致を test する）。
+- 実装上の初期選択: `InstructionService` は読み込み元ディレクトリを constructor で差し替えられ（既定は repo 直下の `agent/`。欠落時の test 用）、`createApplicationServices` の第 2 引数で注入できる。読む名前は `role-policy` と `ProjectRole` の値に限り、それ以外は agent 外の file を開かず `INSTRUCTION_UNAVAILABLE` にする。`includeShared: true` で片方でも読めなければ部分的な応答を返さず失敗する。
 
 ### `agent/strategist.md` の必須構成（Task 16）
 
