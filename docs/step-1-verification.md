@@ -98,7 +98,7 @@ production起動（`PORT=51997`、一時DB）で、`POST` → `PATCH`（Web）�
 ## 未実施と既知の制限
 
 - 実ブラウザでの目視、keyboard操作、responsive表示の確認は、作成・編集画面とも未実施（Step 1の検証時と、Task 11の実装時のどちらも、この実行環境から実ブラウザを操作していない）。編集画面のフォーカス移動・`aria-invalid`・focus表示も、実装とtypecheck/buildのみで、画面上では未確認。CSS media query、label、標準HTML form control、focus表示は実装し、frontend typecheckとbuildは成功している。
-- Project削除・archiveはStep 1の範囲外。編集は追加機能として実装済み（上記「Project編集の検証」）。同時編集の検出（楽観ロック）はなく、後から保存した内容が反映される。
+- Project削除・archiveはStep 1の範囲外（archiveの設計は[step-5-project-archive-design.md](step-5-project-archive-design.md)で確定済み、実装は未着手。物理削除は作らない）。編集は追加機能として実装済み（上記「Project編集の検証」）。同時編集の検出（楽観ロック）はなく、後から保存した内容が反映される。
 - Intent、Outcome、Wacha実行状況は未実装で、画面には表示していない。
 - 認証はまだ導入していない。trusted local環境での利用を前提とする。
 
