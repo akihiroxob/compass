@@ -7,7 +7,7 @@
 > | Grant の永続化・Command API・CLI・Web UI（本書「永続化」「入力規則」「Command API」「CLI」「Web UI」、Task 14 の受け入れ例） | **実装済み**（Task 14）。API・CLI・repository・use case は自動テスト済み。Web UI は型・build と純関数のテストまでで、実ブラウザでの操作確認は未実施 |
 > | MCP の Principal 認証、Strategist 認可、`get_strategist_context`、職務分離ガード（「権限表」「認可の順序」「Strategist Context」、Task 15） | **実装済み**（Task 15）。自動テスト済み（`test/strategistMcp.test.ts`） |
 > | Instruction 配信（「Instruction 配信」、Task 16） | **実装済み**（Task 16）。自動テスト済み（`test/instruction.test.ts`。Task 15 の受け入れ例 9 の `get_role_instructions` の公開も満たす）。Instruction を読んで動く Agent の自動起動（Runtime）は未接続 |
-> | 統合検証（Task 17） | 未実施 |
+> | 統合検証（Task 17） | **実装済み**（自動テスト `test/strategistIntegration.test.ts`）。実HTTPサーバー・CLI プロセス・MCP SDK client で、空 DB から Grant・認証・Instruction・Context・`create_outcome`・Web 参照、拒否系、再起動後の保持までを検証。実ブラウザ確認は任意で未実施。Runtime による Agent の自律起動は**未接続**で、テスト内の MCP client は自律運転の実証ではない |
 >
 > Outcome 等の現行の挙動は [step-3-outcome-design.md](step-3-outcome-design.md) を参照する。
 > 事前のユーザー確認は設けない。追加資料に定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選び、理由を「選択理由と将来変更できる箇所」に記録する。
