@@ -49,3 +49,5 @@ input, textarea { width: 100%; padding: .85rem 1rem; border: 1px solid #c9c1b6; 
 @media (max-width: 700px) { .outcome-empty .button { width: 100%; } }
 .outcome-block { margin: 0 0 1.25rem; } .outcome-block .outcome-list { margin-top: .4rem; } .outcome-block .section-label { margin-bottom: .3rem; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.grant-list { margin: 1.25rem 0 0; padding: 0; list-style: none; display: grid; gap: .6rem; } .grant-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; padding: .9rem 1rem; border: 1px solid #e0dad1; border-radius: .7rem; background: white; } .grant-list small { display: block; margin-top: .25rem; color: #777168; } .grant-list .secondary-button { min-height: 2.4rem; }
+.grant-form { display: grid; gap: .75rem; margin-top: 1.25rem; } .grant-form .form-actions { justify-content: flex-start; margin-top: 0; } .grant-notice { margin: .75rem 0 0; color: #5c564e; font-size: .9rem; }

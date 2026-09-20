@@ -65,6 +65,13 @@ export type SuccessCriterionTable = {
   created_at: number;
 };
 
+export type ProjectGrantTable = {
+  project_id: string;
+  principal_id: string;
+  role: string;
+  created_at: number;
+};
+
 export type Database = {
   project: ProjectTable;
   project_principle: OrderedTextTable;
@@ -74,6 +81,7 @@ export type Database = {
   intent: IntentTable;
   outcome: OutcomeTable;
   success_criterion: SuccessCriterionTable;
+  project_grant: ProjectGrantTable;
 };
 
 export type DatabaseMetadata = Generated<number>;

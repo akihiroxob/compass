@@ -46,5 +46,28 @@ Step 2 の Intent 仕様と実装状況・検証手順は [docs/step-2-intent-de
 
 Step 3 の Outcome と成功条件の仕様と実装状況・検証手順は [docs/step-3-outcome-design.md](docs/step-3-outcome-design.md) に記載しています。Outcome は Intent 配下に成功条件（1〜10件、作成時に固定）とともに保存され、Web UI（Intent 詳細の Outcome section、Project 詳細の Active Outcomes）、Web API（`/api/projects/:projectId/intents/:intentId/outcomes`）、MCP（`create_outcome` / `list_outcomes` / `get_outcome` / `update_outcome` / `cancel_outcome`）から作成・参照・更新（title・hypothesis のみ）・取消できます。Intent から Outcome は自動生成されず、Evaluation・Execution・Wacha 連携・Strategist の自動起動は未実装です。
 
-Step 4 の Strategist Role と認可境界（Project 単位の Role Grant、`Authorization: Bearer <AgentName>` による MCP の Principal 解決、Grant の Command API・CLI、Instruction 配信）は [docs/step-4-strategist-role-design.md](docs/step-4-strategist-role-design.md) に設計を記載しています。**設計のみで未実装**です（実装は後続 Task）。現在の MCP・Web API の挙動は上記 Step 1〜3 のとおり認証なしです。
+Step 4 の Strategist Role と認可境界（Project 単位の Role Grant、`Authorization: Bearer <AgentName>` による MCP の Principal 解決、Grant の Command API・CLI、Instruction 配信）は [docs/step-4-strategist-role-design.md](docs/step-4-strategist-role-design.md) に設計を記載しています。
+
+- **実装済み（Task 14）**: Strategist の Role Grant の永続化（SQLite `project_grant`）、Web API、CLI、Web UI（Project 詳細の Strategist section）。
+- **未実装**: MCP の Principal 認証と Strategist 認可・Context tool（Task 15）、Instruction 配信（Task 16）、統合検証（Task 17）。MCP の挙動は Step 1〜3 のとおり認証なしのままで、Grant は MCP の認可にはまだ使われません。
+
+### Strategist Grant の操作
+
+Grant は Agent を起動しません。「この Agent 名が、この Project で Strategist として振る舞ってよい」という記録です。Web API・CLI が自動化の正規入口で、Human の確認や画面操作は不要です（Web UI は同じ処理を使う任意の入口）。trusted-local を前提とし、認証はありません。
+
+```bash
+# Web API（server 起動中）
+curl -X POST localhost:51800/api/projects/<projectId>/grants \
+  -H 'Content-Type: application/json' -d '{"principalId":"strategist-agent","role":"strategist"}'   # 新規 201 / 既存 200
+curl localhost:51800/api/projects/<projectId>/grants                                                  # { "grants": [...] }
+curl -X DELETE localhost:51800/api/projects/<projectId>/grants/strategist/strategist-agent            # { "revoked": true | false }
+
+# CLI（server 停止中でも動作。COMPASS_DB_PATH の SQLite file を直接使う）
+npm run cli -- grant  <projectId> <AgentName> strategist
+npm run cli -- revoke <projectId> <AgentName> strategist
+npm run cli -- grants <projectId>
+```
+
+CLI の標準出力は Web API と同じ形の JSON です。失敗は標準エラーの `{ "error": { "code", "message" } }` で、終了コードは成功 `0`（存在しない Grant の取消も `0`）、検証・存在エラー `1`、引数不足・未知のコマンド `2` です。再発行は重複せず、存在しない Project は `NOT_FOUND`、空・101 文字以上・制御文字を含む Agent 名と `strategist` 以外の role は `VALIDATION_ERROR` になります。
+
 Coordination and Operations Management Platform for Autonomous Software Systems

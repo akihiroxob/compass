@@ -15,7 +15,7 @@ export const createApp = (services: ApplicationServices = applicationServices) =
   const publicRoot = fileURLToPath(new URL("../public", import.meta.url));
 
   app.use(logger());
-  app.use("*", cors({ origin: "*", allowMethods: ["GET", "POST", "PATCH", "OPTIONS"] }));
+  app.use("*", cors({ origin: "*", allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"], allowHeaders: ["Authorization", "Content-Type"] }));
 
   app.get("/health", (c) => c.json({ status: "ok", service: "compass" }));
   app.get("/api", (c) => c.json({ service: "compass", status: "ok" }));
@@ -122,6 +122,23 @@ export const createApp = (services: ApplicationServices = applicationServices) =
       input,
     );
     return c.json({ outcome });
+  });
+  const grantsPath = "/api/projects/:projectId/grants";
+  app.post(grantsPath, async (c) => {
+    const input = await readJsonBody(c.req.raw, "Grant");
+    const { grant, created } = await services.grantProjectRoleUseCase.execute(c.req.param("projectId"), input);
+    return c.json({ grant, created }, created ? 201 : 200);
+  });
+  app.get(grantsPath, async (c) =>
+    c.json({ grants: await services.listProjectGrantsUseCase.execute(c.req.param("projectId")) }),
+  );
+  // 取消は冪等に扱うため、Grantの特定はbodyでなくpathに置く（principalIdはURLエンコード）。
+  app.delete(`${grantsPath}/:role/:principalId`, async (c) => {
+    const revoked = await services.revokeProjectRoleUseCase.execute(c.req.param("projectId"), {
+      role: c.req.param("role"),
+      principalId: c.req.param("principalId"),
+    });
+    return c.json({ revoked });
   });
   app.all("/api/*", (c) => c.json({ error: { code: "NOT_FOUND", message: "Not Found" } }, 404));
 

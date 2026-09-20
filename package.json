@@ -6,6 +6,7 @@
   "scripts": {
     "prestart": "npm run build",
     "start": "tsx src/server.ts",
+    "cli": "tsx src/presentation/cli/main.ts",
     "dev": "npm-run-all --parallel dev:server dev:frontend",
     "dev:server": "tsx watch src/server.ts",
     "dev:frontend": "vite --config src/frontend/vite.config.ts",

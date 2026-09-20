@@ -33,8 +33,8 @@ type ReasonPanelProps = {
   action: ReasonAction;
   title: string;
   description: string;
-  /** 理由欄のラベル。必須なら`<span>必須</span>`を含める。 */
-  label: ReactNode;
+  /** 理由欄のラベル。必須なら`<span>必須</span>`を含める。省略すると理由欄を出さず、確認だけを求める。 */
+  label?: ReactNode;
   required?: boolean;
   confirmLabel: string;
   pendingLabel: string;
@@ -44,17 +44,19 @@ export const ReasonPanel = ({ action, title, description, label, required = fals
   <form className="abandon-panel" onSubmit={action.submit}>
     <h2>{title}</h2>
     <p>{description}</p>
-    <label>
-      {label}
-      <textarea
-        autoFocus
-        {...(required ? { required: true, "aria-required": true } : {})}
-        maxLength={2000}
-        rows={3}
-        value={action.reason}
-        onChange={(event) => action.setReason(event.target.value)}
-      />
-    </label>
+    {label !== undefined && (
+      <label>
+        {label}
+        <textarea
+          autoFocus
+          {...(required ? { required: true, "aria-required": true } : {})}
+          maxLength={2000}
+          rows={3}
+          value={action.reason}
+          onChange={(event) => action.setReason(event.target.value)}
+        />
+      </label>
+    )}
     {action.error && (
       <div className="state-card error" role="alert">
         {action.error}

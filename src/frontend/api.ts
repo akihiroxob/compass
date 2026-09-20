@@ -79,6 +79,8 @@ const topLevelLabels: Record<string, string> = {
   hypothesis: "仮説",
   rationale: "判断理由",
   successCriteria: "成功条件",
+  principalId: "Agent名",
+  role: "Role",
 };
 const linkFieldLabels: Record<string, string> = {
   name: "名前",
@@ -146,3 +148,15 @@ export const jsonPost = (body?: unknown): RequestInit => (body === undefined ? {
 /** 読み込み失敗時に画面へ出す文言。not_foundだけは画面ごとの文言を渡す。 */
 export const loadFailureMessage = (classified: ErrorKind, notFound: string): string =>
   classified.kind === "not_found" ? notFound : classified.kind === "validation" ? "入力内容が不正です" : classified.message;
+
+/** フォーム送信の失敗表示用。not_foundは、入力を保持したまま再試行できる文言付きの`other`へ変換する。 */
+export const withNotFoundMessage = (classified: ErrorKind, notFound: string): Exclude<ErrorKind, { kind: "not_found" }> =>
+  classified.kind === "not_found" ? { kind: "other", message: notFound } : classified;
+
+/** 確認パネルなど、1行で出す操作失敗の文言。 */
+export const describeActionFailure = (classified: ErrorKind, notFound: string): string =>
+  classified.kind === "validation"
+    ? classified.issues.map((issue) => `${issue.label}: ${issue.message}`).join(" / ")
+    : classified.kind === "not_found"
+      ? notFound
+      : classified.message;

@@ -1,6 +1,15 @@
 # Step 4: Strategist Role と認可境界 初期設計
 
-> **状態: Step 4 の設計（Task 13）。実装は Task 14〜17。本書の内容は「設計済み・未実装」であり、現行の挙動は [step-3-outcome-design.md](step-3-outcome-design.md) を参照する。**
+> **状態: Step 4 の設計（Task 13）。実装は Task 14〜17 で段階的に進める。**
+>
+> | 範囲 | 状態 |
+> | --- | --- |
+> | Grant の永続化・Command API・CLI・Web UI（本書「永続化」「入力規則」「Command API」「CLI」「Web UI」、Task 14 の受け入れ例） | **実装済み**（Task 14）。API・CLI・repository・use case は自動テスト済み。Web UI は型・build と純関数のテストまでで、実ブラウザでの操作確認は未実施 |
+> | MCP の Principal 認証、Strategist 認可、`get_strategist_context`、職務分離ガード（「権限表」「認可の順序」「Strategist Context」、Task 15） | 設計済み・**未実装**。MCP は従来どおり認証なしで、Grant はまだ認可に使われない |
+> | Instruction 配信（Task 16） | 設計済み・**未実装** |
+> | 統合検証（Task 17） | 未実施 |
+>
+> Outcome 等の現行の挙動は [step-3-outcome-design.md](step-3-outcome-design.md) を参照する。
 > 事前のユーザー確認は設けない。追加資料に定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選び、理由を「選択理由と将来変更できる箇所」に記録する。
 
 ## 根拠資料と優先順位
@@ -151,7 +160,7 @@ npm run cli -- grants <projectId>
 - 終了コード: 成功 `0`、検証・存在・その他の失敗 `1`、引数の不足・未知のサブコマンド `2`。`revoke` で Grant が無い場合も `0`（`revoked:false`）。
 - 実装場所は `src/presentation/cli/`。`package.json` に `"cli": "tsx src/presentation/cli/main.ts"` を追加する。
 - 実行中のサーバーと同じ DB file を書いても、認可は毎回 DB を読むため取消・発行は即時に反映される。
-- 実装上の注意: `container.ts` は import 時に DB を開く。CLI は `createApplicationServices(createDatabase())` を使い、singleton を import しない。必要なら factory だけを別 file へ移し、`container.ts` は再 export を残す（既存 test の import を変えない最小変更）。
+- 実装上の注意: `container.ts` は import 時に DB を開く。CLI は `createApplicationServices(createDatabase())` を使い、singleton を import しない。factory だけを `src/createApplicationServices.ts` へ移し、`container.ts` は再 export を残した（既存 test の import を変えない最小変更）。CLI の本体は `src/presentation/cli/runCli.ts`（テスト可能な関数）と、DB を開く `main.ts`。
 
 ## Web UI（任意）
 
@@ -160,6 +169,7 @@ npm run cli -- grants <projectId>
 - 補足文: 「Agent 名は MCP の `Authorization: Bearer <AgentName>` に設定する名前です。Strategist の割当は Agent を起動しません。」
 - 入力エラー（400）・通信障害・存在しない Project は既存フォームと同じ基準で区別して表示し、保存失敗時は入力を保持する。表示しないもの: Agent の稼働状況、Run、Runtime の状態、自動起動の設定。
 - UI は API と同じ use case を通るだけで、UI にだけある規則を作らない。
+- 実装: 取消の確認パネルは既存の `ReasonPanel` を再利用した。Grant の取消に理由は不要なため、`label` を省略すると理由欄を出さない任意指定を追加した（既存の放棄・取消パネルの挙動は不変）。
 
 ## Strategist Context（`get_strategist_context`）
 

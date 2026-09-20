@@ -132,4 +132,24 @@ export const initializeSchema = async (database: Kysely<Database>): Promise<void
     .on("success_criterion")
     .columns(["outcome_id", "position"])
     .execute();
+
+  // roleにcheck制約は置かない。Roleの追加でtable再作成を要さないよう、検証はapplication層（projectGrantSchema）で行う。
+  // 主キーが再発行の冪等性を担保する。
+  await database.schema
+    .createTable("project_grant")
+    .ifNotExists()
+    .addColumn("project_id", "text", (column) =>
+      column.notNull().references("project.id").onDelete("cascade"),
+    )
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("role", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("project_grant_pk", ["project_id", "principal_id", "role"])
+    .execute();
+  await database.schema
+    .createIndex("project_grant_principal_id_project_id_idx")
+    .ifNotExists()
+    .on("project_grant")
+    .columns(["principal_id", "project_id"])
+    .execute();
 };
