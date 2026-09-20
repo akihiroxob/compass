@@ -2,6 +2,7 @@
 
 > **状態: Step 3 の初期仕様（確定）。Task 10 で実装済み（「実装状況と検証」参照）。**
 > 事前のユーザー確認は設けない。追加資料に定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選んだ。完成後のフィードバックに応じて修正する。選択理由と将来の変更点は各節と「選択理由と将来変更できる箇所」に記録する。
+> Step 4 の設計（[step-4-strategist-role-design.md](step-4-strategist-role-design.md)）は、MCP の Outcome 書込（`create_outcome` / `update_outcome` / `cancel_outcome`）に Strategist Grant を要求する方針。**実装されるまで（Task 15）、本書の「認証なし」の記述が現行の挙動**。
 
 ## 根拠資料と優先順位
 
