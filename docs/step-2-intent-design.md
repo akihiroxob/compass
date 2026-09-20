@@ -3,6 +3,7 @@
 > **状態: Step 2 の初期仕様（確定）。Task 08 で実装済み（「実装状況と検証」参照）。**
 > 事前のユーザー確認は設けない。追加資料に定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選んだ。完成後のフィードバックに応じて修正する。選択理由と将来の変更点は各節と「将来変更できる箇所」に記録する。
 > Task 10（Step 3）で、Intent 放棄時の active Outcome の連動取消と、Outcome を持つ Intent の意味変更拒否を追加した。以降の「Outcome は表示しない・未実装」は Step 2 時点の記述で、現状は [step-3-outcome-design.md](step-3-outcome-design.md) を参照する。
+> Step 4 で Strategist の Role Grant・Instruction 配信・MCP 認可（Bearer による Principal 解決）を実装した。以降の「Strategist は未実装」「認証・Role 検証は含めない」は Step 2 時点の記述で、実装範囲は [step-4-strategist-role-design.md](step-4-strategist-role-design.md) を参照する。Runtime による Strategist の自動起動（Intent 作成を契機とする起動を含む）と Researcher / Research は現在も**未実装・未接続**である。
 
 ## 根拠資料と優先順位
 
@@ -61,9 +62,9 @@ Human → Intent 登録 (Compass)
 | --- | --- | --- |
 | Human | Intent を与える | Web / MCP から Intent を登録・参照・編集・放棄 |
 | Compass (Direction) | Intent の保存・検証・参照 | **実装対象**。Strategist を起動しない |
-| Strategist | Intent を起点に、Outcome を定義できるか、Research が必要かを判断する。出力は Outcome / Research Request / Decision / Intent Completion | **未実装**。役割は文書のみ。Intent 作成が Strategist 起動を意味する表示をしない |
+| Strategist | Intent を起点に、Outcome を定義できるか、Research が必要かを判断する。出力は Outcome / Research Request / Decision / Intent Completion | Step 2 時点は**未実装**（役割は文書のみ）。現在は Step 4 で Role Grant・Instruction・認可・Context と Outcome 作成 tool まで実装済みだが、Runtime による起動は未接続。Intent 作成が Strategist 起動を意味する表示をしない |
 | Researcher | Strategist の意思決定の不確実性を減らす。Findings / Evidence / Options / Risks / Unknowns を返す。Outcome は決めない。**必須工程ではない** | **未実装**。Research Entity も作らない |
-| Runtime / Orchestrator | 「Intent created」の条件成立で Strategist を起動する。Research の要否は判断しない | **未実装**。イベント配送（outbox 等）も Step 2 に含めない |
+| Runtime / Orchestrator | 「Intent created」の条件成立で Strategist を起動する。Research の要否は判断しない | **未実装**（Step 4 時点でも未接続）。イベント配送（outbox 等）も Step 2 に含めない |
 | Wacha | Execution。Intent の詳細は持たない | 連携しない |
 
 原則: 「Workflow が判断しない。Agent Role が判断する」。Intent 作成後の状態遷移に `researching` のような固定の Research 状態を置かない。Intent 作成後に Researcher を自動で必須起動する固定フローを実装しない。
