@@ -1,6 +1,7 @@
 import { InstructionService } from "./application/service/InstructionService.ts";
 import { ProjectAuthorizationService } from "./application/service/ProjectAuthorizationService.ts";
 import { AbandonIntentUseCase } from "./application/usecase/AbandonIntentUseCase.ts";
+import { ArchiveProjectUseCase } from "./application/usecase/ArchiveProjectUseCase.ts";
 import { CancelOutcomeUseCase } from "./application/usecase/CancelOutcomeUseCase.ts";
 import { CreateIntentUseCase } from "./application/usecase/CreateIntentUseCase.ts";
 import { CreateOutcomeUseCase } from "./application/usecase/CreateOutcomeUseCase.ts";
@@ -40,6 +41,7 @@ export const createApplicationServices = (
     projectAuthorizationService,
     createProjectUseCase: new CreateProjectUseCase(projectRepository),
     updateProjectUseCase: new UpdateProjectUseCase(projectRepository),
+    archiveProjectUseCase: new ArchiveProjectUseCase(projectRepository),
     listProjectsUseCase: new ListProjectsUseCase(projectRepository),
     getProjectUseCase: new GetProjectUseCase(projectRepository),
     createIntentUseCase: new CreateIntentUseCase(projectRepository, intentRepository),

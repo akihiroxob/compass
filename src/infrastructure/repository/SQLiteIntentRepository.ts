@@ -10,6 +10,7 @@ import type {
 } from "../../domain/repository/IntentRepository.ts";
 import type { CreateIntentInput, UpdateIntentInput } from "../../shared/intentSchema.ts";
 import type { Database, IntentTable } from "../database/schema.ts";
+import { isProjectArchived } from "./isProjectArchived.ts";
 
 const toIntent = (row: Selectable<IntentTable>): Intent =>
   new Intent({
@@ -29,6 +30,7 @@ export class SQLiteIntentRepository implements IntentRepository {
 
   async create(projectId: string, input: CreateIntentInput): Promise<CreateIntentResult> {
     return this.database.transaction().execute(async (transaction): Promise<CreateIntentResult> => {
+      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
       const active = await transaction
         .selectFrom("intent")
         .select("id")
@@ -160,6 +162,7 @@ export class SQLiteIntentRepository implements IntentRepository {
     } = {},
   ): Promise<ChangeIntentResult | Rejection> {
     return this.database.transaction().execute(async (transaction): Promise<ChangeIntentResult | Rejection> => {
+      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
       const existing = await transaction
         .selectFrom("intent")
         .selectAll()

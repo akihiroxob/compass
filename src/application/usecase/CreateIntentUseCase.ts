@@ -4,6 +4,7 @@ import type { ProjectRepository } from "../../domain/repository/ProjectRepositor
 import { parseCreateIntentInput } from "../../shared/intentSchema.ts";
 import { ConflictError } from "../error/ConflictError.ts";
 import { NotFoundError } from "../error/NotFoundError.ts";
+import { ProjectArchivedError } from "../error/ProjectArchivedError.ts";
 
 export class CreateIntentUseCase {
   constructor(
@@ -17,6 +18,7 @@ export class CreateIntentUseCase {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     const result = await this.intentRepository.create(projectId, parsed);
+    if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
     if (result.kind === "active_exists") {
       throw new ConflictError(
         `Project ${projectId} already has an active Intent ${result.activeIntentId}; abandon it before creating another`,

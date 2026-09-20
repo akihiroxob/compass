@@ -89,6 +89,15 @@ export const updateProjectSchema = z
 
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 
+/** archiveは理由必須。statusなどserver管理の項目は入力から受け取らない。 */
+export const archiveProjectSchema = z.object({ reason: trimmedText("reason", 2_000) });
+
+export type ArchiveProjectInput = z.infer<typeof archiveProjectSchema>;
+
+export const projectStatusFilterSchema = z.object({
+  status: z.enum(["active", "archived"]).default("active"),
+});
+
 export const parseWith = <T extends z.ZodType>(
   schema: T,
   input: unknown,
@@ -111,3 +120,10 @@ export const parseCreateProjectInput = (input: unknown): CreateProjectInput =>
 
 export const parseUpdateProjectInput = (input: unknown): UpdateProjectInput =>
   parseWith(updateProjectSchema, input);
+
+export const parseArchiveProjectInput = (input: unknown): ArchiveProjectInput =>
+  parseWith(archiveProjectSchema, input);
+
+/** 一覧の絞り込み。未指定はactiveのみ。`all`などは受け付けず、issueのpathは`status`になる。 */
+export const parseProjectStatusFilter = (status: string | undefined): "active" | "archived" =>
+  parseWith(projectStatusFilterSchema, { status }).status;

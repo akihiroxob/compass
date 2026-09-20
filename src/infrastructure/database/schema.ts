@@ -8,6 +8,9 @@ export type ProjectTable = {
   vision: string | null;
   created_at: number;
   updated_at: number;
+  status: "active" | "archived";
+  archived_at: number | null;
+  archive_reason: string | null;
 };
 
 type OrderedTextTable = {

@@ -11,6 +11,8 @@ export type ProjectResource = {
   kind: string | null;
 };
 
+export type ProjectStatus = "active" | "archived";
+
 export type ProjectProperties = {
   id: string;
   name: string;
@@ -23,6 +25,9 @@ export type ProjectProperties = {
   resources: ProjectResource[];
   createdAt: number;
   updatedAt: number;
+  status: ProjectStatus;
+  archivedAt: number | null;
+  archiveReason: string | null;
 };
 
 export class Project {
@@ -37,6 +42,9 @@ export class Project {
   readonly resources: ProjectResource[];
   readonly createdAt: number;
   readonly updatedAt: number;
+  readonly status: ProjectStatus;
+  readonly archivedAt: number | null;
+  readonly archiveReason: string | null;
 
   constructor(properties: ProjectProperties) {
     this.id = properties.id;
@@ -50,5 +58,8 @@ export class Project {
     this.resources = properties.resources.map((item) => ({ ...item }));
     this.createdAt = properties.createdAt;
     this.updatedAt = properties.updatedAt;
+    this.status = properties.status;
+    this.archivedAt = properties.archivedAt;
+    this.archiveReason = properties.archiveReason;
   }
 }

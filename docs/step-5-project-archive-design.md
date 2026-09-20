@@ -1,6 +1,6 @@
 # Step 5: Project archive 初期設計
 
-> **状態: Step 5 の設計（確定、Task 19）。実装は Task 20（永続化・use case・Web API・状態ガード）と Task 21（Web UI）で行う。本書の時点では未実装。**
+> **状態: Step 5 の設計（確定、Task 19）。永続化・use case・Web API・状態ガードは実装済み（Task 20）。Web UI（Task 21）は未実装。**
 > 事前のユーザー確認は設けない。追加資料に定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選び、理由を「選択理由と将来変更できる箇所」に記録する。完成後のフィードバックに応じて修正する。
 
 ## 根拠資料と優先順位
@@ -220,9 +220,23 @@ project（追加）
 
 ## 実装状況と検証
 
-**設計のみ。実装は未着手**（Task 20 / 21）。本書の時点では、Project に `status` の列も archive の API・UI も存在しない。現行の Project 応答・一覧・書込 use case・MCP tool・CLI は、Step 1〜4 のまま変わらない。
+### 実装済み（Task 20）
 
-Task 19 で確認した現行実装の事実（設計の前提）:
+| 項目 | 実装 | 検証 |
+| --- | --- | --- |
+| 永続化・移行 | `project` へ `status` / `archived_at` / `archive_reason` を追加。`initializeSchema` が列の無い既存 DB にだけ `alter table` で追加し（idempotent）、既存行は `active` になる | `test/projectArchive.test.ts` AC-1 / AC-13、status の check 制約 |
+| Repository | `ProjectRepository.archive` / `findAll(status = "active")`。`update` / Intent / Outcome / Grant の書込は、同一 transaction で `isProjectArchived` を検査し `{ kind: "project_archived" }` を返す（`src/infrastructure/repository/isProjectArchived.ts`） | AC-11、AC-12 |
+| use case | `ArchiveProjectUseCase`（入力検証 → 404 → 409 の順）。archived 拒否は `ProjectArchivedError`（`ConflictError` の派生、`projectStatus: "archived"`）。`UpdateOutcomeUseCase` だけは固定項目の拒否がある Repository 呼び出し前のため、archived を先に検査する | AC-2〜AC-8 |
+| Web API | `POST /api/projects/:projectId/archive`、`GET /api/projects[?status=archived]`（`status` は `active` / `archived` のみ、他は 400） | AC-1〜AC-10、AC-18、AC-19 |
+| MCP / CLI | tool・コマンドを追加していない。既存の書込 tool・`grant` / `revoke` が同じ use case 経由で `CONFLICT` を返す。MCP の `list_projects` は active のみ | AC-14〜AC-17 |
+
+- **未実装**: Web UI の archive 操作・アーカイブ済み一覧・archived 詳細の導線制御（Task 21、AC-20〜AC-22）。現時点の Web UI は Project 一覧に active のみを表示し、archived の詳細は API 応答の 3 項目を表示しない。
+- 「Repository の同一 transaction での検査」は、better-sqlite3 の単一接続で書込が直列化されることに依存する。archive と書込の同時実行の競合は、use case を経由しない Repository 直接呼び出しのテスト（AC-11）で「archived なら何も書かない」ことを確認したもので、並列プロセスでの負荷試験は行っていない。
+- 検証（Task 20）: `npm test`（135 件パス）、`npm run lint`（tsc 2 project）、`npm run build`。ブラウザでの確認は Web UI を変更していないため対象外。
+
+## Task 19 時点の設計の前提
+
+Task 19 で確認した設計時点（実装前）の実装の事実:
 
 - `project` table に状態の列は無く、`ProjectRepository.findAll` は全件を返す。Project の書込は `exists` の確認後に Repository の transaction で行い、Intent / Outcome の書込は Repository の transaction 内で Intent / Outcome の状態を検査している（Project の状態の検査は無い）。
 - `initializeSchema` は `create table if not exists` のみで、列の追加（`alter table`）の前例は無い。

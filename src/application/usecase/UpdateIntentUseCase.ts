@@ -4,6 +4,7 @@ import type { ProjectRepository } from "../../domain/repository/ProjectRepositor
 import { parseUpdateIntentInput } from "../../shared/intentSchema.ts";
 import { ConflictError } from "../error/ConflictError.ts";
 import { NotFoundError } from "../error/NotFoundError.ts";
+import { ProjectArchivedError } from "../error/ProjectArchivedError.ts";
 
 export class UpdateIntentUseCase {
   constructor(
@@ -17,6 +18,7 @@ export class UpdateIntentUseCase {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     const result = await this.intentRepository.update(projectId, intentId, parsed);
+    if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
     if (result.kind === "not_found") {
       throw new NotFoundError(`Intent ${intentId} was not found in Project ${projectId}`);
     }

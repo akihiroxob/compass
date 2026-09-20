@@ -168,7 +168,7 @@ intent
 
 ## Step 2 に含めないもの
 
-Outcome / SuccessCriterion、Research / Evidence / Decision / Evaluation Entity、Strategist・Researcher の起動と Runtime 連携、イベント配送（outbox）、Wacha 連携、Intent の `achieved` 遷移、認証・Role 検証、Project の状態（paused / archived。archived は [step-5-project-archive-design.md](step-5-project-archive-design.md) で設計済み・未実装、paused は作らない）。
+Outcome / SuccessCriterion、Research / Evidence / Decision / Evaluation Entity、Strategist・Researcher の起動と Runtime 連携、イベント配送（outbox）、Wacha 連携、Intent の `achieved` 遷移、認証・Role 検証、Project の状態（paused / archived。archived は [step-5-project-archive-design.md](step-5-project-archive-design.md) で設計し、API・状態ガードは実装済み（Task 20）。paused は作らない）。
 
 ## 選択理由と将来変更できる箇所
 

@@ -1,19 +1,22 @@
 import type { IntentStatus } from "../model/Intent.ts";
 import type { Outcome, OutcomeStatus } from "../model/Outcome.ts";
+import type { ProjectArchivedResult } from "./ProjectRepository.ts";
 import type { CreateOutcomeInput, UpdateOutcomeInput } from "../../shared/outcomeSchema.ts";
 
 /** 作成の結果。Intentが無い場合と、activeでない場合を区別する。 */
 export type CreateOutcomeResult =
   | { kind: "created"; outcome: Outcome }
   | { kind: "intent_not_found" }
-  | { kind: "intent_not_active"; status: IntentStatus };
+  | { kind: "intent_not_active"; status: IntentStatus }
+  | ProjectArchivedResult;
 
 /** 更新・取消の結果。Intentが無い場合と、Outcomeが無い場合と、activeでない場合を区別する。 */
 export type ChangeOutcomeResult =
   | { kind: "changed"; outcome: Outcome }
   | { kind: "intent_not_found" }
   | { kind: "outcome_not_found" }
-  | { kind: "not_active"; status: OutcomeStatus };
+  | { kind: "not_active"; status: OutcomeStatus }
+  | ProjectArchivedResult;
 
 /**
  * 成功条件はOutcomeの一部として作成・取得する。作成後に固定されるため、

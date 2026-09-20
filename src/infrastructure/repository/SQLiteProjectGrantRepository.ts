@@ -1,8 +1,9 @@
 import type { Kysely, Selectable } from "kysely";
 import type { ProjectRole } from "../../constants/ProjectRole.ts";
 import { ProjectGrant } from "../../domain/model/ProjectGrant.ts";
-import type { GrantResult, ProjectGrantRepository } from "../../domain/repository/ProjectGrantRepository.ts";
+import type { GrantOutcome, ProjectGrantRepository, RevokeOutcome } from "../../domain/repository/ProjectGrantRepository.ts";
 import type { Database, ProjectGrantTable } from "../database/schema.ts";
+import { isProjectArchived } from "./isProjectArchived.ts";
 
 const toProjectGrant = (row: Selectable<ProjectGrantTable>): ProjectGrant =>
   new ProjectGrant({
@@ -15,15 +16,16 @@ const toProjectGrant = (row: Selectable<ProjectGrantTable>): ProjectGrant =>
 export class SQLiteProjectGrantRepository implements ProjectGrantRepository {
   constructor(private readonly database: Kysely<Database>) {}
 
-  async grant(projectId: string, principalId: string, role: ProjectRole): Promise<GrantResult> {
-    return this.database.transaction().execute(async (transaction) => {
+  async grant(projectId: string, principalId: string, role: ProjectRole): Promise<GrantOutcome> {
+    return this.database.transaction().execute(async (transaction): Promise<GrantOutcome> => {
+      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
       const inserted = await transaction
         .insertInto("project_grant")
         .values({ project_id: projectId, principal_id: principalId, role, created_at: Date.now() })
         .onConflict((conflict) => conflict.columns(["project_id", "principal_id", "role"]).doNothing())
         .returningAll()
         .executeTakeFirst();
-      if (inserted) return { grant: toProjectGrant(inserted), created: true };
+      if (inserted) return { kind: "granted", grant: toProjectGrant(inserted), created: true };
 
       const existing = await transaction
         .selectFrom("project_grant")
@@ -32,18 +34,21 @@ export class SQLiteProjectGrantRepository implements ProjectGrantRepository {
         .where("principal_id", "=", principalId)
         .where("role", "=", role)
         .executeTakeFirstOrThrow();
-      return { grant: toProjectGrant(existing), created: false };
+      return { kind: "granted", grant: toProjectGrant(existing), created: false };
     });
   }
 
-  async revoke(projectId: string, principalId: string, role: ProjectRole): Promise<boolean> {
-    const result = await this.database
-      .deleteFrom("project_grant")
-      .where("project_id", "=", projectId)
-      .where("principal_id", "=", principalId)
-      .where("role", "=", role)
-      .executeTakeFirst();
-    return result.numDeletedRows > 0n;
+  async revoke(projectId: string, principalId: string, role: ProjectRole): Promise<RevokeOutcome> {
+    return this.database.transaction().execute(async (transaction): Promise<RevokeOutcome> => {
+      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      const result = await transaction
+        .deleteFrom("project_grant")
+        .where("project_id", "=", projectId)
+        .where("principal_id", "=", principalId)
+        .where("role", "=", role)
+        .executeTakeFirst();
+      return { kind: "revoked", revoked: result.numDeletedRows > 0n };
+    });
   }
 
   async hasRole(projectId: string, principalId: string, role: ProjectRole): Promise<boolean> {

@@ -11,6 +11,7 @@ import { ForbiddenError } from "./application/error/ForbiddenError.ts";
 import { NotFoundError } from "./application/error/NotFoundError.ts";
 import { UnauthenticatedError } from "./application/error/UnauthenticatedError.ts";
 import { ValidationError } from "./application/error/ValidationError.ts";
+import { parseProjectStatusFilter } from "./shared/projectSchema.ts";
 import { applicationServices, type ApplicationServices } from "./container.ts";
 
 export const createApp = (services: ApplicationServices = applicationServices) => {
@@ -34,8 +35,9 @@ export const createApp = (services: ApplicationServices = applicationServices) =
     const project = await services.createProjectUseCase.execute(input);
     return c.json({ project }, 201);
   });
+  // 既定はactiveのみ。`?status=archived`でアーカイブ済み一覧。それ以外の値は400（path `status`）。
   app.get("/api/projects", async (c) =>
-    c.json({ projects: await services.listProjectsUseCase.execute() }),
+    c.json({ projects: await services.listProjectsUseCase.execute(parseProjectStatusFilter(c.req.query("status"))) }),
   );
   app.get("/api/projects/:projectId", async (c) =>
     c.json({ project: await services.getProjectUseCase.execute(c.req.param("projectId")) }),
@@ -43,6 +45,15 @@ export const createApp = (services: ApplicationServices = applicationServices) =
   app.patch("/api/projects/:projectId", async (c) => {
     const input = await readJsonBody(c.req.raw);
     const project = await services.updateProjectUseCase.execute(c.req.param("projectId"), input);
+    return c.json({ project });
+  });
+
+  // archiveはHuman向けのWeb API専用。MCP tool・CLIコマンドへは公開せず、復帰・削除のAPIも作らない。
+  app.post("/api/projects/:projectId/archive", async (c) => {
+    // 本文なしの要求は、理由なしとしてuse caseのVALIDATION_ERRORにする。
+    const hasBody = (await c.req.raw.clone().text()).trim() !== "";
+    const input = hasBody ? await readJsonBody(c.req.raw) : {};
+    const project = await services.archiveProjectUseCase.execute(c.req.param("projectId"), input);
     return c.json({ project });
   });
 

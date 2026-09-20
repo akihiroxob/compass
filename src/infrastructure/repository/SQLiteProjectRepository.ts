@@ -1,6 +1,10 @@
 import type { Kysely, Transaction } from "kysely";
-import { Project } from "../../domain/model/Project.ts";
-import type { ProjectRepository } from "../../domain/repository/ProjectRepository.ts";
+import { Project, type ProjectStatus } from "../../domain/model/Project.ts";
+import type {
+  ArchiveProjectResult,
+  ProjectRepository,
+  UpdateProjectResult,
+} from "../../domain/repository/ProjectRepository.ts";
 import type { CreateProjectInput, UpdateProjectInput } from "../../shared/projectSchema.ts";
 import type { Database } from "../database/schema.ts";
 
@@ -24,6 +28,9 @@ export class SQLiteProjectRepository implements ProjectRepository {
           vision: input.vision,
           created_at: now,
           updated_at: now,
+          status: "active",
+          archived_at: null,
+          archive_reason: null,
         })
         .execute();
 
@@ -60,14 +67,15 @@ export class SQLiteProjectRepository implements ProjectRepository {
     return (await this.findById(id))!;
   }
 
-  async update(projectId: string, input: UpdateProjectInput): Promise<Project | null> {
-    const found = await this.database.transaction().execute(async (transaction) => {
+  async update(projectId: string, input: UpdateProjectInput): Promise<UpdateProjectResult> {
+    const outcome = await this.database.transaction().execute(async (transaction) => {
       const existing = await transaction
         .selectFrom("project")
-        .select("id")
+        .select("status")
         .where("id", "=", projectId)
         .executeTakeFirst();
-      if (!existing) return false;
+      if (!existing) return "not_found" as const;
+      if (existing.status === "archived") return "project_archived" as const;
 
       // undefinedの項目はKyselyがSETから除外するため、未指定の列は変更されない。
       await transaction
@@ -90,14 +98,43 @@ export class SQLiteProjectRepository implements ProjectRepository {
       }
       if (input.repositories) await this.syncRepositories(transaction, projectId, input.repositories);
       if (input.resources) await this.syncResources(transaction, projectId, input.resources);
-      return true;
+      return "updated" as const;
     });
 
-    return found ? this.findById(projectId) : null;
+    if (outcome !== "updated") return { kind: outcome };
+    return { kind: "updated", project: (await this.findById(projectId))! };
   }
 
-  async findAll(): Promise<Project[]> {
-    const rows = await this.database.selectFrom("project").select("id").execute();
+  async archive(projectId: string, reason: string): Promise<ArchiveProjectResult> {
+    const outcome = await this.database.transaction().execute(async (transaction) => {
+      const existing = await transaction
+        .selectFrom("project")
+        .select("status")
+        .where("id", "=", projectId)
+        .executeTakeFirst();
+      if (!existing) return "not_found" as const;
+      if (existing.status === "archived") return "already_archived" as const;
+
+      // updated_atはarchived_atと同じ値にする（Intentの放棄・Outcomeの取消がupdated_atを更新するのと同じ）。
+      const now = Date.now();
+      await transaction
+        .updateTable("project")
+        .set({ status: "archived", archived_at: now, archive_reason: reason, updated_at: now })
+        .where("id", "=", projectId)
+        .execute();
+      return "archived" as const;
+    });
+
+    if (outcome !== "archived") return { kind: outcome };
+    return { kind: "archived", project: (await this.findById(projectId))! };
+  }
+
+  async findAll(status: ProjectStatus = "active"): Promise<Project[]> {
+    const rows = await this.database
+      .selectFrom("project")
+      .select("id")
+      .where("status", "=", status)
+      .execute();
     return Promise.all(rows.map(async ({ id }) => (await this.findById(id))!));
   }
 
@@ -139,6 +176,9 @@ export class SQLiteProjectRepository implements ProjectRepository {
       resources,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      status: row.status,
+      archivedAt: row.archived_at,
+      archiveReason: row.archive_reason,
     });
   }
 

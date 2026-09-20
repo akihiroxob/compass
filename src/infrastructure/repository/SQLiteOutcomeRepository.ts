@@ -8,6 +8,7 @@ import type {
 } from "../../domain/repository/OutcomeRepository.ts";
 import type { CreateOutcomeInput, UpdateOutcomeInput } from "../../shared/outcomeSchema.ts";
 import type { Database, OutcomeTable, SuccessCriterionTable } from "../database/schema.ts";
+import { isProjectArchived } from "./isProjectArchived.ts";
 
 const toCriterion = (row: Selectable<SuccessCriterionTable>): SuccessCriterion => ({
   id: row.id,
@@ -62,6 +63,7 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     input: CreateOutcomeInput,
   ): Promise<CreateOutcomeResult> {
     return this.database.transaction().execute(async (transaction): Promise<CreateOutcomeResult> => {
+      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
       const intent = await transaction
         .selectFrom("intent")
         .select("status")
@@ -168,6 +170,7 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     >,
   ): Promise<ChangeOutcomeResult> {
     return this.database.transaction().execute(async (transaction): Promise<ChangeOutcomeResult> => {
+      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
       const intent = await transaction
         .selectFrom("intent")
         .select("id")

@@ -1,6 +1,19 @@
 import { sql, type Kysely } from "kysely";
 import type { Database } from "./schema.ts";
 
+/**
+ * Project archive導入前のDBには`project`のarchive列が無い。`create table if not exists`では追加されないため、
+ * 列が無い場合だけ追加する（idempotent）。`default 'active'`で既存の全行がactiveになり、既存行・子tableは書き換えない。
+ * SQLiteの`ADD COLUMN`はtable制約を足せないため、archived_at / archive_reasonとstatusの整合はRepositoryが保証する。
+ */
+const addProjectArchiveColumns = async (database: Kysely<Database>): Promise<void> => {
+  const columns = await sql<{ name: string }>`select name from pragma_table_info('project')`.execute(database);
+  if (columns.rows.some(({ name }) => name === "status")) return;
+  await sql`alter table project add column status text not null default 'active' check (status in ('active', 'archived'))`.execute(database);
+  await sql`alter table project add column archived_at integer`.execute(database);
+  await sql`alter table project add column archive_reason text`.execute(database);
+};
+
 export const initializeSchema = async (database: Kysely<Database>): Promise<void> => {
   await database.schema
     .createTable("project")
@@ -12,7 +25,13 @@ export const initializeSchema = async (database: Kysely<Database>): Promise<void
     .addColumn("vision", "text")
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addColumn("updated_at", "integer", (column) => column.notNull())
+    .addColumn("status", "text", (column) =>
+      column.notNull().defaultTo("active").check(sql`status in ('active', 'archived')`),
+    )
+    .addColumn("archived_at", "integer")
+    .addColumn("archive_reason", "text")
     .execute();
+  await addProjectArchiveColumns(database);
 
   for (const table of ["project_principle", "project_constraint"] as const) {
     await database.schema

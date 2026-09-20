@@ -4,6 +4,7 @@ import type { ProjectRepository } from "../../domain/repository/ProjectRepositor
 import { parseUpdateOutcomeInput } from "../../shared/outcomeSchema.ts";
 import { ConflictError } from "../error/ConflictError.ts";
 import { NotFoundError } from "../error/NotFoundError.ts";
+import { ProjectArchivedError } from "../error/ProjectArchivedError.ts";
 
 /**
  * activeなOutcomeのtitleとhypothesisだけを更新する。
@@ -22,9 +23,10 @@ export class UpdateOutcomeUseCase {
     input: unknown,
   ): Promise<Outcome> {
     const { changes, fixedFields } = parseUpdateOutcomeInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
-      throw new NotFoundError(`Project ${projectId} was not found`);
-    }
+    const project = await this.projectRepository.findById(projectId);
+    if (!project) throw new NotFoundError(`Project ${projectId} was not found`);
+    // 固定項目の拒否はRepositoryへ進む前に行うため、archivedの拒否（409）をここでも先に返す。書込の本体はRepositoryのtransaction内で検査する。
+    if (project.status === "archived") throw new ProjectArchivedError(projectId);
     if (fixedFields.length > 0) {
       throw new ConflictError(
         `Outcome ${outcomeId} has fields fixed at creation (${fixedFields.join(", ")}) that cannot be changed; ` +
@@ -33,6 +35,7 @@ export class UpdateOutcomeUseCase {
       );
     }
     const result = await this.outcomeRepository.update(projectId, intentId, outcomeId, changes);
+    if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
     if (result.kind === "intent_not_found") {
       throw new NotFoundError(`Intent ${intentId} was not found in Project ${projectId}`);
     }

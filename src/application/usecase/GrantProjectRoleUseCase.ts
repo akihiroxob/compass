@@ -2,6 +2,7 @@ import type { ProjectGrantRepository, GrantResult } from "../../domain/repositor
 import type { ProjectRepository } from "../../domain/repository/ProjectRepository.ts";
 import { parseProjectGrantInput } from "../../shared/projectGrantSchema.ts";
 import { NotFoundError } from "../error/NotFoundError.ts";
+import { ProjectArchivedError } from "../error/ProjectArchivedError.ts";
 
 export class GrantProjectRoleUseCase {
   constructor(
@@ -15,6 +16,8 @@ export class GrantProjectRoleUseCase {
     if (!(await this.projectRepository.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
-    return this.projectGrantRepository.grant(projectId, principalId, role);
+    const result = await this.projectGrantRepository.grant(projectId, principalId, role);
+    if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
+    return { grant: result.grant, created: result.created };
   }
 }

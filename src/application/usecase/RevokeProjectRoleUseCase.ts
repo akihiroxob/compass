@@ -2,6 +2,7 @@ import type { ProjectGrantRepository } from "../../domain/repository/ProjectGran
 import type { ProjectRepository } from "../../domain/repository/ProjectRepository.ts";
 import { parseProjectGrantInput } from "../../shared/projectGrantSchema.ts";
 import { NotFoundError } from "../error/NotFoundError.ts";
+import { ProjectArchivedError } from "../error/ProjectArchivedError.ts";
 
 export class RevokeProjectRoleUseCase {
   constructor(
@@ -15,6 +16,8 @@ export class RevokeProjectRoleUseCase {
     if (!(await this.projectRepository.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
-    return this.projectGrantRepository.revoke(projectId, principalId, role);
+    const result = await this.projectGrantRepository.revoke(projectId, principalId, role);
+    if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
+    return result.revoked;
   }
 }
