@@ -67,7 +67,7 @@
 
 | 操作 | 認証 | 備考 |
 | --- | --- | --- |
-| Grant の発行・一覧・取消 | なし（trusted-local） | Human・Runtime・スクリプトが同じ入口を使う。Role 検証なし。401 / 403 を返さない |
+| Grant の発行・一覧・取消 | なし（trusted-local） | Human は Web UI、外部 Runtime は Web API、CLI は保守・自動検証用。Role 検証なし。401 / 403 を返さない |
 | Project / Intent / Outcome の既存 API | なし | 不変 |
 
 ## 認可の順序と拒否の仕方
