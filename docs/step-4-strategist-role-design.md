@@ -5,8 +5,8 @@
 > | 範囲 | 状態 |
 > | --- | --- |
 > | Grant の永続化・Command API・CLI・Web UI（本書「永続化」「入力規則」「Command API」「CLI」「Web UI」、Task 14 の受け入れ例） | **実装済み**（Task 14）。API・CLI・repository・use case は自動テスト済み。Web UI は型・build と純関数のテストまでで、実ブラウザでの操作確認は未実施 |
-> | MCP の Principal 認証、Strategist 認可、`get_strategist_context`、職務分離ガード（「権限表」「認可の順序」「Strategist Context」、Task 15） | 設計済み・**未実装**。MCP は従来どおり認証なしで、Grant はまだ認可に使われない |
-> | Instruction 配信（Task 16） | 設計済み・**未実装** |
+> | MCP の Principal 認証、Strategist 認可、`get_strategist_context`、職務分離ガード（「権限表」「認可の順序」「Strategist Context」、Task 15） | **実装済み**（Task 15）。自動テスト済み（`test/strategistMcp.test.ts`）。`get_role_instructions` は Task 16 のため tool 一覧にまだ無い |
+> | Instruction 配信（Task 16） | 設計済み・**未実装**（Task 15 の受け入れ例 9 のうち `get_role_instructions` の公開は Task 16 で満たす） |
 > | 統合検証（Task 17） | 未実施 |
 >
 > Outcome 等の現行の挙動は [step-3-outcome-design.md](step-3-outcome-design.md) を参照する。
@@ -100,7 +100,9 @@ MCP の tool 呼び出しは次の順で処理する。
 | 入力違反・存在しない・状態競合 | 既存の `VALIDATION_ERROR` / `NOT_FOUND` / `CONFLICT` | Step 3 から不変 |
 | Web API の Grant | `400 VALIDATION_ERROR`（path 付き）、`404 NOT_FOUND`（`Project <id>`） | 下記 |
 
-`UnauthenticatedError`（`UNAUTHENTICATED`、REST へ出るなら 401）と `ForbiddenError`（`FORBIDDEN`、403）を `application/error/` に追加し、`app.onError` と MCP の `execute` に対応を足す。
+`UnauthenticatedError`（`UNAUTHENTICATED`、REST へ出るなら 401）と `ForbiddenError`（`FORBIDDEN`、403）を `application/error/` に追加し、`app.onError` と MCP の `execute` に対応を足した（実装済み。Web API の現行 route は Principal を扱わないため、REST でこの 2 つが返ることは今は無い）。
+
+実装の配置（Task 15）: Bearer の解決は `presentation/mcp/resolvePrincipal.ts`（規則は Grant の `principalId` と共通の `principalIdSchema`）、`/mcp` の request ごとに `app.ts` が呼び、`createMcpServer(services, principal)` へ渡す。認可は `application/service/ProjectAuthorizationService`（`requireRole` / `requireNotRole`、および検査してから操作を実行する `asRole` / `unlessRole`）。`get_strategist_context` は `GetStrategistContextUseCase` が自分で Grant を検査する。MCP の handler は Principal と projectId を渡すだけで、規則を持たない。
 
 ## 永続化
 

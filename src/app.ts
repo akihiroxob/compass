@@ -5,8 +5,11 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { fileURLToPath } from "node:url";
 import { createMcpServer } from "./presentation/mcp/createMcpServer.ts";
+import { MalformedAuthorizationError, resolvePrincipal } from "./presentation/mcp/resolvePrincipal.ts";
 import { ConflictError } from "./application/error/ConflictError.ts";
+import { ForbiddenError } from "./application/error/ForbiddenError.ts";
 import { NotFoundError } from "./application/error/NotFoundError.ts";
+import { UnauthenticatedError } from "./application/error/UnauthenticatedError.ts";
 import { ValidationError } from "./application/error/ValidationError.ts";
 import { applicationServices, type ApplicationServices } from "./container.ts";
 
@@ -143,10 +146,18 @@ export const createApp = (services: ApplicationServices = applicationServices) =
   app.all("/api/*", (c) => c.json({ error: { code: "NOT_FOUND", message: "Not Found" } }, 404));
 
   app.all("/mcp", async (c) => {
+    // Principalはこのrequestのヘッダーだけから解決する（MCPはstateless）。形式不正はtoolへ進めず401にする。
+    let principal;
+    try {
+      principal = resolvePrincipal(c.req.header("Authorization") ?? null);
+    } catch (error) {
+      if (!(error instanceof MalformedAuthorizationError)) throw error;
+      return c.json({ jsonrpc: "2.0", error: { code: -32001, message: error.message }, id: null }, 401);
+    }
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
-    const server = createMcpServer(services);
+    const server = createMcpServer(services, principal);
     await server.connect(transport);
     return transport.handleRequest(c.req.raw);
   });
@@ -169,6 +180,12 @@ export const createApp = (services: ApplicationServices = applicationServices) =
         { error: { code: error.code, message: error.message, ...error.details } },
         409,
       );
+    }
+    if (error instanceof UnauthenticatedError) {
+      return c.json({ error: { code: error.code, message: error.message } }, 401);
+    }
+    if (error instanceof ForbiddenError) {
+      return c.json({ error: { code: error.code, message: error.message, ...error.details } }, 403);
     }
     console.error(error);
     return c.json({ error: { code: "INTERNAL_ERROR", message: "Internal Server Error" } }, 500);

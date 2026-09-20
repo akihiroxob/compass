@@ -1,3 +1,4 @@
+import { ProjectAuthorizationService } from "./application/service/ProjectAuthorizationService.ts";
 import { AbandonIntentUseCase } from "./application/usecase/AbandonIntentUseCase.ts";
 import { CancelOutcomeUseCase } from "./application/usecase/CancelOutcomeUseCase.ts";
 import { CreateIntentUseCase } from "./application/usecase/CreateIntentUseCase.ts";
@@ -5,6 +6,7 @@ import { CreateOutcomeUseCase } from "./application/usecase/CreateOutcomeUseCase
 import { CreateProjectUseCase } from "./application/usecase/CreateProjectUseCase.ts";
 import { GetIntentUseCase } from "./application/usecase/GetIntentUseCase.ts";
 import { GetOutcomeUseCase } from "./application/usecase/GetOutcomeUseCase.ts";
+import { GetStrategistContextUseCase } from "./application/usecase/GetStrategistContextUseCase.ts";
 import { GetProjectUseCase } from "./application/usecase/GetProjectUseCase.ts";
 import { GrantProjectRoleUseCase } from "./application/usecase/GrantProjectRoleUseCase.ts";
 import { ListIntentsUseCase } from "./application/usecase/ListIntentsUseCase.ts";
@@ -28,7 +30,9 @@ export const createApplicationServices = (applicationDatabase: Kysely<Database>)
   const intentRepository = new SQLiteIntentRepository(applicationDatabase);
   const outcomeRepository = new SQLiteOutcomeRepository(applicationDatabase);
   const projectGrantRepository = new SQLiteProjectGrantRepository(applicationDatabase);
+  const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
   return {
+    projectAuthorizationService,
     createProjectUseCase: new CreateProjectUseCase(projectRepository),
     updateProjectUseCase: new UpdateProjectUseCase(projectRepository),
     listProjectsUseCase: new ListProjectsUseCase(projectRepository),
@@ -46,6 +50,12 @@ export const createApplicationServices = (applicationDatabase: Kysely<Database>)
     grantProjectRoleUseCase: new GrantProjectRoleUseCase(projectRepository, projectGrantRepository),
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(projectRepository, projectGrantRepository),
     listProjectGrantsUseCase: new ListProjectGrantsUseCase(projectRepository, projectGrantRepository),
+    getStrategistContextUseCase: new GetStrategistContextUseCase(
+      projectAuthorizationService,
+      projectRepository,
+      intentRepository,
+      outcomeRepository,
+    ),
   };
 };
 

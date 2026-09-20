@@ -1,8 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { ProjectRole } from "../../constants/ProjectRole.ts";
 import { ConflictError } from "../../application/error/ConflictError.ts";
+import { ForbiddenError } from "../../application/error/ForbiddenError.ts";
 import { NotFoundError } from "../../application/error/NotFoundError.ts";
+import { UnauthenticatedError } from "../../application/error/UnauthenticatedError.ts";
 import { ValidationError } from "../../application/error/ValidationError.ts";
+import type { Principal } from "../../application/service/ProjectAuthorizationService.ts";
 import type { ApplicationServices } from "../../container.ts";
 
 const nullableText = (maximum: number) => z.string().max(maximum).nullable().optional();
@@ -89,7 +93,9 @@ const execute = async (operation: () => Promise<unknown>) => {
     if (
       error instanceof ValidationError ||
       error instanceof NotFoundError ||
-      error instanceof ConflictError
+      error instanceof ConflictError ||
+      error instanceof ForbiddenError ||
+      error instanceof UnauthenticatedError
     ) {
       return {
         ...result({
@@ -97,7 +103,7 @@ const execute = async (operation: () => Promise<unknown>) => {
             code: error.code,
             message: error.message,
             ...(error instanceof ValidationError ? { issues: error.issues } : {}),
-            ...(error instanceof ConflictError ? error.details : {}),
+            ...(error instanceof ConflictError || error instanceof ForbiddenError ? error.details : {}),
           },
         }),
         isError: true,
@@ -107,7 +113,16 @@ const execute = async (operation: () => Promise<unknown>) => {
   }
 };
 
-export const createMcpServer = (services: ApplicationServices) => {
+/** principalはAuthorizationヘッダーから解決した値だけ。tool入力やsession IDは認証情報として読まない。 */
+export const createMcpServer = (services: ApplicationServices, principal: Principal = null) => {
+  const authorization = services.projectAuthorizationService;
+  // 検査の規則はapplication serviceが持つ。handlerはPrincipalとprojectIdを渡すだけ。
+  const asStrategist = <T>(projectId: string, operation: () => Promise<T>) =>
+    authorization.asRole(principal, projectId, ProjectRole.STRATEGIST, operation);
+  // Direction（Project・Intent）の管理操作。StrategistのGrantを持つPrincipalには拒否する（職務分離）。
+  const unlessStrategist = <T>(projectId: string, operation: () => Promise<T>) =>
+    authorization.unlessRole(principal, projectId, ProjectRole.STRATEGIST, operation);
+
   const server = new McpServer(
     { name: "compass", version: "0.1.0" },
     { instructions: "Compass Direction context server" },
@@ -128,7 +143,8 @@ export const createMcpServer = (services: ApplicationServices) => {
         "Repository/Resource items keep their identity when their existing id is included.",
       inputSchema: projectUpdateSchema,
     },
-    ({ projectId, ...input }) => execute(() => services.updateProjectUseCase.execute(projectId, input)),
+    ({ projectId, ...input }) =>
+      execute(() => unlessStrategist(projectId, () => services.updateProjectUseCase.execute(projectId, input))),
   );
   server.registerTool(
     "list_projects",
@@ -154,7 +170,8 @@ export const createMcpServer = (services: ApplicationServices) => {
         "creating another while one is active fails with CONFLICT. Creating an Intent does not start Strategist or Research.",
       inputSchema: intentCreateSchema,
     },
-    ({ projectId, ...input }) => execute(() => services.createIntentUseCase.execute(projectId, input)),
+    ({ projectId, ...input }) =>
+      execute(() => unlessStrategist(projectId, () => services.createIntentUseCase.execute(projectId, input))),
   );
   server.registerTool(
     "list_intents",
@@ -185,7 +202,9 @@ export const createMcpServer = (services: ApplicationServices) => {
       inputSchema: intentUpdateSchema,
     },
     ({ projectId, intentId, ...input }) =>
-      execute(() => services.updateIntentUseCase.execute(projectId, intentId, input)),
+      execute(() =>
+        unlessStrategist(projectId, () => services.updateIntentUseCase.execute(projectId, intentId, input)),
+      ),
   );
   server.registerTool(
     "abandon_intent",
@@ -200,22 +219,42 @@ export const createMcpServer = (services: ApplicationServices) => {
       },
     },
     ({ projectId, intentId, reason }) =>
-      execute(() => services.abandonIntentUseCase.execute(projectId, intentId, { reason })),
+      execute(() =>
+        unlessStrategist(projectId, () => services.abandonIntentUseCase.execute(projectId, intentId, { reason })),
+      ),
   );
 
+  server.registerTool(
+    "get_strategist_context",
+    {
+      title: "Get Strategist Context",
+      description:
+        "Get what a Strategist needs to decide the next Outcome: the Project (Mission, Vision, Principles, Constraints, " +
+        "Repositories, Resources), its active Intent (null if none), and every Outcome under that Intent including cancelled ones. " +
+        "unavailable lists inputs that are not implemented yet (research, evaluation, evidence); do not assume or invent them. " +
+        "Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: { projectId: z.string().min(1) },
+    },
+    ({ projectId }) => execute(() => services.getStrategistContextUseCase.execute(principal, projectId)),
+  );
   server.registerTool(
     "create_outcome",
     {
       title: "Create Outcome",
       description:
-        "Register an Outcome (with its Success Criteria) under an active Intent as the result of a Strategist/Human decision. " +
+        "Register an Outcome (with its Success Criteria) under an active Intent as a Strategist decision. " +
+        "Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise). " +
         "rationale records why this Outcome was chosen. Success Criteria are fixed at creation (1-10 items) and cannot be edited later; " +
         "to change them, cancel the Outcome and create a new one. Outcomes are never generated from an Intent automatically, " +
         "and Research is not required.",
       inputSchema: outcomeCreateSchema,
     },
     ({ projectId, intentId, ...input }) =>
-      execute(async () => ({ outcome: await services.createOutcomeUseCase.execute(projectId, intentId, input) })),
+      execute(() =>
+        asStrategist(projectId, async () => ({
+          outcome: await services.createOutcomeUseCase.execute(projectId, intentId, input),
+        })),
+      ),
   );
   server.registerTool(
     "list_outcomes",
@@ -247,9 +286,11 @@ export const createMcpServer = (services: ApplicationServices) => {
       inputSchema: outcomeUpdateSchema,
     },
     ({ projectId, intentId, outcomeId, ...input }) =>
-      execute(async () => ({
-        outcome: await services.updateOutcomeUseCase.execute(projectId, intentId, outcomeId, input),
-      })),
+      execute(() =>
+        asStrategist(projectId, async () => ({
+          outcome: await services.updateOutcomeUseCase.execute(projectId, intentId, outcomeId, input),
+        })),
+      ),
   );
   server.registerTool(
     "cancel_outcome",
@@ -265,9 +306,11 @@ export const createMcpServer = (services: ApplicationServices) => {
       },
     },
     ({ projectId, intentId, outcomeId, reason }) =>
-      execute(async () => ({
-        outcome: await services.cancelOutcomeUseCase.execute(projectId, intentId, outcomeId, { reason }),
-      })),
+      execute(() =>
+        asStrategist(projectId, async () => ({
+          outcome: await services.cancelOutcomeUseCase.execute(projectId, intentId, outcomeId, { reason }),
+        })),
+      ),
   );
 
   return server;

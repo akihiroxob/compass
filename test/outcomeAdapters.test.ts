@@ -34,10 +34,14 @@ const outcomeInput = {
   ],
 };
 
-const callTool = async (app: App, name: string, args: object) => {
+const callTool = async (app: App, name: string, args: object, principal?: string) => {
   const response = await app.request("/mcp", {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json, text/event-stream",
+      ...(principal ? { Authorization: `Bearer ${principal}` } : {}),
+    },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
   });
   const data = (await response.text()).split("\n").find((line) => line.startsWith("data: "));
@@ -162,36 +166,37 @@ test("MCPのOutcome操作はWebと同じ内容・同じ検証結果になる", a
   const { projectId, intentId } = await createProjectAndIntent(app);
   const base = `/api/projects/${projectId}/intents/${intentId}/outcomes`;
 
+  await send(app, "POST", `/api/projects/${projectId}/grants`, JSON.stringify({ principalId: "strat-1", role: "strategist" }));
   const viaWeb = ((await (await send(app, "POST", base, JSON.stringify(outcomeInput))).json()) as OutcomeBody).outcome;
   const got = await callTool(app, "get_outcome", { projectId, intentId, outcomeId: viaWeb.id });
   assert.equal(got.isError, undefined);
   assert.deepEqual(got.structuredContent.outcome, viaWeb);
 
-  const created = await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput });
+  const created = await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "strat-1");
   assert.equal(created.isError, undefined);
   const outcomeId = created.structuredContent.outcome.id as string;
   assert.deepEqual(((await (await app.request(`${base}/${outcomeId}`)).json()) as OutcomeBody).outcome, created.structuredContent.outcome);
   const listed = await callTool(app, "list_outcomes", { projectId, intentId });
   assert.deepEqual(listed.structuredContent.outcomes.map((item: { id: string }) => item.id), [outcomeId, viaWeb.id]);
 
-  const updated = await callTool(app, "update_outcome", { projectId, intentId, outcomeId, title: "Via MCP", hypothesis: null });
+  const updated = await callTool(app, "update_outcome", { projectId, intentId, outcomeId, title: "Via MCP", hypothesis: null }, "strat-1");
   assert.equal(updated.structuredContent.outcome.title, "Via MCP");
   assert.equal(((await (await app.request(`${base}/${outcomeId}`)).json()) as OutcomeBody).outcome.title, "Via MCP");
 
   // 固定項目はMCPでも黙って無視されず、Webと同じCONFLICTになる。
-  const fixed = await callTool(app, "update_outcome", { projectId, intentId, outcomeId, successCriteria: [], description: "x" });
+  const fixed = await callTool(app, "update_outcome", { projectId, intentId, outcomeId, successCriteria: [], description: "x" }, "strat-1");
   assert.equal(fixed.isError, true);
   assert.equal(fixed.structuredContent.error.code, "CONFLICT");
   assert.equal(fixed.structuredContent.error.fixedFields, "description,successCriteria");
 
-  const invalid = await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput, successCriteria: [] });
+  const invalid = await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput, successCriteria: [] }, "strat-1");
   assert.equal(invalid.isError, true);
   assert.equal(invalid.structuredContent.error.code, "VALIDATION_ERROR");
   assert.equal(invalid.structuredContent.error.issues[0].path, "successCriteria");
-  const noReason = await callTool(app, "cancel_outcome", { projectId, intentId, outcomeId, reason: " " });
+  const noReason = await callTool(app, "cancel_outcome", { projectId, intentId, outcomeId, reason: " " }, "strat-1");
   assert.equal(noReason.structuredContent.error.code, "VALIDATION_ERROR");
 
-  const cancelled = await callTool(app, "cancel_outcome", { projectId, intentId, outcomeId, reason: "Not needed" });
+  const cancelled = await callTool(app, "cancel_outcome", { projectId, intentId, outcomeId, reason: "Not needed" }, "strat-1");
   assert.equal(cancelled.structuredContent.outcome.status, "cancelled");
   assert.equal(((await (await app.request(`${base}/${outcomeId}`)).json()) as OutcomeBody).outcome.status, "cancelled");
   const missing = await callTool(app, "get_outcome", { projectId, intentId, outcomeId: "nope" });
