@@ -32,6 +32,78 @@ PORT=52000 npm start
 npm run dev
 ```
 
+## MCP Registration
+
+Compass MCP は Streamable HTTP の `http://localhost:51800/mcp` で接続します。Outcome を作成する
+Strategistには `Authorization: Bearer <AgentName>` が必要です。ここで指定するAgent名は、後述の
+Project Role Grantに登録するAgent名と一致させてください。
+
+```bash
+export COMPASS_AGENT_NAME="strategist-agent"
+```
+
+`COMPASS_AGENT_NAME`はMCP clientが読む環境変数で、Compass serverは読みません。clientはこれを設定したシェルから起動してください。
+
+### Codex
+
+`~/.codex/config.toml`、または信頼済みProjectの `.codex/config.toml` に登録します。
+
+```toml
+[mcp_servers.compass]
+url = "http://localhost:51800/mcp"
+bearer_token_env_var = "COMPASS_AGENT_NAME"
+```
+
+CLIから登録する場合は次のコマンドを使います。
+
+```bash
+codex mcp add compass \
+  --url http://localhost:51800/mcp \
+  --bearer-token-env-var COMPASS_AGENT_NAME
+```
+
+`codex mcp list`で登録を確認し、Codexを再起動してください。TUIでは`/mcp`で接続状態を確認できます。
+
+### Claude Code
+
+Projectルートの `.mcp.json` に登録する場合は次のように記載します。
+
+```json
+{
+  "mcpServers": {
+    "compass": {
+      "type": "http",
+      "url": "http://localhost:51800/mcp",
+      "headers": {
+        "Authorization": "Bearer ${COMPASS_AGENT_NAME}"
+      }
+    }
+  }
+}
+```
+
+### StrategistとしてOutcomeを作成する
+
+1. `npm start`でCompassを起動する。
+2. Web UIでProjectとActive Intentを作成する。
+3. Project詳細のStrategist欄で、`COMPASS_AGENT_NAME`と同じAgent名に`strategist`を付与する。
+4. MCP clientを起動し、`get_role_instructions({ role: "strategist", includeShared: true })`を読む。
+5. `get_strategist_context({ projectId })`でProject、Active Intent、既存Outcomeを取得する。
+6. 情報が十分なら`create_outcome`でOutcomeと成功条件を登録する。
+
+例えば、接続したAgentへ次のように依頼できます。
+
+```text
+Compass MCPを使い、Project <projectId> のStrategist InstructionとContextを読んでください。
+Intentを達成するための情報が十分なら、Outcomeと成功条件を作成してください。
+不足している場合はOutcomeを作らず、必要な情報とResearchすべき問いを報告してください。
+```
+
+`get_role_instructions`はBearer・Grantを必要としません。`get_strategist_context`と`create_outcome`はBearerがないと`UNAUTHENTICATED`、そのProjectのStrategist Grantがないと`FORBIDDEN`になります。Agent名の不一致を疑うときは、Project詳細のStrategist欄で割当済みのAgent名を確認してください。
+
+Research Requestの永続化とResearcherの起動は未実装です。現時点ではStrategistが情報不足を報告し、
+根拠を推測で補わないところまでをInstructionで定めています。
+
 ## 検証
 
 ```bash
@@ -59,16 +131,16 @@ Step 4 の Strategist Role と認可境界（Project 単位の Role Grant、`Aut
 
 ### Strategist Grant の操作
 
-Grant は Agent を起動しません。「この Agent 名が、この Project で Strategist として振る舞ってよい」という記録です。Web API・CLI が自動化の正規入口で、Human の確認や画面操作は不要です（Web UI は同じ処理を使う任意の入口）。trusted-local を前提とし、認証はありません。
+Grant は Agent を起動しません。「この Agent 名が、この Project で Strategist として振る舞ってよい」という記録です。HumanはProject詳細のWeb UIから発行・取消します。Web APIはWeb UIと外部Runtimeの接続面、CLIはローカル開発・保守・自動検証用です。trusted-local を前提とし、認証はありません。
 
 ```bash
-# Web API（server 起動中）
+# Web API（Web UI・外部Runtime・自動検証用。server 起動中）
 curl -X POST localhost:51800/api/projects/<projectId>/grants \
   -H 'Content-Type: application/json' -d '{"principalId":"strategist-agent","role":"strategist"}'   # 新規 201 / 既存 200
 curl localhost:51800/api/projects/<projectId>/grants                                                  # { "grants": [...] }
 curl -X DELETE localhost:51800/api/projects/<projectId>/grants/strategist/strategist-agent            # { "revoked": true | false }
 
-# CLI（server 停止中でも動作。COMPASS_DB_PATH の SQLite file を直接使う）
+# CLI（ローカル開発・保守用。server 停止中でも動作し、COMPASS_DB_PATH の SQLite file を直接使う）
 npm run cli -- grant  <projectId> <AgentName> strategist
 npm run cli -- revoke <projectId> <AgentName> strategist
 npm run cli -- grants <projectId>
