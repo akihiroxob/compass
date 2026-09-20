@@ -8,7 +8,7 @@
 > | MCP の Principal 認証、Strategist 認可、`get_strategist_context`、職務分離ガード（「権限表」「認可の順序」「Strategist Context」、Task 15） | **実装済み**（Task 15）。自動テスト済み（`test/strategistMcp.test.ts`） |
 > | Instruction 配信（「Instruction 配信」、Task 16） | **実装済み**（Task 16）。自動テスト済み（`test/instruction.test.ts`。Task 15 の受け入れ例 9 の `get_role_instructions` の公開も満たす）。Instruction を読んで動く Agent の自動起動（Runtime）は未接続 |
 > | 統合検証（Task 17） | **実装済み**（自動テスト `test/strategistIntegration.test.ts`）。実HTTPサーバー・CLI プロセス・MCP SDK client で、空 DB から Grant・認証・Instruction・Context・`create_outcome`・Web 参照、拒否系、再起動後の保持までを検証。実ブラウザ確認は任意で未実施。Runtime による Agent の自律起動は**未接続**で、テスト内の MCP client は自律運転の実証ではない |
-> | 実行環境での確認（Task 18） | Node v24.16.0 で統合テストがプロセスクラッシュ（`InternalCallbackScope::Close`）するとの報告があったが、Task 18 の環境では再現しなかった（単体・並列・別 port のサーバー稼働中の反復と `npm test` を全件成功で確認）。原因は未特定のため、再発時は Node のバージョンと実行条件を添えて報告する。実装済み範囲・Runtime 未接続の区別は上表のとおり変わらない |
+> | 実行環境での確認（Task 18） | Node v24.16.0 で統合テストがプロセスクラッシュ（`InternalCallbackScope::Close` / `execution_async_id`）した原因は、sandbox 等で `127.0.0.1` への listen が拒否（EPERM）される環境で、test の `listen` が `'error'` を扱わず未処理エラーとなり、Node 内部 Assertion で異常終了することだった（network 全拒否の macOS sandbox で再現）。`listen` が失敗を reject するよう直し、EPERM / EACCES のときだけ理由付きで skip する（それ以外の失敗は隠さない）。**loopback を許可した環境でのみ実行され、拒否環境では 7 件が skip されて統合検証は実施されない**ため、統合検証は sandbox 外で実行する。実装済み範囲・Runtime 未接続の区別は上表のとおり変わらない |
 >
 > Outcome 等の現行の挙動は [step-3-outcome-design.md](step-3-outcome-design.md) を参照する。
 > 事前のユーザー確認は設けない。追加資料に定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選び、理由を「選択理由と将来変更できる箇所」に記録する。

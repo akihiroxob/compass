@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
-import type { Server } from "node:http";
+import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,8 +41,9 @@ const outcomeInput = {
 
 type Running = { baseUrl: string; port: number; close: () => Promise<void> };
 
+// listen失敗（'error'イベント）を握らないと、node:test内の未処理エラーとしてNode内部Assertionで異常終了する。
 const listen = (app: ReturnType<typeof createApp>, port = 0) =>
-  new Promise<Running>((resolve) => {
+  new Promise<Running>((resolve, reject) => {
     const server = serve({ fetch: app.fetch, port, hostname: "127.0.0.1" }, (info: AddressInfo) => {
       resolve({
         baseUrl: `http://127.0.0.1:${info.port}`,
@@ -55,7 +56,17 @@ const listen = (app: ReturnType<typeof createApp>, port = 0) =>
           }),
       });
     });
+    (server as Server).once("error", reject);
   });
+
+// sandbox等でloopbackへのlistenが禁止された環境では、実HTTPサーバーを使う本ファイルは実行できない。
+// 拒否（EPERM / EACCES）だけを理由付きでskipし、それ以外の失敗は隠さない。
+const loopbackDenial = await new Promise<string | undefined>((resolve) => {
+  const probe = createServer();
+  probe.once("error", (error: NodeJS.ErrnoException) => resolve(error.code === "EPERM" || error.code === "EACCES" ? error.code : undefined));
+  probe.listen(0, "127.0.0.1", () => probe.close(() => resolve(undefined)));
+});
+const loopbackSkip = loopbackDenial ? `127.0.0.1へのlistenが拒否された（${loopbackDenial}）。sandbox外で実行すること` : false;
 
 /** DBファイル・サーバー・CLIを1つのDBパスで束ねる。 */
 const withEnvironment = async (
@@ -143,7 +154,7 @@ const errorCode = (result: ToolResult) => {
 const outcomesOf = async (baseUrl: string, projectId: string, intentId: string) =>
   (await api(baseUrl, "GET", `/api/projects/${projectId}/intents/${intentId}/outcomes`)).body.outcomes as unknown[];
 
-test("空DBから、API（Project・Intent）→ CLI（Grant）→ MCP（Instruction・Context・create_outcome）→ Web参照までHuman操作なしで完了する", async () => {
+test("空DBから、API（Project・Intent）→ CLI（Grant）→ MCP（Instruction・Context・create_outcome）→ Web参照までHuman操作なしで完了する", { skip: loopbackSkip }, async () => {
   await withEnvironment(async ({ start, cli }) => {
     const server = await start();
     const projectId = await createProject(server.baseUrl);
@@ -200,7 +211,7 @@ test("空DBから、API（Project・Intent）→ CLI（Grant）→ MCP（Instruc
   });
 });
 
-test("Grantは API・CLI のどちらでも発行でき、MCPにはGrant管理toolが無く、Agentは自分に権限を付けられない", async () => {
+test("Grantは API・CLI のどちらでも発行でき、MCPにはGrant管理toolが無く、Agentは自分に権限を付けられない", { skip: loopbackSkip }, async () => {
   await withEnvironment(async ({ start, cli }) => {
     const server = await start();
     const projectId = await createProject(server.baseUrl);
@@ -235,7 +246,7 @@ test("Grantは API・CLI のどちらでも発行でき、MCPにはGrant管理to
   });
 });
 
-test("get_role_instructionsの応答はWacha互換（role・includeShared・files[{path, kind, content}]）で、内容はagent/の文書と一致する", async () => {
+test("get_role_instructionsの応答はWacha互換（role・includeShared・files[{path, kind, content}]）で、内容はagent/の文書と一致する", { skip: loopbackSkip }, async () => {
   await withEnvironment(async ({ start }) => {
     const server = await start();
     await withAgent(server.baseUrl, undefined, async (client) => {
@@ -270,7 +281,7 @@ test("get_role_instructionsの応答はWacha互換（role・includeShared・file
   });
 });
 
-test("権限なし・別Project・Grant取消・Bearerなし・Role不一致・存在しないProjectを拒否し、Outcomeを作らない", async () => {
+test("権限なし・別Project・Grant取消・Bearerなし・Role不一致・存在しないProjectを拒否し、Outcomeを作らない", { skip: loopbackSkip }, async () => {
   await withEnvironment(async ({ start, cli }) => {
     const server = await start();
     const projectId = await createProject(server.baseUrl, "P");
@@ -325,7 +336,7 @@ test("権限なし・別Project・Grant取消・Bearerなし・Role不一致・�
   });
 });
 
-test("Instructionファイルが欠落するとINSTRUCTION_UNAVAILABLEで失敗し、部分的な応答を返さず、Context・Outcome作成には影響しない", async () => {
+test("Instructionファイルが欠落するとINSTRUCTION_UNAVAILABLEで失敗し、部分的な応答を返さず、Context・Outcome作成には影響しない", { skip: loopbackSkip }, async () => {
   const empty = await mkdtemp(join(tmpdir(), "compass-agent-missing-"));
   try {
     await withEnvironment(async ({ start, cli }) => {
@@ -352,7 +363,7 @@ test("Instructionファイルが欠落するとINSTRUCTION_UNAVAILABLEで失敗�
   }
 });
 
-test("サーバーを再起動（同じDB・同じport）してもGrantとOutcomeは保持され、/api・/mcpが使える", async () => {
+test("サーバーを再起動（同じDB・同じport）してもGrantとOutcomeは保持され、/api・/mcpが使える", { skip: loopbackSkip }, async () => {
   await withEnvironment(async ({ start, cli }) => {
     const first = await start();
     const projectId = await createProject(first.baseUrl);
@@ -387,7 +398,7 @@ test("サーバーを再起動（同じDB・同じport）してもGrantとOutcom
 });
 
 // 画面は`npm run build`が`public/`へ出力する。ビルド前の環境ではこのtestだけを飛ばし、理由を残す。
-test("同じport・同じサーバーで / のWeb UIも配信される", { skip: existsSync(publicIndex) ? false : "public/index.html が無い（npm run build 前）" }, async () => {
+test("同じport・同じサーバーで / のWeb UIも配信される", { skip: loopbackSkip || (existsSync(publicIndex) ? false : "public/index.html が無い（npm run build 前）") }, async () => {
   await withEnvironment(async ({ start }) => {
     const server = await start();
     const response = await fetch(`${server.baseUrl}/`, { headers: closeConnection });
