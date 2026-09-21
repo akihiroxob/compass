@@ -1,4 +1,4 @@
-import { sql, type Kysely } from "kysely";
+import { sql, type ColumnDefinitionBuilder, type Kysely } from "kysely";
 import type { Database } from "./schema.ts";
 
 /**
@@ -12,6 +12,243 @@ const addProjectArchiveColumns = async (database: Kysely<Database>): Promise<voi
   await sql`alter table project add column status text not null default 'active' check (status in ('active', 'archived'))`.execute(database);
   await sql`alter table project add column archived_at integer`.execute(database);
   await sql`alter table project add column archive_reason text`.execute(database);
+};
+
+/**
+ * Research集約。すべて`create ... if not exists`なので既存DBへ再適用でき、Project / Intent / Outcomeのtableには触れない。
+ * Findingは、SynthesisがIDで参照しProject内で再利用するため独立tableにする。Evidence参照・Synthesisとの関連は
+ * 関連tableで表し、参照整合をDBの外部キーで守る。要素単位で検索しない文字列配列（unknowns等）はJSON列に置く。
+ * Project一致は、子の行をRequest / Resultから導いた`project_id`で保存することでRepositoryが保証する。
+ */
+const initializeResearchSchema = async (database: Kysely<Database>): Promise<void> => {
+  const projectId = (column: ColumnDefinitionBuilder) =>
+    column.notNull().references("project.id").onDelete("cascade");
+
+  await database.schema
+    .createTable("research_request")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", projectId)
+    .addColumn("request_key", "text", (column) => column.notNull())
+    .addColumn("input_hash", "text", (column) => column.notNull())
+    .addColumn("kind", "text", (column) =>
+      column.notNull().check(sql`kind in ('project_watch', 'decision')`),
+    )
+    .addColumn("origin_intent_id", "text", (column) => column.references("intent.id").onDelete("cascade"))
+    .addColumn("origin_outcome_id", "text", (column) => column.references("outcome.id").onDelete("cascade"))
+    .addColumn("question", "text", (column) => column.notNull())
+    .addColumn("scope", "text", (column) => column.notNull())
+    .addColumn("completion_condition", "text", (column) => column.notNull())
+    .addColumn("budget_total", "integer", (column) => column.notNull().check(sql`budget_total > 0`))
+    .addColumn("budget_used", "integer", (column) =>
+      column.notNull().defaultTo(0).check(sql`budget_used >= 0 and budget_used <= budget_total`),
+    )
+    .addColumn("deadline_at", "integer")
+    .addColumn("status", "text", (column) =>
+      column
+        .notNull()
+        .check(
+          sql`status in ('requested', 'running', 'completed', 'insufficient', 'not_needed', 'cancelled')`,
+        ),
+    )
+    .addColumn("stop_reason", "text")
+    .addColumn("correlation_id", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addColumn("updated_at", "integer", (column) => column.notNull())
+    .addCheckConstraint(
+      "research_request_decision_has_intent",
+      sql`kind = 'project_watch' or origin_intent_id is not null`,
+    )
+    .execute();
+  // 同じProject・requestKeyの再送は1件に収束させる。Initial Requestはkeyを発端Intentから決定的に作る。
+  await database.schema
+    .createIndex("research_request_project_key_idx")
+    .unique()
+    .ifNotExists()
+    .on("research_request")
+    .columns(["project_id", "request_key"])
+    .execute();
+  await database.schema
+    .createIndex("research_request_origin_intent_idx")
+    .ifNotExists()
+    .on("research_request")
+    .columns(["project_id", "origin_intent_id"])
+    .execute();
+
+  await database.schema
+    .createTable("research_result")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", projectId)
+    .addColumn("request_id", "text", (column) =>
+      column.notNull().references("research_request.id").onDelete("cascade"),
+    )
+    .addColumn("sequence", "integer", (column) => column.notNull())
+    .addColumn("request_key", "text", (column) => column.notNull())
+    .addColumn("input_hash", "text", (column) => column.notNull())
+    .addColumn("summary", "text", (column) => column.notNull())
+    .addColumn("unknowns", "text", (column) => column.notNull())
+    .addColumn("options", "text", (column) => column.notNull())
+    .addColumn("risks", "text", (column) => column.notNull())
+    .addColumn("budget_used", "integer", (column) => column.notNull().check(sql`budget_used >= 0`))
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("run_ref", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .execute();
+  await database.schema
+    .createIndex("research_result_request_sequence_idx")
+    .unique()
+    .ifNotExists()
+    .on("research_result")
+    .columns(["request_id", "sequence"])
+    .execute();
+  await database.schema
+    .createIndex("research_result_request_key_idx")
+    .unique()
+    .ifNotExists()
+    .on("research_result")
+    .columns(["request_id", "request_key"])
+    .execute();
+
+  await database.schema
+    .createTable("research_evidence_ref")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", projectId)
+    .addColumn("result_id", "text", (column) =>
+      column.notNull().references("research_result.id").onDelete("cascade"),
+    )
+    .addColumn("position", "integer", (column) => column.notNull())
+    .addColumn("kind", "text", (column) =>
+      column
+        .notNull()
+        .check(sql`kind in ('url', 'repository_file', 'issue', 'pull_request', 'ci', 'wacha_run')`),
+    )
+    .addColumn("uri", "text", (column) => column.notNull())
+    .addColumn("retrieved_at", "integer", (column) => column.notNull())
+    .addColumn("version_hash", "text")
+    .execute();
+  await database.schema
+    .createIndex("research_evidence_ref_result_position_idx")
+    .unique()
+    .ifNotExists()
+    .on("research_evidence_ref")
+    .columns(["result_id", "position"])
+    .execute();
+
+  await database.schema
+    .createTable("research_finding")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", projectId)
+    .addColumn("request_id", "text", (column) =>
+      column.notNull().references("research_request.id").onDelete("cascade"),
+    )
+    .addColumn("result_id", "text", (column) =>
+      column.notNull().references("research_result.id").onDelete("cascade"),
+    )
+    .addColumn("position", "integer", (column) => column.notNull())
+    .addColumn("statement", "text", (column) => column.notNull())
+    .addColumn("confidence", "text", (column) =>
+      column.notNull().check(sql`confidence in ('low', 'medium', 'high')`),
+    )
+    .addColumn("observed_at", "integer", (column) => column.notNull())
+    .addColumn("expires_at", "integer")
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("run_ref", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .execute();
+  await database.schema
+    .createIndex("research_finding_result_position_idx")
+    .unique()
+    .ifNotExists()
+    .on("research_finding")
+    .columns(["result_id", "position"])
+    .execute();
+  await database.schema
+    .createIndex("research_finding_project_idx")
+    .ifNotExists()
+    .on("research_finding")
+    .column("project_id")
+    .execute();
+
+  await database.schema
+    .createTable("research_finding_evidence")
+    .ifNotExists()
+    .addColumn("finding_id", "text", (column) =>
+      column.notNull().references("research_finding.id").onDelete("cascade"),
+    )
+    .addColumn("evidence_ref_id", "text", (column) =>
+      column.notNull().references("research_evidence_ref.id").onDelete("cascade"),
+    )
+    .addColumn("position", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("research_finding_evidence_pk", ["finding_id", "evidence_ref_id"])
+    .execute();
+
+  await database.schema
+    .createTable("research_finding_conflict")
+    .ifNotExists()
+    .addColumn("finding_id", "text", (column) =>
+      column.notNull().references("research_finding.id").onDelete("cascade"),
+    )
+    .addColumn("conflicting_finding_id", "text", (column) =>
+      column.notNull().references("research_finding.id").onDelete("cascade"),
+    )
+    .addPrimaryKeyConstraint("research_finding_conflict_pk", ["finding_id", "conflicting_finding_id"])
+    .execute();
+
+  await database.schema
+    .createTable("research_synthesis")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", projectId)
+    .addColumn("request_id", "text", (column) =>
+      column.notNull().references("research_request.id").onDelete("cascade"),
+    )
+    .addColumn("request_key", "text", (column) => column.notNull())
+    .addColumn("input_hash", "text", (column) => column.notNull())
+    .addColumn("version", "integer", (column) => column.notNull().check(sql`version >= 1`))
+    .addColumn("supersedes_id", "text", (column) =>
+      column.references("research_synthesis.id").onDelete("cascade"),
+    )
+    .addColumn("conclusion", "text", (column) => column.notNull())
+    .addColumn("risks", "text", (column) => column.notNull())
+    .addColumn("options", "text", (column) => column.notNull())
+    .addColumn("unknowns", "text", (column) => column.notNull())
+    .addColumn("valid_as_of", "integer", (column) => column.notNull())
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("run_ref", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .execute();
+  await database.schema
+    .createIndex("research_synthesis_request_key_idx")
+    .unique()
+    .ifNotExists()
+    .on("research_synthesis")
+    .columns(["request_id", "request_key"])
+    .execute();
+  // 1つのSynthesisを置き換えられるのは1件だけ。versionの系列が分岐しないことをDBで強制する。
+  await sql`create unique index if not exists research_synthesis_supersedes_idx
+    on research_synthesis (supersedes_id) where supersedes_id is not null`.execute(database);
+  await database.schema
+    .createIndex("research_synthesis_project_idx")
+    .ifNotExists()
+    .on("research_synthesis")
+    .column("project_id")
+    .execute();
+
+  await database.schema
+    .createTable("research_synthesis_finding")
+    .ifNotExists()
+    .addColumn("synthesis_id", "text", (column) =>
+      column.notNull().references("research_synthesis.id").onDelete("cascade"),
+    )
+    .addColumn("finding_id", "text", (column) =>
+      column.notNull().references("research_finding.id").onDelete("cascade"),
+    )
+    .addColumn("position", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("research_synthesis_finding_pk", ["synthesis_id", "finding_id"])
+    .execute();
 };
 
 export const initializeSchema = async (database: Kysely<Database>): Promise<void> => {
@@ -171,4 +408,6 @@ export const initializeSchema = async (database: Kysely<Database>): Promise<void
     .on("project_grant")
     .columns(["principal_id", "project_id"])
     .execute();
+
+  await initializeResearchSchema(database);
 };

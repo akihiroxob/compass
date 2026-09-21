@@ -3,11 +3,17 @@ import { ProjectAuthorizationService } from "./application/service/ProjectAuthor
 import { AbandonIntentUseCase } from "./application/usecase/AbandonIntentUseCase.ts";
 import { ArchiveProjectUseCase } from "./application/usecase/ArchiveProjectUseCase.ts";
 import { CancelOutcomeUseCase } from "./application/usecase/CancelOutcomeUseCase.ts";
+import {
+  CancelResearchRequestUseCase,
+  CompleteResearchRequestUseCase,
+} from "./application/usecase/CloseResearchRequestUseCases.ts";
 import { CreateIntentUseCase } from "./application/usecase/CreateIntentUseCase.ts";
 import { CreateOutcomeUseCase } from "./application/usecase/CreateOutcomeUseCase.ts";
 import { CreateProjectUseCase } from "./application/usecase/CreateProjectUseCase.ts";
+import { CreateResearchRequestUseCase } from "./application/usecase/CreateResearchRequestUseCase.ts";
 import { GetIntentUseCase } from "./application/usecase/GetIntentUseCase.ts";
 import { GetOutcomeUseCase } from "./application/usecase/GetOutcomeUseCase.ts";
+import { GetResearchRequestUseCase } from "./application/usecase/GetResearchRequestUseCase.ts";
 import { GetStrategistContextUseCase } from "./application/usecase/GetStrategistContextUseCase.ts";
 import { GetProjectUseCase } from "./application/usecase/GetProjectUseCase.ts";
 import { GrantProjectRoleUseCase } from "./application/usecase/GrantProjectRoleUseCase.ts";
@@ -15,6 +21,9 @@ import { ListIntentsUseCase } from "./application/usecase/ListIntentsUseCase.ts"
 import { ListOutcomesUseCase } from "./application/usecase/ListOutcomesUseCase.ts";
 import { ListProjectGrantsUseCase } from "./application/usecase/ListProjectGrantsUseCase.ts";
 import { ListProjectsUseCase } from "./application/usecase/ListProjectsUseCase.ts";
+import { ListResearchRequestsUseCase } from "./application/usecase/ListResearchRequestsUseCase.ts";
+import { RegisterResearchResultUseCase } from "./application/usecase/RegisterResearchResultUseCase.ts";
+import { RegisterResearchSynthesisUseCase } from "./application/usecase/RegisterResearchSynthesisUseCase.ts";
 import { RevokeProjectRoleUseCase } from "./application/usecase/RevokeProjectRoleUseCase.ts";
 import { UpdateIntentUseCase } from "./application/usecase/UpdateIntentUseCase.ts";
 import { UpdateOutcomeUseCase } from "./application/usecase/UpdateOutcomeUseCase.ts";
@@ -23,6 +32,7 @@ import { SQLiteIntentRepository } from "./infrastructure/repository/SQLiteIntent
 import { SQLiteOutcomeRepository } from "./infrastructure/repository/SQLiteOutcomeRepository.ts";
 import { SQLiteProjectGrantRepository } from "./infrastructure/repository/SQLiteProjectGrantRepository.ts";
 import { SQLiteProjectRepository } from "./infrastructure/repository/SQLiteProjectRepository.ts";
+import { SQLiteResearchRepository } from "./infrastructure/repository/SQLiteResearchRepository.ts";
 import type { Kysely } from "kysely";
 import type { Database } from "./infrastructure/database/schema.ts";
 
@@ -30,10 +40,13 @@ import type { Database } from "./infrastructure/database/schema.ts";
 export const createApplicationServices = (
   applicationDatabase: Kysely<Database>,
   instructionService: InstructionService = new InstructionService(),
+  /** Researchの期限判定の時刻源。テストで固定できるよう注入する。 */
+  clock: () => number = Date.now,
 ) => {
   const projectRepository = new SQLiteProjectRepository(applicationDatabase);
   const intentRepository = new SQLiteIntentRepository(applicationDatabase);
   const outcomeRepository = new SQLiteOutcomeRepository(applicationDatabase);
+  const researchRepository = new SQLiteResearchRepository(applicationDatabase, clock);
   const projectGrantRepository = new SQLiteProjectGrantRepository(applicationDatabase);
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
   return {
@@ -54,6 +67,13 @@ export const createApplicationServices = (
     getOutcomeUseCase: new GetOutcomeUseCase(projectRepository, intentRepository, outcomeRepository),
     updateOutcomeUseCase: new UpdateOutcomeUseCase(projectRepository, outcomeRepository),
     cancelOutcomeUseCase: new CancelOutcomeUseCase(projectRepository, outcomeRepository),
+    createResearchRequestUseCase: new CreateResearchRequestUseCase(projectRepository, researchRepository),
+    listResearchRequestsUseCase: new ListResearchRequestsUseCase(projectRepository, researchRepository),
+    getResearchRequestUseCase: new GetResearchRequestUseCase(projectRepository, researchRepository),
+    registerResearchResultUseCase: new RegisterResearchResultUseCase(projectRepository, researchRepository),
+    registerResearchSynthesisUseCase: new RegisterResearchSynthesisUseCase(projectRepository, researchRepository),
+    completeResearchRequestUseCase: new CompleteResearchRequestUseCase(projectRepository, researchRepository),
+    cancelResearchRequestUseCase: new CancelResearchRequestUseCase(projectRepository, researchRepository),
     grantProjectRoleUseCase: new GrantProjectRoleUseCase(projectRepository, projectGrantRepository),
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(projectRepository, projectGrantRepository),
     listProjectGrantsUseCase: new ListProjectGrantsUseCase(projectRepository, projectGrantRepository),
