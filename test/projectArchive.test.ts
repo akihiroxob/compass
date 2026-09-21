@@ -471,7 +471,7 @@ test("AC-17 CLIにarchive・deleteのコマンドは無く、cliUsageは変わ�
       "  npm run cli -- grant  <projectId> <AgentName> <role>",
       "  npm run cli -- revoke <projectId> <AgentName> <role>",
       "  npm run cli -- grants <projectId>",
-      "roles: strategist",
+      "roles: strategist, researcher",
     ].join("\n"),
   );
   const { project } = await seed(services);
