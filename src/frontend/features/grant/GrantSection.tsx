@@ -6,7 +6,8 @@ import { GrantRow } from "./GrantRow";
 import { grantInit, grantNotice, grantsPath, type Grant, type GrantResponse } from "./grants";
 
 // ---- Strategist Role Grant（Step 4）。Agentの稼働状況・Run・自動起動は扱わないため表示しない。 ----
-export const GrantSection = ({ projectId }: { projectId: string }) => {
+/** `readOnly`（archivedのProject）では、割当・取消の導線を出さず、割当済みの一覧だけを表示する。 */
+export const GrantSection = ({ projectId, readOnly = false }: { projectId: string; readOnly?: boolean }) => {
   const [grants, setGrants] = useState<Grant[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [principalId, setPrincipalId] = useState("");
@@ -48,11 +49,11 @@ export const GrantSection = ({ projectId }: { projectId: string }) => {
       <p className="section-note">Agent名はMCPの <code>Authorization: Bearer &lt;AgentName&gt;</code> に設定する名前です。Strategistの割当はAgentを起動しません。API・CLIでも同じ操作ができ、この画面は任意の入口です。</p>
       {loadError ? <ErrorState message={`Strategistの読み込みに失敗しました: ${loadError}`} /> : grants === null ? <Loading /> : grants.length ? (
         <ul className="grant-list">
-          {grants.map((grant) => <GrantRow key={`${grant.role}:${grant.principalId}`} projectId={projectId} grant={grant} onRevoked={() => void load()} />)}
+          {grants.map((grant) => <GrantRow key={`${grant.role}:${grant.principalId}`} projectId={projectId} grant={grant} readOnly={readOnly} onRevoked={() => void load()} />)}
         </ul>
       ) : <p className="unset">Strategistは未割当です</p>}
-      {error && <FormErrorSummary error={error} />}
-      <form className="grant-form" onSubmit={submit}>
+      {error && !readOnly && <FormErrorSummary error={error} projectDetailTo={`/projects/${projectId}`} />}
+      {!readOnly && <form className="grant-form" onSubmit={submit}>
         <label>
           Agent名 <span>必須</span>
           <small>100文字まで。大文字小文字は区別されます。</small>
@@ -61,8 +62,8 @@ export const GrantSection = ({ projectId }: { projectId: string }) => {
         <div className="form-actions">
           <button className="button" disabled={isSubmitting}>{isSubmitting ? "割当中..." : "Strategistに割り当てる"}</button>
         </div>
-      </form>
-      {notice && <p className="grant-notice" role="status">{notice}</p>}
+      </form>}
+      {notice && !readOnly && <p className="grant-notice" role="status">{notice}</p>}
     </section>
   );
 };

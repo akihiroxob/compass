@@ -13,6 +13,9 @@ export type Project = {
   resources: { id: string; name: string; url: string; kind: string | null }[];
   createdAt: number;
   updatedAt: number;
+  status: "active" | "archived";
+  archivedAt: number | null;
+  archiveReason: string | null;
 };
 
 export type ProjectFormValues = {

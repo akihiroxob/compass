@@ -1,6 +1,6 @@
 # Step 5: Project archive 初期設計
 
-> **状態: Step 5 の設計（確定、Task 19）。永続化・use case・Web API・状態ガードは実装済み（Task 20）。Web UI（Task 21）は未実装。**
+> **状態: Step 5 の設計（確定、Task 19）。永続化・use case・Web API・状態ガードは実装済み（Task 20）。Web UI も実装済み（Task 21）。**
 > 事前のユーザー確認は設けない。追加資料に定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選び、理由を「選択理由と将来変更できる箇所」に記録する。完成後のフィードバックに応じて修正する。
 
 ## 根拠資料と優先順位
@@ -230,9 +230,21 @@ project（追加）
 | Web API | `POST /api/projects/:projectId/archive`、`GET /api/projects[?status=archived]`（`status` は `active` / `archived` のみ、他は 400） | AC-1〜AC-10、AC-18、AC-19 |
 | MCP / CLI | tool・コマンドを追加していない。既存の書込 tool・`grant` / `revoke` が同じ use case 経由で `CONFLICT` を返す。MCP の `list_projects` は active のみ | AC-14〜AC-17 |
 
-- **未実装**: Web UI の archive 操作・アーカイブ済み一覧・archived 詳細の導線制御（Task 21、AC-20〜AC-22）。現時点の Web UI は Project 一覧に active のみを表示し、archived の詳細は API 応答の 3 項目を表示しない。
 - 「Repository の同一 transaction での検査」は、better-sqlite3 の単一接続で書込が直列化されることに依存する。archive と書込の同時実行の競合は、use case を経由しない Repository 直接呼び出しのテスト（AC-11）で「archived なら何も書かない」ことを確認したもので、並列プロセスでの負荷試験は行っていない。
 - 検証（Task 20）: `npm test`（135 件パス）、`npm run lint`（tsc 2 project）、`npm run build`。ブラウザでの確認は Web UI を変更していないため対象外。
+
+### 実装済み（Task 21: Web UI）
+
+| 項目 | 実装 | 検証 |
+| --- | --- | --- |
+| 純関数・adapter | `src/frontend/projectArchive.ts`（一覧切替の query / path、理由の検証・要約、archive の request、400 / 409 / 404 の表示整形）。`api.ts` は 409 の `projectStatus: "archived"` を `project_archived`（Intent 等の `conflict` と別の kind）へ分類 | `test/projectArchiveUi.test.ts`（AC-20、および実 Web API へ向けた adapter の archive・一覧・409 分類） |
+| Project 一覧 | 「Active / アーカイブ済み」の切替（`/?status=archived`）。archived のカードに理由の要約と archive 日時を表示 | AC-22（一覧の取得は自動テスト。画面は未検証、下記） |
+| Project 詳細 | active だけに「アーカイブ」と理由必須の確認パネルを出す。archived は状態・理由・日時を表示し、Project 編集・Intent 登録・Grant の割当と取消の導線を出さない。archive 済みの検出（409）時は詳細を再取得して archived 表示へ揃える | AC-21（画面は未検証、下記） |
+| Intent / Outcome 詳細 | `useProjectArchived` で archived を判定し、編集・放棄・取消・登録の導線を出さない（判定できない間も出さない）。一覧と詳細の閲覧は可能 | 同上 |
+| 編集・登録 URL への直接アクセス | 保存時の 409 を `FormErrorSummary` が「アーカイブ済みのため変更できません」とし、Project 詳細への導線を出す。入力エラー（400）・他の競合（409）とは別の表示 | adapter の分類を自動テスト。画面は未検証 |
+
+- **未検証**: ブラウザでの表示確認（AC-21・AC-22 の画面部分）。この実行環境にブラウザ操作の手段が無く、React コンポーネントの描画テストも既存の方針（純関数と adapter のテスト）に無いため、コンポーネントの表示・導線の出し分けは型検査とビルド成功までの確認である。
+- 検証（Task 21）: `npm test`（142 件パス）、`npm run lint`、`npm run build`。
 
 ## Task 19 時点の設計の前提
 

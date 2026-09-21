@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import type { ErrorKind } from "../api";
 
 /** フォーム送信の失敗。not_foundは各フォームが文言付きの`other`へ変換してから保持する。 */
@@ -18,10 +19,12 @@ type FormErrorSummaryProps = {
   error: FormError;
   /** 409 conflictの表示。省略した場合、conflictも保存失敗として表示する。 */
   conflict?: { title: string; action?: ReactNode };
+  /** Projectがarchivedで拒否された場合に、内容を確認できるProject詳細への導線。 */
+  projectDetailTo?: string;
 };
 
 /** マウント時と`error`が変わるたびにフォーカスを移す。`error`があるときだけ描画すること。 */
-export const FormErrorSummary = ({ error, conflict }: FormErrorSummaryProps) => {
+export const FormErrorSummary = ({ error, conflict, projectDetailTo }: FormErrorSummaryProps) => {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.focus();
@@ -39,6 +42,12 @@ export const FormErrorSummary = ({ error, conflict }: FormErrorSummaryProps) => 
               </li>
             ))}
           </ul>
+        </>
+      ) : error.kind === "project_archived" ? (
+        <>
+          <p className="error-title">{error.message}</p>
+          <p>このProjectはアーカイブされています。入力した内容は保存されていません。</p>
+          {projectDetailTo && <Link to={projectDetailTo} className="text-link">Project詳細を開く →</Link>}
         </>
       ) : error.kind === "conflict" && conflict ? (
         <>

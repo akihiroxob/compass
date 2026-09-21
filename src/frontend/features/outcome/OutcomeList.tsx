@@ -23,12 +23,12 @@ export const ActiveOutcomes = ({ projectId, intentId }: { projectId: string; int
   return <div className="outcome-block"><p className="section-label">Active Outcomes</p>{error ? <p className="unset" role="alert">Outcomeを読み込めませんでした: {error}</p> : outcomes === null ? <p className="unset" role="status">読み込み中...</p> : active.length ? <OutcomeLinks projectId={projectId} outcomes={active} /> : <p className="unset">Outcomeは未登録です</p>}</div>;
 };
 
-export const OutcomeSection = ({ projectId, intent }: { projectId: string; intent: Intent }) => {
+export const OutcomeSection = ({ projectId, intent, readOnly = false }: { projectId: string; intent: Intent; readOnly?: boolean }) => {
   const { outcomes, error } = useOutcomes(projectId, intent.id); const { active, past } = splitOutcomes(outcomes ?? []);
   return <section className="detail-section" aria-labelledby="outcome-heading"><h2 id="outcome-heading">Outcome</h2><p className="section-note">Intentへ近づくために達成すべき、観測可能な状態です。Strategist（またはHuman）の判断結果として、成功条件とともに登録します。</p>
     {error ? <ErrorState message={`Outcomeの読み込みに失敗しました: ${error}`} /> : outcomes === null ? <Loading /> : <>
       {active.length ? <OutcomeLinks projectId={projectId} outcomes={active} /> : <p className="unset">{past.length ? "ActiveなOutcomeはありません" : "Outcomeは未登録です"}</p>}
-      {intent.status === "active" && <div className="action-row"><Link to={outcomePath(projectId, intent.id, "new")} className="button">Outcomeを登録</Link></div>}
+      {intent.status === "active" && !readOnly && <div className="action-row"><Link to={outcomePath(projectId, intent.id, "new")} className="button">Outcomeを登録</Link></div>}
       {past.length > 0 && <details className="past-intents"><summary>取消済みなどのOutcome（{past.length}件）</summary><OutcomeLinks projectId={projectId} outcomes={past} /></details>}
     </>}</section>;
 };

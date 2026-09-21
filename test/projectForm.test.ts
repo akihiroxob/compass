@@ -17,6 +17,9 @@ const project: Project = {
   ],
   createdAt: 1,
   updatedAt: 2,
+  status: "active",
+  archivedAt: null,
+  archiveReason: null,
 };
 
 test("保存済みProjectから、未設定を空欄・子要素のidを保持した編集フォーム値を作る", () => {

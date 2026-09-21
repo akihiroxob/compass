@@ -184,7 +184,7 @@ Intent、Outcome、Execution Summary、Activity は Step 1 の時点では未実
 
 ## この段階で確定しない事項
 
-- Project の削除・archive 状態と遷移（archive は Step 5 の設計 [step-5-project-archive-design.md](step-5-project-archive-design.md) で確定。API・状態ガードは実装済み（Task 20）、Web UI は Task 21。物理削除は作らない）
+- Project の削除・archive 状態と遷移（archive は Step 5 の設計 [step-5-project-archive-design.md](step-5-project-archive-design.md) で確定。API・状態ガードは実装済み（Task 20）、Web UI も実装済み（Task 21）。物理削除は作らない）
 - 同時編集の検出（楽観ロック）
 - Mission / Vision / Principles / Constraints を独立 aggregate にする時期
 - Repository / Resource の認証情報、疎通確認、provider 固有 metadata

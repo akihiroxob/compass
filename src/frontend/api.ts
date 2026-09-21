@@ -8,6 +8,8 @@ export class ApiError extends Error {
     readonly issues: ApiIssue[] = [],
     /** 409 CONFLICTで、既にActiveなIntentがある場合のID。 */
     readonly activeIntentId: string | null = null,
+    /** 409 CONFLICTで、Projectがarchivedのために拒否された場合は`archived`。Intent / Outcomeの状態とは別の項目。 */
+    readonly projectStatus: string | null = null,
   ) {
     super(message);
   }
@@ -43,6 +45,7 @@ export const toApiError = (status: number, body: unknown): ApiError => {
     typeof error.message === "string" ? error.message : `Request failed (${status})`,
     readIssues(error.issues),
     typeof error.activeIntentId === "string" ? error.activeIntentId : null,
+    typeof error.projectStatus === "string" ? error.projectStatus : null,
   );
 };
 
@@ -111,6 +114,7 @@ export type FormIssue = { fieldId: string | null; label: string; message: string
 export type ErrorKind =
   | { kind: "validation"; issues: FormIssue[] }
   | { kind: "not_found" }
+  | { kind: "project_archived"; message: string }
   | { kind: "conflict"; message: string; activeIntentId: string | null }
   | { kind: "other"; message: string };
 
@@ -130,6 +134,10 @@ export const classifyError = (error: unknown): ErrorKind => {
     };
   }
   if (error.status === 404 && error.code === "NOT_FOUND") return { kind: "not_found" };
+  // archivedによる拒否は、Intent / Outcomeの状態の競合と区別する（復帰はできないため、再試行を促さない）。
+  if (error.status === 409 && error.code === "CONFLICT" && error.projectStatus === "archived") {
+    return { kind: "project_archived", message: "アーカイブ済みのため変更できません。" };
+  }
   if (error.status === 409 && error.code === "CONFLICT") {
     return { kind: "conflict", message: error.message, activeIntentId: error.activeIntentId };
   }
