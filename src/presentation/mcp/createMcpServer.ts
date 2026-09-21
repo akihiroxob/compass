@@ -79,6 +79,56 @@ const outcomeUpdateSchema = {
   successCriteria: z.unknown().optional(),
 };
 
+// Researchの入力規則はshared/researchSchemaが持つ。ここでは型だけを宣言する。
+// principalIdは入力に持たない。来歴のPrincipalはBearerから解決した値だけを使う。
+const researchRequestRef = { projectId: z.string().min(1), requestId: z.string().min(1) };
+const researchProvenance = { requestKey: z.string(), runRef: z.string() };
+const researchTextList = z.array(z.string()).optional();
+
+const researchResultSchema = {
+  ...researchRequestRef,
+  ...researchProvenance,
+  summary: z.string(),
+  budgetUsed: z.number().optional(),
+  evidenceRefs: z
+    .array(
+      z.object({
+        kind: z.string(),
+        uri: z.string(),
+        retrievedAt: z.number(),
+        versionHash: z.string().nullable().optional(),
+      }),
+    )
+    .optional(),
+  findings: z
+    .array(
+      z.object({
+        statement: z.string(),
+        confidence: z.string(),
+        observedAt: z.number(),
+        expiresAt: z.number().nullable().optional(),
+        evidenceIndexes: z.array(z.number()),
+        conflictsWithFindingIds: z.array(z.string()).optional(),
+      }),
+    )
+    .optional(),
+  unknowns: researchTextList,
+  options: researchTextList,
+  risks: researchTextList,
+};
+
+const researchSynthesisSchema = {
+  ...researchRequestRef,
+  ...researchProvenance,
+  conclusion: z.string(),
+  findingIds: z.array(z.string()),
+  risks: researchTextList,
+  options: researchTextList,
+  unknowns: researchTextList,
+  validAsOf: z.number(),
+  supersedesId: z.string().nullable().optional(),
+};
+
 const result = (value: unknown) => {
   const plainValue = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
   return {
@@ -121,9 +171,14 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
   // 検査の規則はapplication serviceが持つ。handlerはPrincipalとprojectIdを渡すだけ。
   const asStrategist = <T>(projectId: string, operation: () => Promise<T>) =>
     authorization.asRole(principal, projectId, ProjectRole.STRATEGIST, operation);
-  // Direction（Project・Intent）の管理操作。StrategistのGrantを持つPrincipalには拒否する（職務分離）。
-  const unlessStrategist = <T>(projectId: string, operation: () => Promise<T>) =>
-    authorization.unlessRole(principal, projectId, ProjectRole.STRATEGIST, operation);
+  // 来歴のPrincipalはBearerから解決した値だけ。tool入力のprincipalIdは受け付けない。
+  const asResearcher = async <T>(projectId: string, operation: (principalId: string) => Promise<T>) =>
+    operation(await authorization.requireRole(principal, projectId, ProjectRole.RESEARCHER));
+  // Direction（Project・Intent）の管理操作。StrategistまたはResearcherのGrantを持つPrincipalには拒否する（職務分離）。
+  const unlessDirectionRole = <T>(projectId: string, operation: () => Promise<T>) =>
+    authorization.unlessRole(principal, projectId, ProjectRole.STRATEGIST, () =>
+      authorization.unlessRole(principal, projectId, ProjectRole.RESEARCHER, operation),
+    );
 
   const server = new McpServer(
     { name: "compass", version: "0.1.0" },
@@ -146,7 +201,7 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
       inputSchema: projectUpdateSchema,
     },
     ({ projectId, ...input }) =>
-      execute(() => unlessStrategist(projectId, () => services.updateProjectUseCase.execute(projectId, input))),
+      execute(() => unlessDirectionRole(projectId, () => services.updateProjectUseCase.execute(projectId, input))),
   );
   server.registerTool(
     "list_projects",
@@ -173,7 +228,7 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
       inputSchema: intentCreateSchema,
     },
     ({ projectId, ...input }) =>
-      execute(() => unlessStrategist(projectId, () => services.createIntentUseCase.execute(projectId, input))),
+      execute(() => unlessDirectionRole(projectId, () => services.createIntentUseCase.execute(projectId, input))),
   );
   server.registerTool(
     "list_intents",
@@ -205,7 +260,7 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
     },
     ({ projectId, intentId, ...input }) =>
       execute(() =>
-        unlessStrategist(projectId, () => services.updateIntentUseCase.execute(projectId, intentId, input)),
+        unlessDirectionRole(projectId, () => services.updateIntentUseCase.execute(projectId, intentId, input)),
       ),
   );
   server.registerTool(
@@ -222,7 +277,7 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
     },
     ({ projectId, intentId, reason }) =>
       execute(() =>
-        unlessStrategist(projectId, () => services.abandonIntentUseCase.execute(projectId, intentId, { reason })),
+        unlessDirectionRole(projectId, () => services.abandonIntentUseCase.execute(projectId, intentId, { reason })),
       ),
   );
 
@@ -323,6 +378,104 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
       execute(() =>
         asStrategist(projectId, async () => ({
           outcome: await services.cancelOutcomeUseCase.execute(projectId, intentId, outcomeId, { reason }),
+        })),
+      ),
+  );
+
+  server.registerTool(
+    "get_researcher_context",
+    {
+      title: "Get Researcher Context",
+      description:
+        "Get what a Researcher needs to work on one Research Request: the Project snapshot (Mission, Vision, Principles, Constraints, " +
+        "Repositories, Resources), the request (question, scope, completionCondition, status, deadline), the origin Intent (null for project_watch), " +
+        "the remaining budget, results and syntheses already registered for this request, and related Findings with their Evidence references " +
+        "from other requests of the same origin (newest first, capped). unavailable lists inputs that are not implemented yet; do not assume them. " +
+        "Requires Authorization: Bearer <AgentName> with a researcher Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: researchRequestRef,
+    },
+    ({ projectId, requestId }) =>
+      execute(() => services.getResearcherContextUseCase.execute(principal, projectId, requestId)),
+  );
+  server.registerTool(
+    "list_research_requests",
+    {
+      title: "List Research Requests",
+      description:
+        "List the Research Requests of a Project, newest first, optionally filtered by originIntentId or status " +
+        "(requested, running, completed, insufficient, not_needed, cancelled). " +
+        "Requires Authorization: Bearer <AgentName> with a researcher Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: {
+        projectId: z.string().min(1),
+        originIntentId: z.string().optional(),
+        status: z.string().optional(),
+      },
+    },
+    ({ projectId, ...filter }) =>
+      execute(() =>
+        asResearcher(projectId, async () => ({
+          requests: await services.listResearchRequestsUseCase.execute(projectId, filter),
+        })),
+      ),
+  );
+  server.registerTool(
+    "register_research_result",
+    {
+      title: "Register Research Result",
+      description:
+        "Append a Research Result (summary, Evidence references, Findings, unknowns, options, risks) to an open Research Request. " +
+        "Every Finding must cite at least one of the Result's evidenceRefs by index. requestKey makes a resend idempotent; " +
+        "the same requestKey with different content fails with CONFLICT. runRef identifies the Run; the Principal is taken from the Bearer. " +
+        "Fails with CONFLICT for a closed request, a passed deadline or an exceeded budget (close it as insufficient instead). " +
+        "Requires Authorization: Bearer <AgentName> with a researcher Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: researchResultSchema,
+    },
+    ({ projectId, requestId, ...input }) =>
+      execute(() =>
+        asResearcher(projectId, async (principalId) => ({
+          result: await services.registerResearchResultUseCase.execute(projectId, requestId, { ...input, principalId }),
+        })),
+      ),
+  );
+  server.registerTool(
+    "register_research_synthesis",
+    {
+      title: "Register Research Synthesis",
+      description:
+        "Append a Research Synthesis that compresses registered Findings (by findingIds) into a conclusion with validAsOf. " +
+        "Set supersedesId to the latest version to add the next version; earlier versions are never overwritten. " +
+        "requestKey makes a resend idempotent; runRef identifies the Run; the Principal is taken from the Bearer. " +
+        "Requires Authorization: Bearer <AgentName> with a researcher Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: researchSynthesisSchema,
+    },
+    ({ projectId, requestId, ...input }) =>
+      execute(() =>
+        asResearcher(projectId, async (principalId) => ({
+          synthesis: await services.registerResearchSynthesisUseCase.execute(projectId, requestId, {
+            ...input,
+            principalId,
+          }),
+        })),
+      ),
+  );
+  server.registerTool(
+    "complete_research_request",
+    {
+      title: "Complete Research Request",
+      description:
+        "Close a Research Request as completed, insufficient or not_needed. completed requires at least one registered Result and Synthesis; " +
+        "insufficient and not_needed require stopReason. A closed request cannot be changed. Cancelling is not available to a Researcher. " +
+        "Requires Authorization: Bearer <AgentName> with a researcher Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: {
+        ...researchRequestRef,
+        conclusion: z.string(),
+        stopReason: z.string().nullable().optional(),
+      },
+    },
+    ({ projectId, requestId, ...input }) =>
+      execute(() =>
+        asResearcher(projectId, async () => ({
+          request: await services.completeResearchRequestUseCase.execute(projectId, requestId, input),
         })),
       ),
   );

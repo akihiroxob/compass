@@ -13,6 +13,7 @@ import type {
   CloseResearchRequestResult,
   CreateResearchRequestResult,
   RegisterResearchResultResult,
+  RelatedResearchFindings,
   RegisterResearchSynthesisResult,
   ResearchRepository,
   ResearchRequestQuery,
@@ -323,6 +324,43 @@ export class SQLiteResearchRepository implements ResearchRepository {
   async findRequestDetail(projectId: string, requestId: string): Promise<ResearchRequestDetail | null> {
     const row = await findRequestRow(this.database, projectId, requestId);
     return row ? loadDetail(this.database, row) : null;
+  }
+
+  async findRelatedFindings(projectId: string, requestId: string, limit: number): Promise<RelatedResearchFindings> {
+    const request = await findRequestRow(this.database, projectId, requestId);
+    if (!request) return { findings: [], evidenceRefs: [] };
+    let statement = this.database
+      .selectFrom("research_finding")
+      .innerJoin("research_request", "research_request.id", "research_finding.request_id")
+      .select(["research_finding.id as id", "research_finding.result_id as result_id"])
+      .where("research_finding.project_id", "=", projectId)
+      .where("research_finding.request_id", "!=", requestId)
+      .where("research_request.kind", "=", request.kind);
+    statement =
+      request.origin_intent_id === null
+        ? statement.where("research_request.origin_intent_id", "is", null)
+        : statement.where("research_request.origin_intent_id", "=", request.origin_intent_id);
+    const selected = await statement
+      .orderBy("research_finding.created_at", "desc")
+      .orderBy(sql`research_finding.rowid`, "desc")
+      .limit(limit)
+      .execute();
+    if (selected.length === 0) return { findings: [], evidenceRefs: [] };
+
+    const resultRows = await this.database
+      .selectFrom("research_result")
+      .selectAll()
+      .where("id", "in", [...new Set(selected.map((row) => row.result_id))])
+      .execute();
+    const results = await loadResults(this.database, resultRows);
+    const wanted = new Set(selected.map((row) => row.id));
+    const findingsById = new Map(
+      results.flatMap((result) => result.findings).filter((finding) => wanted.has(finding.id)).map((finding) => [finding.id, finding]),
+    );
+    const findings = selected.map((row) => findingsById.get(row.id)!);
+    const cited = new Set(findings.flatMap((finding) => finding.evidenceRefIds));
+    const evidenceRefs = results.flatMap((result) => result.evidenceRefs).filter((evidence) => cited.has(evidence.id));
+    return { findings, evidenceRefs };
   }
 
   async registerResult(

@@ -19,7 +19,7 @@ export const GrantSection = ({ projectId, readOnly = false }: { projectId: strin
   const load = useCallback(
     () =>
       request<{ grants: Grant[] }>(grantsPath(projectId))
-        .then((body) => { setGrants(body.grants); setLoadError(null); })
+        .then((body) => { setGrants(body.grants.filter((grant) => grant.role === "strategist")); setLoadError(null); })
         .catch((reason: unknown) => setLoadError(loadFailureMessage(classifyError(reason), "Projectが見つかりません。"))),
     [projectId],
   );

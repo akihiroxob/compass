@@ -14,6 +14,7 @@ import { CreateResearchRequestUseCase } from "./application/usecase/CreateResear
 import { GetIntentUseCase } from "./application/usecase/GetIntentUseCase.ts";
 import { GetOutcomeUseCase } from "./application/usecase/GetOutcomeUseCase.ts";
 import { GetResearchRequestUseCase } from "./application/usecase/GetResearchRequestUseCase.ts";
+import { GetResearcherContextUseCase } from "./application/usecase/GetResearcherContextUseCase.ts";
 import { GetStrategistContextUseCase } from "./application/usecase/GetStrategistContextUseCase.ts";
 import { GetProjectUseCase } from "./application/usecase/GetProjectUseCase.ts";
 import { GrantProjectRoleUseCase } from "./application/usecase/GrantProjectRoleUseCase.ts";
@@ -77,6 +78,12 @@ export const createApplicationServices = (
     grantProjectRoleUseCase: new GrantProjectRoleUseCase(projectRepository, projectGrantRepository),
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(projectRepository, projectGrantRepository),
     listProjectGrantsUseCase: new ListProjectGrantsUseCase(projectRepository, projectGrantRepository),
+    getResearcherContextUseCase: new GetResearcherContextUseCase(
+      projectAuthorizationService,
+      projectRepository,
+      intentRepository,
+      researchRepository,
+    ),
     getStrategistContextUseCase: new GetStrategistContextUseCase(
       projectAuthorizationService,
       projectRepository,

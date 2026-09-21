@@ -9,7 +9,7 @@
 | 項目 | 状況 |
 | --- | --- |
 | Research Request / Result / Finding / Evidence参照 / Synthesisのdomain・SQLite永続化・application層 | 実装済み（Task 23）。入口（Web API / MCP / Web UI）へは未接続 |
-| Researcher Role・Instruction・MCP Context / Command | 未実装 |
+| Researcher Role・Instruction・MCP Context / Command | 実装済み（Task 24）。Runtimeによる起動・Human向けGrant画面は未接続 |
 | Active Intent作成時のInitial Request・Runtimeイベント | 未実装 |
 | Intent Brief・Strategist Contextへの接続 | 未実装 |
 | Direction Decision・ADR連携・Human向けResearch / Decision画面 | 未実装 |
@@ -250,10 +250,21 @@ Human向けのResearch閲覧・手動登録はWeb UIから共通application層�
 - 1つのSynthesisを置き換えられるのは1件だけで、系列の分岐はDBのunique indexで拒否する。別ProjectのSynthesisや存在しないIDは置き換えられない。
 - `validAsOf`、入力Finding ID、作成Principal・`runRef`、作成時刻を保持する。Synthesisは別RequestのFindingも参照できる。
 
+## 実装記録: Researcher Role・Instruction・MCP（Task 24）
+
+- `ProjectRole`へ`researcher`を追加した。Grantの保存・Web API（`POST /api/projects/:projectId/grants`）・Instruction配信は既存のStrategistと同じ経路で、roleにcheck制約が無いためschema変更は無い。Web UIのGrant欄はStrategist専用のままで、Researcherの管理画面はTask 29で追加する（Strategist欄にResearcherのGrantが混ざらないよう、一覧は`strategist`だけを表示する）。
+- `agent/researcher.md`を追加し、`get_role_instructions({ role: "researcher" })`は既存と同じ応答形式（`role` / `includeShared` / `files`）で返す。tool名と権限は`test/researcherMcp.test.ts`で契約テストする。
+- MCP tool: `get_researcher_context`、`list_research_requests`、`register_research_result`、`register_research_synthesis`、`complete_research_request`。すべてBearerとそのProjectのresearcher Grantを毎回検査し（`UNAUTHENTICATED` / `FORBIDDEN`）、tool入力の`role`・`principalId`は認可にも来歴にも使わない。既存のResearch use caseへ委譲し、業務規則をMCP側に重複させない。
+- Result / Synthesisの`principalId`はBearerから、`runRef`は入力から保存する。Request作成・取消はResearcherに公開しない（Requestの作成はTask 25でIntent作成と同一transactionで行う）。確定できるのは`completed` / `insufficient` / `not_needed`だけ。
+- `get_researcher_context`が返す内容: Project snapshot、Request（Question / scope / completionCondition / 期限 / 状態）、発端Intent、予算（total / used / remaining）、このRequestの既存Result・Synthesis、関連Finding・引用Evidence参照、`unavailable: ["evaluation"]`。
+- 初期選択: 「関連Finding」は、同じProjectで**同じ発端Intent**（`project_watch`は発端なし同士）を持つ**他Request**のFindingを新しい順に最大50件とした。別Intent・別Projectは含めず、自身のFindingは`results`に含まれる。Intentをまたぐ再利用・鮮度・競合の解釈・圧縮はIntent Brief（Task 26）で扱い、ここでは平均化・除外をしない。
+- Direction管理（`update_project` / `create_intent` / `update_intent` / `abandon_intent`）は、Researcher Grantを持つPrincipalにも`FORBIDDEN`とした（Strategistと同じ職務分離。Agent名の変更で回避できるため、trusted-localでは構造上の保証＝Researcher用toolに該当操作が無いことが本体）。`create_outcome`等は従来どおりstrategist Grantが必要で、Researcherは実行できない。Direction Decisionは未実装（Task 27）。
+- 未接続・未検証: Runtimeによる起動・監視、外部検索Provider、Strategist Contextへの接続（`get_strategist_context`の`research`は`unavailable`のまま）。検証は`createApp`に対するin-processのMCP呼び出しで、実Runtimeでの自律運転の実証ではない。
+
 ## 段階的な実装
 
 1. Research Request / ResultとProject・Intentの関連、状態遷移、冪等性を実装する（domain・永続化・application層はTask 23で実装済み。入口は未接続）
-2. Researcher Role、Instruction、Grant、Context、Result登録を実装する
+2. Researcher Role、Instruction、Grant、Context、Result登録を実装する（Task 24で実装済み。Human向けGrant画面はTask 29）
 3. Active Intent作成時のInitial RequestとRuntime向け確定イベントを実装する
 4. Finding / Synthesisのversion・来歴とIntent Briefを実装し、Strategist Contextへ接続する
 5. Direction DecisionとOutcomeの根拠参照を実装する

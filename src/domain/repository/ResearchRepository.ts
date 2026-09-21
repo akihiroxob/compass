@@ -1,5 +1,7 @@
 import type { IntentStatus } from "../model/Intent.ts";
 import type {
+  EvidenceReference,
+  ResearchFinding,
   ResearchRequest,
   ResearchRequestDetail,
   ResearchRequestStatus,
@@ -62,6 +64,12 @@ export type ResearchRequestQuery = {
   status?: ResearchRequestStatus;
 };
 
+/** Researcherが再利用できる、同じProjectの他Requestが残したFindingと、それが引用するEvidence参照。 */
+export type RelatedResearchFindings = {
+  findings: ResearchFinding[];
+  evidenceRefs: EvidenceReference[];
+};
+
 /**
  * Research集約の永続化。Result・Finding・Evidence参照・Synthesisは追記だけで、更新・削除するメソッドは持たない。
  * 書込はすべてProjectのarchived確認と同一transactionで行い、別ProjectのIDは存在しないものとして扱う。
@@ -73,6 +81,11 @@ export interface ResearchRepository {
   findRequests(projectId: string, query?: ResearchRequestQuery): Promise<ResearchRequest[]>;
   /** 他ProjectのRequest IDはnull。Result・Finding・Evidence・Synthesisを登録順で含める。 */
   findRequestDetail(projectId: string, requestId: string): Promise<ResearchRequestDetail | null>;
+  /**
+   * 対象Requestと同じ発端Intent（project_watchは発端なし同士）を持つ、同じProjectの他RequestのFindingを新しい順に最大`limit`件返す。
+   * 対象Request自身のFindingは含めない（`findRequestDetail`で取得できる）。別Projectのものは返さない。
+   */
+  findRelatedFindings(projectId: string, requestId: string, limit: number): Promise<RelatedResearchFindings>;
   /** 初回の登録で`requested`から`running`へ進み、使用予算を加算する。期限・予算を超える登録は拒否する。 */
   registerResult(
     projectId: string,

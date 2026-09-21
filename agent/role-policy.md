@@ -4,7 +4,7 @@
 
 この文書は、Compass の MCP における Principal と Project Role の共通運用を定義する。Role ごとの手順は `agent/<role>.md` を正とする。設計の詳細は `docs/step-4-strategist-role-design.md` を参照する。
 
-現在配信している Role は `strategist` だけである。
+現在配信している Role は `strategist` と `researcher` である。
 
 ## 基本方針
 

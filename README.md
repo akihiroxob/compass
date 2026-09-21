@@ -112,8 +112,9 @@ Intentを達成するための情報が十分なら、Outcomeと成功条件を�
 
 `get_role_instructions`はBearer・Grantを必要としません。`get_strategist_context`と`create_outcome`はBearerがないと`UNAUTHENTICATED`、そのProjectのStrategist Grantがないと`FORBIDDEN`になります。Agent名の不一致を疑うときは、Project詳細のStrategist欄で割当済みのAgent名を確認してください。
 
-Research Request・Result・Finding・Evidence参照・Synthesisのdomain・永続化・application層は実装済みですが（Task 23）、
-Web API・MCP・Web UIへは未接続で、Researcherの起動も未実装です。`get_strategist_context`の`research`も`unavailable`のままです。
+Research Request・Result・Finding・Evidence参照・Synthesisのdomain・永続化・application層は実装済み（Task 23）で、
+Researcher Role・Instruction・MCP tool（`get_researcher_context`・`list_research_requests`・`register_research_result`・`register_research_synthesis`・`complete_research_request`）も実装済みです（Task 24）。
+ResearcherのGrantはWeb API（`POST /api/projects/:projectId/grants`、`role: "researcher"`）で付与でき、Web UIの管理画面・Runtimeによる起動・Web APIのResearch入口は未接続です。`get_strategist_context`の`research`も`unavailable`のままです。
 現時点ではStrategistが情報不足を報告し、根拠を推測で補わないところまでをInstructionで定めています。
 
 ## 検証
@@ -143,7 +144,7 @@ Step 4 の Strategist Role と認可境界（Project 単位の Role Grant、`Aut
 
 Step 5 の Project archive（active → archived の不可逆な遷移、理由の保持、archived 時に拒否する操作と参照できる操作）の設計と実装状況は [docs/step-5-project-archive-design.md](docs/step-5-project-archive-design.md) に記載しています。**永続化・共通 use case・Web API・状態ガードは実装済み**（Task 20）です。`POST /api/projects/:projectId/archive`（本文 `{ "reason": "..." }`）で archive し、`GET /api/projects` は active のみ、`GET /api/projects?status=archived` は archived のみを返します。archived の Project への書込（Project 更新、Intent / Outcome の変更、Grant の発行・取消）は Web API・MCP・CLI とも 409 `CONFLICT`（`projectStatus: "archived"`）で拒否し、参照は成功します。**Web UI も実装済み**（Task 21）です。Project 詳細の「アーカイブ」から、理由（必須）を入力する確認パネルを経て archive でき、Project 一覧の「アーカイブ済み」へ切り替えると理由と日時つきで参照できます。archived の詳細は状態・理由・日時を表示し、Project 編集・Intent / Outcome の登録・変更・Strategist の割当変更の導線を出しません（拒否はサーバーが行い、編集 URL へ直接アクセスして保存しても「アーカイブ済みのため変更できません」と表示され内容は変わりません）。archive は Web API だけに公開し、MCP tool と CLI には追加しません（復帰・削除も作りません）。
 
-Project単位のResearch蓄積、Intent起点のResearch Request、Finding / Synthesis / Intent Briefによる段階圧縮、Direction DecisionとRepository ADRの責務分離は [docs/research-decision-adr-design.md](docs/research-decision-adr-design.md) に設計方針を記載しています。Research Request・Result・Finding・Evidence参照・Synthesisのdomain・永続化・application層は実装済み（Task 23）ですが、Web API・MCP・Web UIへは未接続です。Researcher Role、Runtimeイベント、Intent Brief、Decision、ADR連携は未実装であり、同文書の段階的な実装順に進めます。
+Project単位のResearch蓄積、Intent起点のResearch Request、Finding / Synthesis / Intent Briefによる段階圧縮、Direction DecisionとRepository ADRの責務分離は [docs/research-decision-adr-design.md](docs/research-decision-adr-design.md) に設計方針を記載しています。Research Request・Result・Finding・Evidence参照・Synthesisのdomain・永続化・application層は実装済み（Task 23）ですが、Web APIとWeb UIへは未接続で、MCPからはResearcherだけが使えます（Task 24）。Runtimeイベント、Intent Brief、Decision、ADR連携は未実装であり、同文書の段階的な実装順に進めます。
 
 ### Strategist Grant の操作
 

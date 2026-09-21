@@ -448,9 +448,10 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "abandon_intent", "cancel_outcome", "create_intent", "create_outcome", "create_project", "get_intent", "get_outcome",
-      "get_project", "get_role_instructions", "get_strategist_context", "list_intents", "list_outcomes", "list_projects",
-      "update_intent", "update_outcome", "update_project",
+      "abandon_intent", "cancel_outcome", "complete_research_request", "create_intent", "create_outcome", "create_project",
+      "get_intent", "get_outcome", "get_project", "get_researcher_context", "get_role_instructions", "get_strategist_context",
+      "list_intents", "list_outcomes", "list_projects", "list_research_requests", "register_research_result",
+      "register_research_synthesis", "update_intent", "update_outcome", "update_project",
     ],
   );
   const listTool = tools.find(({ name }) => name === "list_projects");
