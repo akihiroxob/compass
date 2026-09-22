@@ -99,6 +99,7 @@ test("Requestは発端Intentとともに保存され、再起動後も同じID�
   const path = join(directory, "test.db");
   const first = await setup(path);
   const { project, intent } = await seed(first.services);
+  const initial = await initialRequestOf(first.services, project.id, intent.id);
   const created = await first.services.createResearchRequestUseCase.execute(
     project.id,
     requestInput({ kind: "project_watch", deadlineAt: start + 3_600_000, correlationId: "corr-1" }),
@@ -125,17 +126,24 @@ test("Requestは発端Intentとともに保存され、再起動後も同じID�
   );
   assert.deepEqual(
     (await restarted.services.listResearchRequestsUseCase.execute(project.id)).map(({ id }) => id),
-    [second.id, created.id],
+    [second.id, created.id, initial.id],
   );
   assert.deepEqual(
     (await restarted.services.listResearchRequestsUseCase.execute(project.id, { originIntentId: intent.id })).map(
       ({ id }) => id,
     ),
-    [second.id],
+    [second.id, initial.id],
   );
   await restarted.database.destroy();
   await rm(directory, { recursive: true, force: true });
 });
+
+/** Intent作成時に自動作成されたInitial Request。以降の件数・一覧の期待値はこれを含める。 */
+const initialRequestOf = async (services: Services, projectId: string, intentId: string) => {
+  const [initial, ...rest] = await services.listResearchRequestsUseCase.execute(projectId, { originIntentId: intentId });
+  assert.ok(initial && rest.length === 0, "Intent作成でInitial Requestが1件だけ作成されている");
+  return initial;
+};
 
 // decision requestはIntentが必須なので、Intent付きで作る。
 const decisionRequest = (intentId: string, overrides: Record<string, unknown> = {}) =>
@@ -146,6 +154,7 @@ test("Result・Finding・Synthesisを登録して完了でき、Projectと発端
   const path = join(directory, "test.db");
   const first = await setup(path);
   const { project, intent } = await seed(first.services);
+  const initial = await initialRequestOf(first.services, project.id, intent.id);
   const request = await first.services.createResearchRequestUseCase.execute(project.id, decisionRequest(intent.id));
   const result = await first.services.registerResearchResultUseCase.execute(project.id, request.id, resultInput());
 
@@ -202,7 +211,10 @@ test("Result・Finding・Synthesisを登録して完了でき、Projectと発端
     (await restarted.services.listResearchRequestsUseCase.execute(project.id, { originIntentId: intent.id })).map(
       ({ id, status }) => [id, status],
     ),
-    [[request.id, "completed"]],
+    [
+      [request.id, "completed"],
+      [initial.id, "requested"],
+    ],
   );
   await restarted.database.destroy();
   await rm(directory, { recursive: true, force: true });
@@ -340,7 +352,8 @@ test("同じrequestKeyと内容の再送は重複を作らず、内容が異な�
     services.createResearchRequestUseCase.execute(project.id, { ...input, question: "A different question?" }),
     rejectsWith("CONFLICT", (error) => assert.equal(error.details?.requestKey, "request-1")),
   );
-  assert.equal(await rowCount(database, "research_request"), 1);
+  // Intent作成時のInitial Requestと、この明示的なRequestの2件。再送・拒否では増えない。
+  assert.equal(await rowCount(database, "research_request"), 2);
 
   const result = await services.registerResearchResultUseCase.execute(project.id, request.id, resultInput());
   assert.deepEqual(await services.registerResearchResultUseCase.execute(project.id, request.id, resultInput()), result);
@@ -596,7 +609,8 @@ test("期限・予算・状態・入力の不正値を拒否する", async () =>
     services.createResearchRequestUseCase.execute(project.id, requestInput({ kind: "project_watch", originIntentId: intent.id })),
     rejectsWith("VALIDATION_ERROR"),
   );
-  assert.equal(await rowCount(database, "research_request"), 0);
+  // 不正な入力は保存しない。残るのはIntent作成時のInitial Requestだけ。
+  assert.equal(await rowCount(database, "research_request"), 1);
 
   const watch = await services.createResearchRequestUseCase.execute(
     project.id,
@@ -685,27 +699,45 @@ test("abandonedのIntentとarchivedのProjectには新しいRequestもResearch�
     services.createResearchRequestUseCase.execute(project.id, decisionRequest(intent.id, { requestKey: "after-abandon" })),
     rejectsWith("CONFLICT", (error) => assert.equal(error.details?.status, "abandoned")),
   );
-  assert.equal(await rowCount(database, "research_request"), 1);
+  // Initial Requestと明示的なRequestの2件のまま。放棄後の新しいRequestは作られない。
+  assert.equal(await rowCount(database, "research_request"), 2);
+  // 放棄されたIntentの未終了Requestは同じtransactionで取り消され、取消はRuntimeイベントにならない。
+  const abandoned = await services.listResearchRequestsUseCase.execute(project.id, { originIntentId: intent.id });
+  assert.deepEqual(
+    abandoned.map(({ status, stopReason }) => [status, stopReason]),
+    [
+      ["cancelled", "Intent abandoned: Changed direction"],
+      ["cancelled", "Intent abandoned: Changed direction"],
+    ],
+  );
+  assert.deepEqual(
+    (await services.listRuntimeEventsUseCase.execute(project.id)).map(({ type }) => type),
+    ["research_requested", "research_requested"],
+  );
 
-  await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
+  // archived側は、未終了のRequestを持つ別のProjectで確かめる。
+  const archived = await seed(services);
+  const archivedIntent = archived.intent;
+  const request2 = await services.createResearchRequestUseCase.execute(archived.project.id, decisionRequest(archivedIntent.id));
+  await services.archiveProjectUseCase.execute(archived.project.id, { reason: "Done" });
   await assert.rejects(
-    services.createResearchRequestUseCase.execute(project.id, decisionRequest(intent.id, { requestKey: "after-archive" })),
+    services.createResearchRequestUseCase.execute(archived.project.id, decisionRequest(archivedIntent.id, { requestKey: "after-archive" })),
     rejectsWith("CONFLICT", (error) => assert.equal(error.details?.projectStatus, "archived")),
   );
   await assert.rejects(
-    services.registerResearchResultUseCase.execute(project.id, request.id, resultInput()),
+    services.registerResearchResultUseCase.execute(archived.project.id, request2.id, resultInput()),
     rejectsWith("CONFLICT", (error) => assert.equal(error.details?.projectStatus, "archived")),
   );
   await assert.rejects(
-    services.completeResearchRequestUseCase.execute(project.id, request.id, { conclusion: "not_needed", stopReason: "x" }),
+    services.completeResearchRequestUseCase.execute(archived.project.id, request2.id, { conclusion: "not_needed", stopReason: "x" }),
     rejectsWith("CONFLICT", (error) => assert.equal(error.details?.projectStatus, "archived")),
   );
   await assert.rejects(
-    services.cancelResearchRequestUseCase.execute(project.id, request.id, { reason: "x" }),
+    services.cancelResearchRequestUseCase.execute(archived.project.id, request2.id, { reason: "x" }),
     rejectsWith("CONFLICT", (error) => assert.equal(error.details?.projectStatus, "archived")),
   );
   // 閲覧はarchived後も可能で、状態は変わらない。
-  assert.equal((await services.getResearchRequestUseCase.execute(project.id, request.id)).request.status, "requested");
+  assert.equal((await services.getResearchRequestUseCase.execute(archived.project.id, request2.id)).request.status, "requested");
   await database.destroy();
 });
 
@@ -746,7 +778,8 @@ test("DBの制約が同じrequestKeyの重複とIntentのないdecision request�
       .values({ ...row, id: "overspent", request_key: "overspent", budget_used: 2 })
       .execute(),
   );
-  assert.equal(await rowCount(database, "research_request"), 1);
+  // Intent作成時のInitial Requestと、直接挿入した1件。制約違反の行は残らない。
+  assert.equal(await rowCount(database, "research_request"), 2);
   await database.destroy();
 });
 
@@ -766,6 +799,7 @@ test("initializeSchemaは再実行してもResearchとProject / Intent / Outcome
 
   // Research導入前のDB（Researchのtableが無い）でも、追加して既存のデータを保つ。
   for (const table of [
+    "runtime_event",
     "research_synthesis_finding",
     "research_synthesis",
     "research_finding_conflict",
@@ -778,7 +812,8 @@ test("initializeSchemaは再実行してもResearchとProject / Intent / Outcome
     await database.schema.dropTable(table).execute();
   }
   await initializeSchema(database);
-  assert.equal(await rowCount(database, "research_request"), 0);
+  // Research導入前のActive Intentには、再初期化でInitial Requestが1件だけ補われる（Intent・Outcomeには触れない）。
+  assert.equal(await rowCount(database, "research_request"), 1);
   assert.deepEqual(await services.getOutcomeUseCase.execute(project.id, intent.id, outcome.id), outcome);
   const recreated = await services.createResearchRequestUseCase.execute(project.id, decisionRequest(intent.id));
   assert.equal(recreated.status, "requested");

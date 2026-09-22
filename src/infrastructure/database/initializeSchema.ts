@@ -1,4 +1,5 @@
 import { sql, type ColumnDefinitionBuilder, type Kysely } from "kysely";
+import { ensureInitialResearchRequest } from "../repository/initialResearchRequest.ts";
 import type { Database } from "./schema.ts";
 
 /**
@@ -251,6 +252,71 @@ const initializeResearchSchema = async (database: Kysely<Database>): Promise<voi
     .execute();
 };
 
+/**
+ * Initial Research Request導入前に作成されたActive Intentへ、Initial Requestとイベントを補う。
+ * keyがIntentから決定的で、既にあれば何もしないため、起動のたびに実行しても重複しない（Requestを取り消した後も再作成しない）。
+ * archivedのProjectと、Active以外のIntentは対象にしない。導入後に作成したIntentは作成時点で保存済みのため対象外になる。
+ */
+const backfillInitialResearchRequests = async (database: Kysely<Database>): Promise<void> => {
+  await database.transaction().execute(async (transaction) => {
+    const intents = await transaction
+      .selectFrom("intent")
+      .innerJoin("project", "project.id", "intent.project_id")
+      .selectAll("intent")
+      .where("intent.status", "=", "active")
+      .where("project.status", "=", "active")
+      .orderBy("intent.created_at", "asc")
+      .execute();
+    for (const intent of intents) await ensureInitialResearchRequest(transaction, intent, Date.now());
+  });
+};
+
+/**
+ * Runtime向けの確定イベント。同じRequestに対する同じ種類のイベントは1件に収束させ、再送・復旧・再初期化で重複させない。
+ * `sequence`は`autoincrement`で、削除後も番号を再利用しない（Runtimeのcursorが巻き戻らない）。
+ */
+const initializeRuntimeEventSchema = async (database: Kysely<Database>): Promise<void> => {
+  await database.schema
+    .createTable("runtime_event")
+    .ifNotExists()
+    .addColumn("sequence", "integer", (column) => column.primaryKey().autoIncrement())
+    .addColumn("id", "text", (column) => column.notNull().unique())
+    .addColumn("event_version", "integer", (column) => column.notNull())
+    .addColumn("event_type", "text", (column) =>
+      column.notNull().check(sql`event_type in ('research_requested', 'research_completed')`),
+    )
+    .addColumn("project_id", "text", (column) =>
+      column.notNull().references("project.id").onDelete("cascade"),
+    )
+    .addColumn("intent_id", "text", (column) => column.references("intent.id").onDelete("cascade"))
+    .addColumn("research_request_id", "text", (column) =>
+      column.notNull().references("research_request.id").onDelete("cascade"),
+    )
+    .addColumn("correlation_id", "text", (column) => column.notNull())
+    .addColumn("conclusion", "text", (column) =>
+      column.check(sql`conclusion is null or conclusion in ('completed', 'insufficient', 'not_needed')`),
+    )
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addCheckConstraint(
+      "runtime_event_conclusion_matches_type",
+      sql`(event_type = 'research_completed') = (conclusion is not null)`,
+    )
+    .execute();
+  await database.schema
+    .createIndex("runtime_event_request_type_idx")
+    .unique()
+    .ifNotExists()
+    .on("runtime_event")
+    .columns(["research_request_id", "event_type"])
+    .execute();
+  await database.schema
+    .createIndex("runtime_event_project_sequence_idx")
+    .ifNotExists()
+    .on("runtime_event")
+    .columns(["project_id", "sequence"])
+    .execute();
+};
+
 export const initializeSchema = async (database: Kysely<Database>): Promise<void> => {
   await database.schema
     .createTable("project")
@@ -410,4 +476,6 @@ export const initializeSchema = async (database: Kysely<Database>): Promise<void
     .execute();
 
   await initializeResearchSchema(database);
+  await initializeRuntimeEventSchema(database);
+  await backfillInitialResearchRequests(database);
 };

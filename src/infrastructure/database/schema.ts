@@ -175,6 +175,20 @@ export type ResearchSynthesisFindingTable = {
   position: number;
 };
 
+/** 状態変更と同一transactionで追記する確定イベント。更新・削除しない。`sequence`が取得位置（cursor）になる。 */
+export type RuntimeEventTable = {
+  sequence: Generated<number>;
+  id: string;
+  event_version: number;
+  event_type: "research_requested" | "research_completed";
+  project_id: string;
+  intent_id: string | null;
+  research_request_id: string;
+  correlation_id: string;
+  conclusion: "completed" | "insufficient" | "not_needed" | null;
+  created_at: number;
+};
+
 export type Database = {
   project: ProjectTable;
   project_principle: OrderedTextTable;
@@ -193,6 +207,7 @@ export type Database = {
   research_finding_conflict: ResearchFindingConflictTable;
   research_synthesis: ResearchSynthesisTable;
   research_synthesis_finding: ResearchSynthesisFindingTable;
+  runtime_event: RuntimeEventTable;
 };
 
 export type DatabaseMetadata = Generated<number>;

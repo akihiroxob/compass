@@ -10,7 +10,7 @@
 | --- | --- |
 | Research Request / Result / Finding / Evidence参照 / Synthesisのdomain・SQLite永続化・application層 | 実装済み（Task 23）。入口（Web API / MCP / Web UI）へは未接続 |
 | Researcher Role・Instruction・MCP Context / Command | 実装済み（Task 24）。Runtimeによる起動・Human向けGrant画面は未接続 |
-| Active Intent作成時のInitial Request・Runtimeイベント | 未実装 |
+| Active Intent作成時のInitial Request・Runtimeイベント | 実装済み（Task 25）。Intent作成・`complete`と同一transactionで`runtime_event`へ追記し、application層の`listRuntimeEventsUseCase`で取得できる。Runtimeへの配送・Web API / MCPの取得入口・Runtimeによる起動は未接続 |
 | Intent Brief・Strategist Contextへの接続 | 未実装 |
 | Direction Decision・ADR連携・Human向けResearch / Decision画面 | 未実装 |
 
@@ -227,7 +227,7 @@ Human向けのResearch閲覧・手動登録はWeb UIから共通application層�
 - `unknowns` / `options` / `risks`は不変な文字列配列で、要素単位では検索しないため、JSON列に保存する。
 - Research Runは独立tableにしていない。Runの起動・timeout・retryはRuntimeの責務であり、Compassは来歴として`principalId`と`runRef`をResult / Finding / Synthesisに必須で保存する。使用予算はRequestの`budgetUsed`に集計し、Resultごとの使用量も保存する。Runの状態管理が必要になった時点で追加する。
 - `originEvaluationId`は持たない。Evaluationが未実装で存在確認できず、存在しない参照を受け付けないため、Evaluationの導入時に追加する。`originOutcomeId`は`originIntentId`と同じIntent配下のOutcomeだけを指せる。
-- すべて`create table if not exists`で追加するため、既存DBへ再適用してもProject / Intent / Outcomeには触れない。Research導入前のDBには初回の`initializeSchema`でtableだけが追加される（既存データの移行は不要）。
+- すべて`create table if not exists`で追加するため、既存DBへ再適用してもProject / Intent / Outcomeには触れない。Research導入前のDBには初回の`initializeSchema`でtableだけが追加される（既存データの移行は不要）。Active Intentを持つ既存DBへのInitial Request補完は、Task 25の再初期化時のbackfillで行う。
 
 ### 状態と規則
 
@@ -242,7 +242,7 @@ Human向けのResearch閲覧・手動登録はWeb UIから共通application層�
 - 同じ`requestKey`で入力内容が同じ（入力のhashが一致）再送は、新しい行を作らず既存の行を返す。使用予算も二重に加算しない。Requestが確定した後に届いた再送も、状態違反ではなく作成済みの結果として返す。
 - 同じ`requestKey`で内容が異なる場合は`CONFLICT`（`details.requestKey`）で拒否する。
 - 確定・取消は再送しても成功しない（2回目は終了状態として拒否する）。呼び出し側はRequestを再取得して状態を確認する。
-- Initial Requestの`requestKey`は発端Intentから決定的に作る（Task 25で実装する）。これにより同じIntentへの再送・復旧・schema再初期化で重複しない。
+- Initial Requestの`requestKey`は発端Intentから決定的に作る（Task 25で実装済み。「実装記録: Initial Research Request・Runtime確定イベント」を参照）。これにより同じIntentへの再送・復旧・schema再初期化で重複しない。
 
 ### Synthesisのversion
 
@@ -261,11 +261,38 @@ Human向けのResearch閲覧・手動登録はWeb UIから共通application層�
 - Direction管理（`update_project` / `create_intent` / `update_intent` / `abandon_intent`）は、Researcher Grantを持つPrincipalにも`FORBIDDEN`とした（Strategistと同じ職務分離。Agent名の変更で回避できるため、trusted-localでは構造上の保証＝Researcher用toolに該当操作が無いことが本体）。`create_outcome`等は従来どおりstrategist Grantが必要で、Researcherは実行できない。Direction Decisionは未実装（Task 27）。
 - 未接続・未検証: Runtimeによる起動・監視、外部検索Provider、Strategist Contextへの接続（`get_strategist_context`の`research`は`unavailable`のまま）。検証は`createApp`に対するin-processのMCP呼び出しで、実Runtimeでの自律運転の実証ではない。
 
+## 実装記録: Initial Research Request・Runtime確定イベント（Task 25）
+
+Active Intent作成を契機とするInitial Requestと、Runtimeが起動条件を取得できる確定イベントを実装した。Agentの起動・schedule・polling・retry・timeout・token予算はCompassに置かない（Runtimeの責務）。
+
+### Initial Research Request
+
+- Web UI・Web API・MCPの`create_intent`は同じ`CreateIntentUseCase`を通る。`SQLiteIntentRepository.create`が、Intentの保存と同一transactionでInitial Requestとイベントを保存する。Requestまたはイベントの保存に失敗すればIntentも残らない（`test/initialResearch.test.ts`が、両tableへ失敗を注入して確認する）。
+- `requestKey`は`initial-research:{intentId}`で、既存の`(projectId, requestKey)`のunique indexにより、同じIntentのInitial Requestは1件に収束する。作成済みなら、Requestが取消・終了済みでも再作成しない。`correlationId`は`intent:{intentId}`で、以降の`research_completed`イベントにも引き継がれる。
+- 内容は`domain/model/InitialResearchRequest.ts`が決める。`kind`は`decision`、`originIntentId`はそのIntent。Questionはtitleを含む定型文で、Intent本文（desiredState / completionDefinition）は複製せず発端Intentとして参照する（Researcherは`get_researcher_context`で取得する）。予算は`initialResearchBudget`（100。単位はRuntimeが定める）。初期選択として`deadlineAt`は置かない。Compassは期限・timeoutを管理せず、Runtimeが必要に応じて`insufficient`での確定または取消を行うため。
+- archivedのProject・Active以外のIntent・検証エラーでは、Intentもその子のRequest・イベントも作らない。Active Intentの重複作成は従来どおり`CONFLICT`で、再送しても増えない。
+- Intentを放棄すると、そのIntentの未終了（`requested` / `running`）のResearch Requestを同一transactionで`cancelled`にする（activeなOutcomeの連動取消と同じ扱い）。放棄されたIntentのRequestが起動条件として残らないようにするため。取消はイベントにしない。
+
+### Runtime向け確定イベント
+
+- tableは`runtime_event`（追記のみ。更新・削除しない）。項目は`cursor`（`autoincrement`の`sequence`）、`id`、`version`（`runtimeEventVersion`、現在1）、`type`、`projectId`、`intentId`、`researchRequestId`、`correlationId`、`conclusion`、`occurredAt`。同じRequest・同じ種類のイベントはunique indexで1件に収束する。
+- `research_requested`: Requestが作成されたとき。RuntimeがResearcherを起動する条件。Initial Requestに限らず、`createRequest`（Strategistの追加Research等）でも、Request保存と同じ経路（`insertResearchRequest`）で必ず保存する。Requestがあってイベントが無い状態を作らないため。
+- `research_completed`: Requestが`completed` / `insufficient` / `not_needed`で確定したとき（`conclusion`に確定結果）。Runtimeが次にStrategistを起動する条件。`not_needed`と`insufficient`も、次の判断へ進める確定結果として区別せず同じ種類で表す。
+- `research_completed`を作らないもの: `cancelled`（Strategistを起動する結果ではない）、`project_watch`のRequest（発端Intentが無く、Strategistの判断対象がない）、発端IntentがactiveでなくなったRequest、確定に失敗した操作（`completed`のResult・Synthesis不足、終了済みRequestへの再送）、archivedのProject。
+- 取得は`ListRuntimeEventsUseCase`（`projectId`、`afterCursor`、`limit`）で、cursor昇順・Project単位。Runtimeがcursorを保持して差分を取得する（Wachaの`list_changes`と同じ考え方）。Compassは購読状態・配送保証を持たない。**Web API・MCPの取得入口は未実装**で、Runtime接続時に共通のuse caseへ委譲して追加する。
+
+### 既存Intentのbackfill方針
+
+- Initial Request導入前に作られたActive Intentは、`initializeSchema`の末尾で、Request（とイベント）が無いものにだけInitial Requestを補う。keyがIntentから決定的で、既にあれば何もしないため、起動のたびに実行しても重複しない。取消済みのRequestも再作成しない。
+- 対象はarchivedでないProjectのActive Intentだけ。`abandoned` / `achieved`のIntentとarchivedのProjectには補わない。既存のIntent・Outcome・Resultは変更しない（Requestを持たない状態でも従来どおり動く）。
+- 理由: 起動時の自動backfillは、専用のCLI・Web操作を要求せず（CLIは保守用途に限る）、導入前のActive Intentも他のIntentと同じ流れでRuntimeが扱えるため。導入前のIntentにResearchを走らせたくない場合は、そのIntentのRequestを`cancelled`にすれば再作成されない。
+- 未検証: 実DB（本番相当のデータ量）でのbackfill、Runtimeが実際にイベントを取得して起動する経路。検証は`createApplicationServices`に対するin-processの呼び出しで、Lv6の実証ではない。
+
 ## 段階的な実装
 
 1. Research Request / ResultとProject・Intentの関連、状態遷移、冪等性を実装する（domain・永続化・application層はTask 23で実装済み。入口は未接続）
 2. Researcher Role、Instruction、Grant、Context、Result登録を実装する（Task 24で実装済み。Human向けGrant画面はTask 29）
-3. Active Intent作成時のInitial RequestとRuntime向け確定イベントを実装する
+3. Active Intent作成時のInitial RequestとRuntime向け確定イベントを実装する（Task 25で実装済み。Runtimeへの配送・取得入口は未接続）
 4. Finding / Synthesisのversion・来歴とIntent Briefを実装し、Strategist Contextへ接続する
 5. Direction DecisionとOutcomeの根拠参照を実装する
 6. ADR CandidateとRepository ADR参照、WachaへのTask引き渡し契約を実装する

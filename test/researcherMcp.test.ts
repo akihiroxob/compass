@@ -281,13 +281,15 @@ test("list_research_requestsはProjectのRequestを状態で絞って返す", as
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
   await grantRole(app, project.id, "researcher-a");
+  // Intent作成時に自動作成されたInitial Requestも一覧に含まれる。
+  const [initial] = await services.listResearchRequestsUseCase.execute(project.id, { originIntentId: intent.id });
   const open = await createRequest(services, project.id, intent.id, { requestKey: "open" });
   const closed = await createRequest(services, project.id, intent.id, { requestKey: "closed" });
   await callTool(app, "complete_research_request", { projectId: project.id, requestId: closed.id, conclusion: "not_needed", stopReason: "Known" }, "researcher-a");
   const listed = await callTool(app, "list_research_requests", { projectId: project.id, status: "requested" }, "researcher-a");
-  assert.deepEqual(listed.structuredContent.requests.map((item: any) => item.id), [open.id]);
+  assert.deepEqual(listed.structuredContent.requests.map((item: any) => item.id), [open.id, initial!.id]);
   const all = await callTool(app, "list_research_requests", { projectId: project.id }, "researcher-a");
-  assert.equal(all.structuredContent.requests.length, 2);
+  assert.equal(all.structuredContent.requests.length, 3);
   await database.destroy();
 });
 

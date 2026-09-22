@@ -23,6 +23,7 @@ import { ListOutcomesUseCase } from "./application/usecase/ListOutcomesUseCase.t
 import { ListProjectGrantsUseCase } from "./application/usecase/ListProjectGrantsUseCase.ts";
 import { ListProjectsUseCase } from "./application/usecase/ListProjectsUseCase.ts";
 import { ListResearchRequestsUseCase } from "./application/usecase/ListResearchRequestsUseCase.ts";
+import { ListRuntimeEventsUseCase } from "./application/usecase/ListRuntimeEventsUseCase.ts";
 import { RegisterResearchResultUseCase } from "./application/usecase/RegisterResearchResultUseCase.ts";
 import { RegisterResearchSynthesisUseCase } from "./application/usecase/RegisterResearchSynthesisUseCase.ts";
 import { RevokeProjectRoleUseCase } from "./application/usecase/RevokeProjectRoleUseCase.ts";
@@ -34,6 +35,7 @@ import { SQLiteOutcomeRepository } from "./infrastructure/repository/SQLiteOutco
 import { SQLiteProjectGrantRepository } from "./infrastructure/repository/SQLiteProjectGrantRepository.ts";
 import { SQLiteProjectRepository } from "./infrastructure/repository/SQLiteProjectRepository.ts";
 import { SQLiteResearchRepository } from "./infrastructure/repository/SQLiteResearchRepository.ts";
+import { SQLiteRuntimeEventRepository } from "./infrastructure/repository/SQLiteRuntimeEventRepository.ts";
 import type { Kysely } from "kysely";
 import type { Database } from "./infrastructure/database/schema.ts";
 
@@ -48,6 +50,7 @@ export const createApplicationServices = (
   const intentRepository = new SQLiteIntentRepository(applicationDatabase);
   const outcomeRepository = new SQLiteOutcomeRepository(applicationDatabase);
   const researchRepository = new SQLiteResearchRepository(applicationDatabase, clock);
+  const runtimeEventRepository = new SQLiteRuntimeEventRepository(applicationDatabase);
   const projectGrantRepository = new SQLiteProjectGrantRepository(applicationDatabase);
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
   return {
@@ -75,6 +78,7 @@ export const createApplicationServices = (
     registerResearchSynthesisUseCase: new RegisterResearchSynthesisUseCase(projectRepository, researchRepository),
     completeResearchRequestUseCase: new CompleteResearchRequestUseCase(projectRepository, researchRepository),
     cancelResearchRequestUseCase: new CancelResearchRequestUseCase(projectRepository, researchRepository),
+    listRuntimeEventsUseCase: new ListRuntimeEventsUseCase(projectRepository, runtimeEventRepository),
     grantProjectRoleUseCase: new GrantProjectRoleUseCase(projectRepository, projectGrantRepository),
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(projectRepository, projectGrantRepository),
     listProjectGrantsUseCase: new ListProjectGrantsUseCase(projectRepository, projectGrantRepository),

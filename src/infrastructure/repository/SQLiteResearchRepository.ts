@@ -34,32 +34,14 @@ import type {
 } from "../database/schema.ts";
 import { inputHash } from "./inputHash.ts";
 import { isProjectArchived } from "./isProjectArchived.ts";
+import { insertResearchRequest, toRequest } from "./researchRequestRecord.ts";
+import { recordRuntimeEvent } from "./runtimeEventRecord.ts";
 
 type Executor = Kysely<Database> | Transaction<Database>;
 
 const parseList = (value: string): string[] => JSON.parse(value) as string[];
 
 const byRowid = sql`rowid`;
-
-const toRequest = (row: Selectable<ResearchRequestTable>): ResearchRequest => ({
-  id: row.id,
-  projectId: row.project_id,
-  kind: row.kind,
-  originIntentId: row.origin_intent_id,
-  originOutcomeId: row.origin_outcome_id,
-  question: row.question,
-  scope: row.scope,
-  completionCondition: row.completion_condition,
-  budgetTotal: row.budget_total,
-  budgetUsed: row.budget_used,
-  deadlineAt: row.deadline_at,
-  status: row.status,
-  stopReason: row.stop_reason,
-  correlationId: row.correlation_id,
-  requestKey: row.request_key,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-});
 
 const toEvidence = (row: Selectable<ResearchEvidenceRefTable>): EvidenceReference => ({
   id: row.id,
@@ -285,31 +267,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
           }
         }
 
-        const row = await transaction
-          .insertInto("research_request")
-          .values({
-            id: crypto.randomUUID(),
-            project_id: projectId,
-            request_key: input.requestKey,
-            input_hash: hash,
-            kind: input.kind,
-            origin_intent_id: input.originIntentId,
-            origin_outcome_id: input.originOutcomeId,
-            question: input.question,
-            scope: input.scope,
-            completion_condition: input.completionCondition,
-            budget_total: input.budgetTotal,
-            budget_used: 0,
-            deadline_at: input.deadlineAt,
-            status: "requested",
-            stop_reason: null,
-            correlation_id: input.correlationId ?? crypto.randomUUID(),
-            created_at: now,
-            updated_at: now,
-          })
-          .returningAll()
-          .executeTakeFirstOrThrow();
-        return { kind: "created", request: toRequest(row) };
+        return { kind: "created", request: await insertResearchRequest(transaction, projectId, input, now) };
       });
   }
 
@@ -639,12 +597,33 @@ export class SQLiteResearchRepository implements ResearchRepository {
       const missing = await findMissing(transaction);
       if (missing) return { kind: "incomplete", missing };
 
+      const now = this.clock();
       const row = await transaction
         .updateTable("research_request")
-        .set({ status, stop_reason: stopReason, updated_at: this.clock() })
+        .set({ status, stop_reason: stopReason, updated_at: now })
         .where("id", "=", requestId)
         .returningAll()
         .executeTakeFirstOrThrow();
+      // Strategistを起動できる確定結果だけをイベントにする。取消は起動条件ではない。
+      // 発端Intentがactiveでなくなっていれば、次の判断へ進める対象がないためイベントを作らない。
+      if (status !== "cancelled" && row.origin_intent_id !== null) {
+        const intent = await transaction
+          .selectFrom("intent")
+          .select("status")
+          .where("id", "=", row.origin_intent_id)
+          .executeTakeFirst();
+        if (intent?.status === "active") {
+          await recordRuntimeEvent(transaction, {
+            type: "research_completed",
+            projectId,
+            intentId: row.origin_intent_id,
+            researchRequestId: row.id,
+            correlationId: row.correlation_id,
+            conclusion: status,
+            occurredAt: now,
+          });
+        }
+      }
       return { kind: "closed", request: toRequest(row) };
     });
   }

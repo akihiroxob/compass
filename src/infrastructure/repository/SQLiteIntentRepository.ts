@@ -10,6 +10,7 @@ import type {
 } from "../../domain/repository/IntentRepository.ts";
 import type { CreateIntentInput, UpdateIntentInput } from "../../shared/intentSchema.ts";
 import type { Database, IntentTable } from "../database/schema.ts";
+import { ensureInitialResearchRequest } from "./initialResearchRequest.ts";
 import { isProjectArchived } from "./isProjectArchived.ts";
 
 const toIntent = (row: Selectable<IntentTable>): Intent =>
@@ -55,6 +56,8 @@ export class SQLiteIntentRepository implements IntentRepository {
         })
         .returningAll()
         .executeTakeFirstOrThrow();
+      // 同じtransactionでInitial Research Requestとイベントを保存する。どちらかが失敗すればIntentも残らない。
+      await ensureInitialResearchRequest(transaction, row, now);
       return { kind: "created", intent: toIntent(row) };
     });
   }
@@ -139,6 +142,17 @@ export class SQLiteIntentRepository implements IntentRepository {
             })
             .where("intent_id", "=", intentId)
             .where("status", "=", "active")
+            .execute();
+          // 放棄されたIntentの未終了Research Requestも取り消す。取消は次の判断の起動条件ではないためイベントは作らない。
+          await transaction
+            .updateTable("research_request")
+            .set({
+              status: "cancelled",
+              stop_reason: reason ? `Intent abandoned: ${reason}` : "Intent abandoned",
+              updated_at: Date.now(),
+            })
+            .where("origin_intent_id", "=", intentId)
+            .where("status", "in", ["requested", "running"])
             .execute();
         },
       },
