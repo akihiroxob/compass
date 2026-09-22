@@ -7,9 +7,20 @@ import type { CreateProjectInput, UpdateProjectInput } from "../../shared/projec
  */
 export type ProjectArchivedResult = { kind: "project_archived" };
 
+/**
+ * 外したRepositoryにADR Handoff Request/Reference（Task 28）が残っており、削除するとその監査記録が
+ * 参照先を失うため拒否した結果。
+ */
+export type RepositoryReferencedResult = {
+  kind: "repository_referenced";
+  repositoryId: string;
+  repositoryName: string;
+};
+
 export type UpdateProjectResult =
   | { kind: "updated"; project: Project }
   | { kind: "not_found" }
+  | RepositoryReferencedResult
   | ProjectArchivedResult;
 
 export type ArchiveProjectResult =

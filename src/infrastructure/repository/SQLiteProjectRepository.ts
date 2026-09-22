@@ -3,6 +3,7 @@ import { Project, type ProjectStatus } from "../../domain/model/Project.ts";
 import type {
   ArchiveProjectResult,
   ProjectRepository,
+  RepositoryReferencedResult,
   UpdateProjectResult,
 } from "../../domain/repository/ProjectRepository.ts";
 import type { CreateProjectInput, UpdateProjectInput } from "../../shared/projectSchema.ts";
@@ -77,6 +78,13 @@ export class SQLiteProjectRepository implements ProjectRepository {
       if (!existing) return "not_found" as const;
       if (existing.status === "archived") return "project_archived" as const;
 
+      // Repositoryを外す変更はADR Handoff Request/Referenceの参照先を失わせないか、他の書込より先に検査する。
+      // 途中まで書き込んでから拒否すると、そのtransactionはKyselyの仕様上そのまま commit されてしまうため。
+      if (input.repositories) {
+        const conflict = await this.findRepositoryRemovalConflict(transaction, projectId, input.repositories);
+        if (conflict) return conflict;
+      }
+
       // undefinedの項目はKyselyがSETから除外するため、未指定の列は変更されない。
       await transaction
         .updateTable("project")
@@ -101,7 +109,8 @@ export class SQLiteProjectRepository implements ProjectRepository {
       return "updated" as const;
     });
 
-    if (outcome !== "updated") return { kind: outcome };
+    if (outcome === "not_found" || outcome === "project_archived") return { kind: outcome };
+    if (outcome !== "updated") return outcome;
     return { kind: "updated", project: (await this.findById(projectId))! };
   }
 
@@ -195,6 +204,36 @@ export class SQLiteProjectRepository implements ProjectRepository {
         id: crypto.randomUUID(), project_id: projectId, value, sort_order: sortOrder,
       })),
     ).execute();
+  }
+
+  /**
+   * 入力から外れる既存Repositoryのうち、ADR Handoff Request/Reference（Task 28）から参照されている行が
+   * あれば最初の1件を返す。`adr_handoff_request` / `adr_reference` の`repository_id`はonDelete cascadeを
+   * 付けていない意図的な監査保持のため、削除前にdomainの`repository_referenced`として検査し拒否する。
+   */
+  private async findRepositoryRemovalConflict(
+    transaction: Transaction<Database>,
+    projectId: string,
+    items: NonNullable<UpdateProjectInput["repositories"]>,
+  ): Promise<RepositoryReferencedResult | null> {
+    const existingRows = await transaction.selectFrom("project_repository_link").select(["id", "name"])
+      .where("project_id", "=", projectId).execute();
+    const keptIds = new Set(items.flatMap(({ id }) => (id !== undefined ? [id] : [])));
+    const removed = existingRows.filter((row) => !keptIds.has(row.id));
+    if (!removed.length) return null;
+
+    const removedIds = removed.map((row) => row.id);
+    const [handoffRow, referenceRow] = await Promise.all([
+      transaction.selectFrom("adr_handoff_request").select("repository_id")
+        .where("repository_id", "in", removedIds).executeTakeFirst(),
+      transaction.selectFrom("adr_reference").select("repository_id")
+        .where("repository_id", "in", removedIds).executeTakeFirst(),
+    ]);
+    const repositoryId = handoffRow?.repository_id ?? referenceRow?.repository_id;
+    if (!repositoryId) return null;
+
+    const repositoryName = removed.find((row) => row.id === repositoryId)?.name ?? repositoryId;
+    return { kind: "repository_referenced", repositoryId, repositoryName };
   }
 
   /**

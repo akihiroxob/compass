@@ -369,11 +369,12 @@ Compassを正本とするDirection Decisionと、Strategistの判断を記録す
 - **`repositoryId`はRepository本文を複製せず、Projectに登録済みの`project_repository_link.id`を指す**: `path`はそのRepository内の相対pathとして検証し、Compass serverのローカルfilesystem pathとして扱わない。絶対path（先頭の`/`、`\`、Windowsドライブレター）と`..`セグメント（path traversal）を`shared/adrHandoffSchema.ts`のzod refineで拒否する
 - **`commitSha`は40桁16進数の完全なSHA-1だけを受け付け、短縮SHAを拒否する**: 対象Repositoryを一意に特定できる形だけを参照として保存するための小さな初期選択。Git以外のVCSやSHA-256オブジェクト形式への対応が必要になった時点で拡張する
 - **`adr_handoff_request.repository_id` / `adr_reference.repository_id`にFKは付けるが、`onDelete("cascade")`は意図的に付けない**: ProjectのRepositoryは`update_project`の同期処理で削除され得るが、依頼・参照は監査記録として残すべきため、削除しようとした場合はFK制約でrestrictされることを選んだ（Repositoryの削除・強制解除はこのTaskの対象外）。`decision_id`はdirection_decisionに削除操作が無いため、cascadeの有無は実質的に意味を持たない
+  - **Reviewとの往復で修正**: 上記のrestrict自体はTask 28完了時点の初期選択どおりだが、初回実装では`SQLiteProjectRepository.syncRepositories`がFK制約違反を未捕捉のままSQLiteの生例外として投げ、`update_project`（Repository配列を含む他フィールドの変更も同一transaction）全体が`500 INTERNAL_ERROR`になり、name等の無関係な変更も巻き込まれて失われる回帰があった。`update()`は他の書込より前に`findRepositoryRemovalConflict`でADR参照済みRepositoryの削除を検査し、該当すれば書込ゼロのまま`repository_referenced`を返す（`UpdateProjectResult`に追加）。`UpdateProjectUseCase`はこれを`ConflictError`（`409 CONFLICT`）に変換する。`test/adrHandoff.test.ts`にHTTP経由の回帰テストを追加した
 - **`list_adr_references`はStrategist Grantを要求しない**: `get_project`のRepository一覧・`list_outcomes`と同じ読み取り専用の公開範囲にそろえた。ADR参照はRepository構成と同程度の情報で、Project個別の機密を含まない
 
 ### 検証結果
 
-- `npm test`: 新規`test/adrHandoff.test.ts`（payload生成・冪等性・requestKey競合・存在しないDecision / adr_candidateでないDecision / 未登録Repository・依頼未経由の参照拒否・correlationId不一致・絶対path / path traversal / 短縮SHA / 不正URLのVALIDATION_ERROR・Role境界）を含め、既存の`projectArchive.test.ts` / `intentAdapters.test.ts`のtool一覧更新分を含めて全件成功
+- `npm test`: 新規`test/adrHandoff.test.ts`（payload生成・冪等性・requestKey競合・存在しないDecision / adr_candidateでないDecision / 未登録Repository・依頼未経由の参照拒否・correlationId不一致・絶対path / path traversal / 短縮SHA / 不正URLのVALIDATION_ERROR・Role境界・ADR参照済みRepositoryを外そうとする`update_project`がCONFLICTになり他フィールドも巻き込まれて失わない回帰テスト）を含め、既存の`projectArchive.test.ts` / `intentAdapters.test.ts`のtool一覧更新分を含めて全192件成功
 - `npm run typecheck` / `npm run lint`（`tsc` 2本）/ `npm run build`: 成功
 - ドキュメント: README・`agent/strategist.md`（ADR Candidateの引き渡しと参照、Allowed）を更新
 - 未実施: ブラウザでのWeb UI確認（Task 28はUI変更なし。Human向けADR参照画面はTask 29）。実Runtime・実Wachaとの接続・GitHub API呼び出しは無く、検証は`createApplicationServices` / in-process MCP呼び出しに限る。Lv6達成とは報告しない

@@ -268,6 +268,32 @@ test("record_adr_referenceは対応するhandoff requestが必須で、絶対pat
   await database.destroy();
 });
 
+test("update_projectでADR Handoff Request/Referenceが参照するRepositoryを外そうとするとCONFLICTになり、他の変更も含めて何も更新しない", async () => {
+  const { database, services, app } = await setup();
+  const { project, intent, repositoryId } = await seedProject(services);
+  await grant(app, project.id, "strat-1", "strategist");
+  const decisionId = await seedAdrCandidateDecision(app, project.id, intent.id);
+  await callTool(app, "create_adr_handoff_request", handoffArgs(project.id, decisionId, repositoryId), "strat-1");
+
+  // update_projectの1 transactionでname変更とRepository削除をまとめて送るが、
+  // Repository削除がADR Handoff Requestに参照されているため拒否され、name変更も巻き込まれて失われない。
+  const response = await send(app, "PATCH", `/api/projects/${project.id}`, {
+    name: "Renamed while trying to drop repository",
+    repositories: [],
+  });
+  assert.equal(response.status, 409);
+  const body = (await response.json()) as { error: { code: string; repositoryId: string; repositoryName: string } };
+  assert.equal(body.error.code, "CONFLICT");
+  assert.equal(body.error.repositoryId, repositoryId);
+  assert.equal(body.error.repositoryName, "compass");
+
+  const unchanged = await services.getProjectUseCase.execute(project.id);
+  assert.equal(unchanged.name, "Compass");
+  assert.equal(unchanged.repositories.length, 1);
+  assert.equal(unchanged.repositories[0]?.id, repositoryId);
+  await database.destroy();
+});
+
 test("create_adr_handoff_request・record_adr_referenceはStrategist Grant必須で、ResearcherやBearerなしは拒否される", async () => {
   const { database, services, app } = await setup();
   const { project, intent, repositoryId } = await seedProject(services);
