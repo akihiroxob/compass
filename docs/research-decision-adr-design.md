@@ -9,10 +9,10 @@
 | 項目 | 状況 |
 | --- | --- |
 | Research Request / Result / Finding / Evidence参照 / Synthesisのdomain・SQLite永続化・application層 | 実装済み（Task 23）。入口（Web API / MCP / Web UI）へは未接続 |
-| Researcher Role・Instruction・MCP Context / Command | 実装済み（Task 24）。Runtimeによる起動・Human向けGrant画面は未接続 |
+| Researcher Role・Instruction・MCP Context / Command | 実装済み（Task 24）。Human向けGrant画面はTask 29で実装済み。Runtimeによる起動は未接続 |
 | Active Intent作成時のInitial Request・Runtimeイベント | 実装済み（Task 25）。Intent作成・`complete`と同一transactionで`runtime_event`へ追記し、application層の`listRuntimeEventsUseCase`で取得できる。Runtimeへの配送・Web API / MCPの取得入口・Runtimeによる起動は未接続 |
 | Intent Brief・Strategist Contextへの接続 | 実装済み（Task 26）。`get_strategist_context`の`research`にIntent Brief、新規MCP tool `get_research_request`にSynthesis→Finding→Evidence参照のID指定Queryを実装 |
-| Direction Decision・Outcomeの根拠参照 | 実装済み（Task 27）。MCP tool `create_direction_decision`（next_outcome以外の5種）と`decide_next_outcome`（next_outcomeとOutcomeを同一transactionで保存）を実装。ADR連携（Repository参照・Wacha引き渡し契約）とHuman向けResearch / Decision画面は未実装 |
+| Direction Decision・Outcomeの根拠参照 | 実装済み（Task 27）。MCP tool `create_direction_decision`（next_outcome以外の5種）と`decide_next_outcome`（next_outcomeとOutcomeを同一transactionで保存）を実装。ADR連携（Repository参照・Wacha引き渡し契約）はTask 28、Human向けResearch / Decision画面はTask 29で実装済み |
 | ADR Candidate・Repository参照・Wacha引き渡し契約 | 実装済み（Task 28）。MCP tool `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`を実装。実Wachaとは未接続で、fixture契約の検証まで |
 | Human向けResearch / Decision / ADR参照のWeb UI・Web API、ResearcherのGrant管理画面統合、空DBからの実HTTP/MCP自動検証 | 実装済み（Task 29）。読み取り専用画面とWeb API、`test/researchDecisionIntegration.test.ts`を追加。外部RuntimeとWachaは未接続で、fixture契約の検証まで |
 
