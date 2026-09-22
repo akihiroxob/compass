@@ -371,6 +371,29 @@ test("Researcherは Outcome・Project基盤設定・Intent を変更できない
   await rejected("create_intent", { projectId: project.id, title: "New", desiredState: "New" });
   await rejected("update_intent", { projectId: project.id, intentId: intent.id, title: "Changed" });
   await rejected("abandon_intent", { projectId: project.id, intentId: intent.id });
+  await rejected("create_direction_decision", {
+    projectId: project.id,
+    intentId: intent.id,
+    type: "additional_research",
+    judgment: "J",
+    reason: "R",
+    requestKey: "researcher-attempt-1",
+    runRef: "run-1",
+  });
+  await rejected("decide_next_outcome", {
+    projectId: project.id,
+    intentId: intent.id,
+    judgment: "J",
+    reason: "R",
+    requestKey: "researcher-attempt-2",
+    runRef: "run-1",
+    outcome: {
+      title: "T",
+      description: "D",
+      rationale: "R",
+      successCriteria: [{ description: "d", measurement: "m" }],
+    },
+  });
 
   const unchanged = await services.getProjectUseCase.execute(project.id);
   assert.equal(unchanged.mission, "Keep direction explicit");
@@ -378,9 +401,9 @@ test("Researcherは Outcome・Project基盤設定・Intent を変更できない
   assert.equal((await services.getIntentUseCase.execute(project.id, intent.id)).status, "active");
   assert.equal((await services.listOutcomesUseCase.execute(project.id, intent.id)).length, 0);
 
-  // Researcher用のtoolに、Outcome作成・Direction Decision・Request作成/取消は無い。
+  // Researcher用のtoolに、Outcome作成・Request作成/取消は無い（Direction Decisionはtoolとして存在するがFORBIDDENで拒否済み）。
   const tools = new Set(((await rpc(app, "tools/list", {})).result.tools as { name: string }[]).map((tool) => tool.name));
-  for (const name of tools) assert.ok(!/decision|cancel_research|create_research/.test(name), name);
+  for (const name of tools) assert.ok(!/cancel_research|create_research/.test(name), name);
   await database.destroy();
 });
 

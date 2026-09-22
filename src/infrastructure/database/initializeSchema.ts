@@ -253,6 +253,89 @@ const initializeResearchSchema = async (database: Kysely<Database>): Promise<voi
 };
 
 /**
+ * Direction Decision導入前のDBには`outcome`にorigin_decision_id列が無い。列が無い場合だけ追加する（idempotent）。
+ * FKは付けない。circular reference（direction_decision.outcome_id → outcome.id）を、outcome行を先に作ってから
+ * Decision行を作る順序で解決しており、outcome側の逆参照は監査目的の平文IDで十分なため。
+ */
+const addOutcomeOriginDecisionColumn = async (database: Kysely<Database>): Promise<void> => {
+  const columns = await sql<{ name: string }>`select name from pragma_table_info('outcome')`.execute(database);
+  if (columns.rows.some(({ name }) => name === "origin_decision_id")) return;
+  await sql`alter table outcome add column origin_decision_id text`.execute(database);
+};
+
+/**
+ * Direction Decision（Task 27）。作成後は変更しない追記専用tableで、判断時点のIntent Brief snapshotをJSONで保持する。
+ * `outcome_id`はnext_outcomeのときだけ設定し、outcome.idへのFKで整合を守る。使用したSynthesis/Findingは関連tableで表す。
+ */
+const initializeDirectionDecisionSchema = async (database: Kysely<Database>): Promise<void> => {
+  await database.schema
+    .createTable("direction_decision")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("intent_id", "text", (column) => column.notNull().references("intent.id").onDelete("cascade"))
+    .addColumn("outcome_id", "text", (column) => column.references("outcome.id").onDelete("cascade"))
+    .addColumn("type", "text", (column) =>
+      column
+        .notNull()
+        .check(
+          sql`type in ('next_outcome', 'additional_research', 'intent_complete', 'intent_abandon', 'policy_proposal', 'adr_candidate')`,
+        ),
+    )
+    .addColumn("judgment", "text", (column) => column.notNull())
+    .addColumn("reason", "text", (column) => column.notNull())
+    .addColumn("options", "text", (column) => column.notNull())
+    .addColumn("intent_brief_snapshot", "text", (column) => column.notNull())
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("run_ref", "text", (column) => column.notNull())
+    .addColumn("request_key", "text", (column) => column.notNull())
+    .addColumn("input_hash", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addCheckConstraint("direction_decision_outcome_requires_next_outcome", sql`(type = 'next_outcome') = (outcome_id is not null)`)
+    .execute();
+  await database.schema
+    .createIndex("direction_decision_project_key_idx")
+    .unique()
+    .ifNotExists()
+    .on("direction_decision")
+    .columns(["project_id", "request_key"])
+    .execute();
+  await database.schema
+    .createIndex("direction_decision_intent_idx")
+    .ifNotExists()
+    .on("direction_decision")
+    .columns(["project_id", "intent_id"])
+    .execute();
+
+  await database.schema
+    .createTable("direction_decision_synthesis")
+    .ifNotExists()
+    .addColumn("decision_id", "text", (column) =>
+      column.notNull().references("direction_decision.id").onDelete("cascade"),
+    )
+    .addColumn("synthesis_id", "text", (column) =>
+      column.notNull().references("research_synthesis.id").onDelete("cascade"),
+    )
+    .addColumn("version", "integer", (column) => column.notNull())
+    .addColumn("position", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("direction_decision_synthesis_pk", ["decision_id", "synthesis_id"])
+    .execute();
+
+  await database.schema
+    .createTable("direction_decision_finding")
+    .ifNotExists()
+    .addColumn("decision_id", "text", (column) =>
+      column.notNull().references("direction_decision.id").onDelete("cascade"),
+    )
+    .addColumn("finding_id", "text", (column) =>
+      column.notNull().references("research_finding.id").onDelete("cascade"),
+    )
+    .addColumn("position", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("direction_decision_finding_pk", ["decision_id", "finding_id"])
+    .execute();
+};
+
+/**
  * Initial Research Request導入前に作成されたActive Intentへ、Initial Requestとイベントを補う。
  * keyがIntentから決定的で、既にあれば何もしないため、起動のたびに実行しても重複しない（Requestを取り消した後も再作成しない）。
  * archivedのProjectと、Active以外のIntentは対象にしない。導入後に作成したIntentは作成時点で保存済みのため対象外になる。
@@ -476,6 +559,8 @@ export const initializeSchema = async (database: Kysely<Database>): Promise<void
     .execute();
 
   await initializeResearchSchema(database);
+  await initializeDirectionDecisionSchema(database);
+  await addOutcomeOriginDecisionColumn(database);
   await initializeRuntimeEventSchema(database);
   await backfillInitialResearchRequests(database);
 };

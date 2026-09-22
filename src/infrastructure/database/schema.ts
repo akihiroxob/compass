@@ -54,6 +54,8 @@ export type OutcomeTable = {
   rationale: string;
   status: "active" | "evaluating" | "achieved" | "not_achieved" | "cancelled";
   cancel_reason: string | null;
+  /** 判断したDirection DecisionのID。FKは意図的に付けない（direction_decision.outcome_idとの循環参照を避けるため）。 */
+  origin_decision_id: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -175,6 +177,46 @@ export type ResearchSynthesisFindingTable = {
   position: number;
 };
 
+/** Compassを正本とするDirection Decision。作成後は変更しない（追記のみ）。 */
+export type DirectionDecisionTable = {
+  id: string;
+  project_id: string;
+  intent_id: string;
+  /** next_outcomeのときだけ設定される。outcome.idへのFK。 */
+  outcome_id: string | null;
+  type:
+    | "next_outcome"
+    | "additional_research"
+    | "intent_complete"
+    | "intent_abandon"
+    | "policy_proposal"
+    | "adr_candidate";
+  judgment: string;
+  reason: string;
+  /** JSON文字列の配列。 */
+  options: string;
+  /** 判断時点のIntent Brief snapshot（JSON）。 */
+  intent_brief_snapshot: string;
+  principal_id: string;
+  run_ref: string;
+  request_key: string;
+  input_hash: string;
+  created_at: number;
+};
+
+export type DirectionDecisionSynthesisTable = {
+  decision_id: string;
+  synthesis_id: string;
+  version: number;
+  position: number;
+};
+
+export type DirectionDecisionFindingTable = {
+  decision_id: string;
+  finding_id: string;
+  position: number;
+};
+
 /** 状態変更と同一transactionで追記する確定イベント。更新・削除しない。`sequence`が取得位置（cursor）になる。 */
 export type RuntimeEventTable = {
   sequence: Generated<number>;
@@ -207,6 +249,9 @@ export type Database = {
   research_finding_conflict: ResearchFindingConflictTable;
   research_synthesis: ResearchSynthesisTable;
   research_synthesis_finding: ResearchSynthesisFindingTable;
+  direction_decision: DirectionDecisionTable;
+  direction_decision_synthesis: DirectionDecisionSynthesisTable;
+  direction_decision_finding: DirectionDecisionFindingTable;
   runtime_event: RuntimeEventTable;
 };
 

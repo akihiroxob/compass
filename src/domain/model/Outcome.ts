@@ -24,6 +24,8 @@ export type OutcomeProperties = {
   status: OutcomeStatus;
   cancelReason: string | null;
   successCriteria: SuccessCriterion[];
+  /** このOutcomeを判断したDirection DecisionのID。Decision導入前・Decisionを経由しない作成はnull。 */
+  originDecisionId: string | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -39,6 +41,7 @@ export class Outcome {
   readonly status: OutcomeStatus;
   readonly cancelReason: string | null;
   readonly successCriteria: readonly SuccessCriterion[];
+  readonly originDecisionId: string | null;
   readonly createdAt: number;
   readonly updatedAt: number;
 
@@ -53,6 +56,7 @@ export class Outcome {
     this.status = properties.status;
     this.cancelReason = properties.cancelReason;
     this.successCriteria = properties.successCriteria;
+    this.originDecisionId = properties.originDecisionId;
     this.createdAt = properties.createdAt;
     this.updatedAt = properties.updatedAt;
   }

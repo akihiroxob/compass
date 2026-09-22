@@ -12,7 +12,7 @@
 | Researcher Role・Instruction・MCP Context / Command | 実装済み（Task 24）。Runtimeによる起動・Human向けGrant画面は未接続 |
 | Active Intent作成時のInitial Request・Runtimeイベント | 実装済み（Task 25）。Intent作成・`complete`と同一transactionで`runtime_event`へ追記し、application層の`listRuntimeEventsUseCase`で取得できる。Runtimeへの配送・Web API / MCPの取得入口・Runtimeによる起動は未接続 |
 | Intent Brief・Strategist Contextへの接続 | 実装済み（Task 26）。`get_strategist_context`の`research`にIntent Brief、新規MCP tool `get_research_request`にSynthesis→Finding→Evidence参照のID指定Queryを実装 |
-| Direction Decision・ADR連携・Human向けResearch / Decision画面 | 未実装 |
+| Direction Decision・Outcomeの根拠参照 | 実装済み（Task 27）。MCP tool `create_direction_decision`（next_outcome以外の5種）と`decide_next_outcome`（next_outcomeとOutcomeを同一transactionで保存）を実装。ADR連携（Repository参照・Wacha引き渡し契約）とHuman向けResearch / Decision画面は未実装 |
 
 `get_strategist_context`が返す`unavailable`は`evaluation` / `evidence`のみになった（Task 26で`research`を除外）。Evaluation・Evidence相当はStrategist Contextへ接続されるまで変わらず、実装済みとして扱わない。
 
@@ -313,13 +313,49 @@ Finding → Research Synthesis → Intent Briefの段階圧縮をapplication層�
 - `npm run typecheck` / `npm run lint`（`tsc` 2本）/ `npm run build`: 成功。
 - 未実施: ブラウザでのWeb UI確認（Task 26はUI変更なし。Human向けResearch画面はTask 29）。実Runtime・実Wachaとの接続はまだ無く、検証は`createApplicationServices` / in-process MCP呼び出しに限る。
 
+## 実装記録: Direction DecisionとOutcomeの根拠参照（Task 27）
+
+Compassを正本とするDirection Decisionと、Strategistの判断を記録する2つのMCP toolを実装した。ADR CandidateのRepository参照・Wacha引き渡し契約（Task 28）と、Human向けのRequest/Decision画面（Task 29）はこのTaskに含めない。
+
+### 入口とtype
+
+- `create_direction_decision`: `next_outcome`以外の5種（`additional_research` / `intent_complete` / `intent_abandon` / `policy_proposal` / `adr_candidate`）を記録する。判断（`judgment`）・理由（`reason`）・選択肢（`options`）・使用した`usedSyntheses`（Synthesis id + version）・`usedFindingIds`を保存するだけで、他のEntityは作らない。
+- `decide_next_outcome`: `next_outcome`のDecisionとOutcome（固定のSuccess Criteria含む）を1 transactionで保存する（部分保存を許さない）。Outcome入力は既存の`createOutcomeSchema`をそのまま使い、`create_outcome`の固定Success Criteriaの規則を重複させない。
+- 既存の`create_outcome`はそのまま維持し、Decisionを経由しないOutcome作成に使える。そのOutcomeの`originDecisionId`は`null`のままで、既存の呼び出し・テストは変更なしで動く。
+
+### 判断時点のsnapshotと根拠の来歴
+
+- `intentBriefSnapshot`は、use caseが`ResearchRepository.findIntentResearchSummary`をDecision保存の直前に読み、そのままDecisionへJSONで保存する。**snapshotの読取とDecisionの書込は別transaction**にした（`DirectionDecisionRepository`はResearch集約に依存させず、cross-aggregateな結合を避ける小さな選択）。Researcherが同時にResult/Synthesisを登録するごく短い競合はあり得るが、これは初期実装の対象外とし、必要になれば`findIntentResearchSummary`をtransaction越しに呼べるよう拡張する。
+- `usedSyntheses`は`{synthesisId, version}`で、保存時に同じProjectに存在し**指定versionが現在versionと一致すること**を検証する（不一致は`synthesis_version_mismatch`→`CONFLICT`）。supersedeされた古いversionをそのまま参照させない。`usedFindingIds`は存在確認だけを行う（Findingはversionを持たない）。
+
+### next_outcomeの原子性とOutcome↔Decisionの相互参照
+
+- `direction_decision.outcome_id`は`outcome.id`への外部キーで、`outcome.origin_decision_id`は逆方向の参照だが、双方向のFKは循環参照になるため**outcome側は意図的にFK制約を付けない**（`initializeSchema.ts`の`addOutcomeOriginDecisionColumn`）。保存順は「Outcomeを先に作る→Outcomeの`id`を指すDecisionを作る」の1方向で、`origin_decision_id`はDecision作成前に確定させたIDをそのまま書き込む。
+- Outcome行の構築（`insertOutcomeRow` / `loadOutcomes`）は`SQLiteOutcomeRepository`と`SQLiteDirectionDecisionRepository`の両方から使う共有ヘルパー（`infrastructure/repository/outcomeRecord.ts`）へ切り出した。重複実装を避け、Success Criteriaの検証・保存規則を1箇所にする。
+
+### 冪等性
+
+- 既存のResearch集約と同じ設計（`requestKey` + `input_hash`のunique index）を踏襲する。`decideNextOutcome`は`outcome`フィールドを含む入力全体をhashするため、同じrequestKeyでOutcome内容が異なる再送は`CONFLICT`で拒否し、部分的な重複も作らない。
+
+### Role境界
+
+- 両toolとも`asStrategistWithPrincipal`（Bearerからprincipalを解決しつつStrategist Grantを検査）でのみ呼べる。ResearcherはStrategist用のtoolを一切持たず、Grantを持っていても`FORBIDDEN`になる。Evaluator・Wacha Roleは`ProjectRole`に存在しないため、これらのRoleでのDecision確定は構造上不可能。
+- `policy_proposal`は判断を記録するだけで、`update_project`を呼ばない。Mission / Vision / Principles / Constraintsの変更は、Human主導の別経路（Web UIの`update_project`）を要する。
+
+### 検証結果
+
+- `npm test`: 新規`test/directionDecision.test.ts`（冪等性・requestKey競合・存在しないSynthesis/Finding・version不一致・放棄済みIntent・policy_proposalの無変更・next_outcomeの原子性と`originDecisionId`・Role境界）を含め、既存の`researcherMcp.test.ts` / `strategistMcp.test.ts` / `outcome.test.ts` / `intentAdapters.test.ts` / `projectArchive.test.ts`のtool一覧更新分を含めて全件成功。
+- `npm run typecheck` / `npm run lint`（`tsc` 2本）/ `npm run build`: 成功。
+- ドキュメント: README・`agent/strategist.md`（Direction Decisionの使い分け、Allowed、判断権限）を更新。`agent/strategist.md`の契約テスト（`test/instruction.test.ts`）が、backtickで囲んだtype値をtool名と誤認しないよう表記を調整した。
+- 未実施: ブラウザでのWeb UI確認（Task 27はUI変更なし。Human向けDecision画面はTask 29）。実Runtime・実Wachaとの接続は無く、検証は`createApplicationServices` / in-process MCP呼び出しに限る。
+
 ## 段階的な実装
 
 1. Research Request / ResultとProject・Intentの関連、状態遷移、冪等性を実装する（domain・永続化・application層はTask 23で実装済み。入口は未接続）
 2. Researcher Role、Instruction、Grant、Context、Result登録を実装する（Task 24で実装済み。Human向けGrant画面はTask 29）
 3. Active Intent作成時のInitial RequestとRuntime向け確定イベントを実装する（Task 25で実装済み。Runtimeへの配送・取得入口は未接続）
 4. Finding / Synthesisのversion・来歴とIntent Briefを実装し、Strategist Contextへ接続する（Task 26で実装済み）
-5. Direction DecisionとOutcomeの根拠参照を実装する
+5. Direction DecisionとOutcomeの根拠参照を実装する（Task 27で実装済み）
 6. ADR CandidateとRepository ADR参照、WachaへのTask引き渡し契約を実装する
 7. Human向けProject Research / Decision画面と、Human介入なしの境界テストを実装する
 

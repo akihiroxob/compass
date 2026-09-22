@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { directionDecisionRecordTypes } from "../../domain/model/DirectionDecision.ts";
 import { ProjectRole, projectRoles } from "../../constants/ProjectRole.ts";
 import { ConflictError } from "../../application/error/ConflictError.ts";
 import { ForbiddenError } from "../../application/error/ForbiddenError.ts";
@@ -117,6 +118,32 @@ const researchResultSchema = {
   risks: researchTextList,
 };
 
+// Direction Decisionの入力規則もshared/directionDecisionSchemaが持つ。ここでは型だけを宣言する。
+// principalIdは入力に持たない。来歴のPrincipalはBearerから解決した値だけを使う。
+const usedSynthesisRefSchema = z.object({ synthesisId: z.string().min(1), version: z.number().int().min(1) });
+
+const directionDecisionCommonSchema = {
+  projectId: z.string().min(1),
+  intentId: z.string().min(1),
+  judgment: z.string(),
+  reason: z.string(),
+  options: z.array(z.string()).optional(),
+  usedSyntheses: z.array(usedSynthesisRefSchema).optional(),
+  usedFindingIds: z.array(z.string()).optional(),
+  requestKey: z.string(),
+  runRef: z.string(),
+};
+
+const createDirectionDecisionMcpSchema = {
+  ...directionDecisionCommonSchema,
+  type: z.enum(directionDecisionRecordTypes),
+};
+
+const decideNextOutcomeMcpSchema = {
+  ...directionDecisionCommonSchema,
+  outcome: z.object(outcomeCreateSchema).omit({ projectId: true, intentId: true }),
+};
+
 const researchSynthesisSchema = {
   ...researchRequestRef,
   ...researchProvenance,
@@ -171,6 +198,9 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
   // 検査の規則はapplication serviceが持つ。handlerはPrincipalとprojectIdを渡すだけ。
   const asStrategist = <T>(projectId: string, operation: () => Promise<T>) =>
     authorization.asRole(principal, projectId, ProjectRole.STRATEGIST, operation);
+  // Direction Decisionは来歴にprincipalIdを保存するため、認可と同時にBearerから解決したprincipalIdを受け取る。
+  const asStrategistWithPrincipal = async <T>(projectId: string, operation: (principalId: string) => Promise<T>) =>
+    operation(await authorization.requireRole(principal, projectId, ProjectRole.STRATEGIST));
   // 来歴のPrincipalはBearerから解決した値だけ。tool入力のprincipalIdは受け付けない。
   const asResearcher = async <T>(projectId: string, operation: (principalId: string) => Promise<T>) =>
     operation(await authorization.requireRole(principal, projectId, ProjectRole.RESEARCHER));
@@ -400,6 +430,52 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
         asStrategist(projectId, async () => ({
           outcome: await services.cancelOutcomeUseCase.execute(projectId, intentId, outcomeId, { reason }),
         })),
+      ),
+  );
+
+  server.registerTool(
+    "create_direction_decision",
+    {
+      title: "Create Direction Decision",
+      description:
+        "Record a Direction Decision for the active Intent as additional_research, intent_complete, intent_abandon, " +
+        "policy_proposal or adr_candidate (for next_outcome use decide_next_outcome instead, which saves the Decision and " +
+        "the Outcome atomically). judgment and reason record what was decided and why; options records alternatives considered; " +
+        "usedSyntheses (Synthesis id + its current version) and usedFindingIds cite the evidence used, and must reference " +
+        "Synthesis/Finding ids that exist in this Project (a stale or wrong version fails with CONFLICT). The Intent Brief at " +
+        "decision time is snapshotted and stored with the Decision. policy_proposal only records a proposal; it never changes " +
+        "the Project's Mission, Vision, Principles or Constraints directly (use update_project separately if a Human-reviewed " +
+        "change is later approved). requestKey makes a resend idempotent; the same requestKey with different content fails with " +
+        "CONFLICT. Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: createDirectionDecisionMcpSchema,
+    },
+    ({ projectId, ...input }) =>
+      execute(() =>
+        asStrategistWithPrincipal(projectId, async (principalId) => ({
+          decision: await services.createDirectionDecisionUseCase.execute(projectId, principalId, input),
+        })),
+      ),
+  );
+  server.registerTool(
+    "decide_next_outcome",
+    {
+      title: "Decide Next Outcome",
+      description:
+        "Record a next_outcome Direction Decision and its Outcome (with fixed Success Criteria, 1-10 items, same rules as " +
+        "create_outcome) in one atomic operation: neither is saved without the other. Use this instead of create_outcome when the " +
+        "choice should carry a recorded rationale and evidence trail (judgment, reason, options considered, usedSyntheses id+version, " +
+        "usedFindingIds, and a snapshot of the Intent Brief at decision time). create_outcome remains available for creating an " +
+        "Outcome without a Decision record; those Outcomes keep originDecisionId null and continue to work as before. requestKey " +
+        "makes a resend idempotent; the same requestKey with different content fails with CONFLICT. " +
+        "Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: decideNextOutcomeMcpSchema,
+    },
+    ({ projectId, ...input }) =>
+      execute(() =>
+        asStrategistWithPrincipal(
+          projectId,
+          async (principalId) => await services.decideNextOutcomeUseCase.execute(projectId, principalId, input),
+        ),
       ),
   );
 

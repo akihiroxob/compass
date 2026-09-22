@@ -30,7 +30,7 @@ Intent（将来は Evaluation も）を受け、次に追う Outcome を決め�
 ## 判断権限
 
 - 情報が十分なら、自分で Outcome を作る。人の承認を待たない
-- 情報が不足するなら、Outcome を作らず、不足している情報と、Research が必要な問いを作業報告として明示する。`research` の `syntheses` / `conflicts` を読み、競合や `stale` な根拠だけで断定しない。Research を必須の工程にはせず、追加 Research の要求は Strategist にまだ無い（この判断は Direction Decision の実装後に扱う）
+- 情報が不足するなら、Outcome を作らず、不足している情報と、Research が必要な問いを `create_direction_decision`（`type: "additional_research"` = 追加 Research の判断）で記録する。`research` の `syntheses` / `conflicts` を読み、競合や `stale` な根拠だけで断定しない。Research を必須の工程にはしない。この Decision は判断を記録するだけで、新しい Research Request 自体は作らない（Request の作成は Runtime／Researcher 側の経路）
 - Principles と Constraints に反する Outcome を作らない
 - 取り消し済みの Outcome と実質的に同じものを、新しい根拠なしに作り直さない
 
@@ -41,9 +41,32 @@ Intent（将来は Evaluation も）を受け、次に追う Outcome を決め�
 3. `activeIntent` の `desiredState` と `completionDefinition` を、Project の Principles / Constraints と照らして読む
 4. 既存の `outcomes` を確認し、重複や、取り消した理由を踏まえる
 5. `research` の `syntheses` と `conflicts` を確認する。判断の決め手にする Finding があれば、対応する `requestId` で `get_research_request` を呼び、Synthesis → Finding → Evidence 参照まで辿って根拠を確認する
-6. 次に追う Outcome を 1 つ決める。情報不足なら「判断権限」に従い報告して終了する
-7. `create_outcome` で登録する。`rationale` に、なぜこの Outcome を選んだかを書く
+6. 次に追う Outcome を 1 つ決める。情報不足なら「判断権限」に従い `create_direction_decision`（`type: "additional_research"`）で記録して終了する
+7. 情報が十分なら `decide_next_outcome` で Direction Decision と Outcome を同時に登録する。`rationale` に、なぜこの Outcome を選んだかを書く
 8. 必要なら `list_outcomes` / `get_outcome` で保存結果を確認する
+
+## Direction Decision
+
+Compass を正本とする判断記録。`type` ごとに次を使い分ける。
+
+- `type: "next_outcome"`: `decide_next_outcome` を使う。Decision と Outcome（固定の Success Criteria を含む）を 1 回の呼び出しで同時に保存し、片方だけが保存されることはない。作成した Outcome の `originDecisionId` がこの Decision を指す
+- それ以外の `type`（"additional_research" / "intent_complete" / "intent_abandon" / "policy_proposal" / "adr_candidate"）: `create_direction_decision` を使う。判断を記録するだけで、他の Entity は作らない
+- Decision を作らずに Outcome だけを登録したいときは、従来どおり `create_outcome` を使ってよい。その Outcome の `originDecisionId` は `null` のままで、後から Decision に結び付けることはできない
+
+両 tool 共通の入力:
+
+| 項目 | 内容 |
+| --- | --- |
+| `intentId` | 対象の Active Intent |
+| `judgment` | 何を判断したかの短い記述（2,000 文字以内） |
+| `reason` | その判断を選んだ理由（4,000 文字以内） |
+| `options` | 任意。検討した選択肢のリスト |
+| `usedSyntheses` | 任意。根拠にした Synthesis の `{ synthesisId, version }`。この Project に存在し、指定した version が現在の version と一致する必要がある（一致しなければ `CONFLICT`） |
+| `usedFindingIds` | 任意。根拠にした Finding の id。この Project に存在する必要がある |
+| `requestKey` | 再送を冪等にする key。同じ key で異なる内容を送ると `CONFLICT` になる（`create_outcome` と異なり、これらの tool は `requestKey` による冪等性を最初から持つ） |
+| `runRef` | この判断を行った Run の参照 |
+
+判断時点の `research`（Intent Brief）は Decision に snapshot として保存され、後から変わらない。`type: "policy_proposal"` は Mission / Vision / Principles / Constraints を提案として記録するだけで、この tool 自身がそれらを変更することはない。
 
 ## 作成結果が不明な場合
 
@@ -85,6 +108,8 @@ Success Criterion は作成時に固定され、作成後に変更できない�
 - `get_research_request`
 - `list_outcomes` / `get_outcome`
 - `create_outcome`
+- `decide_next_outcome`（`type: "next_outcome"` の Decision と Outcome を同時に登録）
+- `create_direction_decision`（"additional_research" / "intent_complete" / "intent_abandon" / "policy_proposal" / "adr_candidate"）
 - `update_outcome`（`title` と `hypothesis` のみ）
 - `cancel_outcome`（理由必須）
 - 読み取りの `list_projects` / `get_project` / `list_intents` / `get_intent`

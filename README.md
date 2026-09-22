@@ -119,6 +119,8 @@ Research Request・Result・Finding・Evidence参照・Synthesisのdomain・永�
 Researcher Role・Instruction・MCP tool（`get_researcher_context`・`list_research_requests`・`register_research_result`・`register_research_synthesis`・`complete_research_request`）も実装済みです（Task 24）。
 ResearcherのGrantはWeb API（`POST /api/projects/:projectId/grants`、`role: "researcher"`）で付与でき、Web UIの管理画面・Runtimeによる起動・Web APIのResearch入口は未接続です。
 `get_strategist_context`の`research`（Active IntentのIntent Brief: 関連Synthesis要約・Finding競合・鮮度・残予算）はTask 26で実装済みで、`unavailable`からは外れました（残るのは`evaluation`・`evidence`）。Synthesis→Finding→Evidence参照の詳細は、`research.requests`のidを指定するMCP tool `get_research_request`で辿れます。
+
+Direction Decision（Compassを正本とする判断記録）はTask 27で実装済みです。MCP tool `create_direction_decision`（`additional_research` / `intent_complete` / `intent_abandon` / `policy_proposal` / `adr_candidate`）と`decide_next_outcome`（`next_outcome`。Decision と Outcome を1 transactionで保存し、既存の`create_outcome`固定Success Criteriaはそのまま使う）が、Strategist Grantで判断・理由・選択肢・使用したSynthesis（id+version）/ Finding idと、判断時点のIntent Brief snapshotを保存します。`requestKey`で再送を冪等にし、同じkeyで異なる内容が来たら`CONFLICT`にします。`decide_next_outcome`で作成したOutcomeは`originDecisionId`でDecisionを参照でき、既存の`create_outcome`（Decisionを経由しない作成）はそのまま使え、そのOutcomeの`originDecisionId`は`null`のままです。`policy_proposal`はMission / Vision / Principles / Constraintsを直接変更せず、判断を記録するだけです。ADR CandidateのRepository参照・Wacha引き渡し契約はTask 28で扱います。
 現時点ではStrategistが情報不足を報告し、根拠を推測で補わないところまでをInstructionで定めています。
 
 ## 検証

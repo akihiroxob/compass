@@ -7,10 +7,12 @@ import {
   CancelResearchRequestUseCase,
   CompleteResearchRequestUseCase,
 } from "./application/usecase/CloseResearchRequestUseCases.ts";
+import { CreateDirectionDecisionUseCase } from "./application/usecase/CreateDirectionDecisionUseCase.ts";
 import { CreateIntentUseCase } from "./application/usecase/CreateIntentUseCase.ts";
 import { CreateOutcomeUseCase } from "./application/usecase/CreateOutcomeUseCase.ts";
 import { CreateProjectUseCase } from "./application/usecase/CreateProjectUseCase.ts";
 import { CreateResearchRequestUseCase } from "./application/usecase/CreateResearchRequestUseCase.ts";
+import { DecideNextOutcomeUseCase } from "./application/usecase/DecideNextOutcomeUseCase.ts";
 import { GetIntentUseCase } from "./application/usecase/GetIntentUseCase.ts";
 import { GetOutcomeUseCase } from "./application/usecase/GetOutcomeUseCase.ts";
 import { GetResearchRequestUseCase } from "./application/usecase/GetResearchRequestUseCase.ts";
@@ -30,6 +32,7 @@ import { RevokeProjectRoleUseCase } from "./application/usecase/RevokeProjectRol
 import { UpdateIntentUseCase } from "./application/usecase/UpdateIntentUseCase.ts";
 import { UpdateOutcomeUseCase } from "./application/usecase/UpdateOutcomeUseCase.ts";
 import { UpdateProjectUseCase } from "./application/usecase/UpdateProjectUseCase.ts";
+import { SQLiteDirectionDecisionRepository } from "./infrastructure/repository/SQLiteDirectionDecisionRepository.ts";
 import { SQLiteIntentRepository } from "./infrastructure/repository/SQLiteIntentRepository.ts";
 import { SQLiteOutcomeRepository } from "./infrastructure/repository/SQLiteOutcomeRepository.ts";
 import { SQLiteProjectGrantRepository } from "./infrastructure/repository/SQLiteProjectGrantRepository.ts";
@@ -50,6 +53,7 @@ export const createApplicationServices = (
   const intentRepository = new SQLiteIntentRepository(applicationDatabase);
   const outcomeRepository = new SQLiteOutcomeRepository(applicationDatabase);
   const researchRepository = new SQLiteResearchRepository(applicationDatabase, clock);
+  const directionDecisionRepository = new SQLiteDirectionDecisionRepository(applicationDatabase);
   const runtimeEventRepository = new SQLiteRuntimeEventRepository(applicationDatabase);
   const projectGrantRepository = new SQLiteProjectGrantRepository(applicationDatabase);
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
@@ -94,6 +98,16 @@ export const createApplicationServices = (
       intentRepository,
       outcomeRepository,
       researchRepository,
+    ),
+    createDirectionDecisionUseCase: new CreateDirectionDecisionUseCase(
+      projectRepository,
+      researchRepository,
+      directionDecisionRepository,
+    ),
+    decideNextOutcomeUseCase: new DecideNextOutcomeUseCase(
+      projectRepository,
+      researchRepository,
+      directionDecisionRepository,
     ),
   };
 };

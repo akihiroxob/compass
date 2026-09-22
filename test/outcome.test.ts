@@ -413,6 +413,7 @@ test("Intentを作成してもOutcomeは自動生成されず、Outcomeの状態
   assert.deepEqual(Object.keys(services).filter((name) => name.includes("Outcome")).sort(), [
     "cancelOutcomeUseCase",
     "createOutcomeUseCase",
+    "decideNextOutcomeUseCase",
     "getOutcomeUseCase",
     "listOutcomesUseCase",
     "updateOutcomeUseCase",
