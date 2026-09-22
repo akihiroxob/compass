@@ -98,10 +98,3 @@ export const researchRequestStatusLabels: Record<ResearchRequestStatus, string> 
   not_needed: "Not needed",
   cancelled: "Cancelled",
 };
-
-export const closedResearchRequestStatuses: ResearchRequestStatus[] = [
-  "completed",
-  "insufficient",
-  "not_needed",
-  "cancelled",
-];
