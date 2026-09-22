@@ -299,12 +299,33 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
       title: "Get Strategist Context",
       description:
         "Get what a Strategist needs to decide the next Outcome: the Project (Mission, Vision, Principles, Constraints, " +
-        "Repositories, Resources), its active Intent (null if none), and every Outcome under that Intent including cancelled ones. " +
-        "unavailable lists inputs that are not implemented yet (research, evaluation, evidence); do not assume or invent them. " +
-        "Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+        "Repositories, Resources), its active Intent (null if none), every Outcome under that Intent including cancelled ones, " +
+        "and research (the Intent Brief: this Intent's Research Requests including cancelled ones, and the latest, " +
+        "non-superseded Synthesis of each still-open request with its risks/options/unknowns, findingIds, validAsOf and a stale " +
+        "flag when a cited Finding has expired; conflicts lists Finding id pairs that were declared to contradict each other, " +
+        "never averaged or silently dropped; research is null when there is no active Intent). This does not include full Result " +
+        "or Evidence text; use get_research_request with a requestId from research.requests to trace a Synthesis to its Findings " +
+        "and Evidence references. unavailable lists inputs that are not implemented yet (evaluation, evidence); do not assume or " +
+        "invent them. Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: { projectId: z.string().min(1) },
     },
     ({ projectId }) => execute(() => services.getStrategistContextUseCase.execute(principal, projectId)),
+  );
+  server.registerTool(
+    "get_research_request",
+    {
+      title: "Get Research Request",
+      description:
+        "Get one Research Request by id with its full history: all registered Results (with Evidence references and Findings), " +
+        "and all Synthesis versions (including ones superseded by a later version). Use this to trace a Synthesis id or Finding id " +
+        "from get_strategist_context's research.syntheses / research.conflicts back to its Findings and cited Evidence. " +
+        "Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: researchRequestRef,
+    },
+    ({ projectId, requestId }) =>
+      execute(() =>
+        asStrategist(projectId, () => services.getResearchRequestUseCase.execute(projectId, requestId)),
+      ),
   );
   server.registerTool(
     "create_outcome",

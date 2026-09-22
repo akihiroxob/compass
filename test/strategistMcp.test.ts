@@ -100,7 +100,12 @@ test("StrategistはBearerだけでContextを取得し、create_outcomeで登録�
   assert.deepEqual(value.project.constraints, ["No autonomous execution yet"]);
   assert.equal(value.activeIntent.id, intentId);
   assert.deepEqual(value.outcomes, []);
-  assert.deepEqual(value.unavailable, ["research", "evaluation", "evidence"]);
+  assert.deepEqual(value.unavailable, ["evaluation", "evidence"]);
+  // Intent作成と同一transactionでInitial Research Requestが作られ、Intent Briefの`requests`に現れる（Task 25）。
+  assert.equal(value.research.requests.length, 1);
+  assert.equal(value.research.requests[0].status, "requested");
+  assert.deepEqual(value.research.syntheses, []);
+  assert.deepEqual(value.research.conflicts, []);
 
   const created = await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "strat-1");
   assert.equal(created.isError, undefined);
@@ -131,6 +136,41 @@ test("Active Intentが無いProjectのContextはactiveIntent:null・outcomes:[]�
   assert.equal(context.isError, undefined);
   assert.equal(context.structuredContent.activeIntent, null);
   assert.deepEqual(context.structuredContent.outcomes, []);
+  assert.equal(context.structuredContent.research, null);
+  await database.destroy();
+});
+
+test("get_research_requestはStrategist GrantでSynthesis→Finding→Evidenceを辿れ、Grantなし・別Project・存在しないIDを拒否する", async () => {
+  const { database, app } = await setup();
+  const projectId = await createProject(app);
+  const otherProjectId = await createProject(app, "Other");
+  const intentId = await createIntent(app, projectId);
+  await grant(app, projectId, "strat-1");
+
+  const context = await callTool(app, "get_strategist_context", { projectId }, "strat-1");
+  const requestId = context.structuredContent.research.requests[0].id as string;
+
+  const detail = await callTool(app, "get_research_request", { projectId, requestId }, "strat-1");
+  assert.equal(detail.isError, undefined);
+  assert.equal(detail.structuredContent.request.id, requestId);
+  assert.deepEqual(detail.structuredContent.results, []);
+  assert.deepEqual(detail.structuredContent.syntheses, []);
+
+  const unauthenticated = await callTool(app, "get_research_request", { projectId, requestId });
+  assert.equal(unauthenticated.structuredContent.error.code, "UNAUTHENTICATED");
+
+  const forbidden = await callTool(app, "get_research_request", { projectId, requestId }, "someone-else");
+  assert.equal(forbidden.structuredContent.error.code, "FORBIDDEN");
+
+  const wrongProject = await callTool(app, "get_research_request", { projectId: otherProjectId, requestId }, "strat-1");
+  assert.equal(wrongProject.structuredContent.error.code, "FORBIDDEN");
+
+  await grant(app, otherProjectId, "strat-1");
+  const notFound = await callTool(app, "get_research_request", { projectId: otherProjectId, requestId }, "strat-1");
+  assert.equal(notFound.structuredContent.error.code, "NOT_FOUND");
+
+  const missingId = await callTool(app, "get_research_request", { projectId, requestId: "missing" }, "strat-1");
+  assert.equal(missingId.structuredContent.error.code, "NOT_FOUND");
   await database.destroy();
 });
 

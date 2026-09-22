@@ -49,7 +49,8 @@
 | tool | Strategist | Grant なし・別 Project・取消済み | Bearer なし | 備考 |
 | --- | --- | --- | --- | --- |
 | `get_role_instructions`（新規） | ✓ | ✓ | ✓ | 静的な Instruction の取得。Role も Bearer も不要（機密を含まない。Agent は起動直後に自力で取得できる） |
-| `get_strategist_context`（新規） | ✓ | ✗ | ✗ `UNAUTHENTICATED` | Project・Active Intent・既存 Outcome を返す |
+| `get_strategist_context`（新規） | ✓ | ✗ | ✗ `UNAUTHENTICATED` | Project・Active Intent・既存 Outcome・Active Intent の Intent Brief（`research`、Task 26）を返す |
+| `get_research_request`（新規、Task 26） | ✓ | ✗ | ✗ `UNAUTHENTICATED` | Requestの全Result・全versionのSynthesisを返す。`research.requests`のidから、Intent BriefのSynthesis / 競合をFinding・Evidence参照まで辿るための読み取り専用tool |
 | `create_outcome` | ✓ | ✗ | ✗ `UNAUTHENTICATED` | Outcome + 固定 Success Criteria + rationale の登録（Strategist の Decision の登録） |
 | `update_outcome` | ✓ | ✗ | ✗ `UNAUTHENTICATED` | Step 3 の規則のまま（active の title / hypothesis のみ。固定項目は 409） |
 | `cancel_outcome` | ✓ | ✗ | ✗ `UNAUTHENTICATED` | 理由必須。成功条件を変える唯一の経路（取消 + 新規作成） |
@@ -57,7 +58,7 @@
 | `update_project` / `create_intent` / `update_intent` / `abandon_intent` | **✗** | ✓（Bearer なしも ✓） | ✓ | Direction の管理操作（Operator plane 相当）。**その Project の Strategist Grant を持つ Principal には拒否**（職務分離。下記） |
 | `create_project` / `list_projects` / `get_project` / `list_intents` / `get_intent` | ✓ | ✓ | ✓ | 不変。書込先の Project がまだ無い（`create_project`）か、読み取りのみ |
 | Grant の発行・取消・一覧 | — | — | — | **MCP tool を作らない**。Agent が自分の権限を増やせないようにする |
-| Success Criterion の編集、Outcome の `achieved` 等への遷移、Task 分解、実行、Research / Evaluation | — | — | — | 対応する tool・API が存在しない（Step 3 から不変） |
+| Success Criterion の編集、Outcome の `achieved` 等への遷移、Task 分解、実行、追加 Research Request の作成、Evaluation | — | — | — | 対応する tool・API が存在しない。Research の読み取り（`get_strategist_context`の`research`、`get_research_request`）はTask 26で実装済みだが、Strategistは新しいRequestを作れない |
 
 - **職務分離ガード**: Strategist は Intent を変更しない。Intent / Project の書込 tool は、Bearer があり、かつその Principal が対象 Project の Strategist Grant を持つ場合に `FORBIDDEN`。検査は application service の 1 箇所（`requireNotRole`）に置く。Bearer なし・Grant なしの呼び出しは従来どおり許可される（Operator plane の互換）。**Agent 名を変えれば回避できるため、trusted-local では「構造上の保証（Strategist 用 tool に Intent 変更が無い）」が本体で、このガードは誤用防止**と位置づける。
 - Outcome 書込を Bearer なしで拒否するのは MCP だけ。Web API / UI の Outcome 作成・更新・取消は従来どおり Principal なしで動く（Human は Web UI から操作する。既存の Web の挙動を変えない）。
@@ -188,15 +189,25 @@ Human が Grant を発行・取消する正規の入口。Web API を通じて�
                "principles": ["..."], "constraints": ["..."], "repositories": [], "resources": [] },
   "activeIntent": { "id": "...", "title": "...", "desiredState": "...", "completionDefinition": null, "status": "active" },
   "outcomes": [ { "id": "...", "status": "active", "title": "...", "rationale": "...", "successCriteria": [ ... ] } ],
-  "unavailable": ["research", "evaluation", "evidence"]
+  "research": {
+    "requests": [ { "id": "...", "status": "requested", "question": "...", "budgetTotal": 100, "budgetUsed": 0, "deadlineAt": null, "createdAt": 0, "updatedAt": 0 } ],
+    "syntheses": [ { "requestId": "...", "synthesisId": "...", "version": 2, "conclusion": "...", "risks": [], "options": [], "unknowns": [], "findingIds": ["..."], "validAsOf": 0, "stale": false } ],
+    "conflicts": [ { "findingId": "...", "conflictsWithFindingId": "..." } ]
+  },
+  "unavailable": ["evaluation", "evidence"]
 }
 ```
 
 - `project` は Step 1 の Project 全体（Mission / Vision / Principles / Constraints / Repositories / Resources）。
-- `activeIntent` は Project の active Intent（最大 1 件）。無ければ `null`（エラーにしない。Strategist が「今決めることが無い」と判断できる）。`outcomes` は空配列。
+- `activeIntent` は Project の active Intent（最大 1 件）。無ければ `null`（エラーにしない。Strategist が「今決めることが無い」と判断できる）。`outcomes` は空配列、`research` は `null`。
 - `outcomes` は **Active Intent 配下の全状態の Outcome**（新しい順、成功条件は position 順）。`cancelled` を含め、`cancelReason` も返す。過去に何を試して取り消したかを重複提案の回避に使えるようにする。
-- `unavailable` は未実装で、Agent が存在を仮定してはならない入力の静的な一覧。Research Entity・Evaluation・Evidence は Step 4 に無く、Instruction の「Evidence の捏造禁止」と対応する。実装された時点で該当要素を外す。
-- application は `GetStrategistContextUseCase`。Grant 検査 → Project 取得 → Intent 一覧から active を選択 → Outcome 取得の順で、既存 Repository を使う（新しい Repository は作らない）。
+- `research`（Task 26）は Active Intent の **Intent Brief**。全文検索やベクトル検索は使わず、関連付け（`originIntentId`）・状態・最新 version・`validAsOf` による決定的な絞り込みで組み立てる。
+  - `requests`: このIntentを発端とする Decision Research Request の要約。`cancelled` を含む全状態を新しい順に返す（来歴。除外しない）
+  - `syntheses`: `cancelled` の Request を除き、各 Synthesis 系列で `supersedesId` に指されていない最新 version だけを返す。置き換えられた古い version は落とすが、`get_research_request` から引き続き辿れる（黙って消さない）。`stale` は、引用する Finding のいずれかが `expiresAt` を過ぎていれば `true`
+  - `conflicts`: Finding 登録時に宣言された競合をそのまま返す。平均化や黙った除外はしない
+  - Evidence 全文や Result 本文は含めない。詳細は `get_research_request({ projectId, requestId })` で `requests[].id` を指定して取得する（Synthesis 全 version・Result・Finding・Evidence 参照を含む）
+- `unavailable` は未実装で、Agent が存在を仮定してはならない入力の静的な一覧。Evaluation・Evidence は Step 4 に無く、Instruction の「Evidence の捏造禁止」と対応する。Research は Task 26 で実装され `unavailable` から外れた。実装された時点で該当要素を外す。
+- application は `GetStrategistContextUseCase`。Grant 検査 → Project 取得 → Intent 一覧から active を選択 → Outcome 取得 → （Active Intent があれば）`ResearchRepository.findIntentResearchSummary` で Intent Brief を取得、の順で、既存 Repository を使う（新しい Repository は作らない）。
 
 ## Instruction 配信
 
@@ -212,10 +223,10 @@ Human が Grant を発行・取消する正規の入口。Web API を通じて�
 | --- | --- |
 | Goal | Intent（または将来の Evaluation）を受け、次に追う Outcome を決める |
 | 対象 Project | 外部から `projectId` が明示されれば固定する。未指定なら `list_projects` の各 active Projectへ `get_strategist_context` を呼び、成功候補が1件のときだけ自動選択する。0件・複数件は報告して停止し、推測で選ばない |
-| Input | `get_strategist_context` の内容: Project の Mission / Vision / Principles / Constraints、Active Intent、既存 Outcome。Evidence 相当は `unavailable` に無いものだけ |
-| 判断権限 | 情報が十分なら Outcome を作る。不足なら、Research が必要な問いと不足情報を**作業報告・出力として明示**する（Research の Entity・起動は未実装。Research を必須工程にしない。必要性は Strategist が判断する） |
+| Input | `get_strategist_context` の内容: Project の Mission / Vision / Principles / Constraints、Active Intent、既存 Outcome、Active Intent の Intent Brief（`research`、Task 26。関連 Synthesis 要約・競合・鮮度・残予算）。Evidence 相当は `unavailable` に無いものだけ |
+| 判断権限 | 情報が十分なら Outcome を作る。不足なら、Research が必要な問いと不足情報を**作業報告・出力として明示**する（`research` の競合・`stale` な根拠だけで断定しない。Research を必須工程にはせず、追加 Research の要求は Strategist にまだ無い） |
 | Output | Outcome（title / description / hypothesis / rationale）と 1 件以上 10 件以下の観測可能な Success Criterion（description / measurement / target） |
-| Allowed | `get_role_instructions` / `get_strategist_context` / `list_outcomes` / `get_outcome` / `create_outcome` / `update_outcome`（title・hypothesis）/ `cancel_outcome` |
+| Allowed | `get_role_instructions` / `get_strategist_context` / `get_research_request` / `list_outcomes` / `get_outcome` / `create_outcome` / `update_outcome`（title・hypothesis）/ `cancel_outcome` |
 | Forbidden | Project・Intent の変更（`update_project` / `create_intent` / `update_intent` / `abandon_intent`）、Task 分解、実行、Evidence の捏造、Outcome の自己評価・達成判定、Success Criterion の作成後の変更（変えるなら cancel + 新規作成）、Grant の操作 |
 | 固定ルール | Success Criterion は作成時に固定。`measurement` は「どの証拠があれば成立か」を書く。Agent の「できた」だけを条件にしない |
 | Role の意味 | Grant は Project scope の認可で、Agent の起動や Run の所有権ではない |

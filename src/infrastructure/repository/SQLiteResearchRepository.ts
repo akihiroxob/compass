@@ -3,6 +3,7 @@ import { sql } from "kysely";
 import {
   isClosedResearchStatus,
   type EvidenceReference,
+  type IntentResearchSummary,
   type ResearchFinding,
   type ResearchRequest,
   type ResearchRequestDetail,
@@ -282,6 +283,104 @@ export class SQLiteResearchRepository implements ResearchRepository {
   async findRequestDetail(projectId: string, requestId: string): Promise<ResearchRequestDetail | null> {
     const row = await findRequestRow(this.database, projectId, requestId);
     return row ? loadDetail(this.database, row) : null;
+  }
+
+  async findIntentResearchSummary(projectId: string, intentId: string): Promise<IntentResearchSummary> {
+    const requestRows = await this.database
+      .selectFrom("research_request")
+      .selectAll()
+      .where("project_id", "=", projectId)
+      .where("origin_intent_id", "=", intentId)
+      .orderBy("created_at", "desc")
+      .orderBy(byRowid, "desc")
+      .execute();
+    const requests = requestRows.map((row) => ({
+      id: row.id,
+      status: row.status,
+      question: row.question,
+      budgetTotal: row.budget_total,
+      budgetUsed: row.budget_used,
+      deadlineAt: row.deadline_at,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+
+    // cancelledのRequestは来歴として`requests`に残すが、圧縮結果（syntheses）の根拠からは外す。
+    const openRequestIds = requestRows.filter((row) => row.status !== "cancelled").map((row) => row.id);
+    if (openRequestIds.length === 0) return { requests, syntheses: [], conflicts: [] };
+
+    const synthesisRows = await this.database
+      .selectFrom("research_synthesis")
+      .selectAll()
+      .where("request_id", "in", openRequestIds)
+      .orderBy("valid_as_of", "desc")
+      .orderBy(byRowid, "desc")
+      .execute();
+    if (synthesisRows.length === 0) return { requests, syntheses: [], conflicts: [] };
+
+    // このIntent配下のRequestに限定した系列内で、supersedesIdに指されていない行だけを最新versionとみなす。
+    const supersededIds = new Set(
+      synthesisRows.map((row) => row.supersedes_id).filter((id): id is string => id !== null),
+    );
+    const latestRows = synthesisRows.filter((row) => !supersededIds.has(row.id));
+
+    const links = await this.database
+      .selectFrom("research_synthesis_finding")
+      .selectAll()
+      .where(
+        "synthesis_id",
+        "in",
+        latestRows.map((row) => row.id),
+      )
+      .orderBy("position", "asc")
+      .execute();
+    const findingIds = [...new Set(links.map((link) => link.finding_id))];
+    const findingRows =
+      findingIds.length === 0
+        ? []
+        : await this.database
+            .selectFrom("research_finding")
+            .select(["id", "expires_at"])
+            .where("id", "in", findingIds)
+            .execute();
+    const expiresById = new Map(findingRows.map((row) => [row.id, row.expires_at]));
+    const now = this.clock();
+
+    const conflictRows =
+      findingIds.length === 0
+        ? []
+        : await this.database
+            .selectFrom("research_finding_conflict")
+            .selectAll()
+            .where("finding_id", "in", findingIds)
+            .execute();
+    const conflicts = conflictRows
+      .map((row) => ({ findingId: row.finding_id, conflictsWithFindingId: row.conflicting_finding_id }))
+      .sort(
+        (a, b) => a.findingId.localeCompare(b.findingId) || a.conflictsWithFindingId.localeCompare(b.conflictsWithFindingId),
+      );
+
+    const syntheses = latestRows.map((row) => {
+      const ids = links.filter((link) => link.synthesis_id === row.id).map((link) => link.finding_id);
+      const stale = ids.some((id) => {
+        const expiresAt = expiresById.get(id);
+        return expiresAt !== null && expiresAt !== undefined && expiresAt <= now;
+      });
+      return {
+        requestId: row.request_id,
+        synthesisId: row.id,
+        version: row.version,
+        conclusion: row.conclusion,
+        risks: parseList(row.risks),
+        options: parseList(row.options),
+        unknowns: parseList(row.unknowns),
+        findingIds: ids,
+        validAsOf: row.valid_as_of,
+        stale,
+      };
+    });
+
+    return { requests, syntheses, conflicts };
   }
 
   async findRelatedFindings(projectId: string, requestId: string, limit: number): Promise<RelatedResearchFindings> {

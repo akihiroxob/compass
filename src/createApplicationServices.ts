@@ -93,6 +93,7 @@ export const createApplicationServices = (
       projectRepository,
       intentRepository,
       outcomeRepository,
+      researchRepository,
     ),
   };
 };

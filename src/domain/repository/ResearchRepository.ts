@@ -1,6 +1,7 @@
 import type { IntentStatus } from "../model/Intent.ts";
 import type {
   EvidenceReference,
+  IntentResearchSummary,
   ResearchFinding,
   ResearchRequest,
   ResearchRequestDetail,
@@ -81,6 +82,12 @@ export interface ResearchRepository {
   findRequests(projectId: string, query?: ResearchRequestQuery): Promise<ResearchRequest[]>;
   /** 他ProjectのRequest IDはnull。Result・Finding・Evidence・Synthesisを登録順で含める。 */
   findRequestDetail(projectId: string, requestId: string): Promise<ResearchRequestDetail | null>;
+  /**
+   * 指定Intentを発端とするDecision RequestからIntent Brief（Strategist Context向け圧縮結果）を組み立てる。
+   * `requests`は全状態を新しい順、`syntheses`はcancelledのRequestを除いた各系列の最新versionだけを返す。
+   * 存在しないIntentや、この Project 配下に Request が無い Intent には空の結果を返す（エラーにしない）。
+   */
+  findIntentResearchSummary(projectId: string, intentId: string): Promise<IntentResearchSummary>;
   /**
    * 対象Requestと同じ発端Intent（project_watchは発端なし同士）を持つ、同じProjectの他RequestのFindingを新しい順に最大`limit`件返す。
    * 対象Request自身のFindingは含めない（`findRequestDetail`で取得できる）。別Projectのものは返さない。

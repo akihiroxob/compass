@@ -11,10 +11,10 @@
 | Research Request / Result / Finding / Evidence参照 / Synthesisのdomain・SQLite永続化・application層 | 実装済み（Task 23）。入口（Web API / MCP / Web UI）へは未接続 |
 | Researcher Role・Instruction・MCP Context / Command | 実装済み（Task 24）。Runtimeによる起動・Human向けGrant画面は未接続 |
 | Active Intent作成時のInitial Request・Runtimeイベント | 実装済み（Task 25）。Intent作成・`complete`と同一transactionで`runtime_event`へ追記し、application層の`listRuntimeEventsUseCase`で取得できる。Runtimeへの配送・Web API / MCPの取得入口・Runtimeによる起動は未接続 |
-| Intent Brief・Strategist Contextへの接続 | 未実装 |
+| Intent Brief・Strategist Contextへの接続 | 実装済み（Task 26）。`get_strategist_context`の`research`にIntent Brief、新規MCP tool `get_research_request`にSynthesis→Finding→Evidence参照のID指定Queryを実装 |
 | Direction Decision・ADR連携・Human向けResearch / Decision画面 | 未実装 |
 
-現在の`get_strategist_context`が返す`unavailable`の`research` / `evaluation` / `evidence`は、Strategist Contextへ接続されるまで変わらず、実装済みとして扱わない。
+`get_strategist_context`が返す`unavailable`は`evaluation` / `evidence`のみになった（Task 26で`research`を除外）。Evaluation・Evidence相当はStrategist Contextへ接続されるまで変わらず、実装済みとして扱わない。
 
 ## 決定
 
@@ -288,12 +288,37 @@ Active Intent作成を契機とするInitial Requestと、Runtimeが起動条件
 - 理由: 起動時の自動backfillは、専用のCLI・Web操作を要求せず（CLIは保守用途に限る）、導入前のActive Intentも他のIntentと同じ流れでRuntimeが扱えるため。導入前のIntentにResearchを走らせたくない場合は、そのIntentのRequestを`cancelled`にすれば再作成されない。
 - 未検証: 実DB（本番相当のデータ量）でのbackfill、Runtimeが実際にイベントを取得して起動する経路。検証は`createApplicationServices`に対するin-processの呼び出しで、Lv6の実証ではない。
 
+## 実装記録: Intent Brief・Strategist Context接続（Task 26）
+
+Finding → Research Synthesis → Intent Briefの段階圧縮をapplication層で組み立て、`get_strategist_context`の応答へ`research`として追加した。全文検索・ベクトル検索・LLM Summarizerは使わず、Task 23の設計どおり関連付け・状態・最新version・`validAsOf`による決定的な絞り込みだけで組み立てる。
+
+### Intent Briefの構成
+
+- `GetStrategistContextUseCase`がActive Intentを解決した後、`ResearchRepository.findIntentResearchSummary(projectId, intentId)`を呼び、結果を`research`に載せる。Active Intentが無ければ`research`も`null`（`activeIntent`と対称）。
+- `research.requests`: このIntentを`originIntentId`に持つDecision Requestの要約（`status` / `question` / 予算 / `deadlineAt`）を新しい順に返す。`cancelled`を含む全状態で、除外しない（来歴として残す）。
+- `research.syntheses`: `cancelled`のRequestを除いた上で、各Synthesis系列（`supersedesId`の連鎖）のうち他のSynthesisの`supersedesId`から指されていない行だけを「最新version」として返す。置き換えられた古いversionはIntent Briefから落ちるが、削除も上書きもしない。`stale`は、そのSynthesisが引用する`findingIds`のいずれかで`research_finding.expires_at`が現在時刻以下なら`true`（Findingの既存の期限切れ表現をそのまま利用し、新しい鮮度フィールドは足さない）。
+- `research.conflicts`: `research_finding_conflict`から、`research.syntheses`の`findingIds`に含まれるFindingが宣言した競合をそのまま返す（`findingId`が競合を宣言した側、`conflictsWithFindingId`が対象）。平均化・多数決・黙った除外はしない。
+- Evidence全文・Result本文（`summary` / `unknowns` / `options` / `risks`の生ログ）は`research`へ埋め込まない。Synthesisの`conclusion` / `risks` / `options` / `unknowns`は圧縮結果そのものなので含める。
+
+### 初期選択と理由
+
+- **最新versionの判定範囲をIntent配下のRequestに限定した**: `supersedesId`はProject全体のSynthesis IDを指せる（Task 23の設計）が、Intent Briefでの「最新」はこのIntentに属するRequestの集合内だけで計算する。既存設計・Task 23の実装との整合を保ちつつ最も単純な絞り込みであり、Project全体を跨いだ連鎖解決は将来Intentを跨いだ再利用が要件化した時点で拡張する。
+- **cancelledのRequestは`requests`に残し`syntheses`から外した**: 取消は「この調査を判断根拠にしない」という意思表示であり、Outcomeの取消と同様に来歴（何を試して取り消したか）は見せつつ、圧縮結果の根拠には使わない。
+- **ID指定の詳細Queryは既存の`GetResearchRequestUseCase`を再利用した**: 新しいUse Case・Repositoryメソッドを増やさず、MCP tool `get_research_request`から`asStrategist`で認可した上で委譲する。Researcher・永続化層の既存実装（Task 23〜25）には触れていない。
+- **staleはFindingの`expiresAt`だけを根拠にした**: Synthesis自体に新しい鮮度フィールドを追加せず、既存のFinding期限切れの仕組みをIntent Briefでも再利用する小さな選択。Synthesis単位の有効期限が必要になった場合は別途設計する。
+
+### 検証結果
+
+- `npm test`: 追加した`test/intentBrief.test.ts`（cancelled除外、supersedesIdでの最新version判定、Finding競合、staleフラグ、Project scope）と、`test/strategistMcp.test.ts` / `test/projectArchive.test.ts` / `test/intentAdapters.test.ts`の更新分を含めて全件成功。
+- `npm run typecheck` / `npm run lint`（`tsc` 2本）/ `npm run build`: 成功。
+- 未実施: ブラウザでのWeb UI確認（Task 26はUI変更なし。Human向けResearch画面はTask 29）。実Runtime・実Wachaとの接続はまだ無く、検証は`createApplicationServices` / in-process MCP呼び出しに限る。
+
 ## 段階的な実装
 
 1. Research Request / ResultとProject・Intentの関連、状態遷移、冪等性を実装する（domain・永続化・application層はTask 23で実装済み。入口は未接続）
 2. Researcher Role、Instruction、Grant、Context、Result登録を実装する（Task 24で実装済み。Human向けGrant画面はTask 29）
 3. Active Intent作成時のInitial RequestとRuntime向け確定イベントを実装する（Task 25で実装済み。Runtimeへの配送・取得入口は未接続）
-4. Finding / Synthesisのversion・来歴とIntent Briefを実装し、Strategist Contextへ接続する
+4. Finding / Synthesisのversion・来歴とIntent Briefを実装し、Strategist Contextへ接続する（Task 26で実装済み）
 5. Direction DecisionとOutcomeの根拠参照を実装する
 6. ADR CandidateとRepository ADR参照、WachaへのTask引き渡し契約を実装する
 7. Human向けProject Research / Decision画面と、Human介入なしの境界テストを実装する

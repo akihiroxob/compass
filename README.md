@@ -100,7 +100,7 @@ Projectルートの `.mcp.json` に登録する場合は次のように記載し
 3. Project詳細のStrategist欄で、`COMPASS_AGENT_NAME`と同じAgent名に`strategist`を付与する。
 4. MCP clientを起動し、`get_role_instructions({ role: "strategist", includeShared: true })`を読む。
 5. 対象の`projectId`が明示されていればそれを使う。明示されていなければInstructionに従い、`list_projects`と`get_strategist_context`でStrategistとして操作できる候補を確認する（1件なら自動選択、0件または複数件なら報告して停止）。
-6. `get_strategist_context({ projectId })`でProject、Active Intent、既存Outcomeを取得する。
+6. `get_strategist_context({ projectId })`でProject、Active Intent、既存Outcome、Active IntentのIntent Brief（`research`）を取得する。Synthesis→Finding→Evidence参照の詳細が要る場合は`get_research_request({ projectId, requestId })`で辿る。
 7. 情報が十分なら`create_outcome`でOutcomeと成功条件を登録する。
 
 例えば、接続したAgentへ次のように依頼できます。
@@ -117,7 +117,8 @@ Intentを達成するための情報が十分なら、Outcomeと成功条件を�
 
 Research Request・Result・Finding・Evidence参照・Synthesisのdomain・永続化・application層は実装済み（Task 23）で、
 Researcher Role・Instruction・MCP tool（`get_researcher_context`・`list_research_requests`・`register_research_result`・`register_research_synthesis`・`complete_research_request`）も実装済みです（Task 24）。
-ResearcherのGrantはWeb API（`POST /api/projects/:projectId/grants`、`role: "researcher"`）で付与でき、Web UIの管理画面・Runtimeによる起動・Web APIのResearch入口は未接続です。`get_strategist_context`の`research`も`unavailable`のままです。
+ResearcherのGrantはWeb API（`POST /api/projects/:projectId/grants`、`role: "researcher"`）で付与でき、Web UIの管理画面・Runtimeによる起動・Web APIのResearch入口は未接続です。
+`get_strategist_context`の`research`（Active IntentのIntent Brief: 関連Synthesis要約・Finding競合・鮮度・残予算）はTask 26で実装済みで、`unavailable`からは外れました（残るのは`evaluation`・`evidence`）。Synthesis→Finding→Evidence参照の詳細は、`research.requests`のidを指定するMCP tool `get_research_request`で辿れます。
 現時点ではStrategistが情報不足を報告し、根拠を推測で補わないところまでをInstructionで定めています。
 
 ## 検証

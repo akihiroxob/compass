@@ -18,14 +18,19 @@ Intent（将来は Evaluation も）を受け、次に追う Outcome を決め�
 - `project`: Mission / Vision / Principles / Constraints / Repositories / Resources
 - `activeIntent`: Project の active な Intent（最大 1 件）。無ければ `null`
 - `outcomes`: Active Intent 配下の全状態の Outcome。`cancelled` とその `cancelReason` を含む。過去に何を試して取り消したかを、重複した提案の回避に使う
-- `unavailable`: 未実装の入力（`research` / `evaluation` / `evidence`）。これらが存在するものとして扱わない
+- `research`: Active Intent の Intent Brief。`activeIntent` が `null` なら `research` も `null`
+  - `requests`: このIntentを発端とするResearch Requestの要約（`cancelled` を含む全状態、新しい順）。`status`、`question`、予算（`budgetTotal` / `budgetUsed`）、`deadlineAt` を含む
+  - `syntheses`: 各系列で置き換えられていない最新versionのSynthesisだけ（`cancelled` のRequest由来は含まない）。`conclusion`、`risks`、`options`、`unknowns`、引用した `findingIds`、`validAsOf`、引用Findingのいずれかが期限切れなら `true` になる `stale` を含む
+  - `conflicts`: 宣言済みのFinding競合（`findingId` が `conflictsWithFindingId` と矛盾すると登録済み）。平均化や黙った除外はしていないので、そのまま矛盾として扱う
+  - Evidence全文や個々のResultは含まない。Synthesis・Finding・Evidence参照の詳細は `get_research_request({ projectId, requestId })` で `requests` の `id` を指定して辿る（置き換え済みのversionも含めて返る）
+- `unavailable`: 未実装の入力（`evaluation` / `evidence`）。これらが存在するものとして扱わない
 
 `activeIntent` が `null` なら、今決めることは無い。Outcome を作らず、その旨を報告して終了する。
 
 ## 判断権限
 
 - 情報が十分なら、自分で Outcome を作る。人の承認を待たない
-- 情報が不足するなら、Outcome を作らず、不足している情報と、Research が必要な問いを作業報告として明示する。Research の Entity・起動は未実装で、Research を必須の工程にしない。必要かどうかは Strategist が判断する
+- 情報が不足するなら、Outcome を作らず、不足している情報と、Research が必要な問いを作業報告として明示する。`research` の `syntheses` / `conflicts` を読み、競合や `stale` な根拠だけで断定しない。Research を必須の工程にはせず、追加 Research の要求は Strategist にまだ無い（この判断は Direction Decision の実装後に扱う）
 - Principles と Constraints に反する Outcome を作らない
 - 取り消し済みの Outcome と実質的に同じものを、新しい根拠なしに作り直さない
 
@@ -35,9 +40,10 @@ Intent（将来は Evaluation も）を受け、次に追う Outcome を決め�
 2. 「対象 Project の決定」に従って Project を決め、`get_strategist_context` で Context を取得する
 3. `activeIntent` の `desiredState` と `completionDefinition` を、Project の Principles / Constraints と照らして読む
 4. 既存の `outcomes` を確認し、重複や、取り消した理由を踏まえる
-5. 次に追う Outcome を 1 つ決める。情報不足なら「判断権限」に従い報告して終了する
-6. `create_outcome` で登録する。`rationale` に、なぜこの Outcome を選んだかを書く
-7. 必要なら `list_outcomes` / `get_outcome` で保存結果を確認する
+5. `research` の `syntheses` と `conflicts` を確認する。判断の決め手にする Finding があれば、対応する `requestId` で `get_research_request` を呼び、Synthesis → Finding → Evidence 参照まで辿って根拠を確認する
+6. 次に追う Outcome を 1 つ決める。情報不足なら「判断権限」に従い報告して終了する
+7. `create_outcome` で登録する。`rationale` に、なぜこの Outcome を選んだかを書く
+8. 必要なら `list_outcomes` / `get_outcome` で保存結果を確認する
 
 ## 作成結果が不明な場合
 
@@ -76,6 +82,7 @@ Success Criterion は作成時に固定され、作成後に変更できない�
 
 - `get_role_instructions`
 - `get_strategist_context`
+- `get_research_request`
 - `list_outcomes` / `get_outcome`
 - `create_outcome`
 - `update_outcome`（`title` と `hypothesis` のみ）
@@ -105,4 +112,4 @@ Human の確認・承認・すり合わせを求めない。Instruction、Contex
 - `FORBIDDEN`: この Project の strategist Grant が無い。権限の自己拡張を試みず、報告して停止する
 - `VALIDATION_ERROR`: `issues` に従って入力を直し、再度呼ぶ
 - `CONFLICT`: 固定項目の変更、または active でない Outcome の変更。取消と新規作成で対処する
-- `NOT_FOUND`: `projectId` / `intentId` / `outcomeId` を再確認する
+- `NOT_FOUND`: `projectId` / `intentId` / `outcomeId` / `requestId` を再確認する

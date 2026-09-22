@@ -123,3 +123,46 @@ export type ResearchRequestDetail = {
   readonly results: readonly ResearchResult[];
   readonly syntheses: readonly ResearchSynthesis[];
 };
+
+/** Intentを発端とするDecision Research Requestの要約。全状態（cancelled含む）を新しい順に返す来歴。 */
+export type IntentResearchRequestSummary = {
+  readonly id: string;
+  readonly status: ResearchRequestStatus;
+  readonly question: string;
+  readonly budgetTotal: number;
+  readonly budgetUsed: number;
+  readonly deadlineAt: number | null;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+};
+
+/** 系列内でsupersedesIdによって置き換えられていない最新versionのSynthesisだけを集めた圧縮結果。 */
+export type IntentResearchSynthesisSummary = {
+  readonly requestId: string;
+  readonly synthesisId: string;
+  readonly version: number;
+  readonly conclusion: string;
+  readonly risks: readonly string[];
+  readonly options: readonly string[];
+  readonly unknowns: readonly string[];
+  readonly findingIds: readonly string[];
+  readonly validAsOf: number;
+  /** 引用するFindingのいずれかが期限切れ（expiresAt <= 現在時刻）ならtrue。除外せずそのまま返す。 */
+  readonly stale: boolean;
+};
+
+/** 宣言済みのFinding競合。平均化・黙った除外をせず、そのまま返す。 */
+export type IntentResearchConflict = {
+  readonly findingId: string;
+  readonly conflictsWithFindingId: string;
+};
+
+/**
+ * Active IntentのIntent Brief。Strategist Contextへ埋め込む圧縮結果で、Research本文（Evidence全文・全Result）は含まない。
+ * `requests`はcancelledを含む全状態、`syntheses`はcancelledのRequestを除いた最新versionだけを含む。
+ */
+export type IntentResearchSummary = {
+  readonly requests: readonly IntentResearchRequestSummary[];
+  readonly syntheses: readonly IntentResearchSynthesisSummary[];
+  readonly conflicts: readonly IntentResearchConflict[];
+};

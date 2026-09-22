@@ -183,7 +183,8 @@ test("空DBから、API（Project・Intent）→ CLI（Grant）→ MCP（Instruc
       assert.equal(context.structuredContent?.project.id, projectId);
       assert.equal(context.structuredContent?.activeIntent.id, intentId);
       assert.deepEqual(context.structuredContent?.outcomes, []);
-      assert.deepEqual(context.structuredContent?.unavailable, ["research", "evaluation", "evidence"]);
+      assert.equal(context.structuredContent?.research.requests.length, 1);
+      assert.deepEqual(context.structuredContent?.unavailable, ["evaluation", "evidence"]);
 
       // create_outcome → Web APIから、rationale・固定された成功条件まで同じ内容で参照できる。
       const created = await call(client, "create_outcome", { projectId, intentId, ...outcomeInput });

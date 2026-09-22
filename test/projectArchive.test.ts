@@ -399,6 +399,16 @@ test("AC-14 archivedでも読取のMCP toolは成功し、Project.statusがarchi
   assert.equal(context.isError, undefined);
   assert.equal(context.structuredContent.project.status, "archived");
   assert.equal(context.structuredContent.activeIntent.id, intent.id);
+  const research = context.structuredContent.research as { requests: { id: string }[] };
+  assert.equal(research.requests.length, 1);
+  const requestDetail = await callTool(
+    app,
+    "get_research_request",
+    { projectId: project.id, requestId: research.requests[0]!.id },
+    "strat-1",
+  );
+  assert.equal(requestDetail.isError, undefined);
+  assert.equal(requestDetail.structuredContent.request.id, research.requests[0]!.id);
   await database.destroy();
 });
 
@@ -449,9 +459,9 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
     tools.map(({ name }) => name).sort(),
     [
       "abandon_intent", "cancel_outcome", "complete_research_request", "create_intent", "create_outcome", "create_project",
-      "get_intent", "get_outcome", "get_project", "get_researcher_context", "get_role_instructions", "get_strategist_context",
-      "list_intents", "list_outcomes", "list_projects", "list_research_requests", "register_research_result",
-      "register_research_synthesis", "update_intent", "update_outcome", "update_project",
+      "get_intent", "get_outcome", "get_project", "get_research_request", "get_researcher_context", "get_role_instructions",
+      "get_strategist_context", "list_intents", "list_outcomes", "list_projects", "list_research_requests",
+      "register_research_result", "register_research_synthesis", "update_intent", "update_outcome", "update_project",
     ],
   );
   const listTool = tools.find(({ name }) => name === "list_projects");
