@@ -346,13 +346,17 @@ export class SQLiteResearchRepository implements ResearchRepository {
     const expiresById = new Map(findingRows.map((row) => [row.id, row.expires_at]));
     const now = this.clock();
 
+    // research_finding_conflictは宣言方向が非対称（新Findingが既存Findingを指す）なので、
+    // findingIdsが宣言元・宣言先いずれの当事者になっている行も両方拾う。
     const conflictRows =
       findingIds.length === 0
         ? []
         : await this.database
             .selectFrom("research_finding_conflict")
             .selectAll()
-            .where("finding_id", "in", findingIds)
+            .where((eb) =>
+              eb.or([eb("finding_id", "in", findingIds), eb("conflicting_finding_id", "in", findingIds)]),
+            )
             .execute();
     const conflicts = conflictRows
       .map((row) => ({ findingId: row.finding_id, conflictsWithFindingId: row.conflicting_finding_id }))

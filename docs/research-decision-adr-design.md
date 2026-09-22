@@ -297,7 +297,7 @@ Finding → Research Synthesis → Intent Briefの段階圧縮をapplication層�
 - `GetStrategistContextUseCase`がActive Intentを解決した後、`ResearchRepository.findIntentResearchSummary(projectId, intentId)`を呼び、結果を`research`に載せる。Active Intentが無ければ`research`も`null`（`activeIntent`と対称）。
 - `research.requests`: このIntentを`originIntentId`に持つDecision Requestの要約（`status` / `question` / 予算 / `deadlineAt`）を新しい順に返す。`cancelled`を含む全状態で、除外しない（来歴として残す）。
 - `research.syntheses`: `cancelled`のRequestを除いた上で、各Synthesis系列（`supersedesId`の連鎖）のうち他のSynthesisの`supersedesId`から指されていない行だけを「最新version」として返す。置き換えられた古いversionはIntent Briefから落ちるが、削除も上書きもしない。`stale`は、そのSynthesisが引用する`findingIds`のいずれかで`research_finding.expires_at`が現在時刻以下なら`true`（Findingの既存の期限切れ表現をそのまま利用し、新しい鮮度フィールドは足さない）。
-- `research.conflicts`: `research_finding_conflict`から、`research.syntheses`の`findingIds`に含まれるFindingが宣言した競合をそのまま返す（`findingId`が競合を宣言した側、`conflictsWithFindingId`が対象）。平均化・多数決・黙った除外はしない。
+- `research.conflicts`: `research_finding_conflict`から、`research.syntheses`の`findingIds`に含まれるFindingが当事者になっている行をそのまま返す（宣言した側・宣言された側のどちらでも拾う。`finding_id`は競合を宣言した側、`conflicting_finding_id`は宣言された側という保存時の方向を`findingId` / `conflictsWithFindingId`としてそのまま返し、向きの入れ替えはしない）。`research_finding_conflict`は新しいFindingが既存Findingを指す非対称な保存形式のため、宣言する側だけで絞ると「最新Synthesisが引用済みのFindingに対して、まだ引用されていない新しいFindingが競合を宣言した」場合に競合が黙って消える。平均化・多数決・黙った除外はしない。
 - Evidence全文・Result本文（`summary` / `unknowns` / `options` / `risks`の生ログ）は`research`へ埋め込まない。Synthesisの`conclusion` / `risks` / `options` / `unknowns`は圧縮結果そのものなので含める。
 
 ### 初期選択と理由

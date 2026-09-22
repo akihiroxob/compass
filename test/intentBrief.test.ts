@@ -161,6 +161,49 @@ test("宣言済みのFinding競合は平均化・除外せず、conflictsにそ�
   assert.deepEqual(brief.conflicts, [{ findingId: conflictingFindingId, conflictsWithFindingId: existingFindingId }]);
 });
 
+test("後から登録されたFindingが最新Synthesis未引用のまま競合を宣言しても、conflictsから消えない", async () => {
+  const { services } = await setup();
+  const { project, intent } = await seed(services);
+  const request = await services.createResearchRequestUseCase.execute(
+    project.id,
+    requestInput(intent.id, { requestKey: "req-1" }),
+  );
+  const first = await services.registerResearchResultUseCase.execute(
+    project.id,
+    request.id,
+    resultInput({ requestKey: "result-a", findings: [{ statement: "Leases expire without heartbeats.", confidence: "high", observedAt: start, evidenceIndexes: [0] }] }),
+  );
+  const citedFindingId = first.findings[0]!.id;
+  // 最新SynthesisはF1のみを引用する（F2はまだ存在しない）。
+  await services.registerResearchSynthesisUseCase.execute(
+    project.id,
+    request.id,
+    synthesisInput([citedFindingId]),
+  );
+
+  const second = await services.registerResearchResultUseCase.execute(
+    project.id,
+    request.id,
+    resultInput({
+      requestKey: "result-b",
+      findings: [
+        {
+          statement: "Leases never expire in practice.",
+          confidence: "medium",
+          observedAt: start,
+          evidenceIndexes: [0],
+          conflictsWithFindingIds: [citedFindingId],
+        },
+      ],
+    }),
+  );
+  const laterFindingId = second.findings[0]!.id;
+  // laterFindingIdを引用する新しいSynthesisは作らない。それでも既知の競合は黙って消えない。
+
+  const brief = await briefOf(services, project.id);
+  assert.deepEqual(brief.conflicts, [{ findingId: laterFindingId, conflictsWithFindingId: citedFindingId }]);
+});
+
 test("引用Findingが期限切れならstale:trueを返し、除外はしない", async () => {
   const { services } = await setup();
   const { project, intent } = await seed(services);
