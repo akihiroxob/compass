@@ -1,8 +1,11 @@
 // テストからも読み込むため、他moduleをimportしない純関数だけを置く。
-export type Grant = { projectId: string; principalId: string; role: "strategist"; createdAt: number };
+export type GrantRole = "strategist" | "researcher";
+export type Grant = { projectId: string; principalId: string; role: GrantRole; createdAt: number };
 export type GrantResponse = { grant: Grant; created: boolean };
 
 export const strategistRole = "strategist" as const;
+
+export const grantRoleLabels: Record<GrantRole, string> = { strategist: "Strategist", researcher: "Researcher" };
 
 export const grantsPath = (projectId: string) => `/api/projects/${projectId}/grants`;
 
@@ -10,14 +13,16 @@ export const grantsPath = (projectId: string) => `/api/projects/${projectId}/gra
 export const revokeGrantPath = (projectId: string, grant: Pick<Grant, "role" | "principalId">) =>
   `${grantsPath(projectId)}/${grant.role}/${encodeURIComponent(grant.principalId)}`;
 
-/** 発行のrequest。Roleはこの画面ではStrategist固定（Web APIと同じ本文）。 */
-export const grantInit = (principalId: string): RequestInit => ({
+/** 発行のrequest（Web APIと同じ本文）。 */
+export const grantInit = (principalId: string, role: GrantRole): RequestInit => ({
   method: "POST",
   headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ principalId, role: strategistRole }),
+  body: JSON.stringify({ principalId, role }),
 });
 
 export const revokeInit: RequestInit = { method: "DELETE" };
 
-export const grantNotice = (created: boolean, principalId: string): string =>
-  created ? `${principalId} をStrategistに割り当てました。` : `${principalId} は既にStrategistに割り当て済みです。`;
+export const grantNotice = (created: boolean, principalId: string, role: GrantRole): string => {
+  const label = grantRoleLabels[role];
+  return created ? `${principalId} を${label}に割り当てました。` : `${principalId} は既に${label}に割り当て済みです。`;
+};

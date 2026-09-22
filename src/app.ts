@@ -154,6 +154,33 @@ export const createApp = (services: ApplicationServices = applicationServices) =
     });
     return c.json({ revoked });
   });
+  // Research・Direction Decision・ADR参照はHuman向けの読み取り専用画面（Task 29）。Role Grantを要求せず、
+  // MCPのResearcher/Strategist tool群と同じapplication use caseへ委譲する。
+  app.get("/api/projects/:projectId/research-requests", async (c) => {
+    const filter = { originIntentId: c.req.query("originIntentId"), status: c.req.query("status") };
+    return c.json({
+      requests: await services.listResearchRequestsUseCase.execute(c.req.param("projectId"), filter),
+    });
+  });
+  app.get("/api/projects/:projectId/research-requests/:requestId", async (c) =>
+    c.json({
+      detail: await services.getResearchRequestUseCase.execute(
+        c.req.param("projectId"),
+        c.req.param("requestId"),
+      ),
+    }),
+  );
+  app.get("/api/projects/:projectId/intents/:intentId/decisions", async (c) =>
+    c.json({
+      decisions: await services.listDirectionDecisionsUseCase.execute(
+        c.req.param("projectId"),
+        c.req.param("intentId"),
+      ),
+    }),
+  );
+  app.get("/api/projects/:projectId/adr-references", async (c) =>
+    c.json({ references: await services.listAdrReferencesUseCase.execute(c.req.param("projectId")) }),
+  );
   app.all("/api/*", (c) => c.json({ error: { code: "NOT_FOUND", message: "Not Found" } }, 404));
 
   app.all("/mcp", async (c) => {

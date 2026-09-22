@@ -13,7 +13,8 @@
 | Active Intent作成時のInitial Request・Runtimeイベント | 実装済み（Task 25）。Intent作成・`complete`と同一transactionで`runtime_event`へ追記し、application層の`listRuntimeEventsUseCase`で取得できる。Runtimeへの配送・Web API / MCPの取得入口・Runtimeによる起動は未接続 |
 | Intent Brief・Strategist Contextへの接続 | 実装済み（Task 26）。`get_strategist_context`の`research`にIntent Brief、新規MCP tool `get_research_request`にSynthesis→Finding→Evidence参照のID指定Queryを実装 |
 | Direction Decision・Outcomeの根拠参照 | 実装済み（Task 27）。MCP tool `create_direction_decision`（next_outcome以外の5種）と`decide_next_outcome`（next_outcomeとOutcomeを同一transactionで保存）を実装。ADR連携（Repository参照・Wacha引き渡し契約）とHuman向けResearch / Decision画面は未実装 |
-| ADR Candidate・Repository参照・Wacha引き渡し契約 | 実装済み（Task 28）。MCP tool `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`を実装。実Wachaとは未接続で、fixture契約の検証まで。Human向けResearch / Decision / ADR参照画面は未実装 |
+| ADR Candidate・Repository参照・Wacha引き渡し契約 | 実装済み（Task 28）。MCP tool `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`を実装。実Wachaとは未接続で、fixture契約の検証まで |
+| Human向けResearch / Decision / ADR参照のWeb UI・Web API、ResearcherのGrant管理画面統合、空DBからの実HTTP/MCP自動検証 | 実装済み（Task 29）。読み取り専用画面とWeb API、`test/researchDecisionIntegration.test.ts`を追加。外部RuntimeとWachaは未接続で、fixture契約の検証まで |
 
 `get_strategist_context`が返す`unavailable`は`evaluation` / `evidence`のみになった（Task 26で`research`を除外）。Evaluation・Evidence相当はStrategist Contextへ接続されるまで変わらず、実装済みとして扱わない。
 
@@ -380,11 +381,83 @@ Compassを正本とするDirection Decisionと、Strategistの判断を記録す
 ## 段階的な実装
 
 1. Research Request / ResultとProject・Intentの関連、状態遷移、冪等性を実装する（domain・永続化・application層はTask 23で実装済み。入口は未接続）
-2. Researcher Role、Instruction、Grant、Context、Result登録を実装する（Task 24で実装済み。Human向けGrant画面はTask 29）
+2. Researcher Role、Instruction、Grant、Context、Result登録を実装する（Task 24で実装済み。Human向けGrant画面はTask 29で実装済み）
 3. Active Intent作成時のInitial RequestとRuntime向け確定イベントを実装する（Task 25で実装済み。Runtimeへの配送・取得入口は未接続）
 4. Finding / Synthesisのversion・来歴とIntent Briefを実装し、Strategist Contextへ接続する（Task 26で実装済み）
 5. Direction DecisionとOutcomeの根拠参照を実装する（Task 27で実装済み）
 6. ADR CandidateとRepository ADR参照、WachaへのTask引き渡し契約を実装する（Task 28で実装済み）
-7. Human向けProject Research / Decision画面と、Human介入なしの境界テストを実装する
+7. Human向けProject Research / Decision画面と、Human介入なしの境界テストを実装する（Task 29で実装済み）
 
 実Wacha・外部Runtimeとの接続前はfixtureによる契約検証までとし、Lv6達成とは報告しない。
+
+## 実装記録: Human向けResearch / Decision / ADR参照画面とHuman介入なし境界の自動検証（Task 29）
+
+Web UIとWeb APIに読み取り専用の入口を追加し、Researcher Role Grant管理をStrategistと同じ画面パターンへ統合した。あわせて、
+空DBからIntent作成 → Initial Research Request → Researcher（Result・Synthesis・確定）→ Strategist（Intent Brief・
+Direction Decision・Outcome・ADR handoff/参照）→ Web API参照までを、実HTTPサーバーとMCP SDK clientで通す自動検証を追加した。
+
+### 追加した入口
+
+- Web API（Role Grant不要。Humanの読み取りはWeb UIの正規入口を経由し、Agentと同じ認可を課さない）:
+  `GET /api/projects/:projectId/research-requests`（`originIntentId` / `status` で絞り込み）、
+  `GET /api/projects/:projectId/research-requests/:requestId`（Result → Finding / Evidence、Synthesisの来歴）、
+  `GET /api/projects/:projectId/intents/:intentId/decisions`、`GET /api/projects/:projectId/adr-references`。
+  いずれも既存のMCP向けuse case（`ListResearchRequestsUseCase` / `GetResearchRequestUseCase` / `ListAdrReferencesUseCase`）
+  と、新規の`ListDirectionDecisionsUseCase`（`DirectionDecisionRepository.findByIntent`を`ListOutcomesUseCase`と同じ形で公開する
+  だけの読み取り専用Query）にそのまま委譲し、業務規則を入口ごとに重複させない。
+- Web UI: Project詳細に Research section（Request一覧 → 個別画面でResult/Finding/Evidence/Synthesisの来歴）、ADR参照
+  section、Researcher Grant section（既存の`GrantSection`を`role`パラメータで汎用化し、Strategistと同じ構造をそのまま流用）
+  を追加した。Intent詳細に Direction Decision section（type・judgment・reason・options・関連Outcomeへのリンク）を追加した。
+
+### 初期選択と理由
+
+- **Grant Sectionはrole引数で汎用化し、新しいComponentを増やさなかった**: StrategistとResearcherはGrantの構造（発行・
+  一覧・取消、Web API/CLIとの併用）が完全に同じで、違いは表示名と取消時の影響説明だけだった。`grants.ts`の`GrantRole`型と
+  `grantRoleLabels`を追加し、`GrantSection` / `GrantRow`をrole引数で切り替える方が、別Componentを複製するより重複が少ない。
+- **Web APIの読み取りはRole Grantを要求しない**: 既存の`list_adr_references` MCP toolが既にStrategist Grant無しで公開さ
+  れている（Task 28）のと同じ扱いで、ResearchやDecisionの一覧・詳細もRepository構成や既存Outcome一覧と同程度の情報であり、
+  Project個別の機密を含まない。Humanの製品操作はWeb UIを正規入口とする方針（AGENTS.md）どおり、Human向けの読み取りに
+  Agent向けのRole認可を重ねない。
+- **Direction Decisionの一覧はIntent単位にした**: `DirectionDecisionRepository.findByIntent`が既に実装済み（Task 27の
+  `next_outcome`原子性のために用意されていたが、どのuse caseからも呼ばれていなかった）で、Outcome一覧と同じ「Intent配下」
+  という単位がHumanの閲覧導線（Intent詳細画面）と自然に一致するため、Project全体を横断する一覧は追加しなかった。
+- **Research Requestの一覧はProject単位にした**: `ListResearchRequestsUseCase`は元々Researcher向けにProject scopeで
+  実装済みで、Human向けにも同じuse caseをそのまま使う。Project詳細に置き、Intent起点かProject Watchかは一覧のkindバッジ
+  で区別する。
+
+### 自動検証（`test/researchDecisionIntegration.test.ts`）
+
+`test/strategistIntegration.test.ts`と同じ形（実HTTPサーバー・MCP SDK client、loopback listenが拒否される環境では理由付き
+skip）で、2本のtestを追加した。
+
+- 1本目: 空DBから、Web APIでProject（Repository登録込み）とIntentを作成 → Initial Research Requestの自動作成をWeb APIで
+  確認 → Researcher（`get_researcher_context` → `register_research_result` → `register_research_synthesis` →
+  `complete_research_request`で`completed`に確定、途中でResearcherが`create_outcome`を拒否されることを確認）→
+  Strategist（`get_strategist_context`でIntent Briefの`syntheses`にFinding/Synthesisが載ることを確認し、途中で
+  Strategistが`register_research_result`を拒否されることを確認 → `decide_next_outcome`でOutcome+Decisionを原子的に作成
+  → `create_direction_decision`で`adr_candidate`を記録 → `create_adr_handoff_request` → `record_adr_reference`でWacha
+  完了結果のfixtureを記録）→ Web API（Research Request詳細、Intentの`decisions`一覧、`adr-references`一覧、Outcome詳細）
+  から一貫した内容を参照できることを確認する。
+- 2本目: 同じProject内でIntentを作り直しながら（`abandon_intent`後に次のIntentを作成し、Initial Research Requestを1件
+  ずつ得る）、`completed`（Result・Synthesis経由）・`not_needed`（Resultなし、stopReasonあり）・`insufficient`
+  （Resultなし、stopReasonあり）・未確定（`requested`のまま）の4状態が、Web APIから区別して参照できることを確認する。
+  あわせて、別ProjectのResearcher Grantでは`get_researcher_context` / `list_research_requests`が`FORBIDDEN`になること、
+  Web API読み取りはAuthorizationヘッダーなしでも200で応答すること（Humanの読み取りにRole Grantを要求しない）を確認する。
+
+Task本文にある「証拠不足・予算停止・通信結果不明」は、Compassの状態モデルでは新しい状態を追加せず、既存の4終了状態
+（`completed` / `insufficient` / `not_needed` / `cancelled`）とその`stopReason`、および未終了（`requested` /
+`running`）の組み合わせで表す。「証拠不足」「予算停止」はどちらも`insufficient`＋`stopReason`（理由の文言で区別する）
+であり、「通信結果不明」はRuntimeがまだResearcherの応答を確定できていない状態で、CompassはRequestを`requested` /
+`running`のまま保持するだけで、Runtimeが最終的にどう終了させるかを先取りしない。既存のTask 23実装（状態遷移・
+`stopReason`の必須化）に新しい概念を追加しない、小さく単純な選択とした。
+
+### 未実施・未接続
+
+- ブラウザでの実UI確認は行っていない（Runtime実行環境の制約でブラウザツールを起動していない）。Web APIの応答は実HTTP
+  サーバーに対するcurlと、上記の自動検証（実HTTPサーバー・MCP SDK client）で確認した。画面のComponentは既存の
+  `GrantSection` / `IntentSection` / `OutcomeSection`と同じデータ取得・表示パターンをそのまま踏襲している。
+- 外部RuntimeによるResearcher/Strategistの自動起動、実Wacha・GitHub APIとの接続は引き続き未接続。本Taskの自動検証は
+  fixture契約の確認であり、Lv6の自律運転実証ではない。
+- `additional_research`型のDirection Decisionから実際に新しいResearch Requestを作る入口（`CreateResearchRequestUseCase`
+  をMCP/Web APIへ公開すること）は本Taskの対象外のまま（Task 23時点から未接続）。判断の記録（`create_direction_decision`）
+  だけがTask 27で実装済み。

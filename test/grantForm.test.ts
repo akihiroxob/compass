@@ -21,20 +21,26 @@ const failureOf = async (status: number, body: unknown) => {
   assert.fail("request should reject");
 };
 
-test("発行はWeb APIと同じ本文（principalIdとstrategist固定のrole）、取消はpathにURLエンコードしたprincipalIdを置く", () => {
+test("発行はWeb APIと同じ本文（principalIdと指定したrole）、取消はpathにURLエンコードしたprincipalIdを置く", () => {
   assert.equal(grantsPath("p1"), "/api/projects/p1/grants");
-  assert.deepEqual(grantInit("strat-1").method, "POST");
-  assert.deepEqual(JSON.parse(String(grantInit("strat-1").body)), { principalId: "strat-1", role: "strategist" });
+  assert.deepEqual(grantInit("strat-1", "strategist").method, "POST");
+  assert.deepEqual(JSON.parse(String(grantInit("strat-1", "strategist").body)), { principalId: "strat-1", role: "strategist" });
+  assert.deepEqual(JSON.parse(String(grantInit("res-1", "researcher").body)), { principalId: "res-1", role: "researcher" });
   assert.equal(
     revokeGrantPath("p1", { role: "strategist", principalId: "team/agent 1" }),
     "/api/projects/p1/grants/strategist/team%2Fagent%201",
   );
+  assert.equal(
+    revokeGrantPath("p1", { role: "researcher", principalId: "res-1" }),
+    "/api/projects/p1/grants/researcher/res-1",
+  );
   assert.equal(revokeInit.method, "DELETE");
 });
 
-test("新規発行と割当済みの再発行を区別して通知する", () => {
-  assert.match(grantNotice(true, "strat-1"), /strat-1.*割り当てました/);
-  assert.match(grantNotice(false, "strat-1"), /strat-1.*割り当て済み/);
+test("新規発行と割当済みの再発行を区別して通知し、roleごとの名称を使う", () => {
+  assert.match(grantNotice(true, "strat-1", "strategist"), /strat-1.*Strategist.*割り当てました/);
+  assert.match(grantNotice(false, "strat-1", "strategist"), /strat-1.*Strategist.*割り当て済み/);
+  assert.match(grantNotice(true, "res-1", "researcher"), /res-1.*Researcher.*割り当てました/);
 });
 
 test("400はprincipalIdのfield idとAgent名ラベルへ対応づけ、入力の再送信を妨げない", async () => {

@@ -22,6 +22,7 @@ import { GetStrategistContextUseCase } from "./application/usecase/GetStrategist
 import { GetProjectUseCase } from "./application/usecase/GetProjectUseCase.ts";
 import { GrantProjectRoleUseCase } from "./application/usecase/GrantProjectRoleUseCase.ts";
 import { ListAdrReferencesUseCase } from "./application/usecase/ListAdrReferencesUseCase.ts";
+import { ListDirectionDecisionsUseCase } from "./application/usecase/ListDirectionDecisionsUseCase.ts";
 import { ListIntentsUseCase } from "./application/usecase/ListIntentsUseCase.ts";
 import { ListOutcomesUseCase } from "./application/usecase/ListOutcomesUseCase.ts";
 import { ListProjectGrantsUseCase } from "./application/usecase/ListProjectGrantsUseCase.ts";
@@ -117,6 +118,11 @@ export const createApplicationServices = (
     createAdrHandoffRequestUseCase: new CreateAdrHandoffRequestUseCase(projectRepository, adrHandoffRepository),
     recordAdrReferenceUseCase: new RecordAdrReferenceUseCase(projectRepository, adrHandoffRepository),
     listAdrReferencesUseCase: new ListAdrReferencesUseCase(projectRepository, adrHandoffRepository),
+    listDirectionDecisionsUseCase: new ListDirectionDecisionsUseCase(
+      projectRepository,
+      intentRepository,
+      directionDecisionRepository,
+    ),
   };
 };
 

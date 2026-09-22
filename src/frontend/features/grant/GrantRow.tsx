@@ -1,11 +1,17 @@
 import { describeActionFailure, request } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
-import { revokeGrantPath, revokeInit, type Grant } from "./grants";
+import { grantRoleLabels, revokeGrantPath, revokeInit, type Grant } from "./grants";
 
 type GrantRowProps = { projectId: string; grant: Grant; onRevoked: () => void; readOnly?: boolean };
 
-/** 発行済みのStrategist 1件。取消は誤操作防止の確認パネルを挟む（API・CLIには確認工程がない）。 */
+const revokeConsequence: Record<Grant["role"], string> = {
+  strategist: "Outcomeを作成できません",
+  researcher: "Research Result・Synthesisを登録できません",
+};
+
+/** 発行済みのRole Grant 1件。取消は誤操作防止の確認パネルを挟む（API・CLIには確認工程がない）。 */
 export const GrantRow = ({ projectId, grant, onRevoked, readOnly = false }: GrantRowProps) => {
+  const label = grantRoleLabels[grant.role];
   const revoke = useReasonAction(async () => {
     await request<{ revoked: boolean }>(revokeGrantPath(projectId, grant), revokeInit);
     onRevoked();
@@ -24,8 +30,8 @@ export const GrantRow = ({ projectId, grant, onRevoked, readOnly = false }: Gran
       {!readOnly && revoke.confirming && (
         <ReasonPanel
           action={revoke}
-          title={`${grant.principalId} のStrategist割当を取り消しますか？`}
-          description="取り消すと、このAgentは次のMCP呼び出しからOutcomeを作成できません。作成済みのOutcomeは変更されません。再度割り当てて元に戻せます。"
+          title={`${grant.principalId} の${label}割当を取り消しますか？`}
+          description={`取り消すと、このAgentは次のMCP呼び出しから${revokeConsequence[grant.role]}。作成済みの内容は変更されません。再度割り当てて元に戻せます。`}
           confirmLabel="取り消す"
           pendingLabel="取消中..."
         />
