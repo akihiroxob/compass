@@ -13,6 +13,7 @@
 | Active Intent作成時のInitial Request・Runtimeイベント | 実装済み（Task 25）。Intent作成・`complete`と同一transactionで`runtime_event`へ追記し、application層の`listRuntimeEventsUseCase`で取得できる。Runtimeへの配送・Web API / MCPの取得入口・Runtimeによる起動は未接続 |
 | Intent Brief・Strategist Contextへの接続 | 実装済み（Task 26）。`get_strategist_context`の`research`にIntent Brief、新規MCP tool `get_research_request`にSynthesis→Finding→Evidence参照のID指定Queryを実装 |
 | Direction Decision・Outcomeの根拠参照 | 実装済み（Task 27）。MCP tool `create_direction_decision`（next_outcome以外の5種）と`decide_next_outcome`（next_outcomeとOutcomeを同一transactionで保存）を実装。ADR連携（Repository参照・Wacha引き渡し契約）とHuman向けResearch / Decision画面は未実装 |
+| ADR Candidate・Repository参照・Wacha引き渡し契約 | 実装済み（Task 28）。MCP tool `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`を実装。実Wachaとは未接続で、fixture契約の検証まで。Human向けResearch / Decision / ADR参照画面は未実装 |
 
 `get_strategist_context`が返す`unavailable`は`evaluation` / `evidence`のみになった（Task 26で`research`を除外）。Evaluation・Evidence相当はStrategist Contextへ接続されるまで変わらず、実装済みとして扱わない。
 
@@ -349,6 +350,33 @@ Compassを正本とするDirection Decisionと、Strategistの判断を記録す
 - ドキュメント: README・`agent/strategist.md`（Direction Decisionの使い分け、Allowed、判断権限）を更新。`agent/strategist.md`の契約テスト（`test/instruction.test.ts`）が、backtickで囲んだtype値をtool名と誤認しないよう表記を調整した。
 - 未実施: ブラウザでのWeb UI確認（Task 27はUI変更なし。Human向けDecision画面はTask 29）。実Runtime・実Wachaとの接続は無く、検証は`createApplicationServices` / in-process MCP呼び出しに限る。
 
+## 実装記録: ADR Candidate・Repository参照・Wacha引き渡し契約（Task 28）
+
+`adr_candidate` Direction Decisionから、既存Wacha Manager / Worker / Reviewerへ渡す依頼と、その完了結果（Repository参照）を扱う3つのMCP toolを実装した。実Wachaとは未接続で、どちらもGitHub API等の外部呼び出しは行わない、fixtureの契約検証である。
+
+### 入口と契約
+
+- `create_adr_handoff_request`: `decisionId`（`adr_candidate`のDecision）と`repositoryId`（Projectに登録済みのRepository）から、依頼payloadを組み立てて保存する。payloadは`decisionId` / `intentId` / `usedSyntheses`（id+version）/ `usedFindingIds` / 対象Repositoryの`repositoryId` / `repositoryName` / `repositoryUrl` / Projectの現在の`constraints` / `expectedAdrContent`を持つ
+- `record_adr_reference`: Wachaが完了させた結果（対象Repository内の相対`path`、完全な40桁の`commitSha`、任意の`pullRequestUrl`）を取り込み、Project scopeの参照として保存する
+- `list_adr_references`: Project配下のADR参照を新しい順に返す（Human向け画面はTask 29）
+
+両toolとも`asStrategistWithPrincipal`でStrategist Grantを検査し、`requestKey`で再送を冪等にする（同じkeyで異なる内容の再送は`CONFLICT`）。`correlationId`は依頼と完了結果を1つの往復として結び付けるidで、`record_adr_reference`は同じ`decisionId` / `repositoryId` / `correlationId`の`create_adr_handoff_request`が先に存在しない場合は`CONFLICT`で拒否する（依頼を経ていない参照や、無関係なcorrelationIdの取り違えを受け付けない）。
+
+### 初期選択と理由
+
+- **`expectedAdrContent`は呼び出し側の自由記述を受け付けず、Decisionの`judgment` / `reason` / `options`から決定的に組み立てる**: 「Direction方針はCompassで確定し、Wachaは方針を自己決定しない」という制約を、入力を狭めることで構造的に保証する。新しい方針を依頼時点で書き足せる余地を作らない
+- **`repositoryId`はRepository本文を複製せず、Projectに登録済みの`project_repository_link.id`を指す**: `path`はそのRepository内の相対pathとして検証し、Compass serverのローカルfilesystem pathとして扱わない。絶対path（先頭の`/`、`\`、Windowsドライブレター）と`..`セグメント（path traversal）を`shared/adrHandoffSchema.ts`のzod refineで拒否する
+- **`commitSha`は40桁16進数の完全なSHA-1だけを受け付け、短縮SHAを拒否する**: 対象Repositoryを一意に特定できる形だけを参照として保存するための小さな初期選択。Git以外のVCSやSHA-256オブジェクト形式への対応が必要になった時点で拡張する
+- **`adr_handoff_request.repository_id` / `adr_reference.repository_id`にFKは付けるが、`onDelete("cascade")`は意図的に付けない**: ProjectのRepositoryは`update_project`の同期処理で削除され得るが、依頼・参照は監査記録として残すべきため、削除しようとした場合はFK制約でrestrictされることを選んだ（Repositoryの削除・強制解除はこのTaskの対象外）。`decision_id`はdirection_decisionに削除操作が無いため、cascadeの有無は実質的に意味を持たない
+- **`list_adr_references`はStrategist Grantを要求しない**: `get_project`のRepository一覧・`list_outcomes`と同じ読み取り専用の公開範囲にそろえた。ADR参照はRepository構成と同程度の情報で、Project個別の機密を含まない
+
+### 検証結果
+
+- `npm test`: 新規`test/adrHandoff.test.ts`（payload生成・冪等性・requestKey競合・存在しないDecision / adr_candidateでないDecision / 未登録Repository・依頼未経由の参照拒否・correlationId不一致・絶対path / path traversal / 短縮SHA / 不正URLのVALIDATION_ERROR・Role境界）を含め、既存の`projectArchive.test.ts` / `intentAdapters.test.ts`のtool一覧更新分を含めて全件成功
+- `npm run typecheck` / `npm run lint`（`tsc` 2本）/ `npm run build`: 成功
+- ドキュメント: README・`agent/strategist.md`（ADR Candidateの引き渡しと参照、Allowed）を更新
+- 未実施: ブラウザでのWeb UI確認（Task 28はUI変更なし。Human向けADR参照画面はTask 29）。実Runtime・実Wachaとの接続・GitHub API呼び出しは無く、検証は`createApplicationServices` / in-process MCP呼び出しに限る。Lv6達成とは報告しない
+
 ## 段階的な実装
 
 1. Research Request / ResultとProject・Intentの関連、状態遷移、冪等性を実装する（domain・永続化・application層はTask 23で実装済み。入口は未接続）
@@ -356,7 +384,7 @@ Compassを正本とするDirection Decisionと、Strategistの判断を記録す
 3. Active Intent作成時のInitial RequestとRuntime向け確定イベントを実装する（Task 25で実装済み。Runtimeへの配送・取得入口は未接続）
 4. Finding / Synthesisのversion・来歴とIntent Briefを実装し、Strategist Contextへ接続する（Task 26で実装済み）
 5. Direction DecisionとOutcomeの根拠参照を実装する（Task 27で実装済み）
-6. ADR CandidateとRepository ADR参照、WachaへのTask引き渡し契約を実装する
+6. ADR CandidateとRepository ADR参照、WachaへのTask引き渡し契約を実装する（Task 28で実装済み）
 7. Human向けProject Research / Decision画面と、Human介入なしの境界テストを実装する
 
 実Wacha・外部Runtimeとの接続前はfixtureによる契約検証までとし、Lv6達成とは報告しない。

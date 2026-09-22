@@ -217,6 +217,36 @@ export type DirectionDecisionFindingTable = {
   position: number;
 };
 
+/** `adr_candidate` DecisionからWachaへ渡す依頼のfixture。作成後は変更しない。`payload`はJSON snapshot。 */
+export type AdrHandoffRequestTable = {
+  id: string;
+  project_id: string;
+  decision_id: string;
+  repository_id: string;
+  correlation_id: string;
+  request_key: string;
+  input_hash: string;
+  payload: string;
+  principal_id: string;
+  created_at: number;
+};
+
+/** Wachaが完了させたADR作成結果の参照。本文は複製せず、path / commit SHA / PR URLだけを保持する。 */
+export type AdrReferenceTable = {
+  id: string;
+  project_id: string;
+  decision_id: string;
+  repository_id: string;
+  path: string;
+  commit_sha: string;
+  pull_request_url: string | null;
+  correlation_id: string;
+  request_key: string;
+  input_hash: string;
+  principal_id: string;
+  created_at: number;
+};
+
 /** 状態変更と同一transactionで追記する確定イベント。更新・削除しない。`sequence`が取得位置（cursor）になる。 */
 export type RuntimeEventTable = {
   sequence: Generated<number>;
@@ -252,6 +282,8 @@ export type Database = {
   direction_decision: DirectionDecisionTable;
   direction_decision_synthesis: DirectionDecisionSynthesisTable;
   direction_decision_finding: DirectionDecisionFindingTable;
+  adr_handoff_request: AdrHandoffRequestTable;
+  adr_reference: AdrReferenceTable;
   runtime_event: RuntimeEventTable;
 };
 

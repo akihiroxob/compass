@@ -336,6 +336,73 @@ const initializeDirectionDecisionSchema = async (database: Kysely<Database>): Pr
 };
 
 /**
+ * ADR Candidate・Repository参照・Wacha引き渡し契約（Task 28）。`repository_id`はFKを付けるがonDelete cascadeは
+ * 意図的に付けない。ProjectのRepositoryはupdate_projectの同期処理で削除され得るが、依頼・参照は監査記録として
+ * 残すべきで、削除しようとした場合はFK制約でrestrictされることを選ぶ（Repository削除はこのTaskの対象外）。
+ * `decision_id`はdirection_decisionに削除操作が無いため、cascadeかどうかは実質的に意味を持たない。
+ */
+const initializeAdrHandoffSchema = async (database: Kysely<Database>): Promise<void> => {
+  await database.schema
+    .createTable("adr_handoff_request")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("decision_id", "text", (column) => column.notNull().references("direction_decision.id"))
+    .addColumn("repository_id", "text", (column) => column.notNull().references("project_repository_link.id"))
+    .addColumn("correlation_id", "text", (column) => column.notNull())
+    .addColumn("request_key", "text", (column) => column.notNull())
+    .addColumn("input_hash", "text", (column) => column.notNull())
+    .addColumn("payload", "text", (column) => column.notNull())
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .execute();
+  await database.schema
+    .createIndex("adr_handoff_request_project_key_idx")
+    .unique()
+    .ifNotExists()
+    .on("adr_handoff_request")
+    .columns(["project_id", "request_key"])
+    .execute();
+  // recordReferenceが、依頼を経た参照だけを受け付けるための照合に使う。
+  await database.schema
+    .createIndex("adr_handoff_request_decision_repo_correlation_idx")
+    .ifNotExists()
+    .on("adr_handoff_request")
+    .columns(["decision_id", "repository_id", "correlation_id"])
+    .execute();
+
+  await database.schema
+    .createTable("adr_reference")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("decision_id", "text", (column) => column.notNull().references("direction_decision.id"))
+    .addColumn("repository_id", "text", (column) => column.notNull().references("project_repository_link.id"))
+    .addColumn("path", "text", (column) => column.notNull())
+    .addColumn("commit_sha", "text", (column) => column.notNull())
+    .addColumn("pull_request_url", "text")
+    .addColumn("correlation_id", "text", (column) => column.notNull())
+    .addColumn("request_key", "text", (column) => column.notNull())
+    .addColumn("input_hash", "text", (column) => column.notNull())
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .execute();
+  await database.schema
+    .createIndex("adr_reference_project_key_idx")
+    .unique()
+    .ifNotExists()
+    .on("adr_reference")
+    .columns(["project_id", "request_key"])
+    .execute();
+  await database.schema
+    .createIndex("adr_reference_project_created_idx")
+    .ifNotExists()
+    .on("adr_reference")
+    .columns(["project_id", "created_at"])
+    .execute();
+};
+
+/**
  * Initial Research Request導入前に作成されたActive Intentへ、Initial Requestとイベントを補う。
  * keyがIntentから決定的で、既にあれば何もしないため、起動のたびに実行しても重複しない（Requestを取り消した後も再作成しない）。
  * archivedのProjectと、Active以外のIntentは対象にしない。導入後に作成したIntentは作成時点で保存済みのため対象外になる。
@@ -561,6 +628,7 @@ export const initializeSchema = async (database: Kysely<Database>): Promise<void
   await initializeResearchSchema(database);
   await initializeDirectionDecisionSchema(database);
   await addOutcomeOriginDecisionColumn(database);
+  await initializeAdrHandoffSchema(database);
   await initializeRuntimeEventSchema(database);
   await backfillInitialResearchRequests(database);
 };

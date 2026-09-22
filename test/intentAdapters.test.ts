@@ -172,6 +172,7 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
       "create_intent", "list_intents", "get_intent", "update_intent", "abandon_intent",
       "get_role_instructions", "get_strategist_context", "get_research_request", "create_outcome", "list_outcomes", "get_outcome", "update_outcome", "cancel_outcome",
       "create_direction_decision", "decide_next_outcome",
+      "create_adr_handoff_request", "record_adr_reference", "list_adr_references",
       "get_researcher_context", "list_research_requests", "register_research_result", "register_research_synthesis", "complete_research_request",
     ],
   );

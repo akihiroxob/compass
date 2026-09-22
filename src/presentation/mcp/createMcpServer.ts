@@ -144,6 +144,26 @@ const decideNextOutcomeMcpSchema = {
   outcome: z.object(outcomeCreateSchema).omit({ projectId: true, intentId: true }),
 };
 
+// ADR Handoffの入力規則もshared/adrHandoffSchemaが持つ。ここでは型だけを宣言する。
+const adrHandoffRequestMcpSchema = {
+  projectId: z.string().min(1),
+  decisionId: z.string().min(1),
+  repositoryId: z.string().min(1),
+  correlationId: z.string().min(1),
+  requestKey: z.string().min(1),
+};
+
+const adrReferenceMcpSchema = {
+  projectId: z.string().min(1),
+  decisionId: z.string().min(1),
+  repositoryId: z.string().min(1),
+  path: z.string().min(1),
+  commitSha: z.string().min(1),
+  pullRequestUrl: z.string().nullable().optional(),
+  correlationId: z.string().min(1),
+  requestKey: z.string().min(1),
+};
+
 const researchSynthesisSchema = {
   ...researchRequestRef,
   ...researchProvenance,
@@ -477,6 +497,67 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
           async (principalId) => await services.decideNextOutcomeUseCase.execute(projectId, principalId, input),
         ),
       ),
+  );
+
+  server.registerTool(
+    "create_adr_handoff_request",
+    {
+      title: "Create ADR Handoff Request",
+      description:
+        "Build and persist the fixture payload Compass would hand off to Wacha's existing Manager/Worker/Reviewer to " +
+        "reflect an adr_candidate Direction Decision as a Repository ADR (no new Wacha Execution Role is introduced). " +
+        "decisionId must reference an adr_candidate Decision in this Project (CONFLICT otherwise); repositoryId must " +
+        "reference a Repository already registered on the Project (NOT_FOUND otherwise). The payload (decisionId, " +
+        "intentId, usedSyntheses id+version, usedFindingIds, the Repository's name/url, the Project's current " +
+        "Constraints, and expectedAdrContent derived deterministically from the Decision's judgment/reason/options — " +
+        "Compass decides the content, Wacha only reflects it) is snapshotted at creation time and does not change on " +
+        "replay. requestKey makes a resend idempotent; the same requestKey with different content fails with CONFLICT. " +
+        "correlationId threads this request to the completion result recorded later with record_adr_reference. This " +
+        "does not call Wacha or any external system (real Wacha integration is not connected yet). " +
+        "Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: adrHandoffRequestMcpSchema,
+    },
+    ({ projectId, ...input }) =>
+      execute(() =>
+        asStrategistWithPrincipal(projectId, async (principalId) => ({
+          request: await services.createAdrHandoffRequestUseCase.execute(projectId, principalId, input),
+        })),
+      ),
+  );
+  server.registerTool(
+    "record_adr_reference",
+    {
+      title: "Record ADR Reference",
+      description:
+        "Ingest the completion result Wacha's Manager/Worker/Reviewer produced for an adr_candidate Decision and store " +
+        "it as a Project-scoped reference: the Repository, a relative path inside it (never treated as a server " +
+        "filesystem path; a leading slash, a Windows drive letter or any .. segment is rejected with VALIDATION_ERROR), " +
+        "a full 40-character commit SHA (abbreviated or non-hex values are rejected), and an optional http(s) pull " +
+        "request URL. A matching create_adr_handoff_request (same decisionId, repositoryId and correlationId) must " +
+        "already exist, or this fails with CONFLICT. requestKey makes a resend idempotent; the same requestKey with " +
+        "different content fails with CONFLICT. This does not write to the Repository's working tree or call any " +
+        "external system; it only records the reference Wacha reported. " +
+        "Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: adrReferenceMcpSchema,
+    },
+    ({ projectId, ...input }) =>
+      execute(() =>
+        asStrategistWithPrincipal(projectId, async (principalId) => ({
+          reference: await services.recordAdrReferenceUseCase.execute(projectId, principalId, input),
+        })),
+      ),
+  );
+  server.registerTool(
+    "list_adr_references",
+    {
+      title: "List ADR References",
+      description:
+        "List the ADR references recorded for a Project, newest first: Repository, path, commit SHA, pull request URL " +
+        "and the Direction Decision each one traces back to.",
+      inputSchema: { projectId: z.string().min(1) },
+    },
+    ({ projectId }) =>
+      execute(async () => ({ references: await services.listAdrReferencesUseCase.execute(projectId) })),
   );
 
   server.registerTool(

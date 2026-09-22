@@ -7,6 +7,7 @@ import {
   CancelResearchRequestUseCase,
   CompleteResearchRequestUseCase,
 } from "./application/usecase/CloseResearchRequestUseCases.ts";
+import { CreateAdrHandoffRequestUseCase } from "./application/usecase/CreateAdrHandoffRequestUseCase.ts";
 import { CreateDirectionDecisionUseCase } from "./application/usecase/CreateDirectionDecisionUseCase.ts";
 import { CreateIntentUseCase } from "./application/usecase/CreateIntentUseCase.ts";
 import { CreateOutcomeUseCase } from "./application/usecase/CreateOutcomeUseCase.ts";
@@ -20,18 +21,21 @@ import { GetResearcherContextUseCase } from "./application/usecase/GetResearcher
 import { GetStrategistContextUseCase } from "./application/usecase/GetStrategistContextUseCase.ts";
 import { GetProjectUseCase } from "./application/usecase/GetProjectUseCase.ts";
 import { GrantProjectRoleUseCase } from "./application/usecase/GrantProjectRoleUseCase.ts";
+import { ListAdrReferencesUseCase } from "./application/usecase/ListAdrReferencesUseCase.ts";
 import { ListIntentsUseCase } from "./application/usecase/ListIntentsUseCase.ts";
 import { ListOutcomesUseCase } from "./application/usecase/ListOutcomesUseCase.ts";
 import { ListProjectGrantsUseCase } from "./application/usecase/ListProjectGrantsUseCase.ts";
 import { ListProjectsUseCase } from "./application/usecase/ListProjectsUseCase.ts";
 import { ListResearchRequestsUseCase } from "./application/usecase/ListResearchRequestsUseCase.ts";
 import { ListRuntimeEventsUseCase } from "./application/usecase/ListRuntimeEventsUseCase.ts";
+import { RecordAdrReferenceUseCase } from "./application/usecase/RecordAdrReferenceUseCase.ts";
 import { RegisterResearchResultUseCase } from "./application/usecase/RegisterResearchResultUseCase.ts";
 import { RegisterResearchSynthesisUseCase } from "./application/usecase/RegisterResearchSynthesisUseCase.ts";
 import { RevokeProjectRoleUseCase } from "./application/usecase/RevokeProjectRoleUseCase.ts";
 import { UpdateIntentUseCase } from "./application/usecase/UpdateIntentUseCase.ts";
 import { UpdateOutcomeUseCase } from "./application/usecase/UpdateOutcomeUseCase.ts";
 import { UpdateProjectUseCase } from "./application/usecase/UpdateProjectUseCase.ts";
+import { SQLiteAdrHandoffRepository } from "./infrastructure/repository/SQLiteAdrHandoffRepository.ts";
 import { SQLiteDirectionDecisionRepository } from "./infrastructure/repository/SQLiteDirectionDecisionRepository.ts";
 import { SQLiteIntentRepository } from "./infrastructure/repository/SQLiteIntentRepository.ts";
 import { SQLiteOutcomeRepository } from "./infrastructure/repository/SQLiteOutcomeRepository.ts";
@@ -54,6 +58,7 @@ export const createApplicationServices = (
   const outcomeRepository = new SQLiteOutcomeRepository(applicationDatabase);
   const researchRepository = new SQLiteResearchRepository(applicationDatabase, clock);
   const directionDecisionRepository = new SQLiteDirectionDecisionRepository(applicationDatabase);
+  const adrHandoffRepository = new SQLiteAdrHandoffRepository(applicationDatabase);
   const runtimeEventRepository = new SQLiteRuntimeEventRepository(applicationDatabase);
   const projectGrantRepository = new SQLiteProjectGrantRepository(applicationDatabase);
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
@@ -109,6 +114,9 @@ export const createApplicationServices = (
       researchRepository,
       directionDecisionRepository,
     ),
+    createAdrHandoffRequestUseCase: new CreateAdrHandoffRequestUseCase(projectRepository, adrHandoffRepository),
+    recordAdrReferenceUseCase: new RecordAdrReferenceUseCase(projectRepository, adrHandoffRepository),
+    listAdrReferencesUseCase: new ListAdrReferencesUseCase(projectRepository, adrHandoffRepository),
   };
 };
 

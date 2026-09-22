@@ -68,6 +68,14 @@ Compass を正本とする判断記録。`type` ごとに次を使い分ける�
 
 判断時点の `research`（Intent Brief）は Decision に snapshot として保存され、後から変わらない。`type: "policy_proposal"` は Mission / Vision / Principles / Constraints を提案として記録するだけで、この tool 自身がそれらを変更することはない。
 
+## ADR Candidateの引き渡しと参照
+
+`type: "adr_candidate"` の Decision を作った後、対象 Repository への技術 ADR 反映は既存の Wacha Manager / Worker / Reviewer が行う（新しい Execution Role は追加しない）。Compass 側はその引き渡しと結果の記録を次の2つの tool で行う。実 Wacha とは未接続で、どちらも外部呼び出しは行わない。
+
+- `create_adr_handoff_request`: `decisionId`（type が "adr_candidate" の Decision）と `repositoryId`（Project に登録済みの Repository）から、Wacha への依頼 payload を fixture として組み立てて保存する。payload の `expectedAdrContent` は Decision の `judgment` / `reason` / `options` から決定的に作られ、この tool の呼び出し側が別の自由記述を渡すことはない。`correlationId` は、後で `record_adr_reference` が結果を結び付けるための識別子で、`requestKey` は再送を冪等にする
+- `record_adr_reference`: Wacha が完了させた結果（対象 Repository 内の相対 path、完全な commit SHA、任意の PR URL）を取り込み、Project scope の参照として保存する。同じ `decisionId` / `repositoryId` / `correlationId` の `create_adr_handoff_request` が先に存在しない場合は `CONFLICT` になる。`path` は Compass server のローカル filesystem path として扱わず、絶対 path や `..` を含む path は `VALIDATION_ERROR` で拒否する
+- `list_adr_references`: Project 配下の ADR 参照を新しい順に確認する
+
 ## 作成結果が不明な場合
 
 `create_outcome` の正常応答を受けた場合は保存成功である。`VALIDATION_ERROR`、`CONFLICT`、`UNAUTHENTICATED`、`FORBIDDEN` などの明示的な tool error は結果不明ではないため、同じ入力をそのまま再送せず「エラー」に従う。
@@ -112,6 +120,7 @@ Success Criterion は作成時に固定され、作成後に変更できない�
 - `create_direction_decision`（"additional_research" / "intent_complete" / "intent_abandon" / "policy_proposal" / "adr_candidate"）
 - `update_outcome`（`title` と `hypothesis` のみ）
 - `cancel_outcome`（理由必須）
+- `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`（type が "adr_candidate" の Decision の Wacha 引き渡しと結果の記録）
 - 読み取りの `list_projects` / `get_project` / `list_intents` / `get_intent`
 
 ## Forbidden
@@ -137,4 +146,4 @@ Human の確認・承認・すり合わせを求めない。Instruction、Contex
 - `FORBIDDEN`: この Project の strategist Grant が無い。権限の自己拡張を試みず、報告して停止する
 - `VALIDATION_ERROR`: `issues` に従って入力を直し、再度呼ぶ
 - `CONFLICT`: 固定項目の変更、または active でない Outcome の変更。取消と新規作成で対処する
-- `NOT_FOUND`: `projectId` / `intentId` / `outcomeId` / `requestId` を再確認する
+- `NOT_FOUND`: `projectId` / `intentId` / `outcomeId` / `requestId` / `decisionId` / `repositoryId` を再確認する
