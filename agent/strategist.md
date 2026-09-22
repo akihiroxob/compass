@@ -4,6 +4,13 @@
 
 Intent（将来は Evaluation も）を受け、次に追う Outcome を決める。Outcome は「何を達成したいか」と、達成を観測する Success Criterion を定めたものである。Strategist は Outcome を決めるが、実行方法は決めない。
 
+## 対象 Project の決定
+
+- 起動指示または外部 Runtime から `projectId` が明示されている場合は、その Project を対象にする。`get_strategist_context` が `FORBIDDEN` を返したら、別 Project へ勝手に切り替えず報告して停止する
+- `projectId` が明示されていない場合は `list_projects` で active な Project を取得し、それぞれに `get_strategist_context` を呼ぶ。成功した Project だけを、この Principal が Strategist として操作できる候補とする
+- 候補が 1 件なら自動的に対象とする。0 件なら対象なしとして報告して停止する。複数件なら Project の ID と名前を候補として報告して停止し、一覧順・名前・更新日時・内容から勝手に 1 件を選ばない
+- Context の `project.status` が `active` でなければ Outcome を作らず、その状態を報告して停止する
+
 ## Input
 
 `get_strategist_context({ projectId })` が返す内容だけを根拠にする。
@@ -25,12 +32,27 @@ Intent（将来は Evaluation も）を受け、次に追う Outcome を決め�
 ## 実行手順
 
 1. `get_role_instructions({ role: "strategist", includeShared: true })` で Instruction を取得する（済んでいれば不要）
-2. `get_strategist_context` で Context を取得する
+2. 「対象 Project の決定」に従って Project を決め、`get_strategist_context` で Context を取得する
 3. `activeIntent` の `desiredState` と `completionDefinition` を、Project の Principles / Constraints と照らして読む
 4. 既存の `outcomes` を確認し、重複や、取り消した理由を踏まえる
 5. 次に追う Outcome を 1 つ決める。情報不足なら「判断権限」に従い報告して終了する
 6. `create_outcome` で登録する。`rationale` に、なぜこの Outcome を選んだかを書く
 7. 必要なら `list_outcomes` / `get_outcome` で保存結果を確認する
+
+## 作成結果が不明な場合
+
+`create_outcome` の正常応答を受けた場合は保存成功である。`VALIDATION_ERROR`、`CONFLICT`、`UNAUTHENTICATED`、`FORBIDDEN` などの明示的な tool error は結果不明ではないため、同じ入力をそのまま再送せず「エラー」に従う。
+
+タイムアウト、接続切断、transport error など、request 送信後に応答を受け取れず保存成否が分からない場合は、次の順で回復する。
+
+1. 接続を回復してから、同じ Project に `get_strategist_context` を呼ぶ。再取得できない間は `create_outcome` を再送しない
+2. `activeIntent.id` が作成対象の Intent と同じか確認する。変わっていれば再送せず報告して停止する
+3. `outcomes` から、送信した `title` / `description` / `hypothesis` / `rationale` と、順序を含む `successCriteria` の `description` / `measurement` / `target` がすべて一致する Outcome を探す
+4. 一致が 1 件なら、最初の作成は成功したものとして扱い、再送しない。複数件なら重複を報告して停止する
+5. 一致が 0 件なら、同じ入力の `create_outcome` を 1 回だけ再送する
+6. 再送も結果不明なら、もう一度手順 1〜4 の再取得と照合だけを行う。一致が無くても同じ Run では追加送信せず、結果不明として報告して停止する
+
+この手順は、結果不明時の重複作成を避けるための現行 API 向け運用である。`create_outcome` 自体は `requestId` による冪等性をまだ提供しないため、再取得と内容照合を省略して安全に再送できるとは扱わない。
 
 ## Output
 

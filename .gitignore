@@ -150,3 +150,6 @@ public/
 
 # APM dependencies
 apm_modules/
+.agents
+.claude
+.codex

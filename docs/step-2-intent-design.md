@@ -4,6 +4,7 @@
 > 事前のユーザー確認は設けない。追加資料に定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選んだ。完成後のフィードバックに応じて修正する。選択理由と将来の変更点は各節と「将来変更できる箇所」に記録する。
 > Task 10（Step 3）で、Intent 放棄時の active Outcome の連動取消と、Outcome を持つ Intent の意味変更拒否を追加した。以降の「Outcome は表示しない・未実装」は Step 2 時点の記述で、現状は [step-3-outcome-design.md](step-3-outcome-design.md) を参照する。
 > Step 4 で Strategist の Role Grant・Instruction 配信・MCP 認可（Bearer による Principal 解決）を実装した。以降の「Strategist は未実装」「認証・Role 検証は含めない」は Step 2 時点の記述で、実装範囲は [step-4-strategist-role-design.md](step-4-strategist-role-design.md) を参照する。Runtime による Strategist の自動起動（Intent 作成を契機とする起動を含む）と Researcher / Research は現在も**未実装・未接続**である。
+> Step 2ではIntent作成後にStrategistがResearch要否を判断する初期選択を採用したが、最新の将来設計ではActive Intent作成時にInitial Research Requestを冪等に作り、Researcherが`completed` / `insufficient` / `not_needed`の確定結果を返してからStrategistへ接続する。実装前の正本は[Project Research・Decision・ADR連携 設計方針](research-decision-adr-design.md)とし、以下の固定起動を採用しない記述はStep 2実装時点の履歴として読む。
 
 ## 根拠資料と優先順位
 
@@ -13,7 +14,7 @@
 | 主根拠（優先） | `kit/additional-doc-2.md` | Direction Loop の Intent → Strategist → (Research) → Outcome。`additional-doc.md` の固定的な `Intent → Research → Outcome` 図と矛盾する場合はこちらを優先する |
 | 補助 | `kit/docs/*` | 初期設計のデフォルト（`kit/README.md` が「過去会話の確定事項ではない」と明記）。参考にするが自動採用しない |
 
-補助資料との差異: `kit/docs/autonomy-and-roles.md` は `IntentActivated → Researcher を起動` とするが、追加資料2は「Intent が作られたら必ず Researcher を起動する」ルールを Runtime に持たせないとしている。本書は追加資料2に従い、kit 側の該当記述は採用しない。
+補助資料との差異（Step 2時点）: `kit/docs/autonomy-and-roles.md` は `IntentActivated → Researcher を起動` とするが、追加資料2は「Intent が作られたら必ず Researcher を起動する」ルールを Runtime に持たせないとしていたため、Step 2では採用しなかった。将来実装では最新方針を優先し、Initial Research Requestを作る。ただし深い調査を常に必須化せず、Researcherの`not_needed`も正常終了としてStrategistへ進む。
 
 ## 資料が定めていること・初期値として選んだこと
 
@@ -67,7 +68,7 @@ Human → Intent 登録 (Compass)
 | Runtime / Orchestrator | 「Intent created」の条件成立で Strategist を起動する。Research の要否は判断しない | **未実装**（Step 4 時点でも未接続）。イベント配送（outbox 等）も Step 2 に含めない |
 | Wacha | Execution。Intent の詳細は持たない | 連携しない |
 
-原則: 「Workflow が判断しない。Agent Role が判断する」。Intent 作成後の状態遷移に `researching` のような固定の Research 状態を置かない。Intent 作成後に Researcher を自動で必須起動する固定フローを実装しない。
+Step 2実装時点の原則は「Workflow が判断せず、Agent Role が判断する」であり、Intentに`researching`状態を追加していない。この状態モデルは維持する。将来はIntent作成と同じapplication処理でInitial Research Requestを作り、外部RuntimeがResearcherを起動するが、Researcherが深い調査の要否を`completed` / `insufficient` / `not_needed`で確定し、Compass内にAgent schedulerを持ち込まない。
 
 ## Intent の項目
 

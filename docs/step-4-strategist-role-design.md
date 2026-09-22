@@ -211,6 +211,7 @@ Human が Grant を発行・取消する正規の入口。Web API を通じて�
 | 節 | 内容 |
 | --- | --- |
 | Goal | Intent（または将来の Evaluation）を受け、次に追う Outcome を決める |
+| 対象 Project | 外部から `projectId` が明示されれば固定する。未指定なら `list_projects` の各 active Projectへ `get_strategist_context` を呼び、成功候補が1件のときだけ自動選択する。0件・複数件は報告して停止し、推測で選ばない |
 | Input | `get_strategist_context` の内容: Project の Mission / Vision / Principles / Constraints、Active Intent、既存 Outcome。Evidence 相当は `unavailable` に無いものだけ |
 | 判断権限 | 情報が十分なら Outcome を作る。不足なら、Research が必要な問いと不足情報を**作業報告・出力として明示**する（Research の Entity・起動は未実装。Research を必須工程にしない。必要性は Strategist が判断する） |
 | Output | Outcome（title / description / hypothesis / rationale）と 1 件以上 10 件以下の観測可能な Success Criterion（description / measurement / target） |
@@ -220,8 +221,11 @@ Human が Grant を発行・取消する正規の入口。Web API を通じて�
 | Role の意味 | Grant は Project scope の認可で、Agent の起動や Run の所有権ではない |
 | 通常フロー | Human の確認・承認・すり合わせを求めない |
 | エラー | `UNAUTHENTICATED` / `FORBIDDEN` を受けたら権限の自己拡張を試みず、報告して停止する |
+| 結果不明時 | `create_outcome` のタイムアウト・切断時は同じ Context を再取得し、全入力項目と Success Criteria が一致する Outcome を照合する。一致なしの場合だけ同一入力を1回再送し、再送も不明なら照合後に停止する |
 
 `agent/role-policy.md` は Wacha の内容を踏まえ、Principal / Role Grant / Project scope / trusted-local の注意 / 通常フローに Human 承認を置かないこと / Change の扱いを Compass 向けに短く書く。Manager・Reviewer・Worker・Claim・Story・Task に関する記述は持ち込まない。
+
+`create_outcome` は現時点で `requestId` を受け取らない。上記の結果不明時フローは現行 API に対する運用上の重複回避であり、同じ操作の厳密な冪等性を保証するものではない。将来 `requestId` と保存済み結果の再返却を追加する場合は、MCP 入力契約・application use case・永続化・互換性を含む別の API 変更として扱う。
 
 ## 取消時の挙動
 

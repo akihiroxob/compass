@@ -168,10 +168,30 @@ test("get_role_instructionsはファイル欠落をpath入りのINSTRUCTION_UNAV
 test("strategist.mdは必須の節を持ち、記載したtool名がすべてtools/listに存在する", async () => {
   const { database, app } = await setup();
   const content = (await getInstructions(app, { role: "strategist" })).structuredContent.files[0].content as string;
-  for (const section of ["Goal", "Input", "判断権限", "実行手順", "Output", "Allowed", "Forbidden", "Success Criterion の固定"]) {
+  for (const section of [
+    "Goal",
+    "対象 Project の決定",
+    "Input",
+    "判断権限",
+    "実行手順",
+    "作成結果が不明な場合",
+    "Output",
+    "Allowed",
+    "Forbidden",
+    "Success Criterion の固定",
+  ]) {
     assert.match(content, new RegExp(`^## ${section}$`, "m"), section);
   }
   for (const phrase of ["Research", "自己評価", "Human の確認・承認・すり合わせを求めない", "Evidence の捏造"]) {
+    assert.ok(content.includes(phrase), phrase);
+  }
+  for (const phrase of [
+    "候補が 1 件なら自動的に対象とする",
+    "一覧順・名前・更新日時・内容から勝手に 1 件を選ばない",
+    "再取得できない間は `create_outcome` を再送しない",
+    "同じ入力の `create_outcome` を 1 回だけ再送する",
+    "`requestId` による冪等性をまだ提供しない",
+  ]) {
     assert.ok(content.includes(phrase), phrase);
   }
 

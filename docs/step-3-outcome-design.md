@@ -3,6 +3,7 @@
 > **状態: Step 3 の初期仕様（確定）。Task 10 で実装済み（「実装状況と検証」参照）。**
 > 事前のユーザー確認は設けない。追加資料に定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選んだ。完成後のフィードバックに応じて修正する。選択理由と将来の変更点は各節と「選択理由と将来変更できる箇所」に記録する。
 > Step 4 の設計（[step-4-strategist-role-design.md](step-4-strategist-role-design.md)）は、MCP の Outcome 書込（`create_outcome` / `update_outcome` / `cancel_outcome`）に Strategist Grant を要求する方針。**Task 15 で実装済み**。MCP の Outcome 書込は Bearer と Strategist Grant が必須になり、以降の「認証なし」「Strategist だけが作成する規則は強制できない」は Web API（従来どおり Principal なし）に限る。読み取り tool は不変。
+> Research未実装の現在はResearchなしでもOutcomeを作成できる。将来は[Project Research・Decision・ADR連携 設計方針](research-decision-adr-design.md)に従い、Projectに蓄積したSynthesis / FindingとDirection Decisionへの参照を追加する。既存Outcomeとの互換を維持し、存在しないResearch参照を捏造しない。
 
 ## 根拠資料と優先順位
 
@@ -30,13 +31,13 @@ Strategist ─ 判断 ─→ Decision ─→ Outcome (+ Success Criteria)   ← 
 | 主体 | 責務 | Step 3 での扱い |
 | --- | --- | --- |
 | Strategist | Outcome を定義できるか判断し、Decision として Outcome を決める | **Agent としては未実装**。Web / MCP の作成操作が「Strategist（または Human）の判断結果の登録」に当たる |
-| Researcher | 判断の不確実性を減らす。Outcome は決めない | 未実装。**Research は Outcome 作成の前提でも入力項目でもない**。Research Entity・`researchId` 参照・`researching` 状態を作らない |
+| Researcher | 判断の不確実性を減らす。Outcome は決めない | Step 3では未実装で、ResearchはOutcome作成の前提でも入力項目でもない。将来はProject所属のResearch Result / Finding / Synthesisを導入し、Outcomeには判断に使用したIDとversionをDirection Decision経由で関連付ける |
 | Compass (Direction) | Outcome / Success Criterion の保存・検証・参照 | **実装対象**。Intent から Outcome を自動生成しない |
 | Runtime / Orchestrator | 起動条件の成立を扱う | 未実装。Intent 作成や Outcome 作成を契機にした Agent 起動を実装しない |
 | Wacha | Execution。Outcome は複製せず参照する | 連携しない。Outcome の参照・複製方式は Task 10 の範囲外 |
 
 - **Decision との関係**: Outcome は Strategist の Decision の結果として作られる（追加資料 13）。Step 3 には Decision Entity が無いため、Outcome 作成時に必須の `rationale`（なぜこの Outcome を選んだか）を **Decision の最小記録として Outcome に同居**させる。Decision Entity を導入する際は、既存の `rationale` を初期 Decision へ移し、`originDecisionId` を追加する（既存データ互換）。存在しない Decision / Research / Evidence の参照は生成しない。
-- **Research が任意であること**: 情報が十分な Intent（例:「P95 latency < 200ms」）では、Research なしで直接 Outcome を登録できる。Research を必要とする場合も、Research の実体は Outcome の項目ではなく、別の Direction Support Concept（後続）として関連付ける。
+- **Research が無期限の必須工程ではないこと**: 現行APIでは情報が十分なIntentならResearchなしで直接Outcomeを登録できる。将来のInitial Research Requestでも、既存知識で十分ならResearcherが`not_needed`を返してStrategistへ進む。Researchの実体はOutcome本文へ複製せず、Project所属のDirection Support Conceptとしてversion付きで関連付ける。
 - Outcome を Intent から機械的に生成する処理（Intent 作成時の自動作成、テンプレート展開、`completionDefinition` の複製）は実装しない。Outcome は明示的な作成操作でのみ登録される。
 
 ## Outcome の項目
