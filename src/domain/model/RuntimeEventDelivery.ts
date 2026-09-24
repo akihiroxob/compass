@@ -31,12 +31,24 @@ export type PendingRuntimeEvent = RuntimeEvent & {
 
 export type RuntimeEventFetch = {
   readonly events: readonly PendingRuntimeEvent[];
-  /** 次回の`afterCursor`に渡す位置。返したイベントの末尾のcursor。空なら渡された`afterCursor`のまま。 */
+  /**
+   * 同じ取得周回で次ページへ進むための`afterCursor`。返したイベントの末尾のcursor。空なら渡された`afterCursor`のまま。
+   * 未ackや`retryable_failure`のイベントを追い越すため、再起動後の再開位置として永続化しない。
+   */
   readonly nextCursor: number;
+  /**
+   * 再起動後の再開に使う`afterCursor`。このconsumerにとって、これ以下のイベントがすべて確定済み
+   * （`processed` / `terminal_failure`）である最大のcursor。未確定のイベントを追い越さないため、
+   * ここから取得し直しても欠落しない。
+   */
+  readonly resumeCursor: number;
 };
 
 export type AckRuntimeEventResult = {
   readonly delivery: RuntimeEventDelivery;
-  /** 同じ結果の再送で、状態を変えずに既存の記録を返した場合はfalse。 */
+  /**
+   * 状態を変えなかった場合はfalse。同じ`attemptId`の再送（初回の結果を返す）と、
+   * 確定済みの結果と同じ結果の別`attemptId`での再送が該当する。
+   */
   readonly recorded: boolean;
 };

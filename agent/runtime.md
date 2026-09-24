@@ -11,12 +11,13 @@
 
 ## イベントの取得
 
-MCP `fetch_runtime_events({ projectId, afterCursor?, limit? })`、または Web API `GET /api/projects/:projectId/runtime-events?afterCursor=&limit=` を使う。応答は `{ events, nextCursor }`。
+MCP `fetch_runtime_events({ projectId, afterCursor?, limit? })`、または Web API `GET /api/projects/:projectId/runtime-events?afterCursor=&limit=` を使う。応答は `{ events, nextCursor, resumeCursor }`。
 
 - `events` は cursor 昇順で、その consumer にとって未処理のもの（ack が無い、または `retryable_failure`）だけ。`processed` / `terminal_failure` は返らない
 - 取得は状態を変えない。応答が失われても、同じ条件で取得し直せば同じイベントが返り、欠落しない
 - 配送は at-least-once。同じイベントを複数回受け取り得るため、イベントの `id` で重複を判定し、`ack` 済みの結果と突き合わせて二重に Agent を起動しない
-- `nextCursor` を次の `afterCursor` に渡すと、すでに取り出したイベントの後から続けられる。Runtime が再起動して cursor を失った場合は `afterCursor: 0` から取得する。ack 済みのものは返らないため、欠落も再起動もない
+- `nextCursor` は同じ取得周回で次のページへ進むためだけに `afterCursor` へ渡す。未 ack・`retryable_failure` のイベントを追い越すため、永続化しない
+- 再起動後の再開位置として永続化するのは `resumeCursor` だけ。その consumer にとって、それ以下のイベントがすべて `processed` / `terminal_failure` である最大の cursor で、未確定のイベントを追い越さない。再起動後は `afterCursor: resumeCursor` から取得すれば欠落しない。cursor を失った場合は `afterCursor: 0` から取得し直してよい（確定済みは返らない）
 - `limit` は 1〜500（既定 100）
 
 ## イベントの種類と反応
@@ -32,7 +33,7 @@ MCP `fetch_runtime_events({ projectId, afterCursor?, limit? })`、または Web 
 
 ## 処理結果の記録
 
-MCP `ack_runtime_event({ projectId, eventId, outcome, reason? })`、または Web API `POST /api/projects/:projectId/runtime-events/:eventId/ack`（本文 `{ outcome, reason? }`）を使う。
+MCP `ack_runtime_event({ projectId, eventId, attemptId, outcome, reason? })`、または Web API `POST /api/projects/:projectId/runtime-events/:eventId/ack`（本文 `{ attemptId, outcome, reason? }`）を使う。`attemptId` はそのイベントを処理する 1 回の試行ごとに Runtime が生成する値（UUID など）。
 
 | `outcome` | 意味 | `reason` | 以後の取得 |
 | --- | --- | --- | --- |
@@ -40,7 +41,9 @@ MCP `ack_runtime_event({ projectId, eventId, outcome, reason? })`、または We
 | `retryable_failure` | 今回は処理できなかったが、再試行してよい | 必須 | 返り続ける（`retryCount` が増える） |
 | `terminal_failure` | 再試行しても成功しない | 必須 | 返らない（理由は残る） |
 
-- 応答が失われたら同じ `ack` を再送してよい。同じ結果なら状態を変えず、応答の `recorded` が `false` になる
+- 応答が失われたら、同じ `attemptId` で同じ `ack` を再送する。初回の結果が返り、状態は変わらない（`recorded: false`。`retryCount` も増えない）。同じ `attemptId` で別の結果・理由を送ると `CONFLICT`
+- 次の試行（再試行）では新しい `attemptId` を使う。`retryCount` は `attemptId` の異なる `retryable_failure` だけを数える
+- 確定済み（`processed` / `terminal_failure`）のイベントに同じ結果を送り直しても状態は変わらない（`recorded: false`）
 - `processed` / `terminal_failure` 済みのイベントに別の結果を送ると `CONFLICT`。`retryable_failure` からはどの結果へも進める
 - 別 Project のイベントは `NOT_FOUND`。`retryable_failure` を送り続けても上限は Compass にない。再試行の上限と間隔は Runtime が決め、超えたら `terminal_failure` で理由を残す
 

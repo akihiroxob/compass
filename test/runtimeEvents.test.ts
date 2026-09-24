@@ -43,11 +43,16 @@ const api = (app: App, method: string, path: string, principal?: string, body?: 
 const fetchEvents = async (app: App, projectId: string, principal: string, query = "") => {
   const response = await api(app, "GET", `/api/projects/${projectId}/runtime-events${query}`, principal);
   assert.equal(response.status, 200);
-  return (await response.json()) as { events: Array<Record<string, any>>; nextCursor: number };
+  return (await response.json()) as { events: Array<Record<string, any>>; nextCursor: number; resumeCursor: number };
 };
 
+let ackSequence = 0;
+/** 試行ごとに新しいattemptIdを付ける。応答消失後の再送を試すときは、bodyに同じattemptIdを明示する。 */
 const ack = (app: App, projectId: string, eventId: string, principal: string, body: object) =>
-  api(app, "POST", `/api/projects/${projectId}/runtime-events/${eventId}/ack`, principal, body);
+  api(app, "POST", `/api/projects/${projectId}/runtime-events/${eventId}/ack`, principal, {
+    attemptId: `attempt-${++ackSequence}`,
+    ...body,
+  });
 
 const grantRuntime = async (app: App, projectId: string, principalId: string, role = "runtime") => {
   const response = await api(app, "POST", `/api/projects/${projectId}/grants`, undefined, { principalId, role });
@@ -130,11 +135,16 @@ test("未処理のresearch_requestedをcursor付きで取得しackすると、�
     },
   );
 
-  // ack済みは未処理として返さない。空のときはafterCursorをそのまま返す。
-  assert.deepEqual(await fetchEvents(app, project.id, "runtime-a"), { events: [], nextCursor: 0 });
+  // ack済みは未処理として返さない。空のときはafterCursorをそのまま返し、再開位置は確定済みの末尾まで進む。
+  assert.deepEqual(await fetchEvents(app, project.id, "runtime-a"), {
+    events: [],
+    nextCursor: 0,
+    resumeCursor: requested.cursor,
+  });
   assert.deepEqual(await fetchEvents(app, project.id, "runtime-a", `?afterCursor=${requested.cursor}`), {
     events: [],
     nextCursor: requested.cursor,
+    resumeCursor: requested.cursor,
   });
 
   // Requestの確定で増えた差分だけが、前回のnextCursorから続けて返る。
@@ -357,6 +367,8 @@ test("ackとcursor入力の不正はVALIDATION_ERRORで、何も保存しない"
     [{ outcome: "terminal_failure", reason: "   " }, "reason"],
     [{ outcome: "terminal_failure", reason: "x".repeat(1_001) }, "reason"],
     [{ outcome: "processed", reason: "not a failure" }, "reason"],
+    [{ attemptId: undefined, outcome: "processed" }, "attemptId"],
+    [{ attemptId: "   ", outcome: "processed" }, "attemptId"],
   ];
   for (const [body, path] of invalidAcks) {
     const response = await ack(app, project.id, eventId, "runtime-a", body);
@@ -379,6 +391,90 @@ test("ackとcursor入力の不正はVALIDATION_ERRORで、何も保存しない"
     assert.equal(await errorCode(response), "VALIDATION_ERROR");
   }
   await database.destroy();
+});
+
+test("retryable_failureの同じattemptIdの再送は1回の試行に収束し、別の試行だけを数える", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "compass-runtime-ack-"));
+  const path = join(directory, "test.db");
+  const first = await setup(path);
+  const { project } = await seed(first.services);
+  await grantRuntime(first.app, project.id, "runtime-a");
+  await grantRuntime(first.app, project.id, "runtime-b");
+  const eventId = (await fetchEvents(first.app, project.id, "runtime-a")).events[0]!.id;
+  const attempt = { attemptId: "try-1", outcome: "retryable_failure", reason: "timeout" };
+
+  const recorded = (await (await ack(first.app, project.id, eventId, "runtime-a", attempt)).json()) as any;
+  assert.deepEqual([recorded.recorded, recorded.delivery.retryCount], [true, 1]);
+  // 1回目の応答だけが失われ、Runtimeが同じackを再送した。回数は増えず、初回の結果が返る。
+  const resent = (await (await ack(first.app, project.id, eventId, "runtime-a", attempt)).json()) as any;
+  assert.equal(resent.recorded, false);
+  assert.deepEqual(resent.delivery, recorded.delivery);
+  assert.equal((await fetchEvents(first.app, project.id, "runtime-a")).events[0]!.retryCount, 1);
+
+  // 同じattemptIdを別の入力で使うとCONFLICTで、何も変えない。
+  for (const body of [
+    { ...attempt, reason: "another reason" },
+    { ...attempt, outcome: "processed", reason: undefined },
+  ]) {
+    const conflict = await ack(first.app, project.id, eventId, "runtime-a", body);
+    assert.equal(conflict.status, 409, JSON.stringify(body));
+    assert.equal(await errorCode(conflict), "CONFLICT");
+  }
+  // attemptIdはconsumerごと。別consumerが同じattemptIdを使っても、自分の試行として記録される。
+  const other = (await (await ack(first.app, project.id, eventId, "runtime-b", attempt)).json()) as any;
+  assert.deepEqual([other.recorded, other.delivery.consumerId, other.delivery.retryCount], [true, "runtime-b", 1]);
+  await first.database.destroy();
+
+  // 再起動後も受付記録が残り、同じackの再送は数えない。同じ理由でも新しいattemptIdは別の試行として数える。
+  const restarted = await setup(path);
+  const afterRestart = (await (await ack(restarted.app, project.id, eventId, "runtime-a", attempt)).json()) as any;
+  assert.deepEqual([afterRestart.recorded, afterRestart.delivery.retryCount], [false, 1]);
+  const secondAttempt = (await (await ack(restarted.app, project.id, eventId, "runtime-a", { ...attempt, attemptId: "try-2" })).json()) as any;
+  assert.deepEqual([secondAttempt.recorded, secondAttempt.delivery.retryCount], [true, 2]);
+  assert.equal((await fetchEvents(restarted.app, project.id, "runtime-a")).events[0]!.retryCount, 2);
+  await restarted.database.destroy();
+});
+
+test("resumeCursorは未ack・retryable_failureのイベントを追い越さず、再起動後の再開で欠落しない", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "compass-runtime-resume-"));
+  const path = join(directory, "test.db");
+  const first = await setup(path);
+  const { project, request } = await seed(first.services);
+  await closeRequest(first.services, project.id, request.id);
+  await grantRuntime(first.app, project.id, "runtime-a");
+
+  const fetched = await fetchEvents(first.app, project.id, "runtime-a");
+  const [requested, completed] = fetched.events;
+  assert.ok(requested && completed);
+  // 何もackしていなければ、再開位置は最初のイベントの手前。
+  assert.equal(fetched.resumeCursor, requested.cursor - 1);
+
+  // 後のイベントだけ確定した。nextCursorは未ackの1件目を追い越すが、resumeCursorは追い越さない。
+  await ack(first.app, project.id, completed.id, "runtime-a", { outcome: "processed" });
+  const partial = await fetchEvents(first.app, project.id, "runtime-a");
+  assert.deepEqual(partial.events.map(({ id }) => id), [requested.id]);
+  assert.equal(fetched.nextCursor, completed.cursor);
+  assert.equal(partial.resumeCursor, requested.cursor - 1);
+  await first.database.destroy();
+
+  // RuntimeはresumeCursorを永続化して再起動し、そこから再開する。未ackのイベントが返る。
+  const restarted = await setup(path);
+  const resumed = await fetchEvents(restarted.app, project.id, "runtime-a", `?afterCursor=${partial.resumeCursor}`);
+  assert.deepEqual(resumed.events.map(({ id }) => id), [requested.id]);
+
+  // retryable_failureも未確定のため、再開位置は動かない。
+  await ack(restarted.app, project.id, requested.id, "runtime-a", { outcome: "retryable_failure", reason: "busy" });
+  const retrying = await fetchEvents(restarted.app, project.id, "runtime-a", `?afterCursor=${partial.resumeCursor}`);
+  assert.deepEqual(retrying.events.map(({ id, retryCount }) => [id, retryCount]), [[requested.id, 1]]);
+  assert.equal(retrying.resumeCursor, requested.cursor - 1);
+  await restarted.database.destroy();
+
+  // すべて確定すると、再開位置はProjectの最新イベントまで進む。
+  const third = await setup(path);
+  await ack(third.app, project.id, requested.id, "runtime-a", { outcome: "processed" });
+  const settled = await fetchEvents(third.app, project.id, "runtime-a", `?afterCursor=${partial.resumeCursor}`);
+  assert.deepEqual([settled.events, settled.resumeCursor], [[], completed.cursor]);
+  await third.database.destroy();
 });
 
 test("server再起動後もackとcursorの状態が残り、イベントの欠落も重複もない", async () => {
@@ -412,7 +508,11 @@ test("server再起動後もackとcursorの状態が残り、イベントの欠�
   await restarted.database.destroy();
 
   const third = await setup(path);
-  assert.deepEqual(await fetchEvents(third.app, project.id, "runtime-a"), { events: [], nextCursor: 0 });
+  assert.deepEqual(await fetchEvents(third.app, project.id, "runtime-a"), {
+    events: [],
+    nextCursor: 0,
+    resumeCursor: retried.cursor,
+  });
   await third.database.destroy();
 });
 
@@ -447,24 +547,29 @@ test("MCPのfetch_runtime_events / ack_runtime_eventも同じuse caseを通る",
   // 同じconsumerは、Web APIで取得した内容と同じ。
   assert.deepEqual(fetched, await fetchEvents(app, project.id, "runtime-a"));
 
-  const rejected = await callTool(app, "ack_runtime_event", { projectId: project.id, eventId: event.id, outcome: "processed" });
+  const rejected = await callTool(app, "ack_runtime_event", { projectId: project.id, eventId: event.id, attemptId: "m-0", outcome: "processed" });
   assert.equal(rejected.isError, true);
   assert.equal(rejected.structuredContent.error.code, "UNAUTHENTICATED");
   const wrongRole = await callTool(app, "fetch_runtime_events", { projectId: project.id }, "researcher-a");
   assert.equal(wrongRole.structuredContent.error.code, "FORBIDDEN");
-  const invalid = await callTool(app, "ack_runtime_event", { projectId: project.id, eventId: event.id, outcome: "retryable_failure" }, "runtime-a");
+  const invalid = await callTool(
+    app,
+    "ack_runtime_event",
+    { projectId: project.id, eventId: event.id, attemptId: "m-1", outcome: "retryable_failure" },
+    "runtime-a",
+  );
   assert.equal(invalid.structuredContent.error.code, "VALIDATION_ERROR");
 
-  const acked = (await callTool(app, "ack_runtime_event", { projectId: project.id, eventId: event.id, outcome: "processed" }, "runtime-a"))
-    .structuredContent;
+  const processed = { projectId: project.id, eventId: event.id, attemptId: "m-2", outcome: "processed" };
+  const acked = (await callTool(app, "ack_runtime_event", processed, "runtime-a")).structuredContent;
   assert.equal(acked.recorded, true);
-  const resent = (await callTool(app, "ack_runtime_event", { projectId: project.id, eventId: event.id, outcome: "processed" }, "runtime-a"))
-    .structuredContent;
+  const resent = (await callTool(app, "ack_runtime_event", processed, "runtime-a")).structuredContent;
   assert.equal(resent.recorded, false);
+  assert.deepEqual(resent.delivery, acked.delivery);
   const conflict = await callTool(
     app,
     "ack_runtime_event",
-    { projectId: project.id, eventId: event.id, outcome: "terminal_failure", reason: "x" },
+    { projectId: project.id, eventId: event.id, attemptId: "m-3", outcome: "terminal_failure", reason: "x" },
     "runtime-a",
   );
   assert.equal(conflict.structuredContent.error.code, "CONFLICT");

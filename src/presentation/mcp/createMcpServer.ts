@@ -677,8 +677,9 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
         "Manager; outcome_evaluated, with evaluationId, starts a Strategist to re-plan or decide Intent completion). The consumer is the " +
         "Bearer Principal. Fetching does not change any state, so a lost response is recovered by fetching again; delivery is " +
         "at-least-once, so deduplicate by event id and acknowledge with ack_runtime_event. Pass nextCursor back as afterCursor " +
-        "to continue after the events already dispatched (events that are still unacknowledged are returned again from an " +
-        "earlier afterCursor, e.g. 0 after a Runtime restart). Events in retryable_failure keep being returned with retryCount " +
+        "to page through the same pass. nextCursor may pass events that are still unacknowledged or in retryable_failure, so do not " +
+        "persist it: to resume after a Runtime restart, persist resumeCursor (every event at or below it is processed or terminally " +
+        "failed for this consumer) and pass it as afterCursor. Events in retryable_failure keep being returned with retryCount " +
         "and lastFailureReason; polling interval, backoff and Agent launching are the Runtime's responsibility. " +
         "Requires Authorization: Bearer <RuntimeName> with a runtime Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: {
@@ -698,12 +699,16 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
         "outcome processed: handled; the event is not returned to this consumer again. " +
         "retryable_failure (reason required): not handled this time; the event keeps being returned by fetch_runtime_events. " +
         "terminal_failure (reason required): cannot succeed; the event is not returned again and the reason is kept. " +
-        "Resending the same outcome after a lost response is idempotent (recorded: false); a different outcome for an event already " +
+        "attemptId identifies one handling attempt of the event by this consumer: resending the same ack with the same attemptId after " +
+        "a lost response returns the first result without changing state (recorded: false, retryCount is not incremented again); " +
+        "reusing an attemptId of the event with a different outcome or reason fails with CONFLICT. Use a new attemptId for each new attempt. " +
+        "Sending the same outcome again for an event already processed or terminally failed is idempotent (recorded: false); a different outcome for an event already " +
         "processed or terminally failed fails with CONFLICT. An event of another Project fails with NOT_FOUND. " +
         "Requires Authorization: Bearer <RuntimeName> with a runtime Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: {
         projectId: z.string().min(1),
         eventId: z.string().min(1),
+        attemptId: z.string().min(1),
         outcome: z.string(),
         reason: z.string().optional(),
       },

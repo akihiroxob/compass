@@ -480,7 +480,7 @@ const createRuntimeEventTable = (database: Kysely<Database>, name: string) =>
  * `runtime_event`の`event_type`のCHECK・NOT NULLは`ALTER`で変更できないため、定義が古いDBはSQLite公式の手順
  * （新tableを作って写し、旧tableをdropしてrenameする）で作り直す。対象はTask 33以前（CHECKに`outcome_confirmed`が無く、
  * `research_request_id`がNOT NULLで`outcome_id`列が無い）と、Task 36以前（`outcome_evaluated`と`evaluation_id`列が無い）。
- * `sequence`（Runtimeのcursor）と`autoincrement`の高水位は引き継ぎ、`runtime_event_delivery`のFK（`event_sequence`）は
+ * `sequence`（Runtimeのcursor）と`autoincrement`の高水位は引き継ぎ、`runtime_event_delivery`・`runtime_event_ack_attempt`のFK（`event_sequence`）は
  * 同名の新tableへ向き直る。旧tableの索引はdropで消え、新しい定義で作り直される。
  * 新しい定義のDBには何もしないため、起動のたびに実行しても安全（idempotent）。
  */
@@ -580,6 +580,25 @@ const initializeRuntimeEventSchema = async (database: Kysely<Database>): Promise
       "runtime_event_delivery_failure_has_reason",
       sql`outcome = 'processed' or last_failure_reason is not null`,
     )
+    .execute();
+
+  // ackの試行記録。consumerがイベントごとに付けたattemptIdごとに入力と結果を残し、応答消失後の同じackの再送を
+  // 1回の試行として収束させる（retryable_failureを二重に数えない）。Execution側のcommand_receiptとは共有しない。
+  await database.schema
+    .createTable("runtime_event_ack_attempt")
+    .ifNotExists()
+    .addColumn("consumer_id", "text", (column) => column.notNull())
+    .addColumn("event_sequence", "integer", (column) =>
+      column.notNull().references("runtime_event.sequence").onDelete("cascade"),
+    )
+    .addColumn("attempt_id", "text", (column) => column.notNull())
+    .addColumn("project_id", "text", (column) =>
+      column.notNull().references("project.id").onDelete("cascade"),
+    )
+    .addColumn("input_json", "text", (column) => column.notNull())
+    .addColumn("result_json", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("runtime_event_ack_attempt_pk", ["consumer_id", "event_sequence", "attempt_id"])
     .execute();
 };
 

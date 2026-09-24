@@ -187,8 +187,8 @@ U2〜U4は現在のどのTaskの完了条件にも含まれていないため、
   - `retryable_failure`: 今回は処理できず再試行してよい（Agent起動失敗、timeout、Compass / 外部の一時エラー）。次の取得でも返り続け、`retryCount`・`lastFailureReason`が付く。backoffと再試行上限はRuntimeが決め、上限到達時は`terminal_failure`でackする。
   - `terminal_failure`: 再試行しても成功しない（未知の`version`・`type`、payload不正、対象Grant取消・archivedなどCompassが恒久的に拒否する状態）。確定で、理由を残す。
 - **Agent結果とackの対応**: 起動したAgentの後続コマンドがCompassの冪等な既存結果（同じ`requestKey`の再送・同じ`correlationId`のStory・同じ`evaluationId`のDecision）を返したときは、先行した処理が成功しているので`processed`。状態の変化で不要になった（`evaluation_not_latest`、`intent_not_active`、取消済みOutcome）ときも`processed`で、理由はRuntimeのログに残す。`UNAUTHENTICATED` / `FORBIDDEN`は資格情報・Grantの設定不備なので、ackせずRuntimeの運用者へ通知する（ackにもGrantが要るため）。
-- **ackの冪等性（Task 31差し戻し対応で実装する決定）**: ack入力に`attemptId`（Runtimeが1回の処理試行ごとに生成し、その試行の応答が失われた再送では同じ値を使う）を必須で追加する。`(consumer, eventId, attemptId)`が同じ再送は内容が同じなら状態を変えず`recorded: false`、異なる内容はCONFLICT。`retryCount`は異なる`attemptId`の`retryable_failure`だけを数える。確定済み（processed / terminal_failure）への別結果はCONFLICTのまま。
-- **cursorの意味（Task 31差し戻し対応で実装する決定）**: 取得応答の`nextCursor`は同じ取得処理内のページングにだけ使う。永続化して再開に使えるのは新設する`resumeCursor`（そのconsumerについて、それ以下のイベントがすべて確定済み（processed / terminal_failure）である最大のcursor）だけとする。`resumeCursor`は未確定（未ack・retryable_failure）のイベントを追い越さないので、Runtimeの再起動後に`afterCursor=resumeCursor`で取得すれば欠落しない。`afterCursor`を省略した取得も欠落しない（先頭から未確定だけを返す）。
+- **ackの冪等性（Task 31差し戻し対応で実装済み）**: ack入力に`attemptId`（Runtimeが1回の処理試行ごとに生成し、その試行の応答が失われた再送では同じ値を使う）を必須で追加する。`(consumer, eventId, attemptId)`が同じ再送は内容が同じなら状態を変えず`recorded: false`、異なる内容はCONFLICT。`retryCount`は異なる`attemptId`の`retryable_failure`だけを数える。確定済み（processed / terminal_failure）への別結果はCONFLICTのまま。
+- **cursorの意味（Task 31差し戻し対応で実装済み）**: 取得応答の`nextCursor`は同じ取得処理内のページングにだけ使う。永続化して再開に使えるのは新設する`resumeCursor`（そのconsumerについて、それ以下のイベントがすべて確定済み（processed / terminal_failure）である最大のcursor）だけとする。`resumeCursor`は未確定（未ack・retryable_failure）のイベントを追い越さないので、Runtimeの再起動後に`afterCursor=resumeCursor`で取得すれば欠落しない。`afterCursor`を省略した取得も欠落しない（先頭から未確定だけを返す）。
 
 ### timeout・重複・順序逆転・再起動の回復規則
 
@@ -220,7 +220,7 @@ Storyは`correlationId`で二重作成を防げるが、Taskは`requestId`（`co
 
 ## Task 31〜38への反映
 
-- **Task 31（実装済み・差し戻し中）**: `runtime_event`のcursor/ack付きWeb API/MCP入口を実装した。認可は暫定の`runtime` Role Grant（Task 37でRuntime Credential scopeへ置き換え）。`outcome_confirmed`はTask 33で追加した。差し戻し対応では「consumer・ackと失敗分類」のack `attemptId`と`resumeCursor`を実装し、README・`agent/runtime.md`の「nextCursorを次に渡す」案内を`resumeCursor`へ改める。
+- **Task 31（実装済み・差し戻し対応済み）**: `runtime_event`のcursor/ack付きWeb API/MCP入口を実装した。認可は暫定の`runtime` Role Grant（Task 37でRuntime Credential scopeへ置き換え）。`outcome_confirmed`はTask 33で追加した。差し戻し対応で「consumer・ackと失敗分類」のack `attemptId`（試行記録table `runtime_event_ack_attempt`）と`resumeCursor`を実装し、README・`agent/runtime.md`の再開案内を`resumeCursor`へ改めた。
 - **Task 32（実装済み）**: `additional_research` Direction Decisionから追加Research Requestと`research_requested`イベントを作る確定経路。本Taskの設計変更は無し（既存のResearch集約の冪等性パターンを踏襲）。実装記録は`docs/research-decision-adr-design.md`の「追加Research判断のRequest・Runtimeイベント接続（Task 32）」。
 - **Task 33（実装済み・差し戻し中）**: 実装記録は本文書末尾の「実装記録（Task 33）」。差し戻し対応では「Outcome handoffのTask論理ID」（`taskKey`）を実装し、`agent/manager.md`に再起動後の手順を書く。本Taskの「モジュール構成」「DB schema」「MCP tool統合方針」「Role/Instruction配置」に従い、旧Wacha Execution一式を移植する。あわせて`outcome_confirmed`イベントを`CreateOutcomeUseCase`/`DecideNextOutcomeUseCase`に追加し、`DirectionReferenceLookupPort`を実装し、`issue_story`の`outcomeId`拡張を実装する。`agent/role-policy.md`のマージ、README等のドキュメント更新もここで行う。
 - **Task 34（実装済み）**: 実装記録は本文書末尾の「実装記録（Task 34）」。`ExecutionEvidencePort`の詳細（テーブル形状、増分取込みの単位）はTask内で確定し、書込ポートではなく読取専用の`ExecutionSummaryPort`にした。

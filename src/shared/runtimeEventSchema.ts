@@ -16,6 +16,7 @@ export const parseRuntimeEventQuery = (input: unknown): RuntimeEventQuery =>
 export const runtimeEventAckSchema = z
   .object({
     eventId: z.string().min(1, "eventId is required"),
+    attemptId: trimmedText("attemptId", 200),
     outcome: z.enum(runtimeEventAckOutcomes, {
       error: `outcome must be one of: ${runtimeEventAckOutcomes.join(", ")}`,
     }),

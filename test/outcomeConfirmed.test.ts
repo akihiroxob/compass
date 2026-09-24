@@ -127,7 +127,7 @@ test("Runtimeはoutcome_confirmedをconsumer単位でack・再取得でき、別
   assert.equal(event.outcomeId, outcome.id);
   assert.ok(fetched.events.every((item) => item.projectId === project.id));
 
-  await kit.services.ackRuntimeEventUseCase.execute("rt", project.id, { eventId: event.id, outcome: "processed" });
+  await kit.services.ackRuntimeEventUseCase.execute("rt", project.id, { eventId: event.id, attemptId: "a-1", outcome: "processed" });
   const after = await kit.services.fetchRuntimeEventsUseCase.execute("rt", project.id, {});
   assert.equal(after.events.some((item) => item.id === event.id), false);
   await kit.database.destroy();
@@ -173,7 +173,7 @@ test("既存DBのruntime_eventは再初期化でtableを作り直し、event・s
     const [event] = await eventsOf(first, project.id);
     assert.ok(event);
     await first.services.grantProjectRoleUseCase.execute(project.id, { principalId: "rt", role: ProjectRole.RUNTIME });
-    await first.services.ackRuntimeEventUseCase.execute("rt", project.id, { eventId: event.id, outcome: "retryable_failure", reason: "busy" });
+    await first.services.ackRuntimeEventUseCase.execute("rt", project.id, { eventId: event.id, attemptId: "a-1", outcome: "retryable_failure", reason: "busy" });
     // autoincrementの高水位を最大sequenceより大きくする（削除済みの番号を再利用しない契約）。
     await downgradeRuntimeEvent(first.database);
     await sql`insert into runtime_event (sequence, id, event_version, event_type, project_id, intent_id, research_request_id, correlation_id, created_at) values (50, 'tmp', 1, 'research_requested', ${project.id}, ${intent.id}, ${request.id}, 'tmp', 1)`.execute(first.database);

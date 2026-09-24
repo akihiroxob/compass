@@ -280,6 +280,16 @@ export type RuntimeEventDeliveryTable = {
   updated_at: number;
 };
 
+export type RuntimeEventAckAttemptTable = {
+  consumer_id: string;
+  event_sequence: number;
+  attempt_id: string;
+  project_id: string;
+  input_json: string;
+  result_json: string;
+  created_at: number;
+};
+
 /**
  * Executionの結果の要約（Direction所有）。Outcomeごとに1行。`stories`はJSON。Execution側のtableは参照せず、
  * ポート経由で受け取った値だけを保存する。`execution_cursor`が進むときだけ上書きする。
@@ -439,6 +449,7 @@ export type Database = {
   adr_reference: AdrReferenceTable;
   runtime_event: RuntimeEventTable;
   runtime_event_delivery: RuntimeEventDeliveryTable;
+  runtime_event_ack_attempt: RuntimeEventAckAttemptTable;
   outcome_execution_summary: OutcomeExecutionSummaryTable;
   outcome_execution_evidence: OutcomeExecutionEvidenceTable;
   outcome_evaluation: OutcomeEvaluationTable;

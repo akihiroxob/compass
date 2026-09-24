@@ -183,17 +183,17 @@ Project単位のResearch蓄積、Intent起点のResearch Request、Finding / Syn
 ```bash
 # 未処理イベントの取得（cursor 昇順。afterCursor は既定 0、limit は 1〜500・既定 100）
 curl -H 'Authorization: Bearer runtime-a' 'localhost:51800/api/projects/<projectId>/runtime-events?afterCursor=0&limit=100'
-#   => { "events": [{ "cursor", "id", "version", "type", "projectId", "intentId", "researchRequestId", "correlationId", "conclusion", "occurredAt", "retryCount", "lastFailureReason" }], "nextCursor": 12 }
+#   => { "events": [{ "cursor", "id", "version", "type", "projectId", "intentId", "researchRequestId", "correlationId", "conclusion", "occurredAt", "retryCount", "lastFailureReason" }], "nextCursor": 12, "resumeCursor": 10 }
 
-# 処理結果の記録。outcome は processed / retryable_failure / terminal_failure（失敗は reason 必須）
+# 処理結果の記録。attemptId は処理試行ごとに Runtime が生成する。outcome は processed / retryable_failure / terminal_failure（失敗は reason 必須）
 curl -X POST -H 'Authorization: Bearer runtime-a' -H 'Content-Type: application/json' \
-  localhost:51800/api/projects/<projectId>/runtime-events/<eventId>/ack -d '{"outcome":"processed"}'
+  localhost:51800/api/projects/<projectId>/runtime-events/<eventId>/ack -d '{"attemptId":"<uuid>","outcome":"processed"}'
 #   => { "delivery": {...}, "recorded": true }
 ```
 
 - 取得は状態を変えない読取です。ack が無い、または `retryable_failure` のイベントだけを返し、`processed` / `terminal_failure` は返しません。応答が失われても同じ取得で同じイベントが返り、欠落しません。配送は at-least-once のため、Runtime はイベントの `id` で重複を判定します。
-- `nextCursor` を次の `afterCursor` に渡すと続きから取得できます。Runtime が再起動して cursor を失った場合は `afterCursor=0` から取得し直せば、ack 済み以外だけが返ります（server 再起動後も ack と cursor は SQLite に残ります）。
-- ack の再送は冪等です（同じ結果なら `recorded: false`）。`processed` / `terminal_failure` 済みに別の結果を送ると `409 CONFLICT`、`retryable_failure` からは任意の結果へ進めます。別 Project のイベントは `404 NOT_FOUND`、Bearer なし・形式不正は `401 UNAUTHENTICATED`、runtime Grant なし（別 Project・取消済み・他の Role のみ）は `403 FORBIDDEN` です。
+- `nextCursor` は同じ取得周回のページ送り専用です。未 ack・`retryable_failure` のイベントを追い越すため、永続化して再開に使いません。再起動後の再開には `resumeCursor`（その consumer にとって、それ以下のイベントがすべて `processed` / `terminal_failure` である最大の cursor）を永続化して `afterCursor` に渡します。`afterCursor=0`（省略）から取得し直しても、確定済み以外だけが返り欠落しません（server 再起動後も ack は SQLite に残ります）。
+- ack の `attemptId` は Runtime が 1 回の処理試行ごとに生成し、応答消失後の再送では同じ値を使います。同じイベント・同じ `attemptId` の再送は初回の結果を返して状態を変えず（`recorded: false`、`retryCount` も増えない）、同じ `attemptId` で別の結果・理由を送ると `409 CONFLICT` です。新しい試行には新しい `attemptId` を使い、`retryCount` はその試行ごとに数えます。確定済みのイベントへ同じ結果を送り直しても状態は変わりません（`recorded: false`）。`processed` / `terminal_failure` 済みに別の結果を送ると `409 CONFLICT`、`retryable_failure` からは任意の結果へ進めます。別 Project のイベントは `404 NOT_FOUND`、Bearer なし・形式不正は `401 UNAUTHENTICATED`、runtime Grant なし（別 Project・取消済み・他の Role のみ）は `403 FORBIDDEN` です。
 - `research_completed` は `projectId`・`intentId`・`researchRequestId`（Request の ID）・`correlationId`・`version`・`conclusion` を持ち、Strategist の起動に必要な項目を揃えています。
 - `outcome_confirmed`（Task 33）は `create_outcome` / `decide_next_outcome` が Outcome を保存する同じ transaction で 1 件だけ保存され、`projectId`・`intentId`・`outcomeId`・`correlationId`（`outcome:<outcomeId>`）・`version` を持ちます（`researchRequestId` は `null`、research 系イベントの `outcomeId` は `null`）。Manager の起動条件で、Compass は Story を自動では作りません（後述の「Execution」）。
 - `outcome_evaluated`（Task 36）は `record_outcome_evaluation` が Evaluation を保存する同じ transaction で、Evaluation ごとに 1 件だけ保存され、`outcomeId`・`evaluationId`・`correlationId`（`outcome:<outcomeId>`）を持ちます。Strategist の起動条件で、Compass は再計画・Intent 完了を自動では決めません。
