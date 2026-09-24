@@ -1,6 +1,6 @@
 # Step 6: Human認証・Project Membership・招待制 設計
 
-> **状態: 設計（確定、Task 39）。実装は未着手。** 永続化はTask 40、Google OIDC・Sessionは Task 41、Web APIへの認可適用はTask 42、UIはTask 43、実HTTP統合検証と運用文書はTask 44で行う。
+> **状態: 設計（確定、Task 39）。永続化（domain・repository・schema・application use case）はTask 40で実装済みだが、Web API・MCP・画面には未接続。** Google OIDC・SessionはTask 41、Web APIへの認可適用はTask 42、UIはTask 43、実HTTP統合検証と運用文書はTask 44で行う。
 > 事前のユーザー確認は設けない。親Storyに定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選び、理由を「選択理由と将来変更できる箇所」に記録する。
 
 ## 根拠資料と優先順位
@@ -126,7 +126,8 @@ Human向けapplication use caseは `HumanActor = { kind: "human"; humanUserId: s
 | accepted_by_human_user_id / accepted_at | |
 | revoked_by_human_user_id / revoked_at | |
 
-- 部分unique `(project_id, email) where status = 'pending'`: 同じ宛先の未使用招待は1件。再発行は取消してから行う（上書きしない）。
+- 部分unique `(project_id, email) where status = 'pending'`: 同じ宛先の未使用招待は1件。期限内の招待がある宛先への再発行は取消してから行う（上書きしない。`409 INVITATION_PENDING`）。
+- 期限切れの `pending` がある宛先への再発行は、同じtransactionで期限切れ招待を `revoked`（取消者は発行者）にしてから新しい招待を保存する。これで一意制約を保ったまま再発行でき、古いtokenは受諾できない（Task 40で実装・テスト済み）。
 - 招待はメール送信しない。発行時に表示されるリンク（`{PUBLIC_ORIGIN}/invite#<token>`）をownerが相手へ渡す。
 
 ## 状態遷移
@@ -134,7 +135,7 @@ Human向けapplication use caseは `HumanActor = { kind: "human"; humanUserId: s
 | 対象 | 遷移 | 規則 |
 | --- | --- | --- |
 | Session | 発行 → 有効 → `revoked`（logout・Human無効化・再ログイン） / 期限切れ（判定のみ） | ログイン成功ごとに新規発行（Session fixation対策）。同じブラウザの旧Session Cookieがあれば `superseded` で失効 |
-| Invitation | `pending` → `accepted` / `revoked` | 受諾は一度だけ（`update ... where status = 'pending' and expires_at > now`）。`accepted` / `revoked` からの遷移なし。期限切れの `pending` は受諾・取消とも不可（取消は不要） |
+| Invitation | `pending` → `accepted` / `revoked` | 受諾は一度だけ（`update ... where status = 'pending' and expires_at > now`）。`accepted` / `revoked` からの遷移なし。期限切れの `pending` は受諾・取消とも不可。同じ宛先への再発行時にだけ `revoked` へ遷移する |
 | Membership | 作成（Project作成・招待受諾・bootstrap補完）→ Role変更 → `revoked` | 最後のownerを失う変更・取消は `409 LAST_OWNER`。取消済みは復帰させず再招待 |
 | HumanUser | `active` → `disabled` | 初期版はUI・APIなし。disabled時は全Session失効・ログイン拒否 |
 

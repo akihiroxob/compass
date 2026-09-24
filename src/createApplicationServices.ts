@@ -2,6 +2,7 @@ import { InstructionService } from "./application/service/InstructionService.ts"
 import { DirectionReferenceLookupService } from "./application/service/DirectionReferenceLookupService.ts";
 import { ExecutionSummaryService } from "./application/service/execution/ExecutionSummaryService.ts";
 import { TaskCoordinationService } from "./application/service/execution/TaskCoordinationService.ts";
+import { HumanProjectAuthorizationService } from "./application/service/HumanProjectAuthorizationService.ts";
 import { ProjectAuthorizationService } from "./application/service/ProjectAuthorizationService.ts";
 import { AbandonIntentUseCase } from "./application/usecase/AbandonIntentUseCase.ts";
 import { AckRuntimeEventUseCase } from "./application/usecase/AckRuntimeEventUseCase.ts";
@@ -28,12 +29,25 @@ import { GetResearcherContextUseCase } from "./application/usecase/GetResearcher
 import { GetStrategistContextUseCase } from "./application/usecase/GetStrategistContextUseCase.ts";
 import { GetProjectUseCase } from "./application/usecase/GetProjectUseCase.ts";
 import { GrantProjectRoleUseCase } from "./application/usecase/GrantProjectRoleUseCase.ts";
+import {
+  RegisterOrLoginHumanUseCase,
+  ResolveHumanSessionUseCase,
+  RevokeHumanSessionUseCase,
+} from "./application/usecase/HumanSessionUseCases.ts";
 import { ListAdrReferencesUseCase } from "./application/usecase/ListAdrReferencesUseCase.ts";
 import { ListDirectionDecisionsUseCase } from "./application/usecase/ListDirectionDecisionsUseCase.ts";
 import { ListIntentsUseCase } from "./application/usecase/ListIntentsUseCase.ts";
 import { ListOutcomesUseCase } from "./application/usecase/ListOutcomesUseCase.ts";
 import { ListProjectGrantsUseCase } from "./application/usecase/ListProjectGrantsUseCase.ts";
 import { ListProjectsUseCase } from "./application/usecase/ListProjectsUseCase.ts";
+import {
+  ChangeProjectMemberRoleUseCase,
+  CreateProjectInvitationUseCase,
+  ListProjectInvitationsUseCase,
+  ListProjectMembersUseCase,
+  RevokeProjectInvitationUseCase,
+  RevokeProjectMemberUseCase,
+} from "./application/usecase/ProjectMembershipUseCases.ts";
 import { ListResearchRequestsUseCase } from "./application/usecase/ListResearchRequestsUseCase.ts";
 import { ListRuntimeEventsUseCase } from "./application/usecase/ListRuntimeEventsUseCase.ts";
 import { RecordAdrReferenceUseCase } from "./application/usecase/RecordAdrReferenceUseCase.ts";
@@ -51,7 +65,9 @@ import { SQLiteIntentRepository } from "./infrastructure/repository/SQLiteIntent
 import { SQLiteOutcomeEvaluationRepository } from "./infrastructure/repository/SQLiteOutcomeEvaluationRepository.ts";
 import { SQLiteOutcomeExecutionRepository } from "./infrastructure/repository/SQLiteOutcomeExecutionRepository.ts";
 import { SQLiteOutcomeRepository } from "./infrastructure/repository/SQLiteOutcomeRepository.ts";
+import { SQLiteHumanAccountRepository } from "./infrastructure/repository/SQLiteHumanAccountRepository.ts";
 import { SQLiteProjectGrantRepository } from "./infrastructure/repository/SQLiteProjectGrantRepository.ts";
+import { SQLiteProjectMembershipRepository } from "./infrastructure/repository/SQLiteProjectMembershipRepository.ts";
 import { SQLiteProjectRepository } from "./infrastructure/repository/SQLiteProjectRepository.ts";
 import { SQLiteResearchRepository } from "./infrastructure/repository/SQLiteResearchRepository.ts";
 import { SQLiteRuntimeEventRepository } from "./infrastructure/repository/SQLiteRuntimeEventRepository.ts";
@@ -64,6 +80,8 @@ export const createApplicationServices = (
   instructionService: InstructionService = new InstructionService(),
   /** Researchの期限判定・Runtime event ackの記録時刻の時刻源。テストで固定できるよう注入する。 */
   clock: () => number = Date.now,
+  /** Human認証の設定。初期owner emailはplatform owner作成前の登録判定にだけ使う（Task 41でenvから渡す）。 */
+  humanAuth: { initialOwnerEmail: string | null } = { initialOwnerEmail: null },
 ) => {
   const projectRepository = new SQLiteProjectRepository(applicationDatabase);
   const intentRepository = new SQLiteIntentRepository(applicationDatabase);
@@ -84,6 +102,10 @@ export const createApplicationServices = (
   const executionSummaryService = new ExecutionSummaryService(applicationDatabase);
   const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(applicationDatabase);
   const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(applicationDatabase);
+  // Human認証・Membership（docs/step-6-human-auth-design.md）。Agent GrantのRepository・認可とは分離する。
+  const humanAccountRepository = new SQLiteHumanAccountRepository(applicationDatabase, clock);
+  const projectMembershipRepository = new SQLiteProjectMembershipRepository(applicationDatabase, clock);
+  const humanProjectAuthorizationService = new HumanProjectAuthorizationService(projectMembershipRepository);
   return {
     instructionService,
     projectAuthorizationService,
@@ -154,6 +176,29 @@ export const createApplicationServices = (
     grantProjectRoleUseCase: new GrantProjectRoleUseCase(projectRepository, projectGrantRepository),
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(projectRepository, projectGrantRepository),
     listProjectGrantsUseCase: new ListProjectGrantsUseCase(projectRepository, projectGrantRepository),
+    humanProjectAuthorizationService,
+    registerOrLoginHumanUseCase: new RegisterOrLoginHumanUseCase(humanAccountRepository, humanAuth.initialOwnerEmail),
+    resolveHumanSessionUseCase: new ResolveHumanSessionUseCase(humanAccountRepository),
+    revokeHumanSessionUseCase: new RevokeHumanSessionUseCase(humanAccountRepository),
+    listProjectMembersUseCase: new ListProjectMembersUseCase(humanProjectAuthorizationService, projectMembershipRepository),
+    changeProjectMemberRoleUseCase: new ChangeProjectMemberRoleUseCase(
+      humanProjectAuthorizationService,
+      projectMembershipRepository,
+    ),
+    revokeProjectMemberUseCase: new RevokeProjectMemberUseCase(humanProjectAuthorizationService, projectMembershipRepository),
+    createProjectInvitationUseCase: new CreateProjectInvitationUseCase(
+      humanProjectAuthorizationService,
+      projectMembershipRepository,
+      clock,
+    ),
+    listProjectInvitationsUseCase: new ListProjectInvitationsUseCase(
+      humanProjectAuthorizationService,
+      projectMembershipRepository,
+    ),
+    revokeProjectInvitationUseCase: new RevokeProjectInvitationUseCase(
+      humanProjectAuthorizationService,
+      projectMembershipRepository,
+    ),
     getResearcherContextUseCase: new GetResearcherContextUseCase(
       projectAuthorizationService,
       projectRepository,
