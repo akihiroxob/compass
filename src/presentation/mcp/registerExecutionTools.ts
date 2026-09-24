@@ -160,12 +160,20 @@ export const registerExecutionTools = (server: McpServer, services: ApplicationS
       title: "Issue Task",
       description:
         "Create a planned Task as a Manager or a technical follow-up discovered by a Worker or Reviewer. " +
-        "Not available in an archived Project.",
+        "taskKey is a logical ID unique within the Story: re-sending the same taskKey with the same content returns the " +
+        "existing Task even with a new requestId, and different content is IDEMPOTENCY_CONFLICT. taskKey is required " +
+        "under a Story with a correlationId (Outcome handoff). Not available in an archived Project.",
       inputSchema: {
         projectId: z.string().min(1),
         storyId: z.string().min(1).optional(),
         title: z.string().min(1),
         description: z.string().optional(),
+        taskKey: z
+          .string()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe("Logical Task ID unique within the Story; deterministic from the plan (e.g. criterion-1-api)"),
         requestId: requestIdSchema,
       },
     },

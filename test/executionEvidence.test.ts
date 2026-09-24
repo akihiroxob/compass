@@ -93,7 +93,7 @@ const issueStory = async (kit: Kit, projectId: string, outcomeId: string, taskCo
   const story = ok(await callTool(kit.app, "issue_story", { projectId, title: `Story ${n}`, outcomeId, requestId: `story-${n}` }, "mgr"));
   const taskIds: string[] = [];
   for (let index = 0; index < taskCount; index += 1) {
-    const task = ok(await callTool(kit.app, "issue_task", { projectId, storyId: story.id, title: `Task ${n}-${index}`, requestId: `task-${n}-${index}` }, "mgr"));
+    const task = ok(await callTool(kit.app, "issue_task", { projectId, storyId: story.id, title: `Task ${n}-${index}`, taskKey: `task-${index}`, requestId: `task-${n}-${index}` }, "mgr"));
     taskIds.push(task.id);
   }
   return { storyId: story.id as string, taskIds };

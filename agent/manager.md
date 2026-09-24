@@ -49,12 +49,16 @@ work Claim と Review Claim は manager の権限ではない。
 4. なければ `issue_story({ projectId, title, description, outcomeId, repositoryId?, requestId })` を呼ぶ。`correlationId` を省略すると `outcome:<outcomeId>` になる
    - Compass が Outcome の Success Criteria・origin Decision・その時点の Constraints を Story に snapshot として保存する。これらを Story の description に書き写さない（ずれの原因になる）
    - `repositoryId` は `get_project` の `repositories[].id`。対象 Repository があるときだけ指定する
-5. Story の目的・完了条件を Task に分解する（`issue_task`）。Task の完了条件は、Success Criteria のどれを満たすためかが分かるように書く
+5. Story の目的・完了条件を Task に分解する（`issue_task({ projectId, storyId, title, description, taskKey, requestId })`）。Task の完了条件は、Success Criteria のどれを満たすためかが分かるように書く
+   - handoff の Story（`correlationId` を持つ）配下では `taskKey` が必須。Story 内で一意な短い論理 ID を、計画から決定的に付ける（例: `criterion-1-api`）。同じ計画をやり直したときに同じ値になるようにし、乱数や時刻を使わない
+   - 再開時（timeout・応答消失・Manager や server の再起動の後）は、先に `list_tasks({ projectId, filter: { storyId } })` で既存 Task の `taskKey` を確認し、無いものだけを `issue_task` する
 6. 最初の Task が worker に Claim されると Story は `doing` になる
 
 ### 再送と失敗
 
 - 同じ handoff の再送（別の `requestId` でも）は、同じ `correlationId` の既存 Story を返す。二重に作られない。内容が違う Story を同じ `correlationId` で作ろうとすると `IDEMPOTENCY_CONFLICT`
+- handoff Story 配下の Task も、同じ `taskKey` の再送（別の `requestId` でも）は既存 Task を返す。title・description が違うと `IDEMPOTENCY_CONFLICT`。`edit_task` で内容を変えた Task を元の内容で再送しても衝突するので、再開時は必ず `list_tasks` で確認してから起票する
+- `taskKey` を付けずに handoff Story 配下へ `issue_task` すると `INVALID_INPUT`
 - `UNAUTHENTICATED`: Bearer が無い。`FORBIDDEN`: この Project の manager Grant が無い。いずれも権限を自己拡張せず、報告して停止する
 - `NOT_FOUND`: Outcome / Repository がこの Project に無い（別 Project の ID を含む）。入力を推測で直さず報告する
 - `CONFLICT`: Outcome が `active` でない（取消済み）、または Project が archived。Story は作られない。Runtime へは再試行しても成功しない失敗として返す

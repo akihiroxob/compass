@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { sql } from "kysely";
 import type { createApp } from "../src/app.ts";
 import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/createApplicationServices.ts";
@@ -135,7 +136,7 @@ test("Outcome確定でRuntimeがoutcome_confirmedを取得でき、Managerがiss
   );
 
   // ManagerがStory配下にTaskを作ると、Change Logから相関ID・Outcomeを辿れる。
-  const task = await callTool(kit.app, "issue_task", { projectId: project.id, storyId: story.id, title: "Guard claims", requestId: "handoff-task-1" }, "mgr");
+  const task = await callTool(kit.app, "issue_task", { projectId: project.id, storyId: story.id, title: "Guard claims", taskKey: "guard-claims", requestId: "handoff-task-1" }, "mgr");
   assert.equal(task.isError, undefined);
   const changes = (await callTool(kit.app, "list_changes", { projectId: project.id }, "rt")).structuredContent.changes as Record<string, any>[];
   assert.deepEqual(changes.map((change) => change.type), ["STORY_CREATED", "TASK_CREATED"]);
@@ -251,7 +252,7 @@ test("archivedのProjectではStory・Taskを起票できず、work Claimも取�
   const kit = await setup();
   const { project, outcome } = await confirmOutcome(kit);
   const story = (await callTool(kit.app, "issue_story", { projectId: project.id, title: "Story", outcomeId: outcome.id, requestId: "s1" }, "mgr")).structuredContent;
-  const task = (await callTool(kit.app, "issue_task", { projectId: project.id, storyId: story.id, title: "Task", requestId: "t1" }, "mgr")).structuredContent;
+  const task = (await callTool(kit.app, "issue_task", { projectId: project.id, storyId: story.id, title: "Task", taskKey: "task", requestId: "t1" }, "mgr")).structuredContent;
 
   await kit.services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
 
@@ -275,7 +276,7 @@ test("Execution層はOutcome・Success Criteriaを変更できず、Direction to
   const before = await kit.services.getOutcomeUseCase.execute(project.id, intent.id, outcome.id);
 
   const story = (await callTool(kit.app, "issue_story", { projectId: project.id, title: "Story", outcomeId: outcome.id, requestId: "s1" }, "mgr")).structuredContent;
-  const task = (await callTool(kit.app, "issue_task", { projectId: project.id, storyId: story.id, title: "Task", requestId: "t1" }, "mgr")).structuredContent;
+  const task = (await callTool(kit.app, "issue_task", { projectId: project.id, storyId: story.id, title: "Task", taskKey: "task", requestId: "t1" }, "mgr")).structuredContent;
   const work = (await callTool(kit.app, "claim_task", { taskId: task.id, requestId: "c1" }, "wrk")).structuredContent;
   await callTool(kit.app, "add_task_comment", { taskId: task.id, claimId: work.claimId, body: "done", requestId: "c2" }, "wrk");
   await callTool(kit.app, "complete_task", { taskId: task.id, claimId: work.claimId, requestId: "c3" }, "wrk");
@@ -334,4 +335,120 @@ test("Outcomeを介さない手動起票のStoryは従来どおり作れ、snaps
   const replay = (await callTool(kit.app, "issue_story", { projectId: project.id, title: "Maintenance", requestId: "m1" }, "mgr")).structuredContent;
   assert.equal(replay.id, manual.id);
   await kit.database.destroy();
+});
+
+const tasksOf = async (app: App, projectId: string, storyId: string) =>
+  (await callTool(app, "list_tasks", { projectId, filter: { storyId } }, "mgr")).structuredContent.tasks as Record<string, any>[];
+
+test("handoff StoryのTaskはtaskKeyで収束し、応答消失後に新しいrequestIdで再送しても同じTaskを返して二重に作らない", async () => {
+  const kit = await setup();
+  const { project, outcome } = await confirmOutcome(kit);
+  const story = (await callTool(kit.app, "issue_story", { projectId: project.id, title: "Story", outcomeId: outcome.id, requestId: "s1" }, "mgr")).structuredContent;
+  const args = { projectId: project.id, storyId: story.id, title: "Guard claims", description: "Add a unique index", taskKey: "criterion-1-guard" };
+
+  const first = (await callTool(kit.app, "issue_task", { ...args, requestId: "t-1" }, "mgr")).structuredContent;
+  assert.equal(first.taskKey, "criterion-1-guard");
+  // 応答が失われた想定で、同じrequestId・新しいrequestIdのどちらで再送しても同じTask。
+  const sameRequest = (await callTool(kit.app, "issue_task", { ...args, requestId: "t-1" }, "mgr")).structuredContent;
+  const newRequest = (await callTool(kit.app, "issue_task", { ...args, requestId: "t-2" }, "mgr")).structuredContent;
+  assert.deepEqual(sameRequest, first);
+  assert.deepEqual(newRequest, first);
+  const listed = await tasksOf(kit.app, project.id, story.id);
+  assert.deepEqual(listed.map((task) => [task.id, task.taskKey]), [[first.id, "criterion-1-guard"]]);
+  const created = (await callTool(kit.app, "list_changes", { projectId: project.id }, "rt")).structuredContent.changes.filter((change: { type: string }) => change.type === "TASK_CREATED");
+  assert.equal(created.length, 1);
+  assert.equal(created[0].payload.taskKey, "criterion-1-guard");
+
+  // 同じtaskKeyに別の内容は衝突し、何も作らない。
+  assert.equal(errorOf(await callTool(kit.app, "issue_task", { ...args, title: "Other", requestId: "t-3" }, "mgr")).code, "IDEMPOTENCY_CONFLICT");
+  assert.equal(errorOf(await callTool(kit.app, "issue_task", { ...args, description: "Other", requestId: "t-4" }, "mgr")).code, "IDEMPOTENCY_CONFLICT");
+  // handoff Story配下ではtaskKeyが必須。
+  const { taskKey: _omitted, ...withoutKey } = args;
+  assert.equal(errorOf(await callTool(kit.app, "issue_task", { ...withoutKey, requestId: "t-5" }, "mgr")).code, "INVALID_INPUT");
+  assert.equal(errorOf(await callTool(kit.app, "issue_task", { ...args, taskKey: "   ", requestId: "t-6" }, "mgr")).code, "INVALID_INPUT");
+
+  // 同時に届いた同じTaskの重複も1件に収束する。別のtaskKeyは別Task。
+  const [left, right] = await Promise.all([
+    callTool(kit.app, "issue_task", { ...args, title: "Audit", description: undefined, taskKey: "criterion-2-audit", requestId: "race-a" }, "mgr"),
+    callTool(kit.app, "issue_task", { ...args, title: "Audit", description: undefined, taskKey: "criterion-2-audit", requestId: "race-b" }, "mgr"),
+  ]);
+  assert.equal(left.isError, undefined, JSON.stringify(left.structuredContent));
+  assert.equal(right.isError, undefined, JSON.stringify(right.structuredContent));
+  assert.equal(left.structuredContent.id, right.structuredContent.id);
+  assert.equal((await tasksOf(kit.app, project.id, story.id)).length, 2);
+  await kit.database.destroy();
+});
+
+test("server再起動後に新しいManagerが別のrequestIdでhandoffをやり直しても、Story・Taskは二重に作られない", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "compass-handoff-task-"));
+  const path = join(directory, "compass.db");
+  try {
+    const first = await setup(path);
+    const { project, outcome } = await confirmOutcome(first);
+    await grant(first.app, project.id, "mgr-2", "manager");
+    const story = (await callTool(first.app, "issue_story", { projectId: project.id, title: "Story", outcomeId: outcome.id, requestId: "run1-story" }, "mgr")).structuredContent;
+    // 1件目のTaskまで作ったところでManager・serverが落ちた想定。
+    const task = (await callTool(first.app, "issue_task", { projectId: project.id, storyId: story.id, title: "Guard claims", taskKey: "guard", requestId: "run1-task-guard" }, "mgr")).structuredContent;
+    await first.database.destroy();
+
+    const second = await setup(path);
+    // 新しいManager（別Principal・新しいrequestId）が計画をはじめからやり直す。
+    const replayStory = (await callTool(second.app, "issue_story", { projectId: project.id, title: "Story", outcomeId: outcome.id, requestId: "run2-story" }, "mgr-2")).structuredContent;
+    assert.equal(replayStory.id, story.id);
+    const existingKeys = (await tasksOf(second.app, project.id, story.id)).map((item) => item.taskKey);
+    assert.deepEqual(existingKeys, ["guard"]);
+    const replayTask = (await callTool(second.app, "issue_task", { projectId: project.id, storyId: story.id, title: "Guard claims", taskKey: "guard", requestId: "run2-task-guard" }, "mgr-2")).structuredContent;
+    assert.equal(replayTask.id, task.id);
+    const audit = (await callTool(second.app, "issue_task", { projectId: project.id, storyId: story.id, title: "Audit", taskKey: "audit", requestId: "run2-task-audit" }, "mgr-2")).structuredContent;
+    assert.deepEqual((await tasksOf(second.app, project.id, story.id)).map((item) => item.id).sort(), [task.id, audit.id].sort());
+    assert.equal((await storiesOf(second.app, project.id)).length, 1);
+    await second.database.destroy();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("手動起票のTaskは従来どおりrequestIdだけで冪等になり、taskKeyは任意でStoryが必要", async () => {
+  const kit = await setup();
+  const { project } = await confirmOutcome(kit);
+  const manual = (await callTool(kit.app, "issue_story", { projectId: project.id, title: "Maintenance", requestId: "m1" }, "mgr")).structuredContent;
+  const args = { projectId: project.id, storyId: manual.id, title: "Chore" };
+  const first = (await callTool(kit.app, "issue_task", { ...args, requestId: "c1" }, "mgr")).structuredContent;
+  assert.equal(first.taskKey, null);
+  assert.equal((await callTool(kit.app, "issue_task", { ...args, requestId: "c1" }, "mgr")).structuredContent.id, first.id);
+  assert.notEqual((await callTool(kit.app, "issue_task", { ...args, requestId: "c2" }, "mgr")).structuredContent.id, first.id);
+  // Worker / Reviewerのfollow-upもtaskKeyなしで作れる（相関IDを持たないStory・Storyなし）。
+  assert.equal((await callTool(kit.app, "issue_task", { projectId: project.id, title: "Follow-up", requestId: "f1" }, "wrk")).isError, undefined);
+  // taskKeyは手動起票でも使え、Storyが必須。
+  const keyed = (await callTool(kit.app, "issue_task", { ...args, taskKey: "k", requestId: "c3" }, "mgr")).structuredContent;
+  assert.equal((await callTool(kit.app, "issue_task", { ...args, taskKey: "k", requestId: "c4" }, "mgr")).structuredContent.id, keyed.id);
+  assert.equal(errorOf(await callTool(kit.app, "issue_task", { projectId: project.id, title: "No story", taskKey: "k", requestId: "c5" }, "mgr")).code, "INVALID_INPUT");
+  await kit.database.destroy();
+});
+
+test("task_key導入前のDBは再初期化で列と一意制約が追加され、既存Taskは論理IDなしのまま残る", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "compass-task-key-"));
+  const path = join(directory, "compass.db");
+  try {
+    const first = await setup(path);
+    const project = await first.services.createProjectUseCase.execute({ name: "Legacy", mission: "m" });
+    await grant(first.app, project.id, "mgr", "manager");
+    const legacy = (await callTool(first.app, "issue_task", { projectId: project.id, title: "Legacy", requestId: "l1" }, "mgr")).structuredContent;
+    // 旧DDLを再現する。
+    await sql`drop index task_story_key_idx`.execute(first.database);
+    await sql`alter table task drop column task_key`.execute(first.database);
+    await first.database.destroy();
+
+    const second = await setup(path);
+    const columns = await sql<{ name: string }>`select name from pragma_table_info('task')`.execute(second.database);
+    assert.ok(columns.rows.some(({ name }) => name === "task_key"));
+    const indexes = await sql<{ name: string }>`select name from pragma_index_list('task')`.execute(second.database);
+    assert.ok(indexes.rows.some(({ name }) => name === "task_story_key_idx"));
+    const tasks = (await callTool(second.app, "list_tasks", { projectId: project.id }, "mgr")).structuredContent.tasks as Record<string, any>[];
+    assert.deepEqual(tasks.map((task) => [task.id, task.taskKey]), [[legacy.id, null]]);
+    await initializeSchema(second.database);
+    await second.database.destroy();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

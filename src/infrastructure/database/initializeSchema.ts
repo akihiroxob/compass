@@ -16,6 +16,16 @@ const addProjectArchiveColumns = async (database: Kysely<Database>): Promise<voi
 };
 
 /**
+ * Task 33差し戻し対応以前のDBの`task`には`task_key`列が無い。列が無い場合だけ追加する（idempotent）。
+ * 既存行はNULL（論理IDなし）のままで、旧Wachaの`requestId`だけの契約として扱う。
+ */
+const addTaskKeyColumn = async (database: Kysely<Database>): Promise<void> => {
+  const columns = await sql<{ name: string }>`select name from pragma_table_info('task')`.execute(database);
+  if (columns.rows.some(({ name }) => name === "task_key")) return;
+  await sql`alter table task add column task_key text`.execute(database);
+};
+
+/**
  * Research集約。すべて`create ... if not exists`なので既存DBへ再適用でき、Project / Intent / Outcomeのtableには触れない。
  * Findingは、SynthesisがIDで参照しProject内で再利用するため独立tableにする。Evidence参照・Synthesisとの関連は
  * 関連tableで表し、参照整合をDBの外部キーで守る。要素単位で検索しない文字列配列（unknowns等）はJSON列に置く。
@@ -749,9 +759,15 @@ const initializeExecutionSchema = async (database: Kysely<Database>): Promise<vo
     .addColumn("sort_order", "integer", (column) => column.notNull().defaultTo(0))
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addColumn("updated_at", "integer", (column) => column.notNull())
+    .addColumn("task_key", "text")
     .execute();
+  await addTaskKeyColumn(database);
   await database.schema.createIndex("task_project_idx").ifNotExists().on("task").column("project_id").execute();
   await database.schema.createIndex("task_story_idx").ifNotExists().on("task").column("story_id").execute();
+  // Outcome handoffのTaskをStory内の論理ID（taskKey）で一意にする。NULLは対象外なので手動起票のTaskは制約を受けない。
+  await sql`create unique index if not exists task_story_key_idx on task(story_id, task_key) where task_key is not null`.execute(
+    database,
+  );
 
   await database.schema
     .createTable("task_comment")

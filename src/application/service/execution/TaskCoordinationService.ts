@@ -3,7 +3,7 @@ import type { Kysely, Selectable, Transaction } from "kysely";
 import { ProjectRole } from "../../../constants/ProjectRole.ts";
 import { StoryStatus } from "../../../domain/model/execution/StoryStatus.ts";
 import { TaskStatus, type TaskStatus as TaskStatusValue } from "../../../domain/model/execution/TaskStatus.ts";
-import type { Database, StoryTable, TaskClaimTable } from "../../../infrastructure/database/schema.ts";
+import type { Database, StoryTable, TaskClaimTable, TaskTable } from "../../../infrastructure/database/schema.ts";
 import { outcomeCorrelationId } from "../../../shared/outcomeCorrelation.ts";
 import { ConflictError } from "../../error/ConflictError.ts";
 import { CoordinationError } from "../../error/CoordinationError.ts";
@@ -77,6 +77,32 @@ const optionalId = (value: string | undefined, field: string): string | null => 
 };
 
 const maxCorrelationIdLength = 200;
+const maxTaskKeyLength = 200;
+
+const issuedTaskDto = (row: Selectable<TaskTable>) => ({
+  id: row.id,
+  projectId: row.project_id,
+  storyId: row.story_id,
+  title: row.title,
+  description: row.description,
+  status: row.status,
+  sortOrder: row.sort_order,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  taskKey: row.task_key,
+});
+
+export type IssueTaskInput = {
+  projectId: string;
+  storyId?: string;
+  title: string;
+  description?: string;
+  /**
+   * Story内で一意なTaskの論理ID。同じkeyの再送は、requestIdが異なっても内容が同じなら既存Taskを返す。
+   * 相関ID付き（Outcome handoff）Storyの配下では必須。手動起票では任意で、旧WachaのrequestId契約を維持する。
+   */
+  taskKey?: string;
+};
 
 export type IssueStoryInput = {
   projectId: string;
@@ -485,6 +511,7 @@ export class TaskCoordinationService {
         createdAt: task.created_at,
         updatedAt: task.updated_at,
         sortOrder: task.sort_order,
+        taskKey: task.task_key,
         activeClaim: unexpiredClaim
           ? {
               claimId: unexpiredClaim.id,
@@ -1167,11 +1194,7 @@ export class TaskCoordinationService {
     );
   }
 
-  async issueTask(
-    principalId: string,
-    input: { projectId: string; storyId?: string; title: string; description?: string },
-    requestId: string,
-  ) {
+  async issueTask(principalId: string, input: IssueTaskInput, requestId: string) {
     return this.database.transaction().execute(async (db) =>
       this.withReceipt(db, principalId, "issue_task", requestId, input, async () => {
         const actorRole = await this.requireOneOfRoles(db, input.projectId, principalId, [
@@ -1181,6 +1204,14 @@ export class TaskCoordinationService {
         ]);
         await this.assertProjectActive(db, input.projectId);
         const title = this.requiredText(input.title, "Task title");
+        const description = input.description?.trim() || null;
+        const taskKey = optionalId(input.taskKey, "taskKey");
+        if (taskKey !== null && taskKey.length > maxTaskKeyLength) {
+          throw new CoordinationError("INVALID_INPUT", `taskKey must be ${maxTaskKeyLength} characters or fewer`);
+        }
+        if (taskKey !== null && !input.storyId) {
+          throw new CoordinationError("INVALID_INPUT", "taskKey requires storyId");
+        }
         let story: { correlation_id: string | null; outcome_ref: string | null } | undefined;
         if (input.storyId) {
           story = await db
@@ -1192,6 +1223,30 @@ export class TaskCoordinationService {
           if (!story) {
             throw new CoordinationError("INVALID_INPUT", "Story was not found in the Project");
           }
+          // Outcome handoffのStory配下は、Manager再起動後の別requestIdでも同じTaskへ収束させるため論理IDを必須にする。
+          if (story.correlation_id !== null && taskKey === null) {
+            throw new CoordinationError(
+              "INVALID_INPUT",
+              "taskKey is required for Tasks of a Story with a correlationId (Outcome handoff)",
+            );
+          }
+        }
+        if (taskKey !== null) {
+          const existing = await db
+            .selectFrom("task")
+            .selectAll()
+            .where("story_id", "=", input.storyId ?? null)
+            .where("task_key", "=", taskKey)
+            .executeTakeFirst();
+          if (existing) {
+            if (existing.title !== title || existing.description !== description) {
+              throw new CoordinationError(
+                "IDEMPOTENCY_CONFLICT",
+                `taskKey ${taskKey} was already used with a different Task in the Story`,
+              );
+            }
+            return issuedTaskDto(existing);
+          }
         }
         const now = this.clock();
         const maxRow = await db
@@ -1201,14 +1256,14 @@ export class TaskCoordinationService {
           .executeTakeFirst();
         const id = crypto.randomUUID();
         const sortOrder = (maxRow?.max_sort_order ?? 0) + 1;
-        await db
+        const row = await db
           .insertInto("task")
           .values({
             id,
             project_id: input.projectId,
             story_id: input.storyId ?? null,
             title,
-            description: input.description?.trim() || null,
+            description,
             status: TaskStatus.TODO,
             assignee: null,
             reject_reason: null,
@@ -1216,8 +1271,10 @@ export class TaskCoordinationService {
             sort_order: sortOrder,
             created_at: now,
             updated_at: now,
+            task_key: taskKey,
           })
-          .execute();
+          .returningAll()
+          .executeTakeFirstOrThrow();
         await this.appendChange(db, {
           projectId: input.projectId,
           type: "TASK_CREATED",
@@ -1227,23 +1284,14 @@ export class TaskCoordinationService {
             actorRole,
             status: TaskStatus.TODO,
             storyId: input.storyId ?? null,
+            ...(taskKey === null ? {} : { taskKey }),
             // Directionから来たStoryの子Taskは、Change Logから相関IDとOutcomeを辿れるようにする。
             ...(story?.correlation_id ? { correlationId: story.correlation_id } : {}),
             ...(story?.outcome_ref ? { outcomeId: story.outcome_ref } : {}),
           },
           occurredAt: now,
         });
-        return {
-          id,
-          projectId: input.projectId,
-          storyId: input.storyId ?? null,
-          title,
-          description: input.description?.trim() || null,
-          status: TaskStatus.TODO,
-          sortOrder,
-          createdAt: now,
-          updatedAt: now,
-        };
+        return issuedTaskDto(row);
       }),
     );
   }

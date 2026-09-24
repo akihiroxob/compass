@@ -105,7 +105,7 @@ const createOutcome = async ({ services }: Kit, projectId: string, intentId: str
 const executeToAccepted = async (kit: Kit, projectId: string, outcomeId: string) => {
   const { app } = kit;
   const story = ok(await callTool(app, "issue_story", { projectId, title: next("Story"), outcomeId, requestId: next("story") }, "mgr"));
-  const task = ok(await callTool(app, "issue_task", { projectId, storyId: story.id, title: next("Task"), requestId: next("task") }, "mgr"));
+  const task = ok(await callTool(app, "issue_task", { projectId, storyId: story.id, title: next("Task"), taskKey: next("key"), requestId: next("task") }, "mgr"));
   const work = ok(await callTool(app, "claim_task", { taskId: task.id, requestId: next("claim") }, "wrk"));
   ok(await callTool(app, "add_task_comment", { taskId: task.id, claimId: work.claimId, body: "done", requestId: next("comment") }, "wrk"));
   ok(await callTool(app, "complete_task", { taskId: task.id, claimId: work.claimId, requestId: next("complete") }, "wrk"));

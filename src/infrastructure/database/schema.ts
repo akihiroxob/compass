@@ -378,6 +378,8 @@ export type TaskTable = {
   sort_order: number;
   created_at: number;
   updated_at: number;
+  /** Story内で一意なTaskの論理ID（Outcome handoffの再送収束用）。手動起票ではNULL。 */
+  task_key: string | null;
 };
 
 export type TaskCommentTable = {
