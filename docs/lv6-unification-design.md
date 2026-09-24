@@ -180,7 +180,7 @@ Executionのコードが読み書きするtableは、Execution自身のtableと�
 ### 実装済み・未接続・未検証
 
 - 実装済み: 上記。検証: 旧Wachaのservice回帰テストの移植（19件）、統一`/mcp`経由（実MCP SDK clientでの実server起動を含む手動確認）、handoffの冪等性・snapshot・失敗分類・並行・再起動、`runtime_event`マイグレーション、境界。
-- 未接続: 外部Runtimeによる`outcome_confirmed`の取得とManagerの起動（テスト内のMCP呼び出しがRuntimeを模す）。Execution → Directionの還流の起動（Task 34で入口は実装済み。起動するRuntimeは未接続）、Evaluation（Task 35・36）、不透明Credential（Task 37。認証は引き続きtrusted-local）。
+- 未接続: 外部Runtimeによる`outcome_confirmed`の取得とManagerの起動（テスト内のMCP呼び出しがRuntimeを模す）。Execution → Directionの還流の起動（Task 34で入口は実装済み。起動するRuntimeは未接続）、Evaluationの起動と遷移（Task 35で保存まで実装。再計画・Intent完了はTask 36）、不透明Credential（Task 37。認証は引き続きtrusted-local）。
 - 対象外・移植せず: 旧WachaのWeb UI（Project Activity・Task drawer等）とその`PageController`、`list_projects` / Skill / Knowledge。HumanがExecutionのStory・Taskを閲覧・操作するWeb UI / APIは未実装（後続で判断する）。
 - 未検証: fixtureやテスト内呼び出しによる確認はLv6の自律運転の実証ではない。
 
@@ -196,7 +196,7 @@ ExecutionのStory / Task / Change Logから、Outcome評価に必要なExecution
 - **保存先はDirection所有の2 table**。`outcome_execution_summary`はOutcomeごとに1行で、`execution_cursor`（要約が反映するExecution側の最新Change cursor）が進むときだけ上書きし、`observed_cursor`にRuntimeが報告した最大のcursorを持つ。`outcome_execution_evidence`は`(outcome, kind, uri, version_hash)`の一意index（`version_hash`無しは空文字として扱う）で重複を防ぎ、`source_change_cursor`・`observed_at`・`principal_id`を持つ。Evidence本文は保存せず、1 Outcomeあたり200件を上限にした（無制限な複製を防ぐ）。`(Outcome, cursor)`単位の還流結果tableは、要約が上書きで収束するため持たない。
 - **入口**: MCP `record_execution_evidence` / `get_outcome_execution_summary`、Web API `POST /api/projects/:projectId/outcomes/:outcomeId/execution-evidence`・`GET .../execution-summary`。書込・MCPの読取は`runtime` Grantが必要（Task 37で置き換える暫定Role）。Web APIのGETはHuman向けの読み取りでGrantを要求しない。
 - **拒否**: 別Project・存在しないOutcomeは`NOT_FOUND`（存在を区別しない）。Storyが無い（未着手）・取消済みOutcome・archived Project・Evidence上限は`CONFLICT`。相対 / 非http / 認証情報付きURI、40桁でないSHA、SHAの無い`commit`、未来（5分を超える）の`observedAt`、Change Logの最新cursorより先の`changeCursor`は`VALIDATION_ERROR`。拒否では何も保存しない。古い`changeCursor`は拒否せず、状態を巻き戻さず現在の状態で回復する（`recorded.staleInput`）。
-- **Success Criterionは判定しない**。`accepted`でもOutcomeを変更せず、Success Criterionの充足とも扱わない。判定は後続のEvaluation（Task 35・36）の責務。
+- **Success Criterionは判定しない**。`accepted`でもOutcomeを変更せず、Success Criterionの充足とも扱わない。判定はEvaluation（Task 35で保存を実装、遷移はTask 36）の責務。
 
 ### 実装済み・未接続・未検証
 
@@ -204,3 +204,23 @@ ExecutionのStory / Task / Change Logから、Outcome評価に必要なExecution
 - 未接続: Change取得から還流を起動する外部Runtime（テスト内の呼び出しがRuntimeを模す）。EvidenceのURI・commit SHAを実GitHub等で実在確認しないこと（形式の検証のみ。Repositoryとの対応検証も行っていない）。Evaluation。不透明Credential（認証はtrusted-localのまま）。
 - 未検証: fixtureやテスト内呼び出しによる確認はLv6の自律運転の実証ではない。
 
+
+## 実装記録（Task 35）
+
+固定Success CriteriaとTask 34のEvidenceを入力に、Outcome Evaluationを保存するdomain・repository・use case・`evaluator` Role・Instruction・MCP tool（`get_evaluator_context` / `record_outcome_evaluation`）を実装した。Task 36（再計画・Intent完了への遷移）と起動するRuntimeは含まない。
+
+### 初期選択と理由
+
+- **総合結果は指定させず、Criterionの判定から導出する**。Evaluatorが総合結果を直接送ると、判定と食い違う保存を許す。導出規則は、すべて`met`のときだけ`achieved`、`not_met`が1つでもあれば`failed`（他のCriterionが`insufficient_evidence`でも、Outcomeは達成できていない）、それ以外は`insufficient_evidence`。Executionの`accepted`は入力に影響せず、`achieved`にはCriterionの観測結果が要る。
+- **根拠のない`met` / `not_met`を保存しない**。`met` / `not_met`は、このOutcomeに還流済みのEvidence参照（`evidenceIds`）を1件以上必要とし、別Outcomeや存在しない参照は`VALIDATION_ERROR`。観測できないものは`insufficient_evidence`（参照なしでよい）。すべてのSuccess Criterionを1回ずつ判定させる（不足・重複・別OutcomeのCriterionは`VALIDATION_ERROR`）。
+- **評価できるのは、activeなOutcomeでExecution Summaryが還流済みのものだけ**。未還流は`CONFLICT`（`reason: no_execution_summary`）にして、Executionが動いていないOutcomeに`insufficient_evidence`を積み、Task 36の再計画を誤って起こさないようにした。Execution Summaryの`state`（`incomplete`等）では評価を止めない。判断はEvaluatorに任せ、snapshotへ残す。
+- **Evaluationは追記のみ**。`outcome_evaluation`（Direction所有）は更新・削除しない。再評価は新しい`requestKey`の追記で、最新が現在の結果。Outcomeの`status`（`evaluating` / `achieved` / `not_achieved`は予約のまま）・Success Criteria・Executionは変更しない。Criterion・snapshotはJSONで保存し、Criterionの定義（description・measurement・target・position）とOutcome・Execution Summary・Evidence参照（`id`・kind・uri・versionHash・observedAt。本文なし）を評価時点で写す。
+- **冪等性は`(project_id, request_key)`の一意indexと内容hash**。hashは判定の並び順・`evidenceIds`の並び順に依存せず、snapshotと導出結果は含めない。再送は状態の検査より先に確認するため、評価後にOutcomeやExecutionが変わっても、応答を失った再送は最初の評価を返す（`recorded: false`）。異なる内容は`CONFLICT`。
+- **職務分離**。`evaluator`はOutcome定義（strategist Grant）・Execution結果の還流（runtime Grant）・Story / Task（manager / worker / reviewer Grant）のtoolを持たず`FORBIDDEN`になる。`update_project` / `create_intent` / `update_intent` / `abandon_intent`も、strategist・researcherに加えevaluatorのGrantを持つPrincipalに拒否する。trusted-localではAgent名を変えれば回避できるため、構造上の保証（該当tool側のRole検査）が本体（Task 37で不透明Credentialへ置き換える）。
+- **Strategist / Researcherの`unavailable`は変えない**。`evaluation`を外すのは、Evaluatorが実際に接続され、Evaluationを含むStrategist ContextをTask 36で提供した後にする。Web UIのGrant発行画面は`evaluator`を追加しない（`runtime`と同じ扱い。Web APIとCLIは対応）。Human向けのEvaluation閲覧用Web API / UIは持たない。
+
+### 実装済み・未接続・未検証
+
+- 実装済み: 上記。`test/outcomeEvaluation.test.ts`が、実MCP経由の保存・導出・根拠の検証・網羅性・冪等性（並び順違い・評価後のExecution進行・ファイルDBの再起動）・拒否（Role・別Project・取消済みGrant・Bearerなし）・状態（未還流・取消済み・archived）・Outcome / Execution / Project / Intentを変更できないこと・`unavailable`の維持を確認する。
+- 未接続: Evaluatorの起動（`outcome_confirmed`のように、Evaluation用のRuntime eventは作っていない）。Evaluationからの再計画・次のOutcome判断・Intent完了（Task 36）。Evidence参照先を実際に取得して観測する処理（Evaluatorの責務で、Compassは参照の形式しか見ない）。不透明Credential（認証はtrusted-localのまま）。
+- 未検証: fixtureやテスト内呼び出しによる確認はLv6の自律運転の実証ではない。

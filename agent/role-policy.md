@@ -13,6 +13,7 @@
 | Execution | `manager` | Outcome を Story / Task に落とし込み、最終受入する |
 | Execution | `worker` | Task を Claim して実装する |
 | Execution | `reviewer` | 完了した Task を実装・検証の観点でレビューする |
+| Direction | `evaluator` | Outcome の固定 Success Criteria を Evidence の観測結果で判定し、Evaluation を保存する（Outcome・Execution の結果は変更しない） |
 | Runtime | `runtime` | Agent ではなく、起動条件（Runtime event）を取得して Agent を起動する外部 Runtime が使う暫定 Role |
 
 Execution（Story / Task / Claim / Comment / Change Log）は旧 Wacha から移植した機能で、同じ `/mcp`・同じ Project・同じ Role Grant の仕組みを使う。Direction と Execution は所有する Entity が別で、Execution は Outcome・Success Criteria を変更せず、Direction は Story・Task・Claim を変更しない。
@@ -79,7 +80,7 @@ Execution の tool は旧 Wacha の契約を維持し、エラーを `{ error: {
 
 ## 実装状況の扱い
 
-- 未実装の入力（Evaluation、Evidence）を存在するものとして扱わない。`get_strategist_context` の `unavailable` に挙がる項目は特にそうである
+- 未実装の入力を存在するものとして扱わない。`get_strategist_context` の `unavailable` に挙がる項目（`evaluation`・`evidence`）は特にそうである。Evaluation の保存は `evaluator` だけが行え、Strategist / Researcher の Context へはまだ含まれない
 - 実装済み・未接続・未検証を区別して報告する。模擬した実行を自律運転の実証として報告しない
 
 ## 変更履歴

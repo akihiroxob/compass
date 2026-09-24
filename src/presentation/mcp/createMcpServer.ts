@@ -182,6 +182,23 @@ const researchSynthesisSchema = {
   supersedesId: z.string().nullable().optional(),
 };
 
+// Outcome Evaluationの入力規則はshared/outcomeEvaluationSchemaが持つ。ここでは型だけを宣言する。
+// 総合結果は入力に持たない（Criterionの判定から導出する）。principalIdも入力に持たない。
+const outcomeEvaluationSchema = {
+  projectId: z.string().min(1),
+  outcomeId: z.string().min(1),
+  requestKey: z.string(),
+  runRef: z.string(),
+  criteria: z.array(
+    z.object({
+      criterionId: z.string(),
+      verdict: z.string(),
+      rationale: z.string(),
+      evidenceIds: z.array(z.string()).optional(),
+    }),
+  ),
+};
+
 /** principalはAuthorizationヘッダーから解決した値だけ。tool入力やsession IDは認証情報として読まない。 */
 export const createMcpServer = (services: ApplicationServices, principal: Principal = null) => {
   const authorization = services.projectAuthorizationService;
@@ -194,10 +211,12 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
   // 来歴のPrincipalはBearerから解決した値だけ。tool入力のprincipalIdは受け付けない。
   const asResearcher = async <T>(projectId: string, operation: (principalId: string) => Promise<T>) =>
     operation(await authorization.requireRole(principal, projectId, ProjectRole.RESEARCHER));
-  // Direction（Project・Intent）の管理操作。StrategistまたはResearcherのGrantを持つPrincipalには拒否する（職務分離）。
+  // Direction（Project・Intent）の管理操作。Strategist・Researcher・EvaluatorのGrantを持つPrincipalには拒否する（職務分離）。
   const unlessDirectionRole = <T>(projectId: string, operation: () => Promise<T>) =>
     authorization.unlessRole(principal, projectId, ProjectRole.STRATEGIST, () =>
-      authorization.unlessRole(principal, projectId, ProjectRole.RESEARCHER, operation),
+      authorization.unlessRole(principal, projectId, ProjectRole.RESEARCHER, () =>
+        authorization.unlessRole(principal, projectId, ProjectRole.EVALUATOR, operation),
+      ),
     );
 
   const server = new McpServer(
@@ -727,6 +746,46 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
           record: await services.getExecutionSummaryUseCase.execute(projectId, outcomeId),
         })),
       ),
+  );
+
+  server.registerTool(
+    "get_evaluator_context",
+    {
+      title: "Get Evaluator Context",
+      description:
+        "Get what an Evaluator needs to evaluate one Outcome: the Project snapshot, the origin Intent, the Outcome with its fixed " +
+        "Success Criteria (id, position, description, measurement, target), execution (the Execution Summary and the Evidence " +
+        "references, each with an id, already reflected by record_execution_evidence; null until the first reflection, and an " +
+        "evaluation cannot be recorded before that) and evaluations (this Outcome's earlier Evaluations, newest first). " +
+        "It never includes Evidence content: observe the referenced sources yourself. unavailable lists inputs that are not " +
+        "available; do not assume or invent them. Requires Authorization: Bearer <AgentName> with an evaluator Grant in the " +
+        "Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: { projectId: z.string().min(1), outcomeId: z.string().min(1) },
+    },
+    ({ projectId, outcomeId }) =>
+      execute(() => services.getEvaluatorContextUseCase.execute(principal, projectId, outcomeId)),
+  );
+  server.registerTool(
+    "record_outcome_evaluation",
+    {
+      title: "Record Outcome Evaluation",
+      description:
+        "Save an Evaluation of an active Outcome: one judgment per fixed Success Criterion (every Criterion exactly once) with " +
+        "verdict met | not_met | insufficient_evidence, a rationale, and evidenceIds (ids from get_evaluator_context's " +
+        "execution.evidence). met and not_met require at least one evidenceId; use insufficient_evidence when the Evidence could not " +
+        "be observed - never guess success or failure. The overall result is derived by Compass, not sent: achieved only when every " +
+        "Criterion is met; failed when any Criterion is not_met; otherwise insufficient_evidence. Execution being accepted does not " +
+        "make an Outcome achieved. The Evaluation is append-only, keeps a snapshot of the Outcome, Execution Summary and Evidence " +
+        "references at evaluation time, and is stored with the Principal from the Bearer and runRef. requestKey makes a resend " +
+        "idempotent (recorded: false, the same Evaluation); the same requestKey with different content fails with CONFLICT. " +
+        "It does not change the Outcome, its Success Criteria or the Execution result, and it does not decide the next Outcome or " +
+        "Intent completion. An Outcome of another Project fails with NOT_FOUND; a non-active Outcome, an Outcome whose Execution has " +
+        "not been reflected yet (reason no_execution_summary) or an archived Project fails with CONFLICT. " +
+        "Requires Authorization: Bearer <AgentName> with an evaluator Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: outcomeEvaluationSchema,
+    },
+    ({ projectId, outcomeId, ...input }) =>
+      execute(() => services.recordOutcomeEvaluationUseCase.execute(principal, projectId, outcomeId, input)),
   );
 
   registerExecutionTools(server, services, principal);

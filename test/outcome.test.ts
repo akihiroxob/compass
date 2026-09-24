@@ -416,6 +416,8 @@ test("Intentを作成してもOutcomeは自動生成されず、Outcomeの状態
     "decideNextOutcomeUseCase",
     "getOutcomeUseCase",
     "listOutcomesUseCase",
+    // Evaluationを追記するだけで、Outcomeの状態・Success Criteriaは変更しない（outcomeEvaluation.test.ts）。
+    "recordOutcomeEvaluationUseCase",
     "updateOutcomeUseCase",
   ]);
   await database.destroy();

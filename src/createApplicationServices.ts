@@ -19,6 +19,7 @@ import { CreateProjectUseCase } from "./application/usecase/CreateProjectUseCase
 import { CreateResearchRequestUseCase } from "./application/usecase/CreateResearchRequestUseCase.ts";
 import { DecideNextOutcomeUseCase } from "./application/usecase/DecideNextOutcomeUseCase.ts";
 import { FetchRuntimeEventsUseCase } from "./application/usecase/FetchRuntimeEventsUseCase.ts";
+import { GetEvaluatorContextUseCase } from "./application/usecase/GetEvaluatorContextUseCase.ts";
 import { GetIntentUseCase } from "./application/usecase/GetIntentUseCase.ts";
 import { GetExecutionSummaryUseCase } from "./application/usecase/GetExecutionSummaryUseCase.ts";
 import { GetOutcomeUseCase } from "./application/usecase/GetOutcomeUseCase.ts";
@@ -37,6 +38,7 @@ import { ListResearchRequestsUseCase } from "./application/usecase/ListResearchR
 import { ListRuntimeEventsUseCase } from "./application/usecase/ListRuntimeEventsUseCase.ts";
 import { RecordAdrReferenceUseCase } from "./application/usecase/RecordAdrReferenceUseCase.ts";
 import { RecordExecutionEvidenceUseCase } from "./application/usecase/RecordExecutionEvidenceUseCase.ts";
+import { RecordOutcomeEvaluationUseCase } from "./application/usecase/RecordOutcomeEvaluationUseCase.ts";
 import { RegisterResearchResultUseCase } from "./application/usecase/RegisterResearchResultUseCase.ts";
 import { RegisterResearchSynthesisUseCase } from "./application/usecase/RegisterResearchSynthesisUseCase.ts";
 import { RevokeProjectRoleUseCase } from "./application/usecase/RevokeProjectRoleUseCase.ts";
@@ -46,6 +48,7 @@ import { UpdateProjectUseCase } from "./application/usecase/UpdateProjectUseCase
 import { SQLiteAdrHandoffRepository } from "./infrastructure/repository/SQLiteAdrHandoffRepository.ts";
 import { SQLiteDirectionDecisionRepository } from "./infrastructure/repository/SQLiteDirectionDecisionRepository.ts";
 import { SQLiteIntentRepository } from "./infrastructure/repository/SQLiteIntentRepository.ts";
+import { SQLiteOutcomeEvaluationRepository } from "./infrastructure/repository/SQLiteOutcomeEvaluationRepository.ts";
 import { SQLiteOutcomeExecutionRepository } from "./infrastructure/repository/SQLiteOutcomeExecutionRepository.ts";
 import { SQLiteOutcomeRepository } from "./infrastructure/repository/SQLiteOutcomeRepository.ts";
 import { SQLiteProjectGrantRepository } from "./infrastructure/repository/SQLiteProjectGrantRepository.ts";
@@ -80,6 +83,7 @@ export const createApplicationServices = (
   // Direction → Executionは読取専用ポート（Execution自身のtableだけを読む）を通す。Direction側の還流先は自身のRepository。
   const executionSummaryService = new ExecutionSummaryService(applicationDatabase);
   const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(applicationDatabase);
+  const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(applicationDatabase);
   return {
     instructionService,
     projectAuthorizationService,
@@ -130,6 +134,22 @@ export const createApplicationServices = (
       projectRepository,
       outcomeRepository,
       outcomeExecutionRepository,
+    ),
+    getEvaluatorContextUseCase: new GetEvaluatorContextUseCase(
+      projectAuthorizationService,
+      projectRepository,
+      intentRepository,
+      outcomeRepository,
+      outcomeExecutionRepository,
+      outcomeEvaluationRepository,
+    ),
+    recordOutcomeEvaluationUseCase: new RecordOutcomeEvaluationUseCase(
+      projectAuthorizationService,
+      projectRepository,
+      outcomeRepository,
+      outcomeExecutionRepository,
+      outcomeEvaluationRepository,
+      clock,
     ),
     grantProjectRoleUseCase: new GrantProjectRoleUseCase(projectRepository, projectGrantRepository),
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(projectRepository, projectGrantRepository),

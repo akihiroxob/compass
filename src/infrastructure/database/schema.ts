@@ -307,6 +307,25 @@ export type OutcomeExecutionEvidenceTable = {
 };
 
 /**
+ * Outcomeの評価（Direction所有）。追記だけで更新しない。`criteria` / `snapshot`はJSON。Execution側のtableへのFKは持たず、
+ * 評価時のExecution Summary・Evidence参照を`snapshot`へ写す。`(project_id, request_key)`で再送を1件に収束させる。
+ */
+export type OutcomeEvaluationTable = {
+  id: string;
+  project_id: string;
+  outcome_id: string;
+  intent_id: string;
+  result: "achieved" | "failed" | "insufficient_evidence";
+  criteria: string;
+  snapshot: string;
+  principal_id: string;
+  run_ref: string;
+  request_key: string;
+  input_hash: string;
+  created_at: number;
+};
+
+/**
  * Execution（旧Wacha）のStory。Direction側のOutcomeは参照（`outcome_ref`）と作成時のsnapshotだけを持ち、
  * outcome / success_criterion / projectのtableを読み書きしない。snapshotはJSON文字列。
  */
@@ -418,6 +437,7 @@ export type Database = {
   runtime_event_delivery: RuntimeEventDeliveryTable;
   outcome_execution_summary: OutcomeExecutionSummaryTable;
   outcome_execution_evidence: OutcomeExecutionEvidenceTable;
+  outcome_evaluation: OutcomeEvaluationTable;
   story: StoryTable;
   task: TaskTable;
   task_comment: TaskCommentTable;

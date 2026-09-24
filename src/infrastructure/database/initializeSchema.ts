@@ -603,6 +603,44 @@ const initializeOutcomeExecutionSchema = async (database: Kysely<Database>): Pro
 };
 
 /**
+ * Outcome Evaluation（Direction所有）。Outcomeごとに追記し、Outcome・Execution側のtableは変更しない。
+ * `(project_id, request_key)`を一意にして、同じrequestKeyの再送・並行送信を1件に収束させる。
+ */
+const initializeOutcomeEvaluationSchema = async (database: Kysely<Database>): Promise<void> => {
+  await database.schema
+    .createTable("outcome_evaluation")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("outcome_id", "text", (column) => column.notNull().references("outcome.id").onDelete("cascade"))
+    .addColumn("intent_id", "text", (column) => column.notNull())
+    .addColumn("result", "text", (column) =>
+      column.notNull().check(sql`result in ('achieved', 'failed', 'insufficient_evidence')`),
+    )
+    .addColumn("criteria", "text", (column) => column.notNull())
+    .addColumn("snapshot", "text", (column) => column.notNull())
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("run_ref", "text", (column) => column.notNull())
+    .addColumn("request_key", "text", (column) => column.notNull())
+    .addColumn("input_hash", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .execute();
+  await database.schema
+    .createIndex("outcome_evaluation_project_key_idx")
+    .ifNotExists()
+    .unique()
+    .on("outcome_evaluation")
+    .columns(["project_id", "request_key"])
+    .execute();
+  await database.schema
+    .createIndex("outcome_evaluation_outcome_idx")
+    .ifNotExists()
+    .on("outcome_evaluation")
+    .columns(["outcome_id", "created_at"])
+    .execute();
+};
+
+/**
  * Execution（旧Wachaから移植したStory / Task / Claim / Comment / Change Log / Command Receipt）。
  * すべて`create ... if not exists`で、Direction側のtableには触れない。Directionへの参照（`story.outcome_ref`等）は
  * 境界をまたぐためFKを付けず、作成時のsnapshotで保持する。`project_id`は統合した既存`project.id`を使う。
@@ -910,6 +948,7 @@ export const initializeSchema = async (database: Kysely<Database>): Promise<void
   await initializeAdrHandoffSchema(database);
   await initializeRuntimeEventSchema(database);
   await initializeOutcomeExecutionSchema(database);
+  await initializeOutcomeEvaluationSchema(database);
   await initializeExecutionSchema(database);
   await backfillInitialResearchRequests(database);
 };
