@@ -8,7 +8,7 @@ export const cliUsage = [
   "  npm run cli -- grant  <projectId> <AgentName> <role>",
   "  npm run cli -- revoke <projectId> <AgentName> <role>",
   "  npm run cli -- grants <projectId>",
-  "roles: strategist, researcher",
+  "roles: strategist, researcher, runtime",
 ].join("\n");
 
 export type CliResult = { stdout: string; stderr: string; exitCode: 0 | 1 | 2 };

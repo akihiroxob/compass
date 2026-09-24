@@ -1,6 +1,7 @@
 import { InstructionService } from "./application/service/InstructionService.ts";
 import { ProjectAuthorizationService } from "./application/service/ProjectAuthorizationService.ts";
 import { AbandonIntentUseCase } from "./application/usecase/AbandonIntentUseCase.ts";
+import { AckRuntimeEventUseCase } from "./application/usecase/AckRuntimeEventUseCase.ts";
 import { ArchiveProjectUseCase } from "./application/usecase/ArchiveProjectUseCase.ts";
 import { CancelOutcomeUseCase } from "./application/usecase/CancelOutcomeUseCase.ts";
 import {
@@ -14,6 +15,7 @@ import { CreateOutcomeUseCase } from "./application/usecase/CreateOutcomeUseCase
 import { CreateProjectUseCase } from "./application/usecase/CreateProjectUseCase.ts";
 import { CreateResearchRequestUseCase } from "./application/usecase/CreateResearchRequestUseCase.ts";
 import { DecideNextOutcomeUseCase } from "./application/usecase/DecideNextOutcomeUseCase.ts";
+import { FetchRuntimeEventsUseCase } from "./application/usecase/FetchRuntimeEventsUseCase.ts";
 import { GetIntentUseCase } from "./application/usecase/GetIntentUseCase.ts";
 import { GetOutcomeUseCase } from "./application/usecase/GetOutcomeUseCase.ts";
 import { GetResearchRequestUseCase } from "./application/usecase/GetResearchRequestUseCase.ts";
@@ -51,7 +53,7 @@ import type { Database } from "./infrastructure/database/schema.ts";
 export const createApplicationServices = (
   applicationDatabase: Kysely<Database>,
   instructionService: InstructionService = new InstructionService(),
-  /** Researchの期限判定の時刻源。テストで固定できるよう注入する。 */
+  /** Researchの期限判定・Runtime event ackの記録時刻の時刻源。テストで固定できるよう注入する。 */
   clock: () => number = Date.now,
 ) => {
   const projectRepository = new SQLiteProjectRepository(applicationDatabase);
@@ -89,6 +91,17 @@ export const createApplicationServices = (
     completeResearchRequestUseCase: new CompleteResearchRequestUseCase(projectRepository, researchRepository),
     cancelResearchRequestUseCase: new CancelResearchRequestUseCase(projectRepository, researchRepository),
     listRuntimeEventsUseCase: new ListRuntimeEventsUseCase(projectRepository, runtimeEventRepository),
+    fetchRuntimeEventsUseCase: new FetchRuntimeEventsUseCase(
+      projectAuthorizationService,
+      projectRepository,
+      runtimeEventRepository,
+    ),
+    ackRuntimeEventUseCase: new AckRuntimeEventUseCase(
+      projectAuthorizationService,
+      projectRepository,
+      runtimeEventRepository,
+      clock,
+    ),
     grantProjectRoleUseCase: new GrantProjectRoleUseCase(projectRepository, projectGrantRepository),
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(projectRepository, projectGrantRepository),
     listProjectGrantsUseCase: new ListProjectGrantsUseCase(projectRepository, projectGrantRepository),

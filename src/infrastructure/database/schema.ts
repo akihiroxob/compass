@@ -261,6 +261,18 @@ export type RuntimeEventTable = {
   created_at: number;
 };
 
+/** consumer（Runtime）ごとのイベント処理結果。行が無いイベントは未処理。`retryable_failure`以外は確定で、再配信しない。 */
+export type RuntimeEventDeliveryTable = {
+  consumer_id: string;
+  event_sequence: number;
+  project_id: string;
+  outcome: "processed" | "retryable_failure" | "terminal_failure";
+  retry_count: number;
+  last_failure_reason: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
 export type Database = {
   project: ProjectTable;
   project_principle: OrderedTextTable;
@@ -285,6 +297,7 @@ export type Database = {
   adr_handoff_request: AdrHandoffRequestTable;
   adr_reference: AdrReferenceTable;
   runtime_event: RuntimeEventTable;
+  runtime_event_delivery: RuntimeEventDeliveryTable;
 };
 
 export type DatabaseMetadata = Generated<number>;

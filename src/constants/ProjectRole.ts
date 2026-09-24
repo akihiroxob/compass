@@ -2,6 +2,8 @@
 export const ProjectRole = {
   STRATEGIST: "strategist",
   RESEARCHER: "researcher",
+  /** 外部Runtimeがイベントを取得・ackするための暫定Role。Task 37でRuntime Credentialのscopeへ置き換える。 */
+  RUNTIME: "runtime",
 } as const;
 
 export type ProjectRole = (typeof ProjectRole)[keyof typeof ProjectRole];

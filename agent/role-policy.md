@@ -4,7 +4,7 @@
 
 この文書は、Compass の MCP における Principal と Project Role の共通運用を定義する。Role ごとの手順は `agent/<role>.md` を正とする。設計の詳細は `docs/step-4-strategist-role-design.md` を参照する。
 
-現在配信している Role は `strategist` と `researcher` である。
+現在配信している Role は `strategist`・`researcher`・`runtime` である。`runtime` は Agent ではなく、Agent の起動条件（Runtime event）を取得して起動する外部 Runtime が使う暫定 Role である。
 
 ## 基本方針
 

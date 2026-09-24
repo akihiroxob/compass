@@ -465,6 +465,32 @@ const initializeRuntimeEventSchema = async (database: Kysely<Database>): Promise
     .on("runtime_event")
     .columns(["project_id", "sequence"])
     .execute();
+
+  // consumerごとの処理結果。イベント本体（追記のみ）とは別tableにし、ackでruntime_eventを更新しない。
+  // 主キーが同じconsumer・同じイベントへの結果を1件に収束させる。Project削除・イベント削除に追随して消える。
+  await database.schema
+    .createTable("runtime_event_delivery")
+    .ifNotExists()
+    .addColumn("consumer_id", "text", (column) => column.notNull())
+    .addColumn("event_sequence", "integer", (column) =>
+      column.notNull().references("runtime_event.sequence").onDelete("cascade"),
+    )
+    .addColumn("project_id", "text", (column) =>
+      column.notNull().references("project.id").onDelete("cascade"),
+    )
+    .addColumn("outcome", "text", (column) =>
+      column.notNull().check(sql`outcome in ('processed', 'retryable_failure', 'terminal_failure')`),
+    )
+    .addColumn("retry_count", "integer", (column) => column.notNull().defaultTo(0).check(sql`retry_count >= 0`))
+    .addColumn("last_failure_reason", "text")
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addColumn("updated_at", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("runtime_event_delivery_pk", ["consumer_id", "event_sequence"])
+    .addCheckConstraint(
+      "runtime_event_delivery_failure_has_reason",
+      sql`outcome = 'processed' or last_failure_reason is not null`,
+    )
+    .execute();
 };
 
 export const initializeSchema = async (database: Kysely<Database>): Promise<void> => {

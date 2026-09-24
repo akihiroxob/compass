@@ -181,6 +181,28 @@ export const createApp = (services: ApplicationServices = applicationServices) =
   app.get("/api/projects/:projectId/adr-references", async (c) =>
     c.json({ references: await services.listAdrReferencesUseCase.execute(c.req.param("projectId")) }),
   );
+  // 外部Runtime向け。consumerはBearerのPrincipalで、runtime Grantを持つProjectのイベントだけを扱う。
+  // 認可・cursor・ackの規則は、MCPと同じapplication層のuse caseが持つ。
+  const queryNumber = (value: string | undefined) =>
+    value === undefined ? undefined : value.trim() === "" ? Number.NaN : Number(value);
+  app.get("/api/projects/:projectId/runtime-events", async (c) =>
+    c.json(
+      await services.fetchRuntimeEventsUseCase.execute(
+        resolvePrincipal(c.req.header("Authorization") ?? null),
+        c.req.param("projectId"),
+        { afterCursor: queryNumber(c.req.query("afterCursor")), limit: queryNumber(c.req.query("limit")) },
+      ),
+    ),
+  );
+  app.post("/api/projects/:projectId/runtime-events/:eventId/ack", async (c) => {
+    const principal = resolvePrincipal(c.req.header("Authorization") ?? null);
+    const input = await readJsonBody(c.req.raw, "Runtime event ack");
+    const result = await services.ackRuntimeEventUseCase.execute(principal, c.req.param("projectId"), {
+      ...(typeof input === "object" && input !== null ? input : {}),
+      eventId: c.req.param("eventId"),
+    });
+    return c.json(result);
+  });
   app.all("/api/*", (c) => c.json({ error: { code: "NOT_FOUND", message: "Not Found" } }, 404));
 
   app.all("/mcp", async (c) => {
@@ -221,6 +243,10 @@ export const createApp = (services: ApplicationServices = applicationServices) =
     }
     if (error instanceof UnauthenticatedError) {
       return c.json({ error: { code: error.code, message: error.message } }, 401);
+    }
+    // Bearerの形式不正は、Principalなしへ降格せず拒否する（MCPと同じ扱い）。
+    if (error instanceof MalformedAuthorizationError) {
+      return c.json({ error: { code: "UNAUTHENTICATED", message: error.message } }, 401);
     }
     if (error instanceof ForbiddenError) {
       return c.json({ error: { code: error.code, message: error.message, ...error.details } }, 403);

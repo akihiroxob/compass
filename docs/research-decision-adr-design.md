@@ -10,7 +10,7 @@
 | --- | --- |
 | Research Request / Result / Finding / Evidence参照 / Synthesisのdomain・SQLite永続化・application層 | 実装済み（Task 23）。入口（Web API / MCP / Web UI）へは未接続 |
 | Researcher Role・Instruction・MCP Context / Command | 実装済み（Task 24）。Human向けGrant画面はTask 29で実装済み。Runtimeによる起動は未接続 |
-| Active Intent作成時のInitial Request・Runtimeイベント | 実装済み（Task 25）。Intent作成・`complete`と同一transactionで`runtime_event`へ追記し、application層の`listRuntimeEventsUseCase`で取得できる。Runtimeへの配送・Web API / MCPの取得入口・Runtimeによる起動は未接続 |
+| Active Intent作成時のInitial Request・Runtimeイベント | 実装済み（Task 25）。Intent作成・`complete`と同一transactionで`runtime_event`へ追記し、application層の`listRuntimeEventsUseCase`で取得できる。Web API / MCPの取得・ack入口はTask 31で実装済み（「実装記録: Runtime eventのcursor・ack公開（Task 31）」）。Runtimeによる起動は未接続 |
 | Intent Brief・Strategist Contextへの接続 | 実装済み（Task 26）。`get_strategist_context`の`research`にIntent Brief、新規MCP tool `get_research_request`にSynthesis→Finding→Evidence参照のID指定Queryを実装 |
 | Direction Decision・Outcomeの根拠参照 | 実装済み（Task 27）。MCP tool `create_direction_decision`（next_outcome以外の5種）と`decide_next_outcome`（next_outcomeとOutcomeを同一transactionで保存）を実装。ADR連携（Repository参照・Wacha引き渡し契約）はTask 28、Human向けResearch / Decision画面はTask 29で実装済み |
 | ADR Candidate・Repository参照・Wacha引き渡し契約 | 実装済み（Task 28）。MCP tool `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`を実装。実Wachaとは未接続で、fixture契約の検証まで |
@@ -281,7 +281,7 @@ Active Intent作成を契機とするInitial Requestと、Runtimeが起動条件
 - `research_requested`: Requestが作成されたとき。RuntimeがResearcherを起動する条件。Initial Requestに限らず、`createRequest`（Strategistの追加Research等）でも、Request保存と同じ経路（`insertResearchRequest`）で必ず保存する。Requestがあってイベントが無い状態を作らないため。
 - `research_completed`: Requestが`completed` / `insufficient` / `not_needed`で確定したとき（`conclusion`に確定結果）。Runtimeが次にStrategistを起動する条件。`not_needed`と`insufficient`も、次の判断へ進める確定結果として区別せず同じ種類で表す。
 - `research_completed`を作らないもの: `cancelled`（Strategistを起動する結果ではない）、`project_watch`のRequest（発端Intentが無く、Strategistの判断対象がない）、発端IntentがactiveでなくなったRequest、確定に失敗した操作（`completed`のResult・Synthesis不足、終了済みRequestへの再送）、archivedのProject。
-- 取得は`ListRuntimeEventsUseCase`（`projectId`、`afterCursor`、`limit`）で、cursor昇順・Project単位。Runtimeがcursorを保持して差分を取得する（Wachaの`list_changes`と同じ考え方）。Compassは購読状態・配送保証を持たない。**Web API・MCPの取得入口は未実装**で、Runtime接続時に共通のuse caseへ委譲して追加する。
+- 取得は`ListRuntimeEventsUseCase`（`projectId`、`afterCursor`、`limit`）で、cursor昇順・Project単位。Runtimeがcursorを保持して差分を取得する（Wachaの`list_changes`と同じ考え方）。Web API・MCPの取得入口は、consumer単位のcursor・ack付きでTask 31に実装した（下記「実装記録: Runtime eventのcursor・ack公開（Task 31）」）。`ListRuntimeEventsUseCase`はconsumerを持たない全件の読取として残す。
 
 ### 既存Intentのbackfill方針
 
@@ -383,7 +383,7 @@ Compassを正本とするDirection Decisionと、Strategistの判断を記録す
 
 1. Research Request / ResultとProject・Intentの関連、状態遷移、冪等性を実装する（domain・永続化・application層はTask 23で実装済み。入口は未接続）
 2. Researcher Role、Instruction、Grant、Context、Result登録を実装する（Task 24で実装済み。Human向けGrant画面はTask 29で実装済み）
-3. Active Intent作成時のInitial RequestとRuntime向け確定イベントを実装する（Task 25で実装済み。Runtimeへの配送・取得入口は未接続）
+3. Active Intent作成時のInitial RequestとRuntime向け確定イベントを実装する（Task 25で実装済み。取得・ack入口はTask 31で実装済み。Runtimeによる起動は未接続）
 4. Finding / Synthesisのversion・来歴とIntent Briefを実装し、Strategist Contextへ接続する（Task 26で実装済み）
 5. Direction DecisionとOutcomeの根拠参照を実装する（Task 27で実装済み）
 6. ADR CandidateとRepository ADR参照、WachaへのTask引き渡し契約を実装する（Task 28で実装済み）
@@ -462,3 +462,15 @@ Task本文にある「証拠不足・予算停止・通信結果不明」は、C
 - `additional_research`型のDirection Decisionから実際に新しいResearch Requestを作る入口（`CreateResearchRequestUseCase`
   をMCP/Web APIへ公開すること）は本Taskの対象外のまま（Task 23時点から未接続）。判断の記録（`create_direction_decision`）
   だけがTask 27で実装済み。
+
+## 実装記録: Runtime eventのcursor・ack公開（Task 31）
+
+`runtime_event`を外部Runtimeが取得し、処理結果を記録できる入口を、Web APIとMCPに同じapplication層（`FetchRuntimeEventsUseCase`・`AckRuntimeEventUseCase`）への委譲として実装した。Agentの起動・polling間隔・backoff・retry上限はCompassに置かない（Runtimeの責務）。
+
+- **consumer**: BearerのPrincipal。入力では受け取らない。consumerごとにackが独立し、複数consumerが同じイベントをそれぞれ処理できる。
+- **認可（初期選択）**: 暫定の`runtime` Role Grant（`ProjectRole.RUNTIME`）をProject単位で検査する。既存のGrant発行・取消・即時反映・別Project分離をそのまま使えるため。Task 37でRuntime Credentialの`runtime:event:read` / `ack` scopeへ置き換える。`get_role_instructions`のenumに入るため`agent/runtime.md`を追加した。Human向けのWeb UI発行画面はTask 37のCredential管理に含め、Project詳細のGrant画面には追加していない。
+- **取得**: `fetch_runtime_events` / `GET /api/projects/:projectId/runtime-events?afterCursor&limit`。読取専用で、ackが無いイベントと`retryable_failure`のイベントをcursor昇順で返し、`nextCursor`を添える。取得しても状態を変えないため、応答が失われても同じイベントを再取得でき、欠落しない。配送はat-least-onceで、重複起動の防止はイベント`id`とackの確定状態で行う。visibility timeout（lease）は持たない。同じconsumerを複数プロセスで共有して並列に取得する構成は対象外（初期選択。必要になればleaseを追加する）。
+- **ack**: `ack_runtime_event` / `POST /api/projects/:projectId/runtime-events/:eventId/ack`（`outcome`: `processed` / `retryable_failure` / `terminal_failure`）。失敗は`reason`必須、`processed`は`reason`を受け付けない。`processed` / `terminal_failure`は確定で、以後そのconsumerへ返さず、同じ結果の再送は冪等（`recorded: false`）、異なる結果は`CONFLICT`。`retryable_failure`は返り続け、`retryCount`と`lastFailureReason`を付ける（回数の上限は設けず、Runtimeが決めて`terminal_failure`にする）。別Projectのイベントは`NOT_FOUND`。archivedのProjectでもackは記録できる（Runtimeの取りこぼしを残さないため。Directionの状態は変えない）。
+- **永続化**: 新規table `runtime_event_delivery`（主キー`(consumer_id, event_sequence)`、`outcome`、`retry_count`、`last_failure_reason`、`created_at`、`updated_at`）。`runtime_event`は追記のみのまま変更しない。schema初期化は`create table if not exists`で既存DBへ再適用でき、既存tableには触れない。再起動後もackと未処理の状態が残る。
+- **Strategist起動に必要な項目**: `research_completed`は`projectId`・`intentId`・`researchRequestId`・`correlationId`・`version`・`conclusion`を持つ（既存項目。`researchRequestId`がRequest IDである）。
+- **未接続・未検証**: 実Runtimeによる取得・Agent起動は未接続。検証は`test/runtimeEvents.test.ts`のWeb API / MCP in-process呼び出しと、ファイルDBでのserver再起動再現で、Lv6の実証ではない。`outcome_confirmed`イベントとremote向け認証（Task 37）は未実装。

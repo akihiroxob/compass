@@ -458,9 +458,9 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
-      "abandon_intent", "cancel_outcome", "complete_research_request", "create_adr_handoff_request",
+      "abandon_intent", "ack_runtime_event", "cancel_outcome", "complete_research_request", "create_adr_handoff_request",
       "create_direction_decision", "create_intent",
-      "create_outcome", "create_project", "decide_next_outcome",
+      "create_outcome", "create_project", "decide_next_outcome", "fetch_runtime_events",
       "get_intent", "get_outcome", "get_project", "get_research_request", "get_researcher_context", "get_role_instructions",
       "get_strategist_context", "list_adr_references", "list_intents", "list_outcomes", "list_projects",
       "list_research_requests", "record_adr_reference",
@@ -484,7 +484,7 @@ test("AC-17 CLIにarchive・deleteのコマンドは無く、cliUsageは変わ�
       "  npm run cli -- grant  <projectId> <AgentName> <role>",
       "  npm run cli -- revoke <projectId> <AgentName> <role>",
       "  npm run cli -- grants <projectId>",
-      "roles: strategist, researcher",
+      "roles: strategist, researcher, runtime",
     ].join("\n"),
   );
   const { project } = await seed(services);

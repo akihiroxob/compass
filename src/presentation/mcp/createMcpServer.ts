@@ -658,5 +658,48 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
       ),
   );
 
+  server.registerTool(
+    "fetch_runtime_events",
+    {
+      title: "Fetch Runtime Events",
+      description:
+        "For an external Runtime: fetch the Project's Runtime events that are still unprocessed for the calling consumer, " +
+        "oldest first (research_requested starts a Researcher; research_completed starts a Strategist). The consumer is the " +
+        "Bearer Principal. Fetching does not change any state, so a lost response is recovered by fetching again; delivery is " +
+        "at-least-once, so deduplicate by event id and acknowledge with ack_runtime_event. Pass nextCursor back as afterCursor " +
+        "to continue after the events already dispatched (events that are still unacknowledged are returned again from an " +
+        "earlier afterCursor, e.g. 0 after a Runtime restart). Events in retryable_failure keep being returned with retryCount " +
+        "and lastFailureReason; polling interval, backoff and Agent launching are the Runtime's responsibility. " +
+        "Requires Authorization: Bearer <RuntimeName> with a runtime Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: {
+        projectId: z.string().min(1),
+        afterCursor: z.number().optional(),
+        limit: z.number().optional(),
+      },
+    },
+    ({ projectId, ...query }) => execute(() => services.fetchRuntimeEventsUseCase.execute(principal, projectId, query)),
+  );
+  server.registerTool(
+    "ack_runtime_event",
+    {
+      title: "Acknowledge Runtime Event",
+      description:
+        "For an external Runtime: record the result of handling one Runtime event for the calling consumer. " +
+        "outcome processed: handled; the event is not returned to this consumer again. " +
+        "retryable_failure (reason required): not handled this time; the event keeps being returned by fetch_runtime_events. " +
+        "terminal_failure (reason required): cannot succeed; the event is not returned again and the reason is kept. " +
+        "Resending the same outcome after a lost response is idempotent (recorded: false); a different outcome for an event already " +
+        "processed or terminally failed fails with CONFLICT. An event of another Project fails with NOT_FOUND. " +
+        "Requires Authorization: Bearer <RuntimeName> with a runtime Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: {
+        projectId: z.string().min(1),
+        eventId: z.string().min(1),
+        outcome: z.string(),
+        reason: z.string().optional(),
+      },
+    },
+    ({ projectId, ...input }) => execute(() => services.ackRuntimeEventUseCase.execute(principal, projectId, input)),
+  );
+
   return server;
 };

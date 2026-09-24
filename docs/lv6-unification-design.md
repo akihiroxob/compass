@@ -116,7 +116,7 @@ application port（インターフェースはapplication層に置き、実装�
 
 ## Runtime event契約（Task 31・32の前提）
 
-既存`runtime_event`テーブル（Direction、Task 25で導入済み。cursor/ack契約はTask 31が実装、現時点で入口未接続）と、新規`change_log`テーブル（Execution、Wachaの`list_changes`と同じcursor方式）の2系統を維持する。
+既存`runtime_event`テーブル（Direction、Task 25で導入済み。cursor/ack契約と取得入口はTask 31で実装済み）と、新規`change_log`テーブル（Execution、Wachaの`list_changes`と同じcursor方式）の2系統を維持する。
 
 | イベント種別 | 保存先 | 発火条件 | Runtimeの反応 |
 | --- | --- | --- | --- |
@@ -125,8 +125,8 @@ application port（インターフェースはapplication層に置き、実装�
 | `outcome_confirmed`（新規, Task 31/32で実装） | `runtime_event` | `create_outcome`/`decide_next_outcome`成功と同一transaction | Manager起動（`issue_story`等でStory/Task作成） |
 | Story/Task状態変化一式（`TASK_CLAIMED`等、Wachaの既存Change種別） | `change_log`（Execution） | 各Execution操作と同一transaction | Manager/Worker/Reviewer起動の判断材料、Task 34のEvidence還流のトリガー |
 
-- 取得はいずれも`cursor`昇順、Project scope、`afterCursor`＋`limit`のページング。Ack/配送保証はCompassが持たず、Runtimeがcursorを保持して差分取得する（既存の`list_changes`・Task 25設計と同じ考え方）。
-- Web API/MCPの取得入口は`runtime_event`側は未実装（Task 31が実装）、`change_log`側はWachaの`list_changes`をそのまま移植すれば入口ごと揃う（Task 33）。
+- 取得はいずれも`cursor`昇順、Project scope、`afterCursor`＋`limit`のページング。`change_log`はAck/配送保証を持たず、Runtimeがcursorを保持して差分取得する（既存の`list_changes`・Task 25設計と同じ考え方）。`runtime_event`だけは、Task 31の要件に従いconsumer単位のackをCompassが記録する（`runtime_event_delivery`。実装記録は`docs/research-decision-adr-design.md`の「Runtime eventのcursor・ack公開（Task 31）」）。Runtimeのプロセス生存・polling・retry間隔は引き続き管理しない。
+- Web API/MCPの取得入口は`runtime_event`側がTask 31で実装済み（`fetch_runtime_events` / `ack_runtime_event`、`GET /api/projects/:projectId/runtime-events`・`POST .../:eventId/ack`）。`change_log`側はWachaの`list_changes`をそのまま移植すれば入口ごと揃う（Task 33）。
 - 認証はTask 37の不透明Credential（Runtime用scope）が前提。Task 30時点・Task 31実装時点では、既存のtrusted-local Bearer方式を暫定的に使い、remote配置時の認証はTask 37で置き換える（既存のtrusted-local注記をREADME/設計文書に明記する）。
 
 ## 冪等性・相関ID・再起動時の回復規則
@@ -138,7 +138,7 @@ application port（インターフェースはapplication層に置き、実装�
 
 ## Task 31〜38への反映
 
-- **Task 31**: `runtime_event`のcursor/ack付きWeb API/MCP入口を実装する。本Taskの契約（cursor昇順、Project scope、認証は暫定trusted-local）に従う。`outcome_confirmed`はまだ存在しない前提でよい（Task 32が追加）。
+- **Task 31（実装済み）**: `runtime_event`のcursor/ack付きWeb API/MCP入口を実装した。認可は暫定の`runtime` Role Grant（Task 37でRuntime Credential scopeへ置き換え）。本Taskの契約（cursor昇順、Project scope、認証は暫定trusted-local）に従う。`outcome_confirmed`はまだ存在しない前提でよい（Task 32が追加）。
 - **Task 32**: `additional_research` Direction Decisionから追加Research Requestを作る確定経路。本Taskの変更は無し（既存のResearch集約の冪等性パターンをそのまま踏襲）。
 - **Task 33**: 本Taskの「モジュール構成」「DB schema」「MCP tool統合方針」「Role/Instruction配置」に従い、旧Wacha Execution一式を移植する。あわせて`outcome_confirmed`イベントを`CreateOutcomeUseCase`/`DecideNextOutcomeUseCase`に追加し、`DirectionReferenceLookupPort`を実装し、`issue_story`の`outcomeId`拡張を実装する。`agent/role-policy.md`のマージ、README等のドキュメント更新もここで行う。
 - **Task 34**: 本Taskの「Direction/Executionの所有Entityとapplication port」「冪等性」節にある`ExecutionEvidencePort`の詳細（テーブル形状、`change_log`増分取込みの単位）をTask内で確定する。
