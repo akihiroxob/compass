@@ -143,7 +143,7 @@ Execution以外で本Storyに必要なHuman向けUI:
 2. **U2 閲覧**: Execution section（Story / Task一覧・最近の変更）、Task詳細（Comment・Change履歴）、Outcome詳細のExecution Summary / Evidence / Evaluation表示。Web APIはGETのみで、既存のExecution service・Direction use caseへ委譲する。
 3. **U3 Human介入**: Task詳細での受入・差戻し・取消・Comment。
 4. **U4 手動起票**: Story / Taskの作成・編集・並べ替え・取消。
-5. **U5 認可の適用**: Human認証Story（Task 39〜43）の完了後、U2〜U4のWeb APIへProject Membershipの権限表を適用する。それまでは既存Web APIと同じtrusted-local（匿名）で動く。
+5. **U5 認可の適用**: Human認証Story（Task 39〜43）の完了後、U2〜U4のWeb APIへProject Membershipの権限表（[step-6-human-auth-design.md](step-6-human-auth-design.md)「権限表」。閲覧はviewer、介入・手動起票はeditor）を適用する。それまでは既存Web APIと同じtrusted-local（匿名）で動く。
 6. **U6 Credential管理**: Task 37でruntime Grant sectionをCredential管理UIへ置き換える。
 
 U2〜U4は現在のどのTaskの完了条件にも含まれていないため、Task 38（閉ループ検証）より前に実施するTaskの追加をManagerへ提案する（Task 30の作業コメントに記載）。
