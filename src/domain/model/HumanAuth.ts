@@ -154,6 +154,8 @@ export type RegistrationFacts = {
         email: string;
         /** 招待先Projectに、そのHumanが既に有効なMembershipを持つ。新規Humanではfalse。 */
         alreadyMember: boolean;
+        /** 招待先Projectがarchived（参照専用）。受諾してMembershipを追加しない。 */
+        projectArchived: boolean;
       };
   now: number;
 };
@@ -174,7 +176,7 @@ const invitationEmailMatches = (invitationEmail: string, identity: VerifiedIdent
 
 /**
  * closed registrationの判定表（#0〜#4）。いずれの拒否でもHuman・Identity・Membership・Sessionを作らない。
- * 拒否理由は`not_allowed`（未許可・email未検証・email不一致・無効/使用済み/取消済み招待）と
+ * 拒否理由は`not_allowed`（未許可・email未検証・email不一致・無効/使用済み/取消済み/archived Projectの招待）と
  * `invitation_expired`（期限切れ招待）だけに区別し、Project名やHumanの有無を漏らさない。
  */
 export const decideRegistration = (facts: RegistrationFacts): RegistrationDecision => {
@@ -185,7 +187,12 @@ export const decideRegistration = (facts: RegistrationFacts): RegistrationDecisi
     if (facts.existingHuman.status !== "active") return { kind: "reject", reason: "not_allowed" };
     const humanUserId = facts.existingHuman.id;
     if (invitation === null) return { kind: "login", humanUserId, invitation: "none" };
-    if (!invitation.found || invitation.status !== "pending" || !invitationEmailMatches(invitation.email, identity)) {
+    if (
+      !invitation.found ||
+      invitation.status !== "pending" ||
+      invitation.projectArchived ||
+      !invitationEmailMatches(invitation.email, identity)
+    ) {
       return { kind: "login", humanUserId, invitation: "invalid" };
     }
     if (now >= invitation.expiresAt) return { kind: "login", humanUserId, invitation: "expired" };
@@ -201,7 +208,12 @@ export const decideRegistration = (facts: RegistrationFacts): RegistrationDecisi
     return { kind: "bootstrap" };
   }
 
-  if (invitation?.found && invitation.status === "pending" && invitationEmailMatches(invitation.email, identity)) {
+  if (
+    invitation?.found &&
+    invitation.status === "pending" &&
+    !invitation.projectArchived &&
+    invitationEmailMatches(invitation.email, identity)
+  ) {
     if (now >= invitation.expiresAt) return { kind: "reject", reason: "invitation_expired" };
     return { kind: "register_invited" };
   }

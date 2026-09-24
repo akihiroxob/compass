@@ -10,6 +10,7 @@ import type {
   RevokeMemberResult,
 } from "../../domain/repository/ProjectMembershipRepository.ts";
 import type { Database } from "../database/schema.ts";
+import { isProjectArchived } from "./isProjectArchived.ts";
 import { countActiveOwners, toProjectInvitation, toProjectMembership } from "./humanAuthRecord.ts";
 
 const isUniqueViolation = (error: unknown) =>
@@ -63,6 +64,7 @@ export class SQLiteProjectMembershipRepository implements ProjectMembershipRepos
 
   async changeRole(projectId: string, membershipId: string, role: HumanRole): Promise<ChangeMemberRoleResult> {
     return this.database.transaction().execute(async (transaction): Promise<ChangeMemberRoleResult> => {
+      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
       const existing = await transaction
         .selectFrom("project_membership")
         .selectAll()
@@ -87,6 +89,7 @@ export class SQLiteProjectMembershipRepository implements ProjectMembershipRepos
 
   async revoke(projectId: string, membershipId: string, revokedByHumanUserId: string): Promise<RevokeMemberResult> {
     return this.database.transaction().execute(async (transaction): Promise<RevokeMemberResult> => {
+      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
       const existing = await transaction
         .selectFrom("project_membership")
         .selectAll()
@@ -113,6 +116,7 @@ export class SQLiteProjectMembershipRepository implements ProjectMembershipRepos
   async createInvitation(command: CreateInvitationCommand): Promise<CreateInvitationResult> {
     try {
       return await this.database.transaction().execute(async (transaction): Promise<CreateInvitationResult> => {
+        if (await isProjectArchived(transaction, command.projectId)) return { kind: "project_archived" };
         const now = this.clock();
         // 期限切れのpendingは受諾・取消できないが、同じ宛先の再発行を塞がないよう、再発行と同時に取消扱いにする。
         await transaction
@@ -168,6 +172,7 @@ export class SQLiteProjectMembershipRepository implements ProjectMembershipRepos
     revokedByHumanUserId: string,
   ): Promise<RevokeInvitationResult> {
     return this.database.transaction().execute(async (transaction): Promise<RevokeInvitationResult> => {
+      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
       const now = this.clock();
       const existing = await transaction
         .selectFrom("project_invitation")

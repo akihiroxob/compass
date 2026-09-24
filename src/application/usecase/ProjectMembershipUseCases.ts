@@ -4,6 +4,7 @@ import { parseChangeMemberRoleInput, parseCreateInvitationInput } from "../../sh
 import { ConflictError } from "../error/ConflictError.ts";
 import { LastOwnerError } from "../error/LastOwnerError.ts";
 import { NotFoundError } from "../error/NotFoundError.ts";
+import { ProjectArchivedError } from "../error/ProjectArchivedError.ts";
 import type { HumanProjectAuthorizationService } from "../service/HumanProjectAuthorizationService.ts";
 import { generateSecretToken, hashSecretToken } from "../service/secretToken.ts";
 
@@ -34,6 +35,7 @@ export class ChangeProjectMemberRoleUseCase {
     await this.authorization.requireProjectRole(actor, projectId, "owner");
     const { role } = parseChangeMemberRoleInput(input);
     const result = await this.membershipRepository.changeRole(projectId, membershipId, role);
+    if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
     if (result.kind === "not_found") throw new NotFoundError(`Membership ${membershipId} was not found`);
     if (result.kind === "last_owner") throw new LastOwnerError(projectId);
     return result.membership;
@@ -50,6 +52,7 @@ export class RevokeProjectMemberUseCase {
   async execute(actor: HumanActor, projectId: string, membershipId: string): Promise<ProjectMembership> {
     await this.authorization.requireProjectRole(actor, projectId, "owner");
     const result = await this.membershipRepository.revoke(projectId, membershipId, actor.humanUserId);
+    if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
     if (result.kind === "not_found") throw new NotFoundError(`Membership ${membershipId} was not found`);
     if (result.kind === "last_owner") throw new LastOwnerError(projectId);
     return result.membership;
@@ -80,6 +83,7 @@ export class CreateProjectInvitationUseCase {
       expiresAt: this.clock() + expiresInHours * 60 * 60 * 1000,
       createdByHumanUserId: actor.humanUserId,
     });
+    if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
     if (result.kind === "pending_exists") {
       throw new ConflictError("A pending invitation for this email already exists", { conflict: "INVITATION_PENDING" });
     }
@@ -110,6 +114,7 @@ export class RevokeProjectInvitationUseCase {
   async execute(actor: HumanActor, projectId: string, invitationId: string): Promise<ProjectInvitation> {
     await this.authorization.requireProjectRole(actor, projectId, "owner");
     const result = await this.membershipRepository.revokeInvitation(projectId, invitationId, actor.humanUserId);
+    if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
     if (result.kind === "not_found") throw new NotFoundError(`Invitation ${invitationId} was not found`);
     if (result.kind === "not_pending") {
       throw new ConflictError("Only a pending, unexpired invitation can be revoked", { conflict: "INVITATION_NOT_PENDING" });

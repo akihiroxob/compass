@@ -4,9 +4,15 @@ export type MemberView = { membership: ProjectMembership; human: Pick<HumanUser,
 
 /** 最後のownerを失う変更。 */
 export type LastOwnerResult = { kind: "last_owner" };
+/** archivedのProjectは参照専用。Membership・招待の書込を同一transactionで拒否する。 */
+export type ProjectArchivedResult = { kind: "project_archived" };
 
-export type ChangeMemberRoleResult = { kind: "changed"; membership: ProjectMembership } | { kind: "not_found" } | LastOwnerResult;
-export type RevokeMemberResult = { kind: "revoked"; membership: ProjectMembership } | { kind: "not_found" } | LastOwnerResult;
+export type ChangeMemberRoleResult = { kind: "changed"; membership: ProjectMembership } | { kind: "not_found" } | LastOwnerResult | ProjectArchivedResult;
+export type RevokeMemberResult =
+  | { kind: "revoked"; membership: ProjectMembership }
+  | { kind: "not_found" }
+  | LastOwnerResult
+  | ProjectArchivedResult;
 
 export type CreateInvitationCommand = {
   projectId: string;
@@ -20,13 +26,15 @@ export type CreateInvitationCommand = {
 export type CreateInvitationResult =
   | { kind: "created"; invitation: ProjectInvitation }
   /** 同じProject・emailの期限内の未使用（pending）招待が既にある（取消してから再発行する）。期限切れのpendingは再発行と同時に取消扱いにする。 */
-  | { kind: "pending_exists" };
+  | { kind: "pending_exists" }
+  | ProjectArchivedResult;
 
 export type RevokeInvitationResult =
   | { kind: "revoked"; invitation: ProjectInvitation }
   | { kind: "not_found" }
   /** 受諾済み・取消済み・期限切れ。 */
-  | { kind: "not_pending" };
+  | { kind: "not_pending" }
+  | ProjectArchivedResult;
 
 export interface ProjectMembershipRepository {
   /** 有効なMembership（未取消）。無ければnull。 */

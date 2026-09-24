@@ -139,6 +139,8 @@ Human向けapplication use caseは `HumanActor = { kind: "human"; humanUserId: s
 | Membership | 作成（Project作成・招待受諾・bootstrap補完）→ Role変更 → `revoked` | 最後のownerを失う変更・取消は `409 LAST_OWNER`。取消済みは復帰させず再招待 |
 | HumanUser | `active` → `disabled` | 初期版はUI・APIなし。disabled時は全Session失効・ログイン拒否 |
 
+- **archived Project（Step 5の参照専用規則）**: 招待の発行・取消、Membership のRole変更・取消は、書込と同一transactionで `isProjectArchived` を検査し `409 CONFLICT`（`projectStatus: "archived"`）で拒否する。archive前に発行された `pending` 招待は状態を変えずに残し、受諾できない（登録判定の事実 `projectArchived` を受諾と同一transactionで集める）。新規Humanは `not_allowed`（Project状態を漏らさない）で行を作らず、既存Humanはログインだけ成功して招待を `invalid` として扱う。一覧（Membership・招待）の参照は従来どおり可能。唯一の例外は初期owner bootstrapのorphan補完で、archivedのProjectも管理不能にしないためowner Membershipを付与する（Human操作ではなく移行処理）。Task 40で実装・テスト済み。
+
 ## 登録・ログインの規則（closed registration）
 
 `registration mode` は `closed` だけを実装する（他の値は起動時エラー）。callbackでOIDC応答を検証したあと、次の順で判定する。**いずれの拒否でも human_user / human_identity / membership / session を作らない。**
@@ -154,7 +156,7 @@ Human向けapplication use caseは `HumanActor = { kind: "human"; humanUserId: s
 - **初期owner emailは #2 の照合にだけ使う。** platform owner作成後は設定値を読まない（設定を変えても別Humanをownerにしない。以後は保存済み `issuer + subject` が正本）。
 - 招待の照合は、ログイン時にOIDCで検証済みのemailに対して行う。招待tokenを知っているだけでは受諾できない。
 - **既存Humanの招待受諾**: #1で招待tokenがあり、`pending`・期限内・email一致なら、Membership作成と `accepted` を同一transactionで行う。既に有効なMembershipがあるProjectの招待は受諾せず `pending` のまま残し（Role変更はMembership管理で行う）、ログイン自体は成功させる。
-- **拒否応答**: `/login?error=<code>` へ302し、画面は簡潔な文言だけを出す。`code` は `not_allowed`（未許可account・email未検証・email不一致・無効/使用済み/取消済み招待をまとめる）、`invitation_expired`（期限切れ招待。リンク保持者に再発行依頼を促すため区別）、`oidc_failed`（Google側エラー・state / nonce不一致・token検証失敗・期限切れログイン試行）の3種。Project名・招待先email・Human有無は出さない。
+- **拒否応答**: `/login?error=<code>` へ302し、画面は簡潔な文言だけを出す。`code` は `not_allowed`（未許可account・email未検証・email不一致・無効/使用済み/取消済み/archived Projectの招待をまとめる）、`invitation_expired`（期限切れ招待。リンク保持者に再発行依頼を促すため区別）、`oidc_failed`（Google側エラー・state / nonce不一致・token検証失敗・期限切れログイン試行）の3種。Project名・招待先email・Human有無は出さない。
 
 ### platform owner と orphan Project
 
@@ -328,6 +330,7 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 | Session絶対7日・アイドル24時間・延長なし | 個人開発段階で再ログイン負担と漏洩時の影響を両立する | 値は定数1箇所。設定化は必要時に行う |
 | `trusted-local` だけでLocalDevIdentityProvider | Google clientが無い開発環境でもWeb UIを使える。kitの「dev認証は明示フラグのみ、productionでは起動拒否」に合う | 不要になれば削除（Googleのlocalhost redirectで代替可能） |
 | remoteでは`create_project` / `update_project` / Intent Commandを`/mcp`に登録しない | Human向け管理操作をMCPへ無条件に公開しない（`AGENTS.md`）。Agent用の認可Roleを新設するより単純で、Web APIの認可を迂回されない | Agentに必要になったら、専用Roleを定めて登録し直す |
+| archived Projectの招待・Membership書込を全拒否し、archive前の`pending`招待も受諾させない | Step 5の「archivedは参照専用・例外なし」に合わせる。archive時に招待を連動取消しないのは、子データを変更しない既存規則と同じ | archived後のアクセス剥奪が必要なら、Membership取消だけを許可する例外を追加する |
 | 期限切れの`pending`招待は再発行時に`revoked`にする | 部分unique indexを保ったまま再発行でき、期限切れ招待の受諾・取消は引き続き不可 | 期限切れを専用状態にする場合は、index条件と受諾条件を合わせて変える |
 | 登録modeは `closed` のみ | 公開signupは対象外（Story） | `invite_only` 以外のmodeを追加する時に判定表へ分岐を足す |
 | 退出・Human無効化のUIを作らない | 完了条件に無く、ownerによる取消で代替できる | use caseを追加してUIを足す |

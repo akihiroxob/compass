@@ -17,6 +17,7 @@ import type {
   RegisterOrLoginResult,
 } from "../../domain/repository/HumanAccountRepository.ts";
 import type { Database } from "../database/schema.ts";
+import { isProjectArchived } from "./isProjectArchived.ts";
 import { toHumanIdentity, toHumanUser, toWebSession } from "./humanAuthRecord.ts";
 
 /** OIDCの`name`が無ければemailのlocal partを表示名にする。 */
@@ -60,6 +61,9 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
           ? (await this.findActiveMembershipId(transaction, invitation.project_id, existingIdentity.humanUserId)) !== null
           : false;
 
+      // 受諾のMembership書込と同じtransactionで確認し、archiveとの競合でもMembershipを追加しない。
+      const projectArchived = invitation ? await isProjectArchived(transaction, invitation.project_id) : false;
+
       const facts: RegistrationFacts = {
         identity,
         existingHuman: existingIdentity ? { id: existingIdentity.humanUserId, status: existingIdentity.status } : null,
@@ -69,7 +73,14 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
           command.invitationTokenHash === null
             ? null
             : invitation
-              ? { found: true, status: invitation.status, expiresAt: invitation.expires_at, email: invitation.email, alreadyMember }
+              ? {
+                  found: true,
+                  status: invitation.status,
+                  expiresAt: invitation.expires_at,
+                  email: invitation.email,
+                  alreadyMember,
+                  projectArchived,
+                }
               : { found: false },
         now,
       };

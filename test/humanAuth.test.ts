@@ -436,6 +436,57 @@ test("既存Humanは招待で別Projectへ参加でき、既に所属するProje
   await database.destroy();
 });
 
+test("archived Projectでは招待の発行・取消・受諾とMembershipのRole変更・取消を拒否し、何も書き込まない", async () => {
+  const { database, services } = await setup();
+  const owner = await bootstrapOwner(services);
+  const project = await services.createProjectUseCase.execute({ name: "Done", mission: "m" }, owner.actor);
+  const other = await services.createProjectUseCase.execute({ name: "Other", mission: "m" }, owner.actor);
+  const member = await invite(services, owner.actor, project.id, "member@example.com", "viewer");
+  await invite(services, owner.actor, other.id, "existing@example.com", "viewer");
+  const forNew = await services.createProjectInvitationUseCase.execute(owner.actor, project.id, { email: "new@example.com", role: "editor" });
+  const forExisting = await services.createProjectInvitationUseCase.execute(owner.actor, project.id, {
+    email: "existing@example.com",
+    role: "editor",
+  });
+  await services.archiveProjectUseCase.execute(project.id, { reason: "done" });
+  const rowsBefore = await countRows(database);
+  const invitationsBefore = await services.listProjectInvitationsUseCase.execute(owner.actor, project.id);
+  const membersBefore = await services.listProjectMembersUseCase.execute(owner.actor, project.id);
+  const archived = rejectsWith("CONFLICT", { projectStatus: "archived" });
+
+  await assert.rejects(
+    services.createProjectInvitationUseCase.execute(owner.actor, project.id, { email: "late@example.com", role: "viewer" }),
+    archived,
+  );
+  await assert.rejects(services.revokeProjectInvitationUseCase.execute(owner.actor, project.id, forNew.invitation.id), archived);
+  await assert.rejects(
+    services.changeProjectMemberRoleUseCase.execute(owner.actor, project.id, member.membershipId, { role: "editor" }),
+    archived,
+  );
+  await assert.rejects(services.revokeProjectMemberUseCase.execute(owner.actor, project.id, member.membershipId), archived);
+
+  // 新規Humanはarchive前の招待でも登録しない（理由はProjectの状態を漏らさないnot_allowed）。
+  const rejected = await services.registerOrLoginHumanUseCase.execute({
+    identity: google("new-sub", "new@example.com"),
+    invitationToken: forNew.token,
+  });
+  assert.deepEqual(rejected, { kind: "rejected", reason: "not_allowed" });
+  assert.deepEqual(await countRows(database), rowsBefore);
+
+  // 既存Humanのログインは成功するが、招待は無効として扱いMembershipを追加しない。
+  const existing = await login(services, google("existing@example.com-sub", "existing@example.com"), {
+    invitationToken: forExisting.token,
+  });
+  assert.equal(existing.invitation, "invalid");
+  assert.deepEqual(await services.listProjectMembersUseCase.execute(owner.actor, project.id), membersBefore);
+  assert.deepEqual(await services.listProjectInvitationsUseCase.execute(owner.actor, project.id), invitationsBefore);
+  assert.equal((await countRows(database)).project_membership, rowsBefore.project_membership);
+
+  // active Projectの操作は従来どおり成功する。
+  await services.createProjectInvitationUseCase.execute(owner.actor, other.id, { email: "new@example.com", role: "viewer" });
+  await database.destroy();
+});
+
 test("再起動後もIdentity・Membership・Invitation・Sessionの失効状態が保持される", async () => {
   const directory = await mkdtemp(join(tmpdir(), "compass-human-auth-"));
   const path = join(directory, "compass.db");
@@ -485,4 +536,14 @@ test("登録判定表: 無効なHumanは拒否し、招待・初期ownerの条�
   });
   assert.deepEqual(decideRegistration({ ...base, platformOwnerExists: false }), { kind: "reject", reason: "not_allowed" });
   assert.deepEqual(decideRegistration({ ...base, invitation: { found: false } }), { kind: "reject", reason: "not_allowed" });
+  const pending = { found: true as const, status: "pending" as const, expiresAt: 1, email: "a@example.com", alreadyMember: false };
+  assert.deepEqual(decideRegistration({ ...base, invitation: { ...pending, projectArchived: false } }), { kind: "register_invited" });
+  assert.deepEqual(decideRegistration({ ...base, invitation: { ...pending, projectArchived: true } }), {
+    kind: "reject",
+    reason: "not_allowed",
+  });
+  assert.deepEqual(
+    decideRegistration({ ...base, existingHuman: { id: "h", status: "active" }, invitation: { ...pending, projectArchived: true } }),
+    { kind: "login", humanUserId: "h", invitation: "invalid" },
+  );
 });
