@@ -43,8 +43,8 @@ test("新規発行と割当済みの再発行を区別して通知し、roleご�
   assert.match(grantNotice(true, "res-1", "researcher"), /res-1.*Researcher.*割り当てました/);
 });
 
-test("Execution（Manager・Worker・Reviewer）のRoleもWeb APIと同じ本文で発行・取消できる", () => {
-  for (const [role, label] of [["manager", "Manager"], ["worker", "Worker"], ["reviewer", "Reviewer"]] as const) {
+test("Execution（Manager・Worker・Reviewer）・Evaluator・RuntimeのRoleもWeb APIと同じ本文で発行・取消できる", () => {
+  for (const [role, label] of [["manager", "Manager"], ["worker", "Worker"], ["reviewer", "Reviewer"], ["evaluator", "Evaluator"], ["runtime", "Runtime"]] as const) {
     assert.deepEqual(JSON.parse(String(grantInit("agent-1", role).body)), { principalId: "agent-1", role });
     assert.equal(revokeGrantPath("p1", { role, principalId: "agent-1" }), `/api/projects/p1/grants/${role}/agent-1`);
     assert.match(grantNotice(true, "agent-1", role), new RegExp(`agent-1.*${label}.*割り当てました`));

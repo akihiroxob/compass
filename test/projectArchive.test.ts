@@ -233,6 +233,11 @@ test("AC-8 archivedのGrant発行・取消はWeb APIとCLIで409。grants一覧�
   assert.equal(revoked.status, 409);
   // 既存Grantの再発行も、副作用がなくても書込として拒否する。
   assert.equal((await send(app, "POST", grants, { principalId: "strat-1", role: "strategist" })).status, 409);
+  // Web UIでsectionを追加したEvaluator・Runtimeも同じく拒否する。
+  for (const role of ["evaluator", "runtime"]) {
+    assert.equal((await send(app, "POST", grants, { principalId: `${role}-1`, role })).status, 409);
+    assert.equal((await send(app, "DELETE", `${grants}/${role}/${role}-1`)).status, 409);
+  }
 
   const cliGrant = await runCli(["grant", project.id, "strat-2", "strategist"], services);
   assert.equal(cliGrant.exitCode, 1);

@@ -1,5 +1,5 @@
 // テストからも読み込むため、他moduleをimportしない純関数だけを置く。
-export type GrantRole = "strategist" | "researcher" | "manager" | "worker" | "reviewer";
+export type GrantRole = "strategist" | "researcher" | "manager" | "worker" | "reviewer" | "evaluator" | "runtime";
 export type Grant = { projectId: string; principalId: string; role: GrantRole; createdAt: number };
 export type GrantResponse = { grant: Grant; created: boolean };
 
@@ -11,6 +11,8 @@ export const grantRoleLabels: Record<GrantRole, string> = {
   manager: "Manager",
   worker: "Worker",
   reviewer: "Reviewer",
+  evaluator: "Evaluator",
+  runtime: "Runtime",
 };
 
 export const grantsPath = (projectId: string) => `/api/projects/${projectId}/grants`;

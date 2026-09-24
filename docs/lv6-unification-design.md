@@ -139,7 +139,7 @@ Execution以外で本Storyに必要なHuman向けUI:
 
 ### 移行順
 
-1. **U1 Grant**: evaluator / runtime のGrantSection（Task 35の差し戻し対応に含める）。
+1. **U1 Grant**: evaluator / runtime のGrantSection（Task 35の差し戻し対応で実装済み）。
 2. **U2 閲覧**: Execution section（Story / Task一覧・最近の変更）、Task詳細（Comment・Change履歴）、Outcome詳細のExecution Summary / Evidence / Evaluation表示。Web APIはGETのみで、既存のExecution service・Direction use caseへ委譲する。
 3. **U3 Human介入**: Task詳細での受入・差戻し・取消・Comment。
 4. **U4 手動起票**: Story / Taskの作成・編集・並べ替え・取消。
@@ -224,7 +224,7 @@ Storyは`correlationId`で二重作成を防げるが、Taskは`requestId`（`co
 - **Task 32（実装済み）**: `additional_research` Direction Decisionから追加Research Requestと`research_requested`イベントを作る確定経路。本Taskの設計変更は無し（既存のResearch集約の冪等性パターンを踏襲）。実装記録は`docs/research-decision-adr-design.md`の「追加Research判断のRequest・Runtimeイベント接続（Task 32）」。
 - **Task 33（実装済み・差し戻し中）**: 実装記録は本文書末尾の「実装記録（Task 33）」。差し戻し対応では「Outcome handoffのTask論理ID」（`taskKey`）を実装し、`agent/manager.md`に再起動後の手順を書く。本Taskの「モジュール構成」「DB schema」「MCP tool統合方針」「Role/Instruction配置」に従い、旧Wacha Execution一式を移植する。あわせて`outcome_confirmed`イベントを`CreateOutcomeUseCase`/`DecideNextOutcomeUseCase`に追加し、`DirectionReferenceLookupPort`を実装し、`issue_story`の`outcomeId`拡張を実装する。`agent/role-policy.md`のマージ、README等のドキュメント更新もここで行う。
 - **Task 34（実装済み）**: 実装記録は本文書末尾の「実装記録（Task 34）」。`ExecutionEvidencePort`の詳細（テーブル形状、増分取込みの単位）はTask内で確定し、書込ポートではなく読取専用の`ExecutionSummaryPort`にした。
-- **Task 35〜36（実装済み。Task 35は差し戻し中）**: Outcome EvaluatorはDirection側のEntityであり、Executionとは、Task 34で還流したExecution SummaryとEvidence参照だけを介する。Task 35の差し戻し対応では「Web UIの配置と移行順」のU1（evaluator / runtimeのGrantSection）を実装する。
+- **Task 35〜36（実装済み）**: Outcome EvaluatorはDirection側のEntityであり、Executionとは、Task 34で還流したExecution SummaryとEvidence参照だけを介する。Task 35の差し戻し対応で「Web UIの配置と移行順」のU1（evaluator / runtimeのGrantSection）を実装した。
 - **Web UI U2〜U4**: 現在のTaskに対応するものが無い。Task 38の前に実施するTaskの追加をManagerへ提案する。
 - **Task 37**: 本Taskで「暫定trusted-local」とした認証を、Agent/Runtime向け不透明Credentialへ置き換える。`runtime_event`/`change_log`双方の取得APIが対象に含まれる。
 - **Task 38**: 本Taskで決めたRuntime event契約・冪等性規則を実際にE2Eで検証する。
@@ -284,7 +284,7 @@ ExecutionのStory / Task / Change Logから、Outcome評価に必要なExecution
 ### 実装済み・未接続・未検証
 
 - 実装済み: 上記。`test/executionEvidence.test.ts`が、実MCP / Web API経由で進行に応じた状態、4区分、再送・順序逆転・並行・ファイルDBの再起動、拒否、Executionが変わらないことを確認する。
-- 未接続: Change取得から還流を起動する外部Runtime（テスト内の呼び出しがRuntimeを模す）。EvidenceのURI・commit SHAを実GitHub等で実在確認しないこと（形式の検証のみ。Repositoryとの対応検証も行っていない）。Evaluation。不透明Credential（認証はtrusted-localのまま）。
+- 未接続: Change取得から還流を起動する外部Runtime（テスト内の呼び出しがRuntimeを模す）。EvidenceのURI・commit SHAを実GitHub等で実在確認しないこと（形式の検証のみ。Repositoryとの対応検証も行っていない）。Task 34時点ではEvaluationは未実装だった（保存はTask 35、再計画・Intent完了への遷移はTask 36で実装。Evaluatorを起動するRuntimeは未接続）。不透明Credential（認証はtrusted-localのまま）。
 - 未検証: fixtureやテスト内呼び出しによる確認はLv6の自律運転の実証ではない。
 
 
@@ -300,7 +300,7 @@ ExecutionのStory / Task / Change Logから、Outcome評価に必要なExecution
 - **Evaluationは追記のみ**。`outcome_evaluation`（Direction所有）は更新・削除しない。再評価は新しい`requestKey`の追記で、最新が現在の結果。Outcomeの`status`（`evaluating` / `achieved` / `not_achieved`は予約のまま）・Success Criteria・Executionは変更しない。Criterion・snapshotはJSONで保存し、Criterionの定義（description・measurement・target・position）とOutcome・Execution Summary・Evidence参照（`id`・kind・uri・versionHash・observedAt。本文なし）を評価時点で写す。
 - **冪等性は`(project_id, request_key)`の一意indexと内容hash**。hashは判定の並び順・`evidenceIds`の並び順に依存せず、snapshotと導出結果は含めない。再送は状態の検査より先に確認するため、評価後にOutcomeやExecutionが変わっても、応答を失った再送は最初の評価を返す（`recorded: false`）。異なる内容は`CONFLICT`。
 - **職務分離**。`evaluator`はOutcome定義（strategist Grant）・Execution結果の還流（runtime Grant）・Story / Task（manager / worker / reviewer Grant）のtoolを持たず`FORBIDDEN`になる。`update_project` / `create_intent` / `update_intent` / `abandon_intent`も、strategist・researcherに加えevaluatorのGrantを持つPrincipalに拒否する。trusted-localではAgent名を変えれば回避できるため、構造上の保証（該当tool側のRole検査）が本体（Task 37で不透明Credentialへ置き換える）。
-- **Strategist / Researcherの`unavailable`は変えない**。`evaluation`を外すのは、Evaluatorが実際に接続され、Evaluationを含むStrategist ContextをTask 36で提供した後にする。Web UIのGrant発行画面は`evaluator`を追加しない（`runtime`と同じ扱い。Web APIとCLIは対応）。※この選択は「Web UIの配置と移行順」U1で取り消し、Task 35の差し戻し対応でevaluator / runtimeのGrantSectionを追加する。Human向けのEvaluation閲覧用Web API / UIは持たない（U2でOutcome詳細に追加する予定。未実装）。
+- **Strategist / Researcherの`unavailable`は変えない**。`evaluation`を外すのは、Evaluatorが実際に接続され、Evaluationを含むStrategist ContextをTask 36で提供した後にする。Web UIのGrant発行画面は`evaluator`を追加しない（`runtime`と同じ扱い。Web APIとCLIは対応）。※この選択は「Web UIの配置と移行順」U1で取り消した。Task 35の差し戻し対応で、Project詳細にevaluator / runtimeのGrantSection（既存のStrategist等と同じ発行・一覧・取消、archivedでは一覧のみ）を追加済み。Human向けのEvaluation閲覧用Web API / UIは持たない（U2でOutcome詳細に追加する予定。未実装）。
 
 ### 実装済み・未接続・未検証
 
