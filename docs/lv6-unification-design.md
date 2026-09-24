@@ -114,9 +114,45 @@ application port（インターフェースはapplication層に置き、実装�
 
 いずれのRepository・SQLite tableもDirection/Executionの境界を越えて直接importしない（`src/domain/repository`のinterfaceを介した一方向の参照読み取りのみ）。
 
+## Web UIの配置と移行順（Task 30再レビューで確定）
+
+AGENTS.mdの「Humanの製品操作はWeb UIを正規入口とする」に従い、Execution・Evaluationを含めてHumanが行う操作はCompass Web UIから行えるようにする。PdMの指示（Task 30コメント「UIはガンガン変更していいよ」）により、UI追加・変更は本Storyの範囲で行ってよい。旧WachaのUI（`/Users/aokayama/git/wacha/src/frontend`）はコードをそのまま持ち込まず、Compassの`src/frontend/features/`単位の構成・既存Component・styleへ合わせて機能だけを移す。
+
+### 旧Wacha UIの移植・非移植
+
+| 旧Wacha UI / API | 扱い | Compassでの配置 |
+| --- | --- | --- |
+| `ProjectListPage` / `ProjectCard`、`GET /api/projects` | 移植しない | Compass既存のProject一覧に一本化（Project概念は統合済み） |
+| `RoleGrantDrawer`、`POST/DELETE /api/projects/:id/grants` | 移植しない | Compass既存の`features/grant`の`GrantSection`（Project詳細）。Execution系を含む全Roleをここで発行・一覧・取消する |
+| `ProjectDetailPage`のStory / Task一覧（`StoryCard` / `TaskCard`） | 移植する | 新Feature `features/execution`。Project詳細に「Execution」sectionを置き、Story（状態、紐づくOutcome、相関ID）とTask（状態、担当、Claim期限）を表示。Outcome詳細にはそのOutcomeを参照するStoryだけを表示する |
+| `ProjectActivity`、`GET /api/projects/:id/activity` | 移植する | Execution sectionの「最近の変更」。`change_log`をcursor順に表示する（Web API `GET /api/projects/:projectId/changes`。MCP `list_changes`と同じapplication層） |
+| `TaskDrawer`（description、Comment、状態、差戻し理由） | 移植する | drawerではなくTask詳細画面 `/projects/:projectId/tasks/:taskId`（Compassは詳細を画面で持つ既存方針のため）。Comment一覧と当該TaskのChange履歴を表示 |
+| Operatorの受入・差戻し・取消・Comment（`accept` / `reject` / `cancel` / `comments`、`*AsOperator`） | 移植する | Task詳細の操作。Task 33で非移植にした`acceptTaskAsOperator` / `rejectTaskAsOperator` / `cancelTaskAsOperator`を`TaskCoordinationService`へ戻し、Web APIから呼ぶ。Humanの受入・差戻しはAgentの自己受入禁止規則と独立（HumanはAgent Principalではない） |
+| `AddStoryPage` / `EditStoryPage` / `EditTaskPage`（手動起票・編集・並べ替え・削除） | 後段で移植する | Execution section / Task詳細から遷移する画面。Outcome起点のStoryは`issue_story`（Manager）が作る前提のため、Human手動起票は閲覧・介入より後に移す。Outcome由来のStoryのsnapshot（Success Criteria・Constraints・Repository）はUIからも変更不可 |
+| baseDir表示・Skill / Knowledge画面 | 移植しない | 概念自体を移植しない（「Project ID対応」「MCP tool統合方針」） |
+
+Execution以外で本Storyに必要なHuman向けUI:
+
+- **Grant**: `evaluator`（Task 35）と`runtime`（Task 31の暫定Role）の`GrantSection`をProject詳細に追加する。Task 35の実装記録にある「Web UIのGrant発行画面は`evaluator`を追加しない」は本決定で取り消す。`runtime` sectionはTask 37でRuntime Credentialの発行・rotation・取消UIへ置き換える。
+- **Outcome詳細**: Execution Summary・Evidence参照（Task 34）、Evaluation履歴とCriterionごとの判定・根拠（Task 35）、それを根拠にしたDirection Decision（Task 36）を表示する。いずれも読取のみ（EvaluationやEvidenceの登録はAgent / RuntimeのMCPが正規入口）。
+- **archived Project**: 既存方針どおり閲覧のみ。Grant・Operator操作・手動起票のボタンを出さず、Web APIもCONFLICTで拒否する。
+
+### 移行順
+
+1. **U1 Grant**: evaluator / runtime のGrantSection（Task 35の差し戻し対応に含める）。
+2. **U2 閲覧**: Execution section（Story / Task一覧・最近の変更）、Task詳細（Comment・Change履歴）、Outcome詳細のExecution Summary / Evidence / Evaluation表示。Web APIはGETのみで、既存のExecution service・Direction use caseへ委譲する。
+3. **U3 Human介入**: Task詳細での受入・差戻し・取消・Comment。
+4. **U4 手動起票**: Story / Taskの作成・編集・並べ替え・取消。
+5. **U5 認可の適用**: Human認証Story（Task 39〜43）の完了後、U2〜U4のWeb APIへProject Membershipの権限表を適用する。それまでは既存Web APIと同じtrusted-local（匿名）で動く。
+6. **U6 Credential管理**: Task 37でruntime Grant sectionをCredential管理UIへ置き換える。
+
+U2〜U4は現在のどのTaskの完了条件にも含まれていないため、Task 38（閉ループ検証）より前に実施するTaskの追加をManagerへ提案する（Task 30の作業コメントに記載）。
+
 ## Runtime event契約（Task 31・32の前提）
 
 既存`runtime_event`テーブル（Direction、Task 25で導入済み。cursor/ack契約と取得入口はTask 31で実装済み）と、新規`change_log`テーブル（Execution、Wachaの`list_changes`と同じcursor方式）の2系統を維持する。
+
+**Task 30当初設計からの変更**: 当初は「Ack/配送保証はCompassが持たず、Runtimeがcursorを保持する」としていたが、Task 31の完了条件（同じconsumerの再取得でack済みを未処理として返さない・再起動で欠落しない・retry可能と終端失敗の区別）はCompass側にconsumer単位の処理結果を永続化しないと満たせない。そのため`runtime_event`だけはconsumer単位のack（`runtime_event_delivery`）をCompassが持つよう変更した。Compassが持つのは「どのconsumerがどのイベントをどう処理したか」の記録だけで、配送のpush・lease・retry間隔・Agent起動は引き続き持たない。`change_log`は状態変化の監査・増分取得用で、処理の引受け単位ではないため当初どおりackを持たない。
 
 | イベント種別 | 保存先 | 発火条件 | Runtimeの反応 |
 | --- | --- | --- | --- |
@@ -130,24 +166,70 @@ application port（インターフェースはapplication層に置き、実装�
 - Web API/MCPの取得入口は`runtime_event`側がTask 31で実装済み（`fetch_runtime_events` / `ack_runtime_event`、`GET /api/projects/:projectId/runtime-events`・`POST .../:eventId/ack`）。`change_log`側はWachaの`list_changes`をそのまま移植すれば入口ごと揃う（Task 33）。
 - 認証はTask 37の不透明Credential（Runtime用scope）が前提。Task 30時点・Task 31実装時点では、既存のtrusted-local Bearer方式を暫定的に使い、remote配置時の認証はTask 37で置き換える（既存のtrusted-local注記をREADME/設計文書に明記する）。
 
+### イベントpayload
+
+全イベント共通の必須項目: `id`（イベントの一意ID。重複起動の判定キー）、`cursor`（全体で単調増加）、`version`（形式version。現在`1`。項目の意味を変えるときだけ上げ、Runtimeは未知のversionを`terminal_failure`にする）、`type`、`projectId`、`correlationId`、`occurredAt`。種類に関係しない項目は`null`で返し、項目自体は省略しない。
+
+| type | 種類別の必須値（非null） | null固定 | correlationId | 起動するAgentに渡す値 |
+| --- | --- | --- | --- | --- |
+| `research_requested` | `researchRequestId` | `outcomeId` / `evaluationId` / `conclusion` | Research Requestの相関ID | Researcher: `projectId`・`researchRequestId`（`intentId`はproject_watchではnull） |
+| `research_completed` | `researchRequestId`、`conclusion` | `outcomeId` / `evaluationId` | 同上 | Strategist: `projectId`・`intentId`・`researchRequestId`・`correlationId`・`version` |
+| `outcome_confirmed` | `intentId`、`outcomeId` | `researchRequestId` / `evaluationId` / `conclusion` | `outcome:{outcomeId}` | Manager: `projectId`・`outcomeId`・`correlationId`（`issue_story`の`correlationId`にそのまま渡す） |
+| `outcome_evaluated` | `intentId`、`outcomeId`、`evaluationId` | `researchRequestId` / `conclusion` | `outcome:{outcomeId}` | Strategist: `projectId`・`intentId`・`outcomeId`・`evaluationId`（Decisionの`evaluationId`に渡す） |
+
+`change_log`の各Change（Wacha既存の`TASK_CLAIMED`等）は`cursor`・`projectId`・`type`・`entityId`（Story / Task等のID）・`principalId`・`claimId`・`payload`・`occurredAt`を持つ。Outcome由来のStoryとその配下Taskの変更にだけ、Task 34で付けた`outcomeId` / `correlationId`が付く（それ以外では項目自体が無い）。`list_changes`の`nextCursor`は返した末尾で、ackが無いため永続化して再開に使ってよい。
+
+### consumer・ackと失敗分類（`runtime_event`）
+
+- **consumer**はRuntimeのPrincipal（Bearerから解決。入力では受け取らない）。ackはconsumerごとに独立し、別consumerのackは互いに影響しない。同じconsumerを複数プロセスで共有する場合の排他（lease / visibility timeout）はCompassが持たない（Runtime側で1 consumer = 1 dispatcherにする）。
+- **ackの結果**:
+  - `processed`: Agentの起動を引き受けた、または起動不要と判断した。確定で、以後そのconsumerへ返さない。
+  - `retryable_failure`: 今回は処理できず再試行してよい（Agent起動失敗、timeout、Compass / 外部の一時エラー）。次の取得でも返り続け、`retryCount`・`lastFailureReason`が付く。backoffと再試行上限はRuntimeが決め、上限到達時は`terminal_failure`でackする。
+  - `terminal_failure`: 再試行しても成功しない（未知の`version`・`type`、payload不正、対象Grant取消・archivedなどCompassが恒久的に拒否する状態）。確定で、理由を残す。
+- **Agent結果とackの対応**: 起動したAgentの後続コマンドがCompassの冪等な既存結果（同じ`requestKey`の再送・同じ`correlationId`のStory・同じ`evaluationId`のDecision）を返したときは、先行した処理が成功しているので`processed`。状態の変化で不要になった（`evaluation_not_latest`、`intent_not_active`、取消済みOutcome）ときも`processed`で、理由はRuntimeのログに残す。`UNAUTHENTICATED` / `FORBIDDEN`は資格情報・Grantの設定不備なので、ackせずRuntimeの運用者へ通知する（ackにもGrantが要るため）。
+- **ackの冪等性（Task 31差し戻し対応で実装する決定）**: ack入力に`attemptId`（Runtimeが1回の処理試行ごとに生成し、その試行の応答が失われた再送では同じ値を使う）を必須で追加する。`(consumer, eventId, attemptId)`が同じ再送は内容が同じなら状態を変えず`recorded: false`、異なる内容はCONFLICT。`retryCount`は異なる`attemptId`の`retryable_failure`だけを数える。確定済み（processed / terminal_failure）への別結果はCONFLICTのまま。
+- **cursorの意味（Task 31差し戻し対応で実装する決定）**: 取得応答の`nextCursor`は同じ取得処理内のページングにだけ使う。永続化して再開に使えるのは新設する`resumeCursor`（そのconsumerについて、それ以下のイベントがすべて確定済み（processed / terminal_failure）である最大のcursor）だけとする。`resumeCursor`は未確定（未ack・retryable_failure）のイベントを追い越さないので、Runtimeの再起動後に`afterCursor=resumeCursor`で取得すれば欠落しない。`afterCursor`を省略した取得も欠落しない（先頭から未確定だけを返す）。
+
+### timeout・重複・順序逆転・再起動の回復規則
+
+| 事象 | 規則 |
+| --- | --- |
+| 取得応答の消失 | 取得は読取専用。同じ`afterCursor`で再取得すれば同じ未確定イベントが返る |
+| ack応答の消失 | 同じ`attemptId`で再送する（上記）。状態は変わらない |
+| Agent実行のtimeout | Compassはleaseを持たないため、Runtimeが判断して`retryable_failure`をack（新しい`attemptId`）し、再起動する。先のAgentが遅れて完了しても、後続コマンドの冪等キーで二重作成されない |
+| 重複配送・重複起動 | 下流のコマンドが冪等キーを持つことで収束させる: Research結果は`requestKey`、Outcome / Decisionは`requestKey`と`evaluationId`の部分unique（1 Evaluation = 1 Decision）、Storyは`(project_id, correlation_id)`、Outcome handoffのTaskは`(story_id, task_key)`（下記）、Evaluationは`(project_id, request_key)`、Evidence還流は`(outcome, kind, uri, version_hash)` |
+| 順序逆転 | Runtimeは同一Projectのイベントを並列に処理してよい。各コマンドは実行時点の状態を検査するため、古いイベントからの操作はCONFLICT（`evaluation_not_latest`、`intent_not_active`等）になり、上記のとおり`processed`で閉じる。Evidence還流は古い`changeCursor`でも状態を巻き戻さない（Task 34） |
+| Compass再起動 | `runtime_event`・`runtime_event_delivery`・`change_log`・`command_receipt`はDBに永続化され、再起動で変わらない。Runtimeは`resumeCursor`（runtime_event）と自分で保持したcursor（change_log）から再開する |
+| Runtime / Agent再起動 | Runtimeは`resumeCursor`から再取得し、未確定イベントを再処理する。Agentは新しい`attemptId`で起動し、下流の冪等キーは決定的な値（相関ID・`task_key`・イベント由来の`requestKey`）を使うので、前回途中まで作ったEntityを再利用する |
+
+### Outcome handoffのTask論理ID（Task 33差し戻し対応で実装する決定）
+
+Storyは`correlationId`で二重作成を防げるが、Taskは`requestId`（`command_receipt`）だけで、Manager再起動後の別`requestId`では重複する。次の契約にする。
+
+- `issue_task`に任意の`taskKey`（Story内で一意な論理ID。Managerが計画から決定的に付ける短い識別子）を追加し、`task`に`task_key`列と`(story_id, task_key)`の部分unique index（NULLは対象外）を持たせる。
+- 相関ID付きStory（Outcome由来）配下のTaskでは`taskKey`を必須とする。同じ`taskKey`の再送は内容が同じなら既存Taskを返し（`requestId`が異なっても）、内容が異なればIDEMPOTENCY_CONFLICT。
+- 手動起票（相関IDなしのStory）では`taskKey`は任意で、旧Wachaの`requestId`契約をそのまま維持する。
+- Managerは再起動後、`list_tasks({ storyId })`で既存の`taskKey`を確認してから不足分だけを`issue_task`する（`agent/manager.md`に手順を書く）。
+
 ## 冪等性・相関ID・再起動時の回復規則
 
 - Execution内の操作（claim/complete/review/accept等）は、Wachaの`requestId`＋`command_receipt`方式をそのまま使う（上記「idempotency方式の違い」参照）。
-- DirectionからExecutionへのhandoff（Outcome確定 → Manager起動 → `issue_story`）は、`outcome:{outcomeId}`形式の決定的`correlationId` + `story`テーブルの`(project_id, correlation_id)` unique indexで、Runtimeの重複起動・`issue_story`の重複呼び出しのいずれでも二重Story作成を防ぐ。
+- DirectionからExecutionへのhandoff（Outcome確定 → Manager起動 → `issue_story`）は、`outcome:{outcomeId}`形式の決定的`correlationId` + `story`テーブルの`(project_id, correlation_id)` unique indexで、Runtimeの重複起動・`issue_story`の重複呼び出しのいずれでも二重Story作成を防ぐ。配下のTaskは`(story_id, task_key)`で同様に防ぐ（「Outcome handoffのTask論理ID」）。
 - ExecutionからDirectionへの還流（Task 34）も、`change_log`の`cursor`を還流側が保持し、同じcursor範囲の再取込みでも重複しないよう、Task 34では、Outcomeごとに1行の要約を`execution_cursor`が進むときだけ上書きし、Evidenceを`(outcome, kind, uri, version)`で一意にして収束させた（「実装記録（Task 34）」）。
-- サーバー再起動時は、`runtime_event`/`change_log`いずれも追記のみのテーブルであるため、Runtime側が保持するcursorから再開すれば欠落なく再取得できる。CompassはRuntimeのプロセス生存やスケジュールを管理しない（kit/additional-doc.md §3, §27の責任分離どおり）。
+- サーバー再起動時は、`runtime_event`/`change_log`いずれも追記のみのテーブルであるため、再開位置（`runtime_event`は`resumeCursor`、`change_log`はRuntimeが保持するcursor）から再開すれば欠落なく再取得できる。CompassはRuntimeのプロセス生存やスケジュールを管理しない（kit/additional-doc.md §3, §27の責任分離どおり）。
 
 ## Task 31〜38への反映
 
-- **Task 31（実装済み）**: `runtime_event`のcursor/ack付きWeb API/MCP入口を実装した。認可は暫定の`runtime` Role Grant（Task 37でRuntime Credential scopeへ置き換え）。本Taskの契約（cursor昇順、Project scope、認証は暫定trusted-local）に従う。`outcome_confirmed`はTask 33で追加した。
+- **Task 31（実装済み・差し戻し中）**: `runtime_event`のcursor/ack付きWeb API/MCP入口を実装した。認可は暫定の`runtime` Role Grant（Task 37でRuntime Credential scopeへ置き換え）。`outcome_confirmed`はTask 33で追加した。差し戻し対応では「consumer・ackと失敗分類」のack `attemptId`と`resumeCursor`を実装し、README・`agent/runtime.md`の「nextCursorを次に渡す」案内を`resumeCursor`へ改める。
 - **Task 32（実装済み）**: `additional_research` Direction Decisionから追加Research Requestと`research_requested`イベントを作る確定経路。本Taskの設計変更は無し（既存のResearch集約の冪等性パターンを踏襲）。実装記録は`docs/research-decision-adr-design.md`の「追加Research判断のRequest・Runtimeイベント接続（Task 32）」。
-- **Task 33（実装済み）**: 実装記録は本文書末尾の「実装記録（Task 33）」。本Taskの「モジュール構成」「DB schema」「MCP tool統合方針」「Role/Instruction配置」に従い、旧Wacha Execution一式を移植する。あわせて`outcome_confirmed`イベントを`CreateOutcomeUseCase`/`DecideNextOutcomeUseCase`に追加し、`DirectionReferenceLookupPort`を実装し、`issue_story`の`outcomeId`拡張を実装する。`agent/role-policy.md`のマージ、README等のドキュメント更新もここで行う。
+- **Task 33（実装済み・差し戻し中）**: 実装記録は本文書末尾の「実装記録（Task 33）」。差し戻し対応では「Outcome handoffのTask論理ID」（`taskKey`）を実装し、`agent/manager.md`に再起動後の手順を書く。本Taskの「モジュール構成」「DB schema」「MCP tool統合方針」「Role/Instruction配置」に従い、旧Wacha Execution一式を移植する。あわせて`outcome_confirmed`イベントを`CreateOutcomeUseCase`/`DecideNextOutcomeUseCase`に追加し、`DirectionReferenceLookupPort`を実装し、`issue_story`の`outcomeId`拡張を実装する。`agent/role-policy.md`のマージ、README等のドキュメント更新もここで行う。
 - **Task 34（実装済み）**: 実装記録は本文書末尾の「実装記録（Task 34）」。`ExecutionEvidencePort`の詳細（テーブル形状、増分取込みの単位）はTask内で確定し、書込ポートではなく読取専用の`ExecutionSummaryPort`にした。
-- **Task 35〜36（実装済み）**: 本Taskの決定に影響される変更なし（Outcome EvaluatorはDirection側のEntityであり、Executionとは、Task 34で還流したExecution SummaryとEvidence参照だけを介する）。
+- **Task 35〜36（実装済み。Task 35は差し戻し中）**: Outcome EvaluatorはDirection側のEntityであり、Executionとは、Task 34で還流したExecution SummaryとEvidence参照だけを介する。Task 35の差し戻し対応では「Web UIの配置と移行順」のU1（evaluator / runtimeのGrantSection）を実装する。
+- **Web UI U2〜U4**: 現在のTaskに対応するものが無い。Task 38の前に実施するTaskの追加をManagerへ提案する。
 - **Task 37**: 本Taskで「暫定trusted-local」とした認証を、Agent/Runtime向け不透明Credentialへ置き換える。`runtime_event`/`change_log`双方の取得APIが対象に含まれる。
 - **Task 38**: 本Taskで決めたRuntime event契約・冪等性規則を実際にE2Eで検証する。
 
-## 未接続・未実装・対象外（Task 30時点の記録。現在の状況は「実装記録（Task 33）」）
+## 未接続・未実装・対象外（Task 30時点の記録。現在の状況は「実装記録（Task 33）」以降）
 
 - 上記の決定はすべて設計であり、コード・DB・UIへの反映は未実施。`runtime_event`のRuntime向け入口、`change_log`、`story`/`task`等のExecutionテーブル、`manager`/`worker`/`reviewer`のGrant/Instruction配信は本Task完了時点でいずれも未実装。
 - localhost HTTP/MCP loopbackや別Wachaサーバーとの接続は行っておらず、今後も恒久構成として採用しない。
@@ -182,7 +264,7 @@ Executionのコードが読み書きするtableは、Execution自身のtableと�
 
 - 実装済み: 上記。検証: 旧Wachaのservice回帰テストの移植（19件）、統一`/mcp`経由（実MCP SDK clientでの実server起動を含む手動確認）、handoffの冪等性・snapshot・失敗分類・並行・再起動、`runtime_event`マイグレーション、境界。
 - 未接続: 外部Runtimeによる`outcome_confirmed`の取得とManagerの起動（テスト内のMCP呼び出しがRuntimeを模す）。Execution → Directionの還流の起動（Task 34で入口は実装済み。起動するRuntimeは未接続）、Evaluationの起動と遷移（Task 35で保存、Task 36で再計画・Intent完了への遷移を実装。起動するRuntimeは未接続）、不透明Credential（Task 37。認証は引き続きtrusted-local）。
-- 対象外・移植せず: 旧WachaのWeb UI（Project Activity・Task drawer等）とその`PageController`、`list_projects` / Skill / Knowledge。HumanがExecutionのStory・Taskを閲覧・操作するWeb UI / APIは未実装（後続で判断する）。
+- 対象外・移植せず: `list_projects` / Skill / Knowledge。旧WachaのWeb UI（Project Activity・Task drawer等）とOperator操作は、Task 33時点では未移植だったが、「Web UIの配置と移行順」で移植範囲と順序を確定した（U2〜U4、未実装）。
 - 未検証: fixtureやテスト内呼び出しによる確認はLv6の自律運転の実証ではない。
 
 ## 実装記録（Task 34）
@@ -218,7 +300,7 @@ ExecutionのStory / Task / Change Logから、Outcome評価に必要なExecution
 - **Evaluationは追記のみ**。`outcome_evaluation`（Direction所有）は更新・削除しない。再評価は新しい`requestKey`の追記で、最新が現在の結果。Outcomeの`status`（`evaluating` / `achieved` / `not_achieved`は予約のまま）・Success Criteria・Executionは変更しない。Criterion・snapshotはJSONで保存し、Criterionの定義（description・measurement・target・position）とOutcome・Execution Summary・Evidence参照（`id`・kind・uri・versionHash・observedAt。本文なし）を評価時点で写す。
 - **冪等性は`(project_id, request_key)`の一意indexと内容hash**。hashは判定の並び順・`evidenceIds`の並び順に依存せず、snapshotと導出結果は含めない。再送は状態の検査より先に確認するため、評価後にOutcomeやExecutionが変わっても、応答を失った再送は最初の評価を返す（`recorded: false`）。異なる内容は`CONFLICT`。
 - **職務分離**。`evaluator`はOutcome定義（strategist Grant）・Execution結果の還流（runtime Grant）・Story / Task（manager / worker / reviewer Grant）のtoolを持たず`FORBIDDEN`になる。`update_project` / `create_intent` / `update_intent` / `abandon_intent`も、strategist・researcherに加えevaluatorのGrantを持つPrincipalに拒否する。trusted-localではAgent名を変えれば回避できるため、構造上の保証（該当tool側のRole検査）が本体（Task 37で不透明Credentialへ置き換える）。
-- **Strategist / Researcherの`unavailable`は変えない**。`evaluation`を外すのは、Evaluatorが実際に接続され、Evaluationを含むStrategist ContextをTask 36で提供した後にする。Web UIのGrant発行画面は`evaluator`を追加しない（`runtime`と同じ扱い。Web APIとCLIは対応）。Human向けのEvaluation閲覧用Web API / UIは持たない。
+- **Strategist / Researcherの`unavailable`は変えない**。`evaluation`を外すのは、Evaluatorが実際に接続され、Evaluationを含むStrategist ContextをTask 36で提供した後にする。Web UIのGrant発行画面は`evaluator`を追加しない（`runtime`と同じ扱い。Web APIとCLIは対応）。※この選択は「Web UIの配置と移行順」U1で取り消し、Task 35の差し戻し対応でevaluator / runtimeのGrantSectionを追加する。Human向けのEvaluation閲覧用Web API / UIは持たない（U2でOutcome詳細に追加する予定。未実装）。
 
 ### 実装済み・未接続・未検証
 
