@@ -94,7 +94,7 @@ test("存在しないProjectはNOT_FOUND、空・空白・101文字・制御文�
       },
     );
   }
-  for (const role of ["", "worker", "Strategist", "STRATEGIST", undefined, null]) {
+  for (const role of ["", "admin", "Strategist", "STRATEGIST", undefined, null]) {
     await assert.rejects(
       () => services.grantProjectRoleUseCase.execute(project.id, { ...valid, role }),
       (error) => {
@@ -107,7 +107,7 @@ test("存在しないProjectはNOT_FOUND、空・空白・101文字・制御文�
   await assert.rejects(() => services.grantProjectRoleUseCase.execute(project.id, null), codeOf("VALIDATION_ERROR"));
   assert.deepEqual(await services.listProjectGrantsUseCase.execute(project.id), []);
   // 入力検証は存在確認より先。不正入力は存在しないProjectでもVALIDATION_ERRORになる。
-  await assert.rejects(() => services.grantProjectRoleUseCase.execute("missing", { ...valid, role: "worker" }), codeOf("VALIDATION_ERROR"));
+  await assert.rejects(() => services.grantProjectRoleUseCase.execute("missing", { ...valid, role: "admin" }), codeOf("VALIDATION_ERROR"));
   await database.destroy();
 });
 

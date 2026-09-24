@@ -3,12 +3,15 @@ import type { ResearchConclusion } from "./Research.ts";
 /** Runtime向けイベントの形式version。項目の意味を変える場合に上げる。 */
 export const runtimeEventVersion = 1;
 
+
 /**
  * - `research_requested`: Research Requestが`requested`で確定した。RuntimeがResearcherを起動する条件。
  * - `research_completed`: Requestが`completed` / `insufficient` / `not_needed`で確定した。Runtimeが次にStrategistを起動する条件。
  *   `cancelled`はStrategistを起動する結果ではないためイベントを作らない。
+ * - `outcome_confirmed`: Outcome（固定のSuccess Criteriaを含む）が確定した。Runtimeが次にManagerを起動する条件。
+ *   CompassはManagerを起動せず、StoryやTaskも作らない。ManagerがMCPの`issue_story`でOutcomeを参照して作る。
  */
-export type RuntimeEventType = "research_requested" | "research_completed";
+export type RuntimeEventType = "research_requested" | "research_completed" | "outcome_confirmed";
 
 /**
  * 状態変更と同一transactionで保存する、追記だけの確定イベント。
@@ -23,7 +26,11 @@ export type RuntimeEvent = {
   readonly projectId: string;
   /** 発端Intent。発端を持たない`project_watch`のRequestではnull。 */
   readonly intentId: string | null;
-  readonly researchRequestId: string;
+  /** research系イベントの発端Request。`outcome_confirmed`ではnull。 */
+  readonly researchRequestId: string | null;
+  /** `outcome_confirmed`で確定したOutcome。research系イベントではnull。 */
+  readonly outcomeId: string | null;
+  /** research系は発端Requestの相関ID。`outcome_confirmed`は`outcome:{outcomeId}`で、`issue_story`の既定の相関IDと一致する。 */
   readonly correlationId: string;
   /** `research_completed`の確定結果。`research_requested`ではnull。 */
   readonly conclusion: ResearchConclusion | null;

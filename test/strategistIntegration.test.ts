@@ -310,16 +310,16 @@ test("権限なし・別Project・Grant取消・Bearerなし・Role不一致・�
 
     // Role不一致: Strategistの読み書き経路（Instruction・Grant発行）にstrategist以外のRoleは通らない。
     await withAgent(server.baseUrl, "strat-p", async (client) => {
-      for (const role of ["worker", "manager", "reviewer"]) {
+      for (const role of ["admin", "Manager", "Worker"]) {
         assert.equal((await call(client, "get_role_instructions", { role, includeShared: true })).isError, true, role);
       }
       // 職務分離: Strategist Grantを持つPrincipalはDirection（Intent）を変更できない。
       assert.equal(errorCode(await call(client, "update_intent", { projectId, intentId, title: "Renamed" })), "FORBIDDEN");
     });
-    const workerGrant = await api(server.baseUrl, "POST", `/api/projects/${projectId}/grants`, { principalId: "agent-w", role: "worker" });
+    const workerGrant = await api(server.baseUrl, "POST", `/api/projects/${projectId}/grants`, { principalId: "agent-w", role: "admin" });
     assert.equal(workerGrant.status, 400);
     assert.equal(workerGrant.body.error.code, "VALIDATION_ERROR");
-    const workerCli = await cli("grant", projectId, "agent-w", "worker");
+    const workerCli = await cli("grant", projectId, "agent-w", "admin");
     assert.equal(workerCli.code, 1);
     assert.equal(JSON.parse(workerCli.stderr).error.code, "VALIDATION_ERROR");
 

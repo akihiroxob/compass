@@ -1,4 +1,6 @@
 import { InstructionService } from "./application/service/InstructionService.ts";
+import { DirectionReferenceLookupService } from "./application/service/DirectionReferenceLookupService.ts";
+import { TaskCoordinationService } from "./application/service/execution/TaskCoordinationService.ts";
 import { ProjectAuthorizationService } from "./application/service/ProjectAuthorizationService.ts";
 import { AbandonIntentUseCase } from "./application/usecase/AbandonIntentUseCase.ts";
 import { AckRuntimeEventUseCase } from "./application/usecase/AckRuntimeEventUseCase.ts";
@@ -65,9 +67,16 @@ export const createApplicationServices = (
   const runtimeEventRepository = new SQLiteRuntimeEventRepository(applicationDatabase);
   const projectGrantRepository = new SQLiteProjectGrantRepository(applicationDatabase);
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
+  // Execution（旧Wachaから移植）。同じDB・同じプロセスの中で動き、Directionの参照は読取専用ポートだけを通す。
+  const taskCoordinationService = new TaskCoordinationService(
+    applicationDatabase,
+    new DirectionReferenceLookupService(projectRepository, outcomeRepository),
+    clock,
+  );
   return {
     instructionService,
     projectAuthorizationService,
+    taskCoordinationService,
     createProjectUseCase: new CreateProjectUseCase(projectRepository),
     updateProjectUseCase: new UpdateProjectUseCase(projectRepository),
     archiveProjectUseCase: new ArchiveProjectUseCase(projectRepository),

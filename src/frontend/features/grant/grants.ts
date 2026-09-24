@@ -1,11 +1,17 @@
 // テストからも読み込むため、他moduleをimportしない純関数だけを置く。
-export type GrantRole = "strategist" | "researcher";
+export type GrantRole = "strategist" | "researcher" | "manager" | "worker" | "reviewer";
 export type Grant = { projectId: string; principalId: string; role: GrantRole; createdAt: number };
 export type GrantResponse = { grant: Grant; created: boolean };
 
 export const strategistRole = "strategist" as const;
 
-export const grantRoleLabels: Record<GrantRole, string> = { strategist: "Strategist", researcher: "Researcher" };
+export const grantRoleLabels: Record<GrantRole, string> = {
+  strategist: "Strategist",
+  researcher: "Researcher",
+  manager: "Manager",
+  worker: "Worker",
+  reviewer: "Reviewer",
+};
 
 export const grantsPath = (projectId: string) => `/api/projects/${projectId}/grants`;
 

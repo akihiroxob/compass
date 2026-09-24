@@ -122,7 +122,7 @@ application port（インターフェースはapplication層に置き、実装�
 | --- | --- | --- | --- |
 | `research_requested` | `runtime_event` | Research Request作成（既存） | Researcher起動 |
 | `research_completed` | `runtime_event` | Research Request確定（既存） | Strategist起動 |
-| `outcome_confirmed`（新規, Task 31/32で実装） | `runtime_event` | `create_outcome`/`decide_next_outcome`成功と同一transaction | Manager起動（`issue_story`等でStory/Task作成） |
+| `outcome_confirmed`（新規, Task 33で実装済み） | `runtime_event` | `create_outcome`/`decide_next_outcome`成功と同一transaction | Manager起動（`issue_story`等でStory/Task作成） |
 | Story/Task状態変化一式（`TASK_CLAIMED`等、Wachaの既存Change種別） | `change_log`（Execution） | 各Execution操作と同一transaction | Manager/Worker/Reviewer起動の判断材料、Task 34のEvidence還流のトリガー |
 
 - 取得はいずれも`cursor`昇順、Project scope、`afterCursor`＋`limit`のページング。`change_log`はAck/配送保証を持たず、Runtimeがcursorを保持して差分取得する（既存の`list_changes`・Task 25設計と同じ考え方）。`runtime_event`だけは、Task 31の要件に従いconsumer単位のackをCompassが記録する（`runtime_event_delivery`。実装記録は`docs/research-decision-adr-design.md`の「Runtime eventのcursor・ack公開（Task 31）」）。Runtimeのプロセス生存・polling・retry間隔は引き続き管理しない。
@@ -138,17 +138,48 @@ application port（インターフェースはapplication層に置き、実装�
 
 ## Task 31〜38への反映
 
-- **Task 31（実装済み）**: `runtime_event`のcursor/ack付きWeb API/MCP入口を実装した。認可は暫定の`runtime` Role Grant（Task 37でRuntime Credential scopeへ置き換え）。本Taskの契約（cursor昇順、Project scope、認証は暫定trusted-local）に従う。`outcome_confirmed`はまだ存在しない前提でよい（Task 32が追加）。
+- **Task 31（実装済み）**: `runtime_event`のcursor/ack付きWeb API/MCP入口を実装した。認可は暫定の`runtime` Role Grant（Task 37でRuntime Credential scopeへ置き換え）。本Taskの契約（cursor昇順、Project scope、認証は暫定trusted-local）に従う。`outcome_confirmed`はTask 33で追加した。
 - **Task 32（実装済み）**: `additional_research` Direction Decisionから追加Research Requestと`research_requested`イベントを作る確定経路。本Taskの設計変更は無し（既存のResearch集約の冪等性パターンを踏襲）。実装記録は`docs/research-decision-adr-design.md`の「追加Research判断のRequest・Runtimeイベント接続（Task 32）」。
-- **Task 33**: 本Taskの「モジュール構成」「DB schema」「MCP tool統合方針」「Role/Instruction配置」に従い、旧Wacha Execution一式を移植する。あわせて`outcome_confirmed`イベントを`CreateOutcomeUseCase`/`DecideNextOutcomeUseCase`に追加し、`DirectionReferenceLookupPort`を実装し、`issue_story`の`outcomeId`拡張を実装する。`agent/role-policy.md`のマージ、README等のドキュメント更新もここで行う。
+- **Task 33（実装済み）**: 実装記録は本文書末尾の「実装記録（Task 33）」。本Taskの「モジュール構成」「DB schema」「MCP tool統合方針」「Role/Instruction配置」に従い、旧Wacha Execution一式を移植する。あわせて`outcome_confirmed`イベントを`CreateOutcomeUseCase`/`DecideNextOutcomeUseCase`に追加し、`DirectionReferenceLookupPort`を実装し、`issue_story`の`outcomeId`拡張を実装する。`agent/role-policy.md`のマージ、README等のドキュメント更新もここで行う。
 - **Task 34**: 本Taskの「Direction/Executionの所有Entityとapplication port」「冪等性」節にある`ExecutionEvidencePort`の詳細（テーブル形状、`change_log`増分取込みの単位）をTask内で確定する。
 - **Task 35〜36**: 本Taskの決定に影響される変更なし（Outcome EvaluatorはDirection側のEntityであり、Executionとは`ExecutionEvidencePort`経由のEvidenceだけを介する）。
 - **Task 37**: 本Taskで「暫定trusted-local」とした認証を、Agent/Runtime向け不透明Credentialへ置き換える。`runtime_event`/`change_log`双方の取得APIが対象に含まれる。
 - **Task 38**: 本Taskで決めたRuntime event契約・冪等性規則を実際にE2Eで検証する。
 
-## 未接続・未実装・対象外（本Task時点）
+## 未接続・未実装・対象外（Task 30時点の記録。現在の状況は「実装記録（Task 33）」）
 
 - 上記の決定はすべて設計であり、コード・DB・UIへの反映は未実施。`runtime_event`のRuntime向け入口、`change_log`、`story`/`task`等のExecutionテーブル、`manager`/`worker`/`reviewer`のGrant/Instruction配信は本Task完了時点でいずれも未実装。
 - localhost HTTP/MCP loopbackや別Wachaサーバーとの接続は行っておらず、今後も恒久構成として採用しない。
 - fixtureによる契約検証はTask 28/29までの既存実装と同様の位置づけであり、本Taskはfixtureすら作らない（設計文書のみ）。
 - Skill/Knowledge Entityの移植、Cloudflare等への実配置、Task 37のCredential実装は本Storyの他Taskまたは別Storyの対象であり、本Taskでは扱わない。
+
+## 実装記録（Task 33）
+
+旧Wacha Executionの移植と、Outcome起点のhandoffを実装した。上記の設計に従い、次の点を初期選択として決めた。
+
+### 実装した範囲
+
+- **ProjectRole**: `manager` / `worker` / `reviewer`を追加。Web UIのGrant画面（Project詳細）にも3 sectionを追加した（Humanの発行・取消はWeb UI）。CLIのroleヘルプ・検証も追随する。
+- **Execution table**: `story` / `task` / `task_claim` / `task_comment` / `change_log` / `command_receipt`を`initializeSchema`へ冪等に追加（`create ... if not exists`）。`story`に`outcome_ref` / `origin_decision_id` / `success_criteria_snapshot` / `constraints_snapshot` / `repository_snapshot` / `correlation_id`を持ち、`(project_id, correlation_id)`にunique indexを張る（NULLは制約の対象外なので手動起票のStoryは影響を受けない）。旧Wachaの`task_comment.session_id`（廃止済みのsession方式の残り）は移植していない。
+- **service**: `src/application/service/execution/TaskCoordinationService.ts`。旧Wachaの状態遷移・Role検査・排他Claim・自己review / 自己受入の禁止・`command_receipt`によるrequestId冪等性・Change Logを変えずに移した。変えたのは、グローバルなDBクライアントをやめて`Kysely<Database>`をコンストラクタで注入すること、Claim期限の環境変数を`COMPASS_CLAIM_TTL_MS`にしたこと、`session_id`の除去、trusted-local Web UI用のoperator受入 / 差戻し / 取消、`listProjects` / `assertProject*`（Wacha側のWeb UI用）を移植しなかったことだけ。旧WachaもこのserviceがSQLを直接持つ構造で、「同じ概念の再実装を避ける」ため、Repository interfaceへの分割はしていない。
+- **MCP**: `src/presentation/mcp/registerExecutionTools.ts`が21個のExecution toolを、Directionと同じ`McpServer`（同一`/mcp`）へ登録する。tool名は旧Wachaのまま。PrincipalなしはUNAUTHENTICATED。CoordinationErrorは旧Wachaと同じ`{ error: { code, message, retryable } }`（本文`CODE: message`）で返す。`result` / `execute`は`toolExecution.ts`へ移し、Direction・Execution両方が使う。
+- **Instruction**: `agent/manager.md` / `worker.md` / `reviewer.md`を旧Wachaから移し、Compassの前提（Human承認を挟まない通常フロー、Outcome起点のhandoff、Success Criteriaはsnapshotで変更しない）に合わせた。`agent/role-policy.md`へClaim・状態遷移・エラーコード・Change Logを追記した。`agent/runtime.md`に`outcome_confirmed`後の扱いを追記した。
+
+### handoff（Direction → Execution）
+
+- **`outcome_confirmed`**: `insertOutcomeRow`（`create_outcome`と`decide_next_outcome`の両方が通る）が、Outcomeと同一transactionでイベントを保存する。相関IDは`outcome:{outcomeId}`（`src/shared/outcomeCorrelation.ts`。DirectionとExecutionの双方が使う取り決めで、どちらのEntityにも依存しない）。`runtime_event`は`event_type`のCHECKと`research_request_id`のNOT NULLを変える必要があるため、起動時にSQLite公式手順（新tableを作って写し、旧tableをdropしてrename。`sequence`とautoincrementの高水位・`runtime_event_delivery`のFKを保持。FKチェック付き、新定義なら何もしない）で作り直す。`outcome_id`列とunique indexを追加し、`research_request_id` / `outcome_id`のどちらが値を持つかをCHECKでイベント種別に結び付けた。
+- **`issue_story`の拡張**: `outcomeId` / `repositoryId` / `correlationId`（任意）。Directionの参照は`DirectionReferenceLookupPort`（読取専用。実装`DirectionReferenceLookupService`はOutcome・ProjectのRepositoryインターフェースを読むだけ）だけを通り、Story作成のtransactionの前に解決する（SQLiteの接続はtransaction中は1本を占有するため）。manager Grantの検査を先に行い、権限の無い呼び出しにOutcome・Repositoryの存在を漏らさない。再送（同じ`requestId`、または同じ相関IDの既存Story）では参照の解決を省き、参照先が後で変わっても元のStoryを返す。同じ相関IDに別内容ならIDEMPOTENCY_CONFLICT。
+- **設計からの差分**: Repositoryは存在確認だけでなく`repository_snapshot`（`{id, name, url}`）を保存する（`update_project`で`project_repository_link`のIDが変わってもWorkerが対象を辿れるように）。Success Criteriaのsnapshotには、Task 35のEvaluatorが辿れるようcriterionの`id`と`position`を含める。`issue_task`でStory配下にTaskを作るとき、Storyが相関ID・Outcomeを持てば`TASK_CREATED`のChange payloadへ引き継ぐ（Task 34がChange Logから辿るため）。
+- **失敗の区別**: Bearerなし=UNAUTHENTICATED、Grant無し・存在しないProject=FORBIDDEN（存在を漏らさない）、別ProjectのOutcome / 存在しないOutcome・Repository=NOT_FOUND、取消済みOutcome・archived Project=CONFLICT、入力不正=INVALID_INPUT。いずれもStoryを部分的に残さない。
+- **archived Project**: 設計文書には無かったが、Step 5の「archivedでは新しい活動を始めない」に合わせ、`issue_story` / `issue_task` / `claim_task`を`ProjectArchivedError`（CONFLICT）で拒否する。参照、既に`doing`のTaskの完了・review・受入は妨げない。
+
+### 境界
+
+Executionのコードが読み書きするtableは、Execution自身のtableと共有の根（`project`の状態確認、`project_grant`のRole検査。どちらも読むだけ）に限る。Directionのtable・Repository・use case・modelはimportせず、`DirectionReferenceLookupPort`だけを通る。Directionのコードは、Executionのtable・serviceを直接使わない（配線する`createApplicationServices.ts`とMCP公開層を除く）。`test/executionBoundary.test.ts`がソースを静的に走査して検証する。別Wacha server・localhost HTTP / MCPは使わない（同一プロセス内のモジュール呼び出し）。
+
+### 実装済み・未接続・未検証
+
+- 実装済み: 上記。検証: 旧Wachaのservice回帰テストの移植（19件）、統一`/mcp`経由（実MCP SDK clientでの実server起動を含む手動確認）、handoffの冪等性・snapshot・失敗分類・並行・再起動、`runtime_event`マイグレーション、境界。
+- 未接続: 外部Runtimeによる`outcome_confirmed`の取得とManagerの起動（テスト内のMCP呼び出しがRuntimeを模す）。Execution → Directionの還流（Task 34）、Evaluation（Task 35・36）、不透明Credential（Task 37。認証は引き続きtrusted-local）。
+- 対象外・移植せず: 旧WachaのWeb UI（Project Activity・Task drawer等）とその`PageController`、`list_projects` / Skill / Knowledge。HumanがExecutionのStory・Taskを閲覧・操作するWeb UI / APIは未実装（後続で判断する）。
+- 未検証: fixtureやテスト内呼び出しによる確認はLv6の自律運転の実証ではない。

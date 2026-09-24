@@ -474,7 +474,7 @@ Task本文にある「証拠不足・予算停止・通信結果不明」は、C
 - **ack**: `ack_runtime_event` / `POST /api/projects/:projectId/runtime-events/:eventId/ack`（`outcome`: `processed` / `retryable_failure` / `terminal_failure`）。失敗は`reason`必須、`processed`は`reason`を受け付けない。`processed` / `terminal_failure`は確定で、以後そのconsumerへ返さず、同じ結果の再送は冪等（`recorded: false`）、異なる結果は`CONFLICT`。`retryable_failure`は返り続け、`retryCount`と`lastFailureReason`を付ける（回数の上限は設けず、Runtimeが決めて`terminal_failure`にする）。別Projectのイベントは`NOT_FOUND`。archivedのProjectでもackは記録できる（Runtimeの取りこぼしを残さないため。Directionの状態は変えない）。
 - **永続化**: 新規table `runtime_event_delivery`（主キー`(consumer_id, event_sequence)`、`outcome`、`retry_count`、`last_failure_reason`、`created_at`、`updated_at`）。`runtime_event`は追記のみのまま変更しない。schema初期化は`create table if not exists`で既存DBへ再適用でき、既存tableには触れない。再起動後もackと未処理の状態が残る。
 - **Strategist起動に必要な項目**: `research_completed`は`projectId`・`intentId`・`researchRequestId`・`correlationId`・`version`・`conclusion`を持つ（既存項目。`researchRequestId`がRequest IDである）。
-- **未接続・未検証**: 実Runtimeによる取得・Agent起動は未接続。検証は`test/runtimeEvents.test.ts`のWeb API / MCP in-process呼び出しと、ファイルDBでのserver再起動再現で、Lv6の実証ではない。`outcome_confirmed`イベントとremote向け認証（Task 37）は未実装。
+- **未接続・未検証**: 実Runtimeによる取得・Agent起動は未接続。検証は`test/runtimeEvents.test.ts`のWeb API / MCP in-process呼び出しと、ファイルDBでのserver再起動再現で、Lv6の実証ではない。`outcome_confirmed`イベント（Task 33で実装。`docs/lv6-unification-design.md`の「実装記録（Task 33）」）を除き、remote向け認証（Task 37）は未実装。
 
 ## 実装記録: 追加Research判断のRequest・Runtimeイベント接続（Task 32）
 
@@ -487,4 +487,4 @@ Strategistの`additional_research` Direction Decisionから、追加Research Req
 - **取得**: RuntimeはTask 31の`fetch_runtime_events`（Web APIも同じ）から、`type: "research_requested"`・`researchRequestId`・`correlationId`付きの新しいイベントを取得できる。
 - **初期選択（理由）**: Decision↔Requestの逆参照列（`origin_decision_id`）は追加せず、DBスキーマを変更しない。既存の`request_key`のunique indexと決定的な`correlationId`で、再送・遡りに足りるため。Decision作成時刻と期限判定は注入された`clock`を使う（Researchと同じ時刻源）。
 - **互換性**: `additional_research`で`research`を省いた従来の呼び出しは`VALIDATION_ERROR`になる（Requestを伴わない`additional_research`を残さないため）。応答は`{ decision, researchRequest }`になり、他のtypeでは`researchRequest`が`null`。
-- **未接続・未検証**: RuntimeによるResearcher起動、`outcome_confirmed`イベント（Task 33）は未接続。検証は`test/additionalResearch.test.ts`のin-processのMCP / Web API呼び出しで、Lv6の実証ではない。
+- **未接続・未検証**: RuntimeによるResearcher起動は未接続（`outcome_confirmed`イベントはTask 33で実装済み）。検証は`test/additionalResearch.test.ts`のin-processのMCP / Web API呼び出しで、Lv6の実証ではない。

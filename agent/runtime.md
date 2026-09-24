@@ -2,7 +2,7 @@
 
 ## Goal
 
-外部 Runtime が、Compass の確定イベント（Runtime event）を取得し、Researcher・Strategist などの Agent を起動して、処理結果を `ack` で残す。Compass は Agent を起動せず、polling・timeout・retry の間隔・backoff・token 予算も持たない。これらは Runtime の責務である。`runtime` Role は Agent の権限ではなく、Runtime がこの入口を使ってよいという暫定の認可である（Runtime 専用 Credential の導入で置き換える予定）。
+外部 Runtime が、Compass の確定イベント（Runtime event）を取得し、Researcher・Strategist・Manager などの Agent を起動して、処理結果を `ack` で残す。Compass は Agent を起動せず、polling・timeout・retry の間隔・backoff・token 予算も持たない。これらは Runtime の責務である。`runtime` Role は Agent の権限ではなく、Runtime がこの入口を使ってよいという暫定の認可である（Runtime 専用 Credential の導入で置き換える予定）。
 
 ## 認証
 
@@ -25,8 +25,9 @@ MCP `fetch_runtime_events({ projectId, afterCursor?, limit? })`、または Web 
 | --- | --- | --- |
 | `research_requested` | Research Request が確定した | `researchRequestId` を渡して Researcher を起動する |
 | `research_completed` | Request が `completed` / `insufficient` / `not_needed` で確定した（`conclusion`） | `projectId`・`intentId` を渡して Strategist を起動する |
+| `outcome_confirmed` | Outcome（固定の Success Criteria を含む）が確定した（`create_outcome` / `decide_next_outcome`） | `projectId`・`intentId`・`outcomeId`・`correlationId` を渡して Manager を起動する。Manager が `issue_story` で Outcome を参照する Story を作る（`agent/manager.md`） |
 
-各イベントは `id`・`version`・`type`・`projectId`・`intentId`（`project_watch` では `null`）・`researchRequestId`・`correlationId`・`conclusion`・`occurredAt`・`cursor` を持つ。再試行中のイベントには `retryCount`（`retryable_failure` を記録した回数）と `lastFailureReason` が付く。`version` が未知の値のイベントは処理せず、`terminal_failure` で理由を残す。
+各イベントは `id`・`version`・`type`・`projectId`・`intentId`（`project_watch` では `null`）・`researchRequestId`・`outcomeId`・`correlationId`・`conclusion`・`occurredAt`・`cursor` を持つ。`researchRequestId` は research 系のイベントだけ、`outcomeId` は `outcome_confirmed` だけが値を持ち、他方は `null`。`outcome_confirmed` の `correlationId` は `outcome:<outcomeId>` で、Manager の `issue_story` が使う既定の相関 ID と同じ。再試行中のイベントには `retryCount`（`retryable_failure` を記録した回数）と `lastFailureReason` が付く。`version` が未知の値のイベントは処理せず、`terminal_failure` で理由を残す。
 
 ## 処理結果の記録
 
@@ -41,6 +42,13 @@ MCP `ack_runtime_event({ projectId, eventId, outcome, reason? })`、または We
 - 応答が失われたら同じ `ack` を再送してよい。同じ結果なら状態を変えず、応答の `recorded` が `false` になる
 - `processed` / `terminal_failure` 済みのイベントに別の結果を送ると `CONFLICT`。`retryable_failure` からはどの結果へも進める
 - 別 Project のイベントは `NOT_FOUND`。`retryable_failure` を送り続けても上限は Compass にない。再試行の上限と間隔は Runtime が決め、超えたら `terminal_failure` で理由を残す
+
+## Manager 起動後の扱い（`outcome_confirmed`）
+
+- Compass は Story も Manager も自動では作らない。Runtime が Manager を起動し、Manager が MCP の `issue_story` で Story を作る
+- Manager の起動が timeout したり応答が失われたりしたら、同じ `outcomeId` で Manager を再起動してよい。同じ `correlationId` の Story は Project 内で 1 件に収束するため、二重に作られない
+- Manager が `NOT_FOUND`（Outcome が Project に無い）・`CONFLICT`（Outcome が取消済み、または Project が archived）を報告した場合、再試行しても成功しない。`terminal_failure` で理由を残す。`UNAUTHENTICATED` / `FORBIDDEN` は Grant を直してから再試行する（`retryable_failure`）
+- Execution の進行（Story / Task / Claim の変化）は、Runtime が MCP `list_changes` の `nextCursor` を保持して増分取得する。これは Runtime event の ack とは別の仕組みで、Compass は Change の配送を記録しない
 
 ## やらないこと
 

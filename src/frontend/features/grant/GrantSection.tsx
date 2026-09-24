@@ -5,7 +5,7 @@ import { ErrorState, Loading } from "../../components/StateCard";
 import { GrantRow } from "./GrantRow";
 import { grantInit, grantNotice, grantRoleLabels, grantsPath, type Grant, type GrantResponse, type GrantRole } from "./grants";
 
-// ---- Project Role Grant（Step 4でStrategist、Task 29でResearcherを統合）。Agentの稼働状況・Run・自動起動は扱わないため表示しない。 ----
+// ---- Project Role Grant（Step 4でStrategist、Task 29でResearcher、Task 33でManager・Worker・Reviewerを統合）。Agentの稼働状況・Run・自動起動は扱わないため表示しない。 ----
 /** `readOnly`（archivedのProject）では、割当・取消の導線を出さず、割当済みの一覧だけを表示する。 */
 export const GrantSection = ({
   projectId,

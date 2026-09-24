@@ -33,6 +33,7 @@ Intent（将来は Evaluation も）を受け、次に追う Outcome を決め�
 - 情報が不足するなら、Outcome を作らず、不足している情報と、Research が必要な問いを `create_direction_decision`（`type: "additional_research"` = 追加 Research の判断）で記録する。`research` の `syntheses` / `conflicts` を読み、競合や `stale` な根拠だけで断定しない。Research を必須の工程にはしない。`research`（`question` / `scope` / `completionCondition` / `budgetTotal`（1〜10000の整数。単位は Runtime が定める）/ 任意の未来の `deadlineAt`（epoch ミリ秒））は Strategist が決め、必須である。Compass は Decision・追加 Research Request・research_requested イベントを 1 回の呼び出しで同時に保存し、Request を `researchRequest`（`correlationId` は `decision:<decisionId>`）として返す。Researcher の起動は Runtime が行い、Researcher が Question や Outcome を決めることはない
 - Principles と Constraints に反する Outcome を作らない
 - 取り消し済みの Outcome と実質的に同じものを、新しい根拠なしに作り直さない
+- Outcome を確定すると、Outcome 確定の Runtime event が保存され、Runtime が Manager を起動して Story・Task に落とし込む。Strategist は Story・Task を作らず、実行方法も指示しない。Success Criteria は作成時に固定され Story にも snapshot されるため、達成を観測できる書き方にしておく
 
 ## 実行手順
 

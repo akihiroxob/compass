@@ -7,6 +7,9 @@ type GrantRowProps = { projectId: string; grant: Grant; onRevoked: () => void; r
 const revokeConsequence: Record<Grant["role"], string> = {
   strategist: "Outcomeを作成できません",
   researcher: "Research Result・Synthesisを登録できません",
+  manager: "Story・Taskの作成・編集と最終受入ができません",
+  worker: "Taskを引き受けて実装できません",
+  reviewer: "完了したTaskをレビューできません",
 };
 
 /** 発行済みのRole Grant 1件。取消は誤操作防止の確認パネルを挟む（API・CLIには確認工程がない）。 */

@@ -2,6 +2,12 @@
 export const ProjectRole = {
   STRATEGIST: "strategist",
   RESEARCHER: "researcher",
+  /** Execution（Story / Taskの管理）。Story・Taskの作成・編集・取消と最終受入を担う。 */
+  MANAGER: "manager",
+  /** Executionでの実装。Taskをclaimして作業し、レビュー可能な状態へ進める。 */
+  WORKER: "worker",
+  /** Executionでの実装レビュー。 */
+  REVIEWER: "reviewer",
   /** 外部Runtimeがイベントを取得・ackするための暫定Role。Task 37でRuntime Credentialのscopeへ置き換える。 */
   RUNTIME: "runtime",
 } as const;

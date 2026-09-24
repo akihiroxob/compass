@@ -99,7 +99,7 @@ test("存在しないProjectは発行・一覧・取消とも404、不正な入�
     [{ principalId: "x".repeat(101), role: "strategist" }, "principalId"],
     [{ principalId: "bad\u0007", role: "strategist" }, "principalId"],
     [{ principalId: "a", role: "" }, "role"],
-    [{ principalId: "a", role: "worker" }, "role"],
+    [{ principalId: "a", role: "admin" }, "role"],
     [{ principalId: "a", role: "Strategist" }, "role"],
     [{ principalId: "a" }, "role"],
   ];
@@ -114,7 +114,7 @@ test("存在しないProjectは発行・一覧・取消とも404、不正な入�
   assert.equal(malformed.status, 400);
   assert.equal(((await malformed.json()) as ErrorBody).error.code, "VALIDATION_ERROR");
 
-  const badRole = await send(app, "DELETE", `${grantsPath(projectId)}/worker/a`);
+  const badRole = await send(app, "DELETE", `${grantsPath(projectId)}/admin/a`);
   assert.equal(badRole.status, 400);
   assert.deepEqual(((await badRole.json()) as ErrorBody).error.issues?.map((issue) => issue.path), ["role"]);
   assert.deepEqual(await (await app.request(grantsPath(projectId))).json(), { grants: [] });
@@ -180,7 +180,7 @@ test("runCli: 引数不足・未知のコマンドは終了コード2、未知�
   assert.equal(missingBody.error.code, "NOT_FOUND");
   assert.match(missingBody.error.message, /Project missing/);
 
-  const invalid = await runCli(["grant", project.id, "strat-1", "worker"], services);
+  const invalid = await runCli(["grant", project.id, "strat-1", "admin"], services);
   assert.equal(invalid.exitCode, 1);
   const invalidBody = JSON.parse(invalid.stderr) as ErrorBody;
   assert.equal(invalidBody.error.code, "VALIDATION_ERROR");

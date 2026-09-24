@@ -103,7 +103,7 @@ test("Instructionファイルが無い・読めない場合はpath入りのINSTR
 
 test("列挙外のInstruction名はagent外のfileを読まずに拒否する", async () => {
   const service = new InstructionService();
-  for (const name of ["../package", "worker", "strategist/../role-policy", ""]) {
+  for (const name of ["../package", "admin", "strategist/../role-policy", ""]) {
     await assert.rejects(() => service.getInstructionContent(name as never), InstructionUnavailableError, name);
   }
 });
@@ -146,7 +146,7 @@ test("get_role_instructionsはBearerなしでもWacha互換の形で返す", asy
 
 test("get_role_instructionsはenum外のroleを入力検証で拒否する", async () => {
   const { database, app } = await setup();
-  for (const role of ["worker", "manager", "Strategist", ""]) {
+  for (const role of ["admin", "Manager", "Strategist", ""]) {
     const result = await getInstructions(app, { role, includeShared: true });
     assert.equal(result.isError, true, role);
   }

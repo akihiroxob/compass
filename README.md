@@ -16,7 +16,7 @@ npm start
 - MCP: `http://localhost:51800/mcp`
 - health check: `http://localhost:51800/health`
 
-既定 port は `51800` です（Wacha の既定 port `51743` とは衝突しないため、Wacha と同時に起動できます）。環境変数は [.env.example](.env.example) を参照してください。`PORT` で port、`COMPASS_DB_PATH` で Project を保存する SQLite file を指定します。
+既定 port は `51800` です（Wacha の既定 port `51743` とは衝突しないため、Wacha と同時に起動できます）。環境変数は [.env.example](.env.example) を参照してください。`PORT` で port、`COMPASS_DB_PATH` で Project を保存する SQLite file を指定します。`COMPASS_CLAIM_TTL_MS` は Execution の Task Claim の有効期間（ミリ秒、既定 30 分）です。
 
 `.env.example` は自動では読み込まれません。値を変えるときは `.env.example` をコピーして読み込むのではなく、シェルの環境変数として渡してください。
 
@@ -127,6 +127,23 @@ Direction Decision（Compassを正本とする判断記録）はTask 27で実装
 `adr_candidate`のDirection Decisionから、既存Wacha Manager / Worker / Reviewerへ渡す依頼と完了結果の参照はTask 28で実装済みです。MCP tool `create_adr_handoff_request`が、`decisionId`（`adr_candidate`のDecision）と`repositoryId`（Projectに登録済みのRepository）からWachaへの依頼payloadをfixtureとして組み立てて保存します（`expectedAdrContent`はDecisionの`judgment` / `reason` / `options`から決定的に作られ、呼び出し側が別の自由記述を渡すことはありません）。`record_adr_reference`が、Wachaが完了させた結果（対象Repository内の相対path、完全な40桁のcommit SHA、任意のPR URL）を取り込みます。`path`はCompass serverのローカルfilesystem pathとして扱わず、絶対pathや`..`を含むpathは`VALIDATION_ERROR`で拒否します。`record_adr_reference`は、同じ`decisionId` / `repositoryId` / `correlationId`の`create_adr_handoff_request`が先に存在しない場合は`CONFLICT`で拒否し、依頼を経ていない参照を受け付けません。`list_adr_references`でProject scopeの参照を新しい順に確認できます。実WachaやGitHub APIとは未接続で、fixtureによる契約検証までです。Human向けのResearch・Direction Decision・ADR参照の読み取り専用画面（Web API: `GET /api/projects/:projectId/research-requests[/:requestId]`・`GET /api/projects/:projectId/intents/:intentId/decisions`・`GET /api/projects/:projectId/adr-references`、Web UI: Project詳細のResearch section・ADR参照section、Intent詳細のDirection Decision section）はTask 29で実装済みです。Repository ADRのHuman向け自動反映は引き続き対象外です。
 現時点ではStrategistが情報不足を報告し、根拠を推測で補わないところまでをInstructionで定めています。
 
+## Execution（Story・Task・Claim。Task 33）
+
+旧 Wacha の Execution（Story / Task / Claim / Comment / Change Log、manager / worker / reviewer）を Compass に移植しました。別の Wacha server は起動せず、同じ Hono server・同じ port・同じ `/mcp`、同じ Project・同じ Role Grant を使います（設計は [docs/lv6-unification-design.md](docs/lv6-unification-design.md)）。
+
+- **MCP tool**（旧 Wacha の名前・入出力を維持）: `list_stories` / `list_tasks` / `list_task_comments` / `list_changes` / `issue_story` / `edit_story` / `complete_story` / `cancel_story` / `issue_task` / `edit_task` / `cancel_task` / `claim_task` / `claim_review` / `claim_acceptance` / `renew_claim` / `release_claim` / `add_task_comment` / `complete_task` / `reviewed_task` / `accept_task` / `reject_task`。Direction の tool と同じ endpoint から列挙されます。旧 Wacha の `list_projects`（Grant 済み Project 一覧）・`list_skills`・`get_skill_context` は移植せず、Project は既存の `list_projects` / `get_project`、Instruction は既存の `get_role_instructions`（`manager` / `worker` / `reviewer`）を使います。
+- **認可**: `Authorization: Bearer <AgentName>`（trusted-local）から得る Principal と、Project の Role Grant で検査します。Bearer なしは `UNAUTHENTICATED`、Grant なしは `FORBIDDEN`。Execution の tool は旧 Wacha と同じ `{ error: { code, message, retryable } }` でエラーを返し、状態を変える tool は `requestId` で冪等です（同じ入力の再送は元の結果、別の入力での再利用は `IDEMPOTENCY_CONFLICT`）。排他 Claim、自己 review・自己受入の禁止、`reject` の意味は `agent/role-policy.md` にあります。
+- **Outcome 起点の引き渡し**: Outcome が確定すると `outcome_confirmed` の Runtime event が保存されます。外部 Runtime が Manager を起動し、Manager が `issue_story({ projectId, title, outcomeId, repositoryId?, requestId })` を呼ぶと、Compass は Outcome の固定 Success Criteria・origin Decision・その時点の Project Constraints・対象 Repository を Story に snapshot として保存します。相関 ID の既定は `outcome:<outcomeId>` で、Project 内で一意です。同じ handoff の再送は、新しい `requestId` でも既存の Story を返し、二重に作りません（別内容なら `IDEMPOTENCY_CONFLICT`）。Outcome が Project に無い・Repository が無いときは `NOT_FOUND`、Outcome が取消済み・Project が archived のときは `CONFLICT`、入力不正は `INVALID_INPUT` で、Story は一部だけ作られません。Direction は Story・Task・Claim を、Execution は Outcome・Success Criteria を変更しません。
+- **archived Project**: `issue_story` / `issue_task` / `claim_task` は `CONFLICT`（`projectStatus: "archived"`）で拒否します。参照は可能です。
+- **Human の入口**: Manager・Worker・Reviewer の Grant は Project 詳細の Web UI から発行・取消できます。Execution の Story・Task をHuman が閲覧・操作する Web UI / API は未実装です。
+
+実装済み・未接続・未検証:
+
+- 実装済み: 上記の tool・認可・冪等性・Change Log・handoff、`outcome_confirmed`、Execution 用 table の追加（`initializeSchema` が既存 DB に冪等に追加）。旧 Wacha の `TaskCoordinationService` の回帰テスト（`test/executionCoordination.test.ts`）、統一 `/mcp` 経由のテスト（`test/executionMcp.test.ts`）、handoff（`test/executionHandoff.test.ts`）、境界（`test/executionBoundary.test.ts`）、イベントとマイグレーション（`test/outcomeConfirmed.test.ts`）で確認しています。
+- 未接続: 外部 Runtime による `outcome_confirmed` の取得・Manager の起動、Agent の自律起動。Execution から Direction へのEvidence 還流（Task 34）、Evaluation（Task 35〜36）。Agent / Runtime 用の不透明 Credential（Task 37。現在は trusted-local）。
+- 未検証: 上記のテストは Runtime を模したテスト内の MCP 呼び出しで、Lv6 の自律運転の実証ではありません。
+- 移植しなかったもの: 旧 Wacha の Web UI（Project Activity・Task drawer 等）、trusted-local の operator 受入・差戻し、`list_projects` / Skill / Knowledge。
+
 ## 検証
 
 ```bash
@@ -139,7 +156,7 @@ npm run build
 Step 1 の Project 仕様は [docs/step-1-project-design.md](docs/step-1-project-design.md) に記載しています。
 Step 2 の Intent 仕様と実装状況・検証手順は [docs/step-2-intent-design.md](docs/step-2-intent-design.md) に記載しています。Intent は Project 配下に保存され、Web UI（Project 詳細の Intent section）、Web API（`/api/projects/:projectId/intents`）、MCP（`create_intent` / `list_intents` / `get_intent` / `update_intent` / `abandon_intent`）から作成・参照・更新・放棄できます。Strategist の Role Grant・Instruction・認可は Step 4 で実装済みですが（後述）、Runtime による Strategist の自動起動と Research は未実装です（Outcome は Step 3 で追加）。事前のユーザー確認は設けず、完成後のフィードバックに応じて修正します。
 
-Step 3 の Outcome と成功条件の仕様と実装状況・検証手順は [docs/step-3-outcome-design.md](docs/step-3-outcome-design.md) に記載しています。Outcome は Intent 配下に成功条件（1〜10件、作成時に固定）とともに保存され、Web UI（Intent 詳細の Outcome section、Project 詳細の Active Outcomes）、Web API（`/api/projects/:projectId/intents/:intentId/outcomes`）、MCP（`create_outcome` / `list_outcomes` / `get_outcome` / `update_outcome` / `cancel_outcome`。書込は Step 4 以降 Strategist Grant と Bearer が必要）から作成・参照・更新（title・hypothesis のみ）・取消できます。Intent から Outcome は自動生成されず、Evaluation・Execution・Wacha 連携・Strategist の自動起動は未実装です。
+Step 3 の Outcome と成功条件の仕様と実装状況・検証手順は [docs/step-3-outcome-design.md](docs/step-3-outcome-design.md) に記載しています。Outcome は Intent 配下に成功条件（1〜10件、作成時に固定）とともに保存され、Web UI（Intent 詳細の Outcome section、Project 詳細の Active Outcomes）、Web API（`/api/projects/:projectId/intents/:intentId/outcomes`）、MCP（`create_outcome` / `list_outcomes` / `get_outcome` / `update_outcome` / `cancel_outcome`。書込は Step 4 以降 Strategist Grant と Bearer が必要）から作成・参照・更新（title・hypothesis のみ）・取消できます。Intent から Outcome は自動生成されず、Evaluation・Strategist の自動起動は未実装です（Execution は Task 33 で統合済み。後述の「Execution」）。
 
 Step 4 の Strategist Role と認可境界（Project 単位の Role Grant、`Authorization: Bearer <AgentName>` による MCP の Principal 解決、Grant の Command API・CLI、Instruction 配信）は [docs/step-4-strategist-role-design.md](docs/step-4-strategist-role-design.md) に設計を記載しています。
 
@@ -149,7 +166,7 @@ Step 4 の Strategist Role と認可境界（Project 単位の Role Grant、`Aut
   - その Project の Strategist Grant を持つ Principal は `update_project` / `create_intent` / `update_intent` / `abandon_intent` を `FORBIDDEN` で拒否されます（職務分離。Bearer なし・Grant なしは従来どおり成功）。
   - `Authorization` が有るのに形式不正（`Basic ...`、値なし、101 文字以上、制御文字）の `/mcp` は HTTP `401`（JSON-RPC `-32001`）で、tool へ進みません。ヘッダー無しの `initialize` / `tools/list` と読み取り tool は従来どおり使えます。
   - tool 入力の `role` / `principalId`・MCP session ID は認証情報として使いません。Grant は呼び出しごとに DB を読むため、取消は次の呼び出しから反映されます。Web API / CLI は従来どおり Principal なしです。
-- **実装済み（Task 16）**: Instruction 配信。repo 直下の `agent/role-policy.md`（共通 Policy）と `agent/strategist.md`（Role 文書）を `InstructionService` が読み、MCP `get_role_instructions({ role: "strategist", includeShared?: boolean })` が Wacha と同じ `{ role, includeShared, files: [{ path, kind: "shared" | "role", content }] }` で返します（`includeShared: true` で共通 Policy が先頭）。Bearer・Grant は不要です。ファイルを読めない場合は `INSTRUCTION_UNAVAILABLE`（対象 path 入り、`isError: true`）で、部分的な応答は返しません。`role` は `strategist`・`researcher`（Task 24）・`runtime`（Task 31。Agent ではなく外部 Runtime 用の暫定 Role）で、Role を足すときは `ProjectRole` と `agent/<role>.md` の追加で同じ経路を使えます。Instruction を読んで動く Agent の自動起動（Runtime）は未接続です。
+- **実装済み（Task 16）**: Instruction 配信。repo 直下の `agent/role-policy.md`（共通 Policy）と `agent/strategist.md`（Role 文書）を `InstructionService` が読み、MCP `get_role_instructions({ role: "strategist", includeShared?: boolean })` が Wacha と同じ `{ role, includeShared, files: [{ path, kind: "shared" | "role", content }] }` で返します（`includeShared: true` で共通 Policy が先頭）。Bearer・Grant は不要です。ファイルを読めない場合は `INSTRUCTION_UNAVAILABLE`（対象 path 入り、`isError: true`）で、部分的な応答は返しません。`role` は `strategist`・`researcher`（Task 24）・`manager`・`worker`・`reviewer`（Task 33。Execution 用）・`runtime`（Task 31。Agent ではなく外部 Runtime 用の暫定 Role）で、Role を足すときは `ProjectRole` と `agent/<role>.md` の追加で同じ経路を使えます。Instruction を読んで動く Agent の自動起動（Runtime）は未接続です。
 - **実装済み（Task 17）**: 自動統合検証（`test/strategistIntegration.test.ts`）。実 HTTP サーバー・CLI プロセス・MCP SDK client で、空 DB から Project・Intent（API）→ Grant（CLI / API）→ Instruction・Context・`create_outcome`（MCP + Bearer）→ Web 参照までを Human 操作なしで通し、権限なし・別 Project・取消済み・Bearer なし・Role 不一致・Instruction 欠落の拒否と、同じ DB・同じ port での再起動後の Grant 保持を確認します。MCP には Grant 管理 tool を設けないため、Human の Grant 発行は Web UI（Project 詳細の Strategist section）で行い、この自動検証は Web API / CLI で発行します。Runtime による Agent の自律起動は未接続で、テスト内の MCP client は自律運転の実証ではありません。
 
 Step 5 の Project archive（active → archived の不可逆な遷移、理由の保持、archived 時に拒否する操作と参照できる操作）の設計と実装状況は [docs/step-5-project-archive-design.md](docs/step-5-project-archive-design.md) に記載しています。**永続化・共通 use case・Web API・状態ガードは実装済み**（Task 20）です。`POST /api/projects/:projectId/archive`（本文 `{ "reason": "..." }`）で archive し、`GET /api/projects` は active のみ、`GET /api/projects?status=archived` は archived のみを返します。archived の Project への書込（Project 更新、Intent / Outcome の変更、Grant の発行・取消）は Web API・MCP・CLI とも 409 `CONFLICT`（`projectStatus: "archived"`）で拒否し、参照は成功します。**Web UI も実装済み**（Task 21）です。Project 詳細の「アーカイブ」から、理由（必須）を入力する確認パネルを経て archive でき、Project 一覧の「アーカイブ済み」へ切り替えると理由と日時つきで参照できます。archived の詳細は状態・理由・日時を表示し、Project 編集・Intent / Outcome の登録・変更・Strategist の割当変更の導線を出しません（拒否はサーバーが行い、編集 URL へ直接アクセスして保存しても「アーカイブ済みのため変更できません」と表示され内容は変わりません）。archive は Web API だけに公開し、MCP tool と CLI には追加しません（復帰・削除も作りません）。
@@ -158,7 +175,7 @@ Project単位のResearch蓄積、Intent起点のResearch Request、Finding / Syn
 
 ### Runtime event の取得と ack（Task 31）
 
-外部 Runtime が Agent の起動条件（`research_requested` → Researcher、`research_completed` → Strategist）を取得する入口です。Compass は Agent を起動せず、polling 間隔・backoff・retry 上限は Runtime の責務です。認可は暫定の `runtime` Role Grant（`role: "runtime"`。Task 37 の Runtime 用 Credential で置き換える予定）で、Bearer の値がそのまま consumer になり、consumer ごとに ack が独立します。trusted-local のため認証はありません。Grant の発行は Web API / CLI で行い、Web UI の発行画面は Task 37 の Credential 管理で提供します（Project 詳細の Grant 画面には `runtime` を追加していません）。
+外部 Runtime が Agent の起動条件（`research_requested` → Researcher、`research_completed` → Strategist、`outcome_confirmed` → Manager）を取得する入口です。Compass は Agent を起動せず、polling 間隔・backoff・retry 上限は Runtime の責務です。認可は暫定の `runtime` Role Grant（`role: "runtime"`。Task 37 の Runtime 用 Credential で置き換える予定）で、Bearer の値がそのまま consumer になり、consumer ごとに ack が独立します。trusted-local のため認証はありません。Grant の発行は Web API / CLI で行い、Web UI の発行画面は Task 37 の Credential 管理で提供します（Project 詳細の Grant 画面には `runtime` を追加していません）。
 
 ```bash
 # 未処理イベントの取得（cursor 昇順。afterCursor は既定 0、limit は 1〜500・既定 100）
@@ -175,15 +192,16 @@ curl -X POST -H 'Authorization: Bearer runtime-a' -H 'Content-Type: application/
 - `nextCursor` を次の `afterCursor` に渡すと続きから取得できます。Runtime が再起動して cursor を失った場合は `afterCursor=0` から取得し直せば、ack 済み以外だけが返ります（server 再起動後も ack と cursor は SQLite に残ります）。
 - ack の再送は冪等です（同じ結果なら `recorded: false`）。`processed` / `terminal_failure` 済みに別の結果を送ると `409 CONFLICT`、`retryable_failure` からは任意の結果へ進めます。別 Project のイベントは `404 NOT_FOUND`、Bearer なし・形式不正は `401 UNAUTHENTICATED`、runtime Grant なし（別 Project・取消済み・他の Role のみ）は `403 FORBIDDEN` です。
 - `research_completed` は `projectId`・`intentId`・`researchRequestId`（Request の ID）・`correlationId`・`version`・`conclusion` を持ち、Strategist の起動に必要な項目を揃えています。
+- `outcome_confirmed`（Task 33）は `create_outcome` / `decide_next_outcome` が Outcome を保存する同じ transaction で 1 件だけ保存され、`projectId`・`intentId`・`outcomeId`・`correlationId`（`outcome:<outcomeId>`）・`version` を持ちます（`researchRequestId` は `null`、research 系イベントの `outcomeId` は `null`）。Manager の起動条件で、Compass は Story を自動では作りません（後述の「Execution」）。
 - MCP は同じ use case を `fetch_runtime_events`・`ack_runtime_event`（入力は `projectId` と上記の項目）として公開します。Runtime 向けの手順は `get_role_instructions({ role: "runtime" })`（`agent/runtime.md`）にあります。
-- 未接続・未検証: 実際の外部 Runtime による取得・Agent 起動は未接続です。検証は Web API / MCP の in-process 呼び出し（`test/runtimeEvents.test.ts`）で、Lv6 の自律運転の実証ではありません。`outcome_confirmed` イベントは未実装です（Task 32・33）。
+- 未接続・未検証: 実際の外部 Runtime による取得・Agent 起動は未接続です。検証は Web API / MCP の in-process 呼び出し（`test/runtimeEvents.test.ts`）で、Lv6 の自律運転の実証ではありません。`outcome_confirmed` を受けた Manager の起動も同様に未接続です。既存 DB の `runtime_event` は、起動時（`initializeSchema`）に SQLite 公式手順で table を作り直して `outcome_confirmed` を受け付けるようにします（event・cursor・ack は保持され、再実行しても変わりません）。
 
-### Project Role Grant（Strategist / Researcher）の操作
+### Project Role Grant（Strategist / Researcher / Manager / Worker / Reviewer）の操作
 
-Grant は Agent を起動しません。「この Agent 名が、この Project で Strategist（または Researcher）として振る舞ってよい」という記録です。HumanはProject詳細のWeb UI（Strategist section・Researcher section、いずれもTask 29で共通のGrant Section実装を再利用）から発行・取消します。Web APIはWeb UIと外部Runtimeの接続面、CLIはローカル開発・保守・自動検証用です。trusted-local を前提とし、認証はありません。
+Grant は Agent を起動しません。「この Agent 名が、この Project でその Role として振る舞ってよい」という記録です。HumanはProject詳細のWeb UI（Strategist・Researcher・Manager・Worker・Reviewerの各section。共通のGrant Section実装を再利用し、Manager・Worker・ReviewerはTask 33で追加）から発行・取消します。Web APIはWeb UIと外部Runtimeの接続面、CLIはローカル開発・保守・自動検証用です。trusted-local を前提とし、認証はありません。
 
 ```bash
-# Web API（Web UI・外部Runtime・自動検証用。server 起動中。role は strategist / researcher）
+# Web API（Web UI・外部Runtime・自動検証用。server 起動中。role は strategist / researcher / manager / worker / reviewer）
 curl -X POST localhost:51800/api/projects/<projectId>/grants \
   -H 'Content-Type: application/json' -d '{"principalId":"strategist-agent","role":"strategist"}'   # 新規 201 / 既存 200
 curl localhost:51800/api/projects/<projectId>/grants                                                  # { "grants": [...] }
@@ -195,6 +213,6 @@ npm run cli -- revoke <projectId> <AgentName> strategist
 npm run cli -- grants <projectId>
 ```
 
-CLI の標準出力は Web API と同じ形の JSON です。失敗は標準エラーの `{ "error": { "code", "message" } }` で、終了コードは成功 `0`（存在しない Grant の取消も `0`）、検証・存在エラー `1`、引数不足・未知のコマンド `2` です。再発行は重複せず、存在しない Project は `NOT_FOUND`、空・101 文字以上・制御文字を含む Agent 名と `strategist` / `researcher` / `runtime` 以外の role は `VALIDATION_ERROR` になります。
+CLI の標準出力は Web API と同じ形の JSON です。失敗は標準エラーの `{ "error": { "code", "message" } }` で、終了コードは成功 `0`（存在しない Grant の取消も `0`）、検証・存在エラー `1`、引数不足・未知のコマンド `2` です。再発行は重複せず、存在しない Project は `NOT_FOUND`、空・101 文字以上・制御文字を含む Agent 名と `strategist` / `researcher` / `manager` / `worker` / `reviewer` / `runtime` 以外の role は `VALIDATION_ERROR` になります。
 
 Coordination and Operations Management Platform for Autonomous Software Systems

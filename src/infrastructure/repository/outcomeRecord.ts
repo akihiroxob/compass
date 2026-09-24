@@ -2,6 +2,7 @@ import type { Kysely, Selectable, Transaction } from "kysely";
 import { Outcome, type SuccessCriterion } from "../../domain/model/Outcome.ts";
 import type { CreateOutcomeInput } from "../../shared/outcomeSchema.ts";
 import type { Database, OutcomeTable, SuccessCriterionTable } from "../database/schema.ts";
+import { recordOutcomeConfirmedEvent } from "./runtimeEventRecord.ts";
 
 type Executor = Kysely<Database> | Transaction<Database>;
 
@@ -53,7 +54,8 @@ export const loadOutcomes = async (
 /**
  * OutcomeとSuccess Criterionを1 transactionで挿入する。`id`・`originDecisionId`は呼び出し側が決める
  * （decideNextOutcomeはDecision行を作る前にOutcomeのIDを確定させ、Decision.outcomeIdのFKに使う）。
- * 存在・状態の確認は呼び出し側が行う。
+ * 存在・状態の確認は呼び出し側が行う。あわせて`outcome_confirmed`イベントを同じtransactionで保存するため、
+ * Outcomeとイベントの一方だけが残ることはない（create_outcome・decide_next_outcomeの両方がここを通る）。
  */
 export const insertOutcomeRow = async (
   transaction: Transaction<Database>,
@@ -96,6 +98,7 @@ export const insertOutcomeRow = async (
       })),
     )
     .execute();
+  await recordOutcomeConfirmedEvent(transaction, { projectId, intentId, outcomeId: row.id, occurredAt: now });
   const [outcome] = await loadOutcomes(transaction, [row]);
   return outcome!;
 };

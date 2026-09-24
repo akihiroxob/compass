@@ -16,6 +16,7 @@ const toRuntimeEvent = (row: Selectable<RuntimeEventTable>): RuntimeEvent => ({
   projectId: row.project_id,
   intentId: row.intent_id,
   researchRequestId: row.research_request_id,
+  outcomeId: row.outcome_id,
   correlationId: row.correlation_id,
   conclusion: row.conclusion,
   occurredAt: row.created_at,

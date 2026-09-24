@@ -103,6 +103,7 @@ test("Intent作成でInitial Research Requestとresearch_requestedイベント�
       projectId: project.id,
       intentId: intent.id,
       researchRequestId: request.id,
+      outcomeId: null,
       correlationId: request.correlationId,
       conclusion: null,
       occurredAt: events[0]!.occurredAt,

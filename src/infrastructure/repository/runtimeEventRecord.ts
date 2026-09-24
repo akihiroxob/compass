@@ -1,5 +1,6 @@
 import type { Transaction } from "kysely";
 import { runtimeEventVersion, type RuntimeEventType } from "../../domain/model/RuntimeEvent.ts";
+import { outcomeCorrelationId } from "../../shared/outcomeCorrelation.ts";
 import type { ResearchConclusion } from "../../domain/model/Research.ts";
 import type { Database } from "../database/schema.ts";
 
@@ -33,5 +34,31 @@ export const recordRuntimeEvent = async (
       created_at: event.occurredAt,
     })
     .onConflict((conflict) => conflict.columns(["research_request_id", "event_type"]).doNothing())
+    .execute();
+};
+
+/**
+ * Outcome確定を、Outcomeの保存と同じtransactionで追記する。相関IDは`outcome:{outcomeId}`で決定的にし、
+ * RuntimeがManagerを起動して`issue_story`へ渡す相関IDと一致させる。同じOutcomeのイベントは1件に収束する。
+ */
+export const recordOutcomeConfirmedEvent = async (
+  transaction: Transaction<Database>,
+  outcome: { projectId: string; intentId: string; outcomeId: string; occurredAt: number },
+): Promise<void> => {
+  await transaction
+    .insertInto("runtime_event")
+    .values({
+      id: crypto.randomUUID(),
+      event_version: runtimeEventVersion,
+      event_type: "outcome_confirmed",
+      project_id: outcome.projectId,
+      intent_id: outcome.intentId,
+      research_request_id: null,
+      outcome_id: outcome.outcomeId,
+      correlation_id: outcomeCorrelationId(outcome.outcomeId),
+      conclusion: null,
+      created_at: outcome.occurredAt,
+    })
+    .onConflict((conflict) => conflict.columns(["outcome_id", "event_type"]).doNothing())
     .execute();
 };

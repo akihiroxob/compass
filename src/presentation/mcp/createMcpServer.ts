@@ -2,14 +2,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { directionDecisionRecordTypes } from "../../domain/model/DirectionDecision.ts";
 import { ProjectRole, projectRoles } from "../../constants/ProjectRole.ts";
-import { ConflictError } from "../../application/error/ConflictError.ts";
-import { ForbiddenError } from "../../application/error/ForbiddenError.ts";
-import { InstructionUnavailableError } from "../../application/error/InstructionUnavailableError.ts";
-import { NotFoundError } from "../../application/error/NotFoundError.ts";
-import { UnauthenticatedError } from "../../application/error/UnauthenticatedError.ts";
-import { ValidationError } from "../../application/error/ValidationError.ts";
 import type { Principal } from "../../application/service/ProjectAuthorizationService.ts";
 import type { ApplicationServices } from "../../container.ts";
+import { registerExecutionTools } from "./registerExecutionTools.ts";
+import { execute } from "./toolExecution.ts";
 
 const nullableText = (maximum: number) => z.string().max(maximum).nullable().optional();
 const namedLink = { name: z.string(), url: z.string() };
@@ -186,42 +182,6 @@ const researchSynthesisSchema = {
   supersedesId: z.string().nullable().optional(),
 };
 
-const result = (value: unknown) => {
-  const plainValue = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
-  return {
-    content: [{ type: "text" as const, text: JSON.stringify(plainValue, null, 2) }],
-    structuredContent: plainValue,
-  };
-};
-
-const execute = async (operation: () => Promise<unknown>) => {
-  try {
-    return result(await operation());
-  } catch (error) {
-    if (
-      error instanceof ValidationError ||
-      error instanceof NotFoundError ||
-      error instanceof ConflictError ||
-      error instanceof ForbiddenError ||
-      error instanceof UnauthenticatedError ||
-      error instanceof InstructionUnavailableError
-    ) {
-      return {
-        ...result({
-          error: {
-            code: error.code,
-            message: error.message,
-            ...(error instanceof ValidationError ? { issues: error.issues } : {}),
-            ...(error instanceof ConflictError || error instanceof ForbiddenError ? error.details : {}),
-          },
-        }),
-        isError: true,
-      };
-    }
-    throw error;
-  }
-};
-
 /** principalはAuthorizationヘッダーから解決した値だけ。tool入力やsession IDは認証情報として読まない。 */
 export const createMcpServer = (services: ApplicationServices, principal: Principal = null) => {
   const authorization = services.projectAuthorizationService;
@@ -242,7 +202,7 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
 
   const server = new McpServer(
     { name: "compass", version: "0.1.0" },
-    { instructions: "Compass Direction context server" },
+    { instructions: "Compass MCP server: Direction (Project, Intent, Research, Outcome) and Execution (Story, Task, Claim) tools" },
   );
 
   server.registerTool(
@@ -714,6 +674,8 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
     },
     ({ projectId, ...input }) => execute(() => services.ackRuntimeEventUseCase.execute(principal, projectId, input)),
   );
+
+  registerExecutionTools(server, services, principal);
 
   return server;
 };

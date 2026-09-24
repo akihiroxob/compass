@@ -29,6 +29,8 @@ export interface OutcomeRepository {
   findByIntent(projectId: string, intentId: string): Promise<Outcome[]>;
   /** 他ProjectまたはIntent配下のOutcome IDはnullとして扱う。 */
   findById(projectId: string, intentId: string, outcomeId: string): Promise<Outcome | null>;
+  /** Intentを指定せず、Project内のOutcomeをIDで取得する。他ProjectのOutcome IDはnull（Execution向けの参照ポートが使う）。 */
+  findByIdInProject(projectId: string, outcomeId: string): Promise<Outcome | null>;
   /** activeなOutcomeのtitle・hypothesisだけを更新する。 */
   update(
     projectId: string,

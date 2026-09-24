@@ -425,23 +425,24 @@ const backfillInitialResearchRequests = async (database: Kysely<Database>): Prom
  * Runtime向けの確定イベント。同じRequestに対する同じ種類のイベントは1件に収束させ、再送・復旧・再初期化で重複させない。
  * `sequence`は`autoincrement`で、削除後も番号を再利用しない（Runtimeのcursorが巻き戻らない）。
  */
-const initializeRuntimeEventSchema = async (database: Kysely<Database>): Promise<void> => {
-  await database.schema
-    .createTable("runtime_event")
+const createRuntimeEventTable = (database: Kysely<Database>, name: string) =>
+  database.schema
+    .createTable(name)
     .ifNotExists()
     .addColumn("sequence", "integer", (column) => column.primaryKey().autoIncrement())
     .addColumn("id", "text", (column) => column.notNull().unique())
     .addColumn("event_version", "integer", (column) => column.notNull())
     .addColumn("event_type", "text", (column) =>
-      column.notNull().check(sql`event_type in ('research_requested', 'research_completed')`),
+      column.notNull().check(sql`event_type in ('research_requested', 'research_completed', 'outcome_confirmed')`),
     )
     .addColumn("project_id", "text", (column) =>
       column.notNull().references("project.id").onDelete("cascade"),
     )
     .addColumn("intent_id", "text", (column) => column.references("intent.id").onDelete("cascade"))
     .addColumn("research_request_id", "text", (column) =>
-      column.notNull().references("research_request.id").onDelete("cascade"),
+      column.references("research_request.id").onDelete("cascade"),
     )
+    .addColumn("outcome_id", "text", (column) => column.references("outcome.id").onDelete("cascade"))
     .addColumn("correlation_id", "text", (column) => column.notNull())
     .addColumn("conclusion", "text", (column) =>
       column.check(sql`conclusion is null or conclusion in ('completed', 'insufficient', 'not_needed')`),
@@ -451,13 +452,71 @@ const initializeRuntimeEventSchema = async (database: Kysely<Database>): Promise
       "runtime_event_conclusion_matches_type",
       sql`(event_type = 'research_completed') = (conclusion is not null)`,
     )
+    // outcome_confirmedだけがOutcomeを、research系だけがResearch Requestを発端にする。
+    .addCheckConstraint(
+      "runtime_event_subject_matches_type",
+      sql`(event_type = 'outcome_confirmed') = (outcome_id is not null) and (event_type = 'outcome_confirmed') = (research_request_id is null)`,
+    )
     .execute();
+
+/**
+ * Task 33以前の`runtime_event`は`event_type`のCHECKに`outcome_confirmed`が無く、`research_request_id`がNOT NULL。
+ * SQLiteはCHECK・NOT NULLを`ALTER`で変更できないため、SQLite公式の手順（新tableを作って写し、旧tableをdropして
+ * renameする）で作り直す。`sequence`（Runtimeのcursor）と`autoincrement`の高水位は引き継ぎ、
+ * `runtime_event_delivery`のFK（`event_sequence`）は同名の新tableへ向き直る。
+ * 新しい定義のDBには何もしないため、起動のたびに実行しても安全（idempotent）。
+ */
+const migrateRuntimeEventForOutcomeConfirmed = async (database: Kysely<Database>): Promise<void> => {
+  const existing = await sql<{ sql: string }>`select sql from sqlite_master where type = 'table' and name = 'runtime_event'`.execute(database);
+  const definition = existing.rows[0]?.sql;
+  if (definition === undefined || definition.includes("outcome_confirmed")) return;
+
+  // FKの検査を止めるPRAGMAはtransaction内では効かないため、transactionの前後で切り替える。
+  await sql`pragma foreign_keys = off`.execute(database);
+  try {
+    await database.transaction().execute(async (transaction) => {
+      await createRuntimeEventTable(transaction, "runtime_event_new");
+      await sql`
+        insert into runtime_event_new
+          (sequence, id, event_version, event_type, project_id, intent_id, research_request_id, correlation_id, conclusion, created_at)
+        select sequence, id, event_version, event_type, project_id, intent_id, research_request_id, correlation_id, conclusion, created_at
+        from runtime_event
+      `.execute(transaction);
+      const highWater = await sql<{ seq: number }>`select seq from sqlite_sequence where name = 'runtime_event'`.execute(transaction);
+      const seq = highWater.rows[0]?.seq;
+      if (seq !== undefined) {
+        const updated = await sql`update sqlite_sequence set seq = ${seq} where name = 'runtime_event_new'`.execute(transaction);
+        if (!updated.numAffectedRows) {
+          await sql`insert into sqlite_sequence (name, seq) values ('runtime_event_new', ${seq})`.execute(transaction);
+        }
+      }
+      await sql`drop table runtime_event`.execute(transaction);
+      await sql`alter table runtime_event_new rename to runtime_event`.execute(transaction);
+      const violations = await sql`pragma foreign_key_check`.execute(transaction);
+      if (violations.rows.length > 0) throw new Error("runtime_event migration left foreign key violations");
+    });
+  } finally {
+    await sql`pragma foreign_keys = on`.execute(database);
+  }
+};
+
+const initializeRuntimeEventSchema = async (database: Kysely<Database>): Promise<void> => {
+  await migrateRuntimeEventForOutcomeConfirmed(database);
+  await createRuntimeEventTable(database, "runtime_event");
   await database.schema
     .createIndex("runtime_event_request_type_idx")
     .unique()
     .ifNotExists()
     .on("runtime_event")
     .columns(["research_request_id", "event_type"])
+    .execute();
+  // Outcome確定イベントを、Outcomeごとに1件へ収束させる。
+  await database.schema
+    .createIndex("runtime_event_outcome_type_idx")
+    .unique()
+    .ifNotExists()
+    .on("runtime_event")
+    .columns(["outcome_id", "event_type"])
     .execute();
   await database.schema
     .createIndex("runtime_event_project_sequence_idx")
@@ -490,6 +549,150 @@ const initializeRuntimeEventSchema = async (database: Kysely<Database>): Promise
       "runtime_event_delivery_failure_has_reason",
       sql`outcome = 'processed' or last_failure_reason is not null`,
     )
+    .execute();
+};
+
+/**
+ * Execution（旧Wachaから移植したStory / Task / Claim / Comment / Change Log / Command Receipt）。
+ * すべて`create ... if not exists`で、Direction側のtableには触れない。Directionへの参照（`story.outcome_ref`等）は
+ * 境界をまたぐためFKを付けず、作成時のsnapshotで保持する。`project_id`は統合した既存`project.id`を使う。
+ */
+const initializeExecutionSchema = async (database: Kysely<Database>): Promise<void> => {
+  const projectId = (column: ColumnDefinitionBuilder) =>
+    column.notNull().references("project.id").onDelete("cascade");
+
+  await database.schema
+    .createTable("story")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", projectId)
+    .addColumn("title", "text", (column) => column.notNull())
+    .addColumn("description", "text")
+    .addColumn("status", "text", (column) =>
+      column.notNull().check(sql`status in ('todo', 'doing', 'done', 'canceled')`),
+    )
+    .addColumn("sort_order", "integer", (column) => column.notNull().defaultTo(0))
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addColumn("updated_at", "integer", (column) => column.notNull())
+    .addColumn("outcome_ref", "text")
+    .addColumn("origin_decision_id", "text")
+    .addColumn("success_criteria_snapshot", "text")
+    .addColumn("constraints_snapshot", "text")
+    .addColumn("repository_snapshot", "text")
+    .addColumn("correlation_id", "text")
+    .execute();
+  await database.schema
+    .createIndex("story_project_idx")
+    .ifNotExists()
+    .on("story")
+    .column("project_id")
+    .execute();
+  // DirectionからのhandoffをProject内で一意にする。NULLは重複として扱われないため、手動起票のStoryは制約を受けない。
+  await database.schema
+    .createIndex("story_project_correlation_idx")
+    .unique()
+    .ifNotExists()
+    .on("story")
+    .columns(["project_id", "correlation_id"])
+    .execute();
+
+  await database.schema
+    .createTable("task")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", projectId)
+    .addColumn("story_id", "text", (column) => column.references("story.id"))
+    .addColumn("title", "text", (column) => column.notNull())
+    .addColumn("description", "text")
+    .addColumn("status", "text", (column) => column.notNull())
+    .addColumn("assignee", "text")
+    .addColumn("reject_reason", "text")
+    .addColumn("resume_source_status", "text")
+    .addColumn("sort_order", "integer", (column) => column.notNull().defaultTo(0))
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addColumn("updated_at", "integer", (column) => column.notNull())
+    .execute();
+  await database.schema.createIndex("task_project_idx").ifNotExists().on("task").column("project_id").execute();
+  await database.schema.createIndex("task_story_idx").ifNotExists().on("task").column("story_id").execute();
+
+  await database.schema
+    .createTable("task_comment")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("task_id", "text", (column) => column.notNull().references("task.id"))
+    .addColumn("body", "text", (column) => column.notNull())
+    .addColumn("author", "text")
+    .addColumn("principal_id", "text")
+    .addColumn("claim_id", "text")
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .execute();
+  await database.schema
+    .createIndex("task_comment_task_idx")
+    .ifNotExists()
+    .on("task_comment")
+    .column("task_id")
+    .execute();
+
+  await database.schema
+    .createTable("task_claim")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("task_id", "text", (column) => column.notNull().references("task.id").onDelete("cascade"))
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("state", "text", (column) => column.notNull())
+    .addColumn("acquired_at", "integer", (column) => column.notNull())
+    .addColumn("renewed_at", "integer")
+    .addColumn("expires_at", "integer", (column) => column.notNull())
+    .addColumn("released_at", "integer")
+    .addColumn("release_reason", "text")
+    .execute();
+  await database.schema
+    .createIndex("task_claim_task_state_idx")
+    .ifNotExists()
+    .on("task_claim")
+    .columns(["task_id", "state"])
+    .execute();
+  // 1 Taskに有効なClaimは最大1件。同時のclaimはこの制約で1件だけが成立する（CLAIM_CONFLICT）。
+  await sql`create unique index if not exists task_claim_active_task_idx on task_claim(task_id) where state = 'active'`.execute(
+    database,
+  );
+
+  await database.schema
+    .createTable("change_log")
+    .ifNotExists()
+    .addColumn("cursor", "integer", (column) => column.primaryKey().autoIncrement())
+    .addColumn("project_id", "text", projectId)
+    .addColumn("type", "text", (column) => column.notNull())
+    .addColumn("entity_id", "text", (column) => column.notNull())
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("claim_id", "text")
+    .addColumn("payload", "text", (column) => column.notNull())
+    .addColumn("occurred_at", "integer", (column) => column.notNull())
+    .execute();
+  await database.schema
+    .createIndex("change_log_project_cursor_idx")
+    .ifNotExists()
+    .on("change_log")
+    .columns(["project_id", "cursor"])
+    .execute();
+  // 直前のTASK_COMPLETEDの主体（自己review・自己受入の判定）を引くための索引。
+  await database.schema
+    .createIndex("change_log_entity_type_idx")
+    .ifNotExists()
+    .on("change_log")
+    .columns(["entity_id", "type"])
+    .execute();
+
+  await database.schema
+    .createTable("command_receipt")
+    .ifNotExists()
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("tool_name", "text", (column) => column.notNull())
+    .addColumn("request_id", "text", (column) => column.notNull())
+    .addColumn("input_json", "text", (column) => column.notNull())
+    .addColumn("result_json", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("command_receipt_pk", ["principal_id", "tool_name", "request_id"])
     .execute();
 };
 
@@ -656,5 +859,6 @@ export const initializeSchema = async (database: Kysely<Database>): Promise<void
   await addOutcomeOriginDecisionColumn(database);
   await initializeAdrHandoffSchema(database);
   await initializeRuntimeEventSchema(database);
+  await initializeExecutionSchema(database);
   await backfillInitialResearchRequests(database);
 };

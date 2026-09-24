@@ -61,6 +61,18 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     return outcome ?? null;
   }
 
+  async findByIdInProject(projectId: string, outcomeId: string): Promise<Outcome | null> {
+    const row = await this.database
+      .selectFrom("outcome")
+      .selectAll()
+      .where("id", "=", outcomeId)
+      .where("project_id", "=", projectId)
+      .executeTakeFirst();
+    if (!row) return null;
+    const [outcome] = await loadOutcomes(this.database, [row]);
+    return outcome ?? null;
+  }
+
   async update(
     projectId: string,
     intentId: string,
