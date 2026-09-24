@@ -10,7 +10,12 @@ type CommonDecisionRejection =
   | { kind: "deadline_in_past"; deadlineAt: number }
   | { kind: "intent_not_found" }
   | { kind: "intent_not_active"; status: string }
-  | { kind: "invalid_reference"; reference: "synthesis" | "finding"; ids: string[] }
+  | { kind: "invalid_reference"; reference: "synthesis" | "finding" | "evaluation"; ids: string[] }
+  | { kind: "evaluation_not_latest"; evaluationId: string; latestEvaluationId: string }
+  | { kind: "evaluation_already_decided"; evaluationId: string; decisionId: string }
+  | { kind: "evaluation_outcome_not_active"; outcomeId: string; status: string }
+  | { kind: "evaluation_result_mismatch"; evaluationId: string; result: string }
+  | { kind: "no_completion_definition" }
   | { kind: "synthesis_version_mismatch"; synthesisId: string; expected: number; actual: number };
 
 /** 共通の拒否結果をアプリケーション層のエラーへ変換する。該当しない結果（created/replayed）は何もしない。 */
@@ -43,10 +48,40 @@ export const throwDirectionDecisionRejection = (
   if (rejection.kind === "invalid_reference") {
     throw new ValidationError("Direction Decision input is invalid", [
       {
-        path: rejection.reference === "synthesis" ? "usedSyntheses" : "usedFindingIds",
+        path: { synthesis: "usedSyntheses", finding: "usedFindingIds", evaluation: "evaluationId" }[rejection.reference],
         message: `unknown ${rejection.reference}: ${rejection.ids.join(", ")}`,
       },
     ]);
+  }
+  if (rejection.kind === "evaluation_not_latest") {
+    throw new ConflictError(
+      `Evaluation ${rejection.evaluationId} was superseded by a newer Evaluation ${rejection.latestEvaluationId} of the same Outcome`,
+      { reason: "evaluation_not_latest", latestEvaluationId: rejection.latestEvaluationId },
+    );
+  }
+  if (rejection.kind === "evaluation_already_decided") {
+    throw new ConflictError(
+      `Evaluation ${rejection.evaluationId} was already used by Direction Decision ${rejection.decisionId}`,
+      { reason: "evaluation_already_decided", decisionId: rejection.decisionId },
+    );
+  }
+  if (rejection.kind === "evaluation_outcome_not_active") {
+    throw new ConflictError(`The evaluated Outcome ${rejection.outcomeId} is ${rejection.status}`, {
+      reason: "evaluation_outcome_not_active",
+      status: rejection.status,
+    });
+  }
+  if (rejection.kind === "evaluation_result_mismatch") {
+    throw new ConflictError(
+      `Evaluation ${rejection.evaluationId} is ${rejection.result}; intent_complete requires an achieved Evaluation`,
+      { reason: "evaluation_result_mismatch", result: rejection.result },
+    );
+  }
+  if (rejection.kind === "no_completion_definition") {
+    throw new ConflictError(
+      `Intent ${intentId} has no completionDefinition; intent_complete needs one to judge the Intent against`,
+      { reason: "no_completion_definition" },
+    );
   }
   if (rejection.kind === "synthesis_version_mismatch") {
     throw new ConflictError(

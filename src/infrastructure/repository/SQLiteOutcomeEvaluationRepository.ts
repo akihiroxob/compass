@@ -11,6 +11,7 @@ import type {
 import type { Database, OutcomeEvaluationTable } from "../database/schema.ts";
 import { inputHash } from "./inputHash.ts";
 import { isProjectArchived } from "./isProjectArchived.ts";
+import { recordOutcomeEvaluatedEvent } from "./runtimeEventRecord.ts";
 
 const toEvaluation = (row: Selectable<OutcomeEvaluationTable>): OutcomeEvaluation => ({
   id: row.id,
@@ -71,6 +72,14 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
         return replay.kind === "replayed" ? replay : { kind: "key_conflict", requestKey: request.requestKey };
       }
       if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      // 達成済み・中止したIntentのOutcomeを評価して、Strategistの起動（再計画）を誤って作らない。
+      const intent = await transaction
+        .selectFrom("intent")
+        .select("status")
+        .where("id", "=", input.intentId)
+        .where("project_id", "=", projectId)
+        .executeTakeFirstOrThrow();
+      if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
 
       const row = await transaction
         .insertInto("outcome_evaluation")
@@ -90,6 +99,14 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
         })
         .returningAll()
         .executeTakeFirstOrThrow();
+      // 評価とStrategist起動の条件（outcome_evaluated）を同じtransactionで保存し、片方だけを残さない。
+      await recordOutcomeEvaluatedEvent(transaction, {
+        projectId,
+        intentId: input.intentId,
+        outcomeId: request.outcomeId,
+        evaluationId: row.id,
+        occurredAt: input.at,
+      });
       return { kind: "created", evaluation: toEvaluation(row) };
     });
   }
@@ -104,5 +121,19 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
       .orderBy(sql`rowid`, "desc")
       .execute();
     return rows.map(toEvaluation);
+  }
+
+  async findLatestByIntent(projectId: string, intentId: string): Promise<OutcomeEvaluation[]> {
+    const rows = await this.database
+      .selectFrom("outcome_evaluation")
+      .selectAll()
+      .where("project_id", "=", projectId)
+      .where("intent_id", "=", intentId)
+      .orderBy("created_at", "desc")
+      .orderBy(sql`rowid`, "desc")
+      .execute();
+    const latest = new Map<string, Selectable<OutcomeEvaluationTable>>();
+    for (const row of rows) if (!latest.has(row.outcome_id)) latest.set(row.outcome_id, row);
+    return [...latest.values()].map(toEvaluation);
   }
 }

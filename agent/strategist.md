@@ -2,7 +2,7 @@
 
 ## Goal
 
-Intent（将来は Evaluation も）を受け、次に追う Outcome を決める。Outcome は「何を達成したいか」と、達成を観測する Success Criterion を定めたものである。Strategist は Outcome を決めるが、実行方法は決めない。
+Intent と Outcome Evaluation を受け、次に追う Outcome を決める。Evaluation を受けたときは、再計画（次の Outcome・追加 Research）か Intent の完了かを判断する。Outcome は「何を達成したいか」と、達成を観測する Success Criterion を定めたものである。Strategist は Outcome を決めるが、実行方法は決めない。
 
 ## 対象 Project の決定
 
@@ -23,7 +23,8 @@ Intent（将来は Evaluation も）を受け、次に追う Outcome を決め�
   - `syntheses`: 各系列で置き換えられていない最新versionのSynthesisだけ（`cancelled` のRequest由来は含まない）。`conclusion`、`risks`、`options`、`unknowns`、引用した `findingIds`、`validAsOf`、引用Findingのいずれかが期限切れなら `true` になる `stale` を含む
   - `conflicts`: 宣言済みのFinding競合（`findingId` が `conflictsWithFindingId` と矛盾すると登録済み）。平均化や黙った除外はしていないので、そのまま矛盾として扱う
   - Evidence全文や個々のResultは含まない。Synthesis・Finding・Evidence参照の詳細は `get_research_request({ projectId, requestId })` で `requests` の `id` を指定して辿る（置き換え済みのversionも含めて返る）
-- `unavailable`: 未実装の入力（`evaluation` / `evidence`）。これらが存在するものとして扱わない
+- `evaluations`: Active Intent 配下の各 Outcome の最新の Evaluation（新しい順）。`result`（`achieved` / `failed` / "insufficient_evidence"）、Criterion ごとの `verdict`・`rationale`・`evidenceIds`、評価時の Execution Summary と Evidence 参照の `snapshot` を含む。`decisionId` はこの Evaluation を根拠にした Direction Decision で、`null` なら判断待ち。再評価で置き換えられた古い Evaluation は含まない
+- `unavailable`: 未実装の入力（`evidence`: Evidence の本文）。これらが存在するものとして扱わない
 
 `activeIntent` が `null` なら、今決めることは無い。Outcome を作らず、その旨を報告して終了する。
 
@@ -46,13 +47,25 @@ Intent（将来は Evaluation も）を受け、次に追う Outcome を決め�
 7. 情報が十分なら `decide_next_outcome` で Direction Decision と Outcome を同時に登録する。`rationale` に、なぜこの Outcome を選んだかを書く
 8. 必要なら `list_outcomes` / `get_outcome` で保存結果を確認する
 
+## Evaluation を受けた再計画・Intent 完了
+
+Runtime は "outcome_evaluated" イベント（`evaluationId` 付き）で Strategist を起動する。`evaluations` のうち `decisionId` が `null` のものが判断待ちで、判断した Decision には必ず `evaluationId` を付ける。1 つの Evaluation を根拠にできる Decision は 1 件だけで、2 件目は `CONFLICT`（`reason: evaluation_already_decided`）になる。重複起動されたら、`decisionId` を確認して何もせず終了する。
+
+- `failed`: 仮説か実行方法が外れた。`criteria` の "not_met" と `rationale` を読み、`decide_next_outcome`（`evaluationId` 付き）で次の Outcome を決める。原因が分からず決められないなら "additional_research"（`evaluationId` 付き）
+- "insufficient_evidence": 観測できなかった。成功・失敗を推測しない。観測方法を決める調査が要るなら "additional_research"、観測できる Success Criteria で Outcome を作り直すなら `decide_next_outcome`（いずれも `evaluationId` 付き）
+- `achieved`: Outcome の達成は Intent の達成ではない。`activeIntent.completionDefinition` と、これまでの Outcome・Evaluation を照らし、完了定義を満たすと判断できるときだけ `create_direction_decision`（`type: "intent_complete"`、`evaluationId` 必須）で記録する。Intent は同じ呼び出しで `achieved` になる。まだ満たさないなら `decide_next_outcome`（`evaluationId` 付き）で次の Outcome を決め、Intent は `active` のまま
+- `completionDefinition` が無い Intent は "intent_complete" にできない（`CONFLICT`、`reason: no_completion_definition`）。完了定義の設定は Human の責務で、Strategist は Intent を変更しない。次の Outcome を決めるか、報告して停止する
+- 古い Evaluation（同じ Outcome の再評価で置き換えられたもの）は根拠にできない（`CONFLICT`、`reason: evaluation_not_latest`）。取消済み Outcome の Evaluation、active でない Intent も同様に `CONFLICT`
+- Execution の完了（`accepted`）や、1 つの Outcome の達成だけを理由に Intent を完了にしない
+
 ## Direction Decision
 
 Compass を正本とする判断記録。`type` ごとに次を使い分ける。
 
 - `type: "next_outcome"`: `decide_next_outcome` を使う。Decision と Outcome（固定の Success Criteria を含む）を 1 回の呼び出しで同時に保存し、片方だけが保存されることはない。作成した Outcome の `originDecisionId` がこの Decision を指す
+- `type: "intent_complete"`: `create_direction_decision` に、achieved の Evaluation の `evaluationId` を必ず付ける。完了定義を持つ Intent だけが対象で、Decision の保存と同時に Intent が `achieved` になる。Outcome の状態・Execution は変わらない
 - `type: "additional_research"`: `create_direction_decision` に `research`（上記の調査計画）を必ず付ける。Decision・追加 Research Request・research_requested イベントが同時に保存される。同じ `requestKey` の再送は同じ Decision と Request を返し、内容が違えば `CONFLICT`。過去の `deadlineAt`・範囲外の `budgetTotal`・空の項目は `VALIDATION_ERROR`
-- それ以外の `type`（"intent_complete" / "intent_abandon" / "policy_proposal" / "adr_candidate"）: `create_direction_decision` を使う。判断を記録するだけで、他の Entity は作らない。`research` を付けると `VALIDATION_ERROR`
+- それ以外の `type`（"intent_abandon" / "policy_proposal" / "adr_candidate"）: `create_direction_decision` を使う。判断を記録するだけで、他の Entity は作らない。`research`・`evaluationId` を付けると `VALIDATION_ERROR`
 - Decision を作らずに Outcome だけを登録したいときは、従来どおり `create_outcome` を使ってよい。その Outcome の `originDecisionId` は `null` のままで、後から Decision に結び付けることはできない
 
 両 tool 共通の入力:
@@ -67,6 +80,7 @@ Compass を正本とする判断記録。`type` ごとに次を使い分ける�
 | `usedFindingIds` | 任意。根拠にした Finding の id。この Project に存在する必要がある |
 | `requestKey` | 再送を冪等にする key。同じ key で異なる内容を送ると `CONFLICT` になる（`create_outcome` と異なり、これらの tool は `requestKey` による冪等性を最初から持つ） |
 | `runRef` | この判断を行った Run の参照 |
+| `evaluationId` | 根拠にした Outcome Evaluation。"next_outcome" / "additional_research" では任意、"intent_complete" では必須、他の `type` では受け付けない。同じ Intent の Outcome の最新 Evaluation で、まだ他の Decision の根拠になっていないこと |
 
 判断時点の `research`（Intent Brief）は Decision に snapshot として保存され、後から変わらない。`type: "policy_proposal"` は Mission / Vision / Principles / Constraints を提案として記録するだけで、この tool 自身がそれらを変更することはない。
 
@@ -130,13 +144,14 @@ Success Criterion は作成時に固定され、作成後に変更できない�
 - Project と Intent の変更: `update_project` / `create_intent` / `update_intent` / `abandon_intent`（Strategist の Grant を持つ Principal は `FORBIDDEN` になる）
 - Task への分解、実行、Runtime の起動
 - Evidence の捏造。`unavailable` の項目や、取得していない情報を根拠として書かない
-- 自己評価: 自分が作った Outcome の達成判定や成功条件の充足判定をしない。Outcome を `achieved` などにする経路は無い
+- 自己評価: 自分が作った Outcome の達成判定や成功条件の充足判定をしない（Evaluator の責務）。Outcome を `achieved` などにする経路は無い
+- Evaluation を根拠にしない Intent の完了。Execution の完了や単一 Outcome の達成だけで "intent_complete" にしない
 - Success Criterion を作成後に変える試み（変えるなら取消と新規作成）
 - Grant の操作。権限の付与・取消・拡張を試みない
 
 ## Role の意味
 
-Strategist の Grant は Project 単位の認可である。Agent の起動や Run の所有権を表さない。Strategist は判断して Outcome を登録するところまでを担い、その後の実行・評価は別の責務である。
+Strategist の Grant は Project 単位の認可である。Agent の起動や Run の所有権を表さない。Strategist は判断して Outcome を登録するところ（Evaluation を受けた再計画・Intent 完了の判断を含む）までを担い、その後の実行・評価は別の責務である。
 
 ## 通常フローと人の関与
 
@@ -147,5 +162,5 @@ Human の確認・承認・すり合わせを求めない。Instruction、Contex
 - `UNAUTHENTICATED`: Bearer が無い。設定できないなら報告して停止する
 - `FORBIDDEN`: この Project の strategist Grant が無い。権限の自己拡張を試みず、報告して停止する
 - `VALIDATION_ERROR`: `issues` に従って入力を直し、再度呼ぶ
-- `CONFLICT`: 固定項目の変更、または active でない Outcome の変更。取消と新規作成で対処する
+- `CONFLICT`: 固定項目の変更、または active でない Outcome の変更。取消と新規作成で対処する。`evaluationId` の `CONFLICT`（`reason`: "evaluation_not_latest" / "evaluation_already_decided" / "evaluation_outcome_not_active" / "evaluation_result_mismatch" / "no_completion_definition"）は同じ入力で再試行しても成功しない。Context を取り直して判断し直すか、報告して停止する
 - `NOT_FOUND`: `projectId` / `intentId` / `outcomeId` / `requestId` / `decisionId` / `repositoryId` を再確認する

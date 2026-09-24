@@ -9,8 +9,8 @@ import { createDatabase } from "../src/infrastructure/database/createDatabase.ts
 import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 /**
- * Outcome Evaluation（Task 35）。Evaluatorとして振る舞うのはtest内のMCP呼び出しだけで、Evaluatorの自動起動・
- * Evaluationからの再計画・Intent完了（Task 36）は未接続。Lv6の自律運転の実証ではない。
+ * Outcome Evaluation（Task 35）。Evaluatorとして振る舞うのはtest内のMCP呼び出しだけで、Evaluatorの自動起動は未接続。
+ * Evaluationからの再計画・Intent完了はtest/evaluationReplan.test.ts（Task 36）。Lv6の自律運転の実証ではない。
  */
 
 type App = ReturnType<typeof createApp>;
@@ -433,12 +433,14 @@ test("Evaluatorは Outcome定義・Execution結果・Project / Intent・Grantを
   assert.equal(stored.outcome.status, "active");
 });
 
-test("Strategist / Researcherの Contextは、実接続までevaluationをunavailableとして返し、Evaluationを含めない", async () => {
+test("Strategist Contextは最新のEvaluationを含み、evaluationをunavailableから外す（Task 36で接続）", async () => {
   const kit = await setup();
   const { project, outcome, evidenceIds } = await seedEvaluable(kit);
-  ok(await evaluate(kit.app, project.id, outcome.id, { requestKey: "eval-1", runRef: "run", criteria: judgments(outcome, ["met", "met"], evidenceIds) }));
+  const recorded = ok(await evaluate(kit.app, project.id, outcome.id, { requestKey: "eval-1", runRef: "run", criteria: judgments(outcome, ["met", "met"], evidenceIds) }));
 
   const strategist = ok(await callTool(kit.app, "get_strategist_context", { projectId: project.id }, "str"));
-  assert.ok(strategist.unavailable.includes("evaluation"));
-  assert.equal(JSON.stringify(strategist).includes("eval-1"), false, "Evaluationは実接続（Task 36）までStrategist Contextへ含めない");
+  assert.equal(strategist.unavailable.includes("evaluation"), false);
+  assert.deepEqual(strategist.evaluations.map((item: Record<string, any>) => [item.id, item.result, item.decisionId]), [
+    [recorded.evaluation.id, "achieved", null],
+  ]);
 });

@@ -1,4 +1,5 @@
 import type { Kysely, Selectable, Transaction } from "kysely";
+import { sql } from "kysely";
 import type { DirectionDecision } from "../../domain/model/DirectionDecision.ts";
 import type { IntentResearchSummary } from "../../domain/model/Research.ts";
 import type { CreateDirectionDecisionInput } from "../../shared/directionDecisionSchema.ts";
@@ -8,7 +9,7 @@ type Executor = Kysely<Database> | Transaction<Database>;
 
 type CommonDecisionFields = Pick<
   CreateDirectionDecisionInput,
-  "intentId" | "judgment" | "reason" | "options" | "usedSyntheses" | "usedFindingIds" | "requestKey" | "runRef"
+  "intentId" | "judgment" | "reason" | "options" | "usedSyntheses" | "usedFindingIds" | "requestKey" | "runRef" | "evaluationId"
 > & { principalId: string };
 
 /** Decision行と、関連tableに保存したusedSyntheses・usedFindingIdsを結び付けて読取モデルへ変換する。 */
@@ -35,6 +36,7 @@ const loadDecisions = async (
     projectId: row.project_id,
     intentId: row.intent_id,
     outcomeId: row.outcome_id,
+    evaluationId: row.evaluation_id,
     type: row.type,
     judgment: row.judgment,
     reason: row.reason,
@@ -137,6 +139,7 @@ export const insertDirectionDecisionRow = async (
       reason: input.reason,
       options: JSON.stringify(input.options),
       intent_brief_snapshot: JSON.stringify(intentBriefSnapshot),
+      evaluation_id: input.evaluationId ?? null,
       principal_id: input.principalId,
       run_ref: input.runRef,
       request_key: input.requestKey,
@@ -172,6 +175,67 @@ export const insertDirectionDecisionRow = async (
   }
   const [decision] = await loadDecisions(transaction, [row]);
   return decision!;
+};
+
+export type EvaluationReferenceRejection =
+  | { kind: "invalid_reference"; reference: "evaluation"; ids: string[] }
+  | { kind: "evaluation_not_latest"; evaluationId: string; latestEvaluationId: string }
+  | { kind: "evaluation_already_decided"; evaluationId: string; decisionId: string }
+  | { kind: "evaluation_outcome_not_active"; outcomeId: string; status: string }
+  | { kind: "evaluation_result_mismatch"; evaluationId: string; result: string };
+
+/**
+ * Decisionが根拠にするOutcome Evaluationを検証する。同じProject・同じIntentのOutcomeの、最新の評価だけを根拠にでき
+ * （再評価で古くなった評価からは遷移しない）、1つの評価を根拠にできるDecisionは1件だけ（Strategistの重複起動で
+ * 再計画・Intent完了を二重にしない。`direction_decision_evaluation_idx`が並行時も保証する）。
+ * intent_completeはachievedの評価だけを根拠にできる。取消済みOutcomeの評価は根拠にしない。
+ */
+export const validateEvaluationReference = async (
+  transaction: Transaction<Database>,
+  projectId: string,
+  intentId: string,
+  evaluationId: string,
+  type: DirectionDecision["type"],
+): Promise<{ kind: "ok" } | EvaluationReferenceRejection> => {
+  const evaluation = await transaction
+    .selectFrom("outcome_evaluation")
+    .select(["id", "outcome_id", "result"])
+    .where("id", "=", evaluationId)
+    .where("project_id", "=", projectId)
+    .where("intent_id", "=", intentId)
+    .executeTakeFirst();
+  if (!evaluation) return { kind: "invalid_reference", reference: "evaluation", ids: [evaluationId] };
+
+  const latest = await transaction
+    .selectFrom("outcome_evaluation")
+    .select("id")
+    .where("outcome_id", "=", evaluation.outcome_id)
+    .orderBy("created_at", "desc")
+    .orderBy(sql`rowid`, "desc")
+    .executeTakeFirstOrThrow();
+  if (latest.id !== evaluation.id) {
+    return { kind: "evaluation_not_latest", evaluationId, latestEvaluationId: latest.id };
+  }
+
+  const decided = await transaction
+    .selectFrom("direction_decision")
+    .select("id")
+    .where("evaluation_id", "=", evaluationId)
+    .executeTakeFirst();
+  if (decided) return { kind: "evaluation_already_decided", evaluationId, decisionId: decided.id };
+
+  const outcome = await transaction
+    .selectFrom("outcome")
+    .select("status")
+    .where("id", "=", evaluation.outcome_id)
+    .executeTakeFirstOrThrow();
+  if (outcome.status === "cancelled") {
+    return { kind: "evaluation_outcome_not_active", outcomeId: evaluation.outcome_id, status: outcome.status };
+  }
+  if (type === "intent_complete" && evaluation.result !== "achieved") {
+    return { kind: "evaluation_result_mismatch", evaluationId, result: evaluation.result };
+  }
+  return { kind: "ok" };
 };
 
 export { loadDecisions };

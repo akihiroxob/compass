@@ -24,12 +24,15 @@ export type UsedSynthesisReference = {
 /**
  * Compassを正本とするDirection Decision。判断・理由・選択肢・使用した根拠と、判断時点のIntent Brief snapshotを保持する。
  * 作成後は変更しない（追記のみ）。`outcomeId`は`next_outcome`のときだけ設定される。
+ * `intent_complete`はachievedのEvaluationを根拠に持ち、Intentを`achieved`へ遷移させる（同一transaction）。
  */
 export type DirectionDecision = {
   readonly id: string;
   readonly projectId: string;
   readonly intentId: string;
   readonly outcomeId: string | null;
+  /** 根拠にしたOutcome Evaluation。Evaluationを経ない判断はnull。 */
+  readonly evaluationId: string | null;
   readonly type: DirectionDecisionType;
   readonly judgment: string;
   readonly reason: string;

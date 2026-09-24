@@ -263,7 +263,7 @@ test("research入力はadditional_researchだけが必須で、不正な予算�
   const complete = await callTool(
     app,
     "create_direction_decision",
-    decisionArgs(project.id, intent.id, { type: "intent_complete", research: undefined, requestKey: "complete-1" }),
+    decisionArgs(project.id, intent.id, { type: "intent_abandon", research: undefined, requestKey: "complete-1" }),
     "strat-1",
   );
   assert.equal(complete.isError, undefined);

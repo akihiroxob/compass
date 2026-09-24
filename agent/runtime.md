@@ -26,8 +26,9 @@ MCP `fetch_runtime_events({ projectId, afterCursor?, limit? })`、または Web 
 | `research_requested` | Research Request が確定した | `researchRequestId` を渡して Researcher を起動する |
 | `research_completed` | Request が `completed` / `insufficient` / `not_needed` で確定した（`conclusion`） | `projectId`・`intentId` を渡して Strategist を起動する |
 | `outcome_confirmed` | Outcome（固定の Success Criteria を含む）が確定した（`create_outcome` / `decide_next_outcome`） | `projectId`・`intentId`・`outcomeId`・`correlationId` を渡して Manager を起動する。Manager が `issue_story` で Outcome を参照する Story を作る（`agent/manager.md`） |
+| `outcome_evaluated` | Outcome Evaluation が確定した（`record_outcome_evaluation`。結果によらず 1 Evaluation につき 1 件） | `projectId`・`intentId`・`outcomeId`・`evaluationId` を渡して Strategist を起動する。Strategist が Evaluation を根拠に再計画（次の Outcome・追加 Research）か Intent 完了を判断する（`agent/strategist.md`） |
 
-各イベントは `id`・`version`・`type`・`projectId`・`intentId`（`project_watch` では `null`）・`researchRequestId`・`outcomeId`・`correlationId`・`conclusion`・`occurredAt`・`cursor` を持つ。`researchRequestId` は research 系のイベントだけ、`outcomeId` は `outcome_confirmed` だけが値を持ち、他方は `null`。`outcome_confirmed` の `correlationId` は `outcome:<outcomeId>` で、Manager の `issue_story` が使う既定の相関 ID と同じ。再試行中のイベントには `retryCount`（`retryable_failure` を記録した回数）と `lastFailureReason` が付く。`version` が未知の値のイベントは処理せず、`terminal_failure` で理由を残す。
+各イベントは `id`・`version`・`type`・`projectId`・`intentId`（`project_watch` では `null`）・`researchRequestId`・`outcomeId`・`correlationId`・`conclusion`・`occurredAt`・`cursor` を持つ。`researchRequestId` は research 系のイベントだけ、`outcomeId` は `outcome_confirmed` / `outcome_evaluated` だけ、`evaluationId` は `outcome_evaluated` だけが値を持ち、他は `null`。`outcome_confirmed` / `outcome_evaluated` の `correlationId` は `outcome:<outcomeId>` で、Manager の `issue_story` が使う既定の相関 ID と同じ。再試行中のイベントには `retryCount`（`retryable_failure` を記録した回数）と `lastFailureReason` が付く。`version` が未知の値のイベントは処理せず、`terminal_failure` で理由を残す。
 
 ## 処理結果の記録
 
@@ -69,3 +70,10 @@ Execution の進行を Direction（Outcome）へ還流するのは Runtime の�
 - Agent の起動状況・Run の生存を Compass に登録すること（Compass は Run を持たない）
 - Outcome・Direction Decision・Research の内容を決めること
 - 自分の権限（Grant）を増やすこと
+
+## Evaluation 後の扱い（`outcome_evaluated`）
+
+- Compass は Strategist を起動せず、次の Outcome も Intent の完了も自動では決めない。Runtime が Strategist を起動し、Strategist が `evaluationId` を根拠に `decide_next_outcome` / `create_direction_decision` で判断する
+- Strategist の起動が timeout したり応答が失われたりしたら、同じ `evaluationId` で再起動してよい。1 つの Evaluation を根拠にできる Decision は 1 件だけなので、再計画や Intent 完了は二重にならない（2 件目は `CONFLICT`）
+- 同じ Outcome の再評価はイベントを追加する。古い Evaluation を根拠にした判断は `CONFLICT`（`evaluation_not_latest`）になるため、古いイベントは Strategist が何もせず終えてよい（`processed`）
+- Intent が達成済み・中止済みなら、Evaluation 自体が保存されず（`CONFLICT`）イベントも作られない

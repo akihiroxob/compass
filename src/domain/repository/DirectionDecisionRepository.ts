@@ -11,7 +11,7 @@ import type {
 
 export type InvalidResearchReferenceResult = {
   kind: "invalid_reference";
-  reference: "synthesis" | "finding";
+  reference: "synthesis" | "finding" | "evaluation";
   ids: string[];
 };
 
@@ -31,6 +31,16 @@ type DirectionDecisionWriteRejection =
   | { kind: "intent_not_active"; status: IntentStatus }
   | InvalidResearchReferenceResult
   | SynthesisVersionMismatchResult
+  /** `evaluationId`が、再評価で置き換えられた古い評価を指す。 */
+  | { kind: "evaluation_not_latest"; evaluationId: string; latestEvaluationId: string }
+  /** `evaluationId`の評価を根拠にしたDecisionが既にある（再計画・Intent完了の重複）。 */
+  | { kind: "evaluation_already_decided"; evaluationId: string; decisionId: string }
+  /** `evaluationId`の評価対象Outcomeが取消済み。 */
+  | { kind: "evaluation_outcome_not_active"; outcomeId: string; status: string }
+  /** intent_completeの根拠がachievedでない評価。 */
+  | { kind: "evaluation_result_mismatch"; evaluationId: string; result: string }
+  /** intent_completeの対象Intentに完了定義（completionDefinition）が無い。 */
+  | { kind: "no_completion_definition" }
   | ProjectArchivedResult;
 
 /** `researchRequest`はadditional_researchのDecisionが同時に作ったRequest。他のtypeではnull。 */
@@ -54,6 +64,8 @@ export interface DirectionDecisionRepository {
    * next_outcome以外の5種の判断を記録する。同じrequestKeyの再送は新しい行を作らず既存のDecisionを返す。
    * additional_researchは、判断・Research Request・`research_requested`イベントを1 transactionで保存し、部分保存を許さない。
    * usedSyntheses・usedFindingIdsは同じProjectに存在し、指定versionが現在のSynthesis versionと一致する場合だけ受け付ける。
+   * `evaluationId`は同じIntentの、最新で、まだ判断に使われていない評価だけを受け付ける。
+   * intent_completeは完了定義を持つIntentに、achievedの評価を根拠にしてだけ記録でき、同じtransactionでIntentを`achieved`にする。
    */
   create(
     projectId: string,

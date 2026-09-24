@@ -197,6 +197,8 @@ export type DirectionDecisionTable = {
   options: string;
   /** 判断時点のIntent Brief snapshot（JSON）。 */
   intent_brief_snapshot: string;
+  /** 根拠にしたOutcome Evaluation（Task 36）。1つのEvaluationを根拠にできるDecisionは1件だけ。 */
+  evaluation_id: string | null;
   principal_id: string;
   run_ref: string;
   request_key: string;
@@ -252,13 +254,15 @@ export type RuntimeEventTable = {
   sequence: Generated<number>;
   id: string;
   event_version: number;
-  event_type: "research_requested" | "research_completed" | "outcome_confirmed";
+  event_type: "research_requested" | "research_completed" | "outcome_confirmed" | "outcome_evaluated";
   project_id: string;
   intent_id: string | null;
   /** research系イベントの発端Request。`outcome_confirmed`ではnull。 */
   research_request_id: string | null;
-  /** `outcome_confirmed`で確定したOutcome。research系イベントではnull。 */
+  /** `outcome_confirmed`で確定した・`outcome_evaluated`で評価したOutcome。research系イベントではnull。 */
   outcome_id: string | null;
+  /** `outcome_evaluated`で確定したEvaluation。他のイベントではnull。 */
+  evaluation_id: string | null;
   correlation_id: string;
   conclusion: "completed" | "insufficient" | "not_needed" | null;
   created_at: number;

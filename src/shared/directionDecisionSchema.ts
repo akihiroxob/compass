@@ -23,7 +23,15 @@ const decisionCommonSchema = {
   usedFindingIds: z.array(idText).max(100).default([]),
   requestKey,
   runRef: trimmedText("runRef", 500),
+  /**
+   * 判断の根拠にしたOutcome Evaluation（`outcome_evaluated`イベントの`evaluationId`）。Evaluationからの再計画
+   * （next_outcome / additional_research）では任意、intent_completeでは必須。1つのEvaluationを根拠にできるDecisionは1件だけ。
+   */
+  evaluationId: idText.optional(),
 };
+
+/** Evaluationを根拠にできる判断。再計画（次のOutcome・追加Research）とIntent完了だけで、記録だけの判断は根拠にしない。 */
+const evaluationBasedTypes: readonly string[] = ["additional_research", "intent_complete"];
 
 const checkUniqueReferences = (
   input: { usedSyntheses: { synthesisId: string }[]; usedFindingIds: string[] },
@@ -70,6 +78,21 @@ export const createDirectionDecisionSchema = z
         code: "custom",
         message: "research is only accepted for an additional_research decision",
         path: ["research"],
+      });
+    }
+    // Intent完了は、achievedのOutcome Evaluationを根拠にしなければ確定しない（Execution完了だけで達成にしない）。
+    if (input.type === "intent_complete" && input.evaluationId === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "evaluationId (an achieved Outcome Evaluation) is required for an intent_complete decision",
+        path: ["evaluationId"],
+      });
+    }
+    if (!evaluationBasedTypes.includes(input.type) && input.evaluationId !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "evaluationId is only accepted for additional_research, intent_complete and next_outcome decisions",
+        path: ["evaluationId"],
       });
     }
   });

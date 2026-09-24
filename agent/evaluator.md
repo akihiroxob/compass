@@ -83,7 +83,7 @@ Evaluation は追記だけで、後から更新・削除できない。観測が
 
 ## Role の意味
 
-Evaluator の Grant は Project 単位の認可である。Agent の起動や Run の所有権を表さず、Outcome の排他的な担当も意味しない。Evaluator は Evaluation を保存するところまでを担う。Evaluation を受けた再計画や Intent の完了判定は別の責務であり、この Role は行わない。
+Evaluator の Grant は Project 単位の認可である。Agent の起動や Run の所有権を表さず、Outcome の排他的な担当も意味しない。Evaluator は Evaluation を保存するところまでを担う。Evaluation を受けた再計画や Intent の完了判定は別の責務（Strategist）であり、この Role は行わない。保存した Evaluation ごとに `outcome_evaluated` の Runtime event が 1 件作られ、Runtime が Strategist を起動する。Intent が `active` でない（達成済み・中止）Outcome は評価できない（`CONFLICT`、`reason: intent_not_active`）。
 
 ## 通常フローと人の関与
 

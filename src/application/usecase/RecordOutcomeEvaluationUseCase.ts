@@ -29,7 +29,8 @@ export type RecordOutcomeEvaluationResult = {
  * Evaluatorが、Outcomeの固定Success Criteriaを1件ずつ観測結果で判定した内容を、追記のEvaluationとして保存する。
  * 総合結果（achieved / failed / insufficient_evidence）はCriterionの判定から導出し、Executionの`accepted`だけでは
  * `achieved`にならない。`met` / `not_met`は、このOutcomeに還流済みのEvidence参照を根拠に持たなければ保存できない。
- * Outcome・Success Criteria・Executionの結果は変更せず、Outcomeの状態遷移や次の起動（再計画・Intent完了）は行わない。
+ * Outcome・Success Criteria・Executionの結果は変更しない。保存と同じtransactionで`outcome_evaluated`イベントを作り、
+ * RuntimeがStrategistを起動する条件にする。再計画・Intent完了の判断はStrategistのDirection Decisionが行う（Task 36）。
  */
 export class RecordOutcomeEvaluationUseCase {
   constructor(
@@ -114,6 +115,12 @@ export class RecordOutcomeEvaluationUseCase {
     });
     if (saved.kind === "project_archived") throw new ProjectArchivedError(projectId);
     if (saved.kind === "key_conflict") throw this.keyConflict(saved.requestKey);
+    if (saved.kind === "intent_not_active") {
+      throw new ConflictError(`Intent ${outcome.intentId} is ${saved.status}; only an Outcome of an active Intent is evaluated`, {
+        reason: "intent_not_active",
+        status: saved.status,
+      });
+    }
     return { evaluation: saved.evaluation, recorded: saved.kind === "created" };
   }
 

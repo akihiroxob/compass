@@ -59,6 +59,34 @@ export const recordOutcomeConfirmedEvent = async (
       conclusion: null,
       created_at: outcome.occurredAt,
     })
-    .onConflict((conflict) => conflict.columns(["outcome_id", "event_type"]).doNothing())
+    // 一意性はoutcome_confirmedに限った部分索引（runtime_event_outcome_confirmed_idx）が持つ。
+    .onConflict((conflict) => conflict.doNothing())
+    .execute();
+};
+
+/**
+ * Outcome Evaluationの確定を、Evaluationの保存と同じtransactionで追記する。同じEvaluationのイベントは1件に収束し、
+ * 再送（同じrequestKey）では呼ばれない。相関IDはOutcomeの`outcome:{outcomeId}`で、確定からExecution・評価までを1本で辿れる。
+ */
+export const recordOutcomeEvaluatedEvent = async (
+  transaction: Transaction<Database>,
+  evaluation: { projectId: string; intentId: string; outcomeId: string; evaluationId: string; occurredAt: number },
+): Promise<void> => {
+  await transaction
+    .insertInto("runtime_event")
+    .values({
+      id: crypto.randomUUID(),
+      event_version: runtimeEventVersion,
+      event_type: "outcome_evaluated",
+      project_id: evaluation.projectId,
+      intent_id: evaluation.intentId,
+      research_request_id: null,
+      outcome_id: evaluation.outcomeId,
+      evaluation_id: evaluation.evaluationId,
+      correlation_id: outcomeCorrelationId(evaluation.outcomeId),
+      conclusion: null,
+      created_at: evaluation.occurredAt,
+    })
+    .onConflict((conflict) => conflict.column("evaluation_id").doNothing())
     .execute();
 };

@@ -264,6 +264,19 @@ const addOutcomeOriginDecisionColumn = async (database: Kysely<Database>): Promi
 };
 
 /**
+ * Evaluationを根拠にしたDecision（Task 36）の`evaluation_id`。列が無い場合だけ追加する（idempotent）。
+ * 1つのEvaluationから確定できる判断は1件だけにし、同じEvaluationで再計画・Intent完了を重複させない。
+ */
+const addDirectionDecisionEvaluationColumn = async (database: Kysely<Database>): Promise<void> => {
+  const columns = await sql<{ name: string }>`select name from pragma_table_info('direction_decision')`.execute(database);
+  if (!columns.rows.some(({ name }) => name === "evaluation_id")) {
+    await sql`alter table direction_decision add column evaluation_id text references outcome_evaluation(id)`.execute(database);
+  }
+  await sql`create unique index if not exists direction_decision_evaluation_idx
+    on direction_decision (evaluation_id) where evaluation_id is not null`.execute(database);
+};
+
+/**
  * Direction Decision（Task 27）。作成後は変更しない追記専用tableで、判断時点のIntent Brief snapshotをJSONで保持する。
  * `outcome_id`はnext_outcomeのときだけ設定し、outcome.idへのFKで整合を守る。使用したSynthesis/Findingは関連tableで表す。
  */
@@ -433,7 +446,9 @@ const createRuntimeEventTable = (database: Kysely<Database>, name: string) =>
     .addColumn("id", "text", (column) => column.notNull().unique())
     .addColumn("event_version", "integer", (column) => column.notNull())
     .addColumn("event_type", "text", (column) =>
-      column.notNull().check(sql`event_type in ('research_requested', 'research_completed', 'outcome_confirmed')`),
+      column
+        .notNull()
+        .check(sql`event_type in ('research_requested', 'research_completed', 'outcome_confirmed', 'outcome_evaluated')`),
     )
     .addColumn("project_id", "text", (column) =>
       column.notNull().references("project.id").onDelete("cascade"),
@@ -443,6 +458,7 @@ const createRuntimeEventTable = (database: Kysely<Database>, name: string) =>
       column.references("research_request.id").onDelete("cascade"),
     )
     .addColumn("outcome_id", "text", (column) => column.references("outcome.id").onDelete("cascade"))
+    .addColumn("evaluation_id", "text", (column) => column.references("outcome_evaluation.id").onDelete("cascade"))
     .addColumn("correlation_id", "text", (column) => column.notNull())
     .addColumn("conclusion", "text", (column) =>
       column.check(sql`conclusion is null or conclusion in ('completed', 'insufficient', 'not_needed')`),
@@ -452,36 +468,48 @@ const createRuntimeEventTable = (database: Kysely<Database>, name: string) =>
       "runtime_event_conclusion_matches_type",
       sql`(event_type = 'research_completed') = (conclusion is not null)`,
     )
-    // outcome_confirmedだけがOutcomeを、research系だけがResearch Requestを発端にする。
+    // Outcome系（outcome_confirmed / outcome_evaluated）だけがOutcomeを、research系だけがResearch Requestを発端にする。
+    // outcome_evaluatedだけがEvaluationを持つ。
     .addCheckConstraint(
       "runtime_event_subject_matches_type",
-      sql`(event_type = 'outcome_confirmed') = (outcome_id is not null) and (event_type = 'outcome_confirmed') = (research_request_id is null)`,
+      sql`(event_type in ('outcome_confirmed', 'outcome_evaluated')) = (outcome_id is not null) and (event_type in ('outcome_confirmed', 'outcome_evaluated')) = (research_request_id is null) and (event_type = 'outcome_evaluated') = (evaluation_id is not null)`,
     )
     .execute();
 
 /**
- * Task 33以前の`runtime_event`は`event_type`のCHECKに`outcome_confirmed`が無く、`research_request_id`がNOT NULL。
- * SQLiteはCHECK・NOT NULLを`ALTER`で変更できないため、SQLite公式の手順（新tableを作って写し、旧tableをdropして
- * renameする）で作り直す。`sequence`（Runtimeのcursor）と`autoincrement`の高水位は引き継ぎ、
- * `runtime_event_delivery`のFK（`event_sequence`）は同名の新tableへ向き直る。
+ * `runtime_event`の`event_type`のCHECK・NOT NULLは`ALTER`で変更できないため、定義が古いDBはSQLite公式の手順
+ * （新tableを作って写し、旧tableをdropしてrenameする）で作り直す。対象はTask 33以前（CHECKに`outcome_confirmed`が無く、
+ * `research_request_id`がNOT NULLで`outcome_id`列が無い）と、Task 36以前（`outcome_evaluated`と`evaluation_id`列が無い）。
+ * `sequence`（Runtimeのcursor）と`autoincrement`の高水位は引き継ぎ、`runtime_event_delivery`のFK（`event_sequence`）は
+ * 同名の新tableへ向き直る。旧tableの索引はdropで消え、新しい定義で作り直される。
  * 新しい定義のDBには何もしないため、起動のたびに実行しても安全（idempotent）。
  */
-const migrateRuntimeEventForOutcomeConfirmed = async (database: Kysely<Database>): Promise<void> => {
+const migrateRuntimeEventTable = async (database: Kysely<Database>): Promise<void> => {
   const existing = await sql<{ sql: string }>`select sql from sqlite_master where type = 'table' and name = 'runtime_event'`.execute(database);
   const definition = existing.rows[0]?.sql;
-  if (definition === undefined || definition.includes("outcome_confirmed")) return;
+  if (definition === undefined || definition.includes("outcome_evaluated")) return;
+  const oldColumns = await sql<{ name: string }>`select name from pragma_table_info('runtime_event')`.execute(database);
+  const copied = [
+    "sequence",
+    "id",
+    "event_version",
+    "event_type",
+    "project_id",
+    "intent_id",
+    "research_request_id",
+    "outcome_id",
+    "correlation_id",
+    "conclusion",
+    "created_at",
+  ].filter((column) => oldColumns.rows.some(({ name }) => name === column));
+  const columnList = sql.join(copied.map((column) => sql.ref(column)));
 
   // FKの検査を止めるPRAGMAはtransaction内では効かないため、transactionの前後で切り替える。
   await sql`pragma foreign_keys = off`.execute(database);
   try {
     await database.transaction().execute(async (transaction) => {
       await createRuntimeEventTable(transaction, "runtime_event_new");
-      await sql`
-        insert into runtime_event_new
-          (sequence, id, event_version, event_type, project_id, intent_id, research_request_id, correlation_id, conclusion, created_at)
-        select sequence, id, event_version, event_type, project_id, intent_id, research_request_id, correlation_id, conclusion, created_at
-        from runtime_event
-      `.execute(transaction);
+      await sql`insert into runtime_event_new (${columnList}) select ${columnList} from runtime_event`.execute(transaction);
       const highWater = await sql<{ seq: number }>`select seq from sqlite_sequence where name = 'runtime_event'`.execute(transaction);
       const seq = highWater.rows[0]?.seq;
       if (seq !== undefined) {
@@ -501,7 +529,7 @@ const migrateRuntimeEventForOutcomeConfirmed = async (database: Kysely<Database>
 };
 
 const initializeRuntimeEventSchema = async (database: Kysely<Database>): Promise<void> => {
-  await migrateRuntimeEventForOutcomeConfirmed(database);
+  await migrateRuntimeEventTable(database);
   await createRuntimeEventTable(database, "runtime_event");
   await database.schema
     .createIndex("runtime_event_request_type_idx")
@@ -510,13 +538,16 @@ const initializeRuntimeEventSchema = async (database: Kysely<Database>): Promise
     .on("runtime_event")
     .columns(["research_request_id", "event_type"])
     .execute();
-  // Outcome確定イベントを、Outcomeごとに1件へ収束させる。
+  // Outcome確定イベントはOutcomeごとに1件、評価イベントはEvaluationごとに1件へ収束させる。
+  // 同じOutcomeは再評価のたびに評価イベントを持つため、Outcome単位の一意性はoutcome_confirmedに限る。
+  await sql`create unique index if not exists runtime_event_outcome_confirmed_idx
+    on runtime_event (outcome_id) where event_type = 'outcome_confirmed'`.execute(database);
   await database.schema
-    .createIndex("runtime_event_outcome_type_idx")
+    .createIndex("runtime_event_evaluation_idx")
     .unique()
     .ifNotExists()
     .on("runtime_event")
-    .columns(["outcome_id", "event_type"])
+    .column("evaluation_id")
     .execute();
   await database.schema
     .createIndex("runtime_event_project_sequence_idx")
@@ -949,6 +980,7 @@ export const initializeSchema = async (database: Kysely<Database>): Promise<void
   await initializeRuntimeEventSchema(database);
   await initializeOutcomeExecutionSchema(database);
   await initializeOutcomeEvaluationSchema(database);
+  await addDirectionDecisionEvaluationColumn(database);
   await initializeExecutionSchema(database);
   await backfillInitialResearchRequests(database);
 };

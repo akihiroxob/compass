@@ -8,7 +8,7 @@
 
 | 領域 | Role | 役割 |
 | --- | --- | --- |
-| Direction | `strategist` | 次の Outcome と Direction Decision を決める |
+| Direction | `strategist` | 次の Outcome と Direction Decision を決める。Evaluation を根拠に再計画・Intent 完了を判断する |
 | Direction | `researcher` | Research Request の調査結果を登録する |
 | Execution | `manager` | Outcome を Story / Task に落とし込み、最終受入する |
 | Execution | `worker` | Task を Claim して実装する |
@@ -80,7 +80,7 @@ Execution の tool は旧 Wacha の契約を維持し、エラーを `{ error: {
 
 ## 実装状況の扱い
 
-- 未実装の入力を存在するものとして扱わない。`get_strategist_context` の `unavailable` に挙がる項目（`evaluation`・`evidence`）は特にそうである。Evaluation の保存は `evaluator` だけが行え、Strategist / Researcher の Context へはまだ含まれない
+- 未実装の入力を存在するものとして扱わない。`get_strategist_context` の `unavailable` に挙がる項目（`evidence`）は特にそうである。Evaluation の保存は `evaluator` だけが行え、Strategist Context の `evaluations` で最新の Evaluation を読める（Researcher の Context には含まれない）
 - 実装済み・未接続・未検証を区別して報告する。模擬した実行を自律運転の実証として報告しない
 
 ## 変更履歴
@@ -91,4 +91,4 @@ Execution の Story / Task / Claim の重要な変更は、追記専用の Chang
 
 Change Log から Direction への結果の還流（`record_execution_evidence`）は Runtime が行う（`agent/runtime.md`）。Story・Task の変更は、Outcome に相関付く場合 `outcomeId` / `correlationId` を持つ。
 
-Runtime 向けの起動条件（`research_requested` / `research_completed` / `outcome_confirmed`）は別の仕組み（`fetch_runtime_events` / `ack_runtime_event`）で、Execution の Change Log とは用途が異なる。
+Runtime 向けの起動条件（`research_requested` / `research_completed` / `outcome_confirmed` / `outcome_evaluated`）は別の仕組み（`fetch_runtime_events` / `ack_runtime_event`）で、Execution の Change Log とは用途が異なる。

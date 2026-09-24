@@ -100,7 +100,7 @@ test("StrategistはBearerだけでContextを取得し、create_outcomeで登録�
   assert.deepEqual(value.project.constraints, ["No autonomous execution yet"]);
   assert.equal(value.activeIntent.id, intentId);
   assert.deepEqual(value.outcomes, []);
-  assert.deepEqual(value.unavailable, ["evaluation", "evidence"]);
+  assert.deepEqual(value.unavailable, ["evidence"]);
   // Intent作成と同一transactionでInitial Research Requestが作られ、Intent Briefの`requests`に現れる（Task 25）。
   assert.equal(value.research.requests.length, 1);
   assert.equal(value.research.requests[0].status, "requested");

@@ -13,6 +13,7 @@ import {
   findDecisionByRequestKey,
   insertDirectionDecisionRow,
   loadDecisions,
+  validateEvaluationReference,
   validateResearchReferences,
 } from "./directionDecisionRecord.ts";
 import { inputHash } from "./inputHash.ts";
@@ -52,12 +53,16 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
 
       const intent = await transaction
         .selectFrom("intent")
-        .select("status")
+        .select(["status", "completion_definition"])
         .where("id", "=", input.intentId)
         .where("project_id", "=", projectId)
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
+      // 完了定義の無いIntentは、Outcomeの達成を完了と照合できない。完了定義はHumanがupdate_intent等で与える。
+      if (input.type === "intent_complete" && intent.completion_definition === null) {
+        return { kind: "no_completion_definition" };
+      }
 
       const referenceCheck = await validateResearchReferences(
         transaction,
@@ -66,6 +71,16 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         input.usedFindingIds,
       );
       if (referenceCheck.kind !== "ok") return referenceCheck;
+      if (input.evaluationId !== undefined) {
+        const evaluationCheck = await validateEvaluationReference(
+          transaction,
+          projectId,
+          input.intentId,
+          input.evaluationId,
+          input.type,
+        );
+        if (evaluationCheck.kind !== "ok") return evaluationCheck;
+      }
 
       const decisionId = crypto.randomUUID();
       const decision = await insertDirectionDecisionRow(
@@ -79,6 +94,15 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         hash,
         now,
       );
+      if (input.type === "intent_complete") {
+        // Intentの達成はStrategistの根拠付き判断でだけ確定する。Outcomeの状態・Executionは変更しない。
+        await transaction
+          .updateTable("intent")
+          .set({ status: "achieved", updated_at: now })
+          .where("id", "=", input.intentId)
+          .where("project_id", "=", projectId)
+          .execute();
+      }
       if (!input.research) return { kind: "created", decision, researchRequest: null };
 
       // 判断・Request・research_requestedイベントを同じtransactionで保存する。いずれかが失敗すれば全て残らない。
@@ -139,6 +163,16 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         input.usedFindingIds,
       );
       if (referenceCheck.kind !== "ok") return referenceCheck;
+      if (input.evaluationId !== undefined) {
+        const evaluationCheck = await validateEvaluationReference(
+          transaction,
+          projectId,
+          input.intentId,
+          input.evaluationId,
+          "next_outcome",
+        );
+        if (evaluationCheck.kind !== "ok") return evaluationCheck;
+      }
 
       const now = this.clock();
       const outcomeId = crypto.randomUUID();

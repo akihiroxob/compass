@@ -123,6 +123,7 @@ application port（インターフェースはapplication層に置き、実装�
 | `research_requested` | `runtime_event` | Research Request作成（既存） | Researcher起動 |
 | `research_completed` | `runtime_event` | Research Request確定（既存） | Strategist起動 |
 | `outcome_confirmed`（新規, Task 33で実装済み） | `runtime_event` | `create_outcome`/`decide_next_outcome`成功と同一transaction | Manager起動（`issue_story`等でStory/Task作成） |
+| `outcome_evaluated`（新規, Task 36で実装済み） | `runtime_event` | `record_outcome_evaluation`の新規保存と同一transaction（Evaluationごとに1件） | Strategist起動（Evaluationを根拠に再計画またはIntent完了を判断） |
 | Story/Task状態変化一式（`TASK_CLAIMED`等、Wachaの既存Change種別） | `change_log`（Execution） | 各Execution操作と同一transaction | Manager/Worker/Reviewer起動の判断材料、Task 34のEvidence還流のトリガー |
 
 - 取得はいずれも`cursor`昇順、Project scope、`afterCursor`＋`limit`のページング。`change_log`はAck/配送保証を持たず、Runtimeがcursorを保持して差分取得する（既存の`list_changes`・Task 25設計と同じ考え方）。`runtime_event`だけは、Task 31の要件に従いconsumer単位のackをCompassが記録する（`runtime_event_delivery`。実装記録は`docs/research-decision-adr-design.md`の「Runtime eventのcursor・ack公開（Task 31）」）。Runtimeのプロセス生存・polling・retry間隔は引き続き管理しない。
@@ -142,7 +143,7 @@ application port（インターフェースはapplication層に置き、実装�
 - **Task 32（実装済み）**: `additional_research` Direction Decisionから追加Research Requestと`research_requested`イベントを作る確定経路。本Taskの設計変更は無し（既存のResearch集約の冪等性パターンを踏襲）。実装記録は`docs/research-decision-adr-design.md`の「追加Research判断のRequest・Runtimeイベント接続（Task 32）」。
 - **Task 33（実装済み）**: 実装記録は本文書末尾の「実装記録（Task 33）」。本Taskの「モジュール構成」「DB schema」「MCP tool統合方針」「Role/Instruction配置」に従い、旧Wacha Execution一式を移植する。あわせて`outcome_confirmed`イベントを`CreateOutcomeUseCase`/`DecideNextOutcomeUseCase`に追加し、`DirectionReferenceLookupPort`を実装し、`issue_story`の`outcomeId`拡張を実装する。`agent/role-policy.md`のマージ、README等のドキュメント更新もここで行う。
 - **Task 34（実装済み）**: 実装記録は本文書末尾の「実装記録（Task 34）」。`ExecutionEvidencePort`の詳細（テーブル形状、増分取込みの単位）はTask内で確定し、書込ポートではなく読取専用の`ExecutionSummaryPort`にした。
-- **Task 35〜36**: 本Taskの決定に影響される変更なし（Outcome EvaluatorはDirection側のEntityであり、Executionとは、Task 34で還流したExecution SummaryとEvidence参照だけを介する）。
+- **Task 35〜36（実装済み）**: 本Taskの決定に影響される変更なし（Outcome EvaluatorはDirection側のEntityであり、Executionとは、Task 34で還流したExecution SummaryとEvidence参照だけを介する）。
 - **Task 37**: 本Taskで「暫定trusted-local」とした認証を、Agent/Runtime向け不透明Credentialへ置き換える。`runtime_event`/`change_log`双方の取得APIが対象に含まれる。
 - **Task 38**: 本Taskで決めたRuntime event契約・冪等性規則を実際にE2Eで検証する。
 
@@ -180,7 +181,7 @@ Executionのコードが読み書きするtableは、Execution自身のtableと�
 ### 実装済み・未接続・未検証
 
 - 実装済み: 上記。検証: 旧Wachaのservice回帰テストの移植（19件）、統一`/mcp`経由（実MCP SDK clientでの実server起動を含む手動確認）、handoffの冪等性・snapshot・失敗分類・並行・再起動、`runtime_event`マイグレーション、境界。
-- 未接続: 外部Runtimeによる`outcome_confirmed`の取得とManagerの起動（テスト内のMCP呼び出しがRuntimeを模す）。Execution → Directionの還流の起動（Task 34で入口は実装済み。起動するRuntimeは未接続）、Evaluationの起動と遷移（Task 35で保存まで実装。再計画・Intent完了はTask 36）、不透明Credential（Task 37。認証は引き続きtrusted-local）。
+- 未接続: 外部Runtimeによる`outcome_confirmed`の取得とManagerの起動（テスト内のMCP呼び出しがRuntimeを模す）。Execution → Directionの還流の起動（Task 34で入口は実装済み。起動するRuntimeは未接続）、Evaluationの起動と遷移（Task 35で保存、Task 36で再計画・Intent完了への遷移を実装。起動するRuntimeは未接続）、不透明Credential（Task 37。認証は引き続きtrusted-local）。
 - 対象外・移植せず: 旧WachaのWeb UI（Project Activity・Task drawer等）とその`PageController`、`list_projects` / Skill / Knowledge。HumanがExecutionのStory・Taskを閲覧・操作するWeb UI / APIは未実装（後続で判断する）。
 - 未検証: fixtureやテスト内呼び出しによる確認はLv6の自律運転の実証ではない。
 
@@ -223,4 +224,24 @@ ExecutionのStory / Task / Change Logから、Outcome評価に必要なExecution
 
 - 実装済み: 上記。`test/outcomeEvaluation.test.ts`が、実MCP経由の保存・導出・根拠の検証・網羅性・冪等性（並び順違い・評価後のExecution進行・ファイルDBの再起動）・拒否（Role・別Project・取消済みGrant・Bearerなし）・状態（未還流・取消済み・archived）・Outcome / Execution / Project / Intentを変更できないこと・`unavailable`の維持を確認する。
 - 未接続: Evaluatorの起動（`outcome_confirmed`のように、Evaluation用のRuntime eventは作っていない）。Evaluationからの再計画・次のOutcome判断・Intent完了（Task 36）。Evidence参照先を実際に取得して観測する処理（Evaluatorの責務で、Compassは参照の形式しか見ない）。不透明Credential（認証はtrusted-localのまま）。
+- 未検証: fixtureやテスト内呼び出しによる確認はLv6の自律運転の実証ではない。
+
+## 実装記録（Task 36）
+
+Task 35のEvaluation確定を起点に、Strategistの起動イベント、Evaluationを根拠にした再計画（次のOutcome・追加Research）とIntent完了を接続した。
+
+### 初期選択と理由
+
+- **起動イベントは`outcome_evaluated`（`runtime_event`）**。Evaluationの新規保存と同一transactionで、Evaluationごとに1件作る（`evaluation_id`のunique index。再送では作らない）。結果（achieved / failed / insufficient_evidence）によらずStrategistの起動条件にし、分岐はStrategistが判断する（Compassは次のOutcomeもIntent完了も自動で決めない）。相関IDはOutcomeと同じ`outcome:{outcomeId}`で、確定 → Execution → 評価 → 再計画を1本で辿れる。`runtime_event`はCHECKの変更が要るため、Task 33と同じSQLite公式手順でtableを作り直す（旧定義の列だけを写し、`sequence`・高水位・ackを保持）。Outcomeごとに1件だった一意索引は`outcome_confirmed`だけの部分索引にした（再評価のたびに`outcome_evaluated`が増えるため）。
+- **判断はDirection Decisionに`evaluationId`を付けて記録する**。新しいDecision typeやtoolは作らず、`decide_next_outcome`（next_outcome）と`create_direction_decision`（additional_research / intent_complete）に任意の`evaluationId`を足した。記録だけの判断（intent_abandon / policy_proposal / adr_candidate）は受け付けない。
+- **1つのEvaluationを根拠にできるDecisionは1件だけ**（`direction_decision.evaluation_id`の部分unique index）。同じ`outcome_evaluated`でStrategistが重複起動・timeout後に再起動されても、次のOutcome・追加Research・Intent完了を二重にしない。同じ`requestKey`の再送は従来どおり同じDecisionを返す。
+- **古いEvaluationからは遷移しない**。同じOutcomeの最新Evaluationだけを根拠にでき（`evaluation_not_latest`）、取消済みOutcomeの評価（`evaluation_outcome_not_active`）、active以外のIntent（既存の`intent_not_active`）、archived Projectも`CONFLICT`。別Project・別IntentのEvaluationは`VALIDATION_ERROR`。Intentがactiveでない（達成済み・中止）Outcomeは、Evaluation自体を保存しない（`record_outcome_evaluation`の`CONFLICT`、`reason: intent_not_active`）ため、起動イベントも作られない。
+- **Intent完了はachievedのEvaluationとcompletionDefinitionが揃ったintent_completeだけ**。intent_completeは`evaluationId`必須で、achieved以外は`evaluation_result_mismatch`、完了定義の無いIntentは`no_completion_definition`（完了定義の設定はHumanの責務でStrategistは変更しない）。条件を満たせば同一transactionでIntentを`achieved`にする。Outcome達成とIntent達成は同一視せず、achievedでもIntentが未完了なら同じEvaluationで次のOutcomeを判断する。Execution完了・単一Outcome達成でIntentを自動達成にする経路は無い。
+- **Outcomeの状態は変えない**。`evaluating` / `achieved` / `not_achieved`は予約のまま。再計画後も元Outcomeは`active`で残り、現在の結果は最新Evaluationで表す（状態遷移を増やすと、再評価・取消との整合が要るため初期選択では持たない）。
+- **Strategist Context**: `evaluations`にActive Intent配下の各Outcomeの最新Evaluation（Criterionごとの判定・根拠・snapshot）と、それを根拠にしたDecisionの`decisionId`（未判断はnull）を返し、`unavailable`から`evaluation`を外した（`evidence`＝Evidence本文は残る）。Researcher Contextは変えていない。
+
+### 実装済み・未接続・未検証
+
+- 実装済み: 上記。`test/evaluationReplan.test.ts`が、実MCP経由でイベントの1件化（再送・再評価）、failed → 次のOutcome、insufficient_evidence → 追加Research、achieved → Intent完了 / 次のOutcome、重複判断・古いEvaluation・別Project・取消済みOutcome・中止Intent・archived Project・完了定義なし・非achievedでの拒否、Task 35時点のDBのマイグレーションと再起動後の保持を確認する。
+- 未接続: `outcome_evaluated`を取得してStrategistを起動する外部Runtime、Evaluatorの起動（テスト内の呼び出しがRuntime・Agentを模す）。Human向けにEvaluationや根拠Evaluationを表示するWeb UI（Intentの`achieved`表示は既存UIのまま）。不透明Credential（Task 37）。
 - 未検証: fixtureやテスト内呼び出しによる確認はLv6の自律運転の実証ではない。

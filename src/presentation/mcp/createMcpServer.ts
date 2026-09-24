@@ -128,6 +128,7 @@ const directionDecisionCommonSchema = {
   usedFindingIds: z.array(z.string()).optional(),
   requestKey: z.string(),
   runRef: z.string(),
+  evaluationId: z.string().optional(),
 };
 
 // additional_researchだけが`research`（Strategistが決める調査計画）を必須とする。規則はshared/directionDecisionSchemaが持つ。
@@ -344,8 +345,11 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
         "flag when a cited Finding has expired; conflicts lists Finding id pairs that were declared to contradict each other, " +
         "never averaged or silently dropped; research is null when there is no active Intent). This does not include full Result " +
         "or Evidence text; use get_research_request with a requestId from research.requests to trace a Synthesis to its Findings " +
-        "and Evidence references. unavailable lists inputs that are not implemented yet (evaluation, evidence); do not assume or " +
-        "invent them. Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+        "and Evidence references. evaluations lists the latest Outcome Evaluation of each Outcome under the active Intent " +
+        "(result achieved | failed | insufficient_evidence, per-Criterion verdicts with rationale and evidenceIds, and a snapshot " +
+        "of the Execution Summary and Evidence references at evaluation time), newest first; decisionId is the Direction Decision " +
+        "already based on it, or null while it still awaits a re-plan or Intent completion decision. unavailable lists inputs that " +
+        "are not implemented yet (evidence: Evidence content itself); do not assume or invent them. Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: { projectId: z.string().min(1) },
     },
     ({ projectId }) => execute(() => services.getStrategistContextUseCase.execute(principal, projectId)),
@@ -458,7 +462,16 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
         "optional future deadlineAt as epoch milliseconds; the Strategist decides these): Compass saves the Decision, an additional " +
         "Research Request (returned as researchRequest, correlationId decision:<decisionId>) and a research_requested Runtime event " +
         "in one transaction, and research is rejected for the other types. It does not start the Researcher; the Runtime does that " +
-        "after fetching the event. requestKey makes a resend idempotent (it returns the same decision and researchRequest); the same requestKey with different content fails with " +
+        "after fetching the event. evaluationId cites the Outcome Evaluation (from an outcome_evaluated event or " +
+        "get_strategist_context's evaluations) the decision is based on: optional for additional_research, required for " +
+        "intent_complete, rejected for the other types. It must be the latest Evaluation of an Outcome under this Intent " +
+        "(a superseded one fails with CONFLICT reason evaluation_not_latest) and one Evaluation can back only one Decision " +
+        "(CONFLICT reason evaluation_already_decided). intent_complete means the Intent's completionDefinition is judged " +
+        "fulfilled - not merely that one Outcome was achieved or Execution finished: it requires an achieved Evaluation " +
+        "(CONFLICT reason evaluation_result_mismatch otherwise) and an Intent with a completionDefinition (CONFLICT reason " +
+        "no_completion_definition), and it moves the Intent to achieved in the same transaction. If the Outcome was achieved " +
+        "but the Intent is not complete yet, use decide_next_outcome with that evaluationId instead. " +
+        "requestKey makes a resend idempotent (it returns the same decision and researchRequest); the same requestKey with different content fails with " +
         "CONFLICT. Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: createDirectionDecisionMcpSchema,
     },
@@ -478,7 +491,10 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
         "create_outcome) in one atomic operation: neither is saved without the other. Use this instead of create_outcome when the " +
         "choice should carry a recorded rationale and evidence trail (judgment, reason, options considered, usedSyntheses id+version, " +
         "usedFindingIds, and a snapshot of the Intent Brief at decision time). create_outcome remains available for creating an " +
-        "Outcome without a Decision record; those Outcomes keep originDecisionId null and continue to work as before. requestKey " +
+        "Outcome without a Decision record; those Outcomes keep originDecisionId null and continue to work as before. " +
+        "evaluationId optionally cites the Outcome Evaluation this re-plan is based on (after a failed or insufficient_evidence " +
+        "Evaluation, or an achieved one when the Intent still needs another Outcome); it must be the latest Evaluation of an Outcome " +
+        "under this Intent and not yet used by another Decision (CONFLICT otherwise). requestKey " +
         "makes a resend idempotent; the same requestKey with different content fails with CONFLICT. " +
         "Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: decideNextOutcomeMcpSchema,
@@ -657,7 +673,8 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
       title: "Fetch Runtime Events",
       description:
         "For an external Runtime: fetch the Project's Runtime events that are still unprocessed for the calling consumer, " +
-        "oldest first (research_requested starts a Researcher; research_completed starts a Strategist). The consumer is the " +
+        "oldest first (research_requested starts a Researcher; research_completed starts a Strategist; outcome_confirmed starts a " +
+        "Manager; outcome_evaluated, with evaluationId, starts a Strategist to re-plan or decide Intent completion). The consumer is the " +
         "Bearer Principal. Fetching does not change any state, so a lost response is recovered by fetching again; delivery is " +
         "at-least-once, so deduplicate by event id and acknowledge with ack_runtime_event. Pass nextCursor back as afterCursor " +
         "to continue after the events already dispatched (events that are still unacknowledged are returned again from an " +
@@ -779,8 +796,10 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
         "references at evaluation time, and is stored with the Principal from the Bearer and runRef. requestKey makes a resend " +
         "idempotent (recorded: false, the same Evaluation); the same requestKey with different content fails with CONFLICT. " +
         "It does not change the Outcome, its Success Criteria or the Execution result, and it does not decide the next Outcome or " +
-        "Intent completion. An Outcome of another Project fails with NOT_FOUND; a non-active Outcome, an Outcome whose Execution has " +
-        "not been reflected yet (reason no_execution_summary) or an archived Project fails with CONFLICT. " +
+        "Intent completion: a new Evaluation adds one outcome_evaluated Runtime event (a resend adds none) so that the Runtime starts " +
+        "a Strategist. An Outcome of another Project fails with NOT_FOUND; a non-active Outcome, an Outcome whose Execution has " +
+        "not been reflected yet (reason no_execution_summary), an Intent that is no longer active (reason intent_not_active) or an " +
+        "archived Project fails with CONFLICT. " +
         "Requires Authorization: Bearer <AgentName> with an evaluator Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: outcomeEvaluationSchema,
     },

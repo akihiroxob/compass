@@ -166,6 +166,8 @@ export const createApplicationServices = (
       intentRepository,
       outcomeRepository,
       researchRepository,
+      directionDecisionRepository,
+      outcomeEvaluationRepository,
     ),
     createDirectionDecisionUseCase: new CreateDirectionDecisionUseCase(
       projectRepository,
