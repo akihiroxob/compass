@@ -29,8 +29,11 @@ export type ArchiveProjectResult =
   | { kind: "already_archived" };
 
 export interface ProjectRepository {
-  /** 常にactiveで作成する。statusは入力から受け取らない。 */
-  create(input: CreateProjectInput): Promise<Project>;
+  /**
+   * 常にactiveで作成する。statusは入力から受け取らない。
+   * `ownerHumanUserId`を渡すと、そのHumanのowner Membershipを同一transactionで作成する（部分保存しない）。
+   */
+  create(input: CreateProjectInput, ownerHumanUserId?: string): Promise<Project>;
   /** 親と子要素は同一transactionで更新する。archivedのProjectは更新しない。 */
   update(projectId: string, input: UpdateProjectInput): Promise<UpdateProjectResult>;
   /**

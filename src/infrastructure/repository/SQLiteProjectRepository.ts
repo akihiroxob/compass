@@ -14,7 +14,7 @@ type Queryable = Kysely<Database> | Transaction<Database>;
 export class SQLiteProjectRepository implements ProjectRepository {
   constructor(private readonly database: Kysely<Database>) {}
 
-  async create(input: CreateProjectInput): Promise<Project> {
+  async create(input: CreateProjectInput, ownerHumanUserId?: string): Promise<Project> {
     const id = crypto.randomUUID();
     const now = Date.now();
 
@@ -62,6 +62,20 @@ export class SQLiteProjectRepository implements ProjectRepository {
             id: crypto.randomUUID(), project_id: id, ...item, sort_order: sortOrder,
           })),
         ).execute();
+      }
+      if (ownerHumanUserId !== undefined) {
+        // 存在しないHumanはFK違反で例外になり、Projectもrollbackされる。
+        await transaction.insertInto("project_membership").values({
+          id: crypto.randomUUID(),
+          project_id: id,
+          human_user_id: ownerHumanUserId,
+          role: "owner",
+          created_at: now,
+          updated_at: now,
+          created_by_human_user_id: ownerHumanUserId,
+          revoked_at: null,
+          revoked_by_human_user_id: null,
+        }).execute();
       }
     });
 
