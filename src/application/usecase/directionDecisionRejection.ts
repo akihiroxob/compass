@@ -7,6 +7,7 @@ import { ValidationError } from "../error/ValidationError.ts";
 type CommonDecisionRejection =
   | { kind: "project_archived" }
   | { kind: "key_conflict"; requestKey: string }
+  | { kind: "deadline_in_past"; deadlineAt: number }
   | { kind: "intent_not_found" }
   | { kind: "intent_not_active"; status: string }
   | { kind: "invalid_reference"; reference: "synthesis" | "finding"; ids: string[] }
@@ -33,6 +34,11 @@ export const throwDirectionDecisionRejection = (
     throw new ConflictError(`requestKey ${rejection.requestKey} was already used with different content`, {
       requestKey: rejection.requestKey,
     });
+  }
+  if (rejection.kind === "deadline_in_past") {
+    throw new ValidationError("Direction Decision input is invalid", [
+      { path: "research.deadlineAt", message: "deadlineAt must be in the future" },
+    ]);
   }
   if (rejection.kind === "invalid_reference") {
     throw new ValidationError("Direction Decision input is invalid", [

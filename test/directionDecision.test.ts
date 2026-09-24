@@ -116,6 +116,12 @@ const decisionArgs = (projectId: string, intentId: string, overrides: object = {
   judgment: "Need more evidence before choosing an Outcome",
   reason: "The current Synthesis leaves the renew-storm risk unresolved",
   options: ["Proceed now", "Request more research"],
+  research: {
+    question: "Does lease renewal cause a renew storm?",
+    scope: "Lease-based claiming in the target Repository.",
+    completionCondition: "The renew-storm risk is confirmed or ruled out with evidence.",
+    budgetTotal: 50,
+  },
   requestKey: "decision-1",
   runRef: "strategist-run-1",
   ...overrides,
@@ -224,7 +230,7 @@ test("放棄済みIntentへのDecisionはCONFLICTで拒否され、policy_propos
   const proposal = await callTool(
     app,
     "create_direction_decision",
-    decisionArgs(project.id, secondIntent.id, { type: "policy_proposal", requestKey: "policy-1" }),
+    decisionArgs(project.id, secondIntent.id, { type: "policy_proposal", research: undefined, requestKey: "policy-1" }),
     "strat-1",
   );
   assert.equal(proposal.isError, undefined);

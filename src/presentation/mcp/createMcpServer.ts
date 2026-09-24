@@ -134,9 +134,19 @@ const directionDecisionCommonSchema = {
   runRef: z.string(),
 };
 
+// additional_researchだけが`research`（Strategistが決める調査計画）を必須とする。規則はshared/directionDecisionSchemaが持つ。
+const additionalResearchPlanMcpSchema = z.object({
+  question: z.string(),
+  scope: z.string(),
+  completionCondition: z.string(),
+  budgetTotal: z.number().int(),
+  deadlineAt: z.number().int().nullable().optional(),
+});
+
 const createDirectionDecisionMcpSchema = {
   ...directionDecisionCommonSchema,
   type: z.enum(directionDecisionRecordTypes),
+  research: additionalResearchPlanMcpSchema.optional(),
 };
 
 const decideNextOutcomeMcpSchema = {
@@ -465,15 +475,19 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
         "Synthesis/Finding ids that exist in this Project (a stale or wrong version fails with CONFLICT). The Intent Brief at " +
         "decision time is snapshotted and stored with the Decision. policy_proposal only records a proposal; it never changes " +
         "the Project's Mission, Vision, Principles or Constraints directly (use update_project separately if a Human-reviewed " +
-        "change is later approved). requestKey makes a resend idempotent; the same requestKey with different content fails with " +
+        "change is later approved). additional_research requires research (question, scope, completionCondition, budgetTotal 1-10000, " +
+        "optional future deadlineAt as epoch milliseconds; the Strategist decides these): Compass saves the Decision, an additional " +
+        "Research Request (returned as researchRequest, correlationId decision:<decisionId>) and a research_requested Runtime event " +
+        "in one transaction, and research is rejected for the other types. It does not start the Researcher; the Runtime does that " +
+        "after fetching the event. requestKey makes a resend idempotent (it returns the same decision and researchRequest); the same requestKey with different content fails with " +
         "CONFLICT. Requires Authorization: Bearer <AgentName> with a strategist Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: createDirectionDecisionMcpSchema,
     },
     ({ projectId, ...input }) =>
       execute(() =>
-        asStrategistWithPrincipal(projectId, async (principalId) => ({
-          decision: await services.createDirectionDecisionUseCase.execute(projectId, principalId, input),
-        })),
+        asStrategistWithPrincipal(projectId, async (principalId) =>
+          services.createDirectionDecisionUseCase.execute(projectId, principalId, input),
+        ),
       ),
   );
   server.registerTool(

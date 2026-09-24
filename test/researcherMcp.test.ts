@@ -377,6 +377,7 @@ test("Researcherは Outcome・Project基盤設定・Intent を変更できない
     type: "additional_research",
     judgment: "J",
     reason: "R",
+    research: { question: "Q", scope: "S", completionCondition: "C", budgetTotal: 10 },
     requestKey: "researcher-attempt-1",
     runRef: "run-1",
   });

@@ -2,6 +2,7 @@ import type { IntentStatus } from "../model/Intent.ts";
 import type { DirectionDecision } from "../model/DirectionDecision.ts";
 import type { IntentResearchSummary } from "../model/Research.ts";
 import type { Outcome } from "../model/Outcome.ts";
+import type { ResearchRequest } from "../model/Research.ts";
 import type { ProjectArchivedResult } from "./ProjectRepository.ts";
 import type {
   CreateDirectionDecisionInput,
@@ -24,15 +25,18 @@ export type SynthesisVersionMismatchResult = {
 
 type DirectionDecisionWriteRejection =
   | { kind: "key_conflict"; requestKey: string }
+  /** additional_researchの`research.deadlineAt`が判断時点で過去。再送の判定より後に検査する。 */
+  | { kind: "deadline_in_past"; deadlineAt: number }
   | { kind: "intent_not_found" }
   | { kind: "intent_not_active"; status: IntentStatus }
   | InvalidResearchReferenceResult
   | SynthesisVersionMismatchResult
   | ProjectArchivedResult;
 
+/** `researchRequest`はadditional_researchのDecisionが同時に作ったRequest。他のtypeではnull。 */
 export type CreateDirectionDecisionResult =
-  | { kind: "created"; decision: DirectionDecision }
-  | { kind: "replayed"; decision: DirectionDecision }
+  | { kind: "created"; decision: DirectionDecision; researchRequest: ResearchRequest | null }
+  | { kind: "replayed"; decision: DirectionDecision; researchRequest: ResearchRequest | null }
   | DirectionDecisionWriteRejection;
 
 export type DecideNextOutcomeResult =
@@ -48,6 +52,7 @@ export type DecideNextOutcomeResult =
 export interface DirectionDecisionRepository {
   /**
    * next_outcome以外の5種の判断を記録する。同じrequestKeyの再送は新しい行を作らず既存のDecisionを返す。
+   * additional_researchは、判断・Research Request・`research_requested`イベントを1 transactionで保存し、部分保存を許さない。
    * usedSyntheses・usedFindingIdsは同じProjectに存在し、指定versionが現在のSynthesis versionと一致する場合だけ受け付ける。
    */
   create(

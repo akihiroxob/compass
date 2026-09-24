@@ -14,6 +14,7 @@
 | Intent Brief・Strategist Contextへの接続 | 実装済み（Task 26）。`get_strategist_context`の`research`にIntent Brief、新規MCP tool `get_research_request`にSynthesis→Finding→Evidence参照のID指定Queryを実装 |
 | Direction Decision・Outcomeの根拠参照 | 実装済み（Task 27）。MCP tool `create_direction_decision`（next_outcome以外の5種）と`decide_next_outcome`（next_outcomeとOutcomeを同一transactionで保存）を実装。ADR連携（Repository参照・Wacha引き渡し契約）はTask 28、Human向けResearch / Decision画面はTask 29で実装済み |
 | ADR Candidate・Repository参照・Wacha引き渡し契約 | 実装済み（Task 28）。MCP tool `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`を実装。実Wachaとは未接続で、fixture契約の検証まで |
+| 追加Research判断のRequest・Runtimeイベント接続 | 実装済み（Task 32）。`create_direction_decision`の`additional_research`が、Decision・追加Research Request・`research_requested`イベントを1 transactionで保存する。Runtimeによる起動は未接続 |
 | Human向けResearch / Decision / ADR参照のWeb UI・Web API、ResearcherのGrant管理画面統合、空DBからの実HTTP/MCP自動検証 | 実装済み（Task 29）。読み取り専用画面とWeb API、`test/researchDecisionIntegration.test.ts`を追加。外部RuntimeとWachaは未接続で、fixture契約の検証まで |
 
 `get_strategist_context`が返す`unavailable`は`evaluation` / `evidence`のみになった（Task 26で`research`を除外）。Evaluation・Evidence相当はStrategist Contextへ接続されるまで変わらず、実装済みとして扱わない。
@@ -278,7 +279,7 @@ Active Intent作成を契機とするInitial Requestと、Runtimeが起動条件
 ### Runtime向け確定イベント
 
 - tableは`runtime_event`（追記のみ。更新・削除しない）。項目は`cursor`（`autoincrement`の`sequence`）、`id`、`version`（`runtimeEventVersion`、現在1）、`type`、`projectId`、`intentId`、`researchRequestId`、`correlationId`、`conclusion`、`occurredAt`。同じRequest・同じ種類のイベントはunique indexで1件に収束する。
-- `research_requested`: Requestが作成されたとき。RuntimeがResearcherを起動する条件。Initial Requestに限らず、`createRequest`（Strategistの追加Research等）でも、Request保存と同じ経路（`insertResearchRequest`）で必ず保存する。Requestがあってイベントが無い状態を作らないため。
+- `research_requested`: Requestが作成されたとき。RuntimeがResearcherを起動する条件。Initial Requestに限らず、`createRequest`・追加Research判断（Task 32）でも、Request保存と同じ経路（`insertResearchRequest`）で必ず保存する。Requestがあってイベントが無い状態を作らないため。
 - `research_completed`: Requestが`completed` / `insufficient` / `not_needed`で確定したとき（`conclusion`に確定結果）。Runtimeが次にStrategistを起動する条件。`not_needed`と`insufficient`も、次の判断へ進める確定結果として区別せず同じ種類で表す。
 - `research_completed`を作らないもの: `cancelled`（Strategistを起動する結果ではない）、`project_watch`のRequest（発端Intentが無く、Strategistの判断対象がない）、発端IntentがactiveでなくなったRequest、確定に失敗した操作（`completed`のResult・Synthesis不足、終了済みRequestへの再送）、archivedのProject。
 - 取得は`ListRuntimeEventsUseCase`（`projectId`、`afterCursor`、`limit`）で、cursor昇順・Project単位。Runtimeがcursorを保持して差分を取得する（Wachaの`list_changes`と同じ考え方）。Web API・MCPの取得入口は、consumer単位のcursor・ack付きでTask 31に実装した（下記「実装記録: Runtime eventのcursor・ack公開（Task 31）」）。`ListRuntimeEventsUseCase`はconsumerを持たない全件の読取として残す。
@@ -321,7 +322,7 @@ Compassを正本とするDirection Decisionと、Strategistの判断を記録す
 
 ### 入口とtype
 
-- `create_direction_decision`: `next_outcome`以外の5種（`additional_research` / `intent_complete` / `intent_abandon` / `policy_proposal` / `adr_candidate`）を記録する。判断（`judgment`）・理由（`reason`）・選択肢（`options`）・使用した`usedSyntheses`（Synthesis id + version）・`usedFindingIds`を保存するだけで、他のEntityは作らない。
+- `create_direction_decision`: `next_outcome`以外の5種（`additional_research` / `intent_complete` / `intent_abandon` / `policy_proposal` / `adr_candidate`）を記録する。判断（`judgment`）・理由（`reason`）・選択肢（`options`）・使用した`usedSyntheses`（Synthesis id + version）・`usedFindingIds`を保存する。`additional_research`以外は他のEntityを作らない（`additional_research`はTask 32で追加Research Requestも作る）。
 - `decide_next_outcome`: `next_outcome`のDecisionとOutcome（固定のSuccess Criteria含む）を1 transactionで保存する（部分保存を許さない）。Outcome入力は既存の`createOutcomeSchema`をそのまま使い、`create_outcome`の固定Success Criteriaの規則を重複させない。
 - 既存の`create_outcome`はそのまま維持し、Decisionを経由しないOutcome作成に使える。そのOutcomeの`originDecisionId`は`null`のままで、既存の呼び出し・テストは変更なしで動く。
 
@@ -459,9 +460,9 @@ Task本文にある「証拠不足・予算停止・通信結果不明」は、C
   `GrantSection` / `IntentSection` / `OutcomeSection`と同じデータ取得・表示パターンをそのまま踏襲している。
 - 外部RuntimeによるResearcher/Strategistの自動起動、実Wacha・GitHub APIとの接続は引き続き未接続。本Taskの自動検証は
   fixture契約の確認であり、Lv6の自律運転実証ではない。
-- `additional_research`型のDirection Decisionから実際に新しいResearch Requestを作る入口（`CreateResearchRequestUseCase`
-  をMCP/Web APIへ公開すること）は本Taskの対象外のまま（Task 23時点から未接続）。判断の記録（`create_direction_decision`）
-  だけがTask 27で実装済み。
+- `additional_research`型のDirection Decisionから新しいResearch Requestを作る確定経路はTask 32で実装済み
+  （「実装記録: 追加Research判断のRequest・Runtimeイベント接続（Task 32）」）。`CreateResearchRequestUseCase`自体は
+  MCP/Web APIへ公開していない。
 
 ## 実装記録: Runtime eventのcursor・ack公開（Task 31）
 
@@ -474,3 +475,16 @@ Task本文にある「証拠不足・予算停止・通信結果不明」は、C
 - **永続化**: 新規table `runtime_event_delivery`（主キー`(consumer_id, event_sequence)`、`outcome`、`retry_count`、`last_failure_reason`、`created_at`、`updated_at`）。`runtime_event`は追記のみのまま変更しない。schema初期化は`create table if not exists`で既存DBへ再適用でき、既存tableには触れない。再起動後もackと未処理の状態が残る。
 - **Strategist起動に必要な項目**: `research_completed`は`projectId`・`intentId`・`researchRequestId`・`correlationId`・`version`・`conclusion`を持つ（既存項目。`researchRequestId`がRequest IDである）。
 - **未接続・未検証**: 実Runtimeによる取得・Agent起動は未接続。検証は`test/runtimeEvents.test.ts`のWeb API / MCP in-process呼び出しと、ファイルDBでのserver再起動再現で、Lv6の実証ではない。`outcome_confirmed`イベントとremote向け認証（Task 37）は未実装。
+
+## 実装記録: 追加Research判断のRequest・Runtimeイベント接続（Task 32）
+
+Strategistの`additional_research` Direction Decisionから、追加Research Requestと`research_requested`イベントを作る確定経路を実装した。入口は既存のMCP tool `create_direction_decision`で、新しいtool・Web API・DB tableは追加していない。
+
+- **決定主体と入力規則**: `research`（`question` / `scope` / `completionCondition` / `budgetTotal` / `deadlineAt`）は**Strategistが決め**、`additional_research`では必須、他のtypeでは`VALIDATION_ERROR`。項目の規則はInitial Requestや`CreateResearchRequestInput`と同じ`researchPlanShape`（`shared/researchSchema.ts`）を共有する（予算は1〜10000の整数で単位はRuntimeが定める）。ResearcherやRuntimeはQuestion・Outcome・Directionを決める権限を持たない（`create_direction_decision`はstrategist Grantが必要）。
+- **原子性**: `SQLiteDirectionDecisionRepository.create`が、Decision行・Request行・`research_requested`イベントを1 transactionで保存する。Request・イベントは既存の`insertResearchRequest`を使うため、Requestがあってイベントが無い状態は作れない。いずれかのtableへの挿入に失敗すると3つとも残らず、復旧後に同じ`requestKey`を再送すれば1件ずつ作られる（`test/additionalResearch.test.ts`が3 tableへ失敗を注入して確認）。
+- **相関ID・冪等性**: Requestの`correlationId`は`decision:{decisionId}`、`requestKey`は`additional-research:{decisionId}`（`domain/model/AdditionalResearchRequest.ts`）。相関IDは`research_requested` / `research_completed`イベントへ引き継がれ、Decision・Request・イベントを結ぶ。同じDecisionの`requestKey`再送は既存のDecisionと、`requestKey`（既存のunique index）で引いたRequestを返し、重複しない。`research`を含む入力全体をhashするため、異なる計画で同じ`requestKey`を使うと`CONFLICT`。
+- **拒否**: archived Project（`CONFLICT` / `projectStatus`）、Activeでない・存在しない・別ProjectのIntent、別Projectの`usedSyntheses` / `usedFindingIds`、過去の`deadlineAt`（`VALIDATION_ERROR`、`research.deadlineAt`）、不正な予算・空の項目をapplication層で拒否し、Decision・Request・イベントのいずれも作らない。過去期限の検査は再送の判定より後に置き、期限後の同じ入力の再送は作成済みの結果を返す。
+- **取得**: RuntimeはTask 31の`fetch_runtime_events`（Web APIも同じ）から、`type: "research_requested"`・`researchRequestId`・`correlationId`付きの新しいイベントを取得できる。
+- **初期選択（理由）**: Decision↔Requestの逆参照列（`origin_decision_id`）は追加せず、DBスキーマを変更しない。既存の`request_key`のunique indexと決定的な`correlationId`で、再送・遡りに足りるため。Decision作成時刻と期限判定は注入された`clock`を使う（Researchと同じ時刻源）。
+- **互換性**: `additional_research`で`research`を省いた従来の呼び出しは`VALIDATION_ERROR`になる（Requestを伴わない`additional_research`を残さないため）。応答は`{ decision, researchRequest }`になり、他のtypeでは`researchRequest`が`null`。
+- **未接続・未検証**: RuntimeによるResearcher起動、`outcome_confirmed`イベント（Task 33）は未接続。検証は`test/additionalResearch.test.ts`のin-processのMCP / Web API呼び出しで、Lv6の実証ではない。

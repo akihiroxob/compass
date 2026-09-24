@@ -159,6 +159,12 @@ test("存在しないDecision・adr_candidateでないDecision・未登録Reposi
       type: "additional_research",
       judgment: "Need more evidence",
       reason: "Renew-storm risk unresolved",
+      research: {
+        question: "Is the renew-storm risk real?",
+        scope: "Lease renewal in the target Repository.",
+        completionCondition: "The risk is confirmed or ruled out.",
+        budgetTotal: 10,
+      },
       requestKey: "non-adr-decision",
       runRef: "run-1",
     },

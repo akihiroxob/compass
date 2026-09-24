@@ -34,17 +34,25 @@ const provenance = {
   runRef: trimmedText("runRef", 500),
 };
 
+/**
+ * Research Requestの調査計画（Question・範囲・完了条件・予算・期限）。Strategistの追加Research判断でも同じ規則を使う。
+ * 期限が未来かどうかは時刻源を持つ永続化側で検査する。
+ */
+export const researchPlanShape = {
+  question: trimmedText("question", 2_000),
+  scope: trimmedText("scope", 2_000),
+  completionCondition: trimmedText("completionCondition", 2_000),
+  budgetTotal: z.number().int().min(1).max(maximumBudget),
+  deadlineAt: optionalEpochMillis,
+};
+
 export const createResearchRequestSchema = z
   .object({
     requestKey,
     kind: z.enum(["project_watch", "decision"]).default("decision"),
     originIntentId: optionalId,
     originOutcomeId: optionalId,
-    question: trimmedText("question", 2_000),
-    scope: trimmedText("scope", 2_000),
-    completionCondition: trimmedText("completionCondition", 2_000),
-    budgetTotal: z.number().int().min(1).max(maximumBudget),
-    deadlineAt: optionalEpochMillis,
+    ...researchPlanShape,
     correlationId: trimmedText("correlationId", 200).optional(),
   })
   .superRefine((input, context) => {

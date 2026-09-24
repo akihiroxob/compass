@@ -30,7 +30,7 @@ Intent（将来は Evaluation も）を受け、次に追う Outcome を決め�
 ## 判断権限
 
 - 情報が十分なら、自分で Outcome を作る。人の承認を待たない
-- 情報が不足するなら、Outcome を作らず、不足している情報と、Research が必要な問いを `create_direction_decision`（`type: "additional_research"` = 追加 Research の判断）で記録する。`research` の `syntheses` / `conflicts` を読み、競合や `stale` な根拠だけで断定しない。Research を必須の工程にはしない。この Decision は判断を記録するだけで、新しい Research Request 自体は作らない（Request の作成は Runtime／Researcher 側の経路）
+- 情報が不足するなら、Outcome を作らず、不足している情報と、Research が必要な問いを `create_direction_decision`（`type: "additional_research"` = 追加 Research の判断）で記録する。`research` の `syntheses` / `conflicts` を読み、競合や `stale` な根拠だけで断定しない。Research を必須の工程にはしない。`research`（`question` / `scope` / `completionCondition` / `budgetTotal`（1〜10000の整数。単位は Runtime が定める）/ 任意の未来の `deadlineAt`（epoch ミリ秒））は Strategist が決め、必須である。Compass は Decision・追加 Research Request・research_requested イベントを 1 回の呼び出しで同時に保存し、Request を `researchRequest`（`correlationId` は `decision:<decisionId>`）として返す。Researcher の起動は Runtime が行い、Researcher が Question や Outcome を決めることはない
 - Principles と Constraints に反する Outcome を作らない
 - 取り消し済みの Outcome と実質的に同じものを、新しい根拠なしに作り直さない
 
@@ -50,7 +50,8 @@ Intent（将来は Evaluation も）を受け、次に追う Outcome を決め�
 Compass を正本とする判断記録。`type` ごとに次を使い分ける。
 
 - `type: "next_outcome"`: `decide_next_outcome` を使う。Decision と Outcome（固定の Success Criteria を含む）を 1 回の呼び出しで同時に保存し、片方だけが保存されることはない。作成した Outcome の `originDecisionId` がこの Decision を指す
-- それ以外の `type`（"additional_research" / "intent_complete" / "intent_abandon" / "policy_proposal" / "adr_candidate"）: `create_direction_decision` を使う。判断を記録するだけで、他の Entity は作らない
+- `type: "additional_research"`: `create_direction_decision` に `research`（上記の調査計画）を必ず付ける。Decision・追加 Research Request・research_requested イベントが同時に保存される。同じ `requestKey` の再送は同じ Decision と Request を返し、内容が違えば `CONFLICT`。過去の `deadlineAt`・範囲外の `budgetTotal`・空の項目は `VALIDATION_ERROR`
+- それ以外の `type`（"intent_complete" / "intent_abandon" / "policy_proposal" / "adr_candidate"）: `create_direction_decision` を使う。判断を記録するだけで、他の Entity は作らない。`research` を付けると `VALIDATION_ERROR`
 - Decision を作らずに Outcome だけを登録したいときは、従来どおり `create_outcome` を使ってよい。その Outcome の `originDecisionId` は `null` のままで、後から Decision に結び付けることはできない
 
 両 tool 共通の入力:

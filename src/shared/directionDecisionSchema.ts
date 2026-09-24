@@ -2,6 +2,7 @@ import { z } from "zod";
 import { directionDecisionRecordTypes } from "../domain/model/DirectionDecision.ts";
 import { createOutcomeSchema } from "./outcomeSchema.ts";
 import { parseWith, trimmedText } from "./projectSchema.ts";
+import { researchPlanShape } from "./researchSchema.ts";
 
 const idText = trimmedText("id", 200);
 
@@ -37,10 +38,41 @@ const checkUniqueReferences = (
   }
 };
 
-/** next_outcome以外の5種。next_outcomeはOutcomeと同一transactionで保存するdecideNextOutcomeSchemaを使う。 */
+/**
+ * additional_researchでStrategistが決める調査計画。Question・scope・completionCondition・予算・期限の決定主体は
+ * Strategistで、ResearcherやRuntimeは決めない。予算の単位はRuntimeが定める抽象量。
+ */
+export const additionalResearchPlanSchema = z.object(researchPlanShape);
+
+export type AdditionalResearchPlan = z.infer<typeof additionalResearchPlanSchema>;
+
+/**
+ * next_outcome以外の5種。next_outcomeはOutcomeと同一transactionで保存するdecideNextOutcomeSchemaを使う。
+ * additional_researchだけが`research`を必須とし、他のtypeでは受け付けない（Requestを作らない判断に計画を紛れ込ませない）。
+ */
 export const createDirectionDecisionSchema = z
-  .object({ ...decisionCommonSchema, type: z.enum(directionDecisionRecordTypes) })
-  .superRefine(checkUniqueReferences);
+  .object({
+    ...decisionCommonSchema,
+    type: z.enum(directionDecisionRecordTypes),
+    research: additionalResearchPlanSchema.optional(),
+  })
+  .superRefine(checkUniqueReferences)
+  .superRefine((input, context) => {
+    if (input.type === "additional_research" && input.research === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "research is required for an additional_research decision",
+        path: ["research"],
+      });
+    }
+    if (input.type !== "additional_research" && input.research !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "research is only accepted for an additional_research decision",
+        path: ["research"],
+      });
+    }
+  });
 
 export type CreateDirectionDecisionInput = z.infer<typeof createDirectionDecisionSchema>;
 

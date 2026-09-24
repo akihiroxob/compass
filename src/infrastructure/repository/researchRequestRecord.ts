@@ -70,3 +70,15 @@ export const insertResearchRequest = async (
   });
   return toRequest(row);
 };
+
+export const findResearchRequestByKey = async (
+  transaction: Transaction<Database>,
+  projectId: string,
+  requestKey: string,
+): Promise<Selectable<ResearchRequestTable> | undefined> =>
+  transaction
+    .selectFrom("research_request")
+    .selectAll()
+    .where("project_id", "=", projectId)
+    .where("request_key", "=", requestKey)
+    .executeTakeFirst();

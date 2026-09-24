@@ -5,6 +5,7 @@ import type {
   DecideNextOutcomeResult,
   DirectionDecisionRepository,
 } from "../../domain/repository/DirectionDecisionRepository.ts";
+import { additionalResearchCorrelationId, additionalResearchRequestKey } from "../../domain/model/AdditionalResearchRequest.ts";
 import type { IntentResearchSummary } from "../../domain/model/Research.ts";
 import type { CreateDirectionDecisionInput, DecideNextOutcomeInput } from "../../shared/directionDecisionSchema.ts";
 import type { Database } from "../database/schema.ts";
@@ -17,9 +18,14 @@ import {
 import { inputHash } from "./inputHash.ts";
 import { isProjectArchived } from "./isProjectArchived.ts";
 import { insertOutcomeRow, loadOutcomes } from "./outcomeRecord.ts";
+import { findResearchRequestByKey, insertResearchRequest, toRequest } from "./researchRequestRecord.ts";
 
 export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepository {
-  constructor(private readonly database: Kysely<Database>) {}
+  /** `clock`は追加Researchの期限判定の時刻源。テストで固定できるよう注入する。 */
+  constructor(
+    private readonly database: Kysely<Database>,
+    private readonly clock: () => number = Date.now,
+  ) {}
 
   async create(
     projectId: string,
@@ -34,7 +40,14 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
       if (existing) {
         if (existing.input_hash !== hash) return { kind: "key_conflict", requestKey: input.requestKey };
         const [decision] = await loadDecisions(transaction, [existing]);
-        return { kind: "replayed", decision: decision! };
+        const request = await findResearchRequestByKey(transaction, projectId, additionalResearchRequestKey(existing.id));
+        return { kind: "replayed", decision: decision!, researchRequest: request ? toRequest(request) : null };
+      }
+
+      // 再送の判定より後に置く。期限後に同じ入力を再送しても、作成済みのDecisionとRequestを返せるようにする。
+      const now = this.clock();
+      if (input.research && input.research.deadlineAt !== null && input.research.deadlineAt <= now) {
+        return { kind: "deadline_in_past", deadlineAt: input.research.deadlineAt };
       }
 
       const intent = await transaction
@@ -54,18 +67,37 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
       );
       if (referenceCheck.kind !== "ok") return referenceCheck;
 
+      const decisionId = crypto.randomUUID();
       const decision = await insertDirectionDecisionRow(
         transaction,
         projectId,
-        crypto.randomUUID(),
+        decisionId,
         input.type,
         null,
         intentBriefSnapshot,
         input,
         hash,
-        Date.now(),
+        now,
       );
-      return { kind: "created", decision };
+      if (!input.research) return { kind: "created", decision, researchRequest: null };
+
+      // 判断・Request・research_requestedイベントを同じtransactionで保存する。いずれかが失敗すれば全て残らない。
+      // 相関IDとrequestKeyはDecisionから決定的に作る。requestKeyの既存unique indexがDecisionごとに1件へ収束させ、
+      // 再送時の取得と、相関ID（イベントにも引き継がれる）によるDecisionへの遡りに使う。
+      const researchRequest = await insertResearchRequest(
+        transaction,
+        projectId,
+        {
+          requestKey: additionalResearchRequestKey(decisionId),
+          kind: "decision",
+          originIntentId: input.intentId,
+          originOutcomeId: null,
+          ...input.research,
+          correlationId: additionalResearchCorrelationId(decisionId),
+        },
+        now,
+      );
+      return { kind: "created", decision, researchRequest };
     });
   }
 
@@ -108,7 +140,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
       );
       if (referenceCheck.kind !== "ok") return referenceCheck;
 
-      const now = Date.now();
+      const now = this.clock();
       const outcomeId = crypto.randomUUID();
       const decisionId = crypto.randomUUID();
       // Outcomeを先に作る（direction_decision.outcome_idがoutcome.idを参照するFKの前提）。
