@@ -90,7 +90,7 @@ application 層の use case ごとに、archived 時の扱いを次のとおり�
 | `InstructionService`（`get_role_instructions`） | — | `get_role_instructions` | — | Project に依存しないため対象外 |
 
 - **原則: archived の Project に対して、`ArchiveProject` を含む「書込」は 1 つも成功しない。参照は archive 前と同じく成功する。** 将来 Project 配下に書込操作を追加する場合も、この原則に従う（追加した use case が archived を拒否することを、その Task の受け入れ条件にする）。
-- **Human Membership・招待（Step 6）も同じ規則に従う**。招待の発行・取消・受諾、Membership の Role 変更・取消は同一 transaction で拒否する（詳細は `docs/step-6-human-auth-design.md` の状態遷移節）。例外は初期 owner bootstrap の orphan 補完だけ。
+- **Human Membership・招待（Step 6）も同じ規則に従う**。招待の発行・取消・受諾、Membership の Role 変更・取消は同一 transaction で拒否する（詳細は `docs/step-6-human-auth-design.md` の状態遷移節）。例外は platform owner による orphan 補完（bootstrap 時と各ログイン時）だけ。
 - **Role Grant の取消も拒否する**。「archived は参照専用」を 1 つの規則にし、例外（許可する書込）を作らない。archived の Project に Grant が残っても、書込は拒否され、読取だけが可能なため危険は増えない。取消が必要になった場合の扱いは「将来変更できる箇所」に記す。
 - MCP は新しい tool を追加せず、既存の書込 tool が同じ use case 経由で 409 相当の `CONFLICT`（`isError`）を返す。tool の入力 schema は変えない。
 - `list_projects`（MCP）は **`active` のみ**を返す。`status` 引数は追加しない。archived の Project は ID を知っていれば `get_project` 等で参照できる。Agent が「新しい作業の対象」を探す入口から archived を外すため。

@@ -139,7 +139,7 @@ Human向けapplication use caseは `HumanActor = { kind: "human"; humanUserId: s
 | Membership | 作成（Project作成・招待受諾・bootstrap補完）→ Role変更 → `revoked` | 最後のownerを失う変更・取消は `409 LAST_OWNER`。取消済みは復帰させず再招待 |
 | HumanUser | `active` → `disabled` | 初期版はUI・APIなし。disabled時は全Session失効・ログイン拒否 |
 
-- **archived Project（Step 5の参照専用規則）**: 招待の発行・取消、Membership のRole変更・取消は、書込と同一transactionで `isProjectArchived` を検査し `409 CONFLICT`（`projectStatus: "archived"`）で拒否する。archive前に発行された `pending` 招待は状態を変えずに残し、受諾できない（登録判定の事実 `projectArchived` を受諾と同一transactionで集める）。新規Humanは `not_allowed`（Project状態を漏らさない）で行を作らず、既存Humanはログインだけ成功して招待を `invalid` として扱う。一覧（Membership・招待）の参照は従来どおり可能。唯一の例外は初期owner bootstrapのorphan補完で、archivedのProjectも管理不能にしないためowner Membershipを付与する（Human操作ではなく移行処理）。Task 40で実装・テスト済み。
+- **archived Project（Step 5の参照専用規則）**: 招待の発行・取消、Membership のRole変更・取消は、書込と同一transactionで `isProjectArchived` を検査し `409 CONFLICT`（`projectStatus: "archived"`）で拒否する。archive前に発行された `pending` 招待は状態を変えずに残し、受諾できない（登録判定の事実 `projectArchived` を受諾と同一transactionで集める）。新規Humanは `not_allowed`（Project状態を漏らさない）で行を作らず、既存Humanはログインだけ成功して招待を `invalid` として扱う。一覧（Membership・招待）の参照は従来どおり可能。唯一の例外はplatform ownerのorphan補完（bootstrap時と各ログイン時）で、archivedのProjectも管理不能にしないためowner Membershipを付与する（Human操作ではなく移行処理）。Task 40で実装・テスト済み。
 
 ## 登録・ログインの規則（closed registration）
 
