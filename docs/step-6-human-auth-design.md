@@ -1,6 +1,6 @@
 # Step 6: Human認証・Project Membership・招待制 設計
 
-> **状態: 設計（確定、Task 39）。永続化（domain・repository・schema・application use case）はTask 40で実装済みだが、Web API・MCP・画面には未接続。** Google OIDC・SessionはTask 41、Web APIへの認可適用はTask 42、UIはTask 43、実HTTP統合検証と運用文書はTask 44で行う。
+> **状態: 設計（確定、Task 39）。永続化（domain・repository・schema・application use case）はTask 40、Google OIDC・Web Session・`/auth/*`・`/api/auth/*`・CSRF検査・設定のfail-fastはTask 41で実装済み。既存のHuman向けWeb APIへのSession・Membership認可の適用（Task 42）、MCPのremote mode対応（Task 37）、画面（Task 43）は未接続。** 実HTTP統合検証と運用文書はTask 44で行う。
 > 事前のユーザー確認は設けない。親Storyに定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選び、理由を「選択理由と将来変更できる箇所」に記録する。
 
 ## 根拠資料と優先順位
@@ -173,6 +173,7 @@ Human向けapplication use caseは `HumanActor = { kind: "human"; humanUserId: s
 | `COMPASS_GOOGLE_CLIENT_ID` / `COMPASS_GOOGLE_CLIENT_SECRET` | remoteで必須 | secretはログ・エラーへ出さない |
 | `COMPASS_INITIAL_OWNER_EMAIL` | platform owner未作成なら必須 | 作成後は不要（読まない） |
 | `COMPASS_REGISTRATION_MODE` | 任意（既定 `closed`） | `closed` 以外は起動拒否 |
+| `COMPASS_HOST` | 任意 | listenするhost（Task 41で追加）。`trusted-local` の既定は `127.0.0.1` でloopback以外は起動拒否。`remote` の既定は全interface |
 
 - remoteで必須値の欠落・不正があれば起動時にfail-fastする（エラーにsecret値を含めない）。
 - `trusted-local` はloopback（`127.0.0.1` / `::1` / `localhost`）にbindする場合だけ起動を許す。この場合に限り `LocalDevIdentityProvider`（`POST /auth/local/login`、emailだけで `provider = local`・`issuer = urn:compass:local` のIdentityとして扱う）を有効にする。registrationの規則（初期owner・招待）はGoogleと同じで、Googleの `(provider, issuer, subject)` とは混ざらない。remoteではrouteを登録しない。
@@ -198,7 +199,7 @@ Human向けapplication use caseは `HumanActor = { kind: "human"; humanUserId: s
 
 - 招待tokenはURL fragment（`/invite#<token>`）で受け渡し、SPAがformの本文で `/auth/google/login` へPOSTする。fragmentはserverへ送られないため、access logに残らない。
 - `/auth/google/callback` のquery（`code` / `state`）はrequest logに出さない（loggerでquery文字列を伏せる）。
-- **ID Token検証**（Task 41）: GoogleのJWKSで署名（RS256）、`iss` ∈ {`https://accounts.google.com`, `accounts.google.com`}、`aud` = client ID、`exp` > now（許容skew 60秒）、`iat` が未来でない、`nonce` = attemptのnonce、`email_verified = true`。JWKSは `Cache-Control` に従いcacheし、未知 `kid` で1回だけ再取得する。検証ライブラリの採用（例 `jose`）はTask 41で依存追加として判断する。
+- **ID Token検証**（Task 41）: GoogleのJWKSで署名（RS256）、`iss` ∈ {`https://accounts.google.com`, `accounts.google.com`}、`aud` = client ID、`exp` > now（許容skew 60秒）、`iat` が未来でない、`nonce` = attemptのnonce、`email_verified = true`。JWKSは `Cache-Control` に従いcacheし、未知 `kid` で1回だけ再取得する。検証ライブラリは採用しない（Task 41）: RS256だけを受け付けるため、`node:crypto` のJWK読込（`createPublicKey({ format: "jwk" })`）とRSA署名検証で足り、本番依存を増やさない。
 - Google access token / ID tokenは検証後に破棄し、DB・ログ・エラー・応答へ出さない。refresh tokenは要求しない。
 
 ### CSRF
@@ -301,6 +302,16 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 | 42 認可適用 | `HumanProjectAuthorizationService`、権限表、既存Web APIへの適用、`myRole` | 全routeにActorを渡す。一覧のMembership絞り込み。Runtime APIとの分離。既存テストのfixture移行。Web APIで塞いだCommandがremoteのMCPから匿名で実行できないことの回帰テスト（Task 37の実装に依存） |
 | 43 UI | ログイン画面・`/invite`・Session復元・logout・アクセス拒否表示・Membership / 招待管理画面 | `/login?error=` の3種の表示。招待リンクの一度だけの表示とコピー |
 | 44 統合検証・文書 | 実HTTP server・OIDC fixture（JWKSとtoken endpointを持つテスト用provider）での通し検証、README・`.env.example` | Cookie属性、CSRF、open redirect、Session fixation、秘密の非露出、既存DBのorphan補完。招待の期限切れ再発行（古いtokenは受諾不可）と、同じ宛先への並行発行（1件だけ成功し、他は`409 INVITATION_PENDING`）。`/mcp`への匿名呼出しの拒否 |
+
+## 実装記録（Task 41）
+
+- **配置**: port `HumanIdentityProvider`（`src/application/port`）、`GoogleOidcIdentityProvider`（`src/infrastructure/identity`。token endpoint・JWKSとfetchは自動テストのOIDC fixtureへ差し替えるためだけにconstructorで注入でき、envからは選べない）、`SQLiteLoginAttemptRepository`、use case `StartOidcLoginUseCase` / `CompleteOidcLoginUseCase` / `LocalDevLoginUseCase`、route・Cookie・CSRF検査 `src/presentation/http/registerHumanAuthRoutes.ts`、設定 `src/presentation/http/humanAuthConfig.ts`。`LocalDevIdentityProvider` は独立したadapterにせず、emailから `provider = local` の `VerifiedIdentity` を作る `LocalDevLoginUseCase` で実装した（外部通信が無く、adapterを分ける必要がないため）。
+- **callback**: ログイン試行を先に使用済みにし（state / nonce / code_verifierを同時に消去）、その後でIdPの `error`・state・code交換・ID Tokenを検査する。どこで失敗しても同じ試行は再利用できない。
+- **email_verified**: ID Token検証では値を `VerifiedIdentity.emailVerified` へ写すだけにし、`false` は登録規則 #0 で `not_allowed` にする（拒否理由の表に合わせるため。`oidc_failed` にはしない）。
+- **Session解決・CSRF**: `requireHumanSession`（Session無しは `401`、非安全methodは `X-Compass-CSRF` とOrigin / `Sec-Fetch-Site` を検査し不一致は `403 CSRF_REJECTED`）を `GET /api/auth/session`・`POST /api/auth/logout` で使う。既存の `/api/*` への適用とCORS `origin: "*"` の除去はTask 42。
+- **request log**: Honoの `logger` はqueryを含めて出力するため、`/auth/*` のquery文字列を `?[redacted]` に置き換える。
+- **起動**: `src/server.ts` は `loadHumanAuthConfig` で設定を検査してからDBを開き、platform owner未作成で `COMPASS_INITIAL_OWNER_EMAIL` が無ければ起動を拒否する。`createApp` は `humanAuth` optionを受け取ったときだけ認証routeを登録する（既存テストの `createApp(services)` は従来どおり）。
+- **未接続・未検証**: 実Googleとの接続は未検証（自動テストは本番の `GoogleOidcIdentityProvider` にOIDC fixtureのtoken endpoint・JWKSを注入して検証）。ログイン画面・`/invite` はTask 43。
 
 ## 選択理由と将来変更できる箇所
 

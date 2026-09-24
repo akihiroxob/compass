@@ -13,12 +13,22 @@ import { UnauthenticatedError } from "./application/error/UnauthenticatedError.t
 import { ValidationError } from "./application/error/ValidationError.ts";
 import { parseProjectStatusFilter } from "./shared/projectSchema.ts";
 import { applicationServices, type ApplicationServices } from "./container.ts";
+import {
+  CsrfRejectedError,
+  registerHumanAuthRoutes,
+  type HumanAuthHttpOptions,
+} from "./presentation/http/registerHumanAuthRoutes.ts";
 
-export const createApp = (services: ApplicationServices = applicationServices) => {
+export const createApp = (
+  services: ApplicationServices = applicationServices,
+  /** Human認証（Session Cookie・`/auth/*`）。server起動時は設定から必ず渡す。無ければ認証routeを登録しない。 */
+  options: { humanAuth?: HumanAuthHttpOptions } = {},
+) => {
   const app = new Hono();
   const publicRoot = fileURLToPath(new URL("../public", import.meta.url));
 
-  app.use(logger());
+  // OIDC callbackのcode / state等をrequest logへ残さないよう、`/auth/*`のquery文字列を伏せる。
+  app.use(logger((message, ...rest) => console.log(message.replace(/(\/auth\/\S*?)\?\S*/, "$1?[redacted]"), ...rest)));
   app.use("*", cors({ origin: "*", allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"], allowHeaders: ["Authorization", "Content-Type"] }));
 
   app.get("/health", (c) => c.json({ status: "ok", service: "compass" }));
@@ -29,6 +39,8 @@ export const createApp = (services: ApplicationServices = applicationServices) =
         { path: "", message: "request body must be valid JSON" },
       ]);
     });
+
+  if (options.humanAuth) registerHumanAuthRoutes(app, services, options.humanAuth);
 
   app.post("/api/projects", async (c) => {
     const input = await readJsonBody(c.req.raw);
@@ -269,6 +281,9 @@ export const createApp = (services: ApplicationServices = applicationServices) =
     // Bearerの形式不正は、Principalなしへ降格せず拒否する（MCPと同じ扱い）。
     if (error instanceof MalformedAuthorizationError) {
       return c.json({ error: { code: "UNAUTHENTICATED", message: error.message } }, 401);
+    }
+    if (error instanceof CsrfRejectedError) {
+      return c.json({ error: { code: error.code, message: error.message } }, 403);
     }
     if (error instanceof ForbiddenError) {
       return c.json({ error: { code: error.code, message: error.message, ...error.details } }, 403);

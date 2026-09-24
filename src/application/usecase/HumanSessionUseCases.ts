@@ -14,6 +14,8 @@ export type RegisterOrLoginHumanCommand = {
   identity: VerifiedIdentity;
   /** 招待リンク経由のときだけ。平文tokenは保存しない。 */
   invitationToken?: string | null;
+  /** ログイン試行に保存済みの招待tokenのSHA-256（OIDC callback経由）。`invitationToken`より優先する。 */
+  invitationTokenHash?: string | null;
   /** 同じブラウザの旧Session Cookie。ログイン成功時に`superseded`で失効させる（Session fixation対策）。 */
   previousSessionToken?: string | null;
 };
@@ -64,7 +66,7 @@ export class RegisterOrLoginHumanUseCase {
     const result = await this.humanAccountRepository.registerOrLogin({
       identity,
       initialOwnerEmail: this.initialOwnerEmail,
-      invitationTokenHash: optionalHash(command.invitationToken),
+      invitationTokenHash: command.invitationTokenHash ?? optionalHash(command.invitationToken),
       sessionTokenHash: hashSecretToken(sessionToken),
       previousSessionTokenHash: optionalHash(command.previousSessionToken),
     });
@@ -99,5 +101,14 @@ export class RevokeHumanSessionUseCase {
   async execute(sessionToken: string | null | undefined): Promise<boolean> {
     if (!sessionToken) return false;
     return this.humanAccountRepository.revokeSession(hashSecretToken(sessionToken), "logout");
+  }
+}
+
+/** 起動時の設定検査用。platform owner未作成なら初期owner emailが必須になる。 */
+export class GetHumanAuthBootstrapStatusUseCase {
+  constructor(private readonly humanAccountRepository: HumanAccountRepository) {}
+
+  async execute(): Promise<{ platformOwnerExists: boolean }> {
+    return { platformOwnerExists: await this.humanAccountRepository.platformOwnerExists() };
   }
 }

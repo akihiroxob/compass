@@ -61,6 +61,20 @@ export const sessionAbsoluteTtlMs = 7 * 24 * 60 * 60 * 1000;
 export const sessionIdleTtlMs = 24 * 60 * 60 * 1000;
 export const sessionLastSeenUpdateIntervalMs = 5 * 60 * 1000;
 
+/** OIDCのログイン試行（state / nonce / PKCE）の有効期間。 */
+export const loginAttemptTtlMs = 10 * 60 * 1000;
+
+/**
+ * ログイン後の遷移先。同一origin内の相対path（`/`で始まり`//`・`\`・制御文字を含まない）だけを許し、
+ * それ以外は`/`にする（open redirect対策）。
+ */
+export const normalizeReturnTo = (value: unknown): string => {
+  if (typeof value !== "string" || value.length > 2048) return "/";
+  if (!value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return "/";
+  if (/[\u0000-\u001f\u007f]/.test(value)) return "/";
+  return value;
+};
+
 export type SessionRevokeReason = "logout" | "human_disabled" | "superseded";
 
 /** Cookieの平文secretは持たない。`tokenHash`だけを保存する。 */

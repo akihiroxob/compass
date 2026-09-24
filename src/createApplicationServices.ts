@@ -30,6 +30,12 @@ import { GetStrategistContextUseCase } from "./application/usecase/GetStrategist
 import { GetProjectUseCase } from "./application/usecase/GetProjectUseCase.ts";
 import { GrantProjectRoleUseCase } from "./application/usecase/GrantProjectRoleUseCase.ts";
 import {
+  CompleteOidcLoginUseCase,
+  LocalDevLoginUseCase,
+  StartOidcLoginUseCase,
+} from "./application/usecase/HumanLoginUseCases.ts";
+import {
+  GetHumanAuthBootstrapStatusUseCase,
   RegisterOrLoginHumanUseCase,
   ResolveHumanSessionUseCase,
   RevokeHumanSessionUseCase,
@@ -61,11 +67,13 @@ import { UpdateOutcomeUseCase } from "./application/usecase/UpdateOutcomeUseCase
 import { UpdateProjectUseCase } from "./application/usecase/UpdateProjectUseCase.ts";
 import { SQLiteAdrHandoffRepository } from "./infrastructure/repository/SQLiteAdrHandoffRepository.ts";
 import { SQLiteDirectionDecisionRepository } from "./infrastructure/repository/SQLiteDirectionDecisionRepository.ts";
+import type { HumanIdentityProvider } from "./application/port/HumanIdentityProvider.ts";
 import { SQLiteIntentRepository } from "./infrastructure/repository/SQLiteIntentRepository.ts";
 import { SQLiteOutcomeEvaluationRepository } from "./infrastructure/repository/SQLiteOutcomeEvaluationRepository.ts";
 import { SQLiteOutcomeExecutionRepository } from "./infrastructure/repository/SQLiteOutcomeExecutionRepository.ts";
 import { SQLiteOutcomeRepository } from "./infrastructure/repository/SQLiteOutcomeRepository.ts";
 import { SQLiteHumanAccountRepository } from "./infrastructure/repository/SQLiteHumanAccountRepository.ts";
+import { SQLiteLoginAttemptRepository } from "./infrastructure/repository/SQLiteLoginAttemptRepository.ts";
 import { SQLiteProjectGrantRepository } from "./infrastructure/repository/SQLiteProjectGrantRepository.ts";
 import { SQLiteProjectMembershipRepository } from "./infrastructure/repository/SQLiteProjectMembershipRepository.ts";
 import { SQLiteProjectRepository } from "./infrastructure/repository/SQLiteProjectRepository.ts";
@@ -80,8 +88,13 @@ export const createApplicationServices = (
   instructionService: InstructionService = new InstructionService(),
   /** Researchの期限判定・Runtime event ackの記録時刻の時刻源。テストで固定できるよう注入する。 */
   clock: () => number = Date.now,
-  /** Human認証の設定。初期owner emailはplatform owner作成前の登録判定にだけ使う（Task 41でenvから渡す）。 */
-  humanAuth: { initialOwnerEmail: string | null } = { initialOwnerEmail: null },
+  /**
+   * Human認証の設定。初期owner emailはplatform owner作成前の登録判定にだけ使う。
+   * `identityProvider`はOIDC（Google）のadapterで、無ければOIDCのログインuse caseを作らない。
+   */
+  humanAuth: { initialOwnerEmail: string | null; identityProvider?: HumanIdentityProvider | null } = {
+    initialOwnerEmail: null,
+  },
 ) => {
   const projectRepository = new SQLiteProjectRepository(applicationDatabase);
   const intentRepository = new SQLiteIntentRepository(applicationDatabase);
@@ -106,6 +119,9 @@ export const createApplicationServices = (
   const humanAccountRepository = new SQLiteHumanAccountRepository(applicationDatabase, clock);
   const projectMembershipRepository = new SQLiteProjectMembershipRepository(applicationDatabase, clock);
   const humanProjectAuthorizationService = new HumanProjectAuthorizationService(projectMembershipRepository);
+  const loginAttemptRepository = new SQLiteLoginAttemptRepository(applicationDatabase);
+  const registerOrLoginHumanUseCase = new RegisterOrLoginHumanUseCase(humanAccountRepository, humanAuth.initialOwnerEmail);
+  const identityProvider = humanAuth.identityProvider ?? null;
   return {
     instructionService,
     projectAuthorizationService,
@@ -177,7 +193,15 @@ export const createApplicationServices = (
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(projectRepository, projectGrantRepository),
     listProjectGrantsUseCase: new ListProjectGrantsUseCase(projectRepository, projectGrantRepository),
     humanProjectAuthorizationService,
-    registerOrLoginHumanUseCase: new RegisterOrLoginHumanUseCase(humanAccountRepository, humanAuth.initialOwnerEmail),
+    registerOrLoginHumanUseCase,
+    getHumanAuthBootstrapStatusUseCase: new GetHumanAuthBootstrapStatusUseCase(humanAccountRepository),
+    startOidcLoginUseCase: identityProvider
+      ? new StartOidcLoginUseCase(loginAttemptRepository, identityProvider, clock)
+      : null,
+    completeOidcLoginUseCase: identityProvider
+      ? new CompleteOidcLoginUseCase(loginAttemptRepository, identityProvider, registerOrLoginHumanUseCase, clock)
+      : null,
+    localDevLoginUseCase: new LocalDevLoginUseCase(registerOrLoginHumanUseCase),
     resolveHumanSessionUseCase: new ResolveHumanSessionUseCase(humanAccountRepository),
     revokeHumanSessionUseCase: new RevokeHumanSessionUseCase(humanAccountRepository),
     listProjectMembersUseCase: new ListProjectMembersUseCase(humanProjectAuthorizationService, projectMembershipRepository),

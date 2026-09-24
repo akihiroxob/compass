@@ -233,6 +233,15 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
     return row ? toHumanUser(row) : null;
   }
 
+  async platformOwnerExists(): Promise<boolean> {
+    const row = await this.database
+      .selectFrom("human_user")
+      .select("id")
+      .where("platform_role", "=", "owner")
+      .executeTakeFirst();
+    return row !== undefined;
+  }
+
   private async revokeByHash(
     transaction: Transaction<Database>,
     tokenHash: string,

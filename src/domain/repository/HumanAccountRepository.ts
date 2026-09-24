@@ -50,4 +50,5 @@ export interface HumanAccountRepository {
   /** 未取消のSessionだけを取消す。未知・取消済みはfalse（冪等）。 */
   revokeSession(tokenHash: string, reason: SessionRevokeReason): Promise<boolean>;
   findHumanById(humanUserId: string): Promise<HumanUser | null>;
+  platformOwnerExists(): Promise<boolean>;
 }

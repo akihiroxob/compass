@@ -11,6 +11,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": target,
+      "/auth": target,
       "/health": target,
       "/mcp": target
     }

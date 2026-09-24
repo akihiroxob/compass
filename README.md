@@ -18,6 +18,16 @@ npm start
 
 既定 port は `51800` です（Wacha の既定 port `51743` とは衝突しないため、Wacha と同時に起動できます）。環境変数は [.env.example](.env.example) を参照してください。`PORT` で port、`COMPASS_DB_PATH` で Project を保存する SQLite file を指定します。`COMPASS_CLAIM_TTL_MS` は Execution の Task Claim の有効期間（ミリ秒、既定 30 分）です。
 
+Human 認証の設定は必須です（既定の `COMPASS_AUTH_MODE` は `remote`）。必須値が欠けていると `Configuration error: <環境変数名> ...` を出して起動を拒否します（値・secret は出力しません）。ローカル開発では loopback だけに bind する `trusted-local` を明示し、初期 owner の email を渡します。
+
+```bash
+COMPASS_AUTH_MODE=trusted-local COMPASS_INITIAL_OWNER_EMAIL=you@example.com npm start
+```
+
+- `trusted-local`: `127.0.0.1` に bind し（`COMPASS_HOST` は loopback のみ可）、`POST /auth/local/login`（form の `email`）で Google なしにログインできます。登録規則は Google と同じで、初期 owner か有効な招待の宛先だけがログインできます。公開 origin の既定は `http://localhost:$PORT` で、ブラウザもこの origin で開きます（Vite dev server 経由で操作するときは `COMPASS_PUBLIC_ORIGIN` に Vite の origin を指定します）。
+- `remote`: `COMPASS_PUBLIC_ORIGIN`（https の origin）、`COMPASS_GOOGLE_CLIENT_ID`、`COMPASS_GOOGLE_CLIENT_SECRET` が必須です。Google Cloud の OAuth client の承認済み redirect URI に `${COMPASS_PUBLIC_ORIGIN}/auth/google/callback` を登録します。
+- platform owner（最初にログインした初期 owner）が未作成の間は `COMPASS_INITIAL_OWNER_EMAIL` が必須です。
+
 `.env.example` は自動では読み込まれません。値を変えるときは `.env.example` をコピーして読み込むのではなく、シェルの環境変数として渡してください。
 
 ```bash
@@ -174,7 +184,7 @@ Step 4 の Strategist Role と認可境界（Project 単位の Role Grant、`Aut
 
 Step 5 の Project archive（active → archived の不可逆な遷移、理由の保持、archived 時に拒否する操作と参照できる操作）の設計と実装状況は [docs/step-5-project-archive-design.md](docs/step-5-project-archive-design.md) に記載しています。**永続化・共通 use case・Web API・状態ガードは実装済み**（Task 20）です。`POST /api/projects/:projectId/archive`（本文 `{ "reason": "..." }`）で archive し、`GET /api/projects` は active のみ、`GET /api/projects?status=archived` は archived のみを返します。archived の Project への書込（Project 更新、Intent / Outcome の変更、Grant の発行・取消）は Web API・MCP・CLI とも 409 `CONFLICT`（`projectStatus: "archived"`）で拒否し、参照は成功します。**Web UI も実装済み**（Task 21）です。Project 詳細の「アーカイブ」から、理由（必須）を入力する確認パネルを経て archive でき、Project 一覧の「アーカイブ済み」へ切り替えると理由と日時つきで参照できます。archived の詳細は状態・理由・日時を表示し、Project 編集・Intent / Outcome の登録・変更・Agent / Runtime の Role の割当変更の導線を出しません（拒否はサーバーが行い、編集 URL へ直接アクセスして保存しても「アーカイブ済みのため変更できません」と表示され内容は変わりません）。archive は Web API だけに公開し、MCP tool と CLI には追加しません（復帰・削除も作りません）。
 
-Step 6 の Human 認証（Google OIDC、closed registration、Web Session・CSRF、Project Membership と owner / administrator / editor / viewer の権限表、招待、既存 Project の移行）の設計は [docs/step-6-human-auth-design.md](docs/step-6-human-auth-design.md) に記載しています（Task 39 で設計確定）。Task 40 で Human・Identity・Session・Membership・招待の永続化と application use case を実装しましたが、Web API・MCP・画面へは**未接続**で、現行の Web API は引き続き認証なしの trusted-local です（OIDC・Session Cookie は Task 41、認可適用は Task 42）。
+Step 6 の Human 認証（Google OIDC、closed registration、Web Session・CSRF、Project Membership と owner / administrator / editor / viewer の権限表、招待、既存 Project の移行）の設計は [docs/step-6-human-auth-design.md](docs/step-6-human-auth-design.md) に記載しています（Task 39 で設計確定）。Task 40 で Human・Identity・Session・Membership・招待の永続化と application use case を実装しました。Task 41 で Google OIDC（authorization code + PKCE、server 側での code 交換と ID Token の署名・issuer・audience・exp・iat・nonce 検証）、closed registration による初期 owner の bootstrap、Compass 独自の Web Session Cookie（`HttpOnly`・`SameSite=Lax`、remote は `__Host-` と `Secure`）、`POST /auth/google/login`・`GET /auth/google/callback`・`POST /auth/local/login`（trusted-local のみ）・`GET /api/auth/session`・`POST /api/auth/logout`（CSRF 必須）と、起動時の設定検査を実装しました。拒否は `/login?error=not_allowed|invitation_expired|oidc_failed` へ redirect します（画面は Task 43）。既存の Human 向け Web API への Session・Membership 認可の適用は Task 42、MCP の remote mode 対応は Task 37 で、それまで既存の Web API・MCP は従来どおり認証なしで動きます。
 
 Project単位のResearch蓄積、Intent起点のResearch Request、Finding / Synthesis / Intent Briefによる段階圧縮、Direction DecisionとRepository ADRの責務分離は [docs/research-decision-adr-design.md](docs/research-decision-adr-design.md) に設計方針を記載しています。Research Request・Result・Finding・Evidence参照・Synthesisのdomain・永続化・application層は実装済み（Task 23）で、MCPからはResearcherが使えます（Task 24）。Active Intent作成時のInitial Research Requestと、`research_requested` / `research_completed`のRuntime向け確定イベントも実装済みです（Task 25）。Web UI・Web API・MCPのどの入口から`create_intent`を呼んでも、同一transactionでIntentとInitial Requestが保存され、片方だけ残りません。Runtime向けイベントは、外部Runtimeがconsumer単位でcursor付きに取得し、処理結果をackする入口をWeb API（`GET /api/projects/:projectId/runtime-events`・`POST /api/projects/:projectId/runtime-events/:eventId/ack`）とMCP（`fetch_runtime_events`・`ack_runtime_event`）に実装済みです（Task 31。詳細は後述の「Runtime event の取得と ack」）。Runtimeによる実際のAgent起動は未接続です。Intent Brief（Task 26）、Direction Decision（Task 27）、ADR Candidate・Repository参照・Wacha引き渡し契約（Task 28）は実装済みです。Human向けのResearch・Direction Decision・ADR参照の読み取り専用Web UI/API、ResearcherのGrant管理画面の統合、および空DBからIntent → Initial Research Request → Researcher Result/Synthesis → Intent Brief → Strategist Decision/Outcome → ADR handoff/参照までを実HTTPサーバー・MCP SDK clientで自動検証する`test/researchDecisionIntegration.test.ts`はTask 29で実装済みです。外部Runtimeと実Wachaは未接続で、この自動検証と画面はfixture契約の確認であり、Lv6の自律運転実証ではありません。同文書の段階的な実装順に進めます。
 
