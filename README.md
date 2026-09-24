@@ -24,7 +24,7 @@ Human 認証の設定は必須です（既定の `COMPASS_AUTH_MODE` は `remote
 COMPASS_AUTH_MODE=trusted-local COMPASS_INITIAL_OWNER_EMAIL=you@example.com npm start
 ```
 
-- `trusted-local`: `127.0.0.1` に bind し（`COMPASS_HOST` は loopback のみ可）、`POST /auth/local/login`（form の `email`）で Google なしにログインできます。登録規則は Google と同じで、初期 owner か有効な招待の宛先だけがログインできます。公開 origin の既定は `http://localhost:$PORT` で、ブラウザもこの origin で開きます（Vite dev server 経由で操作するときは `COMPASS_PUBLIC_ORIGIN` に Vite の origin を指定します）。
+- `trusted-local`: `NODE_ENV=production` では起動を拒否します。`127.0.0.1` に bind し（`COMPASS_HOST` は loopback のみ可）、`POST /auth/local/login`（form の `email`）で Google なしにログインできます。登録規則は Google と同じで、初期 owner か有効な招待の宛先だけがログインできます。公開 origin の既定は `http://localhost:$PORT` で、ブラウザもこの origin で開きます（Vite dev server 経由で操作するときは `COMPASS_PUBLIC_ORIGIN` に Vite の origin を指定します）。
 - `remote`: `COMPASS_PUBLIC_ORIGIN`（https の origin）、`COMPASS_GOOGLE_CLIENT_ID`、`COMPASS_GOOGLE_CLIENT_SECRET` が必須です。Google Cloud の OAuth client の承認済み redirect URI に `${COMPASS_PUBLIC_ORIGIN}/auth/google/callback` を登録します。
 - platform owner（最初にログインした初期 owner）が未作成の間は `COMPASS_INITIAL_OWNER_EMAIL` が必須です。
 

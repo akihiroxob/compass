@@ -508,7 +508,7 @@ test("trusted-localだけでLocalDevIdentityProviderのログインを登録し�
   await remote.database.destroy();
 });
 
-test("設定: remoteの必須値欠落・https以外・不正modeと、trusted-localの非loopback bindで起動を拒否する（値を出さない）", () => {
+test("設定: remoteの必須値欠落・https以外・不正modeと、trusted-localの非loopback bind・production実行で起動を拒否する（値を出さない）", () => {
   const remote = {
     COMPASS_PUBLIC_ORIGIN: publicOrigin,
     COMPASS_GOOGLE_CLIENT_ID: clientId,
@@ -534,6 +534,9 @@ test("設定: remoteの必須値欠落・https以外・不正modeと、trusted-l
   rejects({ ...remote, COMPASS_REGISTRATION_MODE: "open" }, /closed/);
   rejects({ COMPASS_AUTH_MODE: "trusted-local", COMPASS_HOST: "0.0.0.0" }, /loopback/);
   rejects({ COMPASS_AUTH_MODE: "trusted-local", COMPASS_GOOGLE_CLIENT_ID: clientId }, /set together/);
+  rejects({ NODE_ENV: "production", COMPASS_AUTH_MODE: "trusted-local", COMPASS_INITIAL_OWNER_EMAIL: ownerEmail }, /production/);
+  rejects({ NODE_ENV: " production ", COMPASS_AUTH_MODE: "trusted-local" }, /production/);
+  assert.equal(loadHumanAuthConfig({ ...remote, NODE_ENV: "production" }, { port: 51800 }).mode, "remote");
 
   const local = loadHumanAuthConfig({ COMPASS_AUTH_MODE: "trusted-local" }, { port: 52000 });
   assert.deepEqual([local.host, local.publicOrigin, local.google], ["127.0.0.1", "http://localhost:52000", null]);

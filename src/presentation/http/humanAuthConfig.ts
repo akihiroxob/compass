@@ -43,12 +43,15 @@ const parseOrigin = (value: string, name: string) => {
 
 /**
  * 環境変数からHuman認証の設定を読み、不正ならfail-fastする。既定は`remote`で、
- * `trusted-local`は明示設定かつloopback bindのときだけ許す。
+ * `trusted-local`は明示設定かつloopback bindのときだけ許し、`NODE_ENV=production`では拒否する。
  */
 export const loadHumanAuthConfig = (env: NodeJS.ProcessEnv, options: { port: number }): HumanAuthConfig => {
   const mode = text(env.COMPASS_AUTH_MODE) ?? "remote";
   if (mode !== "remote" && mode !== "trusted-local") {
     throw new HumanAuthConfigError("COMPASS_AUTH_MODE must be remote or trusted-local");
+  }
+  if (mode === "trusted-local" && text(env.NODE_ENV) === "production") {
+    throw new HumanAuthConfigError("COMPASS_AUTH_MODE=trusted-local is not allowed when NODE_ENV is production");
   }
   if ((text(env.COMPASS_REGISTRATION_MODE) ?? "closed") !== "closed") {
     throw new HumanAuthConfigError("COMPASS_REGISTRATION_MODE supports only closed");

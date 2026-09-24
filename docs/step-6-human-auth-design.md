@@ -170,7 +170,7 @@ Human向けapplication use caseは `HumanActor = { kind: "human"; humanUserId: s
 
 | 環境変数 | 必須 | 規則 |
 | --- | --- | --- |
-| `COMPASS_AUTH_MODE` | 任意（既定 `remote`） | `remote` / `trusted-local`。Task 37のAgent Credentialと同じ値を共有する |
+| `COMPASS_AUTH_MODE` | 任意（既定 `remote`） | `remote` / `trusted-local`。Task 37のAgent Credentialと同じ値を共有する。`NODE_ENV=production` のとき `trusted-local` は起動拒否 |
 | `COMPASS_PUBLIC_ORIGIN` | remoteで必須 | 例 `https://compass.example.com`。remoteでは `https:` 以外を起動拒否。redirect URIは `${COMPASS_PUBLIC_ORIGIN}/auth/google/callback` に固定し、requestのHostから組み立てない |
 | `COMPASS_GOOGLE_CLIENT_ID` / `COMPASS_GOOGLE_CLIENT_SECRET` | remoteで必須 | secretはログ・エラーへ出さない |
 | `COMPASS_INITIAL_OWNER_EMAIL` | platform owner未作成なら必須 | 作成後は不要（読まない） |
@@ -178,7 +178,7 @@ Human向けapplication use caseは `HumanActor = { kind: "human"; humanUserId: s
 | `COMPASS_HOST` | 任意 | listenするhost（Task 41で追加）。`trusted-local` の既定は `127.0.0.1` でloopback以外は起動拒否。`remote` の既定は全interface |
 
 - remoteで必須値の欠落・不正があれば起動時にfail-fastする（エラーにsecret値を含めない）。
-- `trusted-local` はloopback（`127.0.0.1` / `::1` / `localhost`）にbindする場合だけ起動を許す。この場合に限り `LocalDevIdentityProvider`（`POST /auth/local/login`、emailだけで `provider = local`・`issuer = urn:compass:local` のIdentityとして扱う）を有効にする。registrationの規則（初期owner・招待）はGoogleと同じで、Googleの `(provider, issuer, subject)` とは混ざらない。remoteではrouteを登録しない。
+- `trusted-local` は `NODE_ENV` が `production` でなく、かつloopback（`127.0.0.1` / `::1` / `localhost`）にbindする場合だけ起動を許す。productionの判定は `NODE_ENV=production` とする（kitの「dev認証はproductionで起動拒否」。loopback bindでもリバースプロキシ経由で到達できるため、bind先だけでは判定しない）。この場合に限り `LocalDevIdentityProvider`（`POST /auth/local/login`、emailだけで `provider = local`・`issuer = urn:compass:local` のIdentityとして扱う）を有効にする。registrationの規則（初期owner・招待）はGoogleと同じで、Googleの `(provider, issuer, subject)` とは混ざらない。remoteではrouteを登録しない。
 
 ### Cookie
 
@@ -312,7 +312,7 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 - **email_verified**: ID Token検証では値を `VerifiedIdentity.emailVerified` へ写すだけにし、`false` は登録規則 #0 で `not_allowed` にする（拒否理由の表に合わせるため。`oidc_failed` にはしない）。
 - **Session解決・CSRF**: `requireHumanSession`（Session無しは `401`、非安全methodは `X-Compass-CSRF` とOrigin / `Sec-Fetch-Site` を検査し不一致は `403 CSRF_REJECTED`）を `GET /api/auth/session`・`POST /api/auth/logout` で使う。既存の `/api/*` への適用とCORS `origin: "*"` の除去はTask 42。
 - **request log**: Honoの `logger` はqueryを含めて出力するため、`/auth/*` のquery文字列を `?[redacted]` に置き換える。
-- **起動**: `src/server.ts` は `loadHumanAuthConfig` で設定を検査してからDBを開き、platform owner未作成で `COMPASS_INITIAL_OWNER_EMAIL` が無ければ起動を拒否する。`createApp` は `humanAuth` optionを受け取ったときだけ認証routeを登録する（既存テストの `createApp(services)` は従来どおり）。
+- **起動**: `src/server.ts` は `loadHumanAuthConfig` で設定を検査してからDBを開き（`NODE_ENV=production` の `trusted-local` はここで拒否する。レビュー差戻し対応）、platform owner未作成で `COMPASS_INITIAL_OWNER_EMAIL` が無ければ起動を拒否する。`createApp` は `humanAuth` optionを受け取ったときだけ認証routeを登録する（既存テストの `createApp(services)` は従来どおり）。
 - **未接続・未検証**: 実Googleとの接続は未検証（自動テストは本番の `GoogleOidcIdentityProvider` にOIDC fixtureのtoken endpoint・JWKSを注入して検証）。ログイン画面・`/invite` はTask 43。
 
 ## 実装記録（Task 42）
