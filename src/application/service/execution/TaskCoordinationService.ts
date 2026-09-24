@@ -1564,6 +1564,32 @@ export class TaskCoordinationService {
       .orderBy("cursor", "asc")
       .limit(limit)
       .execute();
+    // Outcomeに相関付いたStory・Taskの変更には、Runtimeが還流の対象を辿れるようoutcomeId・correlationIdを付ける。
+    const entityIds = [...new Set(rows.map((row) => row.entity_id))];
+    const correlations = new Map<string, { outcomeId: string; correlationId: string }>();
+    if (entityIds.length > 0) {
+      const stories = await this.database
+        .selectFrom("story")
+        .select(["id", "outcome_ref", "correlation_id"])
+        .where("project_id", "=", projectId)
+        .where("id", "in", entityIds)
+        .execute();
+      const tasks = await this.database
+        .selectFrom("task")
+        .innerJoin("story", "story.id", "task.story_id")
+        .select(["task.id as id", "story.outcome_ref as outcome_ref", "story.correlation_id as correlation_id"])
+        .where("task.project_id", "=", projectId)
+        .where("task.id", "in", entityIds)
+        .execute();
+      for (const row of [...stories, ...tasks]) {
+        if (row.outcome_ref !== null) {
+          correlations.set(row.id, {
+            outcomeId: row.outcome_ref,
+            correlationId: row.correlation_id ?? outcomeCorrelationId(row.outcome_ref),
+          });
+        }
+      }
+    }
     const changes = rows.map((row) => ({
       cursor: Number(row.cursor),
       projectId: row.project_id,
@@ -1573,6 +1599,7 @@ export class TaskCoordinationService {
       claimId: row.claim_id,
       payload: JSON.parse(row.payload) as Record<string, unknown>,
       occurredAt: row.occurred_at,
+      ...correlations.get(row.entity_id),
     }));
     return {
       changes,

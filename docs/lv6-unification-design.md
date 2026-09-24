@@ -105,12 +105,12 @@ kit/additional-doc.md §25「Wachaが持たないもの: Mission/Vision/Intent�
 | 所有側 | Entity | 相手側からのアクセス方法 |
 | --- | --- | --- |
 | Direction | Project, Intent, Outcome, Direction Decision, Research系 | Executionは直接読まない。`issue_story`作成時のみ、下記`DirectionReferenceLookupPort`経由でOutcome存在確認と値のsnapshotを1回取得する |
-| Execution | Story, Task, Claim, Comment, Change Log | DirectionはStory/Task/Claimを直接読み書きしない。Task 34で導入する`ExecutionEvidencePort`経由で、確定したStory状態の要約だけをDirectionへ渡す |
+| Execution | Story, Task, Claim, Comment, Change Log | DirectionはStory/Task/Claimを直接読み書きしない。Task 34で導入した読取専用の`ExecutionSummaryPort`経由で、DirectionがStory / Task状態の要約だけを導出して受け取る（「実装記録（Task 34）」） |
 
 application port（インターフェースはapplication層に置き、実装はinfrastructure層またはユースケースの直接呼び出しでよい。別プロセス・別HTTP経由にはしない）:
 
 - `DirectionReferenceLookupPort`: `getOutcomeSnapshot(projectId, outcomeId): Promise<{ successCriteria, originDecisionId, constraints } | null>`。Execution側の`IssueStoryUseCase`が`outcomeId`指定時にのみ呼ぶ。実装は既存の`GetOutcomeUseCase`/`GetProjectUseCase`を内部で呼ぶだけの薄いadapterとする。
-- `ExecutionEvidencePort`（Task 34で詳細確定）: `recordExecutionSummary(projectId, outcomeId, summary): Promise<void>`のような形で、DirectionがExecutionの`change_log`を増分取得した結果を取り込む入口。Story側は`accepted`/`rejected`/`canceled`/`incomplete`を区別した要約とEvidence参照（Wacha実行結果へのURI）だけを渡し、Story/Task本体を複製しない。
+- `ExecutionEvidencePort`（Task 30時点の案。Task 34で読取専用の`ExecutionSummaryPort`に置き換えた）: `recordExecutionSummary(projectId, outcomeId, summary): Promise<void>`のような形で、DirectionがExecutionの`change_log`を増分取得した結果を取り込む入口を想定していた。Story側は`accepted`/`rejected`/`canceled`/`incomplete`を区別した要約とEvidence参照（Wacha実行結果へのURI）だけを渡し、Story/Task本体を複製しない。
 
 いずれのRepository・SQLite tableもDirection/Executionの境界を越えて直接importしない（`src/domain/repository`のinterfaceを介した一方向の参照読み取りのみ）。
 
@@ -133,7 +133,7 @@ application port（インターフェースはapplication層に置き、実装�
 
 - Execution内の操作（claim/complete/review/accept等）は、Wachaの`requestId`＋`command_receipt`方式をそのまま使う（上記「idempotency方式の違い」参照）。
 - DirectionからExecutionへのhandoff（Outcome確定 → Manager起動 → `issue_story`）は、`outcome:{outcomeId}`形式の決定的`correlationId` + `story`テーブルの`(project_id, correlation_id)` unique indexで、Runtimeの重複起動・`issue_story`の重複呼び出しのいずれでも二重Story作成を防ぐ。
-- ExecutionからDirectionへの還流（Task 34）も、`change_log`の`cursor`を還流側が保持し、同じcursor範囲の再取込みでも重複しないよう、還流結果テーブルに`(project_id, outcome_id, change_log_cursor)`程度の一意性を持たせる方針とする（詳細はTask 34で確定）。
+- ExecutionからDirectionへの還流（Task 34）も、`change_log`の`cursor`を還流側が保持し、同じcursor範囲の再取込みでも重複しないよう、Task 34では、Outcomeごとに1行の要約を`execution_cursor`が進むときだけ上書きし、Evidenceを`(outcome, kind, uri, version)`で一意にして収束させた（「実装記録（Task 34）」）。
 - サーバー再起動時は、`runtime_event`/`change_log`いずれも追記のみのテーブルであるため、Runtime側が保持するcursorから再開すれば欠落なく再取得できる。CompassはRuntimeのプロセス生存やスケジュールを管理しない（kit/additional-doc.md §3, §27の責任分離どおり）。
 
 ## Task 31〜38への反映
@@ -141,8 +141,8 @@ application port（インターフェースはapplication層に置き、実装�
 - **Task 31（実装済み）**: `runtime_event`のcursor/ack付きWeb API/MCP入口を実装した。認可は暫定の`runtime` Role Grant（Task 37でRuntime Credential scopeへ置き換え）。本Taskの契約（cursor昇順、Project scope、認証は暫定trusted-local）に従う。`outcome_confirmed`はTask 33で追加した。
 - **Task 32（実装済み）**: `additional_research` Direction Decisionから追加Research Requestと`research_requested`イベントを作る確定経路。本Taskの設計変更は無し（既存のResearch集約の冪等性パターンを踏襲）。実装記録は`docs/research-decision-adr-design.md`の「追加Research判断のRequest・Runtimeイベント接続（Task 32）」。
 - **Task 33（実装済み）**: 実装記録は本文書末尾の「実装記録（Task 33）」。本Taskの「モジュール構成」「DB schema」「MCP tool統合方針」「Role/Instruction配置」に従い、旧Wacha Execution一式を移植する。あわせて`outcome_confirmed`イベントを`CreateOutcomeUseCase`/`DecideNextOutcomeUseCase`に追加し、`DirectionReferenceLookupPort`を実装し、`issue_story`の`outcomeId`拡張を実装する。`agent/role-policy.md`のマージ、README等のドキュメント更新もここで行う。
-- **Task 34**: 本Taskの「Direction/Executionの所有Entityとapplication port」「冪等性」節にある`ExecutionEvidencePort`の詳細（テーブル形状、`change_log`増分取込みの単位）をTask内で確定する。
-- **Task 35〜36**: 本Taskの決定に影響される変更なし（Outcome EvaluatorはDirection側のEntityであり、Executionとは`ExecutionEvidencePort`経由のEvidenceだけを介する）。
+- **Task 34（実装済み）**: 実装記録は本文書末尾の「実装記録（Task 34）」。`ExecutionEvidencePort`の詳細（テーブル形状、増分取込みの単位）はTask内で確定し、書込ポートではなく読取専用の`ExecutionSummaryPort`にした。
+- **Task 35〜36**: 本Taskの決定に影響される変更なし（Outcome EvaluatorはDirection側のEntityであり、Executionとは、Task 34で還流したExecution SummaryとEvidence参照だけを介する）。
 - **Task 37**: 本Taskで「暫定trusted-local」とした認証を、Agent/Runtime向け不透明Credentialへ置き換える。`runtime_event`/`change_log`双方の取得APIが対象に含まれる。
 - **Task 38**: 本Taskで決めたRuntime event契約・冪等性規則を実際にE2Eで検証する。
 
@@ -169,7 +169,7 @@ application port（インターフェースはapplication層に置き、実装�
 
 - **`outcome_confirmed`**: `insertOutcomeRow`（`create_outcome`と`decide_next_outcome`の両方が通る）が、Outcomeと同一transactionでイベントを保存する。相関IDは`outcome:{outcomeId}`（`src/shared/outcomeCorrelation.ts`。DirectionとExecutionの双方が使う取り決めで、どちらのEntityにも依存しない）。`runtime_event`は`event_type`のCHECKと`research_request_id`のNOT NULLを変える必要があるため、起動時にSQLite公式手順（新tableを作って写し、旧tableをdropしてrename。`sequence`とautoincrementの高水位・`runtime_event_delivery`のFKを保持。FKチェック付き、新定義なら何もしない）で作り直す。`outcome_id`列とunique indexを追加し、`research_request_id` / `outcome_id`のどちらが値を持つかをCHECKでイベント種別に結び付けた。
 - **`issue_story`の拡張**: `outcomeId` / `repositoryId` / `correlationId`（任意）。Directionの参照は`DirectionReferenceLookupPort`（読取専用。実装`DirectionReferenceLookupService`はOutcome・ProjectのRepositoryインターフェースを読むだけ）だけを通り、Story作成のtransactionの前に解決する（SQLiteの接続はtransaction中は1本を占有するため）。manager Grantの検査を先に行い、権限の無い呼び出しにOutcome・Repositoryの存在を漏らさない。再送（同じ`requestId`、または同じ相関IDの既存Story）では参照の解決を省き、参照先が後で変わっても元のStoryを返す。同じ相関IDに別内容ならIDEMPOTENCY_CONFLICT。
-- **設計からの差分**: Repositoryは存在確認だけでなく`repository_snapshot`（`{id, name, url}`）を保存する（`update_project`で`project_repository_link`のIDが変わってもWorkerが対象を辿れるように）。Success Criteriaのsnapshotには、Task 35のEvaluatorが辿れるようcriterionの`id`と`position`を含める。`issue_task`でStory配下にTaskを作るとき、Storyが相関ID・Outcomeを持てば`TASK_CREATED`のChange payloadへ引き継ぐ（Task 34がChange Logから辿るため）。
+- **設計からの差分**: Repositoryは存在確認だけでなく`repository_snapshot`（`{id, name, url}`）を保存する（`update_project`で`project_repository_link`のIDが変わってもWorkerが対象を辿れるように）。Success Criteriaのsnapshotには、Task 35のEvaluatorが辿れるようcriterionの`id`と`position`を含める。`issue_task`でStory配下にTaskを作るとき、Storyが相関ID・Outcomeを持てば`TASK_CREATED`のChange payloadへ引き継ぐ（Task 34がChange Logから辿るため。Task 34で`list_changes`の応答へも`outcomeId` / `correlationId`を付けた）。
 - **失敗の区別**: Bearerなし=UNAUTHENTICATED、Grant無し・存在しないProject=FORBIDDEN（存在を漏らさない）、別ProjectのOutcome / 存在しないOutcome・Repository=NOT_FOUND、取消済みOutcome・archived Project=CONFLICT、入力不正=INVALID_INPUT。いずれもStoryを部分的に残さない。
 - **archived Project**: 設計文書には無かったが、Step 5の「archivedでは新しい活動を始めない」に合わせ、`issue_story` / `issue_task` / `claim_task`を`ProjectArchivedError`（CONFLICT）で拒否する。参照、既に`doing`のTaskの完了・review・受入は妨げない。
 
@@ -180,6 +180,27 @@ Executionのコードが読み書きするtableは、Execution自身のtableと�
 ### 実装済み・未接続・未検証
 
 - 実装済み: 上記。検証: 旧Wachaのservice回帰テストの移植（19件）、統一`/mcp`経由（実MCP SDK clientでの実server起動を含む手動確認）、handoffの冪等性・snapshot・失敗分類・並行・再起動、`runtime_event`マイグレーション、境界。
-- 未接続: 外部Runtimeによる`outcome_confirmed`の取得とManagerの起動（テスト内のMCP呼び出しがRuntimeを模す）。Execution → Directionの還流（Task 34）、Evaluation（Task 35・36）、不透明Credential（Task 37。認証は引き続きtrusted-local）。
+- 未接続: 外部Runtimeによる`outcome_confirmed`の取得とManagerの起動（テスト内のMCP呼び出しがRuntimeを模す）。Execution → Directionの還流の起動（Task 34で入口は実装済み。起動するRuntimeは未接続）、Evaluation（Task 35・36）、不透明Credential（Task 37。認証は引き続きtrusted-local）。
 - 対象外・移植せず: 旧WachaのWeb UI（Project Activity・Task drawer等）とその`PageController`、`list_projects` / Skill / Knowledge。HumanがExecutionのStory・Taskを閲覧・操作するWeb UI / APIは未実装（後続で判断する）。
 - 未検証: fixtureやテスト内呼び出しによる確認はLv6の自律運転の実証ではない。
+
+## 実装記録（Task 34）
+
+ExecutionのStory / Task / Change Logから、Outcome評価に必要なExecution SummaryとEvidence参照をDirectionへ還流する経路を実装した。Task 30の`ExecutionEvidencePort`（Directionへ「書く」ポート）は採らず、次の初期選択にした。
+
+### 初期選択と理由
+
+- **Directionが読む、読取専用ポート（`ExecutionSummaryPort`）にした**。設計時は`recordExecutionSummary`のようにExecutionから書き込む形を想定していたが、それだとExecution層がDirectionの保存先を知る必要があり、「Execution層もOutcome repositoryを直接更新しない」に反する。DirectionのUse Case（`RecordExecutionEvidenceUseCase`）が`ExecutionSummaryPort.getOutcomeExecutionSummary(projectId, outcomeId)`を呼び、実装`ExecutionSummaryService`（`src/application/service/execution/`）がExecution自身のtable（story / task / change_log）だけを読む。Direction層はExecutionのRepository・tableを、Execution層はOutcomeのRepository・tableを使わない（`test/executionBoundary.test.ts`が静的に確認）。
+- **結果はRuntimeの申告ではなくExecutionの現在の状態から導出する**。Runtimeが渡すのは`changeCursor`とEvidence参照だけ。導出のたびに現在の状態から計算するので、通知の重複・順序逆転・再起動後の再送でも同じ最終状態に収束する。導出規則: Storyは、キャンセル済みなら`canceled`、Taskが無ければ`incomplete`、進行中（todo / doing / in_review / wait_accept）のTaskがあれば`incomplete`、無くて未解決の`rejected`があれば`rejected`、有効なTaskがすべて`accepted`なら`accepted`、有効なTaskが無ければ`canceled`。Outcomeは、キャンセル済みでないStoryの中で`incomplete` > `rejected` > `accepted`の順に採り、すべてキャンセルなら`canceled`。
+- **Outcomeとの対応はStoryの`outcome_ref`**（Task 33で保存）。相関IDは`outcome:{outcomeId}`。`list_changes`はStory・Taskの変更に`outcomeId` / `correlationId`を付け（読取時にstory / taskから解決。Change Logのpayloadは変更しない）、Runtimeが還流の対象を辿れるようにした。
+- **保存先はDirection所有の2 table**。`outcome_execution_summary`はOutcomeごとに1行で、`execution_cursor`（要約が反映するExecution側の最新Change cursor）が進むときだけ上書きし、`observed_cursor`にRuntimeが報告した最大のcursorを持つ。`outcome_execution_evidence`は`(outcome, kind, uri, version_hash)`の一意index（`version_hash`無しは空文字として扱う）で重複を防ぎ、`source_change_cursor`・`observed_at`・`principal_id`を持つ。Evidence本文は保存せず、1 Outcomeあたり200件を上限にした（無制限な複製を防ぐ）。`(Outcome, cursor)`単位の還流結果tableは、要約が上書きで収束するため持たない。
+- **入口**: MCP `record_execution_evidence` / `get_outcome_execution_summary`、Web API `POST /api/projects/:projectId/outcomes/:outcomeId/execution-evidence`・`GET .../execution-summary`。書込・MCPの読取は`runtime` Grantが必要（Task 37で置き換える暫定Role）。Web APIのGETはHuman向けの読み取りでGrantを要求しない。
+- **拒否**: 別Project・存在しないOutcomeは`NOT_FOUND`（存在を区別しない）。Storyが無い（未着手）・取消済みOutcome・archived Project・Evidence上限は`CONFLICT`。相対 / 非http / 認証情報付きURI、40桁でないSHA、SHAの無い`commit`、未来（5分を超える）の`observedAt`、Change Logの最新cursorより先の`changeCursor`は`VALIDATION_ERROR`。拒否では何も保存しない。古い`changeCursor`は拒否せず、状態を巻き戻さず現在の状態で回復する（`recorded.staleInput`）。
+- **Success Criterionは判定しない**。`accepted`でもOutcomeを変更せず、Success Criterionの充足とも扱わない。判定は後続のEvaluation（Task 35・36）の責務。
+
+### 実装済み・未接続・未検証
+
+- 実装済み: 上記。`test/executionEvidence.test.ts`が、実MCP / Web API経由で進行に応じた状態、4区分、再送・順序逆転・並行・ファイルDBの再起動、拒否、Executionが変わらないことを確認する。
+- 未接続: Change取得から還流を起動する外部Runtime（テスト内の呼び出しがRuntimeを模す）。EvidenceのURI・commit SHAを実GitHub等で実在確認しないこと（形式の検証のみ。Repositoryとの対応検証も行っていない）。Evaluation。不透明Credential（認証はtrusted-localのまま）。
+- 未検証: fixtureやテスト内呼び出しによる確認はLv6の自律運転の実証ではない。
+

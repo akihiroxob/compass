@@ -88,4 +88,6 @@ Direction（Grant・Project・Intent・Outcome）の変更は、保存された 
 
 Execution の Story / Task / Claim の重要な変更は、追記専用の Change Log に保存される。`list_changes({ projectId, afterCursor?, limit? })` で、耐久的な cursor 以降の差分を取得する。`nextCursor` を次の `afterCursor` に渡す。cursor は利用側（Console・外部 Runtime）が保持する。Compass は配送や既読を管理せず、Runtime のプロセス生存・polling・retry も管理しない。
 
+Change Log から Direction への結果の還流（`record_execution_evidence`）は Runtime が行う（`agent/runtime.md`）。Story・Task の変更は、Outcome に相関付く場合 `outcomeId` / `correlationId` を持つ。
+
 Runtime 向けの起動条件（`research_requested` / `research_completed` / `outcome_confirmed`）は別の仕組み（`fetch_runtime_events` / `ack_runtime_event`）で、Execution の Change Log とは用途が異なる。

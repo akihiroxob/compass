@@ -50,6 +50,20 @@ MCP `ack_runtime_event({ projectId, eventId, outcome, reason? })`、または We
 - Manager が `NOT_FOUND`（Outcome が Project に無い）・`CONFLICT`（Outcome が取消済み、または Project が archived）を報告した場合、再試行しても成功しない。`terminal_failure` で理由を残す。`UNAUTHENTICATED` / `FORBIDDEN` は Grant を直してから再試行する（`retryable_failure`）
 - Execution の進行（Story / Task / Claim の変化）は、Runtime が MCP `list_changes` の `nextCursor` を保持して増分取得する。これは Runtime event の ack とは別の仕組みで、Compass は Change の配送を記録しない
 
+## Execution の結果の還流（Evidence）
+
+Execution の進行を Direction（Outcome）へ還流するのは Runtime の責務。Compass は還流を起動しない。
+
+1. `list_changes({ projectId, afterCursor })` で Change を増分取得し、`nextCursor` を保持する。Story・Task の変更は、Outcome に相関付く場合 `outcomeId` / `correlationId` を持つ
+2. 変更のあった `outcomeId` ごとに `record_execution_evidence({ projectId, outcomeId, changeCursor, evidence? })`（Web API: `POST /api/projects/:projectId/outcomes/:outcomeId/execution-evidence`）を呼ぶ。`changeCursor` は読んだところまでの `nextCursor`
+3. `evidence` は参照だけ。`{ kind: commit | pull_request | repository_file | ci | issue | url, uri, versionHash?, observedAt }`。`uri` は認証情報を含まない http(s)、`versionHash` は完全な 40 桁の commit SHA（`commit` は必須）、`observedAt` は未来でない epoch ミリ秒。Evidence 本文は渡さない・保存されない。実在しない参照を作らない
+
+- 応答の `summary.state` は Compass が Execution の現在の状態から導出した `accepted` / `rejected` / `canceled` / `incomplete`。Runtime が状態を指定することはできない。`accepted` は Success Criterion を満たしたことを意味しない（判定は Evaluation）
+- 同じ通知・同じ Evidence の再送は重複しない（`recorded.evidenceAdded: 0`）。応答が失われたら同じ内容を再送してよい。古い `changeCursor`（順序逆転）は状態を巻き戻さず、現在の状態が返る（`recorded.staleInput: true`）。Runtime 再起動後は保持した cursor（失った場合は 0）から再取得して再送してよい
+- `NOT_FOUND`（別 Project・存在しない Outcome）、`CONFLICT`（Story 未着手 `reason: no_correlated_story`・取消済み Outcome・archived Project・Evidence 上限 200 件）、`VALIDATION_ERROR`（不正な URI / SHA / 時刻、Change Log より先の `changeCursor`）。未着手の `CONFLICT` は Manager の `issue_story` 後に再試行できる。それ以外は再試行しても成功しないため、理由を残して打ち切る
+- 還流済みの内容は `get_outcome_execution_summary({ projectId, outcomeId })` で確認できる（未還流は `record: null`）
+- どちらも `runtime` Grant が必要
+
 ## やらないこと
 
 - Agent の起動状況・Run の生存を Compass に登録すること（Compass は Run を持たない）

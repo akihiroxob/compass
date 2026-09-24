@@ -277,6 +277,36 @@ export type RuntimeEventDeliveryTable = {
 };
 
 /**
+ * Executionの結果の要約（Direction所有）。Outcomeごとに1行。`stories`はJSON。Execution側のtableは参照せず、
+ * ポート経由で受け取った値だけを保存する。`execution_cursor`が進むときだけ上書きする。
+ */
+export type OutcomeExecutionSummaryTable = {
+  project_id: string;
+  outcome_id: string;
+  correlation_id: string;
+  state: "accepted" | "rejected" | "canceled" | "incomplete";
+  stories: string;
+  execution_cursor: number;
+  observed_cursor: number;
+  principal_id: string;
+  updated_at: number;
+};
+
+/** ExecutionがOutcomeへ残したEvidenceへの参照（本文は持たない）。作成後は変更しない。 */
+export type OutcomeExecutionEvidenceTable = {
+  id: string;
+  project_id: string;
+  outcome_id: string;
+  kind: "commit" | "pull_request" | "repository_file" | "ci" | "issue" | "url";
+  uri: string;
+  version_hash: string | null;
+  observed_at: number;
+  source_change_cursor: number;
+  principal_id: string;
+  created_at: number;
+};
+
+/**
  * Execution（旧Wacha）のStory。Direction側のOutcomeは参照（`outcome_ref`）と作成時のsnapshotだけを持ち、
  * outcome / success_criterion / projectのtableを読み書きしない。snapshotはJSON文字列。
  */
@@ -386,6 +416,8 @@ export type Database = {
   adr_reference: AdrReferenceTable;
   runtime_event: RuntimeEventTable;
   runtime_event_delivery: RuntimeEventDeliveryTable;
+  outcome_execution_summary: OutcomeExecutionSummaryTable;
+  outcome_execution_evidence: OutcomeExecutionEvidenceTable;
   story: StoryTable;
   task: TaskTable;
   task_comment: TaskCommentTable;

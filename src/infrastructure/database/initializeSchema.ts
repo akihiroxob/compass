@@ -553,6 +553,56 @@ const initializeRuntimeEventSchema = async (database: Kysely<Database>): Promise
 };
 
 /**
+ * ExecutionからDirectionへ還流した、Outcomeごとの結果の要約とEvidence参照（Direction所有）。
+ * Execution側のtableへのFKは持たない。要約はOutcomeごとに1行（主キー）、Evidenceは
+ * `(outcome, kind, uri, version)`で重複しないよう一意にする（versionが無い参照は空文字として扱う）。
+ */
+const initializeOutcomeExecutionSchema = async (database: Kysely<Database>): Promise<void> => {
+  await database.schema
+    .createTable("outcome_execution_summary")
+    .ifNotExists()
+    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("outcome_id", "text", (column) => column.notNull().references("outcome.id").onDelete("cascade"))
+    .addColumn("correlation_id", "text", (column) => column.notNull())
+    .addColumn("state", "text", (column) =>
+      column.notNull().check(sql`state in ('accepted', 'rejected', 'canceled', 'incomplete')`),
+    )
+    .addColumn("stories", "text", (column) => column.notNull())
+    .addColumn("execution_cursor", "integer", (column) => column.notNull().check(sql`execution_cursor >= 0`))
+    .addColumn("observed_cursor", "integer", (column) => column.notNull().check(sql`observed_cursor >= 0`))
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("updated_at", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("outcome_execution_summary_pk", ["outcome_id"])
+    .execute();
+
+  await database.schema
+    .createTable("outcome_execution_evidence")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("outcome_id", "text", (column) => column.notNull().references("outcome.id").onDelete("cascade"))
+    .addColumn("kind", "text", (column) =>
+      column.notNull().check(sql`kind in ('commit', 'pull_request', 'repository_file', 'ci', 'issue', 'url')`),
+    )
+    .addColumn("uri", "text", (column) => column.notNull())
+    .addColumn("version_hash", "text")
+    .addColumn("observed_at", "integer", (column) => column.notNull())
+    .addColumn("source_change_cursor", "integer", (column) => column.notNull().check(sql`source_change_cursor >= 0`))
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .execute();
+  await sql`create unique index if not exists outcome_execution_evidence_identity_idx on outcome_execution_evidence(outcome_id, kind, uri, ifnull(version_hash, ''))`.execute(
+    database,
+  );
+  await database.schema
+    .createIndex("outcome_execution_evidence_outcome_idx")
+    .ifNotExists()
+    .on("outcome_execution_evidence")
+    .columns(["outcome_id", "created_at"])
+    .execute();
+};
+
+/**
  * Execution（旧Wachaから移植したStory / Task / Claim / Comment / Change Log / Command Receipt）。
  * すべて`create ... if not exists`で、Direction側のtableには触れない。Directionへの参照（`story.outcome_ref`等）は
  * 境界をまたぐためFKを付けず、作成時のsnapshotで保持する。`project_id`は統合した既存`project.id`を使う。
@@ -859,6 +909,7 @@ export const initializeSchema = async (database: Kysely<Database>): Promise<void
   await addOutcomeOriginDecisionColumn(database);
   await initializeAdrHandoffSchema(database);
   await initializeRuntimeEventSchema(database);
+  await initializeOutcomeExecutionSchema(database);
   await initializeExecutionSchema(database);
   await backfillInitialResearchRequests(database);
 };

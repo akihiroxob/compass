@@ -675,6 +675,60 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
     ({ projectId, ...input }) => execute(() => services.ackRuntimeEventUseCase.execute(principal, projectId, input)),
   );
 
+  server.registerTool(
+    "record_execution_evidence",
+    {
+      title: "Record Execution Evidence",
+      description:
+        "For an external Runtime: after reading the Execution changes (list_changes) up to changeCursor, reflect the Execution result of one " +
+        "Outcome into Direction. The result (accepted / rejected / canceled / incomplete, per Story with Task counts) is derived by Compass " +
+        "from the current Execution state, not from the Runtime's claim; evidence is a list of references " +
+        "{ kind: commit | pull_request | repository_file | ci | issue | url, uri (http/https, no credentials), versionHash (full 40-character commit SHA, required for commit), " +
+        "observedAt (epoch ms, not in the future) } - never Evidence content. Resending the same changes or evidence is idempotent " +
+        "(recorded.evidenceAdded 0), a stale changeCursor (out-of-order delivery) never rolls the state back (recorded.staleInput true), " +
+        "and a changeCursor ahead of the Execution change log is rejected with VALIDATION_ERROR. An Outcome of another Project fails with NOT_FOUND; " +
+        "an Outcome without a correlated Story yet, a cancelled Outcome or an archived Project fails with CONFLICT. " +
+        "Accepted Execution does not mean a Success Criterion is met: that is decided by the Evaluation. " +
+        "Requires Authorization: Bearer <RuntimeName> with a runtime Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: {
+        projectId: z.string().min(1),
+        outcomeId: z.string().min(1),
+        changeCursor: z.number(),
+        evidence: z
+          .array(
+            z.object({
+              kind: z.string(),
+              uri: z.string(),
+              versionHash: z.string().nullable().optional(),
+              observedAt: z.number(),
+            }),
+          )
+          .optional(),
+      },
+    },
+    ({ projectId, outcomeId, ...input }) =>
+      execute(() => services.recordExecutionEvidenceUseCase.execute(principal, projectId, outcomeId, input)),
+  );
+  server.registerTool(
+    "get_outcome_execution_summary",
+    {
+      title: "Get Outcome Execution Summary",
+      description:
+        "Read the Execution result and Evidence references already reflected into an Outcome by record_execution_evidence " +
+        "(record is null before the first reflection). It returns the state, the per-Story result with Task counts, the Execution change " +
+        "cursor the state reflects (executionCursor), the highest cursor the Runtime reported (observedCursor) and the Evidence references " +
+        "(uri, versionHash, observedAt, sourceChangeCursor). Requires Authorization: Bearer <RuntimeName> with a runtime Grant in the Project " +
+        "(UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: { projectId: z.string().min(1), outcomeId: z.string().min(1) },
+    },
+    ({ projectId, outcomeId }) =>
+      execute(() =>
+        authorization.asRole(principal, projectId, ProjectRole.RUNTIME, async () => ({
+          record: await services.getExecutionSummaryUseCase.execute(projectId, outcomeId),
+        })),
+      ),
+  );
+
   registerExecutionTools(server, services, principal);
 
   return server;

@@ -203,6 +203,28 @@ export const createApp = (services: ApplicationServices = applicationServices) =
     });
     return c.json(result);
   });
+  // ExecutionからDirectionへの還流（Runtime）。結果はExecutionの現在の状態から導出し、Runtimeが渡すのはEvidence参照とcursorだけ。
+  app.post("/api/projects/:projectId/outcomes/:outcomeId/execution-evidence", async (c) => {
+    const principal = resolvePrincipal(c.req.header("Authorization") ?? null);
+    const input = await readJsonBody(c.req.raw, "Execution evidence");
+    return c.json(
+      await services.recordExecutionEvidenceUseCase.execute(
+        principal,
+        c.req.param("projectId"),
+        c.req.param("outcomeId"),
+        input,
+      ),
+    );
+  });
+  // Human向けの読取。還流済みのExecutionの結果・Evidence参照を返す（還流前は`record: null`）。
+  app.get("/api/projects/:projectId/outcomes/:outcomeId/execution-summary", async (c) =>
+    c.json({
+      record: await services.getExecutionSummaryUseCase.execute(
+        c.req.param("projectId"),
+        c.req.param("outcomeId"),
+      ),
+    }),
+  );
   app.all("/api/*", (c) => c.json({ error: { code: "NOT_FOUND", message: "Not Found" } }, 404));
 
   app.all("/mcp", async (c) => {

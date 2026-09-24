@@ -1,5 +1,6 @@
 import { InstructionService } from "./application/service/InstructionService.ts";
 import { DirectionReferenceLookupService } from "./application/service/DirectionReferenceLookupService.ts";
+import { ExecutionSummaryService } from "./application/service/execution/ExecutionSummaryService.ts";
 import { TaskCoordinationService } from "./application/service/execution/TaskCoordinationService.ts";
 import { ProjectAuthorizationService } from "./application/service/ProjectAuthorizationService.ts";
 import { AbandonIntentUseCase } from "./application/usecase/AbandonIntentUseCase.ts";
@@ -19,6 +20,7 @@ import { CreateResearchRequestUseCase } from "./application/usecase/CreateResear
 import { DecideNextOutcomeUseCase } from "./application/usecase/DecideNextOutcomeUseCase.ts";
 import { FetchRuntimeEventsUseCase } from "./application/usecase/FetchRuntimeEventsUseCase.ts";
 import { GetIntentUseCase } from "./application/usecase/GetIntentUseCase.ts";
+import { GetExecutionSummaryUseCase } from "./application/usecase/GetExecutionSummaryUseCase.ts";
 import { GetOutcomeUseCase } from "./application/usecase/GetOutcomeUseCase.ts";
 import { GetResearchRequestUseCase } from "./application/usecase/GetResearchRequestUseCase.ts";
 import { GetResearcherContextUseCase } from "./application/usecase/GetResearcherContextUseCase.ts";
@@ -34,6 +36,7 @@ import { ListProjectsUseCase } from "./application/usecase/ListProjectsUseCase.t
 import { ListResearchRequestsUseCase } from "./application/usecase/ListResearchRequestsUseCase.ts";
 import { ListRuntimeEventsUseCase } from "./application/usecase/ListRuntimeEventsUseCase.ts";
 import { RecordAdrReferenceUseCase } from "./application/usecase/RecordAdrReferenceUseCase.ts";
+import { RecordExecutionEvidenceUseCase } from "./application/usecase/RecordExecutionEvidenceUseCase.ts";
 import { RegisterResearchResultUseCase } from "./application/usecase/RegisterResearchResultUseCase.ts";
 import { RegisterResearchSynthesisUseCase } from "./application/usecase/RegisterResearchSynthesisUseCase.ts";
 import { RevokeProjectRoleUseCase } from "./application/usecase/RevokeProjectRoleUseCase.ts";
@@ -43,6 +46,7 @@ import { UpdateProjectUseCase } from "./application/usecase/UpdateProjectUseCase
 import { SQLiteAdrHandoffRepository } from "./infrastructure/repository/SQLiteAdrHandoffRepository.ts";
 import { SQLiteDirectionDecisionRepository } from "./infrastructure/repository/SQLiteDirectionDecisionRepository.ts";
 import { SQLiteIntentRepository } from "./infrastructure/repository/SQLiteIntentRepository.ts";
+import { SQLiteOutcomeExecutionRepository } from "./infrastructure/repository/SQLiteOutcomeExecutionRepository.ts";
 import { SQLiteOutcomeRepository } from "./infrastructure/repository/SQLiteOutcomeRepository.ts";
 import { SQLiteProjectGrantRepository } from "./infrastructure/repository/SQLiteProjectGrantRepository.ts";
 import { SQLiteProjectRepository } from "./infrastructure/repository/SQLiteProjectRepository.ts";
@@ -73,6 +77,9 @@ export const createApplicationServices = (
     new DirectionReferenceLookupService(projectRepository, outcomeRepository),
     clock,
   );
+  // Direction → Executionは読取専用ポート（Execution自身のtableだけを読む）を通す。Direction側の還流先は自身のRepository。
+  const executionSummaryService = new ExecutionSummaryService(applicationDatabase);
+  const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(applicationDatabase);
   return {
     instructionService,
     projectAuthorizationService,
@@ -110,6 +117,19 @@ export const createApplicationServices = (
       projectRepository,
       runtimeEventRepository,
       clock,
+    ),
+    recordExecutionEvidenceUseCase: new RecordExecutionEvidenceUseCase(
+      projectAuthorizationService,
+      projectRepository,
+      outcomeRepository,
+      executionSummaryService,
+      outcomeExecutionRepository,
+      clock,
+    ),
+    getExecutionSummaryUseCase: new GetExecutionSummaryUseCase(
+      projectRepository,
+      outcomeRepository,
+      outcomeExecutionRepository,
     ),
     grantProjectRoleUseCase: new GrantProjectRoleUseCase(projectRepository, projectGrantRepository),
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(projectRepository, projectGrantRepository),
