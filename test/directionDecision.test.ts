@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createApp } from "../src/app.ts";
+import type { createApp } from "../src/app.ts";
+import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/createApplicationServices.ts";
 import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
 import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
@@ -13,7 +14,7 @@ const setup = async () => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
   const services = createApplicationServices(database);
-  return { database, services, app: createApp(services) };
+  return { database, services, app: await createSignedInApp(database, services) };
 };
 
 const send = (app: App, method: string, path: string, body?: unknown) =>

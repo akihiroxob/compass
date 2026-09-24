@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
-import { createApp } from "../src/app.ts";
+import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/createApplicationServices.ts";
 import { initialResearchBudget, initialResearchRequestKey } from "../src/domain/model/InitialResearchRequest.ts";
 import { runtimeEventVersion } from "../src/domain/model/RuntimeEvent.ts";
@@ -26,7 +26,7 @@ const setup = async (path = ":memory:") => {
   const database = createDatabase(path);
   await initializeSchema(database);
   const services = createApplicationServices(database, undefined, () => start);
-  return { database, services, app: createApp(services) };
+  return { database, services, app: await createSignedInApp(database, services) };
 };
 
 type Context = Awaited<ReturnType<typeof setup>>;

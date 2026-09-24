@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createApp } from "../src/app.ts";
+import type { createApp } from "../src/app.ts";
+import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/container.ts";
 import { classifyError, request } from "../src/frontend/api.ts";
 import type { Project } from "../src/frontend/projectForm.ts";
@@ -22,7 +23,7 @@ type App = ReturnType<typeof createApp>;
 const setup = async () => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
-  const app = createApp(createApplicationServices(database));
+  const app = await createSignedInApp(database, createApplicationServices(database));
   // フロントのrequest adapterを、実際のWeb API（同一のapplication層）へ向ける。
   const fetchImpl = (path: string, init?: RequestInit) => Promise.resolve(app.request(path, init));
   return { database, app, fetchImpl };

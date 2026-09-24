@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createApp } from "../src/app.ts";
+import type { createApp } from "../src/app.ts";
+import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/container.ts";
 import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
 import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
@@ -12,7 +13,7 @@ type ErrorBody = { error: { code: string; message: string; issues?: { path: stri
 const setup = async () => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
-  return { database, app: createApp(createApplicationServices(database)) };
+  return { database, app: await createSignedInApp(database, createApplicationServices(database)) };
 };
 
 const send = (app: App, method: string, path: string, body?: string) =>

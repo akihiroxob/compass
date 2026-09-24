@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createApp } from "../src/app.ts";
+import type { createApp } from "../src/app.ts";
+import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/container.ts";
 import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
 import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
@@ -36,7 +37,7 @@ const readMcpData = async (response: Response) => {
 test("Web API and MCP share Project application services", async () => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
-  const app = createApp(createApplicationServices(database));
+  const app = await createSignedInApp(database, createApplicationServices(database));
 
   const createdResponse = await app.request("/api/projects", {
     method: "POST",
@@ -75,7 +76,7 @@ test("Web API and MCP share Project application services", async () => {
 test("Web API returns stable validation and not-found errors", async () => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
-  const app = createApp(createApplicationServices(database));
+  const app = await createSignedInApp(database, createApplicationServices(database));
 
   const invalid = await app.request("/api/projects", {
     method: "POST",
@@ -94,7 +95,7 @@ test("Web API returns stable validation and not-found errors", async () => {
 test("Web API rejects malformed, empty, null and array bodies with the same 400 shape", async () => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
-  const app = createApp(createApplicationServices(database));
+  const app = await createSignedInApp(database, createApplicationServices(database));
 
   for (const body of ["{not json", "", "null", "[]"]) {
     const response = await app.request("/api/projects", {
@@ -119,7 +120,7 @@ test("Web API rejects malformed, empty, null and array bodies with the same 400 
 test("MCP lists the Project tools and reports errors", async () => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
-  const app = createApp(createApplicationServices(database));
+  const app = await createSignedInApp(database, createApplicationServices(database));
 
   const toolsResponse = await mcpRequest(app, {
     jsonrpc: "2.0", id: 1, method: "tools/list", params: {},
@@ -167,7 +168,7 @@ const callTool = async (
 test("Web APIの更新はMCPから、MCPの更新はWeb APIから参照でき、同じ入力規則が働く", async () => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
-  const app = createApp(createApplicationServices(database));
+  const app = await createSignedInApp(database, createApplicationServices(database));
 
   const created = (await (
     await app.request("/api/projects", {
@@ -227,7 +228,7 @@ test("Web APIの更新はMCPから、MCPの更新はWeb APIから参照でき、
 test("PATCH /api/projects/:id は不正入力を400、存在しないIDを404で返し、データを変更しない", async () => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
-  const app = createApp(createApplicationServices(database));
+  const app = await createSignedInApp(database, createApplicationServices(database));
   const created = (await (
     await app.request("/api/projects", {
       method: "POST",

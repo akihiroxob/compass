@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createApp } from "../src/app.ts";
+import type { createApp } from "../src/app.ts";
+import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/createApplicationServices.ts";
 import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
 import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
@@ -22,7 +23,7 @@ const setup = async (path = ":memory:") => {
   const database = createDatabase(path);
   await initializeSchema(database);
   const services = createApplicationServices(database);
-  return { database, services, app: createApp(services) };
+  return { database, services, app: await createSignedInApp(database, services) };
 };
 
 const rpc = async (app: App, method: string, params: object, principal?: string) => {

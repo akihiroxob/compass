@@ -12,6 +12,7 @@ import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createApp } from "../src/app.ts";
+import { createTestHuman, humanHeaders, type TestHuman } from "./support/humanSession.ts";
 import { InstructionService } from "../src/application/service/InstructionService.ts";
 import { createApplicationServices } from "../src/createApplicationServices.ts";
 import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
@@ -85,6 +86,7 @@ const withEnvironment = async (
       start: async (instructionService, port) => {
         const database = createDatabase(path);
         await initializeSchema(database);
+        signedIn = await createTestHuman(database, { email: "tester@example.com" });
         const running = await listen(createApp(createApplicationServices(database, instructionService)), port);
         const stop = async () => {
           await running.close();
@@ -115,10 +117,13 @@ const withEnvironment = async (
 // 再起動testで、閉じたサーバーへの接続を使い回さないよう、毎回接続を閉じる。
 const closeConnection = { Connection: "close" };
 
+/** Human向けWeb APIは、起動したserverのDBに作ったテスト用HumanのSessionで呼ぶ。 */
+let signedIn: TestHuman;
+
 const api = async (baseUrl: string, method: string, path: string, body?: unknown) => {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
-    headers: { "Content-Type": "application/json", ...closeConnection },
+    headers: humanHeaders(signedIn, { "Content-Type": "application/json", ...closeConnection }),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: response.status, body: (await response.json()) as Record<string, any> };

@@ -1,4 +1,11 @@
-import { hasMinimumRole, type HumanActor, type HumanRole, type ProjectMembership } from "../../domain/model/HumanAuth.ts";
+import {
+  hasMinimumRole,
+  humanProjectPermissions,
+  type HumanActor,
+  type HumanProjectOperation,
+  type HumanRole,
+  type ProjectMembership,
+} from "../../domain/model/HumanAuth.ts";
 import type { ProjectMembershipRepository } from "../../domain/repository/ProjectMembershipRepository.ts";
 import { ForbiddenError } from "../error/ForbiddenError.ts";
 import { NotFoundError } from "../error/NotFoundError.ts";
@@ -10,6 +17,11 @@ import { NotFoundError } from "../error/NotFoundError.ts";
  */
 export class HumanProjectAuthorizationService {
   constructor(private readonly membershipRepository: ProjectMembershipRepository) {}
+
+  /** 操作に必要な最低Roleはdomainの権限表（`humanProjectPermissions`）から引く。 */
+  authorize(actor: HumanActor, projectId: string, operation: HumanProjectOperation): Promise<ProjectMembership> {
+    return this.requireProjectRole(actor, projectId, humanProjectPermissions[operation]);
+  }
 
   async requireProjectRole(actor: HumanActor, projectId: string, minimumRole: HumanRole): Promise<ProjectMembership> {
     const membership = await this.membershipRepository.findActiveMembership(projectId, actor.humanUserId);

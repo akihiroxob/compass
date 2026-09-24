@@ -1,6 +1,6 @@
 import { serveStatic } from "@hono/node-server/serve-static";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { fileURLToPath } from "node:url";
@@ -16,6 +16,7 @@ import { applicationServices, type ApplicationServices } from "./container.ts";
 import {
   CsrfRejectedError,
   registerHumanAuthRoutes,
+  requireHumanSession,
   type HumanAuthHttpOptions,
 } from "./presentation/http/registerHumanAuthRoutes.ts";
 
@@ -29,7 +30,16 @@ export const createApp = (
 
   // OIDC callbackのcode / state等をrequest logへ残さないよう、`/auth/*`のquery文字列を伏せる。
   app.use(logger((message, ...rest) => console.log(message.replace(/(\/auth\/\S*?)\?\S*/, "$1?[redacted]"), ...rest)));
-  app.use("*", cors({ origin: "*", allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"], allowHeaders: ["Authorization", "Content-Type"] }));
+  // Bearerで呼ぶMCP・Runtime向けAPIだけにCORSを許す。Session Cookieで認証するHuman向け`/api/*`は他originから呼ばせない。
+  const bearerCors = cors({ origin: "*", allowMethods: ["GET", "POST", "OPTIONS"], allowHeaders: ["Authorization", "Content-Type"] });
+  for (const path of [
+    "/mcp",
+    "/api/projects/:projectId/runtime-events",
+    "/api/projects/:projectId/runtime-events/*",
+    "/api/projects/:projectId/outcomes/:outcomeId/execution-evidence",
+  ]) {
+    app.use(path, bearerCors);
+  }
 
   app.get("/health", (c) => c.json({ status: "ok", service: "compass" }));
   app.get("/api", (c) => c.json({ service: "compass", status: "ok" }));
@@ -41,50 +51,64 @@ export const createApp = (
     });
 
   if (options.humanAuth) registerHumanAuthRoutes(app, services, options.humanAuth);
+  // Human向け`/api/*`は常にSessionを要求する。設定が渡されない場合（MCP等のテスト）もSessionの検査は省かず、
+  // trusted-localのCookie名とloopbackのoriginで検査する（認証routeは登録しないため、Sessionは作れない）。
+  const humanAuth = options.humanAuth ?? { mode: "trusted-local", publicOrigin: "http://localhost" };
+  const actorOf = async (c: Context) => (await requireHumanSession(c, services, humanAuth)).actor;
+  const { human } = services;
 
+  // 作成者を同一transactionでowner Membershipにする。
   app.post("/api/projects", async (c) => {
+    const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw);
-    const project = await services.createProjectUseCase.execute(input);
+    const project = await services.createProjectUseCase.execute(input, actor);
     return c.json({ project }, 201);
   });
-  // 既定はactiveのみ。`?status=archived`でアーカイブ済み一覧。それ以外の値は400（path `status`）。
-  app.get("/api/projects", async (c) =>
-    c.json({ projects: await services.listProjectsUseCase.execute(parseProjectStatusFilter(c.req.query("status"))) }),
-  );
+  // 有効なMembershipを持つProjectだけ。既定はactiveのみ。`?status=archived`でアーカイブ済み一覧。それ以外の値は400（path `status`）。
+  app.get("/api/projects", async (c) => {
+    const actor = await actorOf(c);
+    return c.json({ projects: await human.listProjects.execute(actor, parseProjectStatusFilter(c.req.query("status"))) });
+  });
+  // `myRole`はUIの導線切替用。拒否は常にserverの権限表で行う。
   app.get("/api/projects/:projectId", async (c) =>
-    c.json({ project: await services.getProjectUseCase.execute(c.req.param("projectId")) }),
+    c.json(await human.getProject.execute(await actorOf(c), c.req.param("projectId"))),
   );
   app.patch("/api/projects/:projectId", async (c) => {
+    const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw);
-    const project = await services.updateProjectUseCase.execute(c.req.param("projectId"), input);
+    const project = await human.updateProject.execute(actor, c.req.param("projectId"), input);
     return c.json({ project });
   });
 
   // archiveはHuman向けのWeb API専用。MCP tool・CLIコマンドへは公開せず、復帰・削除のAPIも作らない。
   app.post("/api/projects/:projectId/archive", async (c) => {
+    const actor = await actorOf(c);
     // 本文なしの要求は、理由なしとしてuse caseのVALIDATION_ERRORにする。
     const hasBody = (await c.req.raw.clone().text()).trim() !== "";
     const input = hasBody ? await readJsonBody(c.req.raw) : {};
-    const project = await services.archiveProjectUseCase.execute(c.req.param("projectId"), input);
+    const project = await human.archiveProject.execute(actor, c.req.param("projectId"), input);
     return c.json({ project });
   });
 
   app.post("/api/projects/:projectId/intents", async (c) => {
+    const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Intent");
-    const intent = await services.createIntentUseCase.execute(c.req.param("projectId"), input);
+    const intent = await human.createIntent.execute(actor, c.req.param("projectId"), input);
     return c.json({ intent }, 201);
   });
   app.get("/api/projects/:projectId/intents", async (c) =>
-    c.json({ intents: await services.listIntentsUseCase.execute(c.req.param("projectId")) }),
+    c.json({ intents: await human.listIntents.execute(await actorOf(c), c.req.param("projectId")) }),
   );
   app.get("/api/projects/:projectId/intents/:intentId", async (c) =>
     c.json({
-      intent: await services.getIntentUseCase.execute(c.req.param("projectId"), c.req.param("intentId")),
+      intent: await human.getIntent.execute(await actorOf(c), c.req.param("projectId"), c.req.param("intentId")),
     }),
   );
   app.patch("/api/projects/:projectId/intents/:intentId", async (c) => {
+    const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Intent");
-    const intent = await services.updateIntentUseCase.execute(
+    const intent = await human.updateIntent.execute(
+      actor,
       c.req.param("projectId"),
       c.req.param("intentId"),
       input,
@@ -92,10 +116,12 @@ export const createApp = (
     return c.json({ intent });
   });
   app.post("/api/projects/:projectId/intents/:intentId/abandon", async (c) => {
+    const actor = await actorOf(c);
     // 放棄理由は任意のため、本文なしの要求は理由なしとして扱う。
     const hasBody = (await c.req.raw.clone().text()).trim() !== "";
     const input = hasBody ? await readJsonBody(c.req.raw, "Intent") : {};
-    const intent = await services.abandonIntentUseCase.execute(
+    const intent = await human.abandonIntent.execute(
+      actor,
       c.req.param("projectId"),
       c.req.param("intentId"),
       input,
@@ -105,8 +131,10 @@ export const createApp = (
 
   const outcomesPath = "/api/projects/:projectId/intents/:intentId/outcomes";
   app.post(outcomesPath, async (c) => {
+    const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Outcome");
-    const outcome = await services.createOutcomeUseCase.execute(
+    const outcome = await human.createOutcome.execute(
+      actor,
       c.req.param("projectId"),
       c.req.param("intentId"),
       input,
@@ -115,12 +143,13 @@ export const createApp = (
   });
   app.get(outcomesPath, async (c) =>
     c.json({
-      outcomes: await services.listOutcomesUseCase.execute(c.req.param("projectId"), c.req.param("intentId")),
+      outcomes: await human.listOutcomes.execute(await actorOf(c), c.req.param("projectId"), c.req.param("intentId")),
     }),
   );
   app.get(`${outcomesPath}/:outcomeId`, async (c) =>
     c.json({
-      outcome: await services.getOutcomeUseCase.execute(
+      outcome: await human.getOutcome.execute(
+        await actorOf(c),
         c.req.param("projectId"),
         c.req.param("intentId"),
         c.req.param("outcomeId"),
@@ -128,8 +157,10 @@ export const createApp = (
     }),
   );
   app.patch(`${outcomesPath}/:outcomeId`, async (c) => {
+    const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Outcome");
-    const outcome = await services.updateOutcomeUseCase.execute(
+    const outcome = await human.updateOutcome.execute(
+      actor,
       c.req.param("projectId"),
       c.req.param("intentId"),
       c.req.param("outcomeId"),
@@ -138,10 +169,12 @@ export const createApp = (
     return c.json({ outcome });
   });
   app.post(`${outcomesPath}/:outcomeId/cancel`, async (c) => {
+    const actor = await actorOf(c);
     // 本文なしの要求は、理由なしとしてuse caseのVALIDATION_ERRORにする。
     const hasBody = (await c.req.raw.clone().text()).trim() !== "";
     const input = hasBody ? await readJsonBody(c.req.raw, "Outcome") : {};
-    const outcome = await services.cancelOutcomeUseCase.execute(
+    const outcome = await human.cancelOutcome.execute(
+      actor,
       c.req.param("projectId"),
       c.req.param("intentId"),
       c.req.param("outcomeId"),
@@ -151,32 +184,36 @@ export const createApp = (
   });
   const grantsPath = "/api/projects/:projectId/grants";
   app.post(grantsPath, async (c) => {
+    const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Grant");
-    const { grant, created } = await services.grantProjectRoleUseCase.execute(c.req.param("projectId"), input);
+    const { grant, created } = await human.grantProjectRole.execute(actor, c.req.param("projectId"), input);
     return c.json({ grant, created }, created ? 201 : 200);
   });
   app.get(grantsPath, async (c) =>
-    c.json({ grants: await services.listProjectGrantsUseCase.execute(c.req.param("projectId")) }),
+    c.json({ grants: await human.listProjectGrants.execute(await actorOf(c), c.req.param("projectId")) }),
   );
   // 取消は冪等に扱うため、Grantの特定はbodyでなくpathに置く（principalIdはURLエンコード）。
   app.delete(`${grantsPath}/:role/:principalId`, async (c) => {
-    const revoked = await services.revokeProjectRoleUseCase.execute(c.req.param("projectId"), {
+    const actor = await actorOf(c);
+    const revoked = await human.revokeProjectRole.execute(actor, c.req.param("projectId"), {
       role: c.req.param("role"),
       principalId: c.req.param("principalId"),
     });
     return c.json({ revoked });
   });
-  // Research・Direction Decision・ADR参照はHuman向けの読み取り専用画面（Task 29）。Role Grantを要求せず、
-  // MCPのResearcher/Strategist tool群と同じapplication use caseへ委譲する。
+  // Research・Direction Decision・ADR参照はHuman向けの読み取り専用画面（Task 29）。Agent Role Grantではなく
+  // Membership（viewer以上）で認可し、MCPのResearcher/Strategist tool群と同じapplication use caseへ委譲する。
   app.get("/api/projects/:projectId/research-requests", async (c) => {
+    const actor = await actorOf(c);
     const filter = { originIntentId: c.req.query("originIntentId"), status: c.req.query("status") };
     return c.json({
-      requests: await services.listResearchRequestsUseCase.execute(c.req.param("projectId"), filter),
+      requests: await human.listResearchRequests.execute(actor, c.req.param("projectId"), filter),
     });
   });
   app.get("/api/projects/:projectId/research-requests/:requestId", async (c) =>
     c.json({
-      detail: await services.getResearchRequestUseCase.execute(
+      detail: await human.getResearchRequest.execute(
+        await actorOf(c),
         c.req.param("projectId"),
         c.req.param("requestId"),
       ),
@@ -184,16 +221,18 @@ export const createApp = (
   );
   app.get("/api/projects/:projectId/intents/:intentId/decisions", async (c) =>
     c.json({
-      decisions: await services.listDirectionDecisionsUseCase.execute(
+      decisions: await human.listDirectionDecisions.execute(
+        await actorOf(c),
         c.req.param("projectId"),
         c.req.param("intentId"),
       ),
     }),
   );
   app.get("/api/projects/:projectId/adr-references", async (c) =>
-    c.json({ references: await services.listAdrReferencesUseCase.execute(c.req.param("projectId")) }),
+    c.json({ references: await human.listAdrReferences.execute(await actorOf(c), c.req.param("projectId")) }),
   );
   // 外部Runtime向け。consumerはBearerのPrincipalで、runtime Grantを持つProjectのイベントだけを扱う。
+  // Session Cookieでは認可しない（Human Membershipと混同しない）。
   // 認可・cursor・ackの規則は、MCPと同じapplication層のuse caseが持つ。
   const queryNumber = (value: string | undefined) =>
     value === undefined ? undefined : value.trim() === "" ? Number.NaN : Number(value);
@@ -231,12 +270,65 @@ export const createApp = (
   // Human向けの読取。還流済みのExecutionの結果・Evidence参照を返す（還流前は`record: null`）。
   app.get("/api/projects/:projectId/outcomes/:outcomeId/execution-summary", async (c) =>
     c.json({
-      record: await services.getExecutionSummaryUseCase.execute(
+      record: await human.getExecutionSummary.execute(
+        await actorOf(c),
         c.req.param("projectId"),
         c.req.param("outcomeId"),
       ),
     }),
   );
+  // Human Membershipと招待（docs/step-6-human-auth-design.md）。認可はMembershipのuse caseが権限表で行う。
+  const membersPath = "/api/projects/:projectId/members";
+  app.get(membersPath, async (c) =>
+    c.json({ members: await services.listProjectMembersUseCase.execute(await actorOf(c), c.req.param("projectId")) }),
+  );
+  app.patch(`${membersPath}/:membershipId`, async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Membership");
+    const membership = await services.changeProjectMemberRoleUseCase.execute(
+      actor,
+      c.req.param("projectId"),
+      c.req.param("membershipId"),
+      input,
+    );
+    return c.json({ membership });
+  });
+  app.delete(`${membersPath}/:membershipId`, async (c) => {
+    const actor = await actorOf(c);
+    const membership = await services.revokeProjectMemberUseCase.execute(
+      actor,
+      c.req.param("projectId"),
+      c.req.param("membershipId"),
+    );
+    return c.json({ membership });
+  });
+  const invitationsPath = "/api/projects/:projectId/invitations";
+  app.get(invitationsPath, async (c) =>
+    c.json({
+      invitations: await services.listProjectInvitationsUseCase.execute(await actorOf(c), c.req.param("projectId")),
+    }),
+  );
+  // tokenの平文は発行応答で一度だけ返す。リンクはURL fragmentで渡し、access logへ残さない。
+  app.post(invitationsPath, async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Invitation");
+    const { invitation, token } = await services.createProjectInvitationUseCase.execute(
+      actor,
+      c.req.param("projectId"),
+      input,
+    );
+    c.header("Cache-Control", "no-store");
+    return c.json({ invitation, invitationUrl: `${humanAuth.publicOrigin}/invite#${token}` }, 201);
+  });
+  app.delete(`${invitationsPath}/:invitationId`, async (c) => {
+    const actor = await actorOf(c);
+    const invitation = await services.revokeProjectInvitationUseCase.execute(
+      actor,
+      c.req.param("projectId"),
+      c.req.param("invitationId"),
+    );
+    return c.json({ invitation });
+  });
   app.all("/api/*", (c) => c.json({ error: { code: "NOT_FOUND", message: "Not Found" } }, 404));
 
   app.all("/mcp", async (c) => {

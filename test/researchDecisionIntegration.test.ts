@@ -10,6 +10,7 @@ import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createApp } from "../src/app.ts";
+import { createTestHuman, humanHeaders, type TestHuman } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/createApplicationServices.ts";
 import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
 import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
@@ -59,6 +60,7 @@ const withEnvironment = async (run: (start: () => Promise<Running & { stop: () =
     await run(async () => {
       const database = createDatabase(path);
       await initializeSchema(database);
+      signedIn = await createTestHuman(database, { email: "tester@example.com" });
       const running = await listen(createApp(createApplicationServices(database)));
       const stop = async () => {
         await running.close();
@@ -75,10 +77,13 @@ const withEnvironment = async (run: (start: () => Promise<Running & { stop: () =
 
 const closeConnection = { Connection: "close" };
 
+/** Human向けWeb APIは、起動したserverのDBに作ったテスト用HumanのSessionで呼ぶ。 */
+let signedIn: TestHuman;
+
 const api = async (baseUrl: string, method: string, path: string, body?: unknown) => {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
-    headers: { "Content-Type": "application/json", ...closeConnection },
+    headers: humanHeaders(signedIn, { "Content-Type": "application/json", ...closeConnection }),
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   return { status: response.status, body: (await response.json()) as Record<string, any> };
@@ -355,11 +360,13 @@ test(
         assert.equal(errorCode(await call(client, "list_research_requests", { projectId: project.id })), "FORBIDDEN");
       });
 
-      // Human向けWeb APIの読み取りはRole Grantを要求しない（Authorizationヘッダーなしでも参照できる）。
-      const anonymous = await fetch(`${server.baseUrl}/api/projects/${project.id}/research-requests`, { headers: closeConnection });
-      assert.equal(anonymous.status, 200);
-      const anonymousAdr = await fetch(`${server.baseUrl}/api/projects/${project.id}/adr-references`, { headers: closeConnection });
-      assert.equal(anonymousAdr.status, 200);
+      // Human向けWeb APIの読み取りはAgent Role GrantではなくSession + Membershipで認可する（Task 42）。
+      // Session無しは401、Session（viewer以上）があればAuthorizationヘッダーなしで参照できる。
+      for (const path of ["research-requests", "adr-references"]) {
+        const anonymous = await fetch(`${server.baseUrl}/api/projects/${project.id}/${path}`, { headers: closeConnection });
+        assert.equal(anonymous.status, 401, path);
+        assert.equal((await api(server.baseUrl, "GET", `/api/projects/${project.id}/${path}`)).status, 200, path);
+      }
 
       await server.stop();
     });

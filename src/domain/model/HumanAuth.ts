@@ -219,3 +219,23 @@ export const decideRegistration = (facts: RegistrationFacts): RegistrationDecisi
   }
   return { kind: "reject", reason: "not_allowed" };
 };
+
+/**
+ * Human向けProject操作の権限表（操作 → 最低Role。docs/step-6-human-auth-design.md「権限表（Human Role）」）。
+ * Web routeやUIに重複させず、application層の`HumanProjectAuthorizationService`だけがこの表で検査する。
+ * Project作成・一覧・Session取得はMembershipを要しない（認証済みであればよい）ため、ここに含めない。
+ */
+export const humanProjectPermissions = {
+  /** Project・Intent・Outcome・Research・Direction Decision・ADR参照・Execution Summaryの参照。 */
+  "project.read": "viewer",
+  "grant.read": "viewer",
+  "member.read": "viewer",
+  "direction.write": "editor",
+  "project.update": "administrator",
+  "grant.manage": "administrator",
+  "project.archive": "owner",
+  "invitation.manage": "owner",
+  "member.manage": "owner",
+} as const satisfies Record<string, HumanRole>;
+
+export type HumanProjectOperation = keyof typeof humanProjectPermissions;

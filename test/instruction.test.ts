@@ -3,7 +3,8 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { createApp } from "../src/app.ts";
+import type { createApp } from "../src/app.ts";
+import { createSignedInApp } from "./support/humanSession.ts";
 import { InstructionUnavailableError } from "../src/application/error/InstructionUnavailableError.ts";
 import { InstructionService } from "../src/application/service/InstructionService.ts";
 import { createApplicationServices } from "../src/createApplicationServices.ts";
@@ -15,7 +16,7 @@ type ToolResult = { isError?: boolean; structuredContent: Record<string, any> };
 const setup = async (instructionService?: InstructionService) => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
-  return { database, app: createApp(createApplicationServices(database, instructionService)) };
+  return { database, app: await createSignedInApp(database, createApplicationServices(database, instructionService)) };
 };
 
 const rpc = async (app: ReturnType<typeof createApp>, method: string, params: object, authorization?: string) => {

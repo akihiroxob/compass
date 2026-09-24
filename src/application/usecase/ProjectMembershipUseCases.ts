@@ -16,7 +16,7 @@ export class ListProjectMembersUseCase {
   ) {}
 
   async execute(actor: HumanActor, projectId: string): Promise<MemberView[]> {
-    await this.authorization.requireProjectRole(actor, projectId, "viewer");
+    await this.authorization.authorize(actor, projectId, "member.read");
     return this.membershipRepository.listActiveMembers(projectId);
   }
 }
@@ -32,7 +32,7 @@ export class ChangeProjectMemberRoleUseCase {
   ) {}
 
   async execute(actor: HumanActor, projectId: string, membershipId: string, input: unknown): Promise<ProjectMembership> {
-    await this.authorization.requireProjectRole(actor, projectId, "owner");
+    await this.authorization.authorize(actor, projectId, "member.manage");
     const { role } = parseChangeMemberRoleInput(input);
     const result = await this.membershipRepository.changeRole(projectId, membershipId, role);
     if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
@@ -50,7 +50,7 @@ export class RevokeProjectMemberUseCase {
   ) {}
 
   async execute(actor: HumanActor, projectId: string, membershipId: string): Promise<ProjectMembership> {
-    await this.authorization.requireProjectRole(actor, projectId, "owner");
+    await this.authorization.authorize(actor, projectId, "member.manage");
     const result = await this.membershipRepository.revoke(projectId, membershipId, actor.humanUserId);
     if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
     if (result.kind === "not_found") throw new NotFoundError(`Membership ${membershipId} was not found`);
@@ -72,7 +72,7 @@ export class CreateProjectInvitationUseCase {
     projectId: string,
     input: unknown,
   ): Promise<{ invitation: ProjectInvitation; token: string }> {
-    await this.authorization.requireProjectRole(actor, projectId, "owner");
+    await this.authorization.authorize(actor, projectId, "invitation.manage");
     const { email, role, expiresInHours } = parseCreateInvitationInput(input);
     const token = generateSecretToken();
     const result = await this.membershipRepository.createInvitation({
@@ -99,7 +99,7 @@ export class ListProjectInvitationsUseCase {
   ) {}
 
   async execute(actor: HumanActor, projectId: string): Promise<ProjectInvitation[]> {
-    await this.authorization.requireProjectRole(actor, projectId, "owner");
+    await this.authorization.authorize(actor, projectId, "invitation.manage");
     return this.membershipRepository.listInvitations(projectId);
   }
 }
@@ -112,7 +112,7 @@ export class RevokeProjectInvitationUseCase {
   ) {}
 
   async execute(actor: HumanActor, projectId: string, invitationId: string): Promise<ProjectInvitation> {
-    await this.authorization.requireProjectRole(actor, projectId, "owner");
+    await this.authorization.authorize(actor, projectId, "invitation.manage");
     const result = await this.membershipRepository.revokeInvitation(projectId, invitationId, actor.humanUserId);
     if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
     if (result.kind === "not_found") throw new NotFoundError(`Invitation ${invitationId} was not found`);

@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
-import { createApp } from "../src/app.ts";
+import type { createApp } from "../src/app.ts";
+import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/createApplicationServices.ts";
 import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
 import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
@@ -29,7 +30,7 @@ const setup = async (path = ":memory:") => {
   const database = createDatabase(path);
   await initializeSchema(database);
   const services = createApplicationServices(database);
-  return { database, services, app: createApp(services) };
+  return { database, services, app: await createSignedInApp(database, services) };
 };
 
 const send = (app: App, method: string, path: string, body?: unknown) =>
@@ -142,12 +143,13 @@ test("AC-3 再archiveは409（projectStatus）で、理由・日時を上書き�
   await database.destroy();
 });
 
-test("AC-4 存在しないIDのarchiveは404。入力検証は存在確認より先", async () => {
+test("AC-4 存在しないIDのarchiveは404。Web APIではMembership認可が入力検証より先", async () => {
   const { database, app } = await setup();
   const missing = await archive(app, "missing");
   assert.equal(missing.status, 404);
   assert.equal((await json(missing)).error.code, "NOT_FOUND");
-  assert.equal((await archive(app, "missing", { reason: " " })).status, 400);
+  // Membershipの無い（存在しない）Projectは、入力を検証する前に404にしてProject IDの存在を漏らさない（Step 6）。
+  assert.equal((await archive(app, "missing", { reason: " " })).status, 404);
   await database.destroy();
 });
 

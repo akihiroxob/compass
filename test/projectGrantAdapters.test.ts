@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { createApp } from "../src/app.ts";
+import type { createApp } from "../src/app.ts";
+import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/createApplicationServices.ts";
 import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
 import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
@@ -19,7 +20,7 @@ const setup = async () => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
   const services = createApplicationServices(database);
-  return { database, services, app: createApp(services) };
+  return { database, services, app: await createSignedInApp(database, services) };
 };
 
 const send = (app: App, method: string, path: string, body?: unknown) =>
@@ -121,14 +122,20 @@ test("存在しないProjectは発行・一覧・取消とも404、不正な入�
   await database.destroy();
 });
 
-test("CORSはDELETEとAuthorization / Content-Typeを許可し、既存のProject APIは変わらない", async () => {
+test("CORSはBearerのMCP・Runtime APIだけに許し、Session Cookieで認証するHuman向けAPIには付けない", async () => {
   const { database, app } = await setup();
-  const preflight = await app.request("/api/projects/x/grants/strategist/a", {
-    method: "OPTIONS",
-    headers: { Origin: "http://localhost:5173", "Access-Control-Request-Method": "DELETE", "Access-Control-Request-Headers": "authorization,content-type" },
-  });
-  assert.match(preflight.headers.get("Access-Control-Allow-Methods") ?? "", /DELETE/);
-  assert.match((preflight.headers.get("Access-Control-Allow-Headers") ?? "").toLowerCase(), /authorization/);
+  const preflight = (path: string, method: string) =>
+    app.request(path, {
+      method: "OPTIONS",
+      headers: { Origin: "http://evil.example", "Access-Control-Request-Method": method, "Access-Control-Request-Headers": "authorization,content-type" },
+    });
+  const human = await preflight("/api/projects/x/grants/strategist/a", "DELETE");
+  assert.equal(human.headers.get("Access-Control-Allow-Origin"), null);
+  for (const path of ["/mcp", "/api/projects/x/runtime-events", "/api/projects/x/runtime-events/e/ack", "/api/projects/x/outcomes/o/execution-evidence"]) {
+    const bearer = await preflight(path, "POST");
+    assert.equal(bearer.headers.get("Access-Control-Allow-Origin"), "*", path);
+    assert.match((bearer.headers.get("Access-Control-Allow-Headers") ?? "").toLowerCase(), /authorization/, path);
+  }
   const projectId = await createProject(app);
   assert.equal((await app.request(`/api/projects/${projectId}`)).status, 200);
   assert.equal((await app.request("/health")).status, 200);

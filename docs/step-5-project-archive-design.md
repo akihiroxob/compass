@@ -171,7 +171,7 @@ project（追加）
 | AC-1 | repository / API | Given active の Project（Intent・Outcome・Grant あり）/ When `POST .../archive` に理由 / Then 200、`status: "archived"`、`archiveReason`、`archivedAt`、`updatedAt = archivedAt`。再起動後の再取得でも同じ |
 | AC-2 | API | Given active の Project / When 理由なし・空白のみ・本文なしで archive / Then 400（path `reason`）、Project は `active` のまま |
 | AC-3 | API | Given archived / When 再度 archive / Then 409（`projectStatus: "archived"`）、`archivedAt` / `archiveReason` は変わらない |
-| AC-4 | API | Given 存在しない ID / When archive / Then 404。入力の検証は存在確認より先（無効な理由なら 400） |
+| AC-4 | API | Given 存在しない ID / When archive / Then 404。入力の検証は存在確認より先（無効な理由なら 400）。Task 42 以降の Web API では Membership 認可が先に働き、存在しない ID は入力に関わらず 404（Step 6） |
 | AC-5 | repository / API | Given archived / When `PATCH /api/projects/:id` / Then 409（`projectStatus`）、Project は変わらない。`status` だけの PATCH は 400、name と一緒に `status: "active"` を送っても復帰せず name の更新も 409 になる |
 | AC-6 | API | Given archived / When Intent の作成・更新・放棄 / Then すべて 409（`projectStatus`）。存在しない `intentId` でも、Intent の 404 ではなく 409 |
 | AC-7 | API | Given archived / When Outcome の作成・更新・取消（固定項目を含む PATCH を含む）/ Then すべて 409（`projectStatus`）。Outcome・Success Criterion は変わらない |

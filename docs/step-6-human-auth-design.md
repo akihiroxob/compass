@@ -1,6 +1,6 @@
 # Step 6: Human認証・Project Membership・招待制 設計
 
-> **状態: 設計（確定、Task 39）。永続化（domain・repository・schema・application use case）はTask 40、Google OIDC・Web Session・`/auth/*`・`/api/auth/*`・CSRF検査・設定のfail-fastはTask 41で実装済み。既存のHuman向けWeb APIへのSession・Membership認可の適用（Task 42）、MCPのremote mode対応（Task 37）、画面（Task 43）は未接続。** 実HTTP統合検証と運用文書はTask 44で行う。
+> **状態: 設計（確定、Task 39）。永続化（domain・repository・schema・application use case）はTask 40、Google OIDC・Web Session・`/auth/*`・`/api/auth/*`・CSRF検査・設定のfail-fastはTask 41で実装済み。既存のHuman向けWeb APIへのSession・Membership認可の適用はTask 42で実装済み。MCPのremote mode対応（Task 37）、画面（Task 43）は未接続。** 実HTTP統合検証と運用文書はTask 44で行う。
 > 事前のユーザー確認は設けない。親Storyに定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選び、理由を「選択理由と将来変更できる箇所」に記録する。
 
 ## 根拠資料と優先順位
@@ -314,6 +314,16 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 - **request log**: Honoの `logger` はqueryを含めて出力するため、`/auth/*` のquery文字列を `?[redacted]` に置き換える。
 - **起動**: `src/server.ts` は `loadHumanAuthConfig` で設定を検査してからDBを開き、platform owner未作成で `COMPASS_INITIAL_OWNER_EMAIL` が無ければ起動を拒否する。`createApp` は `humanAuth` optionを受け取ったときだけ認証routeを登録する（既存テストの `createApp(services)` は従来どおり）。
 - **未接続・未検証**: 実Googleとの接続は未検証（自動テストは本番の `GoogleOidcIdentityProvider` にOIDC fixtureのtoken endpoint・JWKSを注入して検証）。ログイン画面・`/invite` はTask 43。
+
+## 実装記録（Task 42）
+
+- **権限表**: domain `humanProjectPermissions`（`src/domain/model/HumanAuth.ts`。操作 → 最低Role）が唯一の表。`HumanProjectAuthorizationService.authorize(actor, projectId, operation)` がこの表で検査し、Membership・招待のuse caseも同じ表を使う。操作は `project.read`（Project・Intent・Outcome・Research・Direction Decision・ADR参照・Execution Summaryの参照）、`grant.read`、`member.read`（viewer）、`direction.write`（editor。Intent / Outcomeの作成・更新・放棄・取消）、`project.update`、`grant.manage`（administrator）、`project.archive`、`invitation.manage`、`member.manage`（owner）。
+- **application層**: `HumanAuthorizedUseCase`（`src/application/usecase/HumanProjectUseCases.ts`）が、Membership認可を通してからMCPと共通の既存use caseへ委譲する。業務規則（archived・子IDの所属・入力検証）は委譲先の1箇所のまま。`ListHumanProjectsUseCase` は有効なMembershipのProjectだけを返し、`GetHumanProjectUseCase` は `{ project, myRole }` を返す。Web routeは `services.human.*` だけを呼び、MCPは従来の（Actorを持たない）use caseを呼ぶ。
+- **Web API**: Human向け `/api/*` は全て `requireHumanSession` を通る。`createApp` に `humanAuth` が渡されない場合（MCP等のテスト）も検査は省かず、trusted-localのCookie名・`http://localhost` のoriginで検査する（認証routeは登録しないため、Sessionは作れない）。Membership・招待のrouteを追加した: `GET /api/projects/:projectId/members`、`PATCH|DELETE .../members/:membershipId`（本文 `{ role }`）、`GET|POST .../invitations`、`DELETE .../invitations/:invitationId`。招待の発行応答は `{ invitation, invitationUrl }`（`{PUBLIC_ORIGIN}/invite#<token>`、`Cache-Control: no-store`）で、tokenは一覧に含めない。
+- **CORS**: `origin: "*"` は Bearer で呼ぶ `/mcp`・`runtime-events`・`execution-evidence` にだけ付け、Human向け `/api/*` には付けない（Runtime向けの扱いの見直しはTask 37）。
+- **Step 5との順序**: Web APIでは、存在しないProjectへのarchive等は入力検証より先にMembership認可で `404` になる（Step 5のAC-4「入力検証は存在確認より先」はuse case単体・MCP・CLIでの順序として維持）。
+- **既存テスト**: `test/support/humanSession.ts` のfixture（DBへHuman・Sessionを直接作る。OIDC検証は省略しない本番経路とは別）へ移行した。既存テストのappは、owner不在のProjectへfixtureのHumanのowner Membershipを補う（platform ownerのorphan補完に相当）。
+- **未実施**: Web APIで塞いだCommandに対応するMCP toolがremote modeで登録されない・匿名で拒否されることの回帰テストは、remote modeのMCP認証（Task 37）が未実装のため追加していない。現状のMCPはtrusted-localのまま、`create_project`・`update_project`・Intent Command・Direction参照toolを匿名で呼べる（Web API認可の迂回路はTask 37で塞ぐ）。Agent / Runtime Credential管理のWeb API（`administrator`）もTask 37。Web UIのSession復元・CSRF header付与・ログイン画面はTask 43で、それまでWeb UIの`/api/*`呼出しは`401`になる。
 
 ## 選択理由と将来変更できる箇所
 

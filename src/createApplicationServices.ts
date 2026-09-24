@@ -3,6 +3,12 @@ import { DirectionReferenceLookupService } from "./application/service/Direction
 import { ExecutionSummaryService } from "./application/service/execution/ExecutionSummaryService.ts";
 import { TaskCoordinationService } from "./application/service/execution/TaskCoordinationService.ts";
 import { HumanProjectAuthorizationService } from "./application/service/HumanProjectAuthorizationService.ts";
+import {
+  GetHumanProjectUseCase,
+  HumanAuthorizedUseCase,
+  ListHumanProjectsUseCase,
+} from "./application/usecase/HumanProjectUseCases.ts";
+import type { HumanProjectOperation } from "./domain/model/HumanAuth.ts";
 import { ProjectAuthorizationService } from "./application/service/ProjectAuthorizationService.ts";
 import { AbandonIntentUseCase } from "./application/usecase/AbandonIntentUseCase.ts";
 import { AckRuntimeEventUseCase } from "./application/usecase/AckRuntimeEventUseCase.ts";
@@ -122,7 +128,7 @@ export const createApplicationServices = (
   const loginAttemptRepository = new SQLiteLoginAttemptRepository(applicationDatabase);
   const registerOrLoginHumanUseCase = new RegisterOrLoginHumanUseCase(humanAccountRepository, humanAuth.initialOwnerEmail);
   const identityProvider = humanAuth.identityProvider ?? null;
-  return {
+  const services = {
     instructionService,
     projectAuthorizationService,
     taskCoordinationService,
@@ -257,6 +263,37 @@ export const createApplicationServices = (
       directionDecisionRepository,
     ),
   };
+  const authorized = <Args extends unknown[], Result>(
+    operation: HumanProjectOperation,
+    useCase: { execute(projectId: string, ...args: Args): Promise<Result> },
+  ) => new HumanAuthorizedUseCase(humanProjectAuthorizationService, operation, useCase);
+  // Human向けWeb APIの入口。Membershipの認可（domainの権限表）を通してから、MCPと共通のuse caseへ委譲する。
+  // Runtime向け（runtime-events・execution-evidence）はHuman向けではないため含めない。
+  const human = {
+    listProjects: new ListHumanProjectsUseCase(projectRepository, projectMembershipRepository),
+    getProject: new GetHumanProjectUseCase(humanProjectAuthorizationService, services.getProjectUseCase),
+    updateProject: authorized("project.update", services.updateProjectUseCase),
+    archiveProject: authorized("project.archive", services.archiveProjectUseCase),
+    createIntent: authorized("direction.write", services.createIntentUseCase),
+    listIntents: authorized("project.read", services.listIntentsUseCase),
+    getIntent: authorized("project.read", services.getIntentUseCase),
+    updateIntent: authorized("direction.write", services.updateIntentUseCase),
+    abandonIntent: authorized("direction.write", services.abandonIntentUseCase),
+    createOutcome: authorized("direction.write", services.createOutcomeUseCase),
+    listOutcomes: authorized("project.read", services.listOutcomesUseCase),
+    getOutcome: authorized("project.read", services.getOutcomeUseCase),
+    updateOutcome: authorized("direction.write", services.updateOutcomeUseCase),
+    cancelOutcome: authorized("direction.write", services.cancelOutcomeUseCase),
+    grantProjectRole: authorized("grant.manage", services.grantProjectRoleUseCase),
+    revokeProjectRole: authorized("grant.manage", services.revokeProjectRoleUseCase),
+    listProjectGrants: authorized("grant.read", services.listProjectGrantsUseCase),
+    listResearchRequests: authorized("project.read", services.listResearchRequestsUseCase),
+    getResearchRequest: authorized("project.read", services.getResearchRequestUseCase),
+    listDirectionDecisions: authorized("project.read", services.listDirectionDecisionsUseCase),
+    listAdrReferences: authorized("project.read", services.listAdrReferencesUseCase),
+    getExecutionSummary: authorized("project.read", services.getExecutionSummaryUseCase),
+  };
+  return { ...services, human };
 };
 
 export type ApplicationServices = ReturnType<typeof createApplicationServices>;
