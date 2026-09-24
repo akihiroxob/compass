@@ -160,7 +160,7 @@ Human向けapplication use caseは `HumanActor = { kind: "human"; humanUserId: s
 
 - platform ownerは「最初にbootstrapされたHuman」を示す属性で、**Project Membershipを迂回する特権は持たない**（全Projectの閲覧・変更権は無い）。
 - **orphan Project**: 有効なowner Membershipを持たないProject（移行前から存在するProject、または認証導入前後にMCP `create_project` で作られたProject）。bootstrap時と、platform ownerの各ログイン時に、orphan Projectへplatform ownerのowner Membershipを同一transactionで冪等に補完する。これで既存Project / Intent / Outcome / Grantを失わず、管理不能Projectを残さない。
-- Human以外（MCP）がProjectを作れる経路はTask 37 / 42で塞ぐ方針（下記「MCPのHuman相当tool」）。塞いだ後も補完は安全網として残す。
+- remote modeでは、MCPからProjectを作る経路をTask 37で塞ぐ（下記「MCPの認証・認可適用表」）。塞いだ後も、補完は安全網として残す。
 
 ## Web Session・Cookie・CSRF・OIDCの契約
 
@@ -264,9 +264,26 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 
 ## MCP・CLIとの関係
 
-- **MCPのAgent認可は変えない。** Human Membershipを `/mcp` に適用しない。
-- **MCPのHuman相当tool**（Grant不要で公開中の `create_project` / `update_project` / `create_intent` / `update_intent` / `abandon_intent` 等）: remote配置では「Human向け管理操作をMCPへ無条件に公開しない」（`AGENTS.md`）に反する。扱いは未決定としてTask 37 / 42へ引き継ぐ。初期提案は「remote modeでは有効なAgent Credentialの無いMCP呼出しを全tool拒否し、`create_project` / `update_project` はremoteでは登録しない」。Task 42は少なくともWeb APIで塞いだ操作がMCPから匿名で実行できる状態を未解決事項として記録する。
+- **MCPにHuman Membershipを適用しない。** 既存のRole専用toolのGrant検査は変えない。remote modeで変える点は下記の適用表に限る。
+- **MCPのHuman相当tool**: 現行の`/mcp`には、Grant不要で呼べるtoolがある（`create_project`・`list_projects`・`get_project`・`list_intents`・`get_intent`・`list_outcomes`・`get_outcome`・`list_adr_references`）。`update_project` / `create_intent` / `update_intent` / `abandon_intent` も、Direction系Roleの「拒否」だけを検査しており、匿名で実行できる。Web APIにMembership認可を適用しても、同じuse caseへMCPから匿名で到達できれば迂回路になる。remote modeの扱いを次のとおり決める。これは`AGENTS.md`の「未決定は小さな初期選択を行い、理由を記録する」に従う初期選択で、Manager受入時に確認を受ける。
 - **CLI**（`grant` / `revoke` / `grants`）は保守用途として残し、Human Actorを要求しない（サーバー上のshellに入れる運用者の障害復旧用）。Human登録・招待・Membership変更のCLIは作らない。ownerがGoogle accountを失った場合の復旧手段（保守CLIでのowner付与等）は対象外とし、必要になった時点で別Taskにする。
+
+### MCPの認証・認可適用表（remote mode）
+
+`/mcp` 全体の前提: remote modeでは、有効なAgent CredentialまたはRuntime Credential（Task 37）の無い呼出しを、`get_role_instructions` を除く全toolで `UNAUTHENTICATED` として拒否する。Web Session Cookieは`/mcp`で読まない（Human Membershipは適用しない）。
+
+| 区分 | tool | remote mode | trusted-local | 理由 |
+| --- | --- | --- | --- | --- |
+| Human管理Command | `create_project`、`update_project` | **登録しない**（`tools/list` に出さず、呼出しは未知tool） | 現行どおり | Project作成・構想更新はHumanの管理操作で、Web UIが正規入口。作成者のowner Membershipを作れないMCP経路はorphan Projectを生む |
+| Human入力Command | `create_intent`、`update_intent`、`abandon_intent` | **登録しない** | 現行どおり | IntentはHumanの意図で、Web UIが正規入口（Task 38も「Web UI相当のIntent投入」）。Agent用の公開は、必要になった時点で専用Roleを定めて別Taskにする |
+| Direction参照 | `get_project`、`list_intents`、`get_intent`、`list_outcomes`、`get_outcome`、`list_adr_references` | Agent Credentialで解決したPrincipalが、対象Projectに**いずれかのRole Grant**を持つ場合だけ許可（無ければ `FORBIDDEN`） | 現行どおり（Grant不要） | Agentは担当Projectの構想・Intent・Outcomeを読む必要があるが、Grantの無いProjectを読ませない |
+| Project一覧 | `list_projects` | Principalが**Grantを持つProjectだけ**を返す | 現行どおり（全件） | Human側の「所属Projectだけ」と同じ考え方をGrantで適用する |
+| 静的文書 | `get_role_instructions` | 認証不要のまま | 現行どおり | 機密を含まない静的文書。Agentの起動直後に読む |
+| Role専用tool | Strategist・Researcher・Evaluator・Runtime用の既存tool、Task 33で移植するExecution tool（manager / worker / reviewer） | 既存のRole Grant検査を維持（Runtime用はTask 37でscope検査へ置換） | 現行どおり | 既存契約を変えない |
+
+- Human向けのuse caseを、Human Actorを持たないMCP経路から呼ばない。`CreateProjectUseCase` のActor無し版は、trusted-localのMCPとテスト・保守用途だけに残す。
+- trusted-localは明示設定・loopback bind限定（上記「設定」）のため、現行の匿名toolを残しても`AGENTS.md`のremote配置の前提に反しない。
+- **実装の担当**: MCPの認証・tool登録の切替・参照系のGrant検査は**Task 37**（Credentialとremote modeを実装するTaskのため）。Web API側の認可はTask 42。Task 42は、Web APIで塞いだ各Commandに対応するMCP toolが、remote modeで登録されていないか匿名で拒否されることを回帰テストで確認する。Task 44は、実HTTP serverで`/mcp`へ匿名で`tools/list`と各Human相当toolを呼び、拒否されることを確認する。
 
 ## 既存データ・既存APIの移行
 
@@ -281,9 +298,9 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 | --- | --- | --- |
 | 40 永続化 | domain・repository・schema・use case（Web / Googleなし） | 上記6 table。`RegisterOrLoginHumanUseCase`（登録規則 #0〜#4・bootstrap・orphan補完・招待受諾を、検証済み `VerifiedIdentity` から1 transactionで実行）、`IssueSession` / `ResolveSession` / `RevokeSession`、`CreateProjectUseCase` のowner Membership同時保存（Actor付き版）、`ListMembers` / `ChangeMemberRole` / `RevokeMember`（最後のowner保護）、`CreateInvitation` / `ListInvitations` / `RevokeInvitation`。token平文を保存しないこと、再起動後の保持をtestで確認 |
 | 41 OIDC・Session | adapter・`/auth/*`・Cookie・CSRF middleware・設定のfail-fast | `GoogleOidcIdentityProvider`、`LocalDevIdentityProvider`、login attempt、logout、`GET /api/auth/session`、loggerのquery伏せ字 |
-| 42 認可適用 | `HumanProjectAuthorizationService`、権限表、既存Web APIへの適用、`myRole` | 全routeにActorを渡す。一覧のMembership絞り込み。Runtime APIとの分離。既存テストのfixture移行。MCPのHuman相当toolの扱いの記録 |
+| 42 認可適用 | `HumanProjectAuthorizationService`、権限表、既存Web APIへの適用、`myRole` | 全routeにActorを渡す。一覧のMembership絞り込み。Runtime APIとの分離。既存テストのfixture移行。Web APIで塞いだCommandがremoteのMCPから匿名で実行できないことの回帰テスト（Task 37の実装に依存） |
 | 43 UI | ログイン画面・`/invite`・Session復元・logout・アクセス拒否表示・Membership / 招待管理画面 | `/login?error=` の3種の表示。招待リンクの一度だけの表示とコピー |
-| 44 統合検証・文書 | 実HTTP server・OIDC fixture（JWKSとtoken endpointを持つテスト用provider）での通し検証、README・`.env.example` | Cookie属性、CSRF、open redirect、Session fixation、秘密の非露出、既存DBのorphan補完 |
+| 44 統合検証・文書 | 実HTTP server・OIDC fixture（JWKSとtoken endpointを持つテスト用provider）での通し検証、README・`.env.example` | Cookie属性、CSRF、open redirect、Session fixation、秘密の非露出、既存DBのorphan補完。招待の期限切れ再発行（古いtokenは受諾不可）と、同じ宛先への並行発行（1件だけ成功し、他は`409 INVITATION_PENDING`）。`/mcp`への匿名呼出しの拒否 |
 
 ## 選択理由と将来変更できる箇所
 
@@ -299,6 +316,8 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 | CSRF tokenをsession secretのHMACで導出 | 保存が不要で、Sessionごとに固定・失効と連動する | 保存型のtokenへ変える場合もheader名は維持 |
 | Session絶対7日・アイドル24時間・延長なし | 個人開発段階で再ログイン負担と漏洩時の影響を両立する | 値は定数1箇所。設定化は必要時に行う |
 | `trusted-local` だけでLocalDevIdentityProvider | Google clientが無い開発環境でもWeb UIを使える。kitの「dev認証は明示フラグのみ、productionでは起動拒否」に合う | 不要になれば削除（Googleのlocalhost redirectで代替可能） |
+| remoteでは`create_project` / `update_project` / Intent Commandを`/mcp`に登録しない | Human向け管理操作をMCPへ無条件に公開しない（`AGENTS.md`）。Agent用の認可Roleを新設するより単純で、Web APIの認可を迂回されない | Agentに必要になったら、専用Roleを定めて登録し直す |
+| 期限切れの`pending`招待は再発行時に`revoked`にする | 部分unique indexを保ったまま再発行でき、期限切れ招待の受諾・取消は引き続き不可 | 期限切れを専用状態にする場合は、index条件と受諾条件を合わせて変える |
 | 登録modeは `closed` のみ | 公開signupは対象外（Story） | `invite_only` 以外のmodeを追加する時に判定表へ分岐を足す |
 | 退出・Human無効化のUIを作らない | 完了条件に無く、ownerによる取消で代替できる | use caseを追加してUIを足す |
 
