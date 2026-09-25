@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { projectOperationAccess, projectOperationDeniedMessage } from "../src/frontend/projectAccess.ts";
 import { classifyError, onSessionLost, request, setCsrfToken, withCsrf } from "../src/frontend/api.ts";
 import {
   loginErrorMessage,
@@ -151,18 +152,26 @@ test("招待tokenはURL fragmentからだけ読み、形式が不正なら読ま
   assert.equal(readInvitationToken(`#${token}&x=1`), null);
 });
 
-// `src/frontend/useProjectAccess.ts`の`canOperateOnProject`と同じ判定（frontendのmoduleはserverのtsconfigで読めないためdomainの権限表を直接使う）。
-// 画面経路（viewer / editor / administrator / owner、archived）の表示はブラウザで確認し、Task 43のコメントに記録した。
-const canOperateOnProject = (project: { status: "active" | "archived" }, myRole: HumanRole | null, operation: keyof typeof humanProjectPermissions) =>
-  project.status !== "archived" && myRole !== null && hasMinimumRole(myRole, humanProjectPermissions[operation]);
+// `src/frontend/useProjectAccess.ts`と同じ組み合わせ（`canOperate`はdomainの権限表を使うが、serverのtsconfigで読めないため直接使う）。
+const access = (project: { status: "active" | "archived" }, myRole: HumanRole | null, operation: keyof typeof humanProjectPermissions) =>
+  projectOperationAccess(project, myRole !== null && hasMinimumRole(myRole, humanProjectPermissions[operation]));
 
+// 画面経路（viewer / editor / administrator / owner、archived、URL直アクセス）の表示はブラウザで確認し、Task 43のコメントに記録した。
 test("Intent・Outcome詳細の書込導線はdomainの権限表（direction.write）とProjectのstatusで決め、viewerとarchivedでは出さない", () => {
   const active = { status: "active" as const };
   const archived = { status: "archived" as const };
-  assert.equal(canOperateOnProject(active, "viewer", "direction.write"), false);
-  assert.equal(canOperateOnProject(active, null, "direction.write"), false);
+  assert.equal(access(active, "viewer", "direction.write"), "forbidden");
+  assert.equal(access(active, null, "direction.write"), "forbidden");
   for (const role of ["editor", "administrator", "owner"] as const) {
-    assert.equal(canOperateOnProject(active, role, "direction.write"), true, role);
-    assert.equal(canOperateOnProject(archived, role, "direction.write"), false, role);
+    assert.equal(access(active, role, "direction.write"), "allowed", role);
+    assert.equal(access(archived, role, "direction.write"), "archived", role);
   }
+});
+
+test("作成・編集画面へURLで直接来ても、操作できなければフォームの代わりにarchivedと権限不足を区別した理由を出す", () => {
+  assert.equal(access({ status: "active" }, "editor", "project.update"), "forbidden");
+  assert.equal(access({ status: "active" }, "administrator", "project.update"), "allowed");
+  assert.equal(access({ status: "archived" }, "viewer", "direction.write"), "archived");
+  assert.match(projectOperationDeniedMessage("archived"), /アーカイブ済み/);
+  assert.match(projectOperationDeniedMessage("forbidden"), /権限がありません/);
 });

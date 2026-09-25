@@ -1,16 +1,19 @@
 import { Link, useParams } from "react-router-dom";
 import { jsonInit, jsonPost, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { ProjectOperationGate } from "../../components/ProjectOperationGate";
 import { Shell } from "../../components/Shell";
 import { emptyOutcomeFormValues, formValuesFromOutcome, outcomeStatusLabels, type Outcome } from "../../outcomeForm";
 import { intentPath, outcomePath } from "../../paths";
 import { OutcomeForm } from "./OutcomeForm";
 import { useOutcomePage } from "./useOutcomePage";
 
-export const OutcomeCreatePage = () => { const { projectId = "", intentId = "" } = useParams(); return <OutcomeForm projectId={projectId} intentId={intentId} mode="create" initial={emptyOutcomeFormValues} heading={{ eyebrow: "New outcome", title: "Outcomeを登録", lede: "Strategist（またはHuman）の判断結果として、Intentへ近づくためのOutcomeと成功条件を登録します。Researchは必須ではありません。" }} submitLabel="Outcomeを登録" pendingLabel="登録中..." cancelTo={intentPath(projectId, intentId)} save={async (values) => (await request<{ outcome: Outcome }>(`/api/projects/${projectId}/intents/${intentId}/outcomes`, jsonPost(values))).outcome} />; };
+export const OutcomeCreatePage = () => { const { projectId = "", intentId = "" } = useParams(); return <ProjectOperationGate projectId={projectId} operation="direction.write" back={{ to: intentPath(projectId, intentId), label: "← Intent詳細" }}><OutcomeForm projectId={projectId} intentId={intentId} mode="create" initial={emptyOutcomeFormValues} heading={{ eyebrow: "New outcome", title: "Outcomeを登録", lede: "Strategist（またはHuman）の判断結果として、Intentへ近づくためのOutcomeと成功条件を登録します。Researchは必須ではありません。" }} submitLabel="Outcomeを登録" pendingLabel="登録中..." cancelTo={intentPath(projectId, intentId)} save={async (values) => (await request<{ outcome: Outcome }>(`/api/projects/${projectId}/intents/${intentId}/outcomes`, jsonPost(values))).outcome} /></ProjectOperationGate>; };
 
-export const OutcomeEditPage = () => {
-  const { projectId = "", intentId = "", outcomeId = "" } = useParams(); const { outcome, error } = useOutcomePage(projectId, intentId, outcomeId); const back = outcomePath(projectId, intentId, outcomeId);
+export const OutcomeEditPage = () => { const { projectId = "", intentId = "", outcomeId = "" } = useParams(); return <ProjectOperationGate projectId={projectId} operation="direction.write" back={{ to: outcomePath(projectId, intentId, outcomeId), label: "← Outcome詳細" }}><OutcomeEditForm projectId={projectId} intentId={intentId} outcomeId={outcomeId} /></ProjectOperationGate>; };
+
+const OutcomeEditForm = ({ projectId, intentId, outcomeId }: { projectId: string; intentId: string; outcomeId: string }) => {
+  const { outcome, error } = useOutcomePage(projectId, intentId, outcomeId); const back = outcomePath(projectId, intentId, outcomeId);
   if (error) return <Shell><main className="narrow"><Link to={intentPath(projectId, intentId)} className="back-link">← Intent詳細</Link><ErrorState message={error} /></main></Shell>;
   if (!outcome) return <Shell><main className="narrow"><Loading /></main></Shell>;
   if (outcome.status !== "active") return <Shell><main className="narrow"><Link to={back} className="back-link">← Outcome詳細</Link><ErrorState message={`${outcomeStatusLabels[outcome.status]}のOutcomeは編集できません。`} /></main></Shell>;

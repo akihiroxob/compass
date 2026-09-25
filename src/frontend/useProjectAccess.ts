@@ -1,30 +1,30 @@
 import { useEffect, useState } from "react";
-import { request } from "./api";
+import { classifyError, loadFailureMessage, request } from "./api";
 import type { HumanRole } from "./features/member/members";
-import { canOperate } from "./permissions";
 import type { HumanProjectOperation } from "../domain/model/HumanAuth";
+import { canOperate } from "./permissions";
+import { projectOperationAccess, type ProjectOperationAccess } from "./projectAccess";
 import type { Project } from "./projectForm";
 
-/**
- * active Projectで、`myRole`が`operation`を許されるときだけ`true`（archivedでは変更できない）。
- * 権限表はdomainの`humanProjectPermissions`を`canOperate`経由で使う。
- */
-export const canOperateOnProject = (project: Pick<Project, "status">, myRole: HumanRole | null, operation: HumanProjectOperation): boolean =>
-  project.status !== "archived" && canOperate(myRole, operation);
+export type ProjectOperationState = { access: ProjectOperationAccess | "loading" } | { access: "error"; message: string };
 
 /**
- * Projectのstatusと`myRole`から、子画面で`operation`の導線を出すか。取得できるまで・取得に失敗した場合は`false`で、
- * 導線を出さない（導線の非表示は表示上の配慮であり、拒否はサーバーが行う）。
+ * Projectのstatusと`myRole`から、`operation`を行えるかを取得する。権限表はdomainの`humanProjectPermissions`を`canOperate`経由で使う。取得できるまでは`loading`、失敗は`error`。
+ * 表示の判定であり、拒否は常にサーバーが行う。
  */
-export const useProjectOperation = (projectId: string, operation: HumanProjectOperation): boolean => {
-  const [allowed, setAllowed] = useState(false);
+export const useProjectOperationState = (projectId: string, operation: HumanProjectOperation): ProjectOperationState => {
+  const [state, setState] = useState<ProjectOperationState>({ access: "loading" });
   useEffect(() => {
     let current = true;
-    setAllowed(false);
+    setState({ access: "loading" });
     request<{ project: Project; myRole: HumanRole }>(`/api/projects/${projectId}`)
-      .then(({ project, myRole }) => current && setAllowed(canOperateOnProject(project, myRole, operation)))
-      .catch(() => current && setAllowed(false));
+      .then(({ project, myRole }) => current && setState({ access: projectOperationAccess(project, canOperate(myRole, operation)) }))
+      .catch((reason: unknown) => current && setState({ access: "error", message: loadFailureMessage(classifyError(reason), "Projectが見つかりません。") }));
     return () => { current = false; };
   }, [projectId, operation]);
-  return allowed;
+  return state;
 };
+
+/** 子画面で`operation`の導線を出すか。取得できるまで・取得に失敗した場合は`false`で、導線を出さない。 */
+export const useProjectOperation = (projectId: string, operation: HumanProjectOperation): boolean =>
+  useProjectOperationState(projectId, operation).access === "allowed";

@@ -241,7 +241,7 @@ project（追加）
 | 純関数・adapter | `src/frontend/projectArchive.ts`（一覧切替の query / path、理由の検証・要約、archive の request、400 / 409 / 404 の表示整形）。`api.ts` は 409 の `projectStatus: "archived"` を `project_archived`（Intent 等の `conflict` と別の kind）へ分類 | `test/projectArchiveUi.test.ts`（AC-20、および実 Web API へ向けた adapter の archive・一覧・409 分類） |
 | Project 一覧 | 「Active / アーカイブ済み」の切替（`/?status=archived`）。archived のカードに理由の要約と archive 日時を表示 | AC-22（一覧の取得は自動テスト。画面は未検証、下記） |
 | Project 詳細 | active だけに「アーカイブ」と理由必須の確認パネルを出す。archived は状態・理由・日時を表示し、Project 編集・Intent 登録・Grant の割当と取消の導線を出さない。archive 済みの検出（409）時は詳細を再取得して archived 表示へ揃える | AC-21（画面は未検証、下記） |
-| Intent / Outcome 詳細 | `useProjectOperation`（Step 6 で `useProjectArchived` を置換し、archived と `myRole` の `direction.write` を判定）で、編集・放棄・取消・登録の導線を出さない（判定できない間も出さない）。一覧と詳細の閲覧は可能 | 同上 |
+| Intent / Outcome 詳細 | `useProjectOperation`（Step 6 で `useProjectArchived` を置換し、archived と `myRole` の `direction.write` を判定）で、編集・放棄・取消・登録の導線を出さない（判定できない間も出さない）。作成・編集画面をURLで直接開いた場合も `ProjectOperationGate` がフォームを描画せず、アーカイブ済みであることを表示する。一覧と詳細の閲覧は可能 | 同上 |
 | 編集・登録 URL への直接アクセス | 保存時の 409 を `FormErrorSummary` が「アーカイブ済みのため変更できません」とし、Project 詳細への導線を出す。入力エラー（400）・他の競合（409）とは別の表示 | adapter の分類を自動テスト。画面は未検証 |
 
 - **未検証**: ブラウザでの表示確認（AC-21・AC-22 の画面部分）。この実行環境にブラウザ操作の手段が無く、React コンポーネントの描画テストも既存の方針（純関数と adapter のテスト）に無いため、コンポーネントの表示・導線の出し分けは型検査とビルド成功までの確認である。
