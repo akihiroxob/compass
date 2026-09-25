@@ -238,7 +238,8 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 | Project参照 | Execution閲覧（U2: Story / Task / Change / Comment） | viewer | Task 45で実装（`GET ./execution`・`./tasks/:taskId`・`./changes`）。archived Projectも参照可 |
 | Direction変更 | Intent作成・更新・放棄 | editor | |
 | Direction変更 | Outcome作成・更新・取消（Human入口） | editor | |
-| Execution介入 | Task受入・差戻し・取消・Comment（U3）、Story / Task手動起票・編集（U4） | editor | 未実装。実装時にこの行を適用 |
+| Execution介入 | Task受入・差戻し・取消・Comment（U3） `POST .../tasks/:taskId/accept`・`/reject`・`/cancel`・`/comments` | editor | Task 46で実装（`execution.intervene`）。viewerは`403`、未所属・別ProjectのTaskは`404`、archivedは`409`。UIはviewer・archivedに導線を出さない |
+| Execution介入 | Story / Task手動起票・編集（U4） | editor | 未実装（Task 47）。実装時にこの行を適用 |
 | Project管理 | Project更新 `PATCH /api/projects/:projectId` | administrator | Mission / Vision / Principles / Constraints / Repositories / Resources |
 | Project管理 | Agent Role Grant発行・取消 | administrator | |
 | Project管理 | Agent / Runtime Credential発行・rotation・取消・一覧（Task 37） | administrator | secretは発行時に一度だけ表示 |
@@ -317,7 +318,7 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 
 ## 実装記録（Task 42）
 
-- **権限表**: domain `humanProjectPermissions`（`src/domain/model/HumanAuth.ts`。操作 → 最低Role）が唯一の表。`HumanProjectAuthorizationService.authorize(actor, projectId, operation)` がこの表で検査し、Membership・招待のuse caseも同じ表を使う。操作は `project.read`（Project・Intent・Outcome・Research・Direction Decision・ADR参照・Execution Summaryの参照）、`grant.read`、`member.read`（viewer）、`direction.write`（editor。Intent / Outcomeの作成・更新・放棄・取消）、`project.update`、`grant.manage`（administrator）、`project.archive`、`invitation.manage`、`member.manage`（owner）。
+- **権限表**: domain `humanProjectPermissions`（`src/domain/model/HumanAuth.ts`。操作 → 最低Role）が唯一の表。`HumanProjectAuthorizationService.authorize(actor, projectId, operation)` がこの表で検査し、Membership・招待のuse caseも同じ表を使う。操作は `project.read`（Project・Intent・Outcome・Research・Direction Decision・ADR参照・Execution Summaryの参照）、`grant.read`、`member.read`（viewer）、`direction.write`（editor。Intent / Outcomeの作成・更新・放棄・取消）、`execution.intervene`（editor。Execution Taskの受入・差戻し・取消・Comment、Task 46）、`project.update`、`grant.manage`（administrator）、`project.archive`、`invitation.manage`、`member.manage`（owner）。
 - **application層**: `HumanAuthorizedUseCase`（`src/application/usecase/HumanProjectUseCases.ts`）が、Membership認可を通してからMCPと共通の既存use caseへ委譲する。業務規則（archived・子IDの所属・入力検証）は委譲先の1箇所のまま。`ListHumanProjectsUseCase` は有効なMembershipのProjectだけを返し、`GetHumanProjectUseCase` は `{ project, myRole }` を返す。Web routeは `services.human.*` だけを呼び、MCPは従来の（Actorを持たない）use caseを呼ぶ。
 - **Web API**: Human向け `/api/*` は全て `requireHumanSession` を通る。`createApp` に `humanAuth` が渡されない場合（MCP等のテスト）も検査は省かず、trusted-localのCookie名・`http://localhost` のoriginで検査する（認証routeは登録しないため、Sessionは作れない）。Membership・招待のrouteを追加した: `GET /api/projects/:projectId/members`、`PATCH|DELETE .../members/:membershipId`（本文 `{ role }`）、`GET|POST .../invitations`、`DELETE .../invitations/:invitationId`。招待の発行応答は `{ invitation, invitationUrl }`（`{PUBLIC_ORIGIN}/invite#<token>`、`Cache-Control: no-store`）で、tokenは一覧に含めない。
 - **CORS**: `origin: "*"` は Bearer で呼ぶ `/mcp`・`runtime-events`・`execution-evidence` にだけ付け、Human向け `/api/*` には付けない（Runtime向けの扱いの見直しはTask 37）。

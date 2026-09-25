@@ -80,6 +80,8 @@ Execution の tool は旧 Wacha の契約を維持し、エラーを `{ error: {
 
 - 通常フローに Human の確認・承認・画面操作を置かない。Agent は Instruction、Context、tool の結果だけで判断し、実行する
 - Web UI は人が観察し、必要なら同じ処理を手で使う任意の入口である。Agent の完了条件にしない
+- Human（Project の editor 以上）は Web UI の Task 詳細から、`in_review` / `wait_accept` の受入・差戻し、`todo` / `doing` の取消、Comment の追加を行える（例外対応・最終判断）。Change Log の `principalId` は `human:<humanUserId>`、payload の `actorRole` は `operator`（Reviewer 工程を省いた受入は `path: operator_direct_review`）で、Comment は `claimId: null` で残る。Agent は Human の差戻し理由・取消・Comment を manager の判断と同じく尊重し、Human の操作を待つ工程は作らない
+- Human の介入は Agent の Claim と競合させない。有効な Claim がある Task の受入・差戻しは Human 側が拒否される。取消は Agent の Claim を解放するため、以後その `claimId` は `CLAIM_EXPIRED` 等で拒否される。再一覧して判断する
 - 情報が足りないときは、人への確認を工程にせず、不足を作業報告として明示する
 
 ## 実装状況の扱い

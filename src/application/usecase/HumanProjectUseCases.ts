@@ -1,4 +1,4 @@
-import type { HumanActor, HumanProjectOperation, HumanRole } from "../../domain/model/HumanAuth.ts";
+import { humanOperatorPrincipalId, type HumanActor, type HumanProjectOperation, type HumanRole } from "../../domain/model/HumanAuth.ts";
 import type { Project, ProjectStatus } from "../../domain/model/Project.ts";
 import type { ProjectMembershipRepository } from "../../domain/repository/ProjectMembershipRepository.ts";
 import type { ProjectRepository } from "../../domain/repository/ProjectRepository.ts";
@@ -24,6 +24,23 @@ export class HumanAuthorizedUseCase<Args extends unknown[], Result> {
   async execute(actor: HumanActor, projectId: string, ...args: Args): Promise<Result> {
     await this.authorization.authorize(actor, projectId, this.operation);
     return this.useCase.execute(projectId, ...args);
+  }
+}
+
+/**
+ * `HumanAuthorizedUseCase`と同じ認可の後、操作者を`human:{humanUserId}`のPrincipalとして委譲先へ渡す（Execution介入、Task 46）。
+ * 委譲先はHumanの型に依存せず、Change Log・Commentへこの値を記録する。
+ */
+export class HumanOperatorUseCase<Args extends unknown[], Result> {
+  constructor(
+    private readonly authorization: HumanProjectAuthorizationService,
+    private readonly operation: HumanProjectOperation,
+    private readonly useCase: { execute(projectId: string, operatorPrincipalId: string, ...args: Args): Promise<Result> },
+  ) {}
+
+  async execute(actor: HumanActor, projectId: string, ...args: Args): Promise<Result> {
+    await this.authorization.authorize(actor, projectId, this.operation);
+    return this.useCase.execute(projectId, humanOperatorPrincipalId(actor), ...args);
   }
 }
 

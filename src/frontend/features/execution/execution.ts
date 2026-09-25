@@ -129,6 +129,42 @@ export const changeNote = (change: Pick<ExecutionChange, "payload">): string | n
   return typeof reason === "string" && reason.trim() ? reason : null;
 };
 
+// ---- Human介入（Task 46）。受入・差戻し・取消・Comment。表示の判定だけで、拒否は常にserverが行う。 ----
+
+export type TaskOperation = "accept" | "reject" | "cancel";
+
+export const taskOperationPath = (projectId: string, taskId: string, operation: TaskOperation | "comments") =>
+  `/api/projects/${projectId}/tasks/${taskId}/${operation}`;
+
+/**
+ * Taskの状態から出す介入の導線。受入・差戻しは`in_review` / `wait_accept`でClaim（期限内）が無いときだけ
+ * （AgentのreviewやManagerの受入と競合させない）、取消は`todo` / `doing`（Agent Claimは同時に解放される）。
+ */
+export const availableTaskOperations = (task: Pick<ExecutionTask, "status" | "activeClaim">): TaskOperation[] => {
+  if (task.status === "in_review" || task.status === "wait_accept") return task.activeClaim ? [] : ["accept", "reject"];
+  if (task.status === "todo" || task.status === "doing") return ["cancel"];
+  return [];
+};
+
+export const taskOperationNotices: Record<TaskOperation | "comment", string> = {
+  accept: "Taskを受け入れました。",
+  reject: "Taskを差し戻しました。",
+  cancel: "Taskを取り消しました。",
+  comment: "Commentを追加しました。",
+};
+
+const humanPrincipalPrefix = "human:";
+
+/**
+ * Change・Commentの`principalId`の表示。Human operator（`human:{humanUserId}`）はMemberの表示名（取得できなければIDの先頭）で出し、
+ * Agent Principalはそのまま出す。
+ */
+export const describePrincipal = (principalId: string, humanNames: ReadonlyMap<string, string> = new Map()): string => {
+  if (!principalId.startsWith(humanPrincipalPrefix)) return principalId;
+  const humanUserId = principalId.slice(humanPrincipalPrefix.length);
+  return `Human ${humanNames.get(humanUserId) ?? humanUserId.slice(0, 8)}`;
+};
+
 // ---- Outcome詳細の閉ループ表示。Executionの進捗・Summary・Evidence・Evaluation・Decisionを、状態を推測せずに区別する。 ----
 
 export type { EvaluationResult, CriterionVerdict, OutcomeEvaluation, ExecutionState, OutcomeExecutionRecord };

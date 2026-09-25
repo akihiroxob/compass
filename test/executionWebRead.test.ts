@@ -8,7 +8,7 @@ import { initializeSchema } from "../src/infrastructure/database/initializeSchem
 
 /**
  * Human向けのExecution閲覧Web API（Task 45）。Story・Task・Claim・Comment・ChangeはMCP（Agent）で作り、
- * HumanはSession・Membershipで読むだけ。Human介入（受入・差戻し等）・手動起票はTask 46・47の範囲で未実装。
+ * HumanはSession・Membershipで読むだけ。Human介入（受入・差戻し等）は`executionOperator.test.ts`（Task 46）、手動起票はTask 47の範囲。
  */
 
 type App = ReturnType<typeof createApp>;

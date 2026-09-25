@@ -225,7 +225,7 @@ Storyは`correlationId`で二重作成を防げるが、Taskは`requestId`（`co
 - **Task 33（実装済み・差し戻し対応済み）**: 実装記録は本文書末尾の「実装記録（Task 33）」。差し戻し対応で「Outcome handoffのTask論理ID」（`taskKey`）を実装し、`agent/manager.md`に再起動後の手順を書いた。本Taskの「モジュール構成」「DB schema」「MCP tool統合方針」「Role/Instruction配置」に従い、旧Wacha Execution一式を移植する。あわせて`outcome_confirmed`イベントを`CreateOutcomeUseCase`/`DecideNextOutcomeUseCase`に追加し、`DirectionReferenceLookupPort`を実装し、`issue_story`の`outcomeId`拡張を実装する。`agent/role-policy.md`のマージ、README等のドキュメント更新もここで行う。
 - **Task 34（実装済み）**: 実装記録は本文書末尾の「実装記録（Task 34）」。`ExecutionEvidencePort`の詳細（テーブル形状、増分取込みの単位）はTask内で確定し、書込ポートではなく読取専用の`ExecutionSummaryPort`にした。
 - **Task 35〜36（実装済み）**: Outcome EvaluatorはDirection側のEntityであり、Executionとは、Task 34で還流したExecution SummaryとEvidence参照だけを介する。Task 35の差し戻し対応で「Web UIの配置と移行順」のU1（evaluator / runtimeのGrantSection）を実装した。
-- **Web UI U2〜U4**: Task 45（U2 閲覧、実装済み。本文書末尾の「実装記録（Task 45）」）・Task 46（U3 Human介入、未実装）・Task 47（U4 手動起票、未実装）で扱う。
+- **Web UI U2〜U4**: Task 45（U2 閲覧、実装済み。本文書末尾の「実装記録（Task 45）」）・Task 46（U3 Human介入、実装済み。本文書末尾の「実装記録（Task 46）」）・Task 47（U4 手動起票、未実装）で扱う。
 - **Task 37（実装済み）**: 本Taskで「暫定trusted-local」とした認証を、Agent/Runtime向け不透明Credentialへ置き換えた。`runtime_event`（`runtime:event:read` / `ack`）と`change_log`（`list_changes`の`execution:change:read`）双方が対象。実装記録は`docs/step-6-human-auth-design.md`の「実装記録（Task 37）」。
 - **Task 38（実装済み）**: 本Taskで決めたRuntime event契約・冪等性規則を、統合Compass serverと外部Runtimeの最小test harnessで閉ループとして自動検証した。実装記録は本文書末尾の「実装記録（Task 38）」。
 
@@ -356,7 +356,7 @@ Task 35のEvaluation確定を起点に、Strategistの起動イベント、Evalu
 ### 実装済み・未接続・未検証
 
 - 実装済み: 上記の自動検証。`src/`の変更は無い（Task 31〜37の契約で閉ループが完走した）。
-- 未接続: 実際の外部Runtime（イベントのpolling・Agentプロセスの起動・再試行の管理）とLLM Agent。Evidence参照先（GitHub・CI）の実取得。実Google（OIDC fixtureを本番の`GoogleOidcIdentityProvider`へ注入）。Human向けのExecution介入・手動起票UI（U3・U4、Task 46・47。閲覧のU2はTask 45で実装済み）。
+- 未接続: 実際の外部Runtime（イベントのpolling・Agentプロセスの起動・再試行の管理）とLLM Agent。Evidence参照先（GitHub・CI）の実取得。実Google（OIDC fixtureを本番の`GoogleOidcIdentityProvider`へ注入）。Human向けのExecution手動起票UI（U4、Task 47。閲覧のU2はTask 45、介入のU3はTask 46で実装済み）。
 - 未検証: 本テストはCompass側の契約（イベント・ack・冪等性・状態遷移・認可）で閉ループが完走することの確認で、LLM Agentによる自律運転（Lv6）の実証ではない。テストのharnessはloopbackの`127.0.0.1`でserverへ接続するが、これは外部Runtimeの役割を模すためで、Direction / Execution間の連携には使っていない。loopbackへのlistenが禁止された環境では理由付きでskipする。
 
 ## 実装記録（Task 45）
@@ -383,4 +383,35 @@ Task 35のEvaluation確定を起点に、Strategistの起動イベント、Evalu
 
 - 実装済み: 上記のWeb API・UI。`test/executionWebRead.test.ts`（一覧・絞込・Task詳細・別Project `404`・cursor・不正query `400`・未所属`404`・administrator / editor / viewer・archived・Session無し`401`）、`test/outcomeEvaluation.test.ts`（Human向けEvaluation API）、`test/executionUi.test.ts`（表示用の変換）。
 - 画面検証: trusted-localの実server（空DB。Story・Task・Claim・Comment・差戻し・受入・Evidence還流・Evaluation・Decisionは実MCPで作成）とheadless Chrome（DevTools Protocol。検証scriptはリポジトリに含めない）で、1280px・375px幅で計53項目（375px幅の参考記録1項目を含む）を確認した。Project詳細のExecution section（Story・Task・状態・担当・Claim期限・相関ID）、最近の変更（20件表示、「さらに古い変更」をTab・Enterだけで追加読込、新しい順で重複なし、最後のページでは案内文へfocusを移す）、Task詳細をkeyboardで開けること（focus表示あり）、Comment・差戻し理由・変更履歴、Outcome詳細の評価結果・Evidence・Criterion・Decisionと、未接続・未還流・未評価の区別、空Projectのempty表示、別ProjectのTask・未所属Projectのerror表示、archived Projectの閲覧、loading（`role=status`）とAPI失敗時のerror（`role=alert`）表示、Task詳細・Outcome詳細が375px幅で横スクロールしないこと。Project詳細の375px幅の横スクロールはMember招待フォームの既知の問題（Task 43の範囲。別Taskで扱う）で、Execution sectionの要素は画面内に収まる。検証中に見つけた長い英数字の折返し不足と「担当 担当なし」の重複表示は修正した。
-- 未実装: Human介入（受入・差戻し・取消・Comment。Task 46）、手動起票・編集（Task 47）。
+- 未実装: 手動起票・編集（Task 47）。Human介入（受入・差戻し・取消・Comment）はTask 46で実装した。
+
+## 実装記録（Task 46）
+
+「Web UIの配置と移行順」のU3（Human介入）を実装した。U5（Membership認可）も同時に適用した。
+
+### 実装した範囲
+
+- Web API（Session・CSRF必須。Membershipのeditor以上＝権限表の`execution.intervene`）:
+  - `POST /api/projects/:projectId/tasks/:taskId/accept`: `in_review` / `wait_accept`のTaskを受け入れる。受入Claimの取得（`TASK_CLAIMED`、`claimCommand: claim_acceptance`。`in_review`から直接受け入れた場合は`path: operator_direct_review`、Reviewer承認後は`reviewer_approved`）と受入（`TASK_ACCEPTED`）を同じtransactionで行い、Storyの全Taskが終端になればAgentの受入と同じく`STORY_COMPLETED`を残す。
+  - `POST .../reject`（`{ reason }`必須）: `in_review` / `wait_accept`を`rejected`へ。差戻し理由はTaskとChangeに残る。
+  - `POST .../cancel`（`{ reason }`必須）: `todo` / `doing`を`canceled`へ。有効なAgent Claimは同じtransactionで解放し（`claimId`をChangeに残す）、古い`claimId`での以後の操作は拒否される。
+  - `POST .../comments`（`{ body }`必須）: `task_comment`に`claimId: null`で残す。どの状態のTaskにも追加できる。
+- application層: `src/application/service/execution/ExecutionOperatorUseCases.ts`（入力検証、CoordinationErrorの変換）→ `TaskCoordinationService`の`acceptTaskAsOperator` / `rejectTaskAsOperator` / `cancelTaskAsOperator` / `addTaskCommentAsOperator`。Human側の入口は`HumanOperatorUseCase`（`HumanProjectUseCases.ts`）で、Membershipの認可の後、操作者を`humanOperatorPrincipalId(actor)`（`human:{humanUserId}`）として委譲する。
+- Web UI: Task詳細（`/projects/:projectId/tasks/:taskId`）に、状態に応じた「受け入れる」「差し戻す」「Taskを取消」と確認パネル（差戻し・取消は理由必須）、Comment入力を追加した。viewerとarchived Projectには導線を出さない（archivedは案内文を出す）。成功は`role=status`の通知（操作後は通知へfocus）、失敗は`role=alert`で入力を残す。Change・Commentの`human:`はMemberの表示名で出す。
+
+### 初期選択と理由
+
+- **Human operatorのPrincipal**: Change Log・Commentの`principalId`は`human:{humanUserId}`、payloadの`actorRole`は`operator`（旧Wachaの`*AsOperator`と同じ語）。Execution側はHumanの型（domain model）をimportせず文字列だけを受け取る（`test/executionBoundary.test.ts`）。値は認証済みSessionからだけ導出し、request本文では受け取らない。
+- **自己review / 自己受入の禁止との関係**: HumanはAgent Principalではないため、operatorの受入はManager Role検査と自己受入の禁止を行わない（設計表「Operatorの受入・差戻し…」どおり）。Agent用の`claim_acceptance`は同じ内部処理（`claimAcceptanceCore`）をmanagerとして通り、Role検査・自己受入の禁止・`manager_direct_review`の記録は変わらない。Humanは`complete_task`を行わないため、`latestCompleter`にHumanのPrincipalが入ることはない。
+- **Agentとの競合**: 有効な（期限内の）Claimがある`in_review` / `wait_accept`は受入・差戻しを`409`（`conflict: CLAIM_CONFLICT`）で拒否し、先にClaimしたAgentを優先する。UIもClaim中は受入・差戻しを出さず理由を表示する。取消はManagerの`cancel_task`と同じくClaim中でも行える（方向転換で作業を止める例外対応のため）。期限切れのClaimは受入Claimの取得時に`CLAIM_EXPIRED`として記録してから進む。
+- **Commentの記録**: Change Logに新しい種別を足さない（MCP `list_changes`の利用側・Runtimeの増分処理の契約を変えない）。Commentは`task_comment`に投稿者の`principalId`付きで残り、MCP `list_task_comments`でもAgentが読める。Claimに紐づかないため、Workerの`complete_task`が要求する作業記録にはならない。
+- **HTTPの対応**: Execution serviceの`CoordinationError`はHuman向けWeb APIでは`409 CONFLICT`（`conflict`に元のコード。`CLAIM_CONFLICT` / `TASK_NOT_CLAIMABLE` / `INVALID_TASK_STATUS`）へ、`INVALID_INPUT`は`400 VALIDATION_ERROR`へ変換する。MCP側の応答は変えない。理由・本文は前後の空白を除いて必須（理由2000字、本文10000字まで）。
+- **冪等性**: Web APIは`requestId`を取らない（旧WachaのOperator APIと同じ）。二重送信はUIの送信中表示で抑え、serverは状態遷移の検査で二重の遷移を`409`にする。
+- **MCPへの非公開**: Human介入はWeb UI専用で、MCP toolを追加しない（AGENTS.md「Human向け管理操作をMCPへ無条件に公開しない」）。
+
+### 実装済み・未接続・未検証
+
+- 実装済み: 上記のWeb API・UI。`test/executionOperator.test.ts`（受入・差戻し・取消・Comment、operatorのChange、Storyの完了同期、理由必須・空白の拒否、Claim中・不正状態・二重受入の`409`とChange不変、取消によるClaimのfence、owner / administrator / editorの許可とviewer `403`・未所属`404`・Session無し`401`、別ProjectのTask・存在しないTaskの`404`、archivedの`409`、Agentの自己受入禁止の維持とMCPへ非公開）、`test/executionUi.test.ts`（導線の判定、Principalの表示）。
+- 画面検証: trusted-localの実server（空DB。Story・Task・Claimは実MCPで作成、editor / viewerは招待で追加）とheadless Chrome（DevTools Protocol。検証scriptはリポジトリに含めない）で、1280px・375px幅で計45項目を確認した。状態ごとの導線（`in_review` / `wait_accept`は受入・差戻し、`todo` / `doing`は取消、Claim中は導線なしで理由表示）、keyboardだけの操作（Enterで確認パネル、受入の確認は見出しへ・差戻し / 取消は理由欄へfocus、Tabで「やめる」・確定、`aria-expanded`）、「やめる」で状態不変、空の理由はブラウザの必須検証・空白だけの理由は`role=alert`で入力保持、成功通知（`role=status`）へのfocusと操作後の導線の消去、変更履歴・CommentにHumanの表示名、空Commentのエラー要約へのfocusと`aria-invalid`、viewer・archived（owner）で導線なし、owner / editorで導線あり、画面を開いた後にAgentがClaimした競合で再読込を促す失敗通知と状態不変、両幅で横スクロールしないこと。検証中に、Task詳細の見出し下にある操作列・確認パネルのボタンが`.detail-hero .button`の余白で不揃いになるのを見つけ、CSSを修正した。
+- 未実装: 手動起票・編集（Task 47）。
+

@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { classifyError, type ErrorKind } from "../api";
 
 /** 理由を添えて取り返しのつかない操作（放棄・取消）を確認するパネルの状態。 */
@@ -38,11 +38,20 @@ type ReasonPanelProps = {
   required?: boolean;
   confirmLabel: string;
   pendingLabel: string;
+  /** 取り返しのつかない操作でなければ`false`（確定ボタンを通常の色にする）。 */
+  danger?: boolean;
 };
 
-export const ReasonPanel = ({ action, title, description, label, required = false, confirmLabel, pendingLabel }: ReasonPanelProps) => (
+export const ReasonPanel = ({ action, title, description, label, required = false, confirmLabel, pendingLabel, danger = true }: ReasonPanelProps) => {
+  // 理由欄が無い確認だけのパネルは、見出しへfocusを移してkeyboard・読み上げで確認内容を先に伝える（確定ボタンには移さない）。
+  const heading = useRef<HTMLHeadingElement>(null);
+  const hasReason = label !== undefined;
+  useEffect(() => {
+    if (!hasReason) heading.current?.focus();
+  }, [hasReason]);
+  return (
   <form className="abandon-panel" onSubmit={action.submit}>
-    <h2>{title}</h2>
+    <h2 ref={heading} tabIndex={-1}>{title}</h2>
     <p>{description}</p>
     {label !== undefined && (
       <label>
@@ -66,9 +75,10 @@ export const ReasonPanel = ({ action, title, description, label, required = fals
       <button type="button" className="secondary-button" onClick={action.cancel}>
         やめる
       </button>
-      <button className="button danger" disabled={action.isPending}>
+      <button className={danger ? "button danger" : "button"} disabled={action.isPending}>
         {action.isPending ? pendingLabel : confirmLabel}
       </button>
     </div>
   </form>
-);
+  );
+};

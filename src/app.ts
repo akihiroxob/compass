@@ -309,6 +309,26 @@ export const createApp = (
       }),
     ),
   );
+  // Execution介入（Task 46。U3）。Membershipのeditor以上＝`execution.intervene`。操作者はSessionのHumanから導出し、本文では受け取らない。
+  const taskPath = "/api/projects/:projectId/tasks/:taskId";
+  app.post(`${taskPath}/accept`, async (c) =>
+    c.json(await human.acceptExecutionTask.execute(await actorOf(c), c.req.param("projectId"), c.req.param("taskId"))),
+  );
+  app.post(`${taskPath}/reject`, async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Task");
+    return c.json(await human.rejectExecutionTask.execute(actor, c.req.param("projectId"), c.req.param("taskId"), input));
+  });
+  app.post(`${taskPath}/cancel`, async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Task");
+    return c.json(await human.cancelExecutionTask.execute(actor, c.req.param("projectId"), c.req.param("taskId"), input));
+  });
+  app.post(`${taskPath}/comments`, async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Comment");
+    return c.json(await human.addExecutionTaskComment.execute(actor, c.req.param("projectId"), c.req.param("taskId"), input), 201);
+  });
   // Human Membershipと招待（docs/step-6-human-auth-design.md）。認可はMembershipのuse caseが権限表で行う。
   const membersPath = "/api/projects/:projectId/members";
   app.get(membersPath, async (c) =>

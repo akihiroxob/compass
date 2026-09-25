@@ -38,7 +38,8 @@ export type ClaimResult = {
 type Clock = () => number;
 
 type ReceiptInput = Record<string, unknown>;
-type ActivityActorRole = "worker" | "reviewer" | "manager";
+/** `operator`はHuman向けWeb UIからの介入（Task 46）。Agent PrincipalのRoleではない。 */
+type ActivityActorRole = "worker" | "reviewer" | "manager" | "operator";
 
 const canonicalize = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -726,61 +727,77 @@ export class TaskCoordinationService {
     );
   }
 
+  /**
+   * 受入Claimの取得。Agent（manager）はRole検査と自己受入の禁止を行う。Human operatorはAgent Principalではないため、
+   * どちらも行わない（認可はHuman Membershipで入口が済ませる）。
+   */
+  private async claimAcceptanceCore(
+    db: DatabaseExecutor,
+    principalId: string,
+    taskId: string,
+    actorRole: "manager" | "operator",
+  ): Promise<ClaimResult> {
+    const now = this.clock();
+    const task = await this.getTask(db, taskId);
+    if (actorRole === "manager") {
+      await this.requireRole(db, task.project_id, principalId, ProjectRole.MANAGER);
+    }
+    const currentClaim = await this.getActiveClaim(db, taskId);
+    if (currentClaim) {
+      if (currentClaim.expires_at > now) {
+        throw new CoordinationError("CLAIM_CONFLICT", `Task ${taskId} already has an active Claim`);
+      }
+      await this.expireClaim(db, currentClaim, task.project_id, principalId, actorRole, now);
+    }
+    if (task.status !== TaskStatus.IN_REVIEW && task.status !== TaskStatus.WAIT_ACCEPT) {
+      throw new CoordinationError(
+        "TASK_NOT_CLAIMABLE",
+        `Task ${taskId} is not available for acceptance`,
+      );
+    }
+    if (actorRole === "manager" && (await this.latestCompleter(db, taskId)) === principalId) {
+      throw new CoordinationError(
+        "SELF_ACCEPTANCE_NOT_ALLOWED",
+        `Principal ${principalId} cannot accept its own completed work`,
+      );
+    }
+    const fromStatus = task.status;
+    const claim = await this.insertClaim(db, taskId, principalId, now);
+    if (fromStatus === TaskStatus.IN_REVIEW) {
+      await db
+        .updateTable("task")
+        .set({ status: TaskStatus.WAIT_ACCEPT, updated_at: now })
+        .where("id", "=", taskId)
+        .execute();
+    }
+    await this.appendChange(db, {
+      projectId: task.project_id,
+      type: "TASK_CLAIMED",
+      entityId: taskId,
+      principalId,
+      claimId: claim.id,
+      payload: {
+        actorRole,
+        claimCommand: "claim_acceptance",
+        fromStatus,
+        toStatus: TaskStatus.WAIT_ACCEPT,
+        // Reviewer工程を経ずに受入へ進んだ場合、誰が省いたかを残す（Human operatorは`operator_direct_review`）。
+        path: fromStatus === TaskStatus.IN_REVIEW ? `${actorRole}_direct_review` : "reviewer_approved",
+      },
+      occurredAt: now,
+    });
+    return this.claimResult(claim, TaskStatus.WAIT_ACCEPT);
+  }
+
   async claimAcceptance(
     principalId: string,
     taskId: string,
     requestId: string,
   ): Promise<ClaimResult> {
     return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "claim_acceptance", requestId, { taskId }, async () => {
-        const now = this.clock();
-        const task = await this.getTask(db, taskId);
-        await this.requireRole(db, task.project_id, principalId, ProjectRole.MANAGER);
-        const currentClaim = await this.getActiveClaim(db, taskId);
-        if (currentClaim) {
-          if (currentClaim.expires_at > now) {
-            throw new CoordinationError("CLAIM_CONFLICT", `Task ${taskId} already has an active Claim`);
-          }
-          await this.expireClaim(db, currentClaim, task.project_id, principalId, "manager", now);
-        }
-        if (task.status !== TaskStatus.IN_REVIEW && task.status !== TaskStatus.WAIT_ACCEPT) {
-          throw new CoordinationError(
-            "TASK_NOT_CLAIMABLE",
-            `Task ${taskId} is not available for acceptance`,
-          );
-        }
-        if ((await this.latestCompleter(db, taskId)) === principalId) {
-          throw new CoordinationError(
-            "SELF_ACCEPTANCE_NOT_ALLOWED",
-            `Principal ${principalId} cannot accept its own completed work`,
-          );
-        }
-        const fromStatus = task.status;
-        const claim = await this.insertClaim(db, taskId, principalId, now);
-        if (fromStatus === TaskStatus.IN_REVIEW) {
-          await db
-            .updateTable("task")
-            .set({ status: TaskStatus.WAIT_ACCEPT, updated_at: now })
-            .where("id", "=", taskId)
-            .execute();
-        }
-        await this.appendChange(db, {
-          projectId: task.project_id,
-          type: "TASK_CLAIMED",
-          entityId: taskId,
-          principalId,
-          claimId: claim.id,
-          payload: {
-            actorRole: "manager",
-            claimCommand: "claim_acceptance",
-            fromStatus,
-            toStatus: TaskStatus.WAIT_ACCEPT,
-            path: fromStatus === TaskStatus.IN_REVIEW ? "manager_direct_review" : "reviewer_approved",
-          },
-          occurredAt: now,
-        });
-        return this.claimResult(claim, TaskStatus.WAIT_ACCEPT);
-      }),
+      this.withReceipt(db, principalId, "claim_acceptance", requestId, { taskId }, () =>
+        this.claimAcceptanceCore(db, principalId, taskId, "manager"),
+      ),
     );
   }
 
@@ -1260,6 +1277,82 @@ export class TaskCoordinationService {
         return this.cancelTaskCore(db, principalId, taskId, reason, "manager");
       }),
     );
+  }
+
+  // ---- Human operator（Web UI）の介入（Task 46。docs/lv6-unification-design.md「Web UIの配置と移行順」U3）。 ----
+  // 認可済みの呼出し元（Human MembershipのWeb API）だけが使う。`principalId`は入口がHumanから導出した値で、
+  // 外部入力から任意の値を渡させない。Agentの自己review / 自己受入の禁止規則とは独立（HumanはAgent Principalではない）。
+
+  /** 対象TaskがProjectに属し（別ProjectのTask IDは存在しない扱い）、Projectがactiveであること。 */
+  private async getOperatorTask(db: DatabaseExecutor, projectId: string, taskId: string) {
+    const task = await db
+      .selectFrom("task")
+      .selectAll()
+      .where("id", "=", taskId)
+      .where("project_id", "=", projectId)
+      .executeTakeFirst();
+    if (!task) throw new NotFoundError(`Task ${taskId} was not found in Project ${projectId}`);
+    await this.assertProjectActive(db, projectId);
+    return task;
+  }
+
+  /** `in_review` / `wait_accept`のTaskを受入Claimの取得と同じtransactionで受け入れる。Claim中（期限内）なら`CLAIM_CONFLICT`。 */
+  async acceptTaskAsOperator(principalId: string, projectId: string, taskId: string) {
+    return this.database.transaction().execute(async (db) => {
+      await this.getOperatorTask(db, projectId, taskId);
+      const claim = await this.claimAcceptanceCore(db, principalId, taskId, "operator");
+      return this.acceptTaskCore(db, principalId, taskId, claim.claimId, "operator");
+    });
+  }
+
+  async rejectTaskAsOperator(principalId: string, projectId: string, taskId: string, reason: string) {
+    return this.database.transaction().execute(async (db) => {
+      await this.getOperatorTask(db, projectId, taskId);
+      if (!reason.trim()) throw new CoordinationError("INVALID_INPUT", "Reject reason is required");
+      const claim = await this.claimAcceptanceCore(db, principalId, taskId, "operator");
+      return this.rejectTaskCore(db, principalId, taskId, claim.claimId, reason, "operator");
+    });
+  }
+
+  /** `todo` / `doing`のTaskを取り消す。Agentの有効なClaimは同じtransactionで解放する（Managerの`cancel_task`と同じ）。 */
+  async cancelTaskAsOperator(principalId: string, projectId: string, taskId: string, reason: string) {
+    return this.database.transaction().execute(async (db) => {
+      await this.getOperatorTask(db, projectId, taskId);
+      return this.cancelTaskCore(db, principalId, taskId, reason, "operator");
+    });
+  }
+
+  /**
+   * HumanのComment。Claimに紐づかない（`claimId`は`null`）ため、Agentの`complete_task`が要求する作業記録にはならない。
+   * Change Logには種別を足さず（MCP `list_changes`の契約を変えない）、`task_comment`に投稿者の`principalId`を残す。
+   */
+  async addTaskCommentAsOperator(principalId: string, projectId: string, taskId: string, body: string) {
+    return this.database.transaction().execute(async (db) => {
+      await this.getOperatorTask(db, projectId, taskId);
+      const trimmedBody = body.trim();
+      if (!trimmedBody) throw new CoordinationError("INVALID_INPUT", "Comment body is required");
+      const comment = {
+        id: crypto.randomUUID(),
+        task_id: taskId,
+        body: trimmedBody,
+        author: principalId,
+        principal_id: principalId,
+        claim_id: null,
+        created_at: this.clock(),
+      };
+      await db.insertInto("task_comment").values(comment).execute();
+      return {
+        comment: {
+          id: comment.id,
+          taskId,
+          body: trimmedBody,
+          author: principalId,
+          principalId,
+          claimId: null,
+          createdAt: comment.created_at,
+        },
+      };
+    });
   }
 
   async issueTask(principalId: string, input: IssueTaskInput, requestId: string) {

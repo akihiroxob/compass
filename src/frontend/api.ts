@@ -158,6 +158,9 @@ const conflictMessages: Record<string, string> = {
   PRINCIPAL_BOUND_ELSEWHERE: "このAgent名は別ProjectのRole割当またはAgent Credentialで使われています。このProject用に別の名前を指定してください。",
   CREDENTIAL_NOT_ACTIVE: "取消済みまたは期限切れのCredentialはrotationできません。新しく発行してください。",
   INVITATION_NOT_PENDING: "受諾済み・取消済み・期限切れの招待は取り消せません。",
+  CLAIM_CONFLICT: "AgentがこのTaskのClaimを持っているため、今は操作できません。",
+  TASK_NOT_CLAIMABLE: "Taskの状態がこの操作に対応していません。",
+  INVALID_TASK_STATUS: "Taskの状態がこの操作に対応していません。",
 };
 
 export const classifyError = (error: unknown): ErrorKind => {

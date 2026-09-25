@@ -81,3 +81,5 @@ select { font: inherit; min-height: 2.6rem; padding: 0 .75rem; border: 1px solid
 .grant-list li > .pre-wrap, .grant-list li > .evidence-uri { flex-basis: 100%; }
 .execution-story h3, .intent-card h4, .intent-facts dd, .outcome-list a, .grant-list li, .criteria-list p, .detail-hero h1 { overflow-wrap: anywhere; }
 .criterion-evidence { display: block; overflow-wrap: anywhere; }
+/* detail-hero内の操作列・確認パネルでは、見出し下の単独ボタン用の余白・幅を使わない（Task詳細の介入、Task 46）。 */
+.detail-hero .action-row .button, .detail-hero .form-actions .button { margin-top: 0; width: auto; }

@@ -1,2 +1,2 @@
 export { MembershipSection } from "./MembershipSection";
-export { humanRoleLabels, type HumanRole } from "./members";
+export { humanRoleLabels, membersPath, type HumanRole, type Member } from "./members";

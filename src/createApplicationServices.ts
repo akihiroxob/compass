@@ -6,6 +6,7 @@ import { HumanProjectAuthorizationService } from "./application/service/HumanPro
 import {
   GetHumanProjectUseCase,
   HumanAuthorizedUseCase,
+  HumanOperatorUseCase,
   ListHumanProjectsUseCase,
 } from "./application/usecase/HumanProjectUseCases.ts";
 import type { HumanProjectOperation } from "./domain/model/HumanAuth.ts";
@@ -43,6 +44,12 @@ import {
   ListExecutionUseCase,
   ListRecentExecutionChangesUseCase,
 } from "./application/service/execution/ExecutionReadUseCases.ts";
+import {
+  AcceptExecutionTaskUseCase,
+  AddExecutionTaskCommentUseCase,
+  CancelExecutionTaskUseCase,
+  RejectExecutionTaskUseCase,
+} from "./application/service/execution/ExecutionOperatorUseCases.ts";
 import { ListOutcomeEvaluationsUseCase } from "./application/usecase/ListOutcomeEvaluationsUseCase.ts";
 import { GetOutcomeUseCase } from "./application/usecase/GetOutcomeUseCase.ts";
 import { GetResearchRequestUseCase } from "./application/usecase/GetResearchRequestUseCase.ts";
@@ -311,6 +318,10 @@ export const createApplicationServices = (
     operation: HumanProjectOperation,
     useCase: { execute(projectId: string, ...args: Args): Promise<Result> },
   ) => new HumanAuthorizedUseCase(humanProjectAuthorizationService, operation, useCase);
+  const operator = <Args extends unknown[], Result>(
+    operation: HumanProjectOperation,
+    useCase: { execute(projectId: string, operatorPrincipalId: string, ...args: Args): Promise<Result> },
+  ) => new HumanOperatorUseCase(humanProjectAuthorizationService, operation, useCase);
   // Human向けWeb APIの入口。Membershipの認可（domainの権限表）を通してから、MCPと共通のuse caseへ委譲する。
   // Runtime向け（runtime-events・execution-evidence）はHuman向けではないため含めない。
   const human = {
@@ -337,10 +348,15 @@ export const createApplicationServices = (
     listAdrReferences: authorized("project.read", services.listAdrReferencesUseCase),
     getExecutionSummary: authorized("project.read", services.getExecutionSummaryUseCase),
     listOutcomeEvaluations: authorized("project.read", services.listOutcomeEvaluationsUseCase),
-    // Execution閲覧（Task 45）。archivedのProjectも参照できる（書込の導線・APIは持たない）。
+    // Execution閲覧（Task 45）。archivedのProjectも参照できる（介入はTask 46の`execution.intervene`）。
     listExecution: authorized("project.read", services.listExecutionUseCase),
     getExecutionTask: authorized("project.read", services.getExecutionTaskUseCase),
     listRecentExecutionChanges: authorized("project.read", services.listRecentExecutionChangesUseCase),
+    // Execution介入（Task 46。U3）。Web UI専用で、MCPへは公開しない（Agentは既存のClaim・review・accept toolを使う）。
+    acceptExecutionTask: operator("execution.intervene", new AcceptExecutionTaskUseCase(taskCoordinationService)),
+    rejectExecutionTask: operator("execution.intervene", new RejectExecutionTaskUseCase(taskCoordinationService)),
+    cancelExecutionTask: operator("execution.intervene", new CancelExecutionTaskUseCase(taskCoordinationService)),
+    addExecutionTaskComment: operator("execution.intervene", new AddExecutionTaskCommentUseCase(taskCoordinationService)),
   };
   return { ...services, human };
 };

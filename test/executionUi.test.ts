@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  availableTaskOperations,
+  describePrincipal,
+  taskOperationPath,
   appendChangePage,
   changeNote,
   changesPath,
@@ -74,4 +77,23 @@ test("閉ループの現在地は未接続・未還流・未評価を成功扱�
   assert.deepEqual(outcomeLoopStage({ storyCount: 1, record, evaluations: [evaluation("insufficient_evidence"), evaluation("achieved")] }), {
     stage: "evaluated", label: "評価済み: Evidence不足", result: "insufficient_evidence",
   });
+});
+
+test("Human介入の導線は状態とClaimで決まり、受入・差戻しはClaim中に出さない（Task 46）", () => {
+  const claim = { claimId: "c1", principalId: "rev", expiresAt: 1 };
+  assert.deepEqual(availableTaskOperations(task("t", null, { status: "todo" })), ["cancel"]);
+  assert.deepEqual(availableTaskOperations(task("t", null, { status: "doing", activeClaim: { ...claim, principalId: "wrk" } })), ["cancel"]);
+  assert.deepEqual(availableTaskOperations(task("t", null, { status: "in_review" })), ["accept", "reject"]);
+  assert.deepEqual(availableTaskOperations(task("t", null, { status: "wait_accept" })), ["accept", "reject"]);
+  assert.deepEqual(availableTaskOperations(task("t", null, { status: "in_review", activeClaim: claim })), []);
+  for (const status of ["accepted", "rejected", "canceled"] as const) assert.deepEqual(availableTaskOperations(task("t", null, { status })), [], status);
+  assert.equal(taskOperationPath("p1", "t1", "reject"), "/api/projects/p1/tasks/t1/reject");
+  assert.equal(taskOperationPath("p1", "t1", "comments"), "/api/projects/p1/tasks/t1/comments");
+});
+
+test("Human operatorのPrincipalはMemberの表示名（無ければIDの先頭）で出し、Agent Principalはそのまま出す", () => {
+  const names = new Map([["0123456789abcdef", "Alice"]]);
+  assert.equal(describePrincipal("human:0123456789abcdef", names), "Human Alice");
+  assert.equal(describePrincipal("human:fedcba9876543210"), "Human fedcba98");
+  assert.equal(describePrincipal("wrk", names), "wrk");
 });

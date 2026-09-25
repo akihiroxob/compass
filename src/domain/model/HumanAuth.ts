@@ -231,6 +231,8 @@ export const humanProjectPermissions = {
   "grant.read": "viewer",
   "member.read": "viewer",
   "direction.write": "editor",
+  /** Execution Taskへの介入（受入・差戻し・取消・Comment。Task 46）。archivedでは拒否する。 */
+  "execution.intervene": "editor",
   "project.update": "administrator",
   "grant.manage": "administrator",
   /** Agent / Runtime Credentialの発行・rotation・取消・一覧（Task 37）。 */
@@ -241,3 +243,9 @@ export const humanProjectPermissions = {
 } as const satisfies Record<string, HumanRole>;
 
 export type HumanProjectOperation = keyof typeof humanProjectPermissions;
+
+/**
+ * Human operatorがExecutionへ介入したときのChange Log・Commentの`principalId`。Agent Principalと区別できるよう`human:`を付ける。
+ * 外部入力から受け取らず、認証済みの`HumanActor`からだけ導出する。
+ */
+export const humanOperatorPrincipalId = (actor: HumanActor): string => `human:${actor.humanUserId}`;

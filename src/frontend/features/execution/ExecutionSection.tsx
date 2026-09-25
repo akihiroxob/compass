@@ -9,6 +9,7 @@ import {
   changesPath,
   changeTypeLabel,
   describeClaim,
+  describePrincipal,
   executionPath,
   formatTime,
   groupTasksByStory,
@@ -67,7 +68,7 @@ export const StoryList = ({ overview, empty }: { overview: ExecutionOverview; em
 };
 
 /** Execution Change Logの1件。Taskの変更は、Task名でTask詳細へ辿るリンクにする。 */
-export const ChangeItem = ({ change, taskTitles, projectId }: { change: ExecutionChange; taskTitles?: ReadonlyMap<string, string>; projectId: string }) => {
+export const ChangeItem = ({ change, taskTitles, projectId, humanNames }: { change: ExecutionChange; taskTitles?: ReadonlyMap<string, string>; projectId: string; humanNames?: ReadonlyMap<string, string> }) => {
   const taskTitle = taskTitles?.get(change.entityId);
   const note = changeNote(change);
   return (
@@ -75,7 +76,7 @@ export const ChangeItem = ({ change, taskTitles, projectId }: { change: Executio
       <span className="status-badge muted">{changeTypeLabel(change.type)}</span>{" "}
       {taskTitle !== undefined ? <Link to={taskPath(projectId, change.entityId)}>{taskTitle}</Link> : null}
       <small>
-        #{change.cursor} ・ {change.principalId} ・ {formatTime(change.occurredAt)}
+        #{change.cursor} ・ {describePrincipal(change.principalId, humanNames)} ・ {formatTime(change.occurredAt)}
         {change.correlationId && <> ・ 相関ID <code>{change.correlationId}</code></>}
       </small>
       {note && <p className="section-note">理由: {note}</p>}
@@ -150,7 +151,7 @@ const RecentChanges = ({ projectId, taskTitles }: { projectId: string; taskTitle
 
 /**
  * Project詳細のExecution section（Human向け読取専用）。Story・Task・Claim・Change LogはAgent（MCP）が作り、
- * この画面からは変更しない。受入・差戻し・取消・手動起票は未実装（Task 46・47）。
+ * この画面からは変更しない。受入・差戻し・取消・CommentはTask詳細から行う（Task 46）。手動起票は未実装（Task 47）。
  */
 export const ExecutionSection = ({ projectId }: { projectId: string }) => {
   const [overview, setOverview] = useState<ExecutionOverview | null>(null);
