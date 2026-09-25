@@ -123,6 +123,24 @@ export const appendChangePage = (current: ExecutionChange[], page: ExecutionChan
   return [...current, ...page.filter((change) => !seen.has(change.cursor))];
 };
 
+export type ChangeTarget = { kind: "story" | "task"; id: string; title: string | null };
+
+/**
+ * 「最近の変更」でChangeの対象を識別する。Storyの変更（`STORY_*`）は一覧に無くてもIDで出し、
+ * Taskの変更は一覧にあるTaskだけを対象にする（Task詳細へのリンクに使う）。
+ */
+export const changeTarget = (change: Pick<ExecutionChange, "type" | "entityId">, overview: ExecutionOverview): ChangeTarget | null => {
+  if (change.type.startsWith("STORY_")) {
+    const story = overview.stories.find((item) => item.id === change.entityId);
+    return { kind: "story", id: change.entityId, title: story?.title ?? null };
+  }
+  const task = overview.tasks.find((item) => item.id === change.entityId);
+  return task ? { kind: "task", id: task.id, title: task.title } : null;
+};
+
+/** Project詳細のStory cardのanchor。「最近の変更」のStory変更から辿る。 */
+export const storyAnchorId = (storyId: string) => `execution-story-${storyId}`;
+
 /** Changeのpayloadから、表示する補足（差戻し・取消・解放の理由）を取り出す。 */
 export const changeNote = (change: Pick<ExecutionChange, "payload">): string | null => {
   const { reason } = change.payload;

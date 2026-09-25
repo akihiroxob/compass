@@ -6,6 +6,7 @@ import { taskPath } from "../../paths";
 import {
   appendChangePage,
   changeNote,
+  changeTarget,
   changesPath,
   changeTypeLabel,
   describeClaim,
@@ -14,9 +15,11 @@ import {
   formatTime,
   groupTasksByStory,
   isSettledTask,
+  storyAnchorId,
   storyStatusLabels,
   taskStatusLabels,
   type ChangePage,
+  type ChangeTarget,
   type ExecutionChange,
   type ExecutionOverview,
   type ExecutionTask,
@@ -38,7 +41,7 @@ const TaskRow = ({ task }: { task: ExecutionTask }) => (
 export const StoryCard = ({ group }: { group: StoryGroup }) => {
   const { story, tasks } = group;
   return (
-    <article className="intent-card execution-story">
+    <article id={storyAnchorId(story.id)} tabIndex={-1} className="intent-card execution-story">
       <h3>
         <span className={`status-badge${story.status === "done" || story.status === "canceled" ? " muted" : ""}`}>{storyStatusLabels[story.status]}</span> {story.title}
       </h3>
@@ -67,14 +70,20 @@ export const StoryList = ({ overview, empty }: { overview: ExecutionOverview; em
   );
 };
 
-/** Execution Change Logの1件。Taskの変更は、Task名でTask詳細へ辿るリンクにする。 */
-export const ChangeItem = ({ change, taskTitles, projectId, humanNames }: { change: ExecutionChange; taskTitles?: ReadonlyMap<string, string>; projectId: string; humanNames?: ReadonlyMap<string, string> }) => {
-  const taskTitle = taskTitles?.get(change.entityId);
+/** Changeの対象。TaskはTask詳細へ、Storyは同じ画面のStory cardへ辿る。一覧に無いStoryはIDだけを出す。 */
+const ChangeTargetLabel = ({ target, projectId }: { target: ChangeTarget; projectId: string }) => {
+  if (target.kind === "task") return <Link to={taskPath(projectId, target.id)}>{target.title}</Link>;
+  if (target.title === null) return <>Story <code>{target.id}</code></>;
+  return <a href={`#${storyAnchorId(target.id)}`}>Story「{target.title}」</a>;
+};
+
+/** Execution Change Logの1件。`target`（「最近の変更」だけ）があれば、対象のTask・Storyを出す。 */
+export const ChangeItem = ({ change, target, projectId, humanNames }: { change: ExecutionChange; target?: ChangeTarget | null; projectId: string; humanNames?: ReadonlyMap<string, string> }) => {
   const note = changeNote(change);
   return (
     <li>
       <span className="status-badge muted">{changeTypeLabel(change.type)}</span>{" "}
-      {taskTitle !== undefined ? <Link to={taskPath(projectId, change.entityId)}>{taskTitle}</Link> : null}
+      {target ? <ChangeTargetLabel target={target} projectId={projectId} /> : null}
       <small>
         #{change.cursor} ・ {describePrincipal(change.principalId, humanNames)} ・ {formatTime(change.occurredAt)}
         {change.correlationId && <> ・ 相関ID <code>{change.correlationId}</code></>}
@@ -85,7 +94,7 @@ export const ChangeItem = ({ change, taskTitles, projectId, humanNames }: { chan
 };
 
 /** Projectの「最近の変更」。新しい順に取得し、「さらに古い変更」でcursorを辿る。 */
-const RecentChanges = ({ projectId, taskTitles }: { projectId: string; taskTitles: ReadonlyMap<string, string> }) => {
+const RecentChanges = ({ projectId, overview }: { projectId: string; overview: ExecutionOverview }) => {
   const [changes, setChanges] = useState<ExecutionChange[] | null>(null);
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -130,7 +139,7 @@ const RecentChanges = ({ projectId, taskTitles }: { projectId: string; taskTitle
       ) : changes.length ? (
         <>
           <ul className="grant-list change-list" aria-labelledby="changes-heading">
-            {changes.map((change) => <ChangeItem key={change.cursor} change={change} taskTitles={taskTitles} projectId={projectId} />)}
+            {changes.map((change) => <ChangeItem key={change.cursor} change={change} target={changeTarget(change, overview)} projectId={projectId} />)}
           </ul>
           {moreError && <p role="alert" className="error-title">{moreError}</p>}
           {reachedEnd && <p ref={endNote} tabIndex={-1} className="unset">これより古い変更はありません</p>}
@@ -178,7 +187,7 @@ export const ExecutionSection = ({ projectId }: { projectId: string }) => {
       ) : (
         <>
           <StoryList overview={overview} empty="Storyは未登録です" />
-          <RecentChanges projectId={projectId} taskTitles={new Map(overview.tasks.map((task) => [task.id, task.title]))} />
+          <RecentChanges projectId={projectId} overview={overview} />
         </>
       )}
     </section>

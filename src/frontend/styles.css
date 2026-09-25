@@ -68,7 +68,7 @@ select { font: inherit; min-height: 2.6rem; padding: 0 .75rem; border: 1px solid
 .scope-field { margin-top: .25rem; } .scope-field .checkbox-label { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .4rem; font-weight: 400; } .grant-list .action-row { margin-top: 0; }
 /* Execution閲覧（Task 45）。長い相関ID・URI・commit SHAは狭い画面で折り返す。 */
 .execution-story + .execution-story, .detail-section > .intent-card + .intent-card { margin-top: 1rem; }
-.execution-story h3 { font-size: 1.3rem; }
+.execution-story h3 { font-size: 1.3rem; } .execution-story { scroll-margin-top: 1rem; } .execution-story:focus-visible, .execution-story:target { outline: 3px solid rgba(193,81,49,.28); outline-offset: 2px; }
 .intent-card h4 { margin: .2rem 0 .8rem; font-size: 1rem; }
 .execution-meta { margin: 0 0 .9rem; color: #777168; font-size: .82rem; line-height: 1.6; overflow-wrap: anywhere; }
 .detail-section h3 { margin: 1.75rem 0 .9rem; font-family: Georgia, serif; font-size: 1.25rem; font-weight: 500; }

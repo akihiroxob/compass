@@ -6,11 +6,13 @@ import {
   taskOperationPath,
   appendChangePage,
   changeNote,
+  changeTarget,
   changesPath,
   changeTypeLabel,
   describeClaim,
   executionPath,
   groupTasksByStory,
+  storyAnchorId,
   outcomeLoopStage,
   type ExecutionChange,
   type ExecutionStory,
@@ -55,6 +57,19 @@ test("古い変更の追加読込は同じcursorを重複させず、理由だ�
   assert.equal(changeNote(change(1, { reason: 3 })), null);
   assert.equal(changeTypeLabel("TASK_REJECTED"), "差戻し");
   assert.equal(changeTypeLabel("UNKNOWN_TYPE"), "UNKNOWN_TYPE");
+});
+
+test("最近の変更は同じProjectの複数StoryをStoryごとに識別し、Taskの変更はTask詳細の対象にする", () => {
+  const overview = { stories: [story("s1", { title: "認証" }), story("s2", { title: "課金" })], tasks: [task("t1", "s1", { title: "ログイン" })] };
+  const of = (type: string, entityId: string) => changeTarget({ type, entityId }, overview);
+  assert.deepEqual(of("STORY_CREATED", "s1"), { kind: "story", id: "s1", title: "認証" });
+  assert.deepEqual(of("STORY_CREATED", "s2"), { kind: "story", id: "s2", title: "課金" });
+  assert.deepEqual(of("STORY_COMPLETED", "s2"), { kind: "story", id: "s2", title: "課金" });
+  // 一覧に無いStoryもIDで識別できる。Taskは一覧にあるものだけリンクにする。
+  assert.deepEqual(of("STORY_CANCELED", "gone"), { kind: "story", id: "gone", title: null });
+  assert.deepEqual(of("TASK_CREATED", "t1"), { kind: "task", id: "t1", title: "ログイン" });
+  assert.equal(of("TASK_CREATED", "gone"), null);
+  assert.notEqual(storyAnchorId("s1"), storyAnchorId("s2"));
 });
 
 test("Web APIとrouteのpath", () => {
