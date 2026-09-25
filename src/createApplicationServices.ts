@@ -10,6 +10,15 @@ import {
 } from "./application/usecase/HumanProjectUseCases.ts";
 import type { HumanProjectOperation } from "./domain/model/HumanAuth.ts";
 import { ProjectAuthorizationService } from "./application/service/ProjectAuthorizationService.ts";
+import { RuntimeAuthorizationService } from "./application/service/RuntimeAuthorizationService.ts";
+import {
+  AuthenticateAccessCredentialUseCase,
+  IssueAccessCredentialUseCase,
+  ListAccessCredentialsUseCase,
+  RevokeAccessCredentialUseCase,
+  RotateAccessCredentialUseCase,
+} from "./application/usecase/AccessCredentialUseCases.ts";
+import { SQLiteAccessCredentialRepository } from "./infrastructure/repository/SQLiteAccessCredentialRepository.ts";
 import { AbandonIntentUseCase } from "./application/usecase/AbandonIntentUseCase.ts";
 import { AckRuntimeEventUseCase } from "./application/usecase/AckRuntimeEventUseCase.ts";
 import { ArchiveProjectUseCase } from "./application/usecase/ArchiveProjectUseCase.ts";
@@ -109,8 +118,11 @@ export const createApplicationServices = (
   const directionDecisionRepository = new SQLiteDirectionDecisionRepository(applicationDatabase, clock);
   const adrHandoffRepository = new SQLiteAdrHandoffRepository(applicationDatabase);
   const runtimeEventRepository = new SQLiteRuntimeEventRepository(applicationDatabase);
-  const projectGrantRepository = new SQLiteProjectGrantRepository(applicationDatabase);
+  const projectGrantRepository = new SQLiteProjectGrantRepository(applicationDatabase, clock);
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
+  // Runtime向けの入口はRuntime Credentialのscopeで認可する（trusted-localのAgent名だけ暫定のruntime Grant）。
+  const runtimeAuthorizationService = new RuntimeAuthorizationService(projectAuthorizationService);
+  const accessCredentialRepository = new SQLiteAccessCredentialRepository(applicationDatabase);
   // Execution（旧Wachaから移植）。同じDB・同じプロセスの中で動き、Directionの参照は読取専用ポートだけを通す。
   const taskCoordinationService = new TaskCoordinationService(
     applicationDatabase,
@@ -131,6 +143,7 @@ export const createApplicationServices = (
   const services = {
     instructionService,
     projectAuthorizationService,
+    runtimeAuthorizationService,
     taskCoordinationService,
     createProjectUseCase: new CreateProjectUseCase(projectRepository),
     updateProjectUseCase: new UpdateProjectUseCase(projectRepository),
@@ -156,18 +169,18 @@ export const createApplicationServices = (
     cancelResearchRequestUseCase: new CancelResearchRequestUseCase(projectRepository, researchRepository),
     listRuntimeEventsUseCase: new ListRuntimeEventsUseCase(projectRepository, runtimeEventRepository),
     fetchRuntimeEventsUseCase: new FetchRuntimeEventsUseCase(
-      projectAuthorizationService,
+      runtimeAuthorizationService,
       projectRepository,
       runtimeEventRepository,
     ),
     ackRuntimeEventUseCase: new AckRuntimeEventUseCase(
-      projectAuthorizationService,
+      runtimeAuthorizationService,
       projectRepository,
       runtimeEventRepository,
       clock,
     ),
     recordExecutionEvidenceUseCase: new RecordExecutionEvidenceUseCase(
-      projectAuthorizationService,
+      runtimeAuthorizationService,
       projectRepository,
       outcomeRepository,
       executionSummaryService,
@@ -199,6 +212,23 @@ export const createApplicationServices = (
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(projectRepository, projectGrantRepository),
     listProjectGrantsUseCase: new ListProjectGrantsUseCase(projectRepository, projectGrantRepository),
     humanProjectAuthorizationService,
+    authenticateAccessCredentialUseCase: new AuthenticateAccessCredentialUseCase(accessCredentialRepository, clock),
+    issueAccessCredentialUseCase: new IssueAccessCredentialUseCase(
+      humanProjectAuthorizationService,
+      accessCredentialRepository,
+      clock,
+    ),
+    rotateAccessCredentialUseCase: new RotateAccessCredentialUseCase(
+      humanProjectAuthorizationService,
+      accessCredentialRepository,
+      clock,
+    ),
+    revokeAccessCredentialUseCase: new RevokeAccessCredentialUseCase(
+      humanProjectAuthorizationService,
+      accessCredentialRepository,
+      clock,
+    ),
+    listAccessCredentialsUseCase: new ListAccessCredentialsUseCase(humanProjectAuthorizationService, accessCredentialRepository),
     registerOrLoginHumanUseCase,
     getHumanAuthBootstrapStatusUseCase: new GetHumanAuthBootstrapStatusUseCase(humanAccountRepository),
     startOidcLoginUseCase: identityProvider

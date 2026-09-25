@@ -1,6 +1,7 @@
 import type { ProjectGrantRepository, GrantResult } from "../../domain/repository/ProjectGrantRepository.ts";
 import type { ProjectRepository } from "../../domain/repository/ProjectRepository.ts";
 import { parseProjectGrantInput } from "../../shared/projectGrantSchema.ts";
+import { ConflictError } from "../error/ConflictError.ts";
 import { NotFoundError } from "../error/NotFoundError.ts";
 import { ProjectArchivedError } from "../error/ProjectArchivedError.ts";
 
@@ -18,6 +19,11 @@ export class GrantProjectRoleUseCase {
     }
     const result = await this.projectGrantRepository.grant(projectId, principalId, role);
     if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
+    if (result.kind === "principal_bound_elsewhere") {
+      throw new ConflictError(`Principal ${principalId} is bound to an Agent Credential of another Project`, {
+        conflict: "PRINCIPAL_BOUND_ELSEWHERE",
+      });
+    }
     return { grant: result.grant, created: result.created };
   }
 }

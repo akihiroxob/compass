@@ -1605,6 +1605,11 @@ export class TaskCoordinationService {
 
   async listChanges(principalId: string, projectId: string, afterCursor = 0, limit = 100) {
     await this.requireAnyRole(this.database, projectId, principalId);
+    return this.listChangesOfProject(projectId, afterCursor, limit);
+  }
+
+  /** 認可済みの呼出し元（Runtime Credentialの`execution:change:read` scope）だけが使う。Role Grantは検査しない。 */
+  async listChangesOfProject(projectId: string, afterCursor = 0, limit = 100) {
     const rows = await this.database.selectFrom("change_log")
       .selectAll()
       .where("project_id", "=", projectId)

@@ -4,6 +4,7 @@ import { createApp } from "../src/app.ts";
 import { createApplicationServices } from "../src/createApplicationServices.ts";
 import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
 import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
+import { addTestMembership, createTestHuman } from "./support/humanSession.ts";
 
 /**
  * Task 42: Web APIで塞いだHuman向けCommandが、remote modeのMCPから実行できないことの回帰テスト
@@ -25,7 +26,15 @@ const setup = async (mode: "remote" | "trusted-local") => {
   const project = await services.createProjectUseCase.execute({ name: "Compass", mission: "Keep direction explicit" });
   const intent = await services.createIntentUseCase.execute(project.id, { title: "I", desiredState: "S" });
   await services.grantProjectRoleUseCase.execute(project.id, { principalId: "manager-1", role: "manager" });
-  return { services, app, project, intent };
+  // remote modeのAgentはCompass発行のAgent Credentialで認証する（Task 37）。Agent名だけのBearerは401。
+  const owner = await createTestHuman(database);
+  await addTestMembership(database, project.id, owner, "owner");
+  const { token } = await services.issueAccessCredentialUseCase.execute(
+    { kind: "human", humanUserId: owner.humanUserId },
+    project.id,
+    { kind: "agent", principalId: "manager-1" },
+  );
+  return { services, app, project, intent, agentBearer: `Bearer ${token}` };
 };
 
 const mcp = async (app: App, method: string, params: object, authorization?: string) => {
@@ -85,8 +94,7 @@ test("remote modeの匿名MCPはRole文書だけを公開し、Human向けComman
 });
 
 test("remote modeではBearer付きでもHuman向けCommandを登録せず、Role専用toolは維持する", async () => {
-  const { services, app, project, intent } = await setup("remote");
-  const bearer = "Bearer manager-1";
+  const { services, app, project, intent, agentBearer: bearer } = await setup("remote");
 
   const names = await toolNames(app, bearer);
   for (const name of humanCommandTools) assert.ok(!names.includes(name), `${name} must not be listed`);

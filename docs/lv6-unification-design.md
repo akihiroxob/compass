@@ -144,7 +144,7 @@ Execution以外で本Storyに必要なHuman向けUI:
 3. **U3 Human介入**: Task詳細での受入・差戻し・取消・Comment。
 4. **U4 手動起票**: Story / Taskの作成・編集・並べ替え・取消。
 5. **U5 認可の適用**: Human認証Story（Task 39〜43）の完了後、U2〜U4のWeb APIへProject Membershipの権限表（[step-6-human-auth-design.md](step-6-human-auth-design.md)「権限表」。閲覧はviewer、介入・手動起票はeditor）を適用する。それまでは既存Web APIと同じtrusted-local（匿名）で動く。
-6. **U6 Credential管理**: Task 37でruntime Grant sectionをCredential管理UIへ置き換える。
+6. **U6 Credential管理**: Task 37でruntime Grant sectionをCredential管理UI（Agent・Runtime Credential section）へ置き換えた。
 
 U2〜U4は現在のどのTaskの完了条件にも含まれていないため、Task 38（閉ループ検証）より前に実施するTaskの追加をManagerへ提案する（Task 30の作業コメントに記載）。
 
@@ -226,7 +226,7 @@ Storyは`correlationId`で二重作成を防げるが、Taskは`requestId`（`co
 - **Task 34（実装済み）**: 実装記録は本文書末尾の「実装記録（Task 34）」。`ExecutionEvidencePort`の詳細（テーブル形状、増分取込みの単位）はTask内で確定し、書込ポートではなく読取専用の`ExecutionSummaryPort`にした。
 - **Task 35〜36（実装済み）**: Outcome EvaluatorはDirection側のEntityであり、Executionとは、Task 34で還流したExecution SummaryとEvidence参照だけを介する。Task 35の差し戻し対応で「Web UIの配置と移行順」のU1（evaluator / runtimeのGrantSection）を実装した。
 - **Web UI U2〜U4**: 現在のTaskに対応するものが無い。Task 38の前に実施するTaskの追加をManagerへ提案する。
-- **Task 37**: 本Taskで「暫定trusted-local」とした認証を、Agent/Runtime向け不透明Credentialへ置き換える。`runtime_event`/`change_log`双方の取得APIが対象に含まれる。
+- **Task 37（実装済み）**: 本Taskで「暫定trusted-local」とした認証を、Agent/Runtime向け不透明Credentialへ置き換えた。`runtime_event`（`runtime:event:read` / `ack`）と`change_log`（`list_changes`の`execution:change:read`）双方が対象。実装記録は`docs/step-6-human-auth-design.md`の「実装記録（Task 37）」。
 - **Task 38**: 本Taskで決めたRuntime event契約・冪等性規則を実際にE2Eで検証する。
 
 ## 未接続・未実装・対象外（Task 30時点の記録。現在の状況は「実装記録（Task 33）」以降）

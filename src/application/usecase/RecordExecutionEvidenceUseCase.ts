@@ -1,4 +1,3 @@
-import { ProjectRole } from "../../constants/ProjectRole.ts";
 import type { OutcomeExecutionEvidence, OutcomeExecutionSummary } from "../../domain/model/OutcomeExecution.ts";
 import type { OutcomeExecutionRepository } from "../../domain/repository/OutcomeExecutionRepository.ts";
 import type { OutcomeRepository } from "../../domain/repository/OutcomeRepository.ts";
@@ -9,7 +8,7 @@ import { NotFoundError } from "../error/NotFoundError.ts";
 import { ProjectArchivedError } from "../error/ProjectArchivedError.ts";
 import { ValidationError } from "../error/ValidationError.ts";
 import type { ExecutionSummaryPort } from "../port/ExecutionSummaryPort.ts";
-import type { Principal, ProjectAuthorizationService } from "../service/ProjectAuthorizationService.ts";
+import type { Caller, RuntimeAuthorizationService } from "../service/RuntimeAuthorizationService.ts";
 
 /** 観測時刻として許す、現在時刻からの未来方向のずれ（時計の誤差分）。これを超える未来の観測は捏造として拒否する。 */
 const observedAtSkewMilliseconds = 5 * 60 * 1000;
@@ -36,7 +35,7 @@ export type RecordExecutionEvidenceResult = {
  */
 export class RecordExecutionEvidenceUseCase {
   constructor(
-    private readonly authorization: ProjectAuthorizationService,
+    private readonly authorization: RuntimeAuthorizationService,
     private readonly projectRepository: ProjectRepository,
     private readonly outcomeRepository: OutcomeRepository,
     private readonly executionSummary: ExecutionSummaryPort,
@@ -45,13 +44,13 @@ export class RecordExecutionEvidenceUseCase {
   ) {}
 
   async execute(
-    principal: Principal,
+    caller: Caller,
     projectId: string,
     outcomeId: string,
     input: unknown,
   ): Promise<RecordExecutionEvidenceResult> {
     // 認可はProjectの存在確認より先。Grantを持たないPrincipalへProjectやOutcomeの存在有無を漏らさない。
-    const principalId = await this.authorization.requireRole(principal, projectId, ProjectRole.RUNTIME);
+    const principalId = await this.authorization.requireScope(caller, projectId, "execution:evidence:write");
     const parsed = parseRecordExecutionEvidenceInput(input);
     if (!(await this.projectRepository.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);

@@ -1,11 +1,10 @@
-import { ProjectRole } from "../../constants/ProjectRole.ts";
 import type { AckRuntimeEventResult } from "../../domain/model/RuntimeEventDelivery.ts";
 import type { ProjectRepository } from "../../domain/repository/ProjectRepository.ts";
 import type { RuntimeEventRepository } from "../../domain/repository/RuntimeEventRepository.ts";
 import { parseRuntimeEventAckInput } from "../../shared/runtimeEventSchema.ts";
 import { ConflictError } from "../error/ConflictError.ts";
 import { NotFoundError } from "../error/NotFoundError.ts";
-import type { Principal, ProjectAuthorizationService } from "../service/ProjectAuthorizationService.ts";
+import type { Caller, RuntimeAuthorizationService } from "../service/RuntimeAuthorizationService.ts";
 
 /**
  * consumerがイベントの処理結果を記録する。`processed` / `terminal_failure`は以後そのconsumerへ再配信せず、
@@ -15,14 +14,14 @@ import type { Principal, ProjectAuthorizationService } from "../service/ProjectA
  */
 export class AckRuntimeEventUseCase {
   constructor(
-    private readonly authorization: ProjectAuthorizationService,
+    private readonly authorization: RuntimeAuthorizationService,
     private readonly projectRepository: ProjectRepository,
     private readonly runtimeEventRepository: RuntimeEventRepository,
     private readonly clock: () => number,
   ) {}
 
-  async execute(principal: Principal, projectId: string, input: unknown): Promise<AckRuntimeEventResult> {
-    const consumerId = await this.authorization.requireRole(principal, projectId, ProjectRole.RUNTIME);
+  async execute(caller: Caller, projectId: string, input: unknown): Promise<AckRuntimeEventResult> {
+    const consumerId = await this.authorization.requireScope(caller, projectId, "runtime:event:ack");
     const { eventId, attemptId, outcome, reason } = parseRuntimeEventAckInput(input);
     if (!(await this.projectRepository.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);

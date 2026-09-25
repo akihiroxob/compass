@@ -20,7 +20,7 @@ Execution（Story / Task / Claim / Comment / Change Log）は旧 Wacha から移
 
 ## 基本方針
 
-- Principal は `Authorization: Bearer <AgentName>` から得る。tool 入力の `role` や `principalId` を認証情報として使わない
+- Principal は `Authorization: Bearer` の Agent Credential（Project の Administrator が Web UI から発行した `cmp_agent.<id>.<secret>`）から得る。tool 入力の `role` や `principalId` を認証情報として使わない
 - Role Grant は Principal と Project の組に永続化する。Grant は「この Principal がこの Project でその Role として振る舞ってよい」という認可の記録である
 - Role は選択・切替する状態ではない。各 tool が必要な Role を、呼び出しごとに Grant で検査する
 - Grant は Agent の起動、Run の所有、Agent の生存確認を意味しない。起動条件の監視と Agent の実行は外部 Runtime の責務であり、Compass は行わない
@@ -31,7 +31,11 @@ Execution（Story / Task / Claim / Comment / Change Log）は旧 Wacha から移
 
 ## 認証と信頼境界
 
-- Bearer の値はそのまま Principal になる（trusted-local）。秘密の検証はなく、セキュリティ境界ではない
+- remote mode では、Compass が発行した Agent Credential だけを受け付ける。Agent 名だけの Bearer・期限切れ・取消済み・不正な token は HTTP `401`
+- Agent Credential は発行した Project に束縛され、その Project の Role Grant で認可される。remote mode の `list_projects` は Grant の有る Project だけを返し、Project・Intent・Outcome・ADR 参照の読み取りにもその Project の何らかの Grant が要る
+- Runtime Credential（`cmp_runtime...`）は Agent 向け tool に使えない
+- token をログ・Comment・成果物に書かない。rotation 中は新旧の token が期限付きで併用できる
+- trusted-local mode（明示設定の local 開発用）だけは、Bearer の値がそのまま Principal になる。秘密の検証はなく、セキュリティ境界ではない
 - `Authorization` が有るのに形式が不正な場合、`/mcp` は HTTP `401` で拒否する。anonymous へ黙って降格しない
 - `get_role_instructions` は静的な文書の取得であり、Bearer も Grant も要らない
 
@@ -39,7 +43,7 @@ Execution（Story / Task / Claim / Comment / Change Log）は旧 Wacha から移
 
 | code | 意味 | Agent の動き |
 | --- | --- | --- |
-| `UNAUTHENTICATED` | Role が必要な tool を Bearer なしで呼んだ | Bearer を設定できないなら報告して停止する |
+| `UNAUTHENTICATED` | Role が必要な tool を Bearer なしで呼んだ（remote mode の無効な Credential は HTTP `401`） | Bearer を設定できないなら報告して停止する |
 | `FORBIDDEN` | 対象 Project の Grant が無い（別 Project・取消済み・存在しない Project を区別しない） | 権限の自己拡張を試みず、報告して停止する |
 | `VALIDATION_ERROR` | 入力が規則に反する（Direction の tool） | `issues` を読んで入力を直す |
 | `NOT_FOUND` / `CONFLICT` | 対象が無い、または現在の状態で許されない（archived な Project への新しい活動を含む） | 状態を再取得して判断する |

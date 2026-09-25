@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { UnauthenticatedError } from "../../application/error/UnauthenticatedError.ts";
-import type { Principal } from "../../application/service/ProjectAuthorizationService.ts";
+import { agentPrincipalOf, type Caller } from "../../application/service/RuntimeAuthorizationService.ts";
 import type { ApplicationServices } from "../../container.ts";
 import { StoryStatus } from "../../domain/model/execution/StoryStatus.ts";
 import { TaskStatus } from "../../domain/model/execution/TaskStatus.ts";
@@ -24,10 +24,12 @@ const taskStatusSchema = z.enum([
  * Execution（旧Wachaから移植したStory / Task / Claim）のtool。tool名・入力・結果は旧Wachaの契約を維持する。
  * `list_projects`・`get_role_instructions`は移植せず、Directionの既存toolを使う。
  * 認可・状態遷移・冪等性はapplication service（TaskCoordinationService）が持ち、ここはPrincipalを渡すだけ。
- * PrincipalなしはUNAUTHENTICATED（Bearerの値はAgent名で、tool入力からは受け取らない）。
+ * PrincipalなしはUNAUTHENTICATED（PrincipalはBearerのAgent Credential・trusted-localのAgent名から解決し、tool入力からは受け取らない）。
+ * Runtime Credentialは`list_changes`だけを`execution:change:read` scopeで呼べる。
  */
-export const registerExecutionTools = (server: McpServer, services: ApplicationServices, principal: Principal) => {
+export const registerExecutionTools = (server: McpServer, services: ApplicationServices, caller: Caller) => {
   const coordination = services.taskCoordinationService;
+  const principal = agentPrincipalOf(caller);
   const asPrincipal = <T>(operation: (principalId: string) => Promise<T>) =>
     execute(async () => {
       if (principal === null) throw new UnauthenticatedError();
@@ -85,7 +87,8 @@ export const registerExecutionTools = (server: McpServer, services: ApplicationS
       title: "List Changes",
       description:
         "Read append-only Execution changes of a Project after a durable cursor. An external Runtime keeps the cursor " +
-        "(nextCursor) and resumes from it; Compass does not track delivery.",
+        "(nextCursor) and resumes from it; Compass does not track delivery. Requires an Agent with any Role Grant in the Project, " +
+        "or a Runtime Credential of the Project with the execution:change:read scope.",
       inputSchema: {
         projectId: z.string().min(1),
         afterCursor: z.number().int().min(0).optional(),
@@ -93,7 +96,12 @@ export const registerExecutionTools = (server: McpServer, services: ApplicationS
       },
     },
     ({ projectId, afterCursor, limit }) =>
-      asPrincipal((principalId) => coordination.listChanges(principalId, projectId, afterCursor, limit)),
+      caller !== null && typeof caller === "object" && caller.kind === "runtime"
+        ? execute(async () => {
+            await services.runtimeAuthorizationService.requireScope(caller, projectId, "execution:change:read");
+            return coordination.listChangesOfProject(projectId, afterCursor, limit);
+          })
+        : asPrincipal((principalId) => coordination.listChanges(principalId, projectId, afterCursor, limit)),
   );
 
   server.registerTool(

@@ -2,12 +2,16 @@
 
 ## Goal
 
-外部 Runtime が、Compass の確定イベント（Runtime event）を取得し、Researcher・Strategist・Manager などの Agent を起動して、処理結果を `ack` で残す。Compass は Agent を起動せず、polling・timeout・retry の間隔・backoff・token 予算も持たない。これらは Runtime の責務である。`runtime` Role は Agent の権限ではなく、Runtime がこの入口を使ってよいという暫定の認可である（Runtime 専用 Credential の導入で置き換える予定）。
+外部 Runtime が、Compass の確定イベント（Runtime event）を取得し、Researcher・Strategist・Manager などの Agent を起動して、処理結果を `ack` で残す。Compass は Agent を起動せず、polling・timeout・retry の間隔・backoff・token 予算も持たない。これらは Runtime の責務である。Runtime は Agent の Role Grant ではなく、Project の Administrator が Web UI から発行した Runtime Credential の scope で認可される。
 
 ## 認証
 
-- `Authorization: Bearer <RuntimeName>` の値が consumer になる。consumer ごとに処理結果（ack）が独立して記録される。別 consumer の ack は互いに影響しない
-- 対象 Project の `runtime` Grant が必要。無ければ `FORBIDDEN`、Bearer が無ければ `UNAUTHENTICATED` になる。別 Project へ切り替えて回避しない
+- `Authorization: Bearer cmp_runtime.<id>.<secret>`（Runtime Credential）を送る。Credential に登録された Runtime 名が consumer になり、consumer ごとに処理結果（ack）が独立して記録される。別 consumer の ack は互いに影響しない
+- Credential は発行した Project だけで有効。入口ごとに scope が必要: `fetch_runtime_events` は `runtime:event:read`、`ack_runtime_event` は `runtime:event:ack`、`list_changes` は `execution:change:read`、`record_execution_evidence` は `execution:evidence:write`、`get_outcome_execution_summary` は `execution:summary:read`。不足・別 Project・Agent Credential は `FORBIDDEN`、Bearer なし・期限切れ・取消済み・不正な token は `UNAUTHENTICATED`。別 Project へ切り替えたり scope を増やそうとしたりせず、報告して停止する
+- Runtime Credential では Agent 向け tool（Role Grant で認可するもの）を使えない
+- rotation 中は新旧の token が期限付きで併用できる。新しい token へ切り替え、旧 token の期限前に設定を更新する
+- token をログ・Evidence・Comment に書かない
+- trusted-local mode（明示設定の local 開発用）だけは、従来どおり `Authorization: Bearer <RuntimeName>` と Project の `runtime` Grant でも呼べる。remote mode では Runtime 名だけの Bearer は `401`
 
 ## イベントの取得
 
@@ -66,13 +70,13 @@ Execution の進行を Direction（Outcome）へ還流するのは Runtime の�
 - 同じ通知・同じ Evidence の再送は重複しない（`recorded.evidenceAdded: 0`）。応答が失われたら同じ内容を再送してよい。古い `changeCursor`（順序逆転）は状態を巻き戻さず、現在の状態が返る（`recorded.staleInput: true`）。Runtime 再起動後は保持した cursor（失った場合は 0）から再取得して再送してよい
 - `NOT_FOUND`（別 Project・存在しない Outcome）、`CONFLICT`（Story 未着手 `reason: no_correlated_story`・取消済み Outcome・archived Project・Evidence 上限 200 件）、`VALIDATION_ERROR`（不正な URI / SHA / 時刻、Change Log より先の `changeCursor`）。未着手の `CONFLICT` は Manager の `issue_story` 後に再試行できる。それ以外は再試行しても成功しないため、理由を残して打ち切る
 - 還流済みの内容は `get_outcome_execution_summary({ projectId, outcomeId })` で確認できる（未還流は `record: null`）
-- どちらも `runtime` Grant が必要
+- `execution:evidence:write` / `execution:summary:read` scope が必要
 
 ## やらないこと
 
 - Agent の起動状況・Run の生存を Compass に登録すること（Compass は Run を持たない）
 - Outcome・Direction Decision・Research の内容を決めること
-- 自分の権限（Grant）を増やすこと
+- 自分の権限（scope・Credential）を増やすこと
 
 ## Evaluation 後の扱い（`outcome_evaluated`）
 

@@ -1,6 +1,6 @@
 # Step 6: Human認証・Project Membership・招待制 設計
 
-> **状態: 設計（確定、Task 39）。永続化（domain・repository・schema・application use case）はTask 40、Google OIDC・Web Session・`/auth/*`・`/api/auth/*`・CSRF検査・設定のfail-fastはTask 41で実装済み。既存のHuman向けWeb APIへのSession・Membership認可の適用はTask 42、ログイン・招待・Membership管理の画面はTask 43で実装済み。MCPのremote modeでのHuman Command非公開・匿名呼出しの制限はTask 42で実装済み、Agent Credentialによる認証・参照系のGrant検査（Task 37）は未接続。** 実HTTP統合検証と運用文書はTask 44で行う。
+> **状態: 設計（確定、Task 39）。永続化（domain・repository・schema・application use case）はTask 40、Google OIDC・Web Session・`/auth/*`・`/api/auth/*`・CSRF検査・設定のfail-fastはTask 41で実装済み。既存のHuman向けWeb APIへのSession・Membership認可の適用はTask 42、ログイン・招待・Membership管理の画面はTask 43で実装済み。MCPのremote modeでのHuman Command非公開・匿名呼出しの制限はTask 42、Agent / Runtime Credentialによる認証・参照系のGrant検査はTask 37で実装済み（下記「実装記録（Task 37）」）。** 実HTTP統合検証と運用文書はTask 44で行う。
 > 事前のユーザー確認は設けない。親Storyに定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選び、理由を「選択理由と将来変更できる箇所」に記録する。
 
 ## 根拠資料と優先順位
@@ -324,7 +324,7 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 - **Step 5との順序**: Web APIでは、存在しないProjectへのarchive等は入力検証より先にMembership認可で `404` になる（Step 5のAC-4「入力検証は存在確認より先」はuse case単体・MCP・CLIでの順序として維持）。
 - **既存テスト**: `test/support/humanSession.ts` のfixture（DBへHuman・Sessionを直接作る。OIDC検証は省略しない本番経路とは別）へ移行した。既存テストのappは、owner不在のProjectへfixtureのHumanのowner Membershipを補う（platform ownerのorphan補完に相当）。
 - **MCP（レビュー差戻し対応）**: `createMcpServer` は `createApp` の `humanAuth.mode` を受け取る。remote modeでは適用表のHuman管理・入力Command（`create_project`・`update_project`・`create_intent`・`update_intent`・`abandon_intent`）を登録せず、Authorization無しの呼出しには `get_role_instructions` だけを登録する（他toolは未知toolとして拒否。`UNAUTHENTICATED` への置換はTask 37で可）。trusted-localは従来どおり。回帰テストは `test/remoteMcpHumanCommands.test.ts`（匿名・Bearer付きのtools/list、各Commandの拒否とDB不変、trusted-localの登録維持）。
-- **未実施（Task 37）**: remote modeでもBearerのAgent名自己申告は受け付けるため、任意のBearer名でDirection参照tool・`list_projects` をGrant無しで呼べる。Agent Credentialの検証、参照系のGrant検査、`list_projects` のGrant絞り込み、Agent / Runtime Credential管理のWeb API（`administrator`）はTask 37。Web UIのSession復元・CSRF header付与・ログイン画面はTask 43で実装した。
+- **Task 37で解消**: remote modeのAgent名自己申告は `401` で拒否し、Agent Credentialの検証、参照系のGrant検査、`list_projects` のGrant絞り込み、Agent / Runtime Credential管理のWeb API（`administrator`）を実装した（下記「実装記録（Task 37）」）。Web UIのSession復元・CSRF header付与・ログイン画面はTask 43で実装した。
 
 ## 実装記録（Task 43）
 
@@ -359,3 +359,17 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 ## 対象外
 
 Organization / Team、Google以外のProvider（adapter境界だけ保つ）、Passkey・多要素認証の自前実装、公開signup、課金、招待メールの送信、Human無効化・退出のUI、Human操作のactor監査ログ（Membership・招待の作成者 / 取消者以外）、Agent / Runtime Credential（Task 37）。
+
+## 実装記録（Task 37: Agent・Runtime Credential）
+
+- **形式**: `cmp_<agent|runtime>.<credentialId>.<secret>`。secretは256bit乱数（base64url）。保存は `access_credential`（id、project_id、kind、principal_id、scopes_json、prefix、secret_hash（SHA-256）、expires_at、revoked_at / revoked_by、last_used_at（60秒単位で更新）、created_at / created_by、rotated_from_id）。tokenは発行・rotationの応答（`no-store`）で一度だけ返す。
+- **認証**: `resolveCaller`（presentation）が `cmp_` で始まるBearerを `AuthenticateAccessCredentialUseCase` で検証する。未知ID・hash不一致・種別違い・期限切れ・取消済みは理由を区別せず `UNAUTHENTICATED`。remote modeでは `cmp_` 以外のBearerを `UNAUTHENTICATED`（trusted-localへ降格しない）。trusted-localは従来のAgent名も受け付けるが、`cmp_` 形式はCredentialとして検証する。Session Cookieは `/mcp`・Runtime向けAPIで読まない。
+- **呼出し主体**: application層の `Caller` = trusted-localのAgent名（string）| Agent Credential | Runtime Credential | null。Agent向けtoolは `agentPrincipalOf` でPrincipalを得てRole Grantで認可し（Runtime CredentialはPrincipalなし → `UNAUTHENTICATED`）、Runtime向けの入口は `RuntimeAuthorizationService.requireScope` で発行Project・scopeを検査する（Agent Credential・別Project・scope不足は `FORBIDDEN`、trusted-localのAgent名だけ暫定 `runtime` Grant）。
+- **scope（初期選択）**: `runtime:event:read`、`runtime:event:ack`、`execution:change:read`（`list_changes`）、`execution:evidence:write`、`execution:summary:read`。Runtimeが現在使う入口に1対1で対応させた。
+- **Project束縛（初期選択）**: Grantの多くのcheckがProject IDとPrincipal IDで行われ（Execution含む）、Credentialの発行Projectをすべての検査へ渡すと変更範囲が大きいため、「Agent Credentialを持つPrincipalは、そのProjectでしかGrant・有効なAgent Credentialを持てない」不変条件をrepositoryの同一transactionで保つ（Credential発行時に別ProjectのGrant・Credentialがあれば、Grant発行時に別Projectの有効なAgent Credentialがあれば `409 PRINCIPAL_BOUND_ELSEWHERE`）。別ProjectのAdministratorが同名PrincipalのCredentialを発行して他Projectの権限を得ることを防ぐ。Runtime CredentialはGrantを使わず発行Projectで検査するため束縛しない。
+- **rotation**: 同じkind・Principal・scopesの新Credentialを発行し、旧Credentialの期限を `now + graceHours`（既定24、0〜168）まで縮める（延ばさない）。取消済み・期限切れはrotationできない（`409 CREDENTIAL_NOT_ACTIVE`）。
+- **Web UI**: Project詳細の「Agent・Runtime Credential」（Administrator以上だけ表示）。一覧・発行・rotation（併用期間を選択）・取消、tokenは発行直後だけ表示。Runtime Grant sectionは削除した（`runtime` Grantは trusted-local の開発用としてWeb API / CLIに残す）。archivedでは一覧と取消だけ。
+- **MCP（remote）**: 適用表どおり、`list_projects` はGrantの有るProjectだけ、Direction参照toolはいずれかのGrantを要求。Human管理・入力Commandの非登録と匿名時の `get_role_instructions` だけの公開はTask 42のまま。
+- **CORS**: Bearerで呼ぶ `/mcp`・Runtime向けAPIは `origin: "*"` を維持した。CookieではなくBearerで認証するため、他originのページからHuman Sessionを使った呼出しにならない。
+- **検証**: `test/accessCredential.test.ts`（発行・一覧のRole、secretのDB非保存、Agent / Runtimeの認可経路、期限切れ・取消・改ざん・未知ID・種別違い、rotation併用、remoteのAgent名拒否とtrusted-local、Project束縛、archived、再起動後の保持）、`test/credentialUi.test.ts`、`test/remoteMcpHumanCommands.test.ts`（remoteのBearerをAgent Credentialへ移行）。
+- **未接続・未検証**: 実Runtime・Agentからの利用、実HTTP server上での統合検証（Task 38・44）。ログへのtoken非出力は、request logがpathだけでAuthorizationを記録しないことと、エラー応答にtokenを含めないテストで確認した（log出力そのものの捕捉テストは無い）。

@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { directionDecisionRecordTypes } from "../../domain/model/DirectionDecision.ts";
 import { ProjectRole, projectRoles } from "../../constants/ProjectRole.ts";
-import type { Principal } from "../../application/service/ProjectAuthorizationService.ts";
+import { agentPrincipalOf, type Caller } from "../../application/service/RuntimeAuthorizationService.ts";
 import type { AuthMode } from "../http/humanAuthConfig.ts";
 import type { ApplicationServices } from "../../container.ts";
 import { registerExecutionTools } from "./registerExecutionTools.ts";
@@ -201,15 +201,25 @@ const outcomeEvaluationSchema = {
   ),
 };
 
-/** principalはAuthorizationヘッダーから解決した値だけ。tool入力やsession IDは認証情報として読まない。 */
+/**
+ * callerはAuthorizationヘッダーから解決した値だけ。tool入力やsession IDは認証情報として読まない。
+ * Agent向けtoolはRole Grantで（Runtime Credentialは種別違いのためPrincipalなし）、Runtime向けtoolはscopeで認可する。
+ */
 export const createMcpServer = (
   services: ApplicationServices,
-  principal: Principal = null,
+  caller: Caller = null,
   /** 認証mode。remoteではHuman管理・入力toolを登録せず、匿名にはRole文書だけを見せる。 */
   options: { mode?: AuthMode } = {},
 ) => {
   const remote = options.mode === "remote";
+  const principal = agentPrincipalOf(caller);
   const authorization = services.projectAuthorizationService;
+  const runtimeAuthorization = services.runtimeAuthorizationService;
+  // Direction参照tool。remote modeでは対象Projectのいずれかのgrantを要求し、Grantの無いProjectを読ませない。
+  const asGrantedReader = async <T>(projectId: string, operation: () => Promise<T>) => {
+    if (remote) await authorization.requireAnyRole(principal, projectId);
+    return operation();
+  };
   // 検査の規則はapplication serviceが持つ。handlerはPrincipalとprojectIdを渡すだけ。
   const asStrategist = <T>(projectId: string, operation: () => Promise<T>) =>
     authorization.asRole(principal, projectId, ProjectRole.STRATEGIST, operation);
@@ -245,8 +255,8 @@ export const createMcpServer = (
       },
       ({ role, includeShared }) => execute(() => services.instructionService.getRoleInstructions(role, includeShared)),
     );
-  // remote modeの匿名呼出しはRole文書以外を登録しない（未知toolとして拒否）。Agent Credentialの検証はTask 37。
-  if (remote && principal === null) {
+  // remote modeの匿名呼出しはRole文書以外を登録しない（未知toolとして拒否）。Credentialの検証はapp（resolveCaller）が行う。
+  if (remote && caller === null) {
     registerRoleInstructions();
     return server;
   }
@@ -272,8 +282,19 @@ export const createMcpServer = (
   );
   server.registerTool(
     "list_projects",
-    { title: "List Projects", description: "List Compass Projects.", inputSchema: {} },
-    () => execute(async () => ({ projects: await services.listProjectsUseCase.execute() })),
+    {
+      title: "List Projects",
+      description:
+        "List Compass Projects. In remote mode only the Projects where the calling Agent Credential's Principal has a Role Grant are listed.",
+      inputSchema: {},
+    },
+    () =>
+      execute(async () => {
+        const projects = await services.listProjectsUseCase.execute();
+        if (!remote) return { projects };
+        const granted = new Set(await authorization.listGrantedProjectIds(principal));
+        return { projects: projects.filter((project) => granted.has(project.id)) };
+      }),
   );
   server.registerTool(
     "get_project",
@@ -282,7 +303,7 @@ export const createMcpServer = (
       description: "Get a Compass Project by ID.",
       inputSchema: { projectId: z.string().min(1) },
     },
-    ({ projectId }) => execute(() => services.getProjectUseCase.execute(projectId)),
+    ({ projectId }) => execute(() => asGrantedReader(projectId, () => services.getProjectUseCase.execute(projectId))),
   );
 
   if (!remote) server.registerTool(
@@ -305,7 +326,7 @@ export const createMcpServer = (
       inputSchema: { projectId: z.string().min(1) },
     },
     ({ projectId }) =>
-      execute(async () => ({ intents: await services.listIntentsUseCase.execute(projectId) })),
+      execute(() => asGrantedReader(projectId, async () => ({ intents: await services.listIntentsUseCase.execute(projectId) }))),
   );
   server.registerTool(
     "get_intent",
@@ -314,7 +335,8 @@ export const createMcpServer = (
       description: "Get an Intent by ID within a Project.",
       inputSchema: { projectId: z.string().min(1), intentId: z.string().min(1) },
     },
-    ({ projectId, intentId }) => execute(() => services.getIntentUseCase.execute(projectId, intentId)),
+    ({ projectId, intentId }) =>
+      execute(() => asGrantedReader(projectId, () => services.getIntentUseCase.execute(projectId, intentId))),
   );
   if (!remote) server.registerTool(
     "update_intent",
@@ -413,7 +435,11 @@ export const createMcpServer = (
       inputSchema: { projectId: z.string().min(1), intentId: z.string().min(1) },
     },
     ({ projectId, intentId }) =>
-      execute(async () => ({ outcomes: await services.listOutcomesUseCase.execute(projectId, intentId) })),
+      execute(() =>
+        asGrantedReader(projectId, async () => ({
+          outcomes: await services.listOutcomesUseCase.execute(projectId, intentId),
+        })),
+      ),
   );
   server.registerTool(
     "get_outcome",
@@ -423,7 +449,11 @@ export const createMcpServer = (
       inputSchema: { projectId: z.string().min(1), intentId: z.string().min(1), outcomeId: z.string().min(1) },
     },
     ({ projectId, intentId, outcomeId }) =>
-      execute(async () => ({ outcome: await services.getOutcomeUseCase.execute(projectId, intentId, outcomeId) })),
+      execute(() =>
+        asGrantedReader(projectId, async () => ({
+          outcome: await services.getOutcomeUseCase.execute(projectId, intentId, outcomeId),
+        })),
+      ),
   );
   server.registerTool(
     "update_outcome",
@@ -582,7 +612,9 @@ export const createMcpServer = (
       inputSchema: { projectId: z.string().min(1) },
     },
     ({ projectId }) =>
-      execute(async () => ({ references: await services.listAdrReferencesUseCase.execute(projectId) })),
+      execute(() =>
+        asGrantedReader(projectId, async () => ({ references: await services.listAdrReferencesUseCase.execute(projectId) })),
+      ),
   );
 
   server.registerTool(
@@ -697,14 +729,15 @@ export const createMcpServer = (
         "persist it: to resume after a Runtime restart, persist resumeCursor (every event at or below it is processed or terminally " +
         "failed for this consumer) and pass it as afterCursor. Events in retryable_failure keep being returned with retryCount " +
         "and lastFailureReason; polling interval, backoff and Agent launching are the Runtime's responsibility. " +
-        "Requires Authorization: Bearer <RuntimeName> with a runtime Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+        "Requires a Runtime Credential (Authorization: Bearer cmp_runtime...) of the Project with the runtime:event:read scope; in trusted-local mode " +
+        "Bearer <RuntimeName> with a runtime Grant is also accepted (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: {
         projectId: z.string().min(1),
         afterCursor: z.number().optional(),
         limit: z.number().optional(),
       },
     },
-    ({ projectId, ...query }) => execute(() => services.fetchRuntimeEventsUseCase.execute(principal, projectId, query)),
+    ({ projectId, ...query }) => execute(() => services.fetchRuntimeEventsUseCase.execute(caller, projectId, query)),
   );
   server.registerTool(
     "ack_runtime_event",
@@ -720,7 +753,8 @@ export const createMcpServer = (
         "reusing an attemptId of the event with a different outcome or reason fails with CONFLICT. Use a new attemptId for each new attempt. " +
         "Sending the same outcome again for an event already processed or terminally failed is idempotent (recorded: false); a different outcome for an event already " +
         "processed or terminally failed fails with CONFLICT. An event of another Project fails with NOT_FOUND. " +
-        "Requires Authorization: Bearer <RuntimeName> with a runtime Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+        "Requires a Runtime Credential (Authorization: Bearer cmp_runtime...) of the Project with the runtime:event:ack scope; in trusted-local mode " +
+        "Bearer <RuntimeName> with a runtime Grant is also accepted (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: {
         projectId: z.string().min(1),
         eventId: z.string().min(1),
@@ -729,7 +763,7 @@ export const createMcpServer = (
         reason: z.string().optional(),
       },
     },
-    ({ projectId, ...input }) => execute(() => services.ackRuntimeEventUseCase.execute(principal, projectId, input)),
+    ({ projectId, ...input }) => execute(() => services.ackRuntimeEventUseCase.execute(caller, projectId, input)),
   );
 
   server.registerTool(
@@ -746,7 +780,8 @@ export const createMcpServer = (
         "and a changeCursor ahead of the Execution change log is rejected with VALIDATION_ERROR. An Outcome of another Project fails with NOT_FOUND; " +
         "an Outcome without a correlated Story yet, a cancelled Outcome or an archived Project fails with CONFLICT. " +
         "Accepted Execution does not mean a Success Criterion is met: that is decided by the Evaluation. " +
-        "Requires Authorization: Bearer <RuntimeName> with a runtime Grant in the Project (UNAUTHENTICATED / FORBIDDEN otherwise).",
+        "Requires a Runtime Credential (Authorization: Bearer cmp_runtime...) of the Project with the execution:evidence:write scope; in trusted-local mode " +
+        "Bearer <RuntimeName> with a runtime Grant is also accepted (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: {
         projectId: z.string().min(1),
         outcomeId: z.string().min(1),
@@ -764,7 +799,7 @@ export const createMcpServer = (
       },
     },
     ({ projectId, outcomeId, ...input }) =>
-      execute(() => services.recordExecutionEvidenceUseCase.execute(principal, projectId, outcomeId, input)),
+      execute(() => services.recordExecutionEvidenceUseCase.execute(caller, projectId, outcomeId, input)),
   );
   server.registerTool(
     "get_outcome_execution_summary",
@@ -774,16 +809,16 @@ export const createMcpServer = (
         "Read the Execution result and Evidence references already reflected into an Outcome by record_execution_evidence " +
         "(record is null before the first reflection). It returns the state, the per-Story result with Task counts, the Execution change " +
         "cursor the state reflects (executionCursor), the highest cursor the Runtime reported (observedCursor) and the Evidence references " +
-        "(uri, versionHash, observedAt, sourceChangeCursor). Requires Authorization: Bearer <RuntimeName> with a runtime Grant in the Project " +
-        "(UNAUTHENTICATED / FORBIDDEN otherwise).",
+        "(uri, versionHash, observedAt, sourceChangeCursor). " +
+        "Requires a Runtime Credential (Authorization: Bearer cmp_runtime...) of the Project with the execution:summary:read scope; in trusted-local mode " +
+        "Bearer <RuntimeName> with a runtime Grant is also accepted (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: { projectId: z.string().min(1), outcomeId: z.string().min(1) },
     },
     ({ projectId, outcomeId }) =>
-      execute(() =>
-        authorization.asRole(principal, projectId, ProjectRole.RUNTIME, async () => ({
-          record: await services.getExecutionSummaryUseCase.execute(projectId, outcomeId),
-        })),
-      ),
+      execute(async () => {
+        await runtimeAuthorization.requireScope(caller, projectId, "execution:summary:read");
+        return { record: await services.getExecutionSummaryUseCase.execute(projectId, outcomeId) };
+      }),
   );
 
   server.registerTool(
@@ -828,7 +863,7 @@ export const createMcpServer = (
       execute(() => services.recordOutcomeEvaluationUseCase.execute(principal, projectId, outcomeId, input)),
   );
 
-  registerExecutionTools(server, services, principal);
+  registerExecutionTools(server, services, caller);
 
   return server;
 };

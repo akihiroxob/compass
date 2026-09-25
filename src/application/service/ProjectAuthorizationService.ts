@@ -25,6 +25,21 @@ export class ProjectAuthorizationService {
     return principal;
   }
 
+  /** いずれかのRole Grantを要求する（remote modeのDirection参照tool）。Grant無しはFORBIDDEN。 */
+  async requireAnyRole(principal: Principal, projectId: string): Promise<string> {
+    if (principal === null) throw new UnauthenticatedError();
+    if (!(await this.projectGrantRepository.hasAnyRole(projectId, principal))) {
+      throw new ForbiddenError("Principal does not have any Role Grant in this Project", { projectId });
+    }
+    return principal;
+  }
+
+  /** いずれかのRole Grantを持つProjectのID（remote modeの`list_projects`）。 */
+  async listGrantedProjectIds(principal: Principal): Promise<string[]> {
+    if (principal === null) throw new UnauthenticatedError();
+    return this.projectGrantRepository.listProjectIds(principal);
+  }
+
   /**
    * 職務分離の誤用防止。そのRoleのGrantを持つPrincipalだけを拒否し、Principalなし・Grantなしは通す（管理面との互換）。
    * Agent名を変えれば回避できるため、trusted-localでは構造上の保証（Role用toolに該当操作が無いこと）が本体になる。

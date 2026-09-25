@@ -502,6 +502,25 @@ export type ProjectInvitationTable = {
   revoked_at: number | null;
 };
 
+/** Agent・Runtime向けCredential（Task 37）。secretは平文を持たずSHA-256だけを保存する。 */
+export type AccessCredentialTable = {
+  id: string;
+  project_id: string;
+  kind: "agent" | "runtime";
+  principal_id: string;
+  /** Runtime scopeの配列のJSON。agentは`[]`。 */
+  scopes_json: string;
+  prefix: string;
+  secret_hash: string;
+  expires_at: number;
+  revoked_at: number | null;
+  revoked_by_human_user_id: string | null;
+  last_used_at: number | null;
+  created_at: number;
+  created_by_human_user_id: string;
+  rotated_from_id: string | null;
+};
+
 export type Database = {
   project: ProjectTable;
   project_principle: OrderedTextTable;
@@ -543,6 +562,7 @@ export type Database = {
   auth_login_attempt: AuthLoginAttemptTable;
   project_membership: ProjectMembershipTable;
   project_invitation: ProjectInvitationTable;
+  access_credential: AccessCredentialTable;
 };
 
 export type DatabaseMetadata = Generated<number>;

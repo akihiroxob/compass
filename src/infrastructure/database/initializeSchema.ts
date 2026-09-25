@@ -985,6 +985,40 @@ const initializeHumanAuthSchema = async (database: Kysely<Database>): Promise<vo
     on project_invitation (project_id, email) where status = 'pending'`.execute(database);
 };
 
+/** Agent・Runtime向けCredential（Task 37）。既存tableは変更しない。 */
+const initializeAccessCredentialSchema = async (database: Kysely<Database>) => {
+  await database.schema
+    .createTable("access_credential")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("kind", "text", (column) => column.notNull().check(sql`kind in ('agent', 'runtime')`))
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("scopes_json", "text", (column) => column.notNull())
+    .addColumn("prefix", "text", (column) => column.notNull())
+    .addColumn("secret_hash", "text", (column) => column.notNull().unique())
+    .addColumn("expires_at", "integer", (column) => column.notNull())
+    .addColumn("revoked_at", "integer")
+    .addColumn("revoked_by_human_user_id", "text", (column) => column.references("human_user.id"))
+    .addColumn("last_used_at", "integer")
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addColumn("created_by_human_user_id", "text", (column) => column.notNull().references("human_user.id"))
+    .addColumn("rotated_from_id", "text", (column) => column.references("access_credential.id"))
+    .execute();
+  await database.schema
+    .createIndex("access_credential_project_idx")
+    .ifNotExists()
+    .on("access_credential")
+    .column("project_id")
+    .execute();
+  await database.schema
+    .createIndex("access_credential_principal_idx")
+    .ifNotExists()
+    .on("access_credential")
+    .columns(["kind", "principal_id"])
+    .execute();
+};
+
 export const initializeSchema = async (database: Kysely<Database>): Promise<void> => {
   await database.schema
     .createTable("project")
@@ -1153,5 +1187,6 @@ export const initializeSchema = async (database: Kysely<Database>): Promise<void
   await addDirectionDecisionEvaluationColumn(database);
   await initializeExecutionSchema(database);
   await initializeHumanAuthSchema(database);
+  await initializeAccessCredentialSchema(database);
   await backfillInitialResearchRequests(database);
 };

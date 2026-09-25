@@ -5,7 +5,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { fileURLToPath } from "node:url";
 import { createMcpServer } from "./presentation/mcp/createMcpServer.ts";
-import { MalformedAuthorizationError, resolvePrincipal } from "./presentation/mcp/resolvePrincipal.ts";
+import { MalformedAuthorizationError, resolveCaller } from "./presentation/mcp/resolvePrincipal.ts";
 import { ConflictError } from "./application/error/ConflictError.ts";
 import { ForbiddenError } from "./application/error/ForbiddenError.ts";
 import { NotFoundError } from "./application/error/NotFoundError.ts";
@@ -55,6 +55,11 @@ export const createApp = (
   // trusted-localのCookie名とloopbackのoriginで検査する（認証routeは登録しないため、Sessionは作れない）。
   const humanAuth = options.humanAuth ?? { mode: "trusted-local", publicOrigin: "http://localhost" };
   const actorOf = async (c: Context) => (await requireHumanSession(c, services, humanAuth)).actor;
+  // MCP・Runtime向けAPIの呼出し主体（Task 37）。Session Cookieは読まず、BearerのCredential（trusted-localだけAgent名も）で解決する。
+  const callerOf = (c: Context) =>
+    resolveCaller(c.req.header("Authorization") ?? null, humanAuth.mode, (token) =>
+      services.authenticateAccessCredentialUseCase.execute(token),
+    );
   const { human } = services;
 
   // 作成者を同一transactionでowner Membershipにする。
@@ -231,7 +236,7 @@ export const createApp = (
   app.get("/api/projects/:projectId/adr-references", async (c) =>
     c.json({ references: await human.listAdrReferences.execute(await actorOf(c), c.req.param("projectId")) }),
   );
-  // 外部Runtime向け。consumerはBearerのPrincipalで、runtime Grantを持つProjectのイベントだけを扱う。
+  // 外部Runtime向け。consumerはRuntime Credentialの名前（trusted-localだけBearerのAgent名とruntime Grant）で、発行Projectのイベントだけを扱う。
   // Session Cookieでは認可しない（Human Membershipと混同しない）。
   // 認可・cursor・ackの規則は、MCPと同じapplication層のuse caseが持つ。
   const queryNumber = (value: string | undefined) =>
@@ -239,16 +244,16 @@ export const createApp = (
   app.get("/api/projects/:projectId/runtime-events", async (c) =>
     c.json(
       await services.fetchRuntimeEventsUseCase.execute(
-        resolvePrincipal(c.req.header("Authorization") ?? null),
+        await callerOf(c),
         c.req.param("projectId"),
         { afterCursor: queryNumber(c.req.query("afterCursor")), limit: queryNumber(c.req.query("limit")) },
       ),
     ),
   );
   app.post("/api/projects/:projectId/runtime-events/:eventId/ack", async (c) => {
-    const principal = resolvePrincipal(c.req.header("Authorization") ?? null);
+    const caller = await callerOf(c);
     const input = await readJsonBody(c.req.raw, "Runtime event ack");
-    const result = await services.ackRuntimeEventUseCase.execute(principal, c.req.param("projectId"), {
+    const result = await services.ackRuntimeEventUseCase.execute(caller, c.req.param("projectId"), {
       ...(typeof input === "object" && input !== null ? input : {}),
       eventId: c.req.param("eventId"),
     });
@@ -256,11 +261,11 @@ export const createApp = (
   });
   // ExecutionからDirectionへの還流（Runtime）。結果はExecutionの現在の状態から導出し、Runtimeが渡すのはEvidence参照とcursorだけ。
   app.post("/api/projects/:projectId/outcomes/:outcomeId/execution-evidence", async (c) => {
-    const principal = resolvePrincipal(c.req.header("Authorization") ?? null);
+    const caller = await callerOf(c);
     const input = await readJsonBody(c.req.raw, "Execution evidence");
     return c.json(
       await services.recordExecutionEvidenceUseCase.execute(
-        principal,
+        caller,
         c.req.param("projectId"),
         c.req.param("outcomeId"),
         input,
@@ -329,21 +334,58 @@ export const createApp = (
     );
     return c.json({ invitation });
   });
+  // Agent / Runtime Credential（Task 37）。Administrator以上。secretは発行・rotationの応答で一度だけ返す。
+  const credentialsPath = "/api/projects/:projectId/credentials";
+  app.get(credentialsPath, async (c) =>
+    c.json({
+      credentials: await services.listAccessCredentialsUseCase.execute(await actorOf(c), c.req.param("projectId")),
+    }),
+  );
+  app.post(credentialsPath, async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Credential");
+    const issued = await services.issueAccessCredentialUseCase.execute(actor, c.req.param("projectId"), input);
+    c.header("Cache-Control", "no-store");
+    return c.json(issued, 201);
+  });
+  app.post(`${credentialsPath}/:credentialId/rotate`, async (c) => {
+    const actor = await actorOf(c);
+    const hasBody = (await c.req.raw.clone().text()).trim() !== "";
+    const input = hasBody ? await readJsonBody(c.req.raw, "Credential") : {};
+    const rotated = await services.rotateAccessCredentialUseCase.execute(
+      actor,
+      c.req.param("projectId"),
+      c.req.param("credentialId"),
+      input,
+    );
+    c.header("Cache-Control", "no-store");
+    return c.json(rotated, 201);
+  });
+  app.delete(`${credentialsPath}/:credentialId`, async (c) => {
+    const actor = await actorOf(c);
+    const credential = await services.revokeAccessCredentialUseCase.execute(
+      actor,
+      c.req.param("projectId"),
+      c.req.param("credentialId"),
+    );
+    return c.json({ credential });
+  });
   app.all("/api/*", (c) => c.json({ error: { code: "NOT_FOUND", message: "Not Found" } }, 404));
 
   app.all("/mcp", async (c) => {
-    // Principalはこのrequestのヘッダーだけから解決する（MCPはstateless）。形式不正はtoolへ進めず401にする。
-    let principal;
+    // 呼出し主体はこのrequestのヘッダーだけから解決する（MCPはstateless）。形式不正・無効なCredential・
+    // remote modeのAgent名Bearerはtoolへ進めず401にする。
+    let caller;
     try {
-      principal = resolvePrincipal(c.req.header("Authorization") ?? null);
+      caller = await callerOf(c);
     } catch (error) {
-      if (!(error instanceof MalformedAuthorizationError)) throw error;
+      if (!(error instanceof MalformedAuthorizationError || error instanceof UnauthenticatedError)) throw error;
       return c.json({ jsonrpc: "2.0", error: { code: -32001, message: error.message }, id: null }, 401);
     }
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
-    const server = createMcpServer(services, principal, { mode: humanAuth.mode });
+    const server = createMcpServer(services, caller, { mode: humanAuth.mode });
     await server.connect(transport);
     return transport.handleRequest(c.req.raw);
   });

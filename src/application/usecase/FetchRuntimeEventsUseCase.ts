@@ -1,10 +1,9 @@
-import { ProjectRole } from "../../constants/ProjectRole.ts";
 import type { RuntimeEventFetch } from "../../domain/model/RuntimeEventDelivery.ts";
 import type { ProjectRepository } from "../../domain/repository/ProjectRepository.ts";
 import type { RuntimeEventRepository } from "../../domain/repository/RuntimeEventRepository.ts";
 import { parseRuntimeEventQuery } from "../../shared/runtimeEventSchema.ts";
 import { NotFoundError } from "../error/NotFoundError.ts";
-import type { Principal, ProjectAuthorizationService } from "../service/ProjectAuthorizationService.ts";
+import type { Caller, RuntimeAuthorizationService } from "../service/RuntimeAuthorizationService.ts";
 
 /**
  * 外部Runtimeが、自分（consumer）にとって未処理のイベントをcursor付きで取得する。
@@ -15,14 +14,14 @@ import type { Principal, ProjectAuthorizationService } from "../service/ProjectA
  */
 export class FetchRuntimeEventsUseCase {
   constructor(
-    private readonly authorization: ProjectAuthorizationService,
+    private readonly authorization: RuntimeAuthorizationService,
     private readonly projectRepository: ProjectRepository,
     private readonly runtimeEventRepository: RuntimeEventRepository,
   ) {}
 
-  async execute(principal: Principal, projectId: string, input: unknown = {}): Promise<RuntimeEventFetch> {
+  async execute(caller: Caller, projectId: string, input: unknown = {}): Promise<RuntimeEventFetch> {
     // 認可はProjectの存在確認より先。Grantを持たないPrincipalへProjectの存在有無を漏らさない。
-    const consumerId = await this.authorization.requireRole(principal, projectId, ProjectRole.RUNTIME);
+    const consumerId = await this.authorization.requireScope(caller, projectId, "runtime:event:read");
     const query = parseRuntimeEventQuery(input);
     if (!(await this.projectRepository.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);

@@ -10,7 +10,7 @@ export const ProjectRole = {
   REVIEWER: "reviewer",
   /** Outcomeの固定Success Criteriaを、Execution Evidenceの観測結果で判定する。Outcome定義・Execution結果は変更できない。 */
   EVALUATOR: "evaluator",
-  /** 外部Runtimeがイベントを取得・ackするための暫定Role。Task 37でRuntime Credentialのscopeへ置き換える。 */
+  /** trusted-localのAgent名Bearerで外部Runtimeの入口を使うための開発用Role。remote modeではRuntime Credentialのscopeで認可する（Task 37）。 */
   RUNTIME: "runtime",
 } as const;
 

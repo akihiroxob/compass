@@ -233,6 +233,8 @@ export const humanProjectPermissions = {
   "direction.write": "editor",
   "project.update": "administrator",
   "grant.manage": "administrator",
+  /** Agent / Runtime Credentialの発行・rotation・取消・一覧（Task 37）。 */
+  "credential.manage": "administrator",
   "project.archive": "owner",
   "invitation.manage": "owner",
   "member.manage": "owner",
