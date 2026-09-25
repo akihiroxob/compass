@@ -3,6 +3,7 @@ import { z } from "zod";
 import { directionDecisionRecordTypes } from "../../domain/model/DirectionDecision.ts";
 import { ProjectRole, projectRoles } from "../../constants/ProjectRole.ts";
 import type { Principal } from "../../application/service/ProjectAuthorizationService.ts";
+import type { AuthMode } from "../http/humanAuthConfig.ts";
 import type { ApplicationServices } from "../../container.ts";
 import { registerExecutionTools } from "./registerExecutionTools.ts";
 import { execute } from "./toolExecution.ts";
@@ -201,7 +202,13 @@ const outcomeEvaluationSchema = {
 };
 
 /** principalはAuthorizationヘッダーから解決した値だけ。tool入力やsession IDは認証情報として読まない。 */
-export const createMcpServer = (services: ApplicationServices, principal: Principal = null) => {
+export const createMcpServer = (
+  services: ApplicationServices,
+  principal: Principal = null,
+  /** 認証mode。remoteではHuman管理・入力toolを登録せず、匿名にはRole文書だけを見せる。 */
+  options: { mode?: AuthMode } = {},
+) => {
+  const remote = options.mode === "remote";
   const authorization = services.projectAuthorizationService;
   // 検査の規則はapplication serviceが持つ。handlerはPrincipalとprojectIdを渡すだけ。
   const asStrategist = <T>(projectId: string, operation: () => Promise<T>) =>
@@ -225,12 +232,32 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
     { instructions: "Compass MCP server: Direction (Project, Intent, Research, Outcome) and Execution (Story, Task, Claim) tools" },
   );
 
-  server.registerTool(
+  // Role文書は静的で機密を含まない。Agentが起動直後に自力で読めるよう、Bearerもgrantも要求しない。
+  const registerRoleInstructions = () =>
+    server.registerTool(
+      "get_role_instructions",
+      {
+        title: "Get Role Instructions",
+        description:
+          "Get operational instructions for a Project Role. With includeShared=true the shared agent/role-policy.md is returned first. " +
+          "No Authorization is required. Fails with INSTRUCTION_UNAVAILABLE if an instruction file cannot be read.",
+        inputSchema: { role: z.enum(projectRoles), includeShared: z.boolean().optional() },
+      },
+      ({ role, includeShared }) => execute(() => services.instructionService.getRoleInstructions(role, includeShared)),
+    );
+  // remote modeの匿名呼出しはRole文書以外を登録しない（未知toolとして拒否）。Agent Credentialの検証はTask 37。
+  if (remote && principal === null) {
+    registerRoleInstructions();
+    return server;
+  }
+
+  // Project作成・構想更新・Intent操作はHumanの管理・入力操作で、Web UIが正規入口。remote modeではMCPへ登録しない。
+  if (!remote) server.registerTool(
     "create_project",
     { title: "Create Project", description: "Create a Compass Project.", inputSchema: projectInputSchema },
     (input) => execute(() => services.createProjectUseCase.execute(input)),
   );
-  server.registerTool(
+  if (!remote) server.registerTool(
     "update_project",
     {
       title: "Update Project",
@@ -258,7 +285,7 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
     ({ projectId }) => execute(() => services.getProjectUseCase.execute(projectId)),
   );
 
-  server.registerTool(
+  if (!remote) server.registerTool(
     "create_intent",
     {
       title: "Create Intent",
@@ -289,7 +316,7 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
     },
     ({ projectId, intentId }) => execute(() => services.getIntentUseCase.execute(projectId, intentId)),
   );
-  server.registerTool(
+  if (!remote) server.registerTool(
     "update_intent",
     {
       title: "Update Intent",
@@ -303,7 +330,7 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
         unlessDirectionRole(projectId, () => services.updateIntentUseCase.execute(projectId, intentId, input)),
       ),
   );
-  server.registerTool(
+  if (!remote) server.registerTool(
     "abandon_intent",
     {
       title: "Abandon Intent",
@@ -321,18 +348,7 @@ export const createMcpServer = (services: ApplicationServices, principal: Princi
       ),
   );
 
-  // Role文書は静的で機密を含まない。Agentが起動直後に自力で読めるよう、Bearerもgrantも要求しない。
-  server.registerTool(
-    "get_role_instructions",
-    {
-      title: "Get Role Instructions",
-      description:
-        "Get operational instructions for a Project Role. With includeShared=true the shared agent/role-policy.md is returned first. " +
-        "No Authorization is required. Fails with INSTRUCTION_UNAVAILABLE if an instruction file cannot be read.",
-      inputSchema: { role: z.enum(projectRoles), includeShared: z.boolean().optional() },
-    },
-    ({ role, includeShared }) => execute(() => services.instructionService.getRoleInstructions(role, includeShared)),
-  );
+  registerRoleInstructions();
   server.registerTool(
     "get_strategist_context",
     {

@@ -343,7 +343,7 @@ export const createApp = (
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
-    const server = createMcpServer(services, principal);
+    const server = createMcpServer(services, principal, { mode: humanAuth.mode });
     await server.connect(transport);
     return transport.handleRequest(c.req.raw);
   });

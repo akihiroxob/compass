@@ -1,6 +1,6 @@
 # Step 6: Human認証・Project Membership・招待制 設計
 
-> **状態: 設計（確定、Task 39）。永続化（domain・repository・schema・application use case）はTask 40、Google OIDC・Web Session・`/auth/*`・`/api/auth/*`・CSRF検査・設定のfail-fastはTask 41で実装済み。既存のHuman向けWeb APIへのSession・Membership認可の適用はTask 42、ログイン・招待・Membership管理の画面はTask 43で実装済み。MCPのremote mode対応（Task 37）は未接続。** 実HTTP統合検証と運用文書はTask 44で行う。
+> **状態: 設計（確定、Task 39）。永続化（domain・repository・schema・application use case）はTask 40、Google OIDC・Web Session・`/auth/*`・`/api/auth/*`・CSRF検査・設定のfail-fastはTask 41で実装済み。既存のHuman向けWeb APIへのSession・Membership認可の適用はTask 42、ログイン・招待・Membership管理の画面はTask 43で実装済み。MCPのremote modeでのHuman Command非公開・匿名呼出しの制限はTask 42で実装済み、Agent Credentialによる認証・参照系のGrant検査（Task 37）は未接続。** 実HTTP統合検証と運用文書はTask 44で行う。
 > 事前のユーザー確認は設けない。親Storyに定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選び、理由を「選択理由と将来変更できる箇所」に記録する。
 
 ## 根拠資料と優先順位
@@ -286,7 +286,7 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 
 - Human向けのuse caseを、Human Actorを持たないMCP経路から呼ばない。`CreateProjectUseCase` のActor無し版は、trusted-localのMCPとテスト・保守用途だけに残す。
 - trusted-localは明示設定・loopback bind限定（上記「設定」）のため、現行の匿名toolを残しても`AGENTS.md`のremote配置の前提に反しない。
-- **実装の担当**: MCPの認証・tool登録の切替・参照系のGrant検査は**Task 37**（Credentialとremote modeを実装するTaskのため）。Web API側の認可はTask 42。Task 42は、Web APIで塞いだ各Commandに対応するMCP toolが、remote modeで登録されていないか匿名で拒否されることを回帰テストで確認する。Task 44は、実HTTP serverで`/mcp`へ匿名で`tools/list`と各Human相当toolを呼び、拒否されることを確認する。
+- **実装の担当**: MCPの認証・参照系のGrant検査は**Task 37**（Credentialを実装するTaskのため）。remote modeでのHuman Command非登録と匿名呼出しの制限は、Task 42のレビュー差戻しを受けてTask 42で実装した。Web API側の認可はTask 42。Task 42は、Web APIで塞いだ各Commandに対応するMCP toolが、remote modeで登録されていないか匿名で拒否されることを回帰テストで確認する。Task 44は、実HTTP serverで`/mcp`へ匿名で`tools/list`と各Human相当toolを呼び、拒否されることを確認する。
 
 ## 既存データ・既存APIの移行
 
@@ -323,7 +323,8 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 - **CORS**: `origin: "*"` は Bearer で呼ぶ `/mcp`・`runtime-events`・`execution-evidence` にだけ付け、Human向け `/api/*` には付けない（Runtime向けの扱いの見直しはTask 37）。
 - **Step 5との順序**: Web APIでは、存在しないProjectへのarchive等は入力検証より先にMembership認可で `404` になる（Step 5のAC-4「入力検証は存在確認より先」はuse case単体・MCP・CLIでの順序として維持）。
 - **既存テスト**: `test/support/humanSession.ts` のfixture（DBへHuman・Sessionを直接作る。OIDC検証は省略しない本番経路とは別）へ移行した。既存テストのappは、owner不在のProjectへfixtureのHumanのowner Membershipを補う（platform ownerのorphan補完に相当）。
-- **未実施**: Web APIで塞いだCommandに対応するMCP toolがremote modeで登録されない・匿名で拒否されることの回帰テストは、remote modeのMCP認証（Task 37）が未実装のため追加していない。現状のMCPはtrusted-localのまま、`create_project`・`update_project`・Intent Command・Direction参照toolを匿名で呼べる（Web API認可の迂回路はTask 37で塞ぐ）。Agent / Runtime Credential管理のWeb API（`administrator`）もTask 37。Web UIのSession復元・CSRF header付与・ログイン画面はTask 43で実装した。
+- **MCP（レビュー差戻し対応）**: `createMcpServer` は `createApp` の `humanAuth.mode` を受け取る。remote modeでは適用表のHuman管理・入力Command（`create_project`・`update_project`・`create_intent`・`update_intent`・`abandon_intent`）を登録せず、Authorization無しの呼出しには `get_role_instructions` だけを登録する（他toolは未知toolとして拒否。`UNAUTHENTICATED` への置換はTask 37で可）。trusted-localは従来どおり。回帰テストは `test/remoteMcpHumanCommands.test.ts`（匿名・Bearer付きのtools/list、各Commandの拒否とDB不変、trusted-localの登録維持）。
+- **未実施（Task 37）**: remote modeでもBearerのAgent名自己申告は受け付けるため、任意のBearer名でDirection参照tool・`list_projects` をGrant無しで呼べる。Agent Credentialの検証、参照系のGrant検査、`list_projects` のGrant絞り込み、Agent / Runtime Credential管理のWeb API（`administrator`）はTask 37。Web UIのSession復元・CSRF header付与・ログイン画面はTask 43で実装した。
 
 ## 実装記録（Task 43）
 
