@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { projectOperationAccess, projectOperationDeniedMessage } from "../src/frontend/projectAccess.ts";
+import { currentProjectOperationResult, projectOperationAccess, projectOperationDeniedMessage } from "../src/frontend/projectAccess.ts";
 import { classifyError, onSessionLost, request, setCsrfToken, withCsrf } from "../src/frontend/api.ts";
 import {
   loginErrorMessage,
@@ -174,4 +174,12 @@ test("作成・編集画面へURLで直接来ても、操作できなければ�
   assert.equal(access({ status: "archived" }, "viewer", "direction.write"), "archived");
   assert.match(projectOperationDeniedMessage("archived"), /アーカイブ済み/);
   assert.match(projectOperationDeniedMessage("forbidden"), /権限がありません/);
+});
+
+test("同じ画面のままProject IDや操作が変わった直後は、前のProjectの判定結果を使わず取得中として扱う", () => {
+  const allowedA = { projectId: "project-a", operation: "direction.write", result: { access: "allowed" as const } };
+  assert.deepEqual(currentProjectOperationResult(allowedA, "project-a", "direction.write"), { access: "allowed" });
+  assert.equal(currentProjectOperationResult(allowedA, "project-b", "direction.write"), null);
+  assert.equal(currentProjectOperationResult(allowedA, "project-a", "project.update"), null);
+  assert.equal(currentProjectOperationResult(null, "project-a", "direction.write"), null);
 });
