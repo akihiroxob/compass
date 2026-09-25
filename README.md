@@ -83,7 +83,7 @@ npm start
 
 - Google なし: `COMPASS_AUTH_MODE=trusted-local COMPASS_INITIAL_OWNER_EMAIL=you@example.com npm start` で起動し、`http://localhost:51800/login` の開発用ログインへ初期 owner の email を入力します。招待の受諾は、発行した招待リンクを別のブラウザ profile（またはシークレットウィンドウ）で開き、招待先 email でログインして確認します。開発用ログインは email の本人確認をしないため、trusted-local は loopback への bind と `NODE_ENV` が `production` 以外の場合に限って起動します。
 - Google あり: remote mode は https の `COMPASS_PUBLIC_ORIGIN` が必須のため、手元でも https で到達できる origin（https の reverse proxy やトンネル）を用意し、その redirect URI を OAuth client に登録します。実 Google との接続は自動テストでは検証していません。
-- 自動テスト: `node --import tsx --test test/humanAuthHttpIntegration.test.ts` は、実 port で起動した server に対して、テスト用 OIDC provider（token endpoint と JWKS）を使い、owner の初回ログインから Project 作成・招待・招待 User のログイン・Role 別操作・logout・再起動までを Web 経路だけで確認します（`npm test` にも含まれます）。
+- 自動テスト: `node --import tsx --test test/humanAuthHttpIntegration.test.ts` は、実 port で起動した server に対して、テスト用 OIDC provider（token endpoint と JWKS）を使い、owner の初回ログインから Project 作成・招待・招待 User のログイン・Role 別操作・logout・再起動までを Web 経路だけで確認します（`npm test` にも含まれます）。loopback への listen が禁止された環境では、実 port を使うケースだけを skip します（起動時の設定エラー検証は listen しないため常に実行します）。
 
 ## 操作主体と入口
 

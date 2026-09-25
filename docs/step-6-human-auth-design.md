@@ -361,6 +361,7 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 - **秘密の非露出**: 上記の実行中のrequest log（console）とDB file（WALを含む）に、Session secret・CSRF token・招待token・code・state・nonce・Google access token・ID Token・client secretが無いこと、応答（本文・Location）にGoogle由来のtokenとclient secretが無いことを確認した。Session secretはSet-Cookie、招待tokenは発行応答の `invitationUrl` でだけ返す。
 - **既存DB**: Actor無しのuse case（認証導入前・旧MCP `create_project` 相当）で作ったProject・Intent・Grant・archived Projectを持つDBでserverを起動する。初期ownerの初回ログインで両Projectのowner Membershipが付与され、owner不在のProjectが残らず、既存データを参照できることを確認した。
 - **起動コマンド**: `src/server.ts` を子processで起動した。remoteのclient secret欠落・初期owner未設定・`NODE_ENV=production` のtrusted-localは終了コード1と `Configuration error: <環境変数名>` になり、値を出力しない。trusted-localでは開発用ログイン→Project作成→logoutがHTTPで通り、stdout / stderrへSession secret・CSRF tokenを出さない。
+- **loopback禁止環境**: sandbox等でloopbackへのlistenが `EPERM` / `EACCES` になる環境では、実portを使うケースだけを理由付きでskipする。起動コマンドの設定エラー検証はlisten前に終了するため固定の `PORT` を使い、skipしない。
 - **運用文書**: READMEに「Human 認証の設定と運用」（Google Cloudの設定、redirect URI、remote起動例とTLS終端、closed registration・初期owner・招待、secret管理、ローカルでの確認方法）を追加し、`.env.example` の説明を補った。
 - **未検証**: 実Googleとの接続（実際のtoken endpoint・JWKS・同意画面、公開ステータス「テスト」時の挙動）、実際のHTTPS reverse proxy経由でのCookie・Origin転送、ブラウザでの `__Host-` Cookieの扱い（Set-Cookieの属性だけを確認）。ownerがGoogle accountを失った場合の復旧手段は対象外のまま。
 

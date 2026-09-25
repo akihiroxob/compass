@@ -556,7 +556,8 @@ const freePort = () =>
 test("src/server.tsはremoteの必須値欠落・初期owner未設定で起動を拒否し、secretの値を出力しない", async () => {
   const directory = await mkdtemp(join(tmpdir(), "compass-auth-startup-"));
   try {
-    const base = { COMPASS_DB_PATH: join(directory, "compass.db"), PORT: String(await freePort()) };
+    // 設定検査はlisten前に失敗するため、loopback禁止環境でも動くよう固定の妥当なPORTを使う。
+    const base = { COMPASS_DB_PATH: join(directory, "compass.db"), PORT: "51800" };
     const missingSecret = runServer({ ...base, COMPASS_PUBLIC_ORIGIN: publicOrigin, COMPASS_GOOGLE_CLIENT_ID: clientId });
     assert.equal(await missingSecret.exited, 1);
     assert.match(missingSecret.output.stderr, /Configuration error: COMPASS_GOOGLE_CLIENT_ID and COMPASS_GOOGLE_CLIENT_SECRET/);
