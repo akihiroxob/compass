@@ -226,7 +226,7 @@ export const decideRegistration = (facts: RegistrationFacts): RegistrationDecisi
  * Project作成・一覧・Session取得はMembershipを要しない（認証済みであればよい）ため、ここに含めない。
  */
 export const humanProjectPermissions = {
-  /** Project・Intent・Outcome・Research・Direction Decision・ADR参照・Execution Summaryの参照。 */
+  /** Project・Intent・Outcome・Research・Direction Decision・ADR参照・Execution Summary・Evaluation・Execution（Story / Task / Comment / Change Log）の参照。archivedでも参照できる。 */
   "project.read": "viewer",
   "grant.read": "viewer",
   "member.read": "viewer",

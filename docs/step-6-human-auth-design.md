@@ -232,10 +232,10 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 | Platform | Project作成 `CreateProjectUseCase` / `POST /api/projects` | 認証済み | 作成者を同一transactionでowner Membershipにする |
 | Platform | Project一覧 `ListProjectsUseCase` / `GET /api/projects[?status=]` | 認証済み | **有効なMembershipを持つProjectだけ**を返す（active / archivedの絞り込みは既存どおり） |
 | Project参照 | `GET /api/projects/:projectId` | viewer | |
-| Project参照 | Intent一覧・詳細、Outcome一覧・詳細、Research Request一覧・詳細、Direction Decision一覧、ADR参照一覧、Execution Summary | viewer | 既存のGET全般 |
+| Project参照 | Intent一覧・詳細、Outcome一覧・詳細、Research Request一覧・詳細、Direction Decision一覧、ADR参照一覧、Execution Summary、Outcome Evaluation一覧（Task 45） | viewer | 既存のGET全般 |
 | Project参照 | Agent Grant一覧 `GET .../grants` | viewer | secretを含まない |
 | Project参照 | Membership一覧 `GET .../members` | viewer | 他Memberのemailを含む（同じProjectの協力者として必要） |
-| Project参照 | Execution閲覧（U2: Story / Task / Change / Comment） | viewer | Task 42以降に追加されるrouteにも同じ規則 |
+| Project参照 | Execution閲覧（U2: Story / Task / Change / Comment） | viewer | Task 45で実装（`GET ./execution`・`./tasks/:taskId`・`./changes`）。archived Projectも参照可 |
 | Direction変更 | Intent作成・更新・放棄 | editor | |
 | Direction変更 | Outcome作成・更新・取消（Human入口） | editor | |
 | Execution介入 | Task受入・差戻し・取消・Comment（U3）、Story / Task手動起票・編集（U4） | editor | 未実装。実装時にこの行を適用 |

@@ -225,7 +225,7 @@ Storyは`correlationId`で二重作成を防げるが、Taskは`requestId`（`co
 - **Task 33（実装済み・差し戻し対応済み）**: 実装記録は本文書末尾の「実装記録（Task 33）」。差し戻し対応で「Outcome handoffのTask論理ID」（`taskKey`）を実装し、`agent/manager.md`に再起動後の手順を書いた。本Taskの「モジュール構成」「DB schema」「MCP tool統合方針」「Role/Instruction配置」に従い、旧Wacha Execution一式を移植する。あわせて`outcome_confirmed`イベントを`CreateOutcomeUseCase`/`DecideNextOutcomeUseCase`に追加し、`DirectionReferenceLookupPort`を実装し、`issue_story`の`outcomeId`拡張を実装する。`agent/role-policy.md`のマージ、README等のドキュメント更新もここで行う。
 - **Task 34（実装済み）**: 実装記録は本文書末尾の「実装記録（Task 34）」。`ExecutionEvidencePort`の詳細（テーブル形状、増分取込みの単位）はTask内で確定し、書込ポートではなく読取専用の`ExecutionSummaryPort`にした。
 - **Task 35〜36（実装済み）**: Outcome EvaluatorはDirection側のEntityであり、Executionとは、Task 34で還流したExecution SummaryとEvidence参照だけを介する。Task 35の差し戻し対応で「Web UIの配置と移行順」のU1（evaluator / runtimeのGrantSection）を実装した。
-- **Web UI U2〜U4**: 現在のTaskに対応するものが無い。Task 38の前に実施するTaskの追加をManagerへ提案する。
+- **Web UI U2〜U4**: Task 45（U2 閲覧、実装済み。本文書末尾の「実装記録（Task 45）」）・Task 46（U3 Human介入、未実装）・Task 47（U4 手動起票、未実装）で扱う。
 - **Task 37（実装済み）**: 本Taskで「暫定trusted-local」とした認証を、Agent/Runtime向け不透明Credentialへ置き換えた。`runtime_event`（`runtime:event:read` / `ack`）と`change_log`（`list_changes`の`execution:change:read`）双方が対象。実装記録は`docs/step-6-human-auth-design.md`の「実装記録（Task 37）」。
 - **Task 38（実装済み）**: 本Taskで決めたRuntime event契約・冪等性規則を、統合Compass serverと外部Runtimeの最小test harnessで閉ループとして自動検証した。実装記録は本文書末尾の「実装記録（Task 38）」。
 
@@ -356,5 +356,31 @@ Task 35のEvaluation確定を起点に、Strategistの起動イベント、Evalu
 ### 実装済み・未接続・未検証
 
 - 実装済み: 上記の自動検証。`src/`の変更は無い（Task 31〜37の契約で閉ループが完走した）。
-- 未接続: 実際の外部Runtime（イベントのpolling・Agentプロセスの起動・再試行の管理）とLLM Agent。Evidence参照先（GitHub・CI）の実取得。実Google（OIDC fixtureを本番の`GoogleOidcIdentityProvider`へ注入）。Human向けのExecution閲覧・介入・手動起票UI（U2〜U4、Task 45〜47）。
+- 未接続: 実際の外部Runtime（イベントのpolling・Agentプロセスの起動・再試行の管理）とLLM Agent。Evidence参照先（GitHub・CI）の実取得。実Google（OIDC fixtureを本番の`GoogleOidcIdentityProvider`へ注入）。Human向けのExecution介入・手動起票UI（U3・U4、Task 46・47。閲覧のU2はTask 45で実装済み）。
 - 未検証: 本テストはCompass側の契約（イベント・ack・冪等性・状態遷移・認可）で閉ループが完走することの確認で、LLM Agentによる自律運転（Lv6）の実証ではない。テストのharnessはloopbackの`127.0.0.1`でserverへ接続するが、これは外部Runtimeの役割を模すためで、Direction / Execution間の連携には使っていない。loopbackへのlistenが禁止された環境では理由付きでskipする。
+
+## 実装記録（Task 45）
+
+「Web UIの配置と移行順」のU2（閲覧）を実装した。U5（Membership認可の適用）もこの範囲のWeb APIへ同時に適用した（Human認証Storyが完了済みのため）。
+
+### 実装した範囲
+
+- Web API（すべてGET。Session必須、Membershipのviewer以上＝`project.read`。未所属・存在しないProjectは`404`、archived Projectも参照できる）:
+  - `GET /api/projects/:projectId/execution[?outcomeId=]`: Story（状態・Outcome・相関ID）とTask（状態・Claim（期限内だけ`activeClaim`、期限切れは`reclaimable`）・差戻し理由・更新時刻）、状態別件数。`outcomeId`を渡すと、そのOutcomeを参照するStoryと配下のTaskだけを返す。
+  - `GET /api/projects/:projectId/tasks/:taskId`: Task・所属Story・Comment・当該TaskのChange（古い順）。別ProjectのTask IDは`404`。
+  - `GET /api/projects/:projectId/changes[?beforeCursor=&limit=]`: 「最近の変更」。新しい順に`limit`件（既定50、1〜100）を返し、さらに古い変更があれば`nextCursor`（次の`beforeCursor`）、無ければ`null`。不正な値は`400 VALIDATION_ERROR`（path `beforeCursor` / `limit`）。MCP `list_changes`（古い順・`afterCursor`）と同じChange Logで、相関付くChangeには`outcomeId` / `correlationId`が付く。
+  - `GET /api/projects/:projectId/outcomes/:outcomeId/evaluations`: OutcomeのEvaluation履歴（新しい順）。Direction側のuse case（`ListOutcomeEvaluationsUseCase`）。
+- Web UI（`src/frontend/features/execution`）: Project詳細の「Execution」section（Story・Task一覧、最近の変更と「さらに古い変更」）、Task詳細`/projects/:projectId/tasks/:taskId`（概要・差戻し理由・Comment・変更履歴）、Outcome詳細の「Execution・評価」section（そのOutcomeのStory・Task、還流したSummaryとEvidence参照、CriterionごとのEvaluationと総合結果、そのEvaluationを`evaluationId`で根拠にしたDirection Decision）。いずれも参照専用で、書込の導線を持たない。
+
+### 初期選択と理由
+
+- Execution側の読取は`TaskCoordinationService`に、Role Grantを検査しない`*OfProject`の読取メソッド（`listStoriesOfProject`・`listTasksOfProject`・`getTaskDetailOfProject`・`listRecentChangesOfProject`）と`projectExists`を足し、`src/application/service/execution/ExecutionReadUseCases.ts`のuse caseからだけ呼ぶ。Agent向けのMCP toolはGrant必須の既存メソッドのままで、`availableFor`（Agent PrincipalのRoleに依存）はHuman向けに公開しない。use caseはExecution側に置き、DirectionのRepositoryをimportしない（`test/executionBoundary.test.ts`）。
+- 「最近の変更」は、Humanが最新から辿れるよう新しい順・`beforeCursor`にした。MCPの`afterCursor`（増分取得）は変えない。
+- Outcome詳細の閉ループ表示は、各所有側のWeb API（Execution一覧・Execution Summary・Evaluation・Direction Decision）をUIで組み合わせる。Direction / Executionのapplication層は互いのRepositoryを読まない。現在地は「Execution未接続（Storyなし）」「Execution中（未還流）」「未評価（還流済み）」「評価済み: 総合結果」を区別し、Executionの`accepted`を達成と表示しない。還流済みでEvidence参照が0件なら「Evidence不足」と表示する。
+- Change LogにComment追加の種別は無い（Commentは`task_comment`だけに残る）ため、Task詳細ではCommentとChangeを別に表示する。
+
+### 実装済み・未接続・未検証
+
+- 実装済み: 上記のWeb API・UI。`test/executionWebRead.test.ts`（一覧・絞込・Task詳細・別Project `404`・cursor・不正query `400`・未所属`404`・administrator / editor / viewer・archived・Session無し`401`）、`test/outcomeEvaluation.test.ts`（Human向けEvaluation API）、`test/executionUi.test.ts`（表示用の変換）。
+- 画面検証: trusted-localの実server（空DB。Story・Task・Claim・Comment・差戻し・受入・Evidence還流・Evaluation・Decisionは実MCPで作成）とheadless Chrome（DevTools Protocol。検証scriptはリポジトリに含めない）で、1280px・375px幅で計53項目（375px幅の参考記録1項目を含む）を確認した。Project詳細のExecution section（Story・Task・状態・担当・Claim期限・相関ID）、最近の変更（20件表示、「さらに古い変更」をTab・Enterだけで追加読込、新しい順で重複なし、最後のページでは案内文へfocusを移す）、Task詳細をkeyboardで開けること（focus表示あり）、Comment・差戻し理由・変更履歴、Outcome詳細の評価結果・Evidence・Criterion・Decisionと、未接続・未還流・未評価の区別、空Projectのempty表示、別ProjectのTask・未所属Projectのerror表示、archived Projectの閲覧、loading（`role=status`）とAPI失敗時のerror（`role=alert`）表示、Task詳細・Outcome詳細が375px幅で横スクロールしないこと。Project詳細の375px幅の横スクロールはMember招待フォームの既知の問題（Task 43の範囲。別Taskで扱う）で、Execution sectionの要素は画面内に収まる。検証中に見つけた長い英数字の折返し不足と「担当 担当なし」の重複表示は修正した。
+- 未実装: Human介入（受入・差戻し・取消・Comment。Task 46）、手動起票・編集（Task 47）。

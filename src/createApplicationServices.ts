@@ -38,6 +38,12 @@ import { FetchRuntimeEventsUseCase } from "./application/usecase/FetchRuntimeEve
 import { GetEvaluatorContextUseCase } from "./application/usecase/GetEvaluatorContextUseCase.ts";
 import { GetIntentUseCase } from "./application/usecase/GetIntentUseCase.ts";
 import { GetExecutionSummaryUseCase } from "./application/usecase/GetExecutionSummaryUseCase.ts";
+import {
+  GetExecutionTaskUseCase,
+  ListExecutionUseCase,
+  ListRecentExecutionChangesUseCase,
+} from "./application/service/execution/ExecutionReadUseCases.ts";
+import { ListOutcomeEvaluationsUseCase } from "./application/usecase/ListOutcomeEvaluationsUseCase.ts";
 import { GetOutcomeUseCase } from "./application/usecase/GetOutcomeUseCase.ts";
 import { GetResearchRequestUseCase } from "./application/usecase/GetResearchRequestUseCase.ts";
 import { GetResearcherContextUseCase } from "./application/usecase/GetResearcherContextUseCase.ts";
@@ -192,6 +198,14 @@ export const createApplicationServices = (
       outcomeRepository,
       outcomeExecutionRepository,
     ),
+    listOutcomeEvaluationsUseCase: new ListOutcomeEvaluationsUseCase(
+      projectRepository,
+      outcomeRepository,
+      outcomeEvaluationRepository,
+    ),
+    listExecutionUseCase: new ListExecutionUseCase(taskCoordinationService),
+    getExecutionTaskUseCase: new GetExecutionTaskUseCase(taskCoordinationService),
+    listRecentExecutionChangesUseCase: new ListRecentExecutionChangesUseCase(taskCoordinationService),
     getEvaluatorContextUseCase: new GetEvaluatorContextUseCase(
       projectAuthorizationService,
       projectRepository,
@@ -322,6 +336,11 @@ export const createApplicationServices = (
     listDirectionDecisions: authorized("project.read", services.listDirectionDecisionsUseCase),
     listAdrReferences: authorized("project.read", services.listAdrReferencesUseCase),
     getExecutionSummary: authorized("project.read", services.getExecutionSummaryUseCase),
+    listOutcomeEvaluations: authorized("project.read", services.listOutcomeEvaluationsUseCase),
+    // Execution閲覧（Task 45）。archivedのProjectも参照できる（書込の導線・APIは持たない）。
+    listExecution: authorized("project.read", services.listExecutionUseCase),
+    getExecutionTask: authorized("project.read", services.getExecutionTaskUseCase),
+    listRecentExecutionChanges: authorized("project.read", services.listRecentExecutionChangesUseCase),
   };
   return { ...services, human };
 };

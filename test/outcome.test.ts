@@ -415,6 +415,7 @@ test("Intentを作成してもOutcomeは自動生成されず、Outcomeの状態
     "createOutcomeUseCase",
     "decideNextOutcomeUseCase",
     "getOutcomeUseCase",
+    "listOutcomeEvaluationsUseCase",
     "listOutcomesUseCase",
     // Evaluationを追記するだけで、Outcomeの状態・Success Criteriaは変更しない（outcomeEvaluation.test.ts）。
     "recordOutcomeEvaluationUseCase",

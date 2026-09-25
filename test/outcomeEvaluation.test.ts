@@ -204,6 +204,10 @@ test("EvaluatorがInstructionとContextを取得し、Criterionごとの判定�
   // Contextからも取得でき、Outcome・Execution結果は変更されていない。
   const after = ok(await getContext(kit.app, project.id, outcome.id));
   assert.deepEqual(after.evaluations, [evaluation]);
+  // Human向けのOutcome詳細（Task 45）も同じEvaluationを参照だけできる。
+  const human = await kit.app.request(`/api/projects/${project.id}/outcomes/${outcome.id}/evaluations`);
+  assert.equal(human.status, 200);
+  assert.deepEqual((await human.json()).evaluations, [evaluation]);
   assert.equal(after.outcome.status, "active");
   assert.deepEqual(after.outcome.successCriteria, context.outcome.successCriteria);
   assert.deepEqual(ok(await callTool(kit.app, "get_outcome_execution_summary", { projectId: project.id, outcomeId: outcome.id }, "rt")), before);

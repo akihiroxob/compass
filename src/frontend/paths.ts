@@ -6,3 +6,5 @@ export const outcomePath = (projectId: string, intentId: string, outcomeId?: str
 
 export const researchRequestPath = (projectId: string, requestId: string) =>
   `/projects/${projectId}/research/${requestId}`;
+
+export const taskPath = (projectId: string, taskId: string) => `/projects/${projectId}/tasks/${taskId}`;

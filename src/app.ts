@@ -282,6 +282,33 @@ export const createApp = (
       ),
     }),
   );
+  app.get("/api/projects/:projectId/outcomes/:outcomeId/evaluations", async (c) =>
+    c.json({
+      evaluations: await human.listOutcomeEvaluations.execute(
+        await actorOf(c),
+        c.req.param("projectId"),
+        c.req.param("outcomeId"),
+      ),
+    }),
+  );
+  // Execution閲覧（Task 45。docs/lv6-unification-design.md「Web UIの配置と移行順」U2）。GETだけで、Execution serviceの
+  // Grant不要な読取へMembership（viewer以上）の認可後に委譲する。MCP・SQLite tableをWeb UIから直接使わない。
+  app.get("/api/projects/:projectId/execution", async (c) => {
+    const actor = await actorOf(c);
+    const outcomeId = c.req.query("outcomeId");
+    return c.json(await human.listExecution.execute(actor, c.req.param("projectId"), outcomeId === undefined ? {} : { outcomeId }));
+  });
+  app.get("/api/projects/:projectId/tasks/:taskId", async (c) =>
+    c.json(await human.getExecutionTask.execute(await actorOf(c), c.req.param("projectId"), c.req.param("taskId"))),
+  );
+  app.get("/api/projects/:projectId/changes", async (c) =>
+    c.json(
+      await human.listRecentExecutionChanges.execute(await actorOf(c), c.req.param("projectId"), {
+        beforeCursor: queryNumber(c.req.query("beforeCursor")),
+        limit: queryNumber(c.req.query("limit")),
+      }),
+    ),
+  );
   // Human Membershipと招待（docs/step-6-human-auth-design.md）。認可はMembershipのuse caseが権限表で行う。
   const membersPath = "/api/projects/:projectId/members";
   app.get(membersPath, async (c) =>

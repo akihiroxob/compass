@@ -45,6 +45,8 @@ export type DirectionDecision = {
   projectId: string;
   intentId: string;
   outcomeId: string | null;
+  /** 根拠にしたOutcome Evaluation（Task 36）。Evaluationを根拠にしない判断は`null`。 */
+  evaluationId: string | null;
   type: DirectionDecisionType;
   judgment: string;
   reason: string;

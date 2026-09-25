@@ -3,7 +3,7 @@ import type { Kysely, Selectable, Transaction } from "kysely";
 import { ProjectRole } from "../../../constants/ProjectRole.ts";
 import { StoryStatus } from "../../../domain/model/execution/StoryStatus.ts";
 import { TaskStatus, type TaskStatus as TaskStatusValue } from "../../../domain/model/execution/TaskStatus.ts";
-import type { Database, StoryTable, TaskClaimTable, TaskTable } from "../../../infrastructure/database/schema.ts";
+import type { ChangeLogTable, Database, StoryTable, TaskClaimTable, TaskTable } from "../../../infrastructure/database/schema.ts";
 import { outcomeCorrelationId } from "../../../shared/outcomeCorrelation.ts";
 import { ConflictError } from "../../error/ConflictError.ts";
 import { CoordinationError } from "../../error/CoordinationError.ts";
@@ -205,6 +205,16 @@ export class TaskCoordinationService {
 
   async listStories(principalId: string, projectId: string, status?: string) {
     await this.requireAnyRole(this.database, projectId, principalId);
+    return this.listStoriesOfProject(projectId, status);
+  }
+
+  /** 共有の根（project）の存在確認。archivedも存在として扱う。 */
+  async projectExists(projectId: string): Promise<boolean> {
+    return (await this.database.selectFrom("project").select("id").where("id", "=", projectId).executeTakeFirst()) !== undefined;
+  }
+
+  /** 認可済みの呼出し元（Human向けWeb APIのMembership認可）だけが使う。Role Grantは検査しない。 */
+  async listStoriesOfProject(projectId: string, status?: string) {
     let query = this.database.selectFrom("story").selectAll().where("project_id", "=", projectId);
     if (status) query = query.where("status", "=", status as never);
     const rows = await query.orderBy("sort_order", "asc").orderBy("created_at", "asc").execute();
@@ -214,6 +224,10 @@ export class TaskCoordinationService {
   async listTaskComments(principalId: string, taskId: string) {
     const task = await this.getTask(this.database, taskId);
     await this.requireAnyRole(this.database, task.project_id, principalId);
+    return this.readTaskComments(taskId);
+  }
+
+  private async readTaskComments(taskId: string) {
     const rows = await this.database.selectFrom("task_comment")
       .selectAll()
       .where("task_id", "=", taskId)
@@ -413,7 +427,59 @@ export class TaskCoordinationService {
       );
     }
     await this.requireAnyRole(this.database, projectId, principalId);
+    return this.buildTaskList(projectId, principalId, filter, limit);
+  }
 
+  /**
+   * 認可済みの呼出し元（Human向けWeb APIのMembership認可）だけが使う。Role Grantは検査しない。
+   * `availableFor`はAgent PrincipalのRoleに依存するため受け付けない。
+   */
+  async listTasksOfProject(projectId: string, filter?: Pick<ListTaskFilter, "status" | "storyId">) {
+    return this.buildTaskList(projectId, null, filter);
+  }
+
+  /**
+   * 認可済みの呼出し元（Human向けWeb APIのMembership認可）だけが使う。Task本体（一覧と同じ形）、所属Story、
+   * Comment、当該TaskのChangeを返す。別ProjectのTask IDは存在しないものとして`null`を返す。
+   */
+  async getTaskDetailOfProject(projectId: string, taskId: string) {
+    const row = await this.database
+      .selectFrom("task")
+      .select(["id", "story_id"])
+      .where("id", "=", taskId)
+      .where("project_id", "=", projectId)
+      .executeTakeFirst();
+    if (!row) return null;
+    const [list, story, { comments }, changes] = await Promise.all([
+      this.buildTaskList(projectId, null),
+      row.story_id
+        ? this.database.selectFrom("story").selectAll().where("id", "=", row.story_id).executeTakeFirst()
+        : Promise.resolve(undefined),
+      this.readTaskComments(taskId),
+      this.database
+        .selectFrom("change_log")
+        .selectAll()
+        .where("project_id", "=", projectId)
+        .where("entity_id", "=", taskId)
+        .orderBy("cursor", "asc")
+        .execute(),
+    ]);
+    const task = list.tasks.find((candidate) => candidate.id === taskId);
+    if (!task) return null;
+    return {
+      task,
+      story: story ? storyDto(story) : null,
+      comments,
+      changes: await this.decorateChanges(projectId, changes),
+    };
+  }
+
+  private async buildTaskList(
+    projectId: string,
+    principalId: string | null,
+    filter?: ListTaskFilter,
+    limit?: number,
+  ) {
     const now = this.clock();
     const [tasks, stories, claims, grants, completionChanges] = await Promise.all([
       this.database.selectFrom("task").selectAll().where("project_id", "=", projectId).execute(),
@@ -430,11 +496,13 @@ export class TaskCoordinationService {
           this.database.selectFrom("task").select("id").where("project_id", "=", projectId),
         )
         .execute(),
-      this.database.selectFrom("project_grant")
-        .select("role")
-        .where("project_id", "=", projectId)
-        .where("principal_id", "=", principalId)
-        .execute(),
+      principalId === null
+        ? Promise.resolve([])
+        : this.database.selectFrom("project_grant")
+          .select("role")
+          .where("project_id", "=", projectId)
+          .where("principal_id", "=", principalId)
+          .execute(),
       this.database.selectFrom("change_log")
         .select(["entity_id", "principal_id", "cursor"])
         .where("project_id", "=", projectId)
@@ -1617,6 +1685,26 @@ export class TaskCoordinationService {
       .orderBy("cursor", "asc")
       .limit(limit)
       .execute();
+    const changes = await this.decorateChanges(projectId, rows);
+    return {
+      changes,
+      nextCursor: changes.at(-1)?.cursor ?? afterCursor,
+    };
+  }
+
+  /**
+   * 認可済みの呼出し元（Human向けWeb APIのMembership認可）だけが使う。新しい順に`limit`件を返し、
+   * `beforeCursor`を渡すとそれより古い変更を返す。さらに古い変更があれば`nextCursor`に次の`beforeCursor`を返す（無ければ`null`）。
+   */
+  async listRecentChangesOfProject(projectId: string, beforeCursor: number | null = null, limit = 50) {
+    let query = this.database.selectFrom("change_log").selectAll().where("project_id", "=", projectId);
+    if (beforeCursor !== null) query = query.where("cursor", "<", beforeCursor);
+    const rows = await query.orderBy("cursor", "desc").limit(limit + 1).execute();
+    const changes = await this.decorateChanges(projectId, rows.slice(0, limit));
+    return { changes, nextCursor: rows.length > limit ? (changes.at(-1)?.cursor ?? null) : null };
+  }
+
+  private async decorateChanges(projectId: string, rows: Selectable<ChangeLogTable>[]) {
     // Outcomeに相関付いたStory・Taskの変更には、Runtimeが還流の対象を辿れるようoutcomeId・correlationIdを付ける。
     const entityIds = [...new Set(rows.map((row) => row.entity_id))];
     const correlations = new Map<string, { outcomeId: string; correlationId: string }>();
@@ -1654,9 +1742,6 @@ export class TaskCoordinationService {
       occurredAt: row.occurred_at,
       ...correlations.get(row.entity_id),
     }));
-    return {
-      changes,
-      nextCursor: changes.at(-1)?.cursor ?? afterCursor,
-    };
+    return changes;
   }
 }

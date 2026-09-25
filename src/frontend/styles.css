@@ -66,3 +66,18 @@ select { font: inherit; min-height: 2.6rem; padding: 0 .75rem; border: 1px solid
 .login-forms { display: grid; gap: 1.5rem; margin-top: 2rem; } .login-forms .button { min-width: 16rem; } .local-login { padding: 1.5rem; border: 1px dashed #c8c0b5; border-radius: 1rem; }
 @media (max-width: 700px) { .session-menu > span:first-child { display: none; } .member-role-form { width: 100%; } .member-role-form > * { flex: 1 1 auto; } .login-forms .button { width: 100%; min-width: 0; } }
 .scope-field { margin-top: .25rem; } .scope-field .checkbox-label { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: .4rem; font-weight: 400; } .grant-list .action-row { margin-top: 0; }
+/* Execution閲覧（Task 45）。長い相関ID・URI・commit SHAは狭い画面で折り返す。 */
+.execution-story + .execution-story, .detail-section > .intent-card + .intent-card { margin-top: 1rem; }
+.execution-story h3 { font-size: 1.3rem; }
+.intent-card h4 { margin: .2rem 0 .8rem; font-size: 1rem; }
+.execution-meta { margin: 0 0 .9rem; color: #777168; font-size: .82rem; line-height: 1.6; overflow-wrap: anywhere; }
+.detail-section h3 { margin: 1.75rem 0 .9rem; font-family: Georgia, serif; font-size: 1.25rem; font-weight: 500; }
+.detail-section code, .grant-list code, .outcome-list code { font-size: .85em; overflow-wrap: anywhere; }
+.outcome-list small, .grant-list small, .criteria-list dd { overflow-wrap: anywhere; }
+.change-list li { display: block; } .change-list li small { display: block; margin-top: .35rem; } .change-list .section-note { margin: .5rem 0 0; }
+.execution-changes { margin-top: 1.75rem; }
+.pre-wrap { margin: 0; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.evidence-uri { color: #a2462d; font-weight: 700; overflow-wrap: anywhere; }
+.grant-list li > .pre-wrap, .grant-list li > .evidence-uri { flex-basis: 100%; }
+.execution-story h3, .intent-card h4, .intent-facts dd, .outcome-list a, .grant-list li, .criteria-list p, .detail-hero h1 { overflow-wrap: anywhere; }
+.criterion-evidence { display: block; overflow-wrap: anywhere; }
