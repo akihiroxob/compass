@@ -307,6 +307,7 @@ ExecutionのStory / Task / Change Logから、Outcome評価に必要なExecution
 
 - 実装済み: 上記。`test/outcomeEvaluation.test.ts`が、実MCP経由の保存・導出・根拠の検証・網羅性・冪等性（並び順違い・評価後のExecution進行・ファイルDBの再起動）・拒否（Role・別Project・取消済みGrant・Bearerなし）・状態（未還流・取消済み・archived）・Outcome / Execution / Project / Intentを変更できないこと・`unavailable`の維持を確認する。
 - 未接続: Evaluatorの起動（`outcome_confirmed`のように、Evaluation用のRuntime eventは作っていない）。Evaluationからの再計画・次のOutcome判断・Intent完了（Task 36）。Evidence参照先を実際に取得して観測する処理（Evaluatorの責務で、Compassは参照の形式しか見ない）。不透明Credential（認証はtrusted-localのまま）。
+- 画面検証（最終受入の差し戻し対応）: trusted-localの実server（空DB）とheadless Chrome（DevTools Protocol。検証scriptはリポジトリに含めない）で67項目を確認した。Evaluator GrantSectionの発行・重複・一覧・取消（確認パネル・やめる）と成功/失敗通知（`role=status`・エラー要約へのfocus・入力保持）、keyboardだけの操作とfocus表示、owner / administratorだけに発行・取消の導線が出てeditor / viewerは一覧のみ（APIも`403`）、未所属は`404`、archivedは一覧のみ（APIは`409`）、通常幅と375px幅でsectionが画面内に収まること。Runtimeは、Task 37でruntime GrantSectionがCredential管理へ置き換わったため、「Agent・Runtime Credential」でRuntime Credentialの発行・一覧・取消とscope未選択の失敗通知を確認した（archivedでは発行・rotationが消え、取消は残る。Task 37の設計どおり）。観察: 取消後は行が消えるためfocusが`body`へ戻る（既存GrantRow共通）。375px幅ではMember節の招待フォーム（Role選択肢の長い文言）が横にはみ出す（Task 43の範囲）。
 - 未検証: fixtureやテスト内呼び出しによる確認はLv6の自律運転の実証ではない。
 
 ## 実装記録（Task 36）
