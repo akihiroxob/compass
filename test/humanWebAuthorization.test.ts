@@ -330,3 +330,83 @@ test("application層: Human向けuse caseはMembership認可を委譲先より�
   assert.equal((await ctx.services.human.getProject.execute(actor(members.editor), project.id)).myRole, "editor");
   await ctx.database.destroy();
 });
+
+test("Agent / Runtime Credential管理にも権限表を適用する: administrator以上だけ、未所属・取消済み・別Projectの子IDは404、CSRF必須", async () => {
+  const ctx = await setup();
+  const alpha = await seedProject(ctx, "Alpha");
+  const beta = await seedProject(ctx, "Beta");
+  const base = `/api/projects/${alpha.project.id}/credentials`;
+  const issue = (human: TestHuman, projectId: string, principalId: string) =>
+    send(ctx, human, "POST", `/api/projects/${projectId}/credentials`, { kind: "agent", principalId });
+  const issued = async (human: TestHuman, projectId: string, principalId: string) => {
+    const response = await issue(human, projectId, principalId);
+    assert.equal(response.status, 201, principalId);
+    return (await json(response)).credential as { id: string };
+  };
+  const alphaCredential = await issued(alpha.members.owner, alpha.project.id, "worker-alpha");
+  const betaCredential = await issued(beta.members.owner, beta.project.id, "worker-beta");
+
+  // 一覧・発行・rotation・取消は、editor・viewerには403（requiredRole付き）、administrator・ownerには許可。
+  const commands = [
+    ["list", "GET", base, undefined],
+    ["issue", "POST", base, { kind: "agent", principalId: "denied" }],
+    ["rotate", "POST", `${base}/${alphaCredential.id}/rotate`, {}],
+    ["revoke", "DELETE", `${base}/${alphaCredential.id}`, undefined],
+  ] as const;
+  for (const role of ["editor", "viewer"] as const) {
+    for (const [label, method, path, body] of commands) {
+      const denied = await send(ctx, alpha.members[role], method, path, body);
+      assert.equal(denied.status, 403, `${role} ${label}`);
+      assert.equal((await json(denied)).error.requiredRole, humanProjectPermissions["credential.manage"]);
+    }
+  }
+  assert.equal(humanProjectPermissions["credential.manage"], "administrator");
+  assert.equal((await send(ctx, alpha.members.administrator, "GET", base)).status, 200);
+  await issued(alpha.members.administrator, alpha.project.id, "worker-by-administrator");
+
+  // 未所属のProjectは存在を漏らさず404。自分のProjectのURLに別ProjectのCredential IDを混ぜても変更できない。
+  const outsider = alpha.members.owner;
+  for (const [method, path, body] of [
+    ["GET", `/api/projects/${beta.project.id}/credentials`, undefined],
+    ["POST", `/api/projects/${beta.project.id}/credentials`, { kind: "agent", principalId: "x" }],
+    ["DELETE", `/api/projects/${beta.project.id}/credentials/${betaCredential.id}`, undefined],
+    ["POST", `${base}/${betaCredential.id}/rotate`, {}],
+    ["DELETE", `${base}/${betaCredential.id}`, undefined],
+  ] as const) {
+    assert.equal((await send(ctx, outsider, method, path, body)).status, 404, `${method} ${path}`);
+  }
+
+  // 取消済みMembershipは次のrequestから404。
+  const administratorMembership = (
+    await json(await send(ctx, alpha.members.owner, "GET", `/api/projects/${alpha.project.id}/members`))
+  ).members.find((member: { human: { id: string } }) => member.human.id === alpha.members.administrator.humanUserId).membership.id;
+  assert.equal(
+    (await send(ctx, alpha.members.owner, "DELETE", `/api/projects/${alpha.project.id}/members/${administratorMembership}`)).status,
+    200,
+  );
+  assert.equal((await send(ctx, alpha.members.administrator, "GET", base)).status, 404);
+  assert.equal((await issue(alpha.members.administrator, alpha.project.id, "after-revoke")).status, 404);
+
+  // CSRF tokenの無い発行は403で保存しない。
+  const noCsrf = humanHeaders(alpha.members.owner, { "Content-Type": "application/json" });
+  noCsrf.delete("X-Compass-CSRF");
+  const forged = await ctx.app.request(base, { method: "POST", headers: noCsrf, body: JSON.stringify({ kind: "agent", principalId: "forged" }) });
+  assert.equal(forged.status, 403);
+
+  // 拒否された操作は何も変えていない。
+  const listed = (await json(await send(ctx, alpha.members.owner, "GET", base))).credentials as { principalId: string; revokedAt: number | null }[];
+  assert.deepEqual(listed.map((credential) => credential.principalId).sort(), ["worker-alpha", "worker-by-administrator"]);
+  assert.ok(listed.every((credential) => credential.revokedAt === null));
+  const betaListed = (await json(await send(ctx, beta.members.owner, "GET", `/api/projects/${beta.project.id}/credentials`))).credentials;
+  assert.equal(betaListed.length, 1);
+  assert.equal(betaListed[0].revokedAt, null);
+
+  // application層でも、入力検証・永続化より先に認可する。
+  const actor = (human: TestHuman) => ({ kind: "human", humanUserId: human.humanUserId }) as const;
+  await assert.rejects(
+    ctx.services.issueAccessCredentialUseCase.execute(actor(alpha.members.viewer), alpha.project.id, { kind: "invalid" }),
+    (error) => error instanceof ForbiddenError && error.details.requiredRole === "administrator",
+  );
+  await assert.rejects(ctx.services.listAccessCredentialsUseCase.execute(actor(outsider), beta.project.id), NotFoundError);
+  await ctx.database.destroy();
+});

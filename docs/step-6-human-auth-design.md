@@ -325,6 +325,11 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 - **既存テスト**: `test/support/humanSession.ts` のfixture（DBへHuman・Sessionを直接作る。OIDC検証は省略しない本番経路とは別）へ移行した。既存テストのappは、owner不在のProjectへfixtureのHumanのowner Membershipを補う（platform ownerのorphan補完に相当）。
 - **MCP（レビュー差戻し対応）**: `createMcpServer` は `createApp` の `humanAuth.mode` を受け取る。remote modeでは適用表のHuman管理・入力Command（`create_project`・`update_project`・`create_intent`・`update_intent`・`abandon_intent`）を登録せず、Authorization無しの呼出しには `get_role_instructions` だけを登録する（他toolは未知toolとして拒否。`UNAUTHENTICATED` への置換はTask 37で可）。trusted-localは従来どおり。回帰テストは `test/remoteMcpHumanCommands.test.ts`（匿名・Bearer付きのtools/list、各Commandの拒否とDB不変、trusted-localの登録維持）。
 - **Task 37で解消**: remote modeのAgent名自己申告は `401` で拒否し、Agent Credentialの検証、参照系のGrant検査、`list_projects` のGrant絞り込み、Agent / Runtime Credential管理のWeb API（`administrator`）を実装した（下記「実装記録（Task 37）」）。Web UIのSession復元・CSRF header付与・ログイン画面はTask 43で実装した。
+- **Credential管理の認可（再差戻し対応）**: Credential管理のuse caseはTask 37で実装され、同じ権限表の `credential.manage`（administrator）で認可する。Task 42では、この認可が他のHuman向けAPIと同じ規則で働くことを `test/humanWebAuthorization.test.ts` の回帰テストで確認する。対象は次のとおり。
+  - editor・viewerは一覧・発行・rotation・取消が `403`（`requiredRole` 付き）。administrator・ownerは許可。
+  - 未所属Project、取消済みMembership、自分のProjectのURLに別ProjectのCredential IDを混ぜた呼出しは `404`。
+  - CSRF tokenの無い発行は `403`。拒否された操作ではCredentialが変わらない。
+  - application層では、入力検証より先に認可する。
 
 ## 実装記録（Task 43）
 
