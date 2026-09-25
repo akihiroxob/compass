@@ -488,6 +488,8 @@ test("trusted-localだけでLocalDevIdentityProviderのログインを登録し�
       headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: ctx.origin },
       body: new URLSearchParams({ email, returnTo: "/projects" }).toString(),
     });
+  const methods = async (ctx: Setup) => (await ctx.app.request("/api/auth/methods")).json();
+  assert.deepEqual(await methods(local), { google: true, local: true });
   const stranger = await login(local, "stranger@example.com");
   assert.equal(stranger.headers.get("Location"), "/login?error=not_allowed");
   assert.deepEqual(await countRows(local.database), noRows);
@@ -503,6 +505,7 @@ test("trusted-localだけでLocalDevIdentityProviderのログインを登録し�
   await local.database.destroy();
 
   const remote = await setup();
+  assert.deepEqual(await methods(remote), { google: true, local: false });
   assert.equal((await login(remote, ownerEmail)).status, 404);
   assert.deepEqual(await countRows(remote.database), noRows);
   await remote.database.destroy();

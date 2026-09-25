@@ -10,6 +10,8 @@ export class ApiError extends Error {
     readonly activeIntentId: string | null = null,
     /** 409 CONFLICTで、Projectがarchivedのために拒否された場合は`archived`。Intent / Outcomeの状態とは別の項目。 */
     readonly projectStatus: string | null = null,
+    /** 409 CONFLICTの種類（例 `LAST_OWNER`・`INVITATION_PENDING`）。 */
+    readonly conflict: string | null = null,
   ) {
     super(message);
   }
@@ -46,7 +48,31 @@ export const toApiError = (status: number, body: unknown): ApiError => {
     readIssues(error.issues),
     typeof error.activeIntentId === "string" ? error.activeIntentId : null,
     typeof error.projectStatus === "string" ? error.projectStatus : null,
+    typeof error.conflict === "string" ? error.conflict : null,
   );
+};
+
+// ---- Human Session（docs/step-6-human-auth-design.md）。CSRF tokenは`GET /api/auth/session`で得て、非安全methodへ付ける。 ----
+let csrfToken: string | null = null;
+let sessionLostListener: (() => void) | null = null;
+
+export const setCsrfToken = (token: string | null) => {
+  csrfToken = token;
+};
+
+/** Session切れ（401）・CSRF不一致（403 CSRF_REJECTED）を受けたときの通知先。画面は入力を残したまま再ログインを促す。 */
+export const onSessionLost = (listener: (() => void) | null) => {
+  sessionLostListener = listener;
+};
+
+const safeMethods = ["GET", "HEAD", "OPTIONS"];
+
+/** 非安全methodだけ`X-Compass-CSRF`を付ける。CSRF tokenが無ければ変更しない（serverが401 / 403で拒否する）。 */
+export const withCsrf = (init: RequestInit | undefined, token: string | null = csrfToken): RequestInit | undefined => {
+  if (token === null || safeMethods.includes((init?.method ?? "GET").toUpperCase())) return init;
+  const headers = new Headers(init?.headers);
+  headers.set("X-Compass-CSRF", token);
+  return { ...init, headers };
 };
 
 export const request = async <T>(
@@ -56,12 +82,16 @@ export const request = async <T>(
 ): Promise<T> => {
   let response: Response;
   try {
-    response = await fetchImpl(path, init);
+    response = await fetchImpl(path, withCsrf(init));
   } catch {
     throw new ApiError(0, "NETWORK_ERROR", "サーバーに接続できませんでした");
   }
   const body = await readJson(response);
-  if (!response.ok) throw toApiError(response.status, body);
+  if (!response.ok) {
+    const error = toApiError(response.status, body);
+    if (isSessionLost(error)) sessionLostListener?.();
+    throw error;
+  }
   if (body === null) throw new ApiError(response.status, "INVALID_RESPONSE", "応答を解釈できませんでした");
   return body as T;
 };
@@ -118,6 +148,16 @@ export type ErrorKind =
   | { kind: "conflict"; message: string; activeIntentId: string | null }
   | { kind: "other"; message: string };
 
+/** Sessionが無効（401）か、別タブの再ログイン等でCSRF tokenが古くなった（403 CSRF_REJECTED）。 */
+export const isSessionLost = (error: ApiError) =>
+  error.status === 401 || (error.status === 403 && error.code === "CSRF_REJECTED");
+
+const conflictMessages: Record<string, string> = {
+  LAST_OWNER: "Projectには少なくとも1人のownerが必要です。別のMemberをownerにしてから変更してください。",
+  INVITATION_PENDING: "このメールアドレスには有効な招待が既にあります。取り消してから再発行してください。",
+  INVITATION_NOT_PENDING: "受諾済み・取消済み・期限切れの招待は取り消せません。",
+};
+
 export const classifyError = (error: unknown): ErrorKind => {
   if (!(error instanceof ApiError)) {
     return { kind: "other", message: error instanceof Error ? error.message : "不明なエラー" };
@@ -134,12 +174,20 @@ export const classifyError = (error: unknown): ErrorKind => {
     };
   }
   if (error.status === 404 && error.code === "NOT_FOUND") return { kind: "not_found" };
+  // Session切れ・権限不足はサーバーの英語文言を出さず、入力が残っていることと次の行動を示す。
+  if (isSessionLost(error)) {
+    return { kind: "other", message: "ログインの有効期限が切れたか、別の画面でログインし直しました。入力内容はこの画面に残っています。再ログイン後にもう一度実行してください。" };
+  }
+  if (error.status === 403 && error.code === "FORBIDDEN") {
+    return { kind: "other", message: "この操作を行う権限がありません。ProjectのownerにRoleを確認してください。" };
+  }
   // archivedによる拒否は、Intent / Outcomeの状態の競合と区別する（復帰はできないため、再試行を促さない）。
   if (error.status === 409 && error.code === "CONFLICT" && error.projectStatus === "archived") {
     return { kind: "project_archived", message: "アーカイブ済みのため変更できません。" };
   }
   if (error.status === 409 && error.code === "CONFLICT") {
-    return { kind: "conflict", message: error.message, activeIntentId: error.activeIntentId };
+    const message = (error.conflict && conflictMessages[error.conflict]) ?? error.message;
+    return { kind: "conflict", message, activeIntentId: error.activeIntentId };
   }
   return { kind: "other", message: error.message };
 };

@@ -123,6 +123,11 @@ export const registerHumanAuthRoutes = (app: Hono, services: ApplicationServices
     });
   }
 
+  // ログイン画面が出すフォームの選択用。設定値・secretは含めない。
+  app.get("/api/auth/methods", (c) =>
+    c.json({ google: Boolean(startOidcLoginUseCase && completeOidcLoginUseCase), local: mode === "trusted-local" }),
+  );
+
   app.get("/api/auth/session", async (c) => {
     c.header("Cache-Control", "no-store");
     const { human, session, sessionToken } = await requireHumanSession(c, services, options);

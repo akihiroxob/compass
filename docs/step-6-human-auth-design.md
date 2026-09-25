@@ -1,6 +1,6 @@
 # Step 6: Human認証・Project Membership・招待制 設計
 
-> **状態: 設計（確定、Task 39）。永続化（domain・repository・schema・application use case）はTask 40、Google OIDC・Web Session・`/auth/*`・`/api/auth/*`・CSRF検査・設定のfail-fastはTask 41で実装済み。既存のHuman向けWeb APIへのSession・Membership認可の適用はTask 42で実装済み。MCPのremote mode対応（Task 37）、画面（Task 43）は未接続。** 実HTTP統合検証と運用文書はTask 44で行う。
+> **状態: 設計（確定、Task 39）。永続化（domain・repository・schema・application use case）はTask 40、Google OIDC・Web Session・`/auth/*`・`/api/auth/*`・CSRF検査・設定のfail-fastはTask 41で実装済み。既存のHuman向けWeb APIへのSession・Membership認可の適用はTask 42、ログイン・招待・Membership管理の画面はTask 43で実装済み。MCPのremote mode対応（Task 37）は未接続。** 実HTTP統合検証と運用文書はTask 44で行う。
 > 事前のユーザー確認は設けない。親Storyに定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選び、理由を「選択理由と将来変更できる箇所」に記録する。
 
 ## 根拠資料と優先順位
@@ -323,7 +323,17 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 - **CORS**: `origin: "*"` は Bearer で呼ぶ `/mcp`・`runtime-events`・`execution-evidence` にだけ付け、Human向け `/api/*` には付けない（Runtime向けの扱いの見直しはTask 37）。
 - **Step 5との順序**: Web APIでは、存在しないProjectへのarchive等は入力検証より先にMembership認可で `404` になる（Step 5のAC-4「入力検証は存在確認より先」はuse case単体・MCP・CLIでの順序として維持）。
 - **既存テスト**: `test/support/humanSession.ts` のfixture（DBへHuman・Sessionを直接作る。OIDC検証は省略しない本番経路とは別）へ移行した。既存テストのappは、owner不在のProjectへfixtureのHumanのowner Membershipを補う（platform ownerのorphan補完に相当）。
-- **未実施**: Web APIで塞いだCommandに対応するMCP toolがremote modeで登録されない・匿名で拒否されることの回帰テストは、remote modeのMCP認証（Task 37）が未実装のため追加していない。現状のMCPはtrusted-localのまま、`create_project`・`update_project`・Intent Command・Direction参照toolを匿名で呼べる（Web API認可の迂回路はTask 37で塞ぐ）。Agent / Runtime Credential管理のWeb API（`administrator`）もTask 37。Web UIのSession復元・CSRF header付与・ログイン画面はTask 43で、それまでWeb UIの`/api/*`呼出しは`401`になる。
+- **未実施**: Web APIで塞いだCommandに対応するMCP toolがremote modeで登録されない・匿名で拒否されることの回帰テストは、remote modeのMCP認証（Task 37）が未実装のため追加していない。現状のMCPはtrusted-localのまま、`create_project`・`update_project`・Intent Command・Direction参照toolを匿名で呼べる（Web API認可の迂回路はTask 37で塞ぐ）。Agent / Runtime Credential管理のWeb API（`administrator`）もTask 37。Web UIのSession復元・CSRF header付与・ログイン画面はTask 43で実装した。
+
+## 実装記録（Task 43）
+
+- **配置**: `src/frontend/features/auth`（`LoginPage` / `InvitePage` / `AuthGate` / `useSession`、純関数は `auth.ts`）、`src/frontend/features/member`（`MembershipSection`、純関数は `members.ts`）、`src/frontend/permissions.ts`。UIの導線の出し分けはdomainの `humanProjectPermissions` を `canOperate(myRole, operation)` で参照し、権限表をUIに重複させない。拒否は常にserver。
+- **ログイン**: `/login` はGoogle（`POST /auth/google/login`）と、trusted-localだけの開発用ログイン（`POST /auth/local/login`）を通常のform POSTで出す。どちらを出すかは追加した `GET /api/auth/methods`（`{ google, local }`。設定値・secretは返さない）で決める。`/login?error=not_allowed|invitation_expired|oidc_failed` をそれぞれ区別して表示し、Project名・招待先email・Humanの有無は出さない。`returnTo` は同一originの相対pathだけを使う（serverも同じ規則で検査する）。
+- **招待リンク**: `/invite#<token>` はfragmentからtokenを読んだ後、`history.replaceState` でアドレスバー・履歴から消し、ログインformの本文（`invitationToken`）でだけ送る。受諾はserverがOIDC検証済みemailと招待先を照合して行う。
+- **Session**: `AuthGate` が `GET /api/auth/session` でSessionを復元し、CSRF tokenを `api.ts` へ設定する（非安全methodだけ `X-Compass-CSRF` を付ける）。未ログインは戻り先付きで `/login` へ、通信失敗はログイン画面と区別して再試行を出す。操作中の `401` / `403 CSRF_REJECTED` は画面を差し替えずにbannerを重ね、別タブでの再ログインと「ログインを確認」を促す（入力を失わない）。`403 FORBIDDEN` は権限不足として区別する。logoutはheaderから行う。
+- **Membership画面**: Project詳細にMember一覧（viewer以上）を置き、ownerだけにRole変更・取消・招待（email・Role・有効期限1時間〜30日）・招待取消を出す。招待リンクは発行直後だけ表示・コピーできる。最後のownerのRole変更・取消は導線を無効にし、serverの `409 LAST_OWNER` も日本語で表示する。期限切れの招待は `pending` と期限から「期限切れ」と表示する。自分のRoleを変えた後は `myRole` を読み直す。Project編集・archive・Intent / Outcome・Agent Grantの導線も `myRole` で出し分ける。
+- **検証**: 純関数（CSRF付与、Session切れ・権限不足・409の分類、戻り先の正規化、招待token・状態、最後のowner判定）を `test/membershipUi.test.ts` で、`/api/auth/methods` を `test/humanOidc.test.ts` で確認した。trusted-localの実serverで、開発用ログイン・Session復元・Project作成・招待発行・招待リンクによる受諾・未許可accountの拒否・logoutをHTTPで確認した。
+- **未検証**: 画面の表示は、headless Chromeで `/login?error=not_allowed` と `/invite` を幅500pxで撮影し、崩れがないことと、エラー要約へフォーカスが移ることだけを確認した。ログイン後の画面（Member管理・Session切れbanner）の表示とkeyboard操作は、自動テストも目視確認もしていない。実Googleとの接続は未検証（Task 44）。
 
 ## 選択理由と将来変更できる箇所
 
