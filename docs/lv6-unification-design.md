@@ -227,7 +227,7 @@ Storyは`correlationId`で二重作成を防げるが、Taskは`requestId`（`co
 - **Task 35〜36（実装済み）**: Outcome EvaluatorはDirection側のEntityであり、Executionとは、Task 34で還流したExecution SummaryとEvidence参照だけを介する。Task 35の差し戻し対応で「Web UIの配置と移行順」のU1（evaluator / runtimeのGrantSection）を実装した。
 - **Web UI U2〜U4**: 現在のTaskに対応するものが無い。Task 38の前に実施するTaskの追加をManagerへ提案する。
 - **Task 37（実装済み）**: 本Taskで「暫定trusted-local」とした認証を、Agent/Runtime向け不透明Credentialへ置き換えた。`runtime_event`（`runtime:event:read` / `ack`）と`change_log`（`list_changes`の`execution:change:read`）双方が対象。実装記録は`docs/step-6-human-auth-design.md`の「実装記録（Task 37）」。
-- **Task 38**: 本Taskで決めたRuntime event契約・冪等性規則を実際にE2Eで検証する。
+- **Task 38（実装済み）**: 本Taskで決めたRuntime event契約・冪等性規則を、統合Compass serverと外部Runtimeの最小test harnessで閉ループとして自動検証した。実装記録は本文書末尾の「実装記録（Task 38）」。
 
 ## 未接続・未実装・対象外（Task 30時点の記録。現在の状況は「実装記録（Task 33）」以降）
 
@@ -328,3 +328,32 @@ Task 35のEvaluation確定を起点に、Strategistの起動イベント、Evalu
 - 実装済み: 上記。`test/evaluationReplan.test.ts`が、実MCP経由でイベントの1件化（再送・再評価）、failed → 次のOutcome、insufficient_evidence → 追加Research、achieved → Intent完了 / 次のOutcome、重複判断・古いEvaluation・別Project・取消済みOutcome・中止Intent・archived Project・完了定義なし・非achievedでの拒否、Task 35時点のDBのマイグレーションと再起動後の保持を確認する。
 - 未接続: `outcome_evaluated`を取得してStrategistを起動する外部Runtime、Evaluatorの起動（テスト内の呼び出しがRuntime・Agentを模す）。Human向けにEvaluationや根拠Evaluationを表示するWeb UI（Intentの`achieved`表示は既存UIのまま）。不透明Credential（Task 37）。
 - 未検証: fixtureやテスト内呼び出しによる確認はLv6の自律運転の実証ではない。
+
+## 実装記録（Task 38）
+
+空DBの統合Compass serverに対し、Web UIと同じWeb API（Human: Google OIDC Session）と統一`/mcp`（Agent / Runtime: Task 37の不透明Credential）だけを使い、Intent → Research → Outcome → Execution → Evaluation → 再計画 → Intent完了を一周させる自動検証を`test/lv6ClosedLoop.test.ts`に置いた。外部Runtimeと各Agentは`test/support/lv6Runtime.ts`で、Compassの外側のプロセスとして`src/`をimportせず（同テストが静的に検査）、実MCP SDK clientとBearerだけで操作する。
+
+### 初期選択と理由
+
+- **serverは`src/server.ts`と同じ手順で組み立てる**（設定読込 → schema → services → bootstrap検査 → `createApp` → 同一portで`serve`）。Google OIDCのfetchと時刻源だけを差し替える（Claim期限切れを待たずに進めるため）。`src/server.ts`自体を1コマンドで空DBから起動し、同一portで`/health`・`/api`・Web UI（build済みのとき）・統一`/mcp`のDirection / Execution toolsを提供することは、別のテストで子プロセスとして確認する。
+- **Humanの操作は初期設定だけ**（OIDCログイン、Project・Intent作成、Agent GrantとAgent / Runtime Credentialの発行）。以降はHumanの途中承認・CLI・直接DB操作なしで進む。DBはassertの観測にだけ読む。
+- **Agentは決定的なscript**（LLMではない）。Researcher → Strategist（`research_completed`で`decide_next_outcome`）→ Manager（`outcome_confirmed`で`issue_story`・`taskKey`付き`issue_task`）→ Worker / Reviewer（1回目はreject、2回目にreviewed）→ Manager受入 → Runtimeが`list_changes`の増分から`record_execution_evidence`でPR・CIのEvidence参照を還流 → Evaluator → Strategist（`outcome_evaluated`で追加Researchまたは`intent_complete`）。
+- **筋書き**: 最初のOutcomeは本番dashboardでしか観測できない基準を持ち、Evaluationは`insufficient_evidence`になる → 追加Research → CIで観測できる基準に直した次のOutcome → `achieved` → Intent完了。
+
+### 検証する障害系
+
+- **insufficient_evidence**: 最初のOutcomeのEvaluationが推測で成功・失敗にならず、追加Researchの根拠になる。
+- **Execution reject**: 各TaskをReviewerが1回差し戻し、Workerが出し直す（`TASK_REJECTED`が2件）。
+- **timeout**: Managerが`issue_story`後にtimeout → `retryable_failure`でack → 次の試行（新しい`attemptId`）で同じStoryへ収束。Workerが応答しなくなりClaim期限が切れる → 別のClaimで完了（`CLAIM_EXPIRED`）。
+- **レスポンス消失**: `ack_runtime_event`・`issue_story`・`record_outcome_evaluation`は、requestが届いた後に応答を失い、同じ入力で再送して同じ結果を得る。
+- **重複配送**: 最初の`research_completed`でStrategistを並行に2回起動しても、Outcome・Decisionは1件。
+- **順序逆転**: 1周の中で新しいイベントから処理する。古いEvaluationを根拠にした判断は`CONFLICT`、古い`changeCursor`の還流は`staleInput`で状態を変えない。
+- **server / Runtime再起動**: 2つ目の`outcome_confirmed`でManager完了後・ack前にRuntimeとserverを停止し、同じDB fileで再起動する。Runtimeは永続化した`resumeCursor` / `changeCursor`だけを引き継ぎ、未ackのイベントを再取得して同じStoryへ収束する。
+- **二重なし・欠落なし**: Story・Task・Outcome・Evaluation・Direction Decision・Research Requestの件数、全`runtime_event`がこのconsumerで`processed`に確定したこと、相関ID（`intent:` / `decision:` / `outcome:`）でResearch → Outcome → Story / Change → Evaluation → 判断を辿れることを確認する。
+- **境界**: Direction / Executionが相互のRepository・tableを直接使わないこと、別Wacha server・内部loopbackを使わないことは`test/executionBoundary.test.ts`（Task 33）で確認する。
+
+### 実装済み・未接続・未検証
+
+- 実装済み: 上記の自動検証。`src/`の変更は無い（Task 31〜37の契約で閉ループが完走した）。
+- 未接続: 実際の外部Runtime（イベントのpolling・Agentプロセスの起動・再試行の管理）とLLM Agent。Evidence参照先（GitHub・CI）の実取得。実Google（OIDC fixtureを本番の`GoogleOidcIdentityProvider`へ注入）。Human向けのExecution閲覧・介入・手動起票UI（U2〜U4、Task 45〜47）。
+- 未検証: 本テストはCompass側の契約（イベント・ack・冪等性・状態遷移・認可）で閉ループが完走することの確認で、LLM Agentによる自律運転（Lv6）の実証ではない。テストのharnessはloopbackの`127.0.0.1`でserverへ接続するが、これは外部Runtimeの役割を模すためで、Direction / Execution間の連携には使っていない。loopbackへのlistenが禁止された環境では理由付きでskipする。
