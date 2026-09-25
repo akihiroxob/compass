@@ -367,7 +367,7 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
 
 ## 対象外
 
-Organization / Team、Google以外のProvider（adapter境界だけ保つ）、Passkey・多要素認証の自前実装、公開signup、課金、招待メールの送信、Human無効化・退出のUI、Human操作のactor監査ログ（Membership・招待の作成者 / 取消者以外）、Agent / Runtime Credential（Task 37）。
+Organization / Team、Google以外のProvider（adapter境界だけ保つ）、Passkey・多要素認証の自前実装、公開signup、課金、招待メールの送信、Human無効化・退出のUI、Human操作のactor監査ログ（Membership・招待の作成者 / 取消者以外）。Agent / Runtime Credentialは当初対象外としていたが、Task 37で実装した（下記「実装記録（Task 37）」）。
 
 ## 実装記録（Task 37: Agent・Runtime Credential）
 

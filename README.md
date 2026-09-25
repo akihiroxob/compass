@@ -56,16 +56,21 @@ Web UI と MCP は同じ application 層へ委譲し、業務規則を入口ご�
 ## MCP Registration
 
 Compass MCP は Streamable HTTP の `http://localhost:51800/mcp` で接続します。Outcome を作成する
-Strategistには `Authorization: Bearer <token>` が必要です。remote mode では Project 詳細の「Agent・Runtime Credential」で
-Administrator 以上が発行した Agent Credential（`cmp_agent.<id>.<secret>`）だけを受け付けます（後述「Agent・Runtime Credential」）。
-trusted-local mode では従来どおり Agent 名そのもの（`Bearer <AgentName>`）も使えます。Agent名・Credential の Agent 名は、
-後述の Project Role Grant に登録する Agent 名と一致させてください。
+Strategistには `Authorization: Bearer <token>` が必要です。既定の remote mode では、Project 詳細の「Agent・Runtime Credential」で
+Administrator 以上が発行した Agent Credential（`cmp_agent.<id>.<secret>`）だけを受け付け、Agent 名だけの Bearer は `401` です
+（後述「Agent・Runtime Credential」）。Credential の Agent 名（`principalId`）は、後述の Project Role Grant に登録する Agent 名と一致させてください。
+
+発行直後に一度だけ表示される token を、MCP client を起動するシェルの環境変数に設定します。
 
 ```bash
-export COMPASS_AGENT_NAME="strategist-agent"
+export COMPASS_AGENT_TOKEN="cmp_agent.<id>.<secret>"
 ```
 
-`COMPASS_AGENT_NAME`はMCP clientが読む環境変数で、Compass serverは読みません。clientはこれを設定したシェルから起動してください。
+`COMPASS_AGENT_TOKEN`はMCP clientが読む環境変数で、Compass serverは読みません。clientはこれを設定したシェルから起動してください。
+tokenは設定ファイルやリポジトリへ直接書かず、失効・rotation後は新しいtokenへ差し替えます。
+
+`COMPASS_AUTH_MODE=trusted-local`（loopback限定の開発用）で起動した場合に限り、Credentialを発行せずに Agent 名そのものを
+Bearer にできます（例: `export COMPASS_AGENT_TOKEN="strategist-agent"`。自己申告で秘密の検証はありません）。
 
 ### Codex
 
@@ -74,7 +79,7 @@ export COMPASS_AGENT_NAME="strategist-agent"
 ```toml
 [mcp_servers.compass]
 url = "http://localhost:51800/mcp"
-bearer_token_env_var = "COMPASS_AGENT_NAME"
+bearer_token_env_var = "COMPASS_AGENT_TOKEN"
 ```
 
 CLIから登録する場合は次のコマンドを使います。
@@ -82,7 +87,7 @@ CLIから登録する場合は次のコマンドを使います。
 ```bash
 codex mcp add compass \
   --url http://localhost:51800/mcp \
-  --bearer-token-env-var COMPASS_AGENT_NAME
+  --bearer-token-env-var COMPASS_AGENT_TOKEN
 ```
 
 `codex mcp list`で登録を確認し、Codexを再起動してください。TUIでは`/mcp`で接続状態を確認できます。
@@ -98,7 +103,7 @@ Projectルートの `.mcp.json` に登録する場合は次のように記載し
       "type": "http",
       "url": "http://localhost:51800/mcp",
       "headers": {
-        "Authorization": "Bearer ${COMPASS_AGENT_NAME}"
+        "Authorization": "Bearer ${COMPASS_AGENT_TOKEN}"
       }
     }
   }
@@ -109,7 +114,7 @@ Projectルートの `.mcp.json` に登録する場合は次のように記載し
 
 1. `npm start`でCompassを起動する。
 2. Web UIでProjectとActive Intentを作成する。
-3. Project詳細のStrategist欄で、`COMPASS_AGENT_NAME`と同じAgent名に`strategist`を付与する。
+3. Project詳細のStrategist欄でAgent名（例: `strategist-agent`）に`strategist`を付与し、「Agent・Runtime Credential」で同じAgent名のAgent Credentialを発行して、表示されたtokenを`COMPASS_AGENT_TOKEN`に設定する（trusted-localではAgent名をそのまま設定してもよい）。
 4. MCP clientを起動し、`get_role_instructions({ role: "strategist", includeShared: true })`を読む。
 5. 対象の`projectId`が明示されていればそれを使う。明示されていなければInstructionに従い、`list_projects`と`get_strategist_context`でStrategistとして操作できる候補を確認する（1件なら自動選択、0件または複数件なら報告して停止）。
 6. `get_strategist_context({ projectId })`でProject、Active Intent、既存Outcome、Active IntentのIntent Brief（`research`）を取得する。Synthesis→Finding→Evidence参照の詳細が要る場合は`get_research_request({ projectId, requestId })`で辿る。
@@ -123,7 +128,7 @@ Intentを達成するための情報が十分なら、Outcomeと成功条件を�
 不足している場合はOutcomeを作らず、必要な情報とResearchすべき問いを報告してください。
 ```
 
-`get_role_instructions`はBearer・Grantを必要としません。`get_strategist_context`と`create_outcome`はBearerがないと`UNAUTHENTICATED`、そのProjectのStrategist Grantがないと`FORBIDDEN`になります。Agent名の不一致を疑うときは、Project詳細のStrategist欄で割当済みのAgent名を確認してください。
+`get_role_instructions`はBearer・Grantを必要としません。`get_strategist_context`と`create_outcome`はBearerがないと`UNAUTHENTICATED`、そのProjectのStrategist Grantがないと`FORBIDDEN`になります。Credentialが期限切れ・取消済み・誤りのときも`UNAUTHENTICATED`です。Agent名の不一致を疑うときは、Project詳細のStrategist欄の割当済みAgent名と、Credential一覧のAgent名を照合してください。
 
 `create_outcome`の送信後にタイムアウト・切断などで保存成否が不明になった場合は、同じProjectのContextを再取得し、送信内容と全項目が一致するOutcomeが無いことを確認してから同一入力を1回だけ再送します。再送も結果不明なら再取得と照合だけを行い、それ以上は送信しません。現時点の`create_outcome`は`requestId`による冪等性を提供しておらず、この再取得手順は運用上の重複回避策です。
 
@@ -219,7 +224,7 @@ curl -X POST -H 'Authorization: Bearer cmp_runtime.<id>.<secret>' -H 'Content-Ty
 
 - 取得は状態を変えない読取です。ack が無い、または `retryable_failure` のイベントだけを返し、`processed` / `terminal_failure` は返しません。応答が失われても同じ取得で同じイベントが返り、欠落しません。配送は at-least-once のため、Runtime はイベントの `id` で重複を判定します。
 - `nextCursor` は同じ取得周回のページ送り専用です。未 ack・`retryable_failure` のイベントを追い越すため、永続化して再開に使いません。再起動後の再開には `resumeCursor`（その consumer にとって、それ以下のイベントがすべて `processed` / `terminal_failure` である最大の cursor）を永続化して `afterCursor` に渡します。`afterCursor=0`（省略）から取得し直しても、確定済み以外だけが返り欠落しません（server 再起動後も ack は SQLite に残ります）。
-- ack の `attemptId` は Runtime が 1 回の処理試行ごとに生成し、応答消失後の再送では同じ値を使います。同じイベント・同じ `attemptId` の再送は初回の結果を返して状態を変えず（`recorded: false`、`retryCount` も増えない）、同じ `attemptId` で別の結果・理由を送ると `409 CONFLICT` です。新しい試行には新しい `attemptId` を使い、`retryCount` はその試行ごとに数えます。確定済みのイベントへ同じ結果を送り直しても状態は変わりません（`recorded: false`）。`processed` / `terminal_failure` 済みに別の結果を送ると `409 CONFLICT`、`retryable_failure` からは任意の結果へ進めます。別 Project のイベントは `404 NOT_FOUND`、Bearer なし・形式不正は `401 UNAUTHENTICATED`、runtime Grant なし（別 Project・取消済み・他の Role のみ）は `403 FORBIDDEN` です。
+- ack の `attemptId` は Runtime が 1 回の処理試行ごとに生成し、応答消失後の再送では同じ値を使います。同じイベント・同じ `attemptId` の再送は初回の結果を返して状態を変えず（`recorded: false`、`retryCount` も増えない）、同じ `attemptId` で別の結果・理由を送ると `409 CONFLICT` です。新しい試行には新しい `attemptId` を使い、`retryCount` はその試行ごとに数えます。確定済みのイベントへ同じ結果を送り直しても状態は変わりません（`recorded: false`）。`processed` / `terminal_failure` 済みに別の結果を送ると `409 CONFLICT`、`retryable_failure` からは任意の結果へ進めます。別 Project のイベントは `404 NOT_FOUND`、Bearer なし・形式不正は `401 UNAUTHENTICATED`、Credential の期限切れ・取消済み・改ざんも `401 UNAUTHENTICATED`、Runtime Credential に `runtime:event:ack` scope が無い・別 Project の Credential・Agent Credential での呼出しは `403 FORBIDDEN`（`requiredScope` 付き）です。trusted-local で Runtime 名の Bearer を使う場合は、`runtime` Grant なし（別 Project・取消済み・他の Role のみ）が `403 FORBIDDEN` です。
 - `research_completed` は `projectId`・`intentId`・`researchRequestId`（Request の ID）・`correlationId`・`version`・`conclusion` を持ち、Strategist の起動に必要な項目を揃えています。
 - `outcome_confirmed`（Task 33）は `create_outcome` / `decide_next_outcome` が Outcome を保存する同じ transaction で 1 件だけ保存され、`projectId`・`intentId`・`outcomeId`・`correlationId`（`outcome:<outcomeId>`）・`version` を持ちます（`researchRequestId` は `null`、research 系イベントの `outcomeId` は `null`）。Manager の起動条件で、Compass は Story を自動では作りません（後述の「Execution」）。
 - `outcome_evaluated`（Task 36）は `record_outcome_evaluation` が Evaluation を保存する同じ transaction で、Evaluation ごとに 1 件だけ保存され、`outcomeId`・`evaluationId`・`correlationId`（`outcome:<outcomeId>`）を持ちます。Strategist の起動条件で、Compass は再計画・Intent 完了を自動では決めません。
