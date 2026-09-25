@@ -277,10 +277,10 @@ curl -X POST -H 'Authorization: Bearer cmp_runtime.<id>.<secret>' -H 'Content-Ty
 
 ### Project Role Grant（Strategist / Researcher / Manager / Worker / Reviewer / Evaluator / Runtime）の操作
 
-Grant は Agent を起動しません。「この Agent 名が、この Project でその Role として振る舞ってよい」という記録です。HumanはProject詳細のWeb UI（Strategist・Researcher・Manager・Worker・Reviewer・Evaluator・Runtimeの各section。共通のGrant Section実装を再利用し、Manager・Worker・ReviewerはTask 33、Evaluator・RuntimeはTask 35で追加。archivedのProjectでは一覧のみ）から発行・取消します。Web APIはWeb UIの接続面で、Session と Membership（一覧は viewer 以上、発行・取消は administrator 以上）で認可します（Task 42）。CLIはローカル開発・保守・自動検証用で、認証はありません。
+Grant は Agent を起動しません。「この Agent 名が、この Project でその Role として振る舞ってよい」という記録です。HumanはProject詳細のWeb UI（Strategist・Researcher・Manager・Worker・Reviewer・Evaluatorの各section。archivedのProjectでは一覧のみ）から発行・取消します。RuntimeのGrant sectionはTask 37で「Agent・Runtime Credential」に置き換えました。Web APIはWeb UIの接続面で、Session と Membership（一覧は viewer 以上、発行・取消は administrator 以上）で認可します（Task 42）。CLIはローカル開発・保守・自動検証用で、認証はありません。
 
 ```bash
-# Web API（Web UI用。server 起動中。role は strategist / researcher / manager / worker / reviewer / evaluator / runtime。いずれも Project 詳細の Web UI から発行できます）
+# Web API（Web UI用。server 起動中。role は strategist / researcher / manager / worker / reviewer / evaluator / runtime。Runtime Grantはtrusted-local mode用で、Web UIではRuntime Credentialを発行します）
 # Session Cookie・CSRF token（GET /api/auth/session の csrfToken）・Origin が必要です（Task 42）
 curl -X POST localhost:51800/api/projects/<projectId>/grants -b 'compass_session=<session>' \
   -H 'Origin: http://localhost:51800' -H 'X-Compass-CSRF: <csrfToken>' \
