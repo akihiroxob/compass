@@ -5,11 +5,11 @@ import { ErrorState, Loading } from "../../components/StateCard";
 import { Shell } from "../../components/Shell";
 import { outcomeStatusLabels, type Outcome } from "../../outcomeForm";
 import { intentPath, outcomePath } from "../../paths";
-import { useProjectArchived } from "../../useProjectArchived";
+import { useProjectOperation } from "../../useProjectAccess";
 import { useOutcomePage } from "./useOutcomePage";
 
 export const OutcomeDetailPage = () => {
-  const { projectId = "", intentId = "", outcomeId = "" } = useParams(); const { outcome, error, setOutcome } = useOutcomePage(projectId, intentId, outcomeId); const editable = useProjectArchived(projectId) === false;
+  const { projectId = "", intentId = "", outcomeId = "" } = useParams(); const { outcome, error, setOutcome } = useOutcomePage(projectId, intentId, outcomeId); const editable = useProjectOperation(projectId, "direction.write");
   const cancel = useReasonAction(
     async (reason) => setOutcome((await request<{ outcome: Outcome }>(`/api/projects/${projectId}/intents/${intentId}/outcomes/${outcomeId}/cancel`, jsonPost({ reason }))).outcome),
     (classified) => classified.kind === "validation" ? classified.issues.map((issue) => `取消の理由: ${issue.message}`).join(" / ") : classified.kind === "not_found" ? "Outcomeが見つかりません。" : classified.message,

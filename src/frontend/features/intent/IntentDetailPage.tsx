@@ -5,14 +5,14 @@ import { ErrorState, Loading } from "../../components/StateCard";
 import { Shell } from "../../components/Shell";
 import { intentStatusLabels, type Intent } from "../../intentForm";
 import { intentPath } from "../../paths";
-import { useProjectArchived } from "../../useProjectArchived";
+import { useProjectOperation } from "../../useProjectAccess";
 import { DecisionSection } from "../decision";
 import { OutcomeSection } from "../outcome";
 import { IntentFacts } from "./IntentFacts";
 import { useIntentPage } from "./useIntentPage";
 
 export const IntentDetailPage = () => {
-  const { projectId = "", intentId = "" } = useParams(); const { intent, error, setIntent } = useIntentPage(projectId, intentId); const archived = useProjectArchived(projectId); const editable = archived === false;
+  const { projectId = "", intentId = "" } = useParams(); const { intent, error, setIntent } = useIntentPage(projectId, intentId); const editable = useProjectOperation(projectId, "direction.write");
   const abandon = useReasonAction(
     async (reason) => setIntent((await request<{ intent: Intent }>(`/api/projects/${projectId}/intents/${intentId}/abandon`, jsonPost({ reason }))).intent),
     (classified) => classified.kind === "validation" ? classified.issues.map((issue) => `${issue.label}: ${issue.message}`).join(" / ") : classified.kind === "not_found" ? "Intentが見つかりません。" : classified.message,

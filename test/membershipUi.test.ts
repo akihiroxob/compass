@@ -18,7 +18,7 @@ import {
   type HumanRole,
   type Member,
 } from "../src/frontend/features/member/members.ts";
-import { invitationMaxTtlHours, invitationMinTtlHours } from "../src/domain/model/HumanAuth.ts";
+import { hasMinimumRole, humanProjectPermissions, invitationMaxTtlHours, invitationMinTtlHours } from "../src/domain/model/HumanAuth.ts";
 
 const jsonResponse = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -149,4 +149,20 @@ test("招待tokenはURL fragmentからだけ読み、形式が不正なら読ま
   assert.equal(readInvitationToken(""), null);
   assert.equal(readInvitationToken("#short"), null);
   assert.equal(readInvitationToken(`#${token}&x=1`), null);
+});
+
+// `src/frontend/useProjectAccess.ts`の`canOperateOnProject`と同じ判定（frontendのmoduleはserverのtsconfigで読めないためdomainの権限表を直接使う）。
+// 画面経路（viewer / editor / administrator / owner、archived）の表示はブラウザで確認し、Task 43のコメントに記録した。
+const canOperateOnProject = (project: { status: "active" | "archived" }, myRole: HumanRole | null, operation: keyof typeof humanProjectPermissions) =>
+  project.status !== "archived" && myRole !== null && hasMinimumRole(myRole, humanProjectPermissions[operation]);
+
+test("Intent・Outcome詳細の書込導線はdomainの権限表（direction.write）とProjectのstatusで決め、viewerとarchivedでは出さない", () => {
+  const active = { status: "active" as const };
+  const archived = { status: "archived" as const };
+  assert.equal(canOperateOnProject(active, "viewer", "direction.write"), false);
+  assert.equal(canOperateOnProject(active, null, "direction.write"), false);
+  for (const role of ["editor", "administrator", "owner"] as const) {
+    assert.equal(canOperateOnProject(active, role, "direction.write"), true, role);
+    assert.equal(canOperateOnProject(archived, role, "direction.write"), false, role);
+  }
 });

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { ApiError, onSessionLost, request, setCsrfToken } from "../../api";
 import { Shell } from "../../components/Shell";
@@ -16,9 +16,23 @@ const fetchSession = () => request<SessionInfo>(sessionPath);
 /**
  * 操作中のSession切れ。画面を差し替えず（入力を失わない）、別タブでの再ログインと、戻ってからの確認を促す。
  * 確認で有効なSessionが見つかれば、新しいCSRF tokenへ差し替えて閉じる。
+ * 表示時はkeyboardで再ログインへ進めるようbannerへfocusを移し、閉じたら操作していた要素へ戻す。
  */
 const SessionLostBanner = ({ onRestored }: { onRestored: (session: SessionInfo) => void }) => {
   const location = useLocation();
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // 同じ失敗でフォームのエラー要約（FormErrorSummary）もfocusを取るため、その後でbannerへ移す。
+    let previous: HTMLElement | null = null;
+    const timer = setTimeout(() => {
+      previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      ref.current?.focus();
+    });
+    return () => {
+      clearTimeout(timer);
+      if (previous?.isConnected) previous.focus();
+    };
+  }, []);
   const [checking, setChecking] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const check = async () => {
@@ -33,7 +47,7 @@ const SessionLostBanner = ({ onRestored }: { onRestored: (session: SessionInfo) 
     }
   };
   return (
-    <div className="session-banner" role="alert">
+    <div className="session-banner" role="alert" tabIndex={-1} ref={ref}>
       <p className="error-title">ログインの有効期限が切れました。</p>
       <p>入力中の内容はこの画面に残っています。別タブでログインしてから「ログインを確認」を押し、もう一度実行してください。</p>
       {message && <p>{message}</p>}
