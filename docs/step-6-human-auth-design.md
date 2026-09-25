@@ -1,6 +1,6 @@
 # Step 6: Human認証・Project Membership・招待制 設計
 
-> **状態: 設計（確定、Task 39）。永続化（domain・repository・schema・application use case）はTask 40、Google OIDC・Web Session・`/auth/*`・`/api/auth/*`・CSRF検査・設定のfail-fastはTask 41で実装済み。既存のHuman向けWeb APIへのSession・Membership認可の適用はTask 42、ログイン・招待・Membership管理の画面はTask 43で実装済み。MCPのremote modeでのHuman Command非公開・匿名呼出しの制限はTask 42、Agent / Runtime Credentialによる認証・参照系のGrant検査はTask 37で実装済み（下記「実装記録（Task 37）」）。** 実HTTP統合検証と運用文書はTask 44で行う。
+> **状態: 設計（確定、Task 39）。永続化（domain・repository・schema・application use case）はTask 40、Google OIDC・Web Session・`/auth/*`・`/api/auth/*`・CSRF検査・設定のfail-fastはTask 41で実装済み。既存のHuman向けWeb APIへのSession・Membership認可の適用はTask 42、ログイン・招待・Membership管理の画面はTask 43で実装済み。MCPのremote modeでのHuman Command非公開・匿名呼出しの制限はTask 42、Agent / Runtime Credentialによる認証・参照系のGrant検査はTask 37で実装済み（下記「実装記録（Task 37）」）。実HTTP統合検証と運用文書はTask 44で実施済み（下記「実装記録（Task 44）」）。**
 > 事前のユーザー確認は設けない。親Storyに定めのない事項は、既存設計との整合、単純さ、将来の変更容易性を基準に初期値を選び、理由を「選択理由と将来変更できる箇所」に記録する。
 
 ## 根拠資料と優先順位
@@ -343,7 +343,26 @@ Role順序: `owner` > `administrator` > `editor` > `viewer`。「最低Role」�
   - Role別導線: viewer / editor / administrator / ownerでProject詳細・Intent詳細・Outcome詳細を開き、viewerでは編集・放棄・取消・Outcome登録・Intent編集の導線が無く、editor / administrator / ownerでは表示されること。Member管理（招待・Role変更・取消）はownerだけに表示されること。archived Projectではownerでも書込導線が無いこと。
   - Member管理: 幅1200px・375pxで招待フォーム・一覧・Role変更が表示され、label無しの入力要素と横スクロールが無いこと。最後のownerの操作が無効であること。Tabだけで招待emailへ到達でき（focus outline表示）、Tab・Enterで招待を発行すると発行済みリンク欄へfocusが移ること。重複招待（`409`）は日本語のエラー要約へfocusが移り、入力が残ること。
   - Session切れ: 招待入力中にCookieを失い送信すると、bannerが出てfocusがbannerへ移り、Tabで「別タブでログイン」「ログインを確認」へ進めること。未ログインのまま確認すると案内が出てbannerが残ること。再ログイン後の確認でbannerが閉じ、入力を保ったまま新しいCSRF tokenで再送できること。375pxで横スクロールが無いこと。
-- **未検証**: 実Googleとの接続（Task 44）。スクリーンリーダーでの読み上げは確認していない。IntentやOutcomeの作成・編集フォームへURLを直接開いた場合は導線の出し分けをせず、保存時のserverの `403` を権限不足として表示する。
+- **未検証**: 実Googleとの接続（Task 44でも未検証。「実装記録（Task 44）」参照）。スクリーンリーダーでの読み上げは確認していない。IntentやOutcomeの作成・編集フォームへURLを直接開いた場合は導線の出し分けをせず、保存時のserverの `403` を権限不足として表示する。
+
+## 実装記録（Task 44）
+
+- **検証の構成**: `test/humanAuthHttpIntegration.test.ts`。`src/server.ts` と同じ手順（`loadHumanAuthConfig` → `initializeSchema` → services → `assertBootstrapConfigured` → `createApp`）でDB fileを開き、`@hono/node-server` で実portに起動する。違いは `GoogleOidcIdentityProvider` のtoken endpoint・JWKS・fetchをテスト用OIDC provider（`test/support/oidcFixture.ts`。Task 41のfixtureを共通化）へ注入することと、時刻を進められることだけで、ID Tokenの署名・issuer・audience・nonce・PKCE・client secretの検証は本番のadapterが行う。clientはCookie jarを持つfetchで、redirectを追わずにLocation・Set-Cookieを観測する。Humanの操作は `/auth/*`・`/api/*` だけで行い、DBはassertの観測にだけ読む。
+- **空DBの通し検証**:
+  - 未認証の `401`。未許可account・改ざんstate・nonce不一致でDB行が増えない。
+  - 初期ownerの初回ログイン（Cookie属性 `__Host-`・`HttpOnly`・`Secure`・`SameSite=Lax`・`Path=/`・Domain無し、ログイン試行Cookieの削除）。`returnTo` のopen redirect（`//evil`・絶対URL・`/\evil`）は `/` になる。
+  - CSRF（token無し・別Origin・Bearerだけ）の拒否と、Human向け `/api/*` のCORS非許可。
+  - Project作成・招待。招待tokenだけ（email不一致）では受諾できず、招待User（editor / viewer）はログインでき、使用済み招待は再利用できない。
+  - Role別操作: editorのIntent作成は成功、Project更新・招待は `403`、別Project・不在Projectは `404`、viewerの書込は `403`（`requiredRole`）、最後のownerの取消は `409 LAST_OWNER`。
+  - 招待の取消・期限切れ（`invitation_expired`）・再発行後の古いtokenの拒否・同じ宛先への並行発行（`201` と `409 INVITATION_PENDING`）。Membership取消は次のrequestから反映される。
+  - Session fixation: login前に仕込まれたCookieを使わない。他人の有効Sessionを仕込まれたブラウザでログインすると、仕込まれたSessionは失効する。logoutはCSRF必須。アイドル期限切れは `401`。
+  - server再起動後もSession・失効状態・招待状態が保持される。
+  - `/mcp`: 匿名の `tools/list` は `get_role_instructions` だけ。Human相当tool（`create_project`・`update_project`・`create_intent`・`list_projects`・`get_project`）は拒否、Agent名だけのBearerは `401`、Session Cookieは読まない。
+- **秘密の非露出**: 上記の実行中のrequest log（console）とDB file（WALを含む）に、Session secret・CSRF token・招待token・code・state・nonce・Google access token・ID Token・client secretが無いこと、応答（本文・Location）にGoogle由来のtokenとclient secretが無いことを確認した。Session secretはSet-Cookie、招待tokenは発行応答の `invitationUrl` でだけ返す。
+- **既存DB**: Actor無しのuse case（認証導入前・旧MCP `create_project` 相当）で作ったProject・Intent・Grant・archived Projectを持つDBでserverを起動する。初期ownerの初回ログインで両Projectのowner Membershipが付与され、owner不在のProjectが残らず、既存データを参照できることを確認した。
+- **起動コマンド**: `src/server.ts` を子processで起動した。remoteのclient secret欠落・初期owner未設定・`NODE_ENV=production` のtrusted-localは終了コード1と `Configuration error: <環境変数名>` になり、値を出力しない。trusted-localでは開発用ログイン→Project作成→logoutがHTTPで通り、stdout / stderrへSession secret・CSRF tokenを出さない。
+- **運用文書**: READMEに「Human 認証の設定と運用」（Google Cloudの設定、redirect URI、remote起動例とTLS終端、closed registration・初期owner・招待、secret管理、ローカルでの確認方法）を追加し、`.env.example` の説明を補った。
+- **未検証**: 実Googleとの接続（実際のtoken endpoint・JWKS・同意画面、公開ステータス「テスト」時の挙動）、実際のHTTPS reverse proxy経由でのCookie・Origin転送、ブラウザでの `__Host-` Cookieの扱い（Set-Cookieの属性だけを確認）。ownerがGoogle accountを失った場合の復旧手段は対象外のまま。
 
 ## 選択理由と将来変更できる箇所
 

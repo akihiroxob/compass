@@ -42,6 +42,49 @@ PORT=52000 npm start
 npm run dev
 ```
 
+## Human 認証の設定と運用
+
+Human は Google アカウント（OpenID Connect）でログインし、Compass が発行する Web Session で操作します。Google の token は保存しません。設計は [docs/step-6-human-auth-design.md](docs/step-6-human-auth-design.md) を参照してください。
+
+### Google Cloud の設定
+
+1. Google Cloud Console の「Google Auth Platform」（旧 OAuth 同意画面）でアプリを作成し、scope は `openid`・`email`・`profile` だけにします。公開ステータスが「テスト」の間は、テストユーザーに登録した Google アカウントしかログインできません。
+2. 「クライアント」で種類「ウェブ アプリケーション」の OAuth client を作成します。
+3. 「承認済みのリダイレクト URI」に `${COMPASS_PUBLIC_ORIGIN}/auth/google/callback` を登録します（例: `https://compass.example.com/auth/google/callback`）。末尾の `/` や port まで完全一致が必要です。Compass は request の Host ではなく `COMPASS_PUBLIC_ORIGIN` から redirect URI を組み立てるため、環境ごとに別の URI を登録します。「承認済みの JavaScript 生成元」は使いません（code の交換は server で行います）。
+4. 発行された client ID と client secret を、次の環境変数として server へ渡します。
+
+### remote mode での起動
+
+```bash
+COMPASS_PUBLIC_ORIGIN=https://compass.example.com \
+COMPASS_GOOGLE_CLIENT_ID=<client ID> \
+COMPASS_GOOGLE_CLIENT_SECRET=<secret管理機構から渡す> \
+COMPASS_INITIAL_OWNER_EMAIL=owner@example.com \
+npm start
+```
+
+- `COMPASS_PUBLIC_ORIGIN` は、ブラウザが開く https の origin（path なし）です。Compass 自体は http で listen するため、TLS は前段の reverse proxy 等で終端します。Session Cookie は `__Host-` prefix・`Secure`・`HttpOnly`・`SameSite=Lax` のため、https でしか送られません。
+- Cookie で認証する `/api/*` の変更 request は、`Origin` が `COMPASS_PUBLIC_ORIGIN` と一致し、`X-Compass-CSRF` を持つ場合だけ受け付けます。proxy は `Origin` と Cookie をそのまま転送してください。
+
+### closed registration と初期 owner
+
+- 登録方式は closed だけです（`COMPASS_REGISTRATION_MODE` は `closed` 以外で起動拒否）。ログインできるのは、初期 owner と、有効な招待の宛先 email で Google の検証済み email を持つアカウントだけです。それ以外は `/login?error=not_allowed` になり、Human・Session などの行を作りません。
+- 初期 owner: platform owner が未作成の間は `COMPASS_INITIAL_OWNER_EMAIL` が必須です。この email で最初にログインした Google アカウント（issuer + subject）が platform owner になり、以後この設定値は読みません（値を変えても owner は移りません）。このとき、owner の居ない既存 Project（認証導入前の DB など）へ owner Membership を付与します。platform owner は Membership を迂回する特権を持ちません。
+- Human の追加は、Project 詳細の「Member」section で owner が招待します（email・Role・有効期限 1 時間〜30 日）。招待リンク（`/invite#<token>`）は発行直後に一度だけ表示されるので、相手へ手渡します（メールは送信しません）。相手が招待先 email の Google アカウントでログインすると参加します。期限切れの招待は同じ宛先へ再発行でき、古いリンクは使えなくなります。
+- owner が Google アカウントを失った場合の復旧手段（保守 CLI 等）は未提供です。Project ごとに複数の owner を置いてください。
+
+### secret の管理
+
+- `COMPASS_GOOGLE_CLIENT_SECRET` はシェルの環境変数か、配置先の secret 管理機構から渡します。リポジトリ・`.env` file・ログへ書かないでください。Compass は設定エラーでも環境変数の名前だけを出力します。client secret を rotation したら値を差し替えて再起動します（Compass の Session は Google の token に依存しないため、ログイン中の Human は影響を受けません）。
+- Session・招待・ログイン試行・Agent / Runtime Credential の secret は、DB に SHA-256 だけを保存します。DB file には email などの個人情報が入るため、アクセス権を server に限定してください。
+- Session は発行から 7 日、または 24 時間操作が無いと失効します。logout・再ログインで以前の Session を失効させます。
+
+### ローカルでの確認方法
+
+- Google なし: `COMPASS_AUTH_MODE=trusted-local COMPASS_INITIAL_OWNER_EMAIL=you@example.com npm start` で起動し、`http://localhost:51800/login` の開発用ログインへ初期 owner の email を入力します。招待の受諾は、発行した招待リンクを別のブラウザ profile（またはシークレットウィンドウ）で開き、招待先 email でログインして確認します。開発用ログインは email の本人確認をしないため、trusted-local は loopback への bind と `NODE_ENV` が `production` 以外の場合に限って起動します。
+- Google あり: remote mode は https の `COMPASS_PUBLIC_ORIGIN` が必須のため、手元でも https で到達できる origin（https の reverse proxy やトンネル）を用意し、その redirect URI を OAuth client に登録します。実 Google との接続は自動テストでは検証していません。
+- 自動テスト: `node --import tsx --test test/humanAuthHttpIntegration.test.ts` は、実 port で起動した server に対して、テスト用 OIDC provider（token endpoint と JWKS）を使い、owner の初回ログインから Project 作成・招待・招待 User のログイン・Role 別操作・logout・再起動までを Web 経路だけで確認します（`npm test` にも含まれます）。
+
 ## 操作主体と入口
 
 | 主体 | 正規の入口 | 備考 |
@@ -191,7 +234,7 @@ Step 4 の Strategist Role と認可境界（Project 単位の Role Grant、`Aut
 
 Step 5 の Project archive（active → archived の不可逆な遷移、理由の保持、archived 時に拒否する操作と参照できる操作）の設計と実装状況は [docs/step-5-project-archive-design.md](docs/step-5-project-archive-design.md) に記載しています。**永続化・共通 use case・Web API・状態ガードは実装済み**（Task 20）です。`POST /api/projects/:projectId/archive`（本文 `{ "reason": "..." }`）で archive し、`GET /api/projects` は active のみ、`GET /api/projects?status=archived` は archived のみを返します。archived の Project への書込（Project 更新、Intent / Outcome の変更、Grant の発行・取消）は Web API・MCP・CLI とも 409 `CONFLICT`（`projectStatus: "archived"`）で拒否し、参照は成功します。**Web UI も実装済み**（Task 21）です。Project 詳細の「アーカイブ」から、理由（必須）を入力する確認パネルを経て archive でき、Project 一覧の「アーカイブ済み」へ切り替えると理由と日時つきで参照できます。archived の詳細は状態・理由・日時を表示し、Project 編集・Intent / Outcome の登録・変更・Agent / Runtime の Role の割当変更の導線を出しません（拒否はサーバーが行い、編集 URL へ直接アクセスして保存しても「アーカイブ済みのため変更できません」と表示され内容は変わりません）。archive は Web API だけに公開し、MCP tool と CLI には追加しません（復帰・削除も作りません）。
 
-Step 6 の Human 認証（Google OIDC、closed registration、Web Session・CSRF、Project Membership と owner / administrator / editor / viewer の権限表、招待、既存 Project の移行）の設計は [docs/step-6-human-auth-design.md](docs/step-6-human-auth-design.md) に記載しています（Task 39 で設計確定）。Task 40 で Human・Identity・Session・Membership・招待の永続化と application use case を実装しました。Task 41 で Google OIDC（authorization code + PKCE、server 側での code 交換と ID Token の署名・issuer・audience・exp・iat・nonce 検証）、closed registration による初期 owner の bootstrap、Compass 独自の Web Session Cookie（`HttpOnly`・`SameSite=Lax`、remote は `__Host-` と `Secure`）、`POST /auth/google/login`・`GET /auth/google/callback`・`POST /auth/local/login`（trusted-local のみ）・`GET /api/auth/session`・`POST /api/auth/logout`（CSRF 必須）と、起動時の設定検査を実装しました。拒否は `/login?error=not_allowed|invitation_expired|oidc_failed` へ redirect します（画面は Task 43）。Task 42 で Human 向け `/api/*`（Project・Intent・Outcome・Research / Decision / ADR 参照・Execution Summary・Agent Grant・Membership・招待）へ Session と Membership 認可を適用しました。Session 無しは `401`、未所属・取消済み・存在しない Project は区別せず `404`、Role 不足は `403`（`requiredRole` 付き）、非安全 method は CSRF（`X-Compass-CSRF` と Origin）必須です。`GET /api/projects` は所属 Project だけを返し、`POST /api/projects` の作成者は owner になり、`GET /api/projects/:projectId` は `myRole` を返します。Membership・招待の Web API（`GET|PATCH|DELETE /api/projects/:projectId/members[/:membershipId]`、`GET|POST|DELETE /api/projects/:projectId/invitations[/:invitationId]`）も追加しました。CORS は Bearer で呼ぶ `/mcp` と Runtime 向け API にだけ許します。Runtime 向け API（`runtime-events`・`execution-evidence`）は Session では認可せず Bearer だけを受け付けます。Task 43 で Web UI のログイン画面（`/login`。Google と、trusted-local だけの開発用ログイン）、招待リンク画面（`/invite#<token>`）、Session 復元・logout・Session 切れの再ログイン案内、Project 詳細の Member 画面（owner だけが招待・Role 変更・取消を行え、招待リンクは発行直後だけ表示）を実装しました。ログイン画面が表示するログイン方法は `GET /api/auth/methods` で取得します。remote mode の `/mcp` は Human 向け Command（`create_project`・`update_project`・`create_intent`・`update_intent`・`abandon_intent`）を登録せず、Authorization 無しの呼出しには `get_role_instructions` だけを公開します（Task 42）。trusted-local の `/mcp` は従来どおりです。Task 37 で Agent / Runtime Credential を実装し、remote mode の `/mcp` と Runtime 向け API は Agent 名だけの Bearer を `401` で拒否します（下記「Agent・Runtime Credential」）。
+Step 6 の Human 認証（Google OIDC、closed registration、Web Session・CSRF、Project Membership と owner / administrator / editor / viewer の権限表、招待、既存 Project の移行）の設計は [docs/step-6-human-auth-design.md](docs/step-6-human-auth-design.md) に記載しています（Task 39 で設計確定）。Task 40 で Human・Identity・Session・Membership・招待の永続化と application use case を実装しました。Task 41 で Google OIDC（authorization code + PKCE、server 側での code 交換と ID Token の署名・issuer・audience・exp・iat・nonce 検証）、closed registration による初期 owner の bootstrap、Compass 独自の Web Session Cookie（`HttpOnly`・`SameSite=Lax`、remote は `__Host-` と `Secure`）、`POST /auth/google/login`・`GET /auth/google/callback`・`POST /auth/local/login`（trusted-local のみ）・`GET /api/auth/session`・`POST /api/auth/logout`（CSRF 必須）と、起動時の設定検査を実装しました。拒否は `/login?error=not_allowed|invitation_expired|oidc_failed` へ redirect します（画面は Task 43）。Task 42 で Human 向け `/api/*`（Project・Intent・Outcome・Research / Decision / ADR 参照・Execution Summary・Agent Grant・Membership・招待）へ Session と Membership 認可を適用しました。Session 無しは `401`、未所属・取消済み・存在しない Project は区別せず `404`、Role 不足は `403`（`requiredRole` 付き）、非安全 method は CSRF（`X-Compass-CSRF` と Origin）必須です。`GET /api/projects` は所属 Project だけを返し、`POST /api/projects` の作成者は owner になり、`GET /api/projects/:projectId` は `myRole` を返します。Membership・招待の Web API（`GET|PATCH|DELETE /api/projects/:projectId/members[/:membershipId]`、`GET|POST|DELETE /api/projects/:projectId/invitations[/:invitationId]`）も追加しました。CORS は Bearer で呼ぶ `/mcp` と Runtime 向け API にだけ許します。Runtime 向け API（`runtime-events`・`execution-evidence`）は Session では認可せず Bearer だけを受け付けます。Task 43 で Web UI のログイン画面（`/login`。Google と、trusted-local だけの開発用ログイン）、招待リンク画面（`/invite#<token>`）、Session 復元・logout・Session 切れの再ログイン案内、Project 詳細の Member 画面（owner だけが招待・Role 変更・取消を行え、招待リンクは発行直後だけ表示）を実装しました。ログイン画面が表示するログイン方法は `GET /api/auth/methods` で取得します。remote mode の `/mcp` は Human 向け Command（`create_project`・`update_project`・`create_intent`・`update_intent`・`abandon_intent`）を登録せず、Authorization 無しの呼出しには `get_role_instructions` だけを公開します（Task 42）。trusted-local の `/mcp` は従来どおりです。Task 37 で Agent / Runtime Credential を実装し、remote mode の `/mcp` と Runtime 向け API は Agent 名だけの Bearer を `401` で拒否します（下記「Agent・Runtime Credential」）。Task 44 で、実 HTTP server とテスト用 OIDC provider による通し検証（`test/humanAuthHttpIntegration.test.ts`）と、上記「Human 認証の設定と運用」を追加しました。
 
 ### Agent・Runtime Credential（Task 37）
 
