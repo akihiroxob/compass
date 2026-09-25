@@ -1,0 +1,39 @@
+{
+  "projectName": "compass",
+  "taskBackend": "wacha",
+  "agentProvider": "claude",
+  "pollIntervalSeconds": 300,
+  "retry": {
+    "initialSeconds": 300,
+    "tokenLimitSeconds": 1800
+  },
+  "logging": {
+    "path": ".ralph/logs/ralph.log",
+    "idleHeartbeatSeconds": 3600
+  },
+  "wacha": {
+    "url": "http://localhost:51743/mcp"
+  },
+  "claude": {
+    "command": "claude",
+    "dangerouslySkipPermissions": true
+  },
+  "codex": {
+    "command": "codex",
+    "dangerouslyBypassApprovalsAndSandbox": false
+  },
+  "roles": {
+    "worker": {
+      "agentName": "worker",
+      "agentProvider": "claude",
+      "command": "claude",
+      "model": ""
+    },
+    "reviewer": {
+      "agentName": "reviewer",
+      "agentProvider": "codex",
+      "command": "codex",
+      "model": ""
+    }
+  }
+}
