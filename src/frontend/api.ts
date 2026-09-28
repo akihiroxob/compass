@@ -114,6 +114,7 @@ const topLevelLabels: Record<string, string> = {
   successCriteria: "成功条件",
   principalId: "Agent名",
   role: "Role",
+  storyId: "対象Story",
 };
 const linkFieldLabels: Record<string, string> = {
   name: "名前",
@@ -161,6 +162,8 @@ const conflictMessages: Record<string, string> = {
   CLAIM_CONFLICT: "AgentがこのTaskのClaimを持っているため、今は操作できません。",
   TASK_NOT_CLAIMABLE: "Taskの状態がこの操作に対応していません。",
   INVALID_TASK_STATUS: "Taskの状態がこの操作に対応していません。",
+  HANDOFF_MANAGED: "OutcomeからManagerが起票したStory・Taskは、Humanが編集・Task追加できません。",
+  STORY_CLOSED: "完了・取消済みのStoryは編集・Task追加できません。",
 };
 
 export const classifyError = (error: unknown): ErrorKind => {

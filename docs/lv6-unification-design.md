@@ -225,7 +225,7 @@ Storyは`correlationId`で二重作成を防げるが、Taskは`requestId`（`co
 - **Task 33（実装済み・差し戻し対応済み）**: 実装記録は本文書末尾の「実装記録（Task 33）」。差し戻し対応で「Outcome handoffのTask論理ID」（`taskKey`）を実装し、`agent/manager.md`に再起動後の手順を書いた。本Taskの「モジュール構成」「DB schema」「MCP tool統合方針」「Role/Instruction配置」に従い、旧Wacha Execution一式を移植する。あわせて`outcome_confirmed`イベントを`CreateOutcomeUseCase`/`DecideNextOutcomeUseCase`に追加し、`DirectionReferenceLookupPort`を実装し、`issue_story`の`outcomeId`拡張を実装する。`agent/role-policy.md`のマージ、README等のドキュメント更新もここで行う。
 - **Task 34（実装済み）**: 実装記録は本文書末尾の「実装記録（Task 34）」。`ExecutionEvidencePort`の詳細（テーブル形状、増分取込みの単位）はTask内で確定し、書込ポートではなく読取専用の`ExecutionSummaryPort`にした。
 - **Task 35〜36（実装済み）**: Outcome EvaluatorはDirection側のEntityであり、Executionとは、Task 34で還流したExecution SummaryとEvidence参照だけを介する。Task 35の差し戻し対応で「Web UIの配置と移行順」のU1（evaluator / runtimeのGrantSection）を実装した。
-- **Web UI U2〜U4**: Task 45（U2 閲覧、実装済み。本文書末尾の「実装記録（Task 45）」）・Task 46（U3 Human介入、実装済み。本文書末尾の「実装記録（Task 46）」）・Task 47（U4 手動起票、未実装）で扱う。
+- **Web UI U2〜U4**: Task 45（U2 閲覧、実装済み。本文書末尾の「実装記録（Task 45）」）・Task 46（U3 Human介入、実装済み。本文書末尾の「実装記録（Task 46）」）・Task 47（U4 手動起票、実装済み。本文書末尾の「実装記録（Task 47）」）で扱う。
 - **Task 37（実装済み）**: 本Taskで「暫定trusted-local」とした認証を、Agent/Runtime向け不透明Credentialへ置き換えた。`runtime_event`（`runtime:event:read` / `ack`）と`change_log`（`list_changes`の`execution:change:read`）双方が対象。実装記録は`docs/step-6-human-auth-design.md`の「実装記録（Task 37）」。
 - **Task 38（実装済み）**: 本Taskで決めたRuntime event契約・冪等性規則を、統合Compass serverと外部Runtimeの最小test harnessで閉ループとして自動検証した。実装記録は本文書末尾の「実装記録（Task 38）」。
 
@@ -356,7 +356,7 @@ Task 35のEvaluation確定を起点に、Strategistの起動イベント、Evalu
 ### 実装済み・未接続・未検証
 
 - 実装済み: 上記の自動検証。`src/`の変更は無い（Task 31〜37の契約で閉ループが完走した）。
-- 未接続: 実際の外部Runtime（イベントのpolling・Agentプロセスの起動・再試行の管理）とLLM Agent。Evidence参照先（GitHub・CI）の実取得。実Google（OIDC fixtureを本番の`GoogleOidcIdentityProvider`へ注入）。Human向けのExecution手動起票UI（U4、Task 47。閲覧のU2はTask 45、介入のU3はTask 46で実装済み）。
+- 未接続: 実際の外部Runtime（イベントのpolling・Agentプロセスの起動・再試行の管理）とLLM Agent。Evidence参照先（GitHub・CI）の実取得。実Google（OIDC fixtureを本番の`GoogleOidcIdentityProvider`へ注入）。
 - 未検証: 本テストはCompass側の契約（イベント・ack・冪等性・状態遷移・認可）で閉ループが完走することの確認で、LLM Agentによる自律運転（Lv6）の実証ではない。テストのharnessはloopbackの`127.0.0.1`でserverへ接続するが、これは外部Runtimeの役割を模すためで、Direction / Execution間の連携には使っていない。loopbackへのlistenが禁止された環境では理由付きでskipする。
 
 ## 実装記録（Task 45）
@@ -384,7 +384,7 @@ Task 35のEvaluation確定を起点に、Strategistの起動イベント、Evalu
 
 - 実装済み: 上記のWeb API・UI。`test/executionWebRead.test.ts`（一覧・絞込・Task詳細・別Project `404`・cursor・不正query `400`・未所属`404`・administrator / editor / viewer・archived・Session無し`401`）、`test/outcomeEvaluation.test.ts`（Human向けEvaluation API）、`test/executionUi.test.ts`（表示用の変換）。
 - 画面検証: trusted-localの実server（空DB。Story・Task・Claim・Comment・差戻し・受入・Evidence還流・Evaluation・Decisionは実MCPで作成）とheadless Chrome（DevTools Protocol。検証scriptはリポジトリに含めない）で、1280px・375px幅で計53項目（375px幅の参考記録1項目を含む）を確認した。Project詳細のExecution section（Story・Task・状態・担当・Claim期限・相関ID）、最近の変更（20件表示、「さらに古い変更」をTab・Enterだけで追加読込、新しい順で重複なし、最後のページでは案内文へfocusを移す）、Task詳細をkeyboardで開けること（focus表示あり）、Comment・差戻し理由・変更履歴、Outcome詳細の評価結果・Evidence・Criterion・Decisionと、未接続・未還流・未評価の区別、空Projectのempty表示、別ProjectのTask・未所属Projectのerror表示、archived Projectの閲覧、loading（`role=status`）とAPI失敗時のerror（`role=alert`）表示、Task詳細・Outcome詳細が375px幅で横スクロールしないこと。Project詳細の375px幅の横スクロールはMember招待フォームの既知の問題（Task 43の範囲。別Taskで扱う）で、Execution sectionの要素は画面内に収まる。検証中に見つけた長い英数字の折返し不足と「担当 担当なし」の重複表示は修正した。差戻し対応の再検証: 同じ構成でStory 2件・Task 21件（変更23件）を実MCPで作り、1280px・375px幅で計20項目を確認した。Story作成の2行がそれぞれのStory名で区別でき、2ページ目（「さらに古い変更」をEnterで読込）でも表示されること、Storyのリンクをkeyboardで辿ると対象Story cardへ移動してfocus・outlineが付くこと、Task変更のリンクとTask詳細の変更履歴が従来どおりであることを確認した。
-- 未実装: 手動起票・編集（Task 47）。Human介入（受入・差戻し・取消・Comment）はTask 46で実装した。
+- 手動起票・編集はTask 47、Human介入（受入・差戻し・取消・Comment）はTask 46で実装した。
 
 ## 実装記録（Task 46）
 
@@ -414,5 +414,45 @@ Task 35のEvaluation確定を起点に、Strategistの起動イベント、Evalu
 
 - 実装済み: 上記のWeb API・UI。`test/executionOperator.test.ts`（受入・差戻し・取消・Comment、operatorのChange、Storyの完了同期、理由必須・空白の拒否、Claim中・不正状態・二重受入の`409`とChange不変、取消によるClaimのfence、owner / administrator / editorの許可とviewer `403`・未所属`404`・Session無し`401`、別ProjectのTask・存在しないTaskの`404`、archivedの`409`、Agentの自己受入禁止の維持とMCPへ非公開）、`test/executionUi.test.ts`（導線の判定、Principalの表示）。
 - 画面検証: trusted-localの実server（空DB。Story・Task・Claimは実MCPで作成、editor / viewerは招待で追加）とheadless Chrome（DevTools Protocol。検証scriptはリポジトリに含めない）で、1280px・375px幅で計45項目を確認した。状態ごとの導線（`in_review` / `wait_accept`は受入・差戻し、`todo` / `doing`は取消、Claim中は導線なしで理由表示）、keyboardだけの操作（Enterで確認パネル、受入の確認は見出しへ・差戻し / 取消は理由欄へfocus、Tabで「やめる」・確定、`aria-expanded`）、「やめる」で状態不変、空の理由はブラウザの必須検証・空白だけの理由は`role=alert`で入力保持、成功通知（`role=status`）へのfocusと操作後の導線の消去、変更履歴・CommentにHumanの表示名、空Commentのエラー要約へのfocusと`aria-invalid`、viewer・archived（owner）で導線なし、owner / editorで導線あり、画面を開いた後にAgentがClaimした競合で再読込を促す失敗通知と状態不変、両幅で横スクロールしないこと。検証中に、Task詳細の見出し下にある操作列・確認パネルのボタンが`.detail-hero .button`の余白で不揃いになるのを見つけ、CSSを修正した。
-- 未実装: 手動起票・編集（Task 47）。
+- 手動起票・編集はTask 47で実装した（「実装記録（Task 47）」）。
 
+## 実装記録（Task 47）
+
+「Web UIの配置と移行順」のU4（手動起票）のうち、Story・Taskの作成・編集を実装した。U5（Membership認可）も同時に適用した。
+
+### 実装した範囲
+
+- Web API（Session・CSRF必須。Membershipのeditor以上＝権限表の`execution.plan`）:
+  - `POST /api/projects/:projectId/stories`（`{ title, description? }`）: 相関ID・Outcome参照を持たない手動起票のStoryを`todo`で作り、`STORY_CREATED`（`actorRole: operator`、`principalId: human:{humanUserId}`）を残す。
+  - `PATCH /api/projects/:projectId/stories/:storyId`（`{ title, description? }`）: 手動起票で完了・取消していないStoryのtitle・descriptionを置き換える。
+  - `POST /api/projects/:projectId/tasks`（`{ title, description?, storyId? }`）: `taskKey`無しのTaskを`todo`で作り、`TASK_CREATED`（`actorRole: operator`、`storyId`）を残す。`storyId`が空・未指定ならStoryに属さないTask。
+  - `PATCH /api/projects/:projectId/tasks/:taskId`（`{ title, description? }`）: 対象Story・状態は変えない。
+  - 入力は`title`必須（200字まで）・`description`任意（10000字まで、空は未設定）。未知の項目（`correlationId`・`taskKey`・編集時の`storyId`等）は`400`で拒否する。
+- application層: `ExecutionOperatorUseCases.ts`の`CreateExecutionStoryUseCase` / `EditExecutionStoryUseCase` / `CreateExecutionTaskUseCase` / `EditExecutionTaskUseCase`（入力検証は`src/shared/executionOperatorSchema.ts`）→ `TaskCoordinationService`の`issueStoryAsOperator` / `editStoryAsOperator` / `issueTaskAsOperator` / `editTaskAsOperator`。入口はTask 46と同じ`HumanOperatorUseCase`。
+- Web UI: Project詳細のExecution sectionに「Storyを起票」「Taskを起票」、手動起票で開いているStory cardに「このStoryにTaskを追加」「Storyを編集」、Task詳細に「Taskを編集」（手動起票で受入済み・取消以外のTask）。画面は`/projects/:projectId/stories/new`・`/stories/:storyId/edit`・`/tasks/new[?storyId=]`・`/tasks/:taskId/edit`。viewer・archivedには導線を出さず、URLを直接開いた場合もフォームを出さず理由を表示する（`ProjectOperationGate`）。保存失敗時は入力を残し、エラー要約（`role=alert`、各欄へのリンク・`aria-invalid`）へfocusを移す。
+
+### Human手動起票と自動handoffの違い
+
+| | Human手動起票（Task 47） | Outcome handoff（Manager Agent） |
+| --- | --- | --- |
+| 入口 | Web UI / Human向けWeb API（Session・Membership editor以上） | MCP `issue_story` / `issue_task`（manager Grant） |
+| 相関ID・Outcome snapshot | 持たない | `outcome:{outcomeId}`とSuccess Criteria・Constraints・Repositoryのsnapshot |
+| `taskKey` | 持たない | handoff Story配下で必須（Story内で一意） |
+| 冪等性 | `requestId`無し。UIの二重送信抑止のみ | `requestId`と相関ID・`taskKey`で再送を同じStory・Taskへ収束 |
+| Change Log | `STORY_CREATED` / `TASK_CREATED`（`actorRole: operator`、`principalId: human:…`） | 同じ種別（`actorRole: manager`等、`correlationId`・`outcomeId`付き） |
+| Humanによる編集・Task追加 | 可（完了・取消・受入済みを除く） | 不可（`409 HANDOFF_MANAGED`） |
+
+### 初期選択と理由
+
+- **権限**: 介入（`execution.intervene`）と同じeditorだが、操作の性質（計画の追加・変更）が異なるため別の操作`execution.plan`にした。権限表は`humanProjectPermissions`の1箇所。
+- **Outcome handoffとの区別**: 相関ID付きStoryとその配下（`taskKey`付きTask）は、Managerの`issue_story` / `issue_task`の再送がtitle・description・`taskKey`の一致で同じStory・Taskへ収束する契約を持つ。Humanが編集・追加するとこの収束が`IDEMPOTENCY_CONFLICT`になりうるため、Humanからは`409`（`conflict: HANDOFF_MANAGED`）で拒否し、UIも導線を出さない。変更が必要ならCommentや差戻し・取消（Task 46）で伝える。
+- **閉じた対象**: 完了・取消のStoryへのTask追加・編集は`409`（`STORY_CLOSED`）、受入済み・取消済みTaskの編集は`409`（`INVALID_TASK_STATUS`）。完了済みStoryに未着手Taskが増えて状態と矛盾するのを避ける。
+- **別Project・存在しないStory**: Task起票の`storyId`は`400 VALIDATION_ERROR`（path `storyId`）で、フォームの欄へ結び付ける。編集対象のStory・Taskが別Project・存在しない場合は`404`。いずれもorphan Taskや別Projectへの紐付けを作らない。
+- **Change Log**: 作成は既存の`STORY_CREATED` / `TASK_CREATED`を`actorRole: operator`で残す。編集はMCPの`edit_story` / `edit_task`と同じく記録しない（`list_changes`に種別を増やさず、Runtimeの増分処理の契約を変えない）。
+- **並べ替え・Story取消**: 移行順のU4に含むが、Task 47の完了条件（作成・編集）に含まれないため実装していない（Task単位の取消はTask 46で実装済み）。
+- **MCPへの非公開**: 手動起票はWeb UI専用で、MCP toolを追加しない。Agent用の`issue_*` / `edit_*`・Claim・状態遷移は変更していない。
+
+### 実装済み・未接続・未検証
+
+- 実装済み: 上記のWeb API・UI。`test/executionPlan.test.ts`（起票・編集とoperatorのChange、Agentの`list_tasks` / `claim_task`での引き受け、handoffのStory・Taskの`409`と再送の収束、不正入力・相関ID・`taskKey`・別Project / 存在しないStoryの`400`、別Projectの編集`404`、完了・取消の`409`、owner / administrator / editorの許可とviewer `403`・未所属`404`・Session無し`401`・archived `409`で状態不変、MCPへ非公開）、`test/executionUi.test.ts`（導線の判定、Storyの選択肢、path）。
+- 画面検証: trusted-localの実server（空DB。handoff Story・Taskは実MCPで作成、editor / viewerは招待で追加）とheadless Chrome（DevTools Protocol。検証scriptはリポジトリに含めない）で、1280px・375px幅で計36項目を確認した。editorに起票の導線が出てhandoff Story cardには出ないこと、Tab・Enterだけで起票画面へ移り入力・保存できること（focus表示あり）、タイトル・説明・対象Storyのlabel、空白だけのtitleでエラー要約（`role=alert`）へfocusし`aria-invalid`・欄へのリンクが付き入力が残ること、保存後のStory card・Task詳細・変更履歴（Story作成・Task作成）、Story card起点のTask追加で対象Storyが事前選択されhandoff Storyが選択肢に無いこと、Task・Storyの編集、編集中に別の操作で取り消されたTaskの保存が`409`の要約になり入力が残ること、handoff・取消済みTaskに編集の導線が無くURLを直接開いてもフォームを出さないこと、viewer・archived（owner）で導線もフォームも出ないこと、375px幅でProject詳細（editor）・起票・編集画面が横スクロールせず長いStory名のselectも画面内に収まること。

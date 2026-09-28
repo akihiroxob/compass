@@ -1,4 +1,10 @@
-import { parseTaskCommentInput, parseTaskReasonInput } from "../../../shared/executionOperatorSchema.ts";
+import {
+  parseCreateTaskInput,
+  parseEditTaskInput,
+  parseStoryInput,
+  parseTaskCommentInput,
+  parseTaskReasonInput,
+} from "../../../shared/executionOperatorSchema.ts";
 import { ConflictError } from "../../error/ConflictError.ts";
 import { CoordinationError } from "../../error/CoordinationError.ts";
 import { ValidationError } from "../../error/ValidationError.ts";
@@ -6,7 +12,14 @@ import type { TaskCoordinationService } from "./TaskCoordinationService.ts";
 
 type ExecutionOperator = Pick<
   TaskCoordinationService,
-  "acceptTaskAsOperator" | "rejectTaskAsOperator" | "cancelTaskAsOperator" | "addTaskCommentAsOperator"
+  | "acceptTaskAsOperator"
+  | "rejectTaskAsOperator"
+  | "cancelTaskAsOperator"
+  | "addTaskCommentAsOperator"
+  | "issueStoryAsOperator"
+  | "editStoryAsOperator"
+  | "issueTaskAsOperator"
+  | "editTaskAsOperator"
 >;
 
 /**
@@ -59,5 +72,45 @@ export class AddExecutionTaskCommentUseCase {
   execute(projectId: string, operatorPrincipalId: string, taskId: string, input: unknown) {
     const { body } = parseTaskCommentInput(input);
     return translate(() => this.execution.addTaskCommentAsOperator(operatorPrincipalId, projectId, taskId, body));
+  }
+}
+
+/**
+ * Human operatorのStory・Task手動起票・編集（Task 47。U4）。認可（Membershipの`execution.plan`）は入口が済ませる。
+ * Outcomeの相関ID・`taskKey`は入力で受け付けず、handoffのStory・Taskへの変更はExecution serviceが拒否する。
+ */
+export class CreateExecutionStoryUseCase {
+  constructor(private readonly execution: ExecutionOperator) {}
+
+  execute(projectId: string, operatorPrincipalId: string, input: unknown) {
+    const values = parseStoryInput(input);
+    return translate(() => this.execution.issueStoryAsOperator(operatorPrincipalId, projectId, values));
+  }
+}
+
+export class EditExecutionStoryUseCase {
+  constructor(private readonly execution: ExecutionOperator) {}
+
+  execute(projectId: string, operatorPrincipalId: string, storyId: string, input: unknown) {
+    const values = parseStoryInput(input);
+    return translate(() => this.execution.editStoryAsOperator(operatorPrincipalId, projectId, storyId, values));
+  }
+}
+
+export class CreateExecutionTaskUseCase {
+  constructor(private readonly execution: ExecutionOperator) {}
+
+  execute(projectId: string, operatorPrincipalId: string, input: unknown) {
+    const values = parseCreateTaskInput(input);
+    return translate(() => this.execution.issueTaskAsOperator(operatorPrincipalId, projectId, values));
+  }
+}
+
+export class EditExecutionTaskUseCase {
+  constructor(private readonly execution: ExecutionOperator) {}
+
+  execute(projectId: string, operatorPrincipalId: string, taskId: string, input: unknown) {
+    const values = parseEditTaskInput(input);
+    return translate(() => this.execution.editTaskAsOperator(operatorPrincipalId, projectId, taskId, values));
   }
 }

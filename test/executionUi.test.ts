@@ -12,6 +12,12 @@ import {
   describeClaim,
   executionPath,
   groupTasksByStory,
+  initialTaskStoryId,
+  isManualEditableTask,
+  isManualOpenStory,
+  manualTaskStoryOptions,
+  storiesApiPath,
+  tasksApiPath,
   storyAnchorId,
   outcomeLoopStage,
   type ExecutionChange,
@@ -20,7 +26,7 @@ import {
   type OutcomeEvaluation,
   type OutcomeExecutionRecord,
 } from "../src/frontend/features/execution/execution.ts";
-import { taskPath } from "../src/frontend/paths.ts";
+import { storyCreatePath, storyEditPath, taskCreatePath, taskEditPath, taskPath } from "../src/frontend/paths.ts";
 
 /** Execution閲覧UI（Task 45）の表示用の変換。画面の描画・実ブラウザ確認はTaskの作業コメントに記録する。 */
 
@@ -111,4 +117,38 @@ test("Human operatorのPrincipalはMemberの表示名（無ければIDの先頭�
   assert.equal(describePrincipal("human:0123456789abcdef", names), "Human Alice");
   assert.equal(describePrincipal("human:fedcba9876543210"), "Human fedcba98");
   assert.equal(describePrincipal("wrk", names), "wrk");
+});
+
+test("手動起票（Task 47）: handoff・完了・取消のStoryと、handoff・受入済み・取消のTaskには編集・追加の導線を出さない", () => {
+  assert.equal(isManualOpenStory(story("s")), true);
+  assert.equal(isManualOpenStory(story("s", { status: "doing" })), true);
+  assert.equal(isManualOpenStory(story("s", { correlationId: "outcome:o" })), false);
+  assert.equal(isManualOpenStory(story("s", { status: "done" })), false);
+  assert.equal(isManualOpenStory(story("s", { status: "canceled" })), false);
+
+  assert.equal(isManualEditableTask(task("t", null), null), true);
+  assert.equal(isManualEditableTask(task("t", "s", { status: "rejected" }), story("s")), true);
+  assert.equal(isManualEditableTask(task("t", "s", { taskKey: "k" }), story("s")), false);
+  assert.equal(isManualEditableTask(task("t", "s"), story("s", { correlationId: "outcome:o" })), false);
+  assert.equal(isManualEditableTask(task("t", null, { status: "accepted" }), null), false);
+  assert.equal(isManualEditableTask(task("t", null, { status: "canceled" }), null), false);
+
+  const options = manualTaskStoryOptions([story("a"), story("h", { correlationId: "outcome:o" }), story("d", { status: "done" }), story("b", { status: "doing" })]);
+  assert.deepEqual(options.map((item) => item.id), ["a", "b"]);
+  // URLの`?storyId=`は選択肢にあるStoryだけを初期値にする。
+  assert.equal(initialTaskStoryId("b", options), "b");
+  assert.equal(initialTaskStoryId("h", options), "");
+  assert.equal(initialTaskStoryId(null, options), "");
+});
+
+test("手動起票の画面・APIのpath", () => {
+  assert.equal(storyCreatePath("p1"), "/projects/p1/stories/new");
+  assert.equal(storyEditPath("p1", "s1"), "/projects/p1/stories/s1/edit");
+  assert.equal(taskCreatePath("p1"), "/projects/p1/tasks/new");
+  assert.equal(taskCreatePath("p1", "s 1"), "/projects/p1/tasks/new?storyId=s%201");
+  assert.equal(taskEditPath("p1", "t1"), "/projects/p1/tasks/t1/edit");
+  assert.equal(storiesApiPath("p1"), "/api/projects/p1/stories");
+  assert.equal(storiesApiPath("p1", "s1"), "/api/projects/p1/stories/s1");
+  assert.equal(tasksApiPath("p1"), "/api/projects/p1/tasks");
+  assert.equal(tasksApiPath("p1", "t1"), "/api/projects/p1/tasks/t1");
 });

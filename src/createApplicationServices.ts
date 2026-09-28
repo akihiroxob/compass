@@ -48,6 +48,10 @@ import {
   AcceptExecutionTaskUseCase,
   AddExecutionTaskCommentUseCase,
   CancelExecutionTaskUseCase,
+  CreateExecutionStoryUseCase,
+  CreateExecutionTaskUseCase,
+  EditExecutionStoryUseCase,
+  EditExecutionTaskUseCase,
   RejectExecutionTaskUseCase,
 } from "./application/service/execution/ExecutionOperatorUseCases.ts";
 import { ListOutcomeEvaluationsUseCase } from "./application/usecase/ListOutcomeEvaluationsUseCase.ts";
@@ -357,6 +361,11 @@ export const createApplicationServices = (
     rejectExecutionTask: operator("execution.intervene", new RejectExecutionTaskUseCase(taskCoordinationService)),
     cancelExecutionTask: operator("execution.intervene", new CancelExecutionTaskUseCase(taskCoordinationService)),
     addExecutionTaskComment: operator("execution.intervene", new AddExecutionTaskCommentUseCase(taskCoordinationService)),
+    // Story・Taskの手動起票・編集（Task 47。U4）。Web UI専用で、MCPへは公開しない（Agentは既存のissue_* / edit_* toolを使う）。
+    createExecutionStory: operator("execution.plan", new CreateExecutionStoryUseCase(taskCoordinationService)),
+    editExecutionStory: operator("execution.plan", new EditExecutionStoryUseCase(taskCoordinationService)),
+    createExecutionTask: operator("execution.plan", new CreateExecutionTaskUseCase(taskCoordinationService)),
+    editExecutionTask: operator("execution.plan", new EditExecutionTaskUseCase(taskCoordinationService)),
   };
   return { ...services, human };
 };

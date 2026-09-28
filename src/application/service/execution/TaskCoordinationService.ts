@@ -9,6 +9,7 @@ import { ConflictError } from "../../error/ConflictError.ts";
 import { CoordinationError } from "../../error/CoordinationError.ts";
 import { NotFoundError } from "../../error/NotFoundError.ts";
 import { ProjectArchivedError } from "../../error/ProjectArchivedError.ts";
+import { ValidationError } from "../../error/ValidationError.ts";
 import type {
   DirectionReferenceLookupPort,
   OutcomeReferenceSnapshot,
@@ -1352,6 +1353,184 @@ export class TaskCoordinationService {
           createdAt: comment.created_at,
         },
       };
+    });
+  }
+
+  // ---- Human operator（Web UI）の手動起票・編集（Task 47。U4）。認可はMembership（`execution.plan`）が入口で済ませる。 ----
+  // Outcome handoff（相関ID付きStory・`taskKey`付きTask）はManagerの`issue_story` / `issue_task`の再送で同じ内容へ収束させる
+  // 契約のため、Humanは作成・編集しない（配下へのTask追加も含む）。編集はMCPの`edit_story` / `edit_task`と同じくChange Logを残さない。
+
+  /** 対象StoryがProjectに属し（別ProjectのStory IDは存在しない扱い）、Projectがactiveであること。 */
+  private async getOperatorStory(db: DatabaseExecutor, projectId: string, storyId: string) {
+    const story = await db
+      .selectFrom("story")
+      .selectAll()
+      .where("id", "=", storyId)
+      .where("project_id", "=", projectId)
+      .executeTakeFirst();
+    if (!story) throw new NotFoundError(`Story ${storyId} was not found in Project ${projectId}`);
+    await this.assertProjectActive(db, projectId);
+    return story;
+  }
+
+  /** Human手動起票の対象にできるStory（手動起票で、完了・取消していない）か。 */
+  private assertStoryEditableByOperator(story: Selectable<StoryTable>, action: string): void {
+    if (story.correlation_id !== null) {
+      throw new ConflictError(`Story ${story.id} is an Outcome handoff Story; ${action} is managed by the Manager`, {
+        conflict: "HANDOFF_MANAGED",
+      });
+    }
+    if (story.status === StoryStatus.DONE || story.status === StoryStatus.CANCELED) {
+      throw new ConflictError(`Story ${story.id} is ${story.status}`, { conflict: "STORY_CLOSED" });
+    }
+  }
+
+  async issueStoryAsOperator(principalId: string, projectId: string, input: { title: string; description: string | null }) {
+    return this.database.transaction().execute(async (db) => {
+      await this.assertProjectActive(db, projectId);
+      const maxRow = await db
+        .selectFrom("story")
+        .select(({ fn }) => fn.max("sort_order").as("max_sort_order"))
+        .where("project_id", "=", projectId)
+        .executeTakeFirst();
+      const now = this.clock();
+      const id = crypto.randomUUID();
+      const row = await db
+        .insertInto("story")
+        .values({
+          id,
+          project_id: projectId,
+          title: this.requiredText(input.title, "Story title"),
+          description: input.description?.trim() || null,
+          status: StoryStatus.TODO,
+          sort_order: (maxRow?.max_sort_order ?? 0) + 1,
+          created_at: now,
+          updated_at: now,
+          outcome_ref: null,
+          origin_decision_id: null,
+          success_criteria_snapshot: null,
+          constraints_snapshot: null,
+          repository_snapshot: null,
+          correlation_id: null,
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      await this.appendChange(db, {
+        projectId,
+        type: "STORY_CREATED",
+        entityId: id,
+        principalId,
+        payload: { actorRole: "operator", status: StoryStatus.TODO },
+        occurredAt: now,
+      });
+      return storyDto(row);
+    });
+  }
+
+  async editStoryAsOperator(
+    principalId: string,
+    projectId: string,
+    storyId: string,
+    input: { title: string; description: string | null },
+  ) {
+    return this.database.transaction().execute(async (db) => {
+      const story = await this.getOperatorStory(db, projectId, storyId);
+      this.assertStoryEditableByOperator(story, "editing");
+      const row = await db
+        .updateTable("story")
+        .set({ title: this.requiredText(input.title, "Story title"), description: input.description?.trim() || null, updated_at: this.clock() })
+        .where("id", "=", storyId)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      return storyDto(row);
+    });
+  }
+
+  async issueTaskAsOperator(
+    principalId: string,
+    projectId: string,
+    input: { storyId: string | null; title: string; description: string | null },
+  ) {
+    return this.database.transaction().execute(async (db) => {
+      await this.assertProjectActive(db, projectId);
+      if (input.storyId !== null) {
+        const story = await db
+          .selectFrom("story")
+          .selectAll()
+          .where("id", "=", input.storyId)
+          .where("project_id", "=", projectId)
+          .executeTakeFirst();
+        // 別ProjectのStory IDは存在しないStoryと区別しない（orphan・別Projectへの紐付けを作らない）。
+        if (!story) {
+          throw new ValidationError("Task input is invalid", [{ path: "storyId", message: "Story was not found in the Project" }]);
+        }
+        this.assertStoryEditableByOperator(story, "adding Tasks");
+      }
+      const maxRow = await db
+        .selectFrom("task")
+        .select(({ fn }) => fn.max("sort_order").as("max_sort_order"))
+        .where("project_id", "=", projectId)
+        .executeTakeFirst();
+      const now = this.clock();
+      const id = crypto.randomUUID();
+      const row = await db
+        .insertInto("task")
+        .values({
+          id,
+          project_id: projectId,
+          story_id: input.storyId,
+          title: this.requiredText(input.title, "Task title"),
+          description: input.description?.trim() || null,
+          status: TaskStatus.TODO,
+          assignee: null,
+          reject_reason: null,
+          resume_source_status: null,
+          sort_order: (maxRow?.max_sort_order ?? 0) + 1,
+          created_at: now,
+          updated_at: now,
+          task_key: null,
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      await this.appendChange(db, {
+        projectId,
+        type: "TASK_CREATED",
+        entityId: id,
+        principalId,
+        payload: { actorRole: "operator", status: TaskStatus.TODO, storyId: input.storyId },
+        occurredAt: now,
+      });
+      return issuedTaskDto(row);
+    });
+  }
+
+  /** 受入済み・取消済みのTaskと、Outcome handoffのTask（`taskKey`付き・相関ID付きStory配下）は編集しない。 */
+  async editTaskAsOperator(
+    principalId: string,
+    projectId: string,
+    taskId: string,
+    input: { title: string; description: string | null },
+  ) {
+    return this.database.transaction().execute(async (db) => {
+      const task = await this.getOperatorTask(db, projectId, taskId);
+      const story = task.story_id
+        ? await db.selectFrom("story").select("correlation_id").where("id", "=", task.story_id).executeTakeFirst()
+        : undefined;
+      if (task.task_key !== null || (story?.correlation_id ?? null) !== null) {
+        throw new ConflictError(`Task ${taskId} is an Outcome handoff Task; editing is managed by the Manager`, {
+          conflict: "HANDOFF_MANAGED",
+        });
+      }
+      if (task.status === TaskStatus.ACCEPTED || task.status === TaskStatus.CANCELED) {
+        throw new CoordinationError("INVALID_TASK_STATUS", `Task ${taskId} is ${task.status}`);
+      }
+      const row = await db
+        .updateTable("task")
+        .set({ title: this.requiredText(input.title, "Task title"), description: input.description?.trim() || null, updated_at: this.clock() })
+        .where("id", "=", taskId)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      return issuedTaskDto(row);
     });
   }
 

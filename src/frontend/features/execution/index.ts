@@ -1,4 +1,5 @@
 export { ExecutionSection, StoryList } from "./ExecutionSection";
+export { StoryCreatePage, StoryEditPage, TaskCreatePage, TaskEditPage } from "./ExecutionItemFormPages";
 export { TaskDetailPage } from "./TaskDetailPage";
 export {
   evaluationResultLabels,

@@ -329,6 +329,27 @@ export const createApp = (
     const input = await readJsonBody(c.req.raw, "Comment");
     return c.json(await human.addExecutionTaskComment.execute(actor, c.req.param("projectId"), c.req.param("taskId"), input), 201);
   });
+  // Story・Taskの手動起票・編集（Task 47。U4）。Membershipのeditor以上＝`execution.plan`。相関ID・taskKeyは受け付けない。
+  app.post("/api/projects/:projectId/stories", async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Story");
+    return c.json({ story: await human.createExecutionStory.execute(actor, c.req.param("projectId"), input) }, 201);
+  });
+  app.patch("/api/projects/:projectId/stories/:storyId", async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Story");
+    return c.json({ story: await human.editExecutionStory.execute(actor, c.req.param("projectId"), c.req.param("storyId"), input) });
+  });
+  app.post("/api/projects/:projectId/tasks", async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Task");
+    return c.json({ task: await human.createExecutionTask.execute(actor, c.req.param("projectId"), input) }, 201);
+  });
+  app.patch(taskPath, async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Task");
+    return c.json({ task: await human.editExecutionTask.execute(actor, c.req.param("projectId"), c.req.param("taskId"), input) });
+  });
   // Human Membershipと招待（docs/step-6-human-auth-design.md）。認可はMembershipのuse caseが権限表で行う。
   const membersPath = "/api/projects/:projectId/members";
   app.get(membersPath, async (c) =>

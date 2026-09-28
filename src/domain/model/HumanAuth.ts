@@ -233,6 +233,8 @@ export const humanProjectPermissions = {
   "direction.write": "editor",
   /** Execution Taskへの介入（受入・差戻し・取消・Comment。Task 46）。archivedでは拒否する。 */
   "execution.intervene": "editor",
+  /** Execution Story・Taskの手動起票・編集（Task 47）。Outcome handoffのStory・Taskは対象外。archivedでは拒否する。 */
+  "execution.plan": "editor",
   "project.update": "administrator",
   "grant.manage": "administrator",
   /** Agent / Runtime Credentialの発行・rotation・取消・一覧（Task 37）。 */

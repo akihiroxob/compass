@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { taskPath } from "../../paths";
+import { storyCreatePath, storyEditPath, taskCreatePath, taskPath } from "../../paths";
+import { useProjectOperation } from "../../useProjectAccess";
 import {
   appendChangePage,
   changeNote,
@@ -14,6 +15,7 @@ import {
   executionPath,
   formatTime,
   groupTasksByStory,
+  isManualOpenStory,
   isSettledTask,
   storyAnchorId,
   storyStatusLabels,
@@ -37,8 +39,11 @@ const TaskRow = ({ task }: { task: ExecutionTask }) => (
   </li>
 );
 
-/** Story 1件とその配下のTask。Outcome由来のStoryには相関IDを出す。 */
-export const StoryCard = ({ group }: { group: StoryGroup }) => {
+/**
+ * Story 1件とその配下のTask。Outcome由来のStoryには相関IDを出す。`plan`（手動起票の権限があり、Projectがactive）のときは、
+ * 手動起票で開いているStoryにだけ編集・Task追加の導線を出す（Task 47）。
+ */
+export const StoryCard = ({ group, plan = false }: { group: StoryGroup; plan?: boolean }) => {
   const { story, tasks } = group;
   return (
     <article id={storyAnchorId(story.id)} tabIndex={-1} className="intent-card execution-story">
@@ -50,16 +55,22 @@ export const StoryCard = ({ group }: { group: StoryGroup }) => {
         {story.correlationId ? <>相関ID <code>{story.correlationId}</code></> : "手動起票（Outcome無し）"} ・ {formatTime(story.updatedAt)} 更新
       </p>
       {tasks.length ? <ul className="outcome-list">{tasks.map((task) => <TaskRow key={task.id} task={task} />)}</ul> : <p className="unset">Taskは未登録です</p>}
+      {plan && isManualOpenStory(story) && (
+        <div className="action-row">
+          <Link to={taskCreatePath(story.projectId, story.id)} className="secondary-button compact">このStoryにTaskを追加<span className="visually-hidden">（{story.title}）</span></Link>
+          <Link to={storyEditPath(story.projectId, story.id)} className="secondary-button compact">Storyを編集<span className="visually-hidden">（{story.title}）</span></Link>
+        </div>
+      )}
     </article>
   );
 };
 
-export const StoryList = ({ overview, empty }: { overview: ExecutionOverview; empty: string }) => {
+export const StoryList = ({ overview, empty, plan = false }: { overview: ExecutionOverview; empty: string; plan?: boolean }) => {
   const { groups, unassigned } = groupTasksByStory(overview);
   if (!groups.length && !unassigned.length) return <p className="unset">{empty}</p>;
   return (
     <>
-      {groups.map((group) => <StoryCard key={group.story.id} group={group} />)}
+      {groups.map((group) => <StoryCard key={group.story.id} group={group} plan={plan} />)}
       {unassigned.length > 0 && (
         <article className="intent-card execution-story">
           <h3>Storyに属さないTask</h3>
@@ -159,10 +170,11 @@ const RecentChanges = ({ projectId, overview }: { projectId: string; overview: E
 };
 
 /**
- * Project詳細のExecution section（Human向け読取専用）。Story・Task・Claim・Change LogはAgent（MCP）が作り、
- * この画面からは変更しない。受入・差戻し・取消・CommentはTask詳細から行う（Task 46）。手動起票は未実装（Task 47）。
+ * Project詳細のExecution section。Story・Task・Claim・Change Logは主にAgent（MCP）が作る。受入・差戻し・取消・Commentは
+ * Task詳細から行い（Task 46）、editor以上はここからStory・Taskを手動起票・編集できる（Task 47。archivedでは導線を出さない）。
  */
 export const ExecutionSection = ({ projectId }: { projectId: string }) => {
+  const plan = useProjectOperation(projectId, "execution.plan");
   const [overview, setOverview] = useState<ExecutionOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -178,15 +190,22 @@ export const ExecutionSection = ({ projectId }: { projectId: string }) => {
     <section className="detail-section" aria-labelledby="execution-heading">
       <h2 id="execution-heading">Execution</h2>
       <p className="section-note">
-        Manager・Worker・ReviewerのAgentがMCPで進めるStory・Taskです。この画面は参照専用です。受入・差戻しはTask詳細から行えます。手動起票はまだできません。
+        Manager・Worker・ReviewerのAgentがMCPで進めるStory・Taskです。受入・差戻し・取消・CommentはTask詳細から行えます。
+        {plan && " Humanが手動でStory・Taskを起票することもできます（OutcomeからManagerが起票したStory・Taskは編集できません）。"}
       </p>
+      {plan && (
+        <div className="action-row">
+          <Link to={storyCreatePath(projectId)} className="button">Storyを起票</Link>
+          <Link to={taskCreatePath(projectId)} className="secondary-button">Taskを起票</Link>
+        </div>
+      )}
       {error ? (
         <ErrorState message={`Executionの読み込みに失敗しました: ${error}`} />
       ) : overview === null ? (
         <Loading />
       ) : (
         <>
-          <StoryList overview={overview} empty="Storyは未登録です" />
+          <StoryList overview={overview} empty="Storyは未登録です" plan={plan} />
           <RecentChanges projectId={projectId} overview={overview} />
         </>
       )}

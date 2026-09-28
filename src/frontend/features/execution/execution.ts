@@ -183,6 +183,34 @@ export const describePrincipal = (principalId: string, humanNames: ReadonlyMap<s
   return `Human ${humanNames.get(humanUserId) ?? humanUserId.slice(0, 8)}`;
 };
 
+// ---- Human手動起票（Task 47）。Story・Taskの作成・編集。表示の判定だけで、拒否は常にserverが行う。 ----
+
+export const storiesApiPath = (projectId: string, storyId?: string) => `/api/projects/${projectId}/stories${storyId ? `/${storyId}` : ""}`;
+export const tasksApiPath = (projectId: string, taskId?: string) => `/api/projects/${projectId}/tasks${taskId ? `/${taskId}` : ""}`;
+
+/** Humanが編集・Task追加できるStory。Outcome handoff（相関ID付き）はManagerが管理し、完了・取消のStoryは対象外。 */
+export const isManualOpenStory = (story: Pick<ExecutionStory, "correlationId" | "status">): boolean =>
+  story.correlationId === null && story.status !== "done" && story.status !== "canceled";
+
+/** Humanが編集できるTask。handoffのTask（`taskKey`付き・handoff Story配下）と、受入済み・取消済みは対象外。 */
+export const isManualEditableTask = (
+  task: Pick<ExecutionTask, "taskKey" | "status">,
+  story: Pick<ExecutionStory, "correlationId"> | null,
+): boolean => task.taskKey === null && (story?.correlationId ?? null) === null && !isSettledTask(task.status);
+
+/** Task起票フォームの対象Storyの選択肢（手動起票で開いているStoryだけ。順序はAPIの順）。 */
+export const manualTaskStoryOptions = (stories: ExecutionStory[]): ExecutionStory[] => stories.filter(isManualOpenStory);
+
+/** URLの`?storyId=`を初期値にする。選択肢に無いStory（handoff・完了・別Project）は無視し、未選択にする。 */
+export const initialTaskStoryId = (requested: string | null, options: Pick<ExecutionStory, "id">[]): string =>
+  requested !== null && options.some((story) => story.id === requested) ? requested : "";
+
+export type ExecutionItemFormValues = { title: string; description: string };
+export const executionItemFormValues = (item?: { title: string; description: string | null }): ExecutionItemFormValues => ({
+  title: item?.title ?? "",
+  description: item?.description ?? "",
+});
+
 // ---- Outcome詳細の閉ループ表示。Executionの進捗・Summary・Evidence・Evaluation・Decisionを、状態を推測せずに区別する。 ----
 
 export type { EvaluationResult, CriterionVerdict, OutcomeEvaluation, ExecutionState, OutcomeExecutionRecord };

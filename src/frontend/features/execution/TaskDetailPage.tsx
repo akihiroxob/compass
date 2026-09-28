@@ -4,7 +4,8 @@ import { ApiError, classifyError, describeActionFailure, jsonPost, loadFailureMe
 import { ReasonPanel, useReasonAction, type ReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { Shell } from "../../components/Shell";
-import { useProjectOperationState } from "../../useProjectAccess";
+import { taskEditPath } from "../../paths";
+import { useProjectOperation, useProjectOperationState } from "../../useProjectAccess";
 import { membersPath, type Member } from "../member";
 import { ChangeItem } from "./ExecutionSection";
 import {
@@ -12,6 +13,7 @@ import {
   describeClaim,
   describePrincipal,
   formatTime,
+  isManualEditableTask,
   isSettledTask,
   storyStatusLabels,
   taskDetailApiPath,
@@ -183,6 +185,7 @@ export const TaskDetailPage = () => {
   const [humanNames, setHumanNames] = useState<{ projectId: string; names: ReadonlyMap<string, string> } | null>(null);
   const key = `${projectId}/${taskId}`;
   const access = useProjectOperationState(projectId, "execution.intervene").access;
+  const plan = useProjectOperation(projectId, "execution.plan");
   const load = useCallback(
     () => request<TaskDetail>(taskDetailApiPath(projectId, taskId)).then((detail) => setState({ key, detail, error: null })),
     [key],
@@ -236,6 +239,9 @@ export const TaskDetailPage = () => {
               <p><span className={`status-badge${isSettledTask(task.status) ? " muted" : ""}`}>{taskStatusLabels[task.status]}</span></p>
               <time>{formatTime(task.updatedAt)} 更新</time>
               {currentNotice && <OperationNotice notice={currentNotice} />}
+              {plan && isManualEditableTask(task, detail.story) && (
+                <div className="action-row"><Link to={taskEditPath(projectId, taskId)} className="secondary-button">Taskを編集</Link></div>
+              )}
               {intervene && <TaskOperations operations={availableTaskOperations(task)} actions={actions} />}
               {intervene && (task.status === "in_review" || task.status === "wait_accept") && task.activeClaim && (
                 <p className="section-note">Agentが受入・レビューのClaimを持っているため、受入・差戻しはClaimの解放後にできます。</p>
