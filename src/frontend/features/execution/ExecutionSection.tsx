@@ -178,7 +178,7 @@ export const ExecutionSection = ({ projectId }: { projectId: string }) => {
     <section className="detail-section" aria-labelledby="execution-heading">
       <h2 id="execution-heading">Execution</h2>
       <p className="section-note">
-        Manager・Worker・ReviewerのAgentがMCPで進めるStory・Taskです。この画面は参照専用で、受入・差戻しや手動起票はまだできません。
+        Manager・Worker・ReviewerのAgentがMCPで進めるStory・Taskです。この画面は参照専用です。受入・差戻しはTask詳細から行えます。手動起票はまだできません。
       </p>
       {error ? (
         <ErrorState message={`Executionの読み込みに失敗しました: ${error}`} />
