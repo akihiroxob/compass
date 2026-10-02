@@ -1,10 +1,9 @@
 import type { HumanActor, ProjectInvitation, ProjectMembership } from "../../domain/model/HumanAuth.ts";
 import type { MemberView, ProjectMembershipRepository } from "../../domain/repository/ProjectMembershipRepository.ts";
 import { parseChangeMemberRoleInput, parseCreateInvitationInput } from "../../shared/humanAuthSchema.ts";
-import { ConflictError } from "../error/ConflictError.ts";
+import { ConflictError, NotFoundError } from "@compass/shared";
 import { LastOwnerError } from "../error/LastOwnerError.ts";
-import { NotFoundError } from "../error/NotFoundError.ts";
-import { ProjectArchivedError } from "../error/ProjectArchivedError.ts";
+import { ProjectArchivedError } from "@compass/direction";
 import type { HumanProjectAuthorizationService } from "../service/HumanProjectAuthorizationService.ts";
 import { generateSecretToken, hashSecretToken } from "../service/secretToken.ts";
 

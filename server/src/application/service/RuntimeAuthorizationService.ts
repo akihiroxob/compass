@@ -1,7 +1,6 @@
 import { ProjectRole } from "../../constants/ProjectRole.ts";
 import type { RuntimeScope } from "../../domain/model/AccessCredential.ts";
-import { ForbiddenError } from "../error/ForbiddenError.ts";
-import { UnauthenticatedError } from "../error/UnauthenticatedError.ts";
+import { ForbiddenError, UnauthenticatedError } from "@compass/shared";
 import type { Principal, ProjectAuthorizationService } from "./ProjectAuthorizationService.ts";
 
 /** Agent Credentialで認証した呼出し。Role GrantはprincipalIdで検査する。 */

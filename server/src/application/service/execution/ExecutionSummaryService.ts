@@ -1,16 +1,16 @@
 import type { Kysely } from "kysely";
 import { StoryStatus } from "../../../domain/model/execution/StoryStatus.ts";
 import type { Database } from "../../../bootstrap/database/schema.ts";
-import { outcomeCorrelationId } from "../../../shared/outcomeCorrelation.ts";
-import type {
-  ExecutionStorySummary,
-  ExecutionSummaryPort,
-  ExecutionSummarySnapshot,
-  ExecutionSummaryState,
-  ExecutionTaskCounts,
-} from "../../port/ExecutionSummaryPort.ts";
+import {
+  type ExecutionStorySummary,
+  type ExecutionSummaryPort,
+  type ExecutionSummarySnapshot,
+  type ExecutionSummaryState,
+  type ExecutionSummaryTaskCounts,
+  outcomeCorrelationId,
+} from "@compass/direction";
 
-const emptyCounts = (): ExecutionTaskCounts => ({
+const emptyCounts = (): ExecutionSummaryTaskCounts => ({
   todo: 0,
   doing: 0,
   in_review: 0,
@@ -24,7 +24,7 @@ const emptyCounts = (): ExecutionTaskCounts => ({
  * 1 Storyの結果。Taskが無いStoryはManagerがまだ計画していないためincomplete（acceptedにしない）。
  * 進行中のTaskが1件でもあればincomplete、そうでなく未解決の差戻しがあればrejected、残りがすべてacceptedならaccepted。
  */
-const storyState = (status: string, counts: ExecutionTaskCounts): ExecutionSummaryState => {
+const storyState = (status: string, counts: ExecutionSummaryTaskCounts): ExecutionSummaryState => {
   if (status === StoryStatus.CANCELED) return "canceled";
   const total = Object.values(counts).reduce((sum, value) => sum + value, 0);
   if (total === 0) return "incomplete";
@@ -69,7 +69,7 @@ export class ExecutionSummaryService implements ExecutionSummaryPort {
       .where("story_id", "in", storyIds)
       .execute();
 
-    const countsByStory = new Map<string, ExecutionTaskCounts>(storyIds.map((id) => [id, emptyCounts()]));
+    const countsByStory = new Map<string, ExecutionSummaryTaskCounts>(storyIds.map((id) => [id, emptyCounts()]));
     for (const task of tasks) {
       const counts = countsByStory.get(task.story_id ?? "");
       if (counts && task.status in counts) counts[task.status] += 1;

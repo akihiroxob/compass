@@ -1,5 +1,4 @@
-import { NotFoundError } from "../../error/NotFoundError.ts";
-import { ValidationError } from "../../error/ValidationError.ts";
+import { NotFoundError, ValidationError } from "@compass/shared";
 import type { TaskCoordinationService } from "./TaskCoordinationService.ts";
 
 /**

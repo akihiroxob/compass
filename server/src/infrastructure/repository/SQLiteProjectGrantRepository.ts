@@ -3,8 +3,9 @@ import type { ProjectRole } from "../../constants/ProjectRole.ts";
 import { ProjectGrant } from "../../domain/model/ProjectGrant.ts";
 import type { GrantOutcome, ProjectGrantRepository, RevokeOutcome } from "../../domain/repository/ProjectGrantRepository.ts";
 import type { Database, ProjectGrantTable } from "../../bootstrap/database/schema.ts";
-import { isProjectArchived } from "./isProjectArchived.ts";
+import { isProjectArchived } from "@compass/direction";
 import { findActiveAgentCredentialElsewhere } from "./SQLiteAccessCredentialRepository.ts";
+import { asDirectionDatabase } from "../../bootstrap/database/contextDatabase.ts";
 
 const toProjectGrant = (row: Selectable<ProjectGrantTable>): ProjectGrant =>
   new ProjectGrant({
@@ -23,7 +24,7 @@ export class SQLiteProjectGrantRepository implements ProjectGrantRepository {
 
   async grant(projectId: string, principalId: string, role: ProjectRole): Promise<GrantOutcome> {
     return this.database.transaction().execute(async (transaction): Promise<GrantOutcome> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await isProjectArchived(asDirectionDatabase(transaction), projectId)) return { kind: "project_archived" };
       if (await findActiveAgentCredentialElsewhere(transaction, projectId, principalId, this.clock())) {
         return { kind: "principal_bound_elsewhere" };
       }
@@ -48,7 +49,7 @@ export class SQLiteProjectGrantRepository implements ProjectGrantRepository {
 
   async revoke(projectId: string, principalId: string, role: ProjectRole): Promise<RevokeOutcome> {
     return this.database.transaction().execute(async (transaction): Promise<RevokeOutcome> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await isProjectArchived(asDirectionDatabase(transaction), projectId)) return { kind: "project_archived" };
       const result = await transaction
         .deleteFrom("project_grant")
         .where("project_id", "=", projectId)

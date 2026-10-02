@@ -7,7 +7,7 @@ import { sql } from "kysely";
 import type { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { runtimeEventVersion } from "../src/domain/model/RuntimeEvent.ts";
+import { runtimeEventVersion } from "@compass/direction";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 

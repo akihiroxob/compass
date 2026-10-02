@@ -5,9 +5,8 @@ import {
   parseTaskCommentInput,
   parseTaskReasonInput,
 } from "../../../shared/executionOperatorSchema.ts";
-import { ConflictError } from "../../error/ConflictError.ts";
+import { ConflictError, ValidationError } from "@compass/shared";
 import { CoordinationError } from "../../error/CoordinationError.ts";
-import { ValidationError } from "../../error/ValidationError.ts";
 import type { TaskCoordinationService } from "./TaskCoordinationService.ts";
 
 type ExecutionOperator = Pick<

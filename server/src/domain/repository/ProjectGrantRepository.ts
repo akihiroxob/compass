@@ -1,6 +1,6 @@
 import type { ProjectRole } from "../../constants/ProjectRole.ts";
 import type { ProjectGrant } from "../model/ProjectGrant.ts";
-import type { ProjectArchivedResult } from "./ProjectRepository.ts";
+import type { ProjectArchivedResult } from "@compass/direction";
 
 export type GrantResult = { grant: ProjectGrant; created: boolean };
 

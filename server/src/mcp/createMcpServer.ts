@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { directionDecisionRecordTypes } from "../domain/model/DirectionDecision.ts";
+import { directionDecisionRecordTypes } from "@compass/direction";
 import { ProjectRole, projectRoles } from "../constants/ProjectRole.ts";
 import { agentPrincipalOf, type Caller } from "../application/service/RuntimeAuthorizationService.ts";
 import type { AuthMode } from "../auth/humanAuthConfig.ts";

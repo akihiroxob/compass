@@ -1,5 +1,10 @@
-import type { EvaluationResult, CriterionVerdict, OutcomeEvaluation } from "../../../domain/model/OutcomeEvaluation.ts";
-import type { ExecutionState, OutcomeExecutionRecord } from "../../../domain/model/OutcomeExecution.ts";
+import type {
+  CriterionVerdict,
+  EvaluationResult,
+  ExecutionState,
+  OutcomeEvaluation,
+  OutcomeExecutionRecord,
+} from "@compass/direction/domain";
 
 // ---- Execution閲覧（Task 45）。Web API（`/api/projects/:projectId/execution`・`tasks/:taskId`・`changes`）の応答の型と表示用の変換。 ----
 

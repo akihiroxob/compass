@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { UnauthenticatedError } from "../application/error/UnauthenticatedError.ts";
+import { UnauthenticatedError } from "@compass/shared";
 import { agentPrincipalOf, type Caller } from "../application/service/RuntimeAuthorizationService.ts";
 import type { ApplicationServices } from "../bootstrap/container.ts";
 import { StoryStatus } from "../domain/model/execution/StoryStatus.ts";

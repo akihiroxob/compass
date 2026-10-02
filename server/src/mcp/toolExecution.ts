@@ -1,10 +1,6 @@
-import { ConflictError } from "../application/error/ConflictError.ts";
+import { ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError, ValidationError } from "@compass/shared";
 import { CoordinationError } from "../application/error/CoordinationError.ts";
-import { ForbiddenError } from "../application/error/ForbiddenError.ts";
 import { InstructionUnavailableError } from "./InstructionUnavailableError.ts";
-import { NotFoundError } from "../application/error/NotFoundError.ts";
-import { UnauthenticatedError } from "../application/error/UnauthenticatedError.ts";
-import { ValidationError } from "../application/error/ValidationError.ts";
 
 export const result = (value: unknown, message?: string) => {
   const plainValue = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;

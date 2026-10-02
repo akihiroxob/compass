@@ -9,7 +9,8 @@ import type {
   RotateCredentialOutcome,
 } from "../../domain/repository/AccessCredentialRepository.ts";
 import type { AccessCredentialTable, Database } from "../../bootstrap/database/schema.ts";
-import { isProjectArchived } from "./isProjectArchived.ts";
+import { isProjectArchived } from "@compass/direction";
+import { asDirectionDatabase } from "../../bootstrap/database/contextDatabase.ts";
 
 /** 最終利用日時の更新間隔。毎回のrequestで書き込まない。 */
 const lastUsedResolutionMilliseconds = 60 * 1000;
@@ -70,7 +71,7 @@ export class SQLiteAccessCredentialRepository implements AccessCredentialReposit
 
   async issue(credential: NewCredential): Promise<IssueCredentialOutcome> {
     return this.database.transaction().execute(async (transaction): Promise<IssueCredentialOutcome> => {
-      if (await isProjectArchived(transaction, credential.projectId)) return { kind: "project_archived" };
+      if (await isProjectArchived(asDirectionDatabase(transaction), credential.projectId)) return { kind: "project_archived" };
       if (
         credential.kind === "agent" &&
         (await isAgentPrincipalBoundElsewhere(transaction, credential.projectId, credential.principalId, credential.createdAt))
@@ -115,7 +116,7 @@ export class SQLiteAccessCredentialRepository implements AccessCredentialReposit
         .where("project_id", "=", projectId)
         .executeTakeFirst();
       if (!previous) return { kind: "not_found" };
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await isProjectArchived(asDirectionDatabase(transaction), projectId)) return { kind: "project_archived" };
       if (previous.revoked_at !== null || previous.expires_at <= next.createdAt) return { kind: "not_active" };
 
       const row = await transaction

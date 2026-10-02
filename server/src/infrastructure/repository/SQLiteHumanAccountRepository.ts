@@ -17,8 +17,9 @@ import type {
   RegisterOrLoginResult,
 } from "../../domain/repository/HumanAccountRepository.ts";
 import type { Database } from "../../bootstrap/database/schema.ts";
-import { isProjectArchived } from "./isProjectArchived.ts";
+import { isProjectArchived } from "@compass/direction";
 import { toHumanIdentity, toHumanUser, toWebSession } from "./humanAuthRecord.ts";
+import { asDirectionDatabase } from "../../bootstrap/database/contextDatabase.ts";
 
 /** OIDCの`name`が無ければemailのlocal partを表示名にする。 */
 const displayNameOf = (identity: VerifiedIdentity, email: string): string =>
@@ -62,7 +63,7 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
           : false;
 
       // 受諾のMembership書込と同じtransactionで確認し、archiveとの競合でもMembershipを追加しない。
-      const projectArchived = invitation ? await isProjectArchived(transaction, invitation.project_id) : false;
+      const projectArchived = invitation ? await isProjectArchived(asDirectionDatabase(transaction), invitation.project_id) : false;
 
       const facts: RegistrationFacts = {
         identity,

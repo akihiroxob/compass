@@ -1,9 +1,7 @@
 import { humanOperatorPrincipalId, type HumanActor, type HumanProjectOperation, type HumanRole } from "../../domain/model/HumanAuth.ts";
-import type { Project, ProjectStatus } from "../../domain/model/Project.ts";
+import type { GetProjectUseCase, Project, ProjectRepository, ProjectStatus } from "@compass/direction";
 import type { ProjectMembershipRepository } from "../../domain/repository/ProjectMembershipRepository.ts";
-import type { ProjectRepository } from "../../domain/repository/ProjectRepository.ts";
 import type { HumanProjectAuthorizationService } from "../service/HumanProjectAuthorizationService.ts";
-import type { GetProjectUseCase } from "./GetProjectUseCase.ts";
 
 type ProjectScopedUseCase<Args extends unknown[], Result> = {
   execute(projectId: string, ...args: Args): Promise<Result>;

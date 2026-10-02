@@ -1,6 +1,4 @@
-import { ConflictError } from "../application/error/ConflictError.ts";
-import { NotFoundError } from "../application/error/NotFoundError.ts";
-import { ValidationError } from "../application/error/ValidationError.ts";
+import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
 import type { ApplicationServices } from "../bootstrap/createApplicationServices.ts";
 
 export const cliUsage = [

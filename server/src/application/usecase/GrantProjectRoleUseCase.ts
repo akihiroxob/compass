@@ -1,9 +1,7 @@
 import type { ProjectGrantRepository, GrantResult } from "../../domain/repository/ProjectGrantRepository.ts";
-import type { ProjectRepository } from "../../domain/repository/ProjectRepository.ts";
+import { ProjectArchivedError, type ProjectRepository } from "@compass/direction";
 import { parseProjectGrantInput } from "../../shared/projectGrantSchema.ts";
-import { ConflictError } from "../error/ConflictError.ts";
-import { NotFoundError } from "../error/NotFoundError.ts";
-import { ProjectArchivedError } from "../error/ProjectArchivedError.ts";
+import { ConflictError, NotFoundError } from "@compass/shared";
 
 export class GrantProjectRoleUseCase {
   constructor(

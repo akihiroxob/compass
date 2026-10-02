@@ -1,5 +1,5 @@
 import type { AccessCredential, CredentialKind, RuntimeScope } from "../model/AccessCredential.ts";
-import type { ProjectArchivedResult } from "./ProjectRepository.ts";
+import type { ProjectArchivedResult } from "@compass/direction";
 
 export type NewCredentialSecret = {
   id: string;

@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp } from "../src/bootstrap/app.ts";
-import { ForbiddenError } from "../src/application/error/ForbiddenError.ts";
-import { NotFoundError } from "../src/application/error/NotFoundError.ts";
+import { ForbiddenError, NotFoundError } from "@compass/shared";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { humanProjectPermissions, humanRoles, type HumanRole } from "../src/domain/model/HumanAuth.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";

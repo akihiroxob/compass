@@ -7,8 +7,7 @@ import {
   type ProjectMembership,
 } from "../../domain/model/HumanAuth.ts";
 import type { ProjectMembershipRepository } from "../../domain/repository/ProjectMembershipRepository.ts";
-import { ForbiddenError } from "../error/ForbiddenError.ts";
-import { NotFoundError } from "../error/NotFoundError.ts";
+import { ForbiddenError, NotFoundError } from "@compass/shared";
 
 /**
  * Human Membershipによる認可。Agent向けの`ProjectAuthorizationService`（Grant無しは403）とは別で、

@@ -1,4 +1,4 @@
-import { ConflictError } from "./ConflictError.ts";
+import { ConflictError } from "@compass/shared";
 
 /** Projectの有効なowner数を0にする変更。HTTPは`409 LAST_OWNER`（Task 42）で返す。 */
 export class LastOwnerError extends ConflictError {

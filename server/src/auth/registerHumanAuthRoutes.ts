@@ -1,6 +1,6 @@
 import type { Context, Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import { UnauthenticatedError } from "../application/error/UnauthenticatedError.ts";
+import { UnauthenticatedError } from "@compass/shared";
 import { deriveCsrfToken, secretEquals } from "../application/service/secretToken.ts";
 import type { HumanLoginResult } from "../application/usecase/HumanLoginUseCases.ts";
 import type { ApplicationServices } from "../bootstrap/createApplicationServices.ts";

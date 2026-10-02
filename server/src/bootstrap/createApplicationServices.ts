@@ -1,5 +1,54 @@
 import { InstructionService } from "../mcp/InstructionService.ts";
-import { DirectionReferenceLookupService } from "../application/service/DirectionReferenceLookupService.ts";
+import {
+  AbandonIntentUseCase,
+  AckRuntimeEventUseCase,
+  ArchiveProjectUseCase,
+  CancelOutcomeUseCase,
+  CancelResearchRequestUseCase,
+  CompleteResearchRequestUseCase,
+  CreateAdrHandoffRequestUseCase,
+  CreateDirectionDecisionUseCase,
+  CreateIntentUseCase,
+  CreateOutcomeUseCase,
+  CreateProjectUseCase,
+  CreateResearchRequestUseCase,
+  DecideNextOutcomeUseCase,
+  DirectionReferenceLookupService,
+  FetchRuntimeEventsUseCase,
+  GetEvaluatorContextUseCase,
+  GetExecutionSummaryUseCase,
+  GetIntentUseCase,
+  GetOutcomeUseCase,
+  GetProjectUseCase,
+  GetResearcherContextUseCase,
+  GetResearchRequestUseCase,
+  GetStrategistContextUseCase,
+  ListAdrReferencesUseCase,
+  ListDirectionDecisionsUseCase,
+  ListIntentsUseCase,
+  ListOutcomeEvaluationsUseCase,
+  ListOutcomesUseCase,
+  ListProjectsUseCase,
+  ListResearchRequestsUseCase,
+  ListRuntimeEventsUseCase,
+  RecordAdrReferenceUseCase,
+  RecordExecutionEvidenceUseCase,
+  RecordOutcomeEvaluationUseCase,
+  RegisterResearchResultUseCase,
+  RegisterResearchSynthesisUseCase,
+  SQLiteAdrHandoffRepository,
+  SQLiteDirectionDecisionRepository,
+  SQLiteIntentRepository,
+  SQLiteOutcomeEvaluationRepository,
+  SQLiteOutcomeExecutionRepository,
+  SQLiteOutcomeRepository,
+  SQLiteProjectRepository,
+  SQLiteResearchRepository,
+  SQLiteRuntimeEventRepository,
+  UpdateIntentUseCase,
+  UpdateOutcomeUseCase,
+  UpdateProjectUseCase,
+} from "@compass/direction";
 import { ExecutionSummaryService } from "../application/service/execution/ExecutionSummaryService.ts";
 import { TaskCoordinationService } from "../application/service/execution/TaskCoordinationService.ts";
 import { HumanProjectAuthorizationService } from "../application/service/HumanProjectAuthorizationService.ts";
@@ -20,25 +69,6 @@ import {
   RotateAccessCredentialUseCase,
 } from "../application/usecase/AccessCredentialUseCases.ts";
 import { SQLiteAccessCredentialRepository } from "../infrastructure/repository/SQLiteAccessCredentialRepository.ts";
-import { AbandonIntentUseCase } from "../application/usecase/AbandonIntentUseCase.ts";
-import { AckRuntimeEventUseCase } from "../application/usecase/AckRuntimeEventUseCase.ts";
-import { ArchiveProjectUseCase } from "../application/usecase/ArchiveProjectUseCase.ts";
-import { CancelOutcomeUseCase } from "../application/usecase/CancelOutcomeUseCase.ts";
-import {
-  CancelResearchRequestUseCase,
-  CompleteResearchRequestUseCase,
-} from "../application/usecase/CloseResearchRequestUseCases.ts";
-import { CreateAdrHandoffRequestUseCase } from "../application/usecase/CreateAdrHandoffRequestUseCase.ts";
-import { CreateDirectionDecisionUseCase } from "../application/usecase/CreateDirectionDecisionUseCase.ts";
-import { CreateIntentUseCase } from "../application/usecase/CreateIntentUseCase.ts";
-import { CreateOutcomeUseCase } from "../application/usecase/CreateOutcomeUseCase.ts";
-import { CreateProjectUseCase } from "../application/usecase/CreateProjectUseCase.ts";
-import { CreateResearchRequestUseCase } from "../application/usecase/CreateResearchRequestUseCase.ts";
-import { DecideNextOutcomeUseCase } from "../application/usecase/DecideNextOutcomeUseCase.ts";
-import { FetchRuntimeEventsUseCase } from "../application/usecase/FetchRuntimeEventsUseCase.ts";
-import { GetEvaluatorContextUseCase } from "../application/usecase/GetEvaluatorContextUseCase.ts";
-import { GetIntentUseCase } from "../application/usecase/GetIntentUseCase.ts";
-import { GetExecutionSummaryUseCase } from "../application/usecase/GetExecutionSummaryUseCase.ts";
 import {
   GetExecutionTaskUseCase,
   ListExecutionUseCase,
@@ -54,12 +84,6 @@ import {
   EditExecutionTaskUseCase,
   RejectExecutionTaskUseCase,
 } from "../application/service/execution/ExecutionOperatorUseCases.ts";
-import { ListOutcomeEvaluationsUseCase } from "../application/usecase/ListOutcomeEvaluationsUseCase.ts";
-import { GetOutcomeUseCase } from "../application/usecase/GetOutcomeUseCase.ts";
-import { GetResearchRequestUseCase } from "../application/usecase/GetResearchRequestUseCase.ts";
-import { GetResearcherContextUseCase } from "../application/usecase/GetResearcherContextUseCase.ts";
-import { GetStrategistContextUseCase } from "../application/usecase/GetStrategistContextUseCase.ts";
-import { GetProjectUseCase } from "../application/usecase/GetProjectUseCase.ts";
 import { GrantProjectRoleUseCase } from "../application/usecase/GrantProjectRoleUseCase.ts";
 import {
   CompleteOidcLoginUseCase,
@@ -72,12 +96,7 @@ import {
   ResolveHumanSessionUseCase,
   RevokeHumanSessionUseCase,
 } from "../application/usecase/HumanSessionUseCases.ts";
-import { ListAdrReferencesUseCase } from "../application/usecase/ListAdrReferencesUseCase.ts";
-import { ListDirectionDecisionsUseCase } from "../application/usecase/ListDirectionDecisionsUseCase.ts";
-import { ListIntentsUseCase } from "../application/usecase/ListIntentsUseCase.ts";
-import { ListOutcomesUseCase } from "../application/usecase/ListOutcomesUseCase.ts";
 import { ListProjectGrantsUseCase } from "../application/usecase/ListProjectGrantsUseCase.ts";
-import { ListProjectsUseCase } from "../application/usecase/ListProjectsUseCase.ts";
 import {
   ChangeProjectMemberRoleUseCase,
   CreateProjectInvitationUseCase,
@@ -86,33 +105,16 @@ import {
   RevokeProjectInvitationUseCase,
   RevokeProjectMemberUseCase,
 } from "../application/usecase/ProjectMembershipUseCases.ts";
-import { ListResearchRequestsUseCase } from "../application/usecase/ListResearchRequestsUseCase.ts";
-import { ListRuntimeEventsUseCase } from "../application/usecase/ListRuntimeEventsUseCase.ts";
-import { RecordAdrReferenceUseCase } from "../application/usecase/RecordAdrReferenceUseCase.ts";
-import { RecordExecutionEvidenceUseCase } from "../application/usecase/RecordExecutionEvidenceUseCase.ts";
-import { RecordOutcomeEvaluationUseCase } from "../application/usecase/RecordOutcomeEvaluationUseCase.ts";
-import { RegisterResearchResultUseCase } from "../application/usecase/RegisterResearchResultUseCase.ts";
-import { RegisterResearchSynthesisUseCase } from "../application/usecase/RegisterResearchSynthesisUseCase.ts";
 import { RevokeProjectRoleUseCase } from "../application/usecase/RevokeProjectRoleUseCase.ts";
-import { UpdateIntentUseCase } from "../application/usecase/UpdateIntentUseCase.ts";
-import { UpdateOutcomeUseCase } from "../application/usecase/UpdateOutcomeUseCase.ts";
-import { UpdateProjectUseCase } from "../application/usecase/UpdateProjectUseCase.ts";
-import { SQLiteAdrHandoffRepository } from "../infrastructure/repository/SQLiteAdrHandoffRepository.ts";
-import { SQLiteDirectionDecisionRepository } from "../infrastructure/repository/SQLiteDirectionDecisionRepository.ts";
 import type { HumanIdentityProvider } from "../application/port/HumanIdentityProvider.ts";
-import { SQLiteIntentRepository } from "../infrastructure/repository/SQLiteIntentRepository.ts";
-import { SQLiteOutcomeEvaluationRepository } from "../infrastructure/repository/SQLiteOutcomeEvaluationRepository.ts";
-import { SQLiteOutcomeExecutionRepository } from "../infrastructure/repository/SQLiteOutcomeExecutionRepository.ts";
-import { SQLiteOutcomeRepository } from "../infrastructure/repository/SQLiteOutcomeRepository.ts";
 import { SQLiteHumanAccountRepository } from "../infrastructure/repository/SQLiteHumanAccountRepository.ts";
 import { SQLiteLoginAttemptRepository } from "../infrastructure/repository/SQLiteLoginAttemptRepository.ts";
 import { SQLiteProjectGrantRepository } from "../infrastructure/repository/SQLiteProjectGrantRepository.ts";
 import { SQLiteProjectMembershipRepository } from "../infrastructure/repository/SQLiteProjectMembershipRepository.ts";
-import { SQLiteProjectRepository } from "../infrastructure/repository/SQLiteProjectRepository.ts";
-import { SQLiteResearchRepository } from "../infrastructure/repository/SQLiteResearchRepository.ts";
-import { SQLiteRuntimeEventRepository } from "../infrastructure/repository/SQLiteRuntimeEventRepository.ts";
 import type { Kysely } from "kysely";
+import { asDirectionDatabase } from "./database/contextDatabase.ts";
 import type { Database } from "./database/schema.ts";
+import { writeProjectOwnerMembership } from "../infrastructure/repository/writeProjectOwnerMembership.ts";
 
 /** DBを開かずにUse Caseを組み立てる。containerはimport時にDBを開くため、CLIなどはこちらを使う。 */
 export const createApplicationServices = (
@@ -128,13 +130,15 @@ export const createApplicationServices = (
     initialOwnerEmail: null,
   },
 ) => {
-  const projectRepository = new SQLiteProjectRepository(applicationDatabase);
-  const intentRepository = new SQLiteIntentRepository(applicationDatabase);
-  const outcomeRepository = new SQLiteOutcomeRepository(applicationDatabase);
-  const researchRepository = new SQLiteResearchRepository(applicationDatabase, clock);
-  const directionDecisionRepository = new SQLiteDirectionDecisionRepository(applicationDatabase, clock);
-  const adrHandoffRepository = new SQLiteAdrHandoffRepository(applicationDatabase);
-  const runtimeEventRepository = new SQLiteRuntimeEventRepository(applicationDatabase);
+  // Directionのrepositoryへは同じ接続を、Directionが所有するtableの型で渡す。
+  const directionDatabase = asDirectionDatabase(applicationDatabase);
+  const projectRepository = new SQLiteProjectRepository(directionDatabase, writeProjectOwnerMembership);
+  const intentRepository = new SQLiteIntentRepository(directionDatabase);
+  const outcomeRepository = new SQLiteOutcomeRepository(directionDatabase);
+  const researchRepository = new SQLiteResearchRepository(directionDatabase, clock);
+  const directionDecisionRepository = new SQLiteDirectionDecisionRepository(directionDatabase, clock);
+  const adrHandoffRepository = new SQLiteAdrHandoffRepository(directionDatabase);
+  const runtimeEventRepository = new SQLiteRuntimeEventRepository(directionDatabase);
   const projectGrantRepository = new SQLiteProjectGrantRepository(applicationDatabase, clock);
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
   // Runtime向けの入口はRuntime Credentialのscopeで認可する（trusted-localのAgent名だけ暫定のruntime Grant）。
@@ -148,8 +152,8 @@ export const createApplicationServices = (
   );
   // Direction → Executionは読取専用ポート（Execution自身のtableだけを読む）を通す。Direction側の還流先は自身のRepository。
   const executionSummaryService = new ExecutionSummaryService(applicationDatabase);
-  const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(applicationDatabase);
-  const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(applicationDatabase);
+  const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(directionDatabase);
+  const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(directionDatabase);
   // Human認証・Membership（docs/step-6-human-auth-design.md）。Agent GrantのRepository・認可とは分離する。
   const humanAccountRepository = new SQLiteHumanAccountRepository(applicationDatabase, clock);
   const projectMembershipRepository = new SQLiteProjectMembershipRepository(applicationDatabase, clock);

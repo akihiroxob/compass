@@ -1,7 +1,6 @@
 import type { ProjectRole } from "../../constants/ProjectRole.ts";
 import type { ProjectGrantRepository } from "../../domain/repository/ProjectGrantRepository.ts";
-import { ForbiddenError } from "../error/ForbiddenError.ts";
-import { UnauthenticatedError } from "../error/UnauthenticatedError.ts";
+import { ForbiddenError, UnauthenticatedError } from "@compass/shared";
 
 /** 呼び出し主体。Bearerから解決した値で、request bodyやtool入力・MCP session IDからは得ない。Principalなしはnull。 */
 export type Principal = string | null;

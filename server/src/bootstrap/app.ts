@@ -6,12 +6,8 @@ import { logger } from "hono/logger";
 import { fileURLToPath } from "node:url";
 import { createMcpServer } from "../mcp/createMcpServer.ts";
 import { MalformedAuthorizationError, resolveCaller } from "../auth/resolvePrincipal.ts";
-import { ConflictError } from "../application/error/ConflictError.ts";
-import { ForbiddenError } from "../application/error/ForbiddenError.ts";
-import { NotFoundError } from "../application/error/NotFoundError.ts";
-import { UnauthenticatedError } from "../application/error/UnauthenticatedError.ts";
-import { ValidationError } from "../application/error/ValidationError.ts";
-import { parseProjectStatusFilter } from "../shared/projectSchema.ts";
+import { ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError, ValidationError } from "@compass/shared";
+import { parseProjectStatusFilter } from "@compass/direction";
 import { applicationServices, type ApplicationServices } from "./container.ts";
 import {
   CsrfRejectedError,

@@ -4,12 +4,9 @@ import { ProjectRole } from "../../../constants/ProjectRole.ts";
 import { StoryStatus } from "../../../domain/model/execution/StoryStatus.ts";
 import { TaskStatus, type TaskStatus as TaskStatusValue } from "../../../domain/model/execution/TaskStatus.ts";
 import type { ChangeLogTable, Database, StoryTable, TaskClaimTable, TaskTable } from "../../../bootstrap/database/schema.ts";
-import { outcomeCorrelationId } from "../../../shared/outcomeCorrelation.ts";
-import { ConflictError } from "../../error/ConflictError.ts";
+import { outcomeCorrelationId, ProjectArchivedError } from "@compass/direction";
+import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
 import { CoordinationError } from "../../error/CoordinationError.ts";
-import { NotFoundError } from "../../error/NotFoundError.ts";
-import { ProjectArchivedError } from "../../error/ProjectArchivedError.ts";
-import { ValidationError } from "../../error/ValidationError.ts";
 import type {
   DirectionReferenceLookupPort,
   OutcomeReferenceSnapshot,

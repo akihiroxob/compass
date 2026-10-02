@@ -4,12 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
-import { CreateProjectUseCase } from "../src/application/usecase/CreateProjectUseCase.ts";
-import { GetProjectUseCase } from "../src/application/usecase/GetProjectUseCase.ts";
-import { UpdateProjectUseCase } from "../src/application/usecase/UpdateProjectUseCase.ts";
+import {
+  CreateProjectUseCase,
+  GetProjectUseCase,
+  SQLiteProjectRepository,
+  UpdateProjectUseCase,
+} from "@compass/direction";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { SQLiteProjectRepository } from "../src/infrastructure/repository/SQLiteProjectRepository.ts";
+import { asDirectionDatabase } from "../src/bootstrap/database/contextDatabase.ts";
 
 const fullInput = {
   name: "Compass",
@@ -31,7 +34,7 @@ const fullInput = {
 const setup = async (path = ":memory:") => {
   const database = createDatabase(path);
   await initializeSchema(database);
-  const repository = new SQLiteProjectRepository(database);
+  const repository = new SQLiteProjectRepository(asDirectionDatabase(database));
   return {
     database,
     repository,

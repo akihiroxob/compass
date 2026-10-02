@@ -6,8 +6,7 @@ import test from "node:test";
 import { sql } from "kysely";
 import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { initialResearchBudget, initialResearchRequestKey } from "../src/domain/model/InitialResearchRequest.ts";
-import { runtimeEventVersion } from "../src/domain/model/RuntimeEvent.ts";
+import { initialResearchBudget, initialResearchRequestKey, runtimeEventVersion } from "@compass/direction";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 

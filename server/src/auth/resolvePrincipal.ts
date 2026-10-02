@@ -1,5 +1,5 @@
 import { principalIdSchema } from "../shared/projectGrantSchema.ts";
-import { UnauthenticatedError } from "../application/error/UnauthenticatedError.ts";
+import { UnauthenticatedError } from "@compass/shared";
 import type { Principal } from "../application/service/ProjectAuthorizationService.ts";
 import type {
   AgentCredentialCaller,

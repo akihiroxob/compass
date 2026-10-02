@@ -6,7 +6,7 @@ import type {
   WebSession,
 } from "../../domain/model/HumanAuth.ts";
 import type { HumanAccountRepository } from "../../domain/repository/HumanAccountRepository.ts";
-import { ValidationError } from "../error/ValidationError.ts";
+import { ValidationError } from "@compass/shared";
 import { generateSecretToken, hashSecretToken } from "../service/secretToken.ts";
 
 export type RegisterOrLoginHumanCommand = {

@@ -1,7 +1,7 @@
 import type { ProjectGrant } from "../../domain/model/ProjectGrant.ts";
 import type { ProjectGrantRepository } from "../../domain/repository/ProjectGrantRepository.ts";
-import type { ProjectRepository } from "../../domain/repository/ProjectRepository.ts";
-import { NotFoundError } from "../error/NotFoundError.ts";
+import type { ProjectRepository } from "@compass/direction";
+import { NotFoundError } from "@compass/shared";
 
 export class ListProjectGrantsUseCase {
   constructor(

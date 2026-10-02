@@ -3,10 +3,8 @@ import type { AccessCredential, CredentialKind } from "../../domain/model/Access
 import type { HumanActor } from "../../domain/model/HumanAuth.ts";
 import type { AccessCredentialRepository, NewCredentialSecret } from "../../domain/repository/AccessCredentialRepository.ts";
 import { parseIssueCredentialInput, parseRotateCredentialInput } from "../../shared/credentialSchema.ts";
-import { ConflictError } from "../error/ConflictError.ts";
-import { NotFoundError } from "../error/NotFoundError.ts";
-import { ProjectArchivedError } from "../error/ProjectArchivedError.ts";
-import { UnauthenticatedError } from "../error/UnauthenticatedError.ts";
+import { ConflictError, NotFoundError, UnauthenticatedError } from "@compass/shared";
+import { ProjectArchivedError } from "@compass/direction";
 import type { HumanProjectAuthorizationService } from "../service/HumanProjectAuthorizationService.ts";
 import type { AgentCredentialCaller, RuntimeCredentialCaller } from "../service/RuntimeAuthorizationService.ts";
 import { generateSecretToken, hashSecretToken, secretEquals } from "../service/secretToken.ts";
