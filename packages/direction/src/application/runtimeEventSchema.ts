@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { runtimeEventAckOutcomes } from "../domain/RuntimeEventDelivery.ts";
-import { parseWith, trimmedText } from "./projectSchema.ts";
+import { parseWith, trimmedText } from "@compass/shared";
 
 export const runtimeEventQuerySchema = z.object({
   afterCursor: z.number().int().min(0).default(0),

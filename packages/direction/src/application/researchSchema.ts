@@ -4,7 +4,7 @@ import {
   researchConclusions,
   researchConfidences,
 } from "../domain/Research.ts";
-import { parseWith, trimmedText } from "./projectSchema.ts";
+import { parseWith, trimmedText } from "@compass/shared";
 import type { CreateResearchRequestInput, RegisterResearchResultInput, RegisterResearchSynthesisInput, CompleteResearchRequestInput } from "../domain/ResearchRepository.ts";
 
 /** 予算の上限。単位はRuntimeが定める抽象量で、Compassは総量と使用量の整合だけを検証する。 */

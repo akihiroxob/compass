@@ -49,8 +49,22 @@ import {
   UpdateOutcomeUseCase,
   UpdateProjectUseCase,
 } from "@compass/direction";
-import { ExecutionSummaryService } from "../application/service/execution/ExecutionSummaryService.ts";
-import { TaskCoordinationService } from "../application/service/execution/TaskCoordinationService.ts";
+import {
+  AcceptExecutionTaskUseCase,
+  AddExecutionTaskCommentUseCase,
+  CancelExecutionTaskUseCase,
+  CreateExecutionStoryUseCase,
+  CreateExecutionTaskUseCase,
+  EditExecutionStoryUseCase,
+  EditExecutionTaskUseCase,
+  ExecutionSummaryService,
+  GetExecutionTaskUseCase,
+  KyselyWorkStore,
+  ListExecutionUseCase,
+  ListRecentExecutionChangesUseCase,
+  RejectExecutionTaskUseCase,
+  TaskCoordinationService,
+} from "@compass/work";
 import { HumanProjectAuthorizationService } from "../application/service/HumanProjectAuthorizationService.ts";
 import {
   GetHumanProjectUseCase,
@@ -69,21 +83,6 @@ import {
   RotateAccessCredentialUseCase,
 } from "../application/usecase/AccessCredentialUseCases.ts";
 import { SQLiteAccessCredentialRepository } from "../infrastructure/repository/SQLiteAccessCredentialRepository.ts";
-import {
-  GetExecutionTaskUseCase,
-  ListExecutionUseCase,
-  ListRecentExecutionChangesUseCase,
-} from "../application/service/execution/ExecutionReadUseCases.ts";
-import {
-  AcceptExecutionTaskUseCase,
-  AddExecutionTaskCommentUseCase,
-  CancelExecutionTaskUseCase,
-  CreateExecutionStoryUseCase,
-  CreateExecutionTaskUseCase,
-  EditExecutionStoryUseCase,
-  EditExecutionTaskUseCase,
-  RejectExecutionTaskUseCase,
-} from "../application/service/execution/ExecutionOperatorUseCases.ts";
 import { GrantProjectRoleUseCase } from "../application/usecase/GrantProjectRoleUseCase.ts";
 import {
   CompleteOidcLoginUseCase,
@@ -112,8 +111,9 @@ import { SQLiteLoginAttemptRepository } from "../infrastructure/repository/SQLit
 import { SQLiteProjectGrantRepository } from "../infrastructure/repository/SQLiteProjectGrantRepository.ts";
 import { SQLiteProjectMembershipRepository } from "../infrastructure/repository/SQLiteProjectMembershipRepository.ts";
 import type { Kysely } from "kysely";
-import { asDirectionDatabase } from "./database/contextDatabase.ts";
+import { asDirectionDatabase, asWorkDatabase } from "./database/contextDatabase.ts";
 import type { Database } from "./database/schema.ts";
+import { workExternalReaders } from "../infrastructure/repository/workExternalReaders.ts";
 import { writeProjectOwnerMembership } from "../infrastructure/repository/writeProjectOwnerMembership.ts";
 
 /** DBを開かずにUse Caseを組み立てる。containerはimport時にDBを開くため、CLIなどはこちらを使う。 */
@@ -145,13 +145,14 @@ export const createApplicationServices = (
   const runtimeAuthorizationService = new RuntimeAuthorizationService(projectAuthorizationService);
   const accessCredentialRepository = new SQLiteAccessCredentialRepository(applicationDatabase);
   // Execution（旧Wachaから移植）。同じDB・同じプロセスの中で動き、Directionの参照は読取専用ポートだけを通す。
+  const workStore = new KyselyWorkStore(asWorkDatabase(applicationDatabase), workExternalReaders);
   const taskCoordinationService = new TaskCoordinationService(
-    applicationDatabase,
+    workStore,
     new DirectionReferenceLookupService(projectRepository, outcomeRepository),
     clock,
   );
   // Direction → Executionは読取専用ポート（Execution自身のtableだけを読む）を通す。Direction側の還流先は自身のRepository。
-  const executionSummaryService = new ExecutionSummaryService(applicationDatabase);
+  const executionSummaryService = new ExecutionSummaryService(workStore);
   const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(directionDatabase);
   const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(directionDatabase);
   // Human認証・Membership（docs/step-6-human-auth-design.md）。Agent GrantのRepository・認可とは分離する。

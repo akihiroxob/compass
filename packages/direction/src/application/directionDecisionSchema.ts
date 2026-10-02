@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { directionDecisionRecordTypes } from "../domain/DirectionDecision.ts";
 import { createOutcomeSchema } from "./outcomeSchema.ts";
-import { parseWith, trimmedText } from "./projectSchema.ts";
+import { parseWith, trimmedText } from "@compass/shared";
 import { researchPlanShape } from "./researchSchema.ts";
 import type { CreateDirectionDecisionInput, DecideNextOutcomeInput } from "../domain/DirectionDecisionRepository.ts";
 

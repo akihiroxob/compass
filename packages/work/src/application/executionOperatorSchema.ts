@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { optionalText, parseWith, trimmedText } from "@compass/direction";
+import { optionalText, parseWith, trimmedText } from "@compass/shared";
 
 /** Human operatorのTask介入（Task 46）の入力。理由・本文は前後の空白を除いて必須。 */
 export const taskReasonSchema = z.object({ reason: trimmedText("reason", 2_000) });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { criterionVerdicts } from "../domain/OutcomeEvaluation.ts";
-import { parseWith, trimmedText } from "./projectSchema.ts";
+import { parseWith, trimmedText } from "@compass/shared";
 
 const criterionJudgmentSchema = z
   .object({

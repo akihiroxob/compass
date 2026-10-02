@@ -9,7 +9,7 @@ import {
   runtimeScopes,
 } from "../domain/model/AccessCredential.ts";
 import { principalIdSchema } from "./projectGrantSchema.ts";
-import { parseWith } from "@compass/direction";
+import { parseWith } from "@compass/shared";
 
 const expiresInDaysSchema = z
   .number()

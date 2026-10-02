@@ -12,6 +12,7 @@
   "dependencies": {
     "@compass/direction": "0.1.0",
     "@compass/shared": "0.1.0",
+    "@compass/work": "0.1.0",
     "@hono/node-server": "^1.19.12",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^12.8.0",

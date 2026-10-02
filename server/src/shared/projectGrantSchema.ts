@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { projectRoles } from "../constants/ProjectRole.ts";
-import { parseWith } from "@compass/direction";
+import { parseWith } from "@compass/shared";
 
 const controlCharacter = /\p{Cc}/u;
 

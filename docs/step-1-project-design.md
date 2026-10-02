@@ -1,6 +1,6 @@
 # Projectの現行仕様
 
-Projectは目的・原則・制約・参照先を共有する最上位コンテキスト。現在の型は [Project.ts](../server/src/domain/model/Project.ts)、入力規則は [projectSchema.ts](../server/src/shared/projectSchema.ts) を参照する。統合後の所有先はDirection。
+Projectは目的・原則・制約・参照先を共有する最上位コンテキスト。現在の型は [Project.ts](../packages/direction/src/domain/Project.ts)、入力規則は [projectSchema.ts](../packages/direction/src/application/projectSchema.ts) を参照する。統合後の所有先はDirection。
 
 ## 項目
 

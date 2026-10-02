@@ -1,31 +1,6 @@
 import { z } from "zod";
-import { ValidationError } from "@compass/shared";
+import { clearableText, optionalText, parseWith, trimmedText } from "@compass/shared";
 import type { CreateProjectInput, UpdateProjectInput } from "../domain/ProjectRepository.ts";
-
-export const trimmedText = (label: string, maximum: number) =>
-  z
-    .string()
-    .trim()
-    .min(1, `${label} is required`)
-    .max(maximum, `${label} must be ${maximum} characters or fewer`);
-
-export const optionalText = (maximum: number) =>
-  z
-    .string()
-    .trim()
-    .max(maximum, `must be ${maximum} characters or fewer`)
-    .optional()
-    .nullable()
-    .transform((value) => value || null);
-
-/** 更新時の任意値。`null`と空文字は「クリア」を意味し、未指定（undefined）は変更なしとして残す。 */
-export const clearableText = (maximum: number) =>
-  z
-    .string()
-    .trim()
-    .max(maximum, `must be ${maximum} characters or fewer`)
-    .nullable()
-    .transform((value) => value || null);
 
 const webUrl = z
   .url("must be a valid URL")
@@ -95,32 +70,15 @@ export const projectStatusFilterSchema = z.object({
   status: z.enum(["active", "archived"]).default("active"),
 });
 
-export const parseWith = <T extends z.ZodType>(
-  schema: T,
-  input: unknown,
-  subject = "Project",
-): z.output<T> => {
-  const result = schema.safeParse(input);
-  if (result.success) return result.data;
-
-  throw new ValidationError(
-    `${subject} input is invalid`,
-    result.error.issues.map((issue) => ({
-      path: issue.path.join("."),
-      message: issue.message,
-    })),
-  );
-};
-
 export const parseCreateProjectInput = (input: unknown): CreateProjectInput =>
-  parseWith(createProjectSchema, input);
+  parseWith(createProjectSchema, input, "Project");
 
 export const parseUpdateProjectInput = (input: unknown): UpdateProjectInput =>
-  parseWith(updateProjectSchema, input);
+  parseWith(updateProjectSchema, input, "Project");
 
 export const parseArchiveProjectInput = (input: unknown): ArchiveProjectInput =>
-  parseWith(archiveProjectSchema, input);
+  parseWith(archiveProjectSchema, input, "Project");
 
 /** 一覧の絞り込み。未指定はactiveのみ。`all`などは受け付けず、issueのpathは`status`になる。 */
 export const parseProjectStatusFilter = (status: string | undefined): "active" | "archived" =>
-  parseWith(projectStatusFilterSchema, { status }).status;
+  parseWith(projectStatusFilterSchema, { status }, "Project").status;

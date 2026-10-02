@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseWith, trimmedText } from "./projectSchema.ts";
+import { parseWith, trimmedText } from "@compass/shared";
 
 const idText = trimmedText("id", 200);
 /** transportの再送を同じ操作として扱うためのkey。同じkeyで異なる内容を送った場合は競合になる。 */

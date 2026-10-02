@@ -1,97 +1,11 @@
 import type { Generated } from "kysely";
 import type { DirectionDatabase } from "@compass/direction";
+import type { WorkDatabase } from "@compass/work";
 
 export type ProjectGrantTable = {
   project_id: string;
   principal_id: string;
   role: string;
-  created_at: number;
-};
-
-/**
- * Execution（旧Wacha）のStory。Direction側のOutcomeは参照（`outcome_ref`）と作成時のsnapshotだけを持ち、
- * outcome / success_criterion / projectのtableを読み書きしない。snapshotはJSON文字列。
- */
-export type StoryTable = {
-  id: string;
-  project_id: string;
-  title: string;
-  description: string | null;
-  status: "todo" | "doing" | "done" | "canceled";
-  sort_order: number;
-  created_at: number;
-  updated_at: number;
-  /** Direction `outcome.id`への参照。FKは付けない（境界をまたぐ参照のため）。 */
-  outcome_ref: string | null;
-  origin_decision_id: string | null;
-  /** 作成時点の固定Success Criteria（JSON配列）。 */
-  success_criteria_snapshot: string | null;
-  /** 作成時点のProject Constraints（JSON配列）。 */
-  constraints_snapshot: string | null;
-  /** 対象Repository（`{id, name, url}`のJSON）。実際のcheckoutはRuntime / Agentの責務。 */
-  repository_snapshot: string | null;
-  /** DirectionからのhandoffをProject内で一意にする相関ID（例: `outcome:{outcomeId}`）。 */
-  correlation_id: string | null;
-};
-
-export type TaskTable = {
-  id: string;
-  project_id: string;
-  story_id: string | null;
-  title: string;
-  description: string | null;
-  status: "todo" | "doing" | "canceled" | "in_review" | "wait_accept" | "accepted" | "rejected";
-  assignee: string | null;
-  reject_reason: string | null;
-  resume_source_status: string | null;
-  sort_order: number;
-  created_at: number;
-  updated_at: number;
-  /** Story内で一意なTaskの論理ID（Outcome handoffの再送収束用）。手動起票ではNULL。 */
-  task_key: string | null;
-};
-
-export type TaskCommentTable = {
-  id: string;
-  task_id: string;
-  body: string;
-  author: string | null;
-  principal_id: string | null;
-  claim_id: string | null;
-  created_at: number;
-};
-
-export type TaskClaimTable = {
-  id: string;
-  task_id: string;
-  principal_id: string;
-  state: string;
-  acquired_at: number;
-  renewed_at: number | null;
-  expires_at: number;
-  released_at: number | null;
-  release_reason: string | null;
-};
-
-/** Executionの追記専用Change Log。`cursor`が取得位置になる。 */
-export type ChangeLogTable = {
-  cursor: Generated<number>;
-  project_id: string;
-  type: string;
-  entity_id: string;
-  principal_id: string;
-  claim_id: string | null;
-  payload: string;
-  occurred_at: number;
-};
-
-/** Execution toolの`requestId`冪等性。同じ`(principal_id, tool_name, request_id)`は保存した結果を再生する。 */
-export type CommandReceiptTable = {
-  principal_id: string;
-  tool_name: string;
-  request_id: string;
-  input_json: string;
-  result_json: string;
   created_at: number;
 };
 
@@ -191,13 +105,7 @@ export type AccessCredentialTable = {
 };
 
 /** 単一SQLite fileの全table。各Contextが所有するtable定義をserverが合成する。 */
-export type Database = DirectionDatabase & {
-  story: StoryTable;
-  task: TaskTable;
-  task_comment: TaskCommentTable;
-  task_claim: TaskClaimTable;
-  change_log: ChangeLogTable;
-  command_receipt: CommandReceiptTable;
+export type Database = DirectionDatabase & WorkDatabase & {
   project_grant: ProjectGrantTable;
   human_user: HumanUserTable;
   human_identity: HumanIdentityTable;

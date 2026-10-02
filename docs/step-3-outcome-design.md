@@ -1,6 +1,6 @@
 # Outcome・成功条件の現行仕様
 
-OutcomeはIntentへ近づくために実現する観測可能な状態。Directionが所有する。型は [Outcome.ts](../server/src/domain/model/Outcome.ts)、入力規則は [outcomeSchema.ts](../server/src/shared/outcomeSchema.ts)。
+OutcomeはIntentへ近づくために実現する観測可能な状態。Directionが所有する。型は [Outcome.ts](../packages/direction/src/domain/Outcome.ts)、入力規則は [outcomeSchema.ts](../packages/direction/src/application/outcomeSchema.ts)。
 
 ## 項目と固定条件
 

@@ -6,7 +6,7 @@ import {
   invitationMinTtlHours,
   normalizeEmail,
 } from "../domain/model/HumanAuth.ts";
-import { parseWith } from "@compass/direction";
+import { parseWith } from "@compass/shared";
 
 export const humanRoleSchema = z.enum(humanRoles, { error: `role must be one of: ${humanRoles.join(", ")}` });
 

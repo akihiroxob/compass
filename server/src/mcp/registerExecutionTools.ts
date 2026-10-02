@@ -3,8 +3,7 @@ import { z } from "zod";
 import { UnauthenticatedError } from "@compass/shared";
 import { agentPrincipalOf, type Caller } from "../application/service/RuntimeAuthorizationService.ts";
 import type { ApplicationServices } from "../bootstrap/container.ts";
-import { StoryStatus } from "../domain/model/execution/StoryStatus.ts";
-import { TaskStatus } from "../domain/model/execution/TaskStatus.ts";
+import { StoryStatus, TaskStatus } from "@compass/work";
 import { execute } from "./toolExecution.ts";
 
 const requestIdSchema = z.string().min(1).describe("Caller-generated idempotency key");

@@ -1,19 +1,15 @@
-import type { Kysely, Selectable, Transaction } from "kysely";
-
-import { ProjectRole } from "../../../constants/ProjectRole.ts";
-import { StoryStatus } from "../../../domain/model/execution/StoryStatus.ts";
-import { TaskStatus, type TaskStatus as TaskStatusValue } from "../../../domain/model/execution/TaskStatus.ts";
-import type { ChangeLogTable, Database, StoryTable, TaskClaimTable, TaskTable } from "../../../bootstrap/database/schema.ts";
 import { outcomeCorrelationId, ProjectArchivedError } from "@compass/direction";
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
-import { CoordinationError } from "../../error/CoordinationError.ts";
+import { StoryStatus } from "../domain/StoryStatus.ts";
+import { TaskStatus, type TaskStatus as TaskStatusValue } from "../domain/TaskStatus.ts";
+import { WorkRole } from "../domain/WorkRole.ts";
+import { CoordinationError } from "./error/CoordinationError.ts";
 import type {
   DirectionReferenceLookupPort,
   OutcomeReferenceSnapshot,
   RepositoryReference,
-} from "../../port/DirectionReferenceLookupPort.ts";
-
-type DatabaseExecutor = Kysely<Database> | Transaction<Database>;
+} from "./port/DirectionReferenceLookupPort.ts";
+import type { ChangeRecord, StoryRecord, TaskClaimRecord, TaskRecord, WorkStore } from "./port/WorkStore.ts";
 
 export type TaskAvailability = "work" | "review" | "acceptance";
 
@@ -63,7 +59,7 @@ const diffEditableFields = (before: EditableFields, after: EditableFields): Fiel
 
 const parseSnapshot = <T>(value: string | null): T | null => (value === null ? null : (JSON.parse(value) as T));
 
-const storyDto = (row: Selectable<StoryTable>) => ({
+const storyDto = (row: StoryRecord) => ({
   id: row.id,
   projectId: row.project_id,
   title: row.title,
@@ -90,7 +86,7 @@ const optionalId = (value: string | undefined, field: string): string | null => 
 const maxCorrelationIdLength = 200;
 const maxTaskKeyLength = 200;
 
-const issuedTaskDto = (row: Selectable<TaskTable>) => ({
+const issuedTaskDto = (row: TaskRecord) => ({
   id: row.id,
   projectId: row.project_id,
   storyId: row.story_id,
@@ -131,7 +127,7 @@ export class TaskCoordinationService {
   private readonly claimTtlMs: number;
 
   constructor(
-    private readonly database: Kysely<Database>,
+    private readonly store: WorkStore,
     /** Story作成時のOutcome・Repository参照だけに使う読取専用ポート。Direction側のtableは直接読まない。 */
     private readonly directionReferences: DirectionReferenceLookupPort,
     private readonly clock: Clock = () => Date.now(),
@@ -152,19 +148,12 @@ export class TaskCoordinationService {
   }
 
   private async requireRole(
-    db: DatabaseExecutor,
+    store: WorkStore,
     projectId: string,
     principalId: string,
-    role: "worker" | "reviewer" | "manager",
+    role: WorkRole,
   ): Promise<void> {
-    const grant = await db
-      .selectFrom("project_grant")
-      .select("role")
-      .where("project_id", "=", projectId)
-      .where("principal_id", "=", principalId)
-      .where("role", "=", role)
-      .executeTakeFirst();
-    if (!grant) {
+    if (!(await store.grants.listRoles(projectId, principalId)).includes(role)) {
       throw new CoordinationError(
         "FORBIDDEN",
         `Principal ${principalId} does not have ${role} role for project ${projectId}`,
@@ -173,19 +162,13 @@ export class TaskCoordinationService {
   }
 
   private async requireOneOfRoles(
-    db: DatabaseExecutor,
+    store: WorkStore,
     projectId: string,
     principalId: string,
-    roles: Array<"worker" | "reviewer" | "manager">,
-  ): Promise<"worker" | "reviewer" | "manager"> {
-    const grants = await db
-      .selectFrom("project_grant")
-      .select("role")
-      .where("project_id", "=", projectId)
-      .where("principal_id", "=", principalId)
-      .where("role", "in", roles)
-      .execute();
-    const role = roles.find((candidate) => grants.some((grant) => grant.role === candidate));
+    roles: WorkRole[],
+  ): Promise<WorkRole> {
+    const granted = await store.grants.listRoles(projectId, principalId);
+    const role = roles.find((candidate) => granted.includes(candidate));
     if (!role) {
       throw new CoordinationError(
         "FORBIDDEN",
@@ -196,17 +179,11 @@ export class TaskCoordinationService {
   }
 
   private async requireAnyRole(
-    db: DatabaseExecutor,
+    store: WorkStore,
     projectId: string,
     principalId: string,
   ): Promise<void> {
-    const grant = await db
-      .selectFrom("project_grant")
-      .select("role")
-      .where("project_id", "=", projectId)
-      .where("principal_id", "=", principalId)
-      .executeTakeFirst();
-    if (!grant) {
+    if ((await store.grants.listRoles(projectId, principalId)).length === 0) {
       throw new CoordinationError(
         "FORBIDDEN",
         `Principal ${principalId} has no role for project ${projectId}`,
@@ -215,35 +192,29 @@ export class TaskCoordinationService {
   }
 
   async listStories(principalId: string, projectId: string, status?: string) {
-    await this.requireAnyRole(this.database, projectId, principalId);
+    await this.requireAnyRole(this.store, projectId, principalId);
     return this.listStoriesOfProject(projectId, status);
   }
 
   /** 共有の根（project）の存在確認。archivedも存在として扱う。 */
   async projectExists(projectId: string): Promise<boolean> {
-    return (await this.database.selectFrom("project").select("id").where("id", "=", projectId).executeTakeFirst()) !== undefined;
+    return this.store.projects.exists(projectId);
   }
 
   /** 認可済みの呼出し元（Human向けWeb APIのMembership認可）だけが使う。Role Grantは検査しない。 */
   async listStoriesOfProject(projectId: string, status?: string) {
-    let query = this.database.selectFrom("story").selectAll().where("project_id", "=", projectId);
-    if (status) query = query.where("status", "=", status as never);
-    const rows = await query.orderBy("sort_order", "asc").orderBy("created_at", "asc").execute();
+    const rows = await this.store.listStories(projectId, status);
     return { stories: rows.map(storyDto) };
   }
 
   async listTaskComments(principalId: string, taskId: string) {
-    const task = await this.getTask(this.database, taskId);
-    await this.requireAnyRole(this.database, task.project_id, principalId);
+    const task = await this.getTask(this.store, taskId);
+    await this.requireAnyRole(this.store, task.project_id, principalId);
     return this.readTaskComments(taskId);
   }
 
   private async readTaskComments(taskId: string) {
-    const rows = await this.database.selectFrom("task_comment")
-      .selectAll()
-      .where("task_id", "=", taskId)
-      .orderBy("created_at", "asc")
-      .execute();
+    const rows = await this.store.listTaskComments(taskId);
     return {
       comments: rows.map((row) => ({
         id: row.id,
@@ -257,8 +228,8 @@ export class TaskCoordinationService {
     };
   }
 
-  private async getTask(db: DatabaseExecutor, taskId: string) {
-    const task = await db.selectFrom("task").selectAll().where("id", "=", taskId).executeTakeFirst();
+  private async getTask(store: WorkStore, taskId: string) {
+    const task = await store.findTask(taskId);
     if (!task) {
       throw new CoordinationError("TASK_NOT_CLAIMABLE", `Task ${taskId} was not found`);
     }
@@ -266,22 +237,16 @@ export class TaskCoordinationService {
   }
 
   /** archivedのProjectでは新しい活動（Story・Task起票、work Claim）を始めない。存在しないProjectは呼び出し前のGrant検査で拒否済み。 */
-  private async assertProjectActive(db: DatabaseExecutor, projectId: string): Promise<void> {
-    const project = await db.selectFrom("project").select("status").where("id", "=", projectId).executeTakeFirst();
-    if (project?.status === "archived") throw new ProjectArchivedError(projectId);
+  private async assertProjectActive(store: WorkStore, projectId: string): Promise<void> {
+    if (await store.projects.isArchived(projectId)) throw new ProjectArchivedError(projectId);
   }
 
-  private async getActiveClaim(db: DatabaseExecutor, taskId: string) {
-    return db
-      .selectFrom("task_claim")
-      .selectAll()
-      .where("task_id", "=", taskId)
-      .where("state", "=", "active")
-      .executeTakeFirst();
+  private async getActiveClaim(store: WorkStore, taskId: string) {
+    return store.findActiveClaim(taskId);
   }
 
   private async appendChange(
-    db: DatabaseExecutor,
+    store: WorkStore,
     input: {
       projectId: string;
       type: string;
@@ -292,25 +257,20 @@ export class TaskCoordinationService {
       occurredAt: number;
     },
   ): Promise<number> {
-    const row = await db
-      .insertInto("change_log")
-      .values({
-        project_id: input.projectId,
-        type: input.type,
-        entity_id: input.entityId,
-        principal_id: input.principalId,
-        claim_id: input.claimId ?? null,
-        payload: JSON.stringify(input.payload),
-        occurred_at: input.occurredAt,
-      })
-      .returning("cursor")
-      .executeTakeFirstOrThrow();
-    return Number(row.cursor);
+    return store.appendChange({
+      project_id: input.projectId,
+      type: input.type,
+      entity_id: input.entityId,
+      principal_id: input.principalId,
+      claim_id: input.claimId ?? null,
+      payload: JSON.stringify(input.payload),
+      occurred_at: input.occurredAt,
+    });
   }
 
   /** Story・Taskの編集で内容が変わったときだけ、編集Change（`STORY_EDITED` / `TASK_EDITED`）を同じtransactionで追記する。 */
   private async appendEditChange(
-    db: DatabaseExecutor,
+    store: WorkStore,
     input: {
       projectId: string;
       type: "STORY_EDITED" | "TASK_EDITED";
@@ -324,7 +284,7 @@ export class TaskCoordinationService {
   ): Promise<void> {
     const changes = diffEditableFields(input.before, input.after);
     if (!changes) return;
-    await this.appendChange(db, {
+    await this.appendChange(store, {
       projectId: input.projectId,
       type: input.type,
       entityId: input.entityId,
@@ -335,20 +295,19 @@ export class TaskCoordinationService {
   }
 
   private async expireClaim(
-    db: DatabaseExecutor,
-    claim: TaskClaimTable,
+    store: WorkStore,
+    claim: TaskClaimRecord,
     projectId: string,
     observedBy: string,
     actorRole: ActivityActorRole,
     now: number,
   ): Promise<void> {
-    await db
-      .updateTable("task_claim")
-      .set({ state: "expired", released_at: now, release_reason: "lease_expired" })
-      .where("id", "=", claim.id)
-      .where("state", "=", "active")
-      .execute();
-    await this.appendChange(db, {
+    await store.updateClaim(
+      claim.id,
+      { state: "expired", released_at: now, release_reason: "lease_expired" },
+      { onlyActive: true },
+    );
+    await this.appendChange(store, {
       projectId,
       type: "CLAIM_EXPIRED",
       entityId: claim.task_id,
@@ -360,7 +319,7 @@ export class TaskCoordinationService {
   }
 
   private async withReceipt<T>(
-    db: Transaction<Database>,
+    store: WorkStore,
     principalId: string,
     toolName: string,
     requestId: string,
@@ -368,13 +327,7 @@ export class TaskCoordinationService {
     execute: () => Promise<T>,
   ): Promise<T> {
     const inputJson = JSON.stringify(canonicalize(input));
-    const existing = await db
-      .selectFrom("command_receipt")
-      .selectAll()
-      .where("principal_id", "=", principalId)
-      .where("tool_name", "=", toolName)
-      .where("request_id", "=", requestId)
-      .executeTakeFirst();
+    const existing = await store.findReceipt(principalId, toolName, requestId);
     if (existing) {
       if (existing.input_json !== inputJson) {
         throw new CoordinationError(
@@ -386,21 +339,18 @@ export class TaskCoordinationService {
     }
 
     const result = await execute();
-    await db
-      .insertInto("command_receipt")
-      .values({
-        principal_id: principalId,
-        tool_name: toolName,
-        request_id: requestId,
-        input_json: inputJson,
-        result_json: JSON.stringify(result),
-        created_at: this.clock(),
-      })
-      .execute();
+    await store.insertReceipt({
+      principal_id: principalId,
+      tool_name: toolName,
+      request_id: requestId,
+      input_json: inputJson,
+      result_json: JSON.stringify(result),
+      created_at: this.clock(),
+    });
     return result;
   }
 
-  private claimResult(claim: TaskClaimTable, taskStatus: TaskStatusValue): ClaimResult {
+  private claimResult(claim: TaskClaimRecord, taskStatus: TaskStatusValue): ClaimResult {
     return {
       claimId: claim.id,
       taskId: claim.task_id,
@@ -413,12 +363,12 @@ export class TaskCoordinationService {
   }
 
   private async insertClaim(
-    db: DatabaseExecutor,
+    store: WorkStore,
     taskId: string,
     principalId: string,
     now: number,
-  ): Promise<TaskClaimTable> {
-    const claim: TaskClaimTable = {
+  ): Promise<TaskClaimRecord> {
+    const claim: TaskClaimRecord = {
       id: crypto.randomUUID(),
       task_id: taskId,
       principal_id: principalId,
@@ -429,26 +379,14 @@ export class TaskCoordinationService {
       released_at: null,
       release_reason: null,
     };
-    try {
-      await db.insertInto("task_claim").values(claim).execute();
-    } catch (error) {
-      if (error instanceof Error && /UNIQUE constraint failed/.test(error.message)) {
-        throw new CoordinationError("CLAIM_CONFLICT", `Task ${taskId} was claimed concurrently`);
-      }
-      throw error;
+    if (!(await store.insertClaim(claim))) {
+      throw new CoordinationError("CLAIM_CONFLICT", `Task ${taskId} was claimed concurrently`);
     }
     return claim;
   }
 
-  private async latestCompleter(db: DatabaseExecutor, taskId: string): Promise<string | null> {
-    const row = await db
-      .selectFrom("change_log")
-      .select("principal_id")
-      .where("entity_id", "=", taskId)
-      .where("type", "=", "TASK_COMPLETED")
-      .orderBy("cursor", "desc")
-      .executeTakeFirst();
-    return row?.principal_id ?? null;
+  private async latestCompleter(store: WorkStore, taskId: string): Promise<string | null> {
+    return store.findLatestCompleter(taskId);
   }
 
   async listTasks(
@@ -463,7 +401,7 @@ export class TaskCoordinationService {
         "status and availableFor cannot be used together",
       );
     }
-    await this.requireAnyRole(this.database, projectId, principalId);
+    await this.requireAnyRole(this.store, projectId, principalId);
     return this.buildTaskList(projectId, principalId, filter, limit);
   }
 
@@ -480,26 +418,13 @@ export class TaskCoordinationService {
    * Comment、当該TaskのChangeを返す。別ProjectのTask IDは存在しないものとして`null`を返す。
    */
   async getTaskDetailOfProject(projectId: string, taskId: string) {
-    const row = await this.database
-      .selectFrom("task")
-      .select(["id", "story_id"])
-      .where("id", "=", taskId)
-      .where("project_id", "=", projectId)
-      .executeTakeFirst();
+    const row = await this.store.findTaskInProject(projectId, taskId);
     if (!row) return null;
     const [list, story, { comments }, changes] = await Promise.all([
       this.buildTaskList(projectId, null),
-      row.story_id
-        ? this.database.selectFrom("story").selectAll().where("id", "=", row.story_id).executeTakeFirst()
-        : Promise.resolve(undefined),
+      row.story_id ? this.store.findStory(row.story_id) : Promise.resolve(null),
       this.readTaskComments(taskId),
-      this.database
-        .selectFrom("change_log")
-        .selectAll()
-        .where("project_id", "=", projectId)
-        .where("entity_id", "=", taskId)
-        .orderBy("cursor", "asc")
-        .execute(),
+      this.store.listEntityChanges(projectId, taskId),
     ]);
     const task = list.tasks.find((candidate) => candidate.id === taskId);
     if (!task) return null;
@@ -518,38 +443,16 @@ export class TaskCoordinationService {
     limit?: number,
   ) {
     const now = this.clock();
-    const [tasks, stories, claims, grants, completionChanges] = await Promise.all([
-      this.database.selectFrom("task").selectAll().where("project_id", "=", projectId).execute(),
-      this.database.selectFrom("story")
-        .select(["id", "sort_order"])
-        .where("project_id", "=", projectId)
-        .execute(),
-      this.database.selectFrom("task_claim")
-        .selectAll()
-        .where("state", "=", "active")
-        .where(
-          "task_id",
-          "in",
-          this.database.selectFrom("task").select("id").where("project_id", "=", projectId),
-        )
-        .execute(),
-      principalId === null
-        ? Promise.resolve([])
-        : this.database.selectFrom("project_grant")
-          .select("role")
-          .where("project_id", "=", projectId)
-          .where("principal_id", "=", principalId)
-          .execute(),
-      this.database.selectFrom("change_log")
-        .select(["entity_id", "principal_id", "cursor"])
-        .where("project_id", "=", projectId)
-        .where("type", "=", "TASK_COMPLETED")
-        .orderBy("cursor", "desc")
-        .execute(),
+    const [tasks, stories, claims, grantedRoles, completionChanges] = await Promise.all([
+      this.store.listTasks(projectId),
+      this.store.listStories(projectId),
+      this.store.listActiveClaims(projectId),
+      principalId === null ? Promise.resolve([]) : this.store.grants.listRoles(projectId, principalId),
+      this.store.listCompletions(projectId),
     ]);
     const storyOrders = new Map(stories.map((story) => [story.id, story.sort_order]));
     const activeClaims = new Map(claims.map((claim) => [claim.task_id, claim]));
-    const roles = new Set(grants.map((grant) => grant.role));
+    const roles = new Set<string>(grantedRoles);
     const latestCompleters = new Map<string, string>();
     for (const change of completionChanges) {
       if (!latestCompleters.has(change.entity_id)) {
@@ -569,21 +472,21 @@ export class TaskCoordinationService {
       switch (filter?.availableFor) {
         case "work":
           return (
-            roles.has(ProjectRole.WORKER) &&
+            roles.has(WorkRole.WORKER) &&
             (((task.status === TaskStatus.TODO || task.status === TaskStatus.REJECTED) &&
               !hasUnexpiredClaim) ||
               (task.status === TaskStatus.DOING && claim !== undefined && claim.expires_at <= now))
           );
         case "review":
           return (
-            roles.has(ProjectRole.REVIEWER) &&
+            roles.has(WorkRole.REVIEWER) &&
             task.status === TaskStatus.IN_REVIEW &&
             !hasUnexpiredClaim &&
             latestCompleters.get(task.id) !== principalId
           );
         case "acceptance":
           return (
-            roles.has(ProjectRole.MANAGER) &&
+            roles.has(WorkRole.MANAGER) &&
             (task.status === TaskStatus.IN_REVIEW || task.status === TaskStatus.WAIT_ACCEPT) &&
             !hasUnexpiredClaim &&
             latestCompleters.get(task.id) !== principalId
@@ -648,20 +551,20 @@ export class TaskCoordinationService {
   }
 
   async claimTask(principalId: string, taskId: string, requestId: string): Promise<ClaimResult> {
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "claim_task", requestId, { taskId }, async () => {
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "claim_task", requestId, { taskId }, async () => {
         const now = this.clock();
-        const task = await this.getTask(db, taskId);
-        await this.requireRole(db, task.project_id, principalId, ProjectRole.WORKER);
-        await this.assertProjectActive(db, task.project_id);
-        const currentClaim = await this.getActiveClaim(db, taskId);
+        const task = await this.getTask(store, taskId);
+        await this.requireRole(store, task.project_id, principalId, WorkRole.WORKER);
+        await this.assertProjectActive(store, task.project_id);
+        const currentClaim = await this.getActiveClaim(store, taskId);
         let reclaimingExpiredWork = false;
         if (currentClaim) {
           if (currentClaim.expires_at > now) {
             throw new CoordinationError("CLAIM_CONFLICT", `Task ${taskId} already has an active Claim`);
           }
           reclaimingExpiredWork = task.status === TaskStatus.DOING;
-          await this.expireClaim(db, currentClaim, task.project_id, principalId, "worker", now);
+          await this.expireClaim(store, currentClaim, task.project_id, principalId, "worker", now);
         }
         if (
           task.status !== TaskStatus.TODO &&
@@ -671,31 +574,19 @@ export class TaskCoordinationService {
           throw new CoordinationError("TASK_NOT_CLAIMABLE", `Task ${taskId} is not available for work`);
         }
         const fromStatus = task.status;
-        const claim = await this.insertClaim(db, taskId, principalId, now);
-        await db
-          .updateTable("task")
-          .set({
+        const claim = await this.insertClaim(store, taskId, principalId, now);
+        await store.updateTask(taskId, {
             status: TaskStatus.DOING,
             assignee: null,
             resume_source_status:
               fromStatus === TaskStatus.REJECTED ? TaskStatus.REJECTED : TaskStatus.TODO,
             updated_at: now,
-          })
-          .where("id", "=", taskId)
-          .execute();
+          });
         if (task.story_id) {
-          const story = await db
-            .selectFrom("story")
-            .select("status")
-            .where("id", "=", task.story_id)
-            .executeTakeFirst();
+          const story = await store.findStory(task.story_id);
           if (story?.status === StoryStatus.TODO) {
-            await db
-              .updateTable("story")
-              .set({ status: StoryStatus.DOING, updated_at: now })
-              .where("id", "=", task.story_id)
-              .execute();
-            await this.appendChange(db, {
+            await store.updateStory(task.story_id, { status: StoryStatus.DOING, updated_at: now });
+            await this.appendChange(store, {
               projectId: task.project_id,
               type: "STORY_STARTED",
               entityId: task.story_id,
@@ -706,7 +597,7 @@ export class TaskCoordinationService {
             });
           }
         }
-        await this.appendChange(db, {
+        await this.appendChange(store, {
           projectId: task.project_id,
           type: "TASK_CLAIMED",
           entityId: taskId,
@@ -727,29 +618,29 @@ export class TaskCoordinationService {
   }
 
   async claimReview(principalId: string, taskId: string, requestId: string): Promise<ClaimResult> {
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "claim_review", requestId, { taskId }, async () => {
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "claim_review", requestId, { taskId }, async () => {
         const now = this.clock();
-        const task = await this.getTask(db, taskId);
-        await this.requireRole(db, task.project_id, principalId, ProjectRole.REVIEWER);
-        const currentClaim = await this.getActiveClaim(db, taskId);
+        const task = await this.getTask(store, taskId);
+        await this.requireRole(store, task.project_id, principalId, WorkRole.REVIEWER);
+        const currentClaim = await this.getActiveClaim(store, taskId);
         if (currentClaim) {
           if (currentClaim.expires_at > now) {
             throw new CoordinationError("CLAIM_CONFLICT", `Task ${taskId} already has an active Claim`);
           }
-          await this.expireClaim(db, currentClaim, task.project_id, principalId, "reviewer", now);
+          await this.expireClaim(store, currentClaim, task.project_id, principalId, "reviewer", now);
         }
         if (task.status !== TaskStatus.IN_REVIEW) {
           throw new CoordinationError("TASK_NOT_CLAIMABLE", `Task ${taskId} is not available for review`);
         }
-        if ((await this.latestCompleter(db, taskId)) === principalId) {
+        if ((await this.latestCompleter(store, taskId)) === principalId) {
           throw new CoordinationError(
             "SELF_REVIEW_NOT_ALLOWED",
             `Principal ${principalId} cannot review its own completed work`,
           );
         }
-        const claim = await this.insertClaim(db, taskId, principalId, now);
-        await this.appendChange(db, {
+        const claim = await this.insertClaim(store, taskId, principalId, now);
+        await this.appendChange(store, {
           projectId: task.project_id,
           type: "TASK_CLAIMED",
           entityId: taskId,
@@ -768,22 +659,22 @@ export class TaskCoordinationService {
    * どちらも行わない（認可はHuman Membershipで入口が済ませる）。
    */
   private async claimAcceptanceCore(
-    db: DatabaseExecutor,
+    store: WorkStore,
     principalId: string,
     taskId: string,
     actorRole: "manager" | "operator",
   ): Promise<ClaimResult> {
     const now = this.clock();
-    const task = await this.getTask(db, taskId);
+    const task = await this.getTask(store, taskId);
     if (actorRole === "manager") {
-      await this.requireRole(db, task.project_id, principalId, ProjectRole.MANAGER);
+      await this.requireRole(store, task.project_id, principalId, WorkRole.MANAGER);
     }
-    const currentClaim = await this.getActiveClaim(db, taskId);
+    const currentClaim = await this.getActiveClaim(store, taskId);
     if (currentClaim) {
       if (currentClaim.expires_at > now) {
         throw new CoordinationError("CLAIM_CONFLICT", `Task ${taskId} already has an active Claim`);
       }
-      await this.expireClaim(db, currentClaim, task.project_id, principalId, actorRole, now);
+      await this.expireClaim(store, currentClaim, task.project_id, principalId, actorRole, now);
     }
     if (task.status !== TaskStatus.IN_REVIEW && task.status !== TaskStatus.WAIT_ACCEPT) {
       throw new CoordinationError(
@@ -791,22 +682,18 @@ export class TaskCoordinationService {
         `Task ${taskId} is not available for acceptance`,
       );
     }
-    if (actorRole === "manager" && (await this.latestCompleter(db, taskId)) === principalId) {
+    if (actorRole === "manager" && (await this.latestCompleter(store, taskId)) === principalId) {
       throw new CoordinationError(
         "SELF_ACCEPTANCE_NOT_ALLOWED",
         `Principal ${principalId} cannot accept its own completed work`,
       );
     }
     const fromStatus = task.status;
-    const claim = await this.insertClaim(db, taskId, principalId, now);
+    const claim = await this.insertClaim(store, taskId, principalId, now);
     if (fromStatus === TaskStatus.IN_REVIEW) {
-      await db
-        .updateTable("task")
-        .set({ status: TaskStatus.WAIT_ACCEPT, updated_at: now })
-        .where("id", "=", taskId)
-        .execute();
+      await store.updateTask(taskId, { status: TaskStatus.WAIT_ACCEPT, updated_at: now });
     }
-    await this.appendChange(db, {
+    await this.appendChange(store, {
       projectId: task.project_id,
       type: "TASK_CLAIMED",
       entityId: taskId,
@@ -830,24 +717,20 @@ export class TaskCoordinationService {
     taskId: string,
     requestId: string,
   ): Promise<ClaimResult> {
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "claim_acceptance", requestId, { taskId }, () =>
-        this.claimAcceptanceCore(db, principalId, taskId, "manager"),
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "claim_acceptance", requestId, { taskId }, () =>
+        this.claimAcceptanceCore(store, principalId, taskId, "manager"),
       ),
     );
   }
 
   private async assertCurrentClaim(
-    db: DatabaseExecutor,
+    store: WorkStore,
     principalId: string,
     taskId: string,
     claimId: string,
   ) {
-    const claim = await db
-      .selectFrom("task_claim")
-      .selectAll()
-      .where("id", "=", claimId)
-      .executeTakeFirst();
+    const claim = await store.findClaim(claimId);
     if (!claim || claim.task_id !== taskId) {
       throw new CoordinationError("CLAIM_NOT_FOUND", `Claim ${claimId} was not found for Task ${taskId}`);
     }
@@ -857,7 +740,7 @@ export class TaskCoordinationService {
     if (claim.state !== "active" || claim.expires_at <= this.clock()) {
       throw new CoordinationError("CLAIM_EXPIRED", `Claim ${claimId} is no longer active`);
     }
-    const current = await this.getActiveClaim(db, taskId);
+    const current = await this.getActiveClaim(store, taskId);
     if (!current || current.id !== claimId) {
       throw new CoordinationError("CLAIM_EXPIRED", `Claim ${claimId} is not the current Task Claim`);
     }
@@ -865,17 +748,13 @@ export class TaskCoordinationService {
   }
 
   async renewClaim(principalId: string, claimId: string) {
-    return this.database.transaction().execute(async (db) => {
-      const claim = await db.selectFrom("task_claim").selectAll().where("id", "=", claimId).executeTakeFirst();
+    return this.store.transaction(async (store) => {
+      const claim = await store.findClaim(claimId);
       if (!claim) throw new CoordinationError("CLAIM_NOT_FOUND", `Claim ${claimId} was not found`);
-      await this.assertCurrentClaim(db, principalId, claim.task_id, claimId);
+      await this.assertCurrentClaim(store, principalId, claim.task_id, claimId);
       const now = this.clock();
       const expiresAt = now + this.claimTtlMs;
-      await db
-        .updateTable("task_claim")
-        .set({ renewed_at: now, expires_at: expiresAt })
-        .where("id", "=", claimId)
-        .execute();
+      await store.updateClaim(claimId, { renewed_at: now, expires_at: expiresAt });
       return { claimId, taskId: claim.task_id, renewedAt: now, expiresAt };
     });
   }
@@ -886,12 +765,12 @@ export class TaskCoordinationService {
     reason: string,
     requestId: string,
   ) {
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "release_claim", requestId, { claimId, reason }, async () => {
-        const claim = await db.selectFrom("task_claim").selectAll().where("id", "=", claimId).executeTakeFirst();
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "release_claim", requestId, { claimId, reason }, async () => {
+        const claim = await store.findClaim(claimId);
         if (!claim) throw new CoordinationError("CLAIM_NOT_FOUND", `Claim ${claimId} was not found`);
-        await this.assertCurrentClaim(db, principalId, claim.task_id, claimId);
-        const task = await this.getTask(db, claim.task_id);
+        await this.assertCurrentClaim(store, principalId, claim.task_id, claimId);
+        const task = await this.getTask(store, claim.task_id);
         const trimmedReason = reason.trim();
         if (!trimmedReason) {
           throw new CoordinationError("INVALID_INPUT", "Release reason is required");
@@ -906,23 +785,15 @@ export class TaskCoordinationService {
         let taskStatus = task.status as TaskStatusValue;
         if (task.status === TaskStatus.DOING) {
           taskStatus = TaskStatus.TODO;
-          await db
-            .updateTable("task")
-            .set({
+          await store.updateTask(task.id, {
               status: TaskStatus.TODO,
               assignee: null,
               resume_source_status: null,
               updated_at: now,
-            })
-            .where("id", "=", task.id)
-            .execute();
+            });
         }
-        await db
-          .updateTable("task_claim")
-          .set({ state: "released", released_at: now, release_reason: trimmedReason })
-          .where("id", "=", claimId)
-          .execute();
-        await this.appendChange(db, {
+        await store.updateClaim(claimId, { state: "released", released_at: now, release_reason: trimmedReason });
+        await this.appendChange(store, {
           projectId: task.project_id,
           type: "CLAIM_RELEASED",
           entityId: task.id,
@@ -943,22 +814,22 @@ export class TaskCoordinationService {
     body: string,
     requestId: string,
   ) {
-    return this.database.transaction().execute(async (db) =>
+    return this.store.transaction(async (store) =>
       this.withReceipt(
-        db,
+        store,
         principalId,
         "add_task_comment",
         requestId,
         { taskId, claimId, body },
         async () => {
-          await this.assertCurrentClaim(db, principalId, taskId, claimId);
-          const task = await this.getTask(db, taskId);
+          await this.assertCurrentClaim(store, principalId, taskId, claimId);
+          const task = await this.getTask(store, taskId);
           if (task.status === TaskStatus.DOING) {
-            await this.requireRole(db, task.project_id, principalId, ProjectRole.WORKER);
+            await this.requireRole(store, task.project_id, principalId, WorkRole.WORKER);
           } else if (task.status === TaskStatus.IN_REVIEW) {
-            await this.requireRole(db, task.project_id, principalId, ProjectRole.REVIEWER);
+            await this.requireRole(store, task.project_id, principalId, WorkRole.REVIEWER);
           } else if (task.status === TaskStatus.WAIT_ACCEPT) {
-            await this.requireRole(db, task.project_id, principalId, ProjectRole.MANAGER);
+            await this.requireRole(store, task.project_id, principalId, WorkRole.MANAGER);
           } else {
             throw new CoordinationError(
               "INVALID_TASK_STATUS",
@@ -971,18 +842,15 @@ export class TaskCoordinationService {
           }
           const now = this.clock();
           const id = crypto.randomUUID();
-          await db
-            .insertInto("task_comment")
-            .values({
-              id,
-              task_id: taskId,
-              body: trimmedBody,
-              author: principalId,
-              principal_id: principalId,
-              claim_id: claimId,
-              created_at: now,
-            })
-            .execute();
+          await store.insertTaskComment({
+            id,
+            task_id: taskId,
+            body: trimmedBody,
+            author: principalId,
+            principal_id: principalId,
+            claim_id: claimId,
+            created_at: now,
+          });
           return {
             comment: {
               id,
@@ -1000,44 +868,29 @@ export class TaskCoordinationService {
   }
 
   async completeTask(principalId: string, taskId: string, claimId: string, requestId: string) {
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "complete_task", requestId, { taskId, claimId }, async () => {
-        const claim = await this.assertCurrentClaim(db, principalId, taskId, claimId);
-        const task = await this.getTask(db, taskId);
-        await this.requireRole(db, task.project_id, principalId, ProjectRole.WORKER);
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "complete_task", requestId, { taskId, claimId }, async () => {
+        const claim = await this.assertCurrentClaim(store, principalId, taskId, claimId);
+        const task = await this.getTask(store, taskId);
+        await this.requireRole(store, task.project_id, principalId, WorkRole.WORKER);
         if (task.status !== TaskStatus.DOING) {
           throw new CoordinationError("INVALID_TASK_STATUS", `Task ${taskId} is not doing`);
         }
-        const comment = await db
-          .selectFrom("task_comment")
-          .select("id")
-          .where("task_id", "=", taskId)
-          .where("claim_id", "=", claimId)
-          .where("principal_id", "=", principalId)
-          .executeTakeFirst();
-        if (!comment) {
+        if (!(await store.hasClaimComment(taskId, claimId, principalId))) {
           throw new CoordinationError(
             "INVALID_TASK_STATUS",
             "Record implementation and verification notes with add_task_comment before complete_task",
           );
         }
         const now = this.clock();
-        await db
-          .updateTable("task")
-          .set({
+        await store.updateTask(taskId, {
             status: TaskStatus.IN_REVIEW,
             assignee: null,
             resume_source_status: null,
             updated_at: now,
-          })
-          .where("id", "=", taskId)
-          .execute();
-        await db
-          .updateTable("task_claim")
-          .set({ state: "completed", released_at: now, release_reason: "task_completed" })
-          .where("id", "=", claim.id)
-          .execute();
-        await this.appendChange(db, {
+          });
+        await store.updateClaim(claim.id, { state: "completed", released_at: now, release_reason: "task_completed" });
+        await this.appendChange(store, {
           projectId: task.project_id,
           type: "TASK_COMPLETED",
           entityId: taskId,
@@ -1052,26 +905,18 @@ export class TaskCoordinationService {
   }
 
   async reviewedTask(principalId: string, taskId: string, claimId: string, requestId: string) {
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "reviewed_task", requestId, { taskId, claimId }, async () => {
-        await this.assertCurrentClaim(db, principalId, taskId, claimId);
-        const task = await this.getTask(db, taskId);
-        await this.requireRole(db, task.project_id, principalId, ProjectRole.REVIEWER);
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "reviewed_task", requestId, { taskId, claimId }, async () => {
+        await this.assertCurrentClaim(store, principalId, taskId, claimId);
+        const task = await this.getTask(store, taskId);
+        await this.requireRole(store, task.project_id, principalId, WorkRole.REVIEWER);
         if (task.status !== TaskStatus.IN_REVIEW) {
           throw new CoordinationError("INVALID_TASK_STATUS", `Task ${taskId} is not in_review`);
         }
         const now = this.clock();
-        await db
-          .updateTable("task")
-          .set({ status: TaskStatus.WAIT_ACCEPT, updated_at: now })
-          .where("id", "=", taskId)
-          .execute();
-        await db
-          .updateTable("task_claim")
-          .set({ state: "completed", released_at: now, release_reason: "task_reviewed" })
-          .where("id", "=", claimId)
-          .execute();
-        await this.appendChange(db, {
+        await store.updateTask(taskId, { status: TaskStatus.WAIT_ACCEPT, updated_at: now });
+        await store.updateClaim(claimId, { state: "completed", released_at: now, release_reason: "task_reviewed" });
+        await this.appendChange(store, {
           projectId: task.project_id,
           type: "TASK_REVIEWED",
           entityId: taskId,
@@ -1086,7 +931,7 @@ export class TaskCoordinationService {
   }
 
   private async syncStoryAfterAcceptance(
-    db: DatabaseExecutor,
+    store: WorkStore,
     projectId: string,
     storyId: string | null,
     principalId: string,
@@ -1095,21 +940,9 @@ export class TaskCoordinationService {
     now: number,
   ) {
     if (!storyId) return;
-    const unsettled = await db
-      .selectFrom("task")
-      .select("id")
-      .where("story_id", "=", storyId)
-      .where("status", "not in", [TaskStatus.ACCEPTED, TaskStatus.CANCELED])
-      .executeTakeFirst();
-    if (!unsettled) {
-      const result = await db
-        .updateTable("story")
-        .set({ status: "done", updated_at: now })
-        .where("id", "=", storyId)
-        .where("status", "=", "doing")
-        .executeTakeFirst();
-      if (result.numUpdatedRows > 0n) {
-        await this.appendChange(db, {
+    if (!(await store.hasUnsettledTask(storyId))) {
+      if (await store.updateStoryStatusIf(storyId, StoryStatus.DOING, StoryStatus.DONE, now)) {
+        await this.appendChange(store, {
           projectId,
           type: "STORY_COMPLETED",
           entityId: storyId,
@@ -1123,33 +956,25 @@ export class TaskCoordinationService {
   }
 
   private async acceptTaskCore(
-    db: DatabaseExecutor,
+    store: WorkStore,
     principalId: string,
     taskId: string,
     claimId: string,
     actorRole: ActivityActorRole,
   ) {
-    const task = await this.getTask(db, taskId);
+    const task = await this.getTask(store, taskId);
     if (task.status !== TaskStatus.WAIT_ACCEPT) {
       throw new CoordinationError("INVALID_TASK_STATUS", `Task ${taskId} is not wait_accept`);
     }
     const now = this.clock();
-    await db
-      .updateTable("task")
-      .set({
+    await store.updateTask(taskId, {
         status: TaskStatus.ACCEPTED,
         reject_reason: null,
         resume_source_status: null,
         updated_at: now,
-      })
-      .where("id", "=", taskId)
-      .execute();
-    await db
-      .updateTable("task_claim")
-      .set({ state: "completed", released_at: now, release_reason: "task_accepted" })
-      .where("id", "=", claimId)
-      .execute();
-    await this.appendChange(db, {
+      });
+    await store.updateClaim(claimId, { state: "completed", released_at: now, release_reason: "task_accepted" });
+    await this.appendChange(store, {
       projectId: task.project_id,
       type: "TASK_ACCEPTED",
       entityId: taskId,
@@ -1159,7 +984,7 @@ export class TaskCoordinationService {
       occurredAt: now,
     });
     await this.syncStoryAfterAcceptance(
-      db,
+      store,
       task.project_id,
       task.story_id,
       principalId,
@@ -1171,12 +996,12 @@ export class TaskCoordinationService {
   }
 
   async acceptTask(principalId: string, taskId: string, claimId: string, requestId: string) {
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "accept_task", requestId, { taskId, claimId }, async () => {
-        await this.assertCurrentClaim(db, principalId, taskId, claimId);
-        const task = await this.getTask(db, taskId);
-        await this.requireRole(db, task.project_id, principalId, ProjectRole.MANAGER);
-        return this.acceptTaskCore(db, principalId, taskId, claimId, "manager");
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "accept_task", requestId, { taskId, claimId }, async () => {
+        await this.assertCurrentClaim(store, principalId, taskId, claimId);
+        const task = await this.getTask(store, taskId);
+        await this.requireRole(store, task.project_id, principalId, WorkRole.MANAGER);
+        return this.acceptTaskCore(store, principalId, taskId, claimId, "manager");
       }),
     );
   }
@@ -1188,22 +1013,22 @@ export class TaskCoordinationService {
     reason: string,
     requestId: string,
   ) {
-    return this.database.transaction().execute(async (db) =>
+    return this.store.transaction(async (store) =>
       this.withReceipt(
-        db,
+        store,
         principalId,
         "reject_task",
         requestId,
         { taskId, claimId, reason },
         async () => {
-          await this.assertCurrentClaim(db, principalId, taskId, claimId);
-          const task = await this.getTask(db, taskId);
+          await this.assertCurrentClaim(store, principalId, taskId, claimId);
+          const task = await this.getTask(store, taskId);
           let actorRole: ActivityActorRole;
           if (task.status === TaskStatus.IN_REVIEW) {
-            await this.requireRole(db, task.project_id, principalId, ProjectRole.REVIEWER);
+            await this.requireRole(store, task.project_id, principalId, WorkRole.REVIEWER);
             actorRole = "reviewer";
           } else if (task.status === TaskStatus.WAIT_ACCEPT) {
-            await this.requireRole(db, task.project_id, principalId, ProjectRole.MANAGER);
+            await this.requireRole(store, task.project_id, principalId, WorkRole.MANAGER);
             actorRole = "manager";
           } else {
             throw new CoordinationError(
@@ -1211,43 +1036,35 @@ export class TaskCoordinationService {
               `Task ${taskId} is not reviewable`,
             );
           }
-          return this.rejectTaskCore(db, principalId, taskId, claimId, reason, actorRole);
+          return this.rejectTaskCore(store, principalId, taskId, claimId, reason, actorRole);
         },
       ),
     );
   }
 
   private async rejectTaskCore(
-    db: DatabaseExecutor,
+    store: WorkStore,
     principalId: string,
     taskId: string,
     claimId: string,
     reason: string,
     actorRole: ActivityActorRole,
   ) {
-    const task = await this.getTask(db, taskId);
+    const task = await this.getTask(store, taskId);
     const trimmedReason = reason.trim();
     if (!trimmedReason) {
       throw new CoordinationError("INVALID_INPUT", "Reject reason is required");
     }
     const now = this.clock();
     const fromStatus = task.status;
-    await db
-      .updateTable("task")
-      .set({
+    await store.updateTask(taskId, {
         status: TaskStatus.REJECTED,
         reject_reason: trimmedReason,
         resume_source_status: null,
         updated_at: now,
-      })
-      .where("id", "=", taskId)
-      .execute();
-    await db
-      .updateTable("task_claim")
-      .set({ state: "completed", released_at: now, release_reason: "task_rejected" })
-      .where("id", "=", claimId)
-      .execute();
-    await this.appendChange(db, {
+      });
+    await store.updateClaim(claimId, { state: "completed", released_at: now, release_reason: "task_rejected" });
+    await this.appendChange(store, {
       projectId: task.project_id,
       type: "TASK_REJECTED",
       entityId: taskId,
@@ -1260,13 +1077,13 @@ export class TaskCoordinationService {
   }
 
   private async cancelTaskCore(
-    db: DatabaseExecutor,
+    store: WorkStore,
     principalId: string,
     taskId: string,
     reason: string,
     actorRole: ActivityActorRole,
   ) {
-    const task = await this.getTask(db, taskId);
+    const task = await this.getTask(store, taskId);
     if (task.status !== TaskStatus.TODO && task.status !== TaskStatus.DOING) {
       throw new CoordinationError("INVALID_TASK_STATUS", `Task ${taskId} is not cancelable`);
     }
@@ -1275,25 +1092,17 @@ export class TaskCoordinationService {
       throw new CoordinationError("INVALID_INPUT", "Cancel reason is required");
     }
     const now = this.clock();
-    const claim = await this.getActiveClaim(db, taskId);
+    const claim = await this.getActiveClaim(store, taskId);
     if (claim) {
-      await db
-        .updateTable("task_claim")
-        .set({ state: "released", released_at: now, release_reason: "task_canceled" })
-        .where("id", "=", claim.id)
-        .execute();
+      await store.updateClaim(claim.id, { state: "released", released_at: now, release_reason: "task_canceled" });
     }
-    await db
-      .updateTable("task")
-      .set({
+    await store.updateTask(taskId, {
         status: TaskStatus.CANCELED,
         assignee: null,
         resume_source_status: null,
         updated_at: now,
-      })
-      .where("id", "=", taskId)
-      .execute();
-    await this.appendChange(db, {
+      });
+    await this.appendChange(store, {
       projectId: task.project_id,
       type: "TASK_CANCELED",
       entityId: taskId,
@@ -1306,11 +1115,11 @@ export class TaskCoordinationService {
   }
 
   async cancelTask(principalId: string, taskId: string, reason: string, requestId: string) {
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "cancel_task", requestId, { taskId, reason }, async () => {
-        const task = await this.getTask(db, taskId);
-        await this.requireRole(db, task.project_id, principalId, ProjectRole.MANAGER);
-        return this.cancelTaskCore(db, principalId, taskId, reason, "manager");
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "cancel_task", requestId, { taskId, reason }, async () => {
+        const task = await this.getTask(store, taskId);
+        await this.requireRole(store, task.project_id, principalId, WorkRole.MANAGER);
+        return this.cancelTaskCore(store, principalId, taskId, reason, "manager");
       }),
     );
   }
@@ -1320,41 +1129,36 @@ export class TaskCoordinationService {
   // 外部入力から任意の値を渡させない。Agentの自己review / 自己受入の禁止規則とは独立（HumanはAgent Principalではない）。
 
   /** 対象TaskがProjectに属し（別ProjectのTask IDは存在しない扱い）、Projectがactiveであること。 */
-  private async getOperatorTask(db: DatabaseExecutor, projectId: string, taskId: string) {
-    const task = await db
-      .selectFrom("task")
-      .selectAll()
-      .where("id", "=", taskId)
-      .where("project_id", "=", projectId)
-      .executeTakeFirst();
+  private async getOperatorTask(store: WorkStore, projectId: string, taskId: string) {
+    const task = await store.findTaskInProject(projectId, taskId);
     if (!task) throw new NotFoundError(`Task ${taskId} was not found in Project ${projectId}`);
-    await this.assertProjectActive(db, projectId);
+    await this.assertProjectActive(store, projectId);
     return task;
   }
 
   /** `in_review` / `wait_accept`のTaskを受入Claimの取得と同じtransactionで受け入れる。Claim中（期限内）なら`CLAIM_CONFLICT`。 */
   async acceptTaskAsOperator(principalId: string, projectId: string, taskId: string) {
-    return this.database.transaction().execute(async (db) => {
-      await this.getOperatorTask(db, projectId, taskId);
-      const claim = await this.claimAcceptanceCore(db, principalId, taskId, "operator");
-      return this.acceptTaskCore(db, principalId, taskId, claim.claimId, "operator");
+    return this.store.transaction(async (store) => {
+      await this.getOperatorTask(store, projectId, taskId);
+      const claim = await this.claimAcceptanceCore(store, principalId, taskId, "operator");
+      return this.acceptTaskCore(store, principalId, taskId, claim.claimId, "operator");
     });
   }
 
   async rejectTaskAsOperator(principalId: string, projectId: string, taskId: string, reason: string) {
-    return this.database.transaction().execute(async (db) => {
-      await this.getOperatorTask(db, projectId, taskId);
+    return this.store.transaction(async (store) => {
+      await this.getOperatorTask(store, projectId, taskId);
       if (!reason.trim()) throw new CoordinationError("INVALID_INPUT", "Reject reason is required");
-      const claim = await this.claimAcceptanceCore(db, principalId, taskId, "operator");
-      return this.rejectTaskCore(db, principalId, taskId, claim.claimId, reason, "operator");
+      const claim = await this.claimAcceptanceCore(store, principalId, taskId, "operator");
+      return this.rejectTaskCore(store, principalId, taskId, claim.claimId, reason, "operator");
     });
   }
 
   /** `todo` / `doing`のTaskを取り消す。Agentの有効なClaimは同じtransactionで解放する（Managerの`cancel_task`と同じ）。 */
   async cancelTaskAsOperator(principalId: string, projectId: string, taskId: string, reason: string) {
-    return this.database.transaction().execute(async (db) => {
-      await this.getOperatorTask(db, projectId, taskId);
-      return this.cancelTaskCore(db, principalId, taskId, reason, "operator");
+    return this.store.transaction(async (store) => {
+      await this.getOperatorTask(store, projectId, taskId);
+      return this.cancelTaskCore(store, principalId, taskId, reason, "operator");
     });
   }
 
@@ -1363,8 +1167,8 @@ export class TaskCoordinationService {
    * Change Logには種別を足さず（MCP `list_changes`の契約を変えない）、`task_comment`に投稿者の`principalId`を残す。
    */
   async addTaskCommentAsOperator(principalId: string, projectId: string, taskId: string, body: string) {
-    return this.database.transaction().execute(async (db) => {
-      await this.getOperatorTask(db, projectId, taskId);
+    return this.store.transaction(async (store) => {
+      await this.getOperatorTask(store, projectId, taskId);
       const trimmedBody = body.trim();
       if (!trimmedBody) throw new CoordinationError("INVALID_INPUT", "Comment body is required");
       const comment = {
@@ -1376,7 +1180,7 @@ export class TaskCoordinationService {
         claim_id: null,
         created_at: this.clock(),
       };
-      await db.insertInto("task_comment").values(comment).execute();
+      await store.insertTaskComment(comment);
       return {
         comment: {
           id: comment.id,
@@ -1396,20 +1200,15 @@ export class TaskCoordinationService {
   // 契約のため、Humanは作成・編集しない（配下へのTask追加も含む）。編集はMCPの`edit_story` / `edit_task`と同じく、内容が変わったときだけ編集Changeを残す。
 
   /** 対象StoryがProjectに属し（別ProjectのStory IDは存在しない扱い）、Projectがactiveであること。 */
-  private async getOperatorStory(db: DatabaseExecutor, projectId: string, storyId: string) {
-    const story = await db
-      .selectFrom("story")
-      .selectAll()
-      .where("id", "=", storyId)
-      .where("project_id", "=", projectId)
-      .executeTakeFirst();
+  private async getOperatorStory(store: WorkStore, projectId: string, storyId: string) {
+    const story = await store.findStoryInProject(projectId, storyId);
     if (!story) throw new NotFoundError(`Story ${storyId} was not found in Project ${projectId}`);
-    await this.assertProjectActive(db, projectId);
+    await this.assertProjectActive(store, projectId);
     return story;
   }
 
   /** Human手動起票の対象にできるStory（手動起票で、完了・取消していない）か。 */
-  private assertStoryEditableByOperator(story: Selectable<StoryTable>, action: string): void {
+  private assertStoryEditableByOperator(story: StoryRecord, action: string): void {
     if (story.correlation_id !== null) {
       throw new ConflictError(`Story ${story.id} is an Outcome handoff Story; ${action} is managed by the Manager`, {
         conflict: "HANDOFF_MANAGED",
@@ -1421,24 +1220,18 @@ export class TaskCoordinationService {
   }
 
   async issueStoryAsOperator(principalId: string, projectId: string, input: { title: string; description: string | null }) {
-    return this.database.transaction().execute(async (db) => {
-      await this.assertProjectActive(db, projectId);
-      const maxRow = await db
-        .selectFrom("story")
-        .select(({ fn }) => fn.max("sort_order").as("max_sort_order"))
-        .where("project_id", "=", projectId)
-        .executeTakeFirst();
+    return this.store.transaction(async (store) => {
+      await this.assertProjectActive(store, projectId);
+      const maxSortOrder = await store.maxStorySortOrder(projectId);
       const now = this.clock();
       const id = crypto.randomUUID();
-      const row = await db
-        .insertInto("story")
-        .values({
+      const row = await store.insertStory({
           id,
           project_id: projectId,
           title: this.requiredText(input.title, "Story title"),
           description: input.description?.trim() || null,
           status: StoryStatus.TODO,
-          sort_order: (maxRow?.max_sort_order ?? 0) + 1,
+          sort_order: (maxSortOrder ?? 0) + 1,
           created_at: now,
           updated_at: now,
           outcome_ref: null,
@@ -1447,10 +1240,8 @@ export class TaskCoordinationService {
           constraints_snapshot: null,
           repository_snapshot: null,
           correlation_id: null,
-        })
-        .returningAll()
-        .executeTakeFirstOrThrow();
-      await this.appendChange(db, {
+        });
+      await this.appendChange(store, {
         projectId,
         type: "STORY_CREATED",
         entityId: id,
@@ -1468,17 +1259,12 @@ export class TaskCoordinationService {
     storyId: string,
     input: { title: string; description: string | null },
   ) {
-    return this.database.transaction().execute(async (db) => {
-      const story = await this.getOperatorStory(db, projectId, storyId);
+    return this.store.transaction(async (store) => {
+      const story = await this.getOperatorStory(store, projectId, storyId);
       this.assertStoryEditableByOperator(story, "editing");
       const now = this.clock();
-      const row = await db
-        .updateTable("story")
-        .set({ title: this.requiredText(input.title, "Story title"), description: input.description?.trim() || null, updated_at: now })
-        .where("id", "=", storyId)
-        .returningAll()
-        .executeTakeFirstOrThrow();
-      await this.appendEditChange(db, {
+      const row = await store.updateStory(storyId, { title: this.requiredText(input.title, "Story title"), description: input.description?.trim() || null, updated_at: now });
+      await this.appendEditChange(store, {
         projectId,
         type: "STORY_EDITED",
         entityId: storyId,
@@ -1497,31 +1283,20 @@ export class TaskCoordinationService {
     projectId: string,
     input: { storyId: string | null; title: string; description: string | null },
   ) {
-    return this.database.transaction().execute(async (db) => {
-      await this.assertProjectActive(db, projectId);
+    return this.store.transaction(async (store) => {
+      await this.assertProjectActive(store, projectId);
       if (input.storyId !== null) {
-        const story = await db
-          .selectFrom("story")
-          .selectAll()
-          .where("id", "=", input.storyId)
-          .where("project_id", "=", projectId)
-          .executeTakeFirst();
+        const story = await store.findStoryInProject(projectId, input.storyId);
         // 別ProjectのStory IDは存在しないStoryと区別しない（orphan・別Projectへの紐付けを作らない）。
         if (!story) {
           throw new ValidationError("Task input is invalid", [{ path: "storyId", message: "Story was not found in the Project" }]);
         }
         this.assertStoryEditableByOperator(story, "adding Tasks");
       }
-      const maxRow = await db
-        .selectFrom("task")
-        .select(({ fn }) => fn.max("sort_order").as("max_sort_order"))
-        .where("project_id", "=", projectId)
-        .executeTakeFirst();
+      const maxSortOrder = await store.maxTaskSortOrder(projectId);
       const now = this.clock();
       const id = crypto.randomUUID();
-      const row = await db
-        .insertInto("task")
-        .values({
+      const row = await store.insertTask({
           id,
           project_id: projectId,
           story_id: input.storyId,
@@ -1531,14 +1306,12 @@ export class TaskCoordinationService {
           assignee: null,
           reject_reason: null,
           resume_source_status: null,
-          sort_order: (maxRow?.max_sort_order ?? 0) + 1,
+          sort_order: (maxSortOrder ?? 0) + 1,
           created_at: now,
           updated_at: now,
           task_key: null,
-        })
-        .returningAll()
-        .executeTakeFirstOrThrow();
-      await this.appendChange(db, {
+        });
+      await this.appendChange(store, {
         projectId,
         type: "TASK_CREATED",
         entityId: id,
@@ -1557,11 +1330,11 @@ export class TaskCoordinationService {
     taskId: string,
     input: { title: string; description: string | null },
   ) {
-    return this.database.transaction().execute(async (db) => {
-      const task = await this.getOperatorTask(db, projectId, taskId);
+    return this.store.transaction(async (store) => {
+      const task = await this.getOperatorTask(store, projectId, taskId);
       const story = task.story_id
-        ? await db.selectFrom("story").select("correlation_id").where("id", "=", task.story_id).executeTakeFirst()
-        : undefined;
+        ? await store.findStory(task.story_id)
+        : null;
       if (task.task_key !== null || (story?.correlation_id ?? null) !== null) {
         throw new ConflictError(`Task ${taskId} is an Outcome handoff Task; editing is managed by the Manager`, {
           conflict: "HANDOFF_MANAGED",
@@ -1571,13 +1344,8 @@ export class TaskCoordinationService {
         throw new CoordinationError("INVALID_TASK_STATUS", `Task ${taskId} is ${task.status}`);
       }
       const now = this.clock();
-      const row = await db
-        .updateTable("task")
-        .set({ title: this.requiredText(input.title, "Task title"), description: input.description?.trim() || null, updated_at: now })
-        .where("id", "=", taskId)
-        .returningAll()
-        .executeTakeFirstOrThrow();
-      await this.appendEditChange(db, {
+      const row = await store.updateTask(taskId, { title: this.requiredText(input.title, "Task title"), description: input.description?.trim() || null, updated_at: now });
+      await this.appendEditChange(store, {
         projectId,
         type: "TASK_EDITED",
         entityId: taskId,
@@ -1592,14 +1360,14 @@ export class TaskCoordinationService {
   }
 
   async issueTask(principalId: string, input: IssueTaskInput, requestId: string) {
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "issue_task", requestId, input, async () => {
-        const actorRole = await this.requireOneOfRoles(db, input.projectId, principalId, [
-          ProjectRole.MANAGER,
-          ProjectRole.REVIEWER,
-          ProjectRole.WORKER,
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "issue_task", requestId, input, async () => {
+        const actorRole = await this.requireOneOfRoles(store, input.projectId, principalId, [
+          WorkRole.MANAGER,
+          WorkRole.REVIEWER,
+          WorkRole.WORKER,
         ]);
-        await this.assertProjectActive(db, input.projectId);
+        await this.assertProjectActive(store, input.projectId);
         const title = this.requiredText(input.title, "Task title");
         const description = input.description?.trim() || null;
         const taskKey = optionalId(input.taskKey, "taskKey");
@@ -1611,12 +1379,7 @@ export class TaskCoordinationService {
         }
         let story: { correlation_id: string | null; outcome_ref: string | null } | undefined;
         if (input.storyId) {
-          story = await db
-            .selectFrom("story")
-            .select(["correlation_id", "outcome_ref"])
-            .where("id", "=", input.storyId)
-            .where("project_id", "=", input.projectId)
-            .executeTakeFirst();
+          story = (await store.findStoryInProject(input.projectId, input.storyId)) ?? undefined;
           if (!story) {
             throw new CoordinationError("INVALID_INPUT", "Story was not found in the Project");
           }
@@ -1629,12 +1392,7 @@ export class TaskCoordinationService {
           }
         }
         if (taskKey !== null) {
-          const existing = await db
-            .selectFrom("task")
-            .selectAll()
-            .where("story_id", "=", input.storyId ?? null)
-            .where("task_key", "=", taskKey)
-            .executeTakeFirst();
+          const existing = await store.findTaskByKey(input.storyId ?? null, taskKey);
           if (existing) {
             if (existing.title !== title || existing.description !== description) {
               throw new CoordinationError(
@@ -1646,16 +1404,10 @@ export class TaskCoordinationService {
           }
         }
         const now = this.clock();
-        const maxRow = await db
-          .selectFrom("task")
-          .select(({ fn }) => fn.max("sort_order").as("max_sort_order"))
-          .where("project_id", "=", input.projectId)
-          .executeTakeFirst();
+        const maxSortOrder = await store.maxTaskSortOrder(input.projectId);
         const id = crypto.randomUUID();
-        const sortOrder = (maxRow?.max_sort_order ?? 0) + 1;
-        const row = await db
-          .insertInto("task")
-          .values({
+        const sortOrder = (maxSortOrder ?? 0) + 1;
+        const row = await store.insertTask({
             id,
             project_id: input.projectId,
             story_id: input.storyId ?? null,
@@ -1669,10 +1421,8 @@ export class TaskCoordinationService {
             created_at: now,
             updated_at: now,
             task_key: taskKey,
-          })
-          .returningAll()
-          .executeTakeFirstOrThrow();
-        await this.appendChange(db, {
+          });
+        await this.appendChange(store, {
           projectId: input.projectId,
           type: "TASK_CREATED",
           entityId: id,
@@ -1704,27 +1454,23 @@ export class TaskCoordinationService {
     },
     requestId: string,
   ) {
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "edit_task", requestId, input, async () => {
-        await this.requireRole(db, input.projectId, principalId, ProjectRole.MANAGER);
-        const task = await this.getTask(db, input.taskId);
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "edit_task", requestId, input, async () => {
+        await this.requireRole(store, input.projectId, principalId, WorkRole.MANAGER);
+        const task = await this.getTask(store, input.taskId);
         if (task.project_id !== input.projectId) {
           throw new CoordinationError("INVALID_TASK_STATUS", "Task does not belong to the Project");
         }
         const title = this.requiredText(input.title, "Task title");
         const now = this.clock();
-        await db
-          .updateTable("task")
-          .set({
+        await store.updateTask(input.taskId, {
             title,
             description: input.description?.trim() || null,
             ...(input.sortOrder === undefined ? {} : { sort_order: input.sortOrder }),
             updated_at: now,
-          })
-          .where("id", "=", input.taskId)
-          .execute();
-        const updated = await this.getTask(db, input.taskId);
-        await this.appendEditChange(db, {
+          });
+        const updated = await this.getTask(store, input.taskId);
+        await this.appendEditChange(store, {
           projectId: input.projectId,
           type: "TASK_EDITED",
           entityId: input.taskId,
@@ -1764,22 +1510,11 @@ export class TaskCoordinationService {
     const repositoryId = optionalId(input.repositoryId, "repositoryId");
     if (outcomeId === null && repositoryId === null) return { outcome: null, repository: null };
 
-    await this.requireRole(this.database, input.projectId, principalId, ProjectRole.MANAGER);
-    const receipt = await this.database
-      .selectFrom("command_receipt")
-      .select("request_id")
-      .where("principal_id", "=", principalId)
-      .where("tool_name", "=", "issue_story")
-      .where("request_id", "=", requestId)
-      .executeTakeFirst();
+    await this.requireRole(this.store, input.projectId, principalId, WorkRole.MANAGER);
+    const receipt = await this.store.findReceipt(principalId, "issue_story", requestId);
     if (receipt) return null;
     if (correlationId !== null) {
-      const existing = await this.database
-        .selectFrom("story")
-        .select("id")
-        .where("project_id", "=", input.projectId)
-        .where("correlation_id", "=", correlationId)
-        .executeTakeFirst();
+      const existing = await this.store.findStoryByCorrelation(input.projectId, correlationId);
       if (existing) return null;
     }
 
@@ -1811,21 +1546,16 @@ export class TaskCoordinationService {
     const correlationId = explicitCorrelationId ?? (outcomeId === null ? null : outcomeCorrelationId(outcomeId));
     const references = await this.resolveStoryReferences(principalId, input, requestId, correlationId);
 
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "issue_story", requestId, input, async () => {
-        await this.requireRole(db, input.projectId, principalId, ProjectRole.MANAGER);
-        await this.assertProjectActive(db, input.projectId);
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "issue_story", requestId, input, async () => {
+        await this.requireRole(store, input.projectId, principalId, WorkRole.MANAGER);
+        await this.assertProjectActive(store, input.projectId);
         const title = this.requiredText(input.title, "Story title");
         const description = input.description?.trim() || null;
         const repositoryId = optionalId(input.repositoryId, "repositoryId");
 
         if (correlationId !== null) {
-          const existing = await db
-            .selectFrom("story")
-            .selectAll()
-            .where("project_id", "=", input.projectId)
-            .where("correlation_id", "=", correlationId)
-            .executeTakeFirst();
+          const existing = await store.findStoryByCorrelation(input.projectId, correlationId);
           if (existing) {
             const existingRepository = parseSnapshot<RepositoryReference>(existing.repository_snapshot);
             const sameContent =
@@ -1846,18 +1576,12 @@ export class TaskCoordinationService {
           throw new CoordinationError("INVALID_INPUT", "Story references could not be resolved; retry the request");
         }
 
-        const maxRow = await db
-          .selectFrom("story")
-          .select(({ fn }) => fn.max("sort_order").as("max_sort_order"))
-          .where("project_id", "=", input.projectId)
-          .executeTakeFirst();
+        const maxSortOrder = await store.maxStorySortOrder(input.projectId);
         const now = this.clock();
         const id = crypto.randomUUID();
-        const sortOrder = (maxRow?.max_sort_order ?? 0) + 1;
+        const sortOrder = (maxSortOrder ?? 0) + 1;
         const outcome = references?.outcome ?? null;
-        const row = await db
-          .insertInto("story")
-          .values({
+        const row = await store.insertStory({
             id,
             project_id: input.projectId,
             title,
@@ -1872,10 +1596,8 @@ export class TaskCoordinationService {
             constraints_snapshot: outcome ? JSON.stringify(outcome.constraints) : null,
             repository_snapshot: references?.repository ? JSON.stringify(references.repository) : null,
             correlation_id: correlationId,
-          })
-          .returningAll()
-          .executeTakeFirstOrThrow();
-        await this.appendChange(db, {
+          });
+        await this.appendChange(store, {
           projectId: input.projectId,
           type: "STORY_CREATED",
           entityId: id,
@@ -1904,31 +1626,22 @@ export class TaskCoordinationService {
     },
     requestId: string,
   ) {
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "edit_story", requestId, input, async () => {
-        await this.requireRole(db, input.projectId, principalId, ProjectRole.MANAGER);
-        const story = await db
-          .selectFrom("story")
-          .selectAll()
-          .where("id", "=", input.storyId)
-          .where("project_id", "=", input.projectId)
-          .executeTakeFirst();
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "edit_story", requestId, input, async () => {
+        await this.requireRole(store, input.projectId, principalId, WorkRole.MANAGER);
+        const story = await store.findStoryInProject(input.projectId, input.storyId);
         if (!story) {
           throw new CoordinationError("INVALID_TASK_STATUS", "Story was not found in the Project");
         }
         const title = this.requiredText(input.title, "Story title");
         const now = this.clock();
-        await db
-          .updateTable("story")
-          .set({
+        await store.updateStory(input.storyId, {
             title,
             description: input.description?.trim() || null,
             ...(input.sortOrder === undefined ? {} : { sort_order: input.sortOrder }),
             updated_at: now,
-          })
-          .where("id", "=", input.storyId)
-          .execute();
-        await this.appendEditChange(db, {
+          });
+        await this.appendEditChange(store, {
           projectId: input.projectId,
           type: "STORY_EDITED",
           entityId: input.storyId,
@@ -1952,30 +1665,20 @@ export class TaskCoordinationService {
   }
 
   async completeStory(principalId: string, storyId: string, requestId: string) {
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "complete_story", requestId, { storyId }, async () => {
-        const story = await db.selectFrom("story").selectAll().where("id", "=", storyId).executeTakeFirst();
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "complete_story", requestId, { storyId }, async () => {
+        const story = await store.findStory(storyId);
         if (!story) throw new CoordinationError("INVALID_TASK_STATUS", "Story was not found");
-        await this.requireRole(db, story.project_id, principalId, ProjectRole.MANAGER);
+        await this.requireRole(store, story.project_id, principalId, WorkRole.MANAGER);
         if (story.status !== StoryStatus.DOING) {
           throw new CoordinationError("INVALID_TASK_STATUS", `Story ${storyId} is not doing`);
         }
-        const unsettled = await db
-          .selectFrom("task")
-          .select("id")
-          .where("story_id", "=", storyId)
-          .where("status", "not in", [TaskStatus.ACCEPTED, TaskStatus.CANCELED])
-          .executeTakeFirst();
-        if (unsettled) {
+        if (await store.hasUnsettledTask(storyId)) {
           throw new CoordinationError("INVALID_TASK_STATUS", `Story ${storyId} has unsettled Tasks`);
         }
         const now = this.clock();
-        await db
-          .updateTable("story")
-          .set({ status: StoryStatus.DONE, updated_at: now })
-          .where("id", "=", storyId)
-          .execute();
-        await this.appendChange(db, {
+        await store.updateStory(storyId, { status: StoryStatus.DONE, updated_at: now });
+        await this.appendChange(store, {
           projectId: story.project_id,
           type: "STORY_COMPLETED",
           entityId: storyId,
@@ -1989,11 +1692,11 @@ export class TaskCoordinationService {
   }
 
   async cancelStory(principalId: string, storyId: string, reason: string, requestId: string) {
-    return this.database.transaction().execute(async (db) =>
-      this.withReceipt(db, principalId, "cancel_story", requestId, { storyId, reason }, async () => {
-        const story = await db.selectFrom("story").selectAll().where("id", "=", storyId).executeTakeFirst();
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "cancel_story", requestId, { storyId, reason }, async () => {
+        const story = await store.findStory(storyId);
         if (!story) throw new CoordinationError("INVALID_TASK_STATUS", "Story was not found");
-        await this.requireRole(db, story.project_id, principalId, ProjectRole.MANAGER);
+        await this.requireRole(store, story.project_id, principalId, WorkRole.MANAGER);
         if (story.status !== StoryStatus.DOING) {
           throw new CoordinationError("INVALID_TASK_STATUS", `Story ${storyId} is not doing`);
         }
@@ -2002,12 +1705,8 @@ export class TaskCoordinationService {
           throw new CoordinationError("INVALID_TASK_STATUS", "Cancel reason is required");
         }
         const now = this.clock();
-        await db
-          .updateTable("story")
-          .set({ status: StoryStatus.CANCELED, updated_at: now })
-          .where("id", "=", storyId)
-          .execute();
-        await this.appendChange(db, {
+        await store.updateStory(storyId, { status: StoryStatus.CANCELED, updated_at: now });
+        await this.appendChange(store, {
           projectId: story.project_id,
           type: "STORY_CANCELED",
           entityId: storyId,
@@ -2021,19 +1720,13 @@ export class TaskCoordinationService {
   }
 
   async listChanges(principalId: string, projectId: string, afterCursor = 0, limit = 100) {
-    await this.requireAnyRole(this.database, projectId, principalId);
+    await this.requireAnyRole(this.store, projectId, principalId);
     return this.listChangesOfProject(projectId, afterCursor, limit);
   }
 
   /** 認可済みの呼出し元（Runtime Credentialの`execution:change:read` scope）だけが使う。Role Grantは検査しない。 */
   async listChangesOfProject(projectId: string, afterCursor = 0, limit = 100) {
-    const rows = await this.database.selectFrom("change_log")
-      .selectAll()
-      .where("project_id", "=", projectId)
-      .where("cursor", ">", afterCursor)
-      .orderBy("cursor", "asc")
-      .limit(limit)
-      .execute();
+    const rows = await this.store.listChangesAfter(projectId, afterCursor, limit);
     const changes = await this.decorateChanges(projectId, rows);
     return {
       changes,
@@ -2046,38 +1739,21 @@ export class TaskCoordinationService {
    * `beforeCursor`を渡すとそれより古い変更を返す。さらに古い変更があれば`nextCursor`に次の`beforeCursor`を返す（無ければ`null`）。
    */
   async listRecentChangesOfProject(projectId: string, beforeCursor: number | null = null, limit = 50) {
-    let query = this.database.selectFrom("change_log").selectAll().where("project_id", "=", projectId);
-    if (beforeCursor !== null) query = query.where("cursor", "<", beforeCursor);
-    const rows = await query.orderBy("cursor", "desc").limit(limit + 1).execute();
+    const rows = await this.store.listChangesBefore(projectId, beforeCursor, limit + 1);
     const changes = await this.decorateChanges(projectId, rows.slice(0, limit));
     return { changes, nextCursor: rows.length > limit ? (changes.at(-1)?.cursor ?? null) : null };
   }
 
-  private async decorateChanges(projectId: string, rows: Selectable<ChangeLogTable>[]) {
+  private async decorateChanges(projectId: string, rows: ChangeRecord[]) {
     // Outcomeに相関付いたStory・Taskの変更には、Runtimeが還流の対象を辿れるようoutcomeId・correlationIdを付ける。
     const entityIds = [...new Set(rows.map((row) => row.entity_id))];
     const correlations = new Map<string, { outcomeId: string; correlationId: string }>();
-    if (entityIds.length > 0) {
-      const stories = await this.database
-        .selectFrom("story")
-        .select(["id", "outcome_ref", "correlation_id"])
-        .where("project_id", "=", projectId)
-        .where("id", "in", entityIds)
-        .execute();
-      const tasks = await this.database
-        .selectFrom("task")
-        .innerJoin("story", "story.id", "task.story_id")
-        .select(["task.id as id", "story.outcome_ref as outcome_ref", "story.correlation_id as correlation_id"])
-        .where("task.project_id", "=", projectId)
-        .where("task.id", "in", entityIds)
-        .execute();
-      for (const row of [...stories, ...tasks]) {
-        if (row.outcome_ref !== null) {
-          correlations.set(row.id, {
-            outcomeId: row.outcome_ref,
-            correlationId: row.correlation_id ?? outcomeCorrelationId(row.outcome_ref),
-          });
-        }
+    for (const row of await this.store.listEntityCorrelations(projectId, entityIds)) {
+      if (row.outcome_ref !== null) {
+        correlations.set(row.id, {
+          outcomeId: row.outcome_ref,
+          correlationId: row.correlation_id ?? outcomeCorrelationId(row.outcome_ref),
+        });
       }
     }
     const changes = rows.map((row) => ({

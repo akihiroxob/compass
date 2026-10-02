@@ -1,5 +1,5 @@
 import { ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError, ValidationError } from "@compass/shared";
-import { CoordinationError } from "../application/error/CoordinationError.ts";
+import { CoordinationError } from "@compass/work";
 import { InstructionUnavailableError } from "./InstructionUnavailableError.ts";
 
 export const result = (value: unknown, message?: string) => {

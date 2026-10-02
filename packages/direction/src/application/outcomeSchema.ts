@@ -1,6 +1,5 @@
 import { z } from "zod";
-import { ValidationError } from "@compass/shared";
-import { clearableText, optionalText, parseWith, trimmedText } from "./projectSchema.ts";
+import { clearableText, optionalText, parseWith, trimmedText, ValidationError } from "@compass/shared";
 import type { CreateOutcomeInput, UpdateOutcomeInput } from "../domain/OutcomeRepository.ts";
 
 export const successCriterionSchema = z.object({

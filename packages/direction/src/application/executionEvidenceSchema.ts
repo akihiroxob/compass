@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { executionEvidenceKinds } from "../domain/OutcomeExecution.ts";
-import { parseWith, trimmedText } from "./projectSchema.ts";
+import { parseWith, trimmedText } from "@compass/shared";
 
 /** 完全な40桁のcommit SHAだけを受け付け、大文字小文字を正規化する。短縮SHAは受け付けない。 */
 const commitSha = z

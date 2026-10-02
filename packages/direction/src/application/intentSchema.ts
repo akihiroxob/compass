@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { clearableText, optionalText, parseWith, trimmedText } from "./projectSchema.ts";
+import { clearableText, optionalText, parseWith, trimmedText } from "@compass/shared";
 import type { CreateIntentInput, UpdateIntentInput } from "../domain/IntentRepository.ts";
 
 export const createIntentSchema = z.object({

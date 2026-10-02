@@ -1,6 +1,5 @@
-import type { Kysely } from "kysely";
-import { StoryStatus } from "../../../domain/model/execution/StoryStatus.ts";
-import type { Database } from "../../../bootstrap/database/schema.ts";
+import { StoryStatus } from "../domain/StoryStatus.ts";
+import type { WorkStore } from "./port/WorkStore.ts";
 import {
   type ExecutionStorySummary,
   type ExecutionSummaryPort,
@@ -44,30 +43,18 @@ const outcomeState = (stories: ExecutionStorySummary[]): ExecutionSummaryState =
 };
 
 /**
- * Execution自身のtable（story / task / change_log）だけを読み、Outcomeに相関付いたStory・Taskの結果を導出する。
+ * Work自身のrecord（Story / Task / Change Log）だけをstore経由で読み、Outcomeに相関付いたStory・Taskの結果を導出する。
  * Directionのtableは読まず、書き込みもしない。Outcomeとの対応は、Story作成時に保存した`outcome_ref`だけを使う。
  */
 export class ExecutionSummaryService implements ExecutionSummaryPort {
-  constructor(private readonly database: Kysely<Database>) {}
+  constructor(private readonly store: WorkStore) {}
 
   async getOutcomeExecutionSummary(projectId: string, outcomeId: string): Promise<ExecutionSummarySnapshot | null> {
-    const stories = await this.database
-      .selectFrom("story")
-      .select(["id", "status"])
-      .where("project_id", "=", projectId)
-      .where("outcome_ref", "=", outcomeId)
-      .orderBy("sort_order", "asc")
-      .orderBy("created_at", "asc")
-      .execute();
+    const stories = await this.store.listStoriesByOutcome(projectId, outcomeId);
     if (stories.length === 0) return null;
 
     const storyIds = stories.map((story) => story.id);
-    const tasks = await this.database
-      .selectFrom("task")
-      .select(["id", "story_id", "status"])
-      .where("project_id", "=", projectId)
-      .where("story_id", "in", storyIds)
-      .execute();
+    const tasks = await this.store.listTasksOfStories(projectId, storyIds);
 
     const countsByStory = new Map<string, ExecutionSummaryTaskCounts>(storyIds.map((id) => [id, emptyCounts()]));
     for (const task of tasks) {
@@ -80,25 +67,16 @@ export class ExecutionSummaryService implements ExecutionSummaryPort {
     });
 
     const entityIds = [...storyIds, ...tasks.map((task) => task.id)];
-    const latest = await this.database
-      .selectFrom("change_log")
-      .select(({ fn }) => fn.max("cursor").as("cursor"))
-      .where("project_id", "=", projectId)
-      .where("entity_id", "in", entityIds)
-      .executeTakeFirst();
-    const head = await this.database
-      .selectFrom("change_log")
-      .select(({ fn }) => fn.max("cursor").as("cursor"))
-      .where("project_id", "=", projectId)
-      .executeTakeFirst();
+    const latestChangeCursor = await this.store.maxChangeCursor(projectId, entityIds);
+    const headChangeCursor = await this.store.maxChangeCursor(projectId);
 
     return {
       outcomeId,
       correlationId: outcomeCorrelationId(outcomeId),
       state: outcomeState(summaries),
       stories: summaries,
-      latestChangeCursor: Number(latest?.cursor ?? 0),
-      headChangeCursor: Number(head?.cursor ?? 0),
+      latestChangeCursor,
+      headChangeCursor,
     };
   }
 }
