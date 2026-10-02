@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import type { HumanProjectOperation } from "../../domain/model/HumanAuth";
+import type { HumanProjectOperation } from "@compass/access/domain";
 import { projectOperationDeniedMessage } from "../projectAccess";
 import { useProjectOperationState } from "../useProjectAccess";
 import { Shell } from "./Shell";

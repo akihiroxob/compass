@@ -1,12 +1,12 @@
-import { principalIdSchema } from "../shared/projectGrantSchema.ts";
+import {
+  looksLikeCredentialToken,
+  principalIdSchema,
+  type AgentCredentialCaller,
+  type Caller,
+  type Principal,
+  type RuntimeCredentialCaller,
+} from "@compass/access";
 import { UnauthenticatedError } from "@compass/shared";
-import type { Principal } from "../application/service/ProjectAuthorizationService.ts";
-import type {
-  AgentCredentialCaller,
-  Caller,
-  RuntimeCredentialCaller,
-} from "../application/service/RuntimeAuthorizationService.ts";
-import { looksLikeCredentialToken } from "../application/usecase/AccessCredentialUseCases.ts";
 import type { AuthMode } from "./humanAuthConfig.ts";
 
 export class MalformedAuthorizationError extends Error {

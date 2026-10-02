@@ -19,7 +19,7 @@ import {
   type HumanRole,
   type Member,
 } from "../src/web/features/member/members.ts";
-import { hasMinimumRole, humanProjectPermissions, invitationMaxTtlHours, invitationMinTtlHours } from "../src/domain/model/HumanAuth.ts";
+import { hasMinimumRole, humanProjectPermissions, invitationMaxTtlHours, invitationMinTtlHours } from "@compass/access";
 
 const jsonResponse = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });

@@ -5,7 +5,7 @@ import { addTestMembership, createSignedInApp, createTestHuman, requestAs, type 
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { humanProjectPermissions } from "../src/domain/model/HumanAuth.ts";
+import { humanProjectPermissions } from "@compass/access";
 
 /**
  * Human operatorのExecution介入Web API（Task 46。受入・差戻し・取消・Comment）。Story・Task・ClaimはMCP（Agent）で作り、

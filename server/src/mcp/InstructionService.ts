@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { projectRoles, type ProjectRole } from "../constants/ProjectRole.ts";
+import { projectRoles, type ProjectRole } from "@compass/access";
 import { InstructionUnavailableError } from "./InstructionUnavailableError.ts";
 
 export type InstructionName = ProjectRole | "role-policy";

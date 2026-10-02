@@ -14,7 +14,7 @@ import {
   sessionIdleTtlMs,
   type HumanActor,
   type VerifiedIdentity,
-} from "../src/domain/model/HumanAuth.ts";
+} from "@compass/access";
 
 const ownerEmail = "owner@example.com";
 const hour = 60 * 60 * 1000;

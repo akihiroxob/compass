@@ -1,4 +1,4 @@
-import { hasMinimumRole, humanProjectPermissions, type HumanProjectOperation, type HumanRole } from "../domain/model/HumanAuth";
+import { hasMinimumRole, humanProjectPermissions, type HumanProjectOperation, type HumanRole } from "@compass/access/domain";
 
 /**
  * `myRole`で操作の導線を出すか。権限表はdomainの1箇所（`humanProjectPermissions`）を使い、UIに重複させない。

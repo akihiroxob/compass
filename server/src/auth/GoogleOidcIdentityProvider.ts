@@ -1,6 +1,5 @@
 import { createPublicKey, verify, type JsonWebKey, type KeyObject } from "node:crypto";
-import type { VerifiedIdentity } from "../domain/model/HumanAuth.ts";
-import { IdentityVerificationError, type HumanIdentityProvider } from "../application/port/HumanIdentityProvider.ts";
+import { IdentityVerificationError, type HumanIdentityProvider, type VerifiedIdentity } from "@compass/access";
 
 export const googleIssuer = "https://accounts.google.com";
 const acceptedIssuers = new Set([googleIssuer, "accounts.google.com"]);

@@ -7,8 +7,8 @@
 | 領域 | 現在の構成・機能 |
 | --- | --- |
 | 起動 | npm workspaces。`server/`（`@compass/server`）がWeb UI（`server/src/web`、build出力`server/public/`）・`/api`・`/mcp`をHonoで同一portに提供。rootの`npm start`等はroot cwdのまま`server/`のentryを起動 |
-| 構成 | `packages/direction`（`@compass/direction`）・`packages/work`（`@compass/work`）・`packages/shared`（`@compass/shared`。汎用errorと入力検証の部品）。Access（Principal・Grant・Credential・Membership・Human認証）とtransport・DIは`server/src`にある。packageは`src/index.ts`で公開し、serverが配線する |
-| 保存 | 単一SQLite file / Kysely。table型・DDLはDirection・Workが各packageに持ち、serverの`Database`型と`initializeSchema`が合成する |
+| 構成 | `packages/direction`（`@compass/direction`）・`packages/work`（`@compass/work`）・`packages/access`（`@compass/access`。Principal・Role Grant・Credential・Membership・Human認証のuse case・規則）・`packages/shared`（`@compass/shared`。汎用errorと入力検証の部品）。transport（OIDC adapter・Cookie・Bearer解決）・DIは`server/src`にある。packageは`src/index.ts`で公開し、serverが配線する |
+| 保存 | 単一SQLite file / Kysely。table型・DDLはDirection・Work・Accessが各packageに持ち、serverの`Database`型と`initializeSchema`が合成する |
 | Direction | Project・Intent・Outcome・固定成功条件・Research・Decision・Evaluation・ADR参照 |
 | Execution | Story・Task・Claim・Comment・Change Log・Review・Acceptance |
 | Human | Google OIDC・Web Session・Membership・招待・Web UIでの操作 |
@@ -27,11 +27,17 @@ Outcomeを参照するStoryは、成功条件・Constraints等の作成時snapsh
 
 HumanはExecution一覧・Task詳細・最近の変更を参照でき、editor以上は手動起票・編集・受入・差戻し・取消・Commentを行える。Outcome handoffで管理するStory / TaskはHumanから編集できない。Story / Taskの編集（Web UI・MCPの`edit_story` / `edit_task`）は、内容が変わった場合だけ同じtransactionで`STORY_EDITED` / `TASK_EDITED`をChange Logへ追記し、`payload.changes`に変更前後を残す。MCPの同一`requestId`再送・失敗した編集では記録しない。編集は「最近の変更」とTask詳細の変更履歴に表示する。有効Claimとの競合を拒否し、取消後の古いClaim操作も拒否する。
 
-DirectionとWorkは公開index（`@compass/direction`・`@compass/work`）とapplication portで接続し、DirectionはWorkに依存しない。WorkはProject状態・Role Grantを`WorkStore`の読取port（`ProjectStateReader`・`ProjectGrantReader`）で、Claim・状態遷移と同じtransactionの中で読む。実装はserverが配線し（`workExternalReaders`）、Workは`project`・`project_grant`のtableを直接扱わない。Directionのuse caseが要求するRole・Runtime scopeの認可も、Directionのportへserverの認可serviceを渡す。境界は [executionBoundary.test.ts](../server/tests/executionBoundary.test.ts) で静的に検証する。Workの規則の単体テストは`packages/work/tests/`にある。
+DirectionとWorkは公開index（`@compass/direction`・`@compass/work`）とapplication portで接続し、DirectionはWorkに依存しない。WorkはProject状態・Role Grantを`WorkStore`の読取port（`ProjectStateReader`・`ProjectGrantReader`）で、Claim・状態遷移と同じtransactionの中で読む。実装はserverが配線し（`server/src/infrastructure/repository/contextAdapters.ts`）、Workは`project`・`project_grant`のtableを直接扱わない。Directionのuse caseが要求するRole・Runtime scopeの認可も、Directionのportへserverの認可serviceを渡す。境界は [executionBoundary.test.ts](../server/tests/executionBoundary.test.ts) で静的に検証する。Workの規則の単体テストは`packages/work/tests/`、Project集約の単体テストは`packages/direction/tests/`にある。
+
+## Accessの現行契約
+
+`packages/access`がAgentのRole Grant・Credential、HumanのMembership・招待・Session・ログイン試行を所有し、認可（`ProjectAuthorizationService`・`RuntimeAuthorizationService`・`HumanProjectAuthorizationService`）を提供する。Human Membership・Agent Grant・Runtime Credentialのscopeは別のモデル・tableで扱う。Claimの所有・期限・状態遷移・自己レビュー / 自己受入の禁止はWorkが強制し、Accessへ移さない。transport（OIDC adapter・Session Cookie・`Authorization`の解決）はserverの`server/src/auth`にある。
+
+Accessは`project`のtableを直接読まない。archive判定・Projectの存在・owner不在Projectの補完に使うProject一覧は`ProjectStateReader` portで読み、Membership・Grant・Credentialの書込と同じtransactionで検査する。Project作成時の初期owner Membershipは、DirectionのProject作成のtransactionの中でAccessの`writeProjectOwnerMembership`が書く。いずれもserverが`contextAdapters.ts`で配線する。AccessがDirectionから使うのは公開indexのuse case（`GetProjectUseCase`・`ListProjectsUseCase`）・型・`ProjectArchivedError`だけで、DirectionはAccessに依存しない。
 
 ## 未実装・未接続・未検証
 
-- `packages/access`・`packages/activity`への分離、`orchestrator/` / `ralph/`は未実施。Accessのrepositoryは`project`を直接読み（archive判定）、Project作成時の初期owner Membershipはserverのwriterが同じtransactionで書く。
+- `packages/activity`への分離、`orchestrator/` / `ralph/`は未実施。
 - 独立したActivity package・DB、Role / Skill / KnowledgeのJIT Context配信は未実装。
 - 本リポジトリには本番Orchestrator / Ralphの実装はない。Ralphの参照元は`/Users/aokayama/git/agent-foundation/ralph`。
 - 実RuntimeによるAgent起動と継続したLv6自律運転は未接続・未検証。`server/tests/support/lv6Runtime.ts`等のfixtureを自律運転の実証としない。

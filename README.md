@@ -9,7 +9,7 @@ Projectの方向と実行を管理するアプリケーションです。Human�
 - [現在の実装状況](docs/implementation-status.md)
 - [Wacha向け移行計画](docs/architecture-migration-plan.md)
 
-以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/direction`・`packages/work`・`packages/shared`の業務コードを配線します。Accessのpackage分離、`orchestrator/`・`ralph/`、Activity、Role / Skill Context APIへの移行は未実施です。`manager`の名前は維持します。実装変更はWacha経由で行います。
+以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/direction`・`packages/work`・`packages/access`・`packages/shared`の業務コードを配線します。`orchestrator/`・`ralph/`、Activity、Role / Skill Context APIへの移行は未実施です。`manager`の名前は維持します。実装変更はWacha経由で行います。
 
 ## 起動
 
@@ -99,4 +99,4 @@ npm run lint
 npm run build
 ```
 
-rootの`test`・`typecheck`・`lint`は各workspaceへ、`build`は`server` workspaceへ委譲します。テストは`server/tests/`（結合・API・MCP・Web UI）と`packages/work/tests/`（Workの規則）にあり、cwdは各workspaceです。`lint`は現在、TypeScriptの型チェックです。実HTTPの認証テストはテスト用OIDC providerを使い、実Googleへの接続検証ではありません。fixtureによる閉ループ検証と実Agentの自律運転を区別します。
+rootの`test`・`typecheck`・`lint`は各workspaceへ、`build`は`server` workspaceへ委譲します。テストは`server/tests/`（結合・API・MCP・Web UI・認証）、`packages/work/tests/`（Workの規則）、`packages/direction/tests/`（Project集約）にあり、cwdは各workspaceです。`lint`は現在、TypeScriptの型チェックです。実HTTPの認証テストはテスト用OIDC providerを使い、実Googleへの接続検証ではありません。fixtureによる閉ループ検証と実Agentの自律運転を区別します。

@@ -65,56 +65,51 @@ import {
   RejectExecutionTaskUseCase,
   TaskCoordinationService,
 } from "@compass/work";
-import { HumanProjectAuthorizationService } from "../application/service/HumanProjectAuthorizationService.ts";
-import {
-  GetHumanProjectUseCase,
-  HumanAuthorizedUseCase,
-  HumanOperatorUseCase,
-  ListHumanProjectsUseCase,
-} from "../application/usecase/HumanProjectUseCases.ts";
-import type { HumanProjectOperation } from "../domain/model/HumanAuth.ts";
-import { ProjectAuthorizationService } from "../application/service/ProjectAuthorizationService.ts";
-import { RuntimeAuthorizationService } from "../application/service/RuntimeAuthorizationService.ts";
 import {
   AuthenticateAccessCredentialUseCase,
+  ChangeProjectMemberRoleUseCase,
+  CompleteOidcLoginUseCase,
+  CreateProjectInvitationUseCase,
+  GetHumanAuthBootstrapStatusUseCase,
+  GetHumanProjectUseCase,
+  GrantProjectRoleUseCase,
+  HumanAuthorizedUseCase,
+  HumanOperatorUseCase,
+  HumanProjectAuthorizationService,
   IssueAccessCredentialUseCase,
   ListAccessCredentialsUseCase,
-  RevokeAccessCredentialUseCase,
-  RotateAccessCredentialUseCase,
-} from "../application/usecase/AccessCredentialUseCases.ts";
-import { SQLiteAccessCredentialRepository } from "../infrastructure/repository/SQLiteAccessCredentialRepository.ts";
-import { GrantProjectRoleUseCase } from "../application/usecase/GrantProjectRoleUseCase.ts";
-import {
-  CompleteOidcLoginUseCase,
-  LocalDevLoginUseCase,
-  StartOidcLoginUseCase,
-} from "../application/usecase/HumanLoginUseCases.ts";
-import {
-  GetHumanAuthBootstrapStatusUseCase,
-  RegisterOrLoginHumanUseCase,
-  ResolveHumanSessionUseCase,
-  RevokeHumanSessionUseCase,
-} from "../application/usecase/HumanSessionUseCases.ts";
-import { ListProjectGrantsUseCase } from "../application/usecase/ListProjectGrantsUseCase.ts";
-import {
-  ChangeProjectMemberRoleUseCase,
-  CreateProjectInvitationUseCase,
+  ListHumanProjectsUseCase,
+  ListProjectGrantsUseCase,
   ListProjectInvitationsUseCase,
   ListProjectMembersUseCase,
+  LocalDevLoginUseCase,
+  ProjectAuthorizationService,
+  RegisterOrLoginHumanUseCase,
+  ResolveHumanSessionUseCase,
+  RevokeAccessCredentialUseCase,
+  RevokeHumanSessionUseCase,
   RevokeProjectInvitationUseCase,
   RevokeProjectMemberUseCase,
-} from "../application/usecase/ProjectMembershipUseCases.ts";
-import { RevokeProjectRoleUseCase } from "../application/usecase/RevokeProjectRoleUseCase.ts";
-import type { HumanIdentityProvider } from "../application/port/HumanIdentityProvider.ts";
-import { SQLiteHumanAccountRepository } from "../infrastructure/repository/SQLiteHumanAccountRepository.ts";
-import { SQLiteLoginAttemptRepository } from "../infrastructure/repository/SQLiteLoginAttemptRepository.ts";
-import { SQLiteProjectGrantRepository } from "../infrastructure/repository/SQLiteProjectGrantRepository.ts";
-import { SQLiteProjectMembershipRepository } from "../infrastructure/repository/SQLiteProjectMembershipRepository.ts";
+  RevokeProjectRoleUseCase,
+  RotateAccessCredentialUseCase,
+  RuntimeAuthorizationService,
+  SQLiteAccessCredentialRepository,
+  SQLiteHumanAccountRepository,
+  SQLiteLoginAttemptRepository,
+  SQLiteProjectGrantRepository,
+  SQLiteProjectMembershipRepository,
+  StartOidcLoginUseCase,
+  type HumanIdentityProvider,
+  type HumanProjectOperation,
+} from "@compass/access";
 import type { Kysely } from "kysely";
-import { asDirectionDatabase, asWorkDatabase } from "./database/contextDatabase.ts";
+import { asAccessDatabase, asDirectionDatabase, asWorkDatabase } from "./database/contextDatabase.ts";
 import type { Database } from "./database/schema.ts";
-import { workExternalReaders } from "../infrastructure/repository/workExternalReaders.ts";
-import { writeProjectOwnerMembership } from "../infrastructure/repository/writeProjectOwnerMembership.ts";
+import {
+  accessProjectReaders,
+  projectOwnerMembershipWriter,
+  workExternalReaders,
+} from "../infrastructure/repository/contextAdapters.ts";
 
 /** DBを開かずにUse Caseを組み立てる。containerはimport時にDBを開くため、CLIなどはこちらを使う。 */
 export const createApplicationServices = (
@@ -132,18 +127,21 @@ export const createApplicationServices = (
 ) => {
   // Directionのrepositoryへは同じ接続を、Directionが所有するtableの型で渡す。
   const directionDatabase = asDirectionDatabase(applicationDatabase);
-  const projectRepository = new SQLiteProjectRepository(directionDatabase, writeProjectOwnerMembership);
+  const projectRepository = new SQLiteProjectRepository(directionDatabase, projectOwnerMembershipWriter);
   const intentRepository = new SQLiteIntentRepository(directionDatabase);
   const outcomeRepository = new SQLiteOutcomeRepository(directionDatabase);
   const researchRepository = new SQLiteResearchRepository(directionDatabase, clock);
   const directionDecisionRepository = new SQLiteDirectionDecisionRepository(directionDatabase, clock);
   const adrHandoffRepository = new SQLiteAdrHandoffRepository(directionDatabase);
   const runtimeEventRepository = new SQLiteRuntimeEventRepository(directionDatabase);
-  const projectGrantRepository = new SQLiteProjectGrantRepository(applicationDatabase, clock);
+  // Accessのrepositoryへは同じ接続をAccessのtableの型で渡し、Project状態（Direction）は同じtransactionで読む実装を渡す。
+  const accessDatabase = asAccessDatabase(applicationDatabase);
+  const accessProjects = accessProjectReaders(accessDatabase);
+  const projectGrantRepository = new SQLiteProjectGrantRepository(accessDatabase, accessProjectReaders, clock);
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
   // Runtime向けの入口はRuntime Credentialのscopeで認可する（trusted-localのAgent名だけ暫定のruntime Grant）。
   const runtimeAuthorizationService = new RuntimeAuthorizationService(projectAuthorizationService);
-  const accessCredentialRepository = new SQLiteAccessCredentialRepository(applicationDatabase);
+  const accessCredentialRepository = new SQLiteAccessCredentialRepository(accessDatabase, accessProjectReaders);
   // Execution（旧Wachaから移植）。同じDB・同じプロセスの中で動き、Directionの参照は読取専用ポートだけを通す。
   const workStore = new KyselyWorkStore(asWorkDatabase(applicationDatabase), workExternalReaders);
   const taskCoordinationService = new TaskCoordinationService(
@@ -156,10 +154,10 @@ export const createApplicationServices = (
   const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(directionDatabase);
   const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(directionDatabase);
   // Human認証・Membership（docs/step-6-human-auth-design.md）。Agent GrantのRepository・認可とは分離する。
-  const humanAccountRepository = new SQLiteHumanAccountRepository(applicationDatabase, clock);
-  const projectMembershipRepository = new SQLiteProjectMembershipRepository(applicationDatabase, clock);
+  const humanAccountRepository = new SQLiteHumanAccountRepository(accessDatabase, accessProjectReaders, clock);
+  const projectMembershipRepository = new SQLiteProjectMembershipRepository(accessDatabase, accessProjectReaders, clock);
   const humanProjectAuthorizationService = new HumanProjectAuthorizationService(projectMembershipRepository);
-  const loginAttemptRepository = new SQLiteLoginAttemptRepository(applicationDatabase);
+  const loginAttemptRepository = new SQLiteLoginAttemptRepository(accessDatabase);
   const registerOrLoginHumanUseCase = new RegisterOrLoginHumanUseCase(humanAccountRepository, humanAuth.initialOwnerEmail);
   const identityProvider = humanAuth.identityProvider ?? null;
   const services = {
@@ -238,9 +236,9 @@ export const createApplicationServices = (
       outcomeEvaluationRepository,
       clock,
     ),
-    grantProjectRoleUseCase: new GrantProjectRoleUseCase(projectRepository, projectGrantRepository),
-    revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(projectRepository, projectGrantRepository),
-    listProjectGrantsUseCase: new ListProjectGrantsUseCase(projectRepository, projectGrantRepository),
+    grantProjectRoleUseCase: new GrantProjectRoleUseCase(accessProjects, projectGrantRepository),
+    revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(accessProjects, projectGrantRepository),
+    listProjectGrantsUseCase: new ListProjectGrantsUseCase(accessProjects, projectGrantRepository),
     humanProjectAuthorizationService,
     authenticateAccessCredentialUseCase: new AuthenticateAccessCredentialUseCase(accessCredentialRepository, clock),
     issueAccessCredentialUseCase: new IssueAccessCredentialUseCase(
@@ -334,7 +332,7 @@ export const createApplicationServices = (
   // Human向けWeb APIの入口。Membershipの認可（domainの権限表）を通してから、MCPと共通のuse caseへ委譲する。
   // Runtime向け（runtime-events・execution-evidence）はHuman向けではないため含めない。
   const human = {
-    listProjects: new ListHumanProjectsUseCase(projectRepository, projectMembershipRepository),
+    listProjects: new ListHumanProjectsUseCase(services.listProjectsUseCase, projectMembershipRepository),
     getProject: new GetHumanProjectUseCase(humanProjectAuthorizationService, services.getProjectUseCase),
     updateProject: authorized("project.update", services.updateProjectUseCase),
     archiveProject: authorized("project.archive", services.archiveProjectUseCase),

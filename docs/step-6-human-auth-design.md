@@ -64,7 +64,7 @@ Role順序はowner > administrator > editor > viewer。
 
 Sessionなしは401。未所属・取消済みMembership・存在しないProjectは404で区別しない。MembershipのRole不足は403。その後に入力・対象・archive・業務状態を検査する。
 
-Membershipはrequestごとに読み、取消・Role変更を次の操作へ反映する。UIの表示制御に加えてserverが拒否を強制する。権限表の実装は [HumanAuth.ts](../server/src/domain/model/HumanAuth.ts) にある。
+Membershipはrequestごとに読み、取消・Role変更を次の操作へ反映する。UIの表示制御に加えてserverが拒否を強制する。権限表の実装は [HumanAuth.ts](../packages/access/src/domain/HumanAuth.ts) にある。
 
 ## Agent・Runtime Credential
 

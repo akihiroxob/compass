@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 import type { Kysely } from "kysely";
 import { createApp } from "../../src/bootstrap/app.ts";
-import { deriveCsrfToken, generateSecretToken, hashSecretToken } from "../../src/application/service/secretToken.ts";
-import type { HumanRole } from "../../src/domain/model/HumanAuth.ts";
-import { sessionAbsoluteTtlMs } from "../../src/domain/model/HumanAuth.ts";
+import {
+  deriveCsrfToken,
+  generateSecretToken,
+  hashSecretToken,
+  sessionAbsoluteTtlMs,
+  type HumanRole,
+} from "@compass/access";
 import type { Database } from "../../src/bootstrap/database/schema.ts";
 
 type App = ReturnType<typeof createApp>;

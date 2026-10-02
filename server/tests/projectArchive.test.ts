@@ -10,9 +10,10 @@ import { createApplicationServices } from "../src/bootstrap/createApplicationSer
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 import { SQLiteIntentRepository, SQLiteOutcomeRepository, SQLiteProjectRepository } from "@compass/direction";
-import { SQLiteProjectGrantRepository } from "../src/infrastructure/repository/SQLiteProjectGrantRepository.ts";
+import { SQLiteProjectGrantRepository } from "@compass/access";
 import { cliUsage, runCli } from "../src/cli/runCli.ts";
-import { asDirectionDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import { asAccessDatabase, asDirectionDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import { accessProjectReaders } from "../src/infrastructure/repository/contextAdapters.ts";
 
 type App = ReturnType<typeof createApp>;
 type Body = Record<string, any>;
@@ -311,7 +312,7 @@ test("AC-11 Repositoryを直接呼んでも、archivedのProjectには何も書�
   const projects = new SQLiteProjectRepository(asDirectionDatabase(database));
   const intents = new SQLiteIntentRepository(asDirectionDatabase(database));
   const outcomes = new SQLiteOutcomeRepository(asDirectionDatabase(database));
-  const grants = new SQLiteProjectGrantRepository(database);
+  const grants = new SQLiteProjectGrantRepository(asAccessDatabase(database), accessProjectReaders);
   const archived = { kind: "project_archived" };
   assert.deepEqual(await projects.update(project.id, { name: "Changed" }), archived);
   assert.deepEqual(await intents.create(project.id, { title: "T", desiredState: "S", completionDefinition: null }), archived);

@@ -7,7 +7,7 @@ import test from "node:test";
 import type { Kysely } from "kysely";
 import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { sessionIdleTtlMs } from "../src/domain/model/HumanAuth.ts";
+import { sessionIdleTtlMs } from "@compass/access";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 import type { Database } from "../src/bootstrap/database/schema.ts";

@@ -3,7 +3,7 @@ import test from "node:test";
 import { createApp } from "../src/bootstrap/app.ts";
 import { ForbiddenError, NotFoundError } from "@compass/shared";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { humanProjectPermissions, humanRoles, type HumanRole } from "../src/domain/model/HumanAuth.ts";
+import { humanProjectPermissions, humanRoles, type HumanRole } from "@compass/access";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 import { addTestMembership, createTestHuman, humanHeaders, requestAs, testSessionCookie, type TestHuman } from "./support/humanSession.ts";

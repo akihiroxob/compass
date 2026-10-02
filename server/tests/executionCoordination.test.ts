@@ -8,12 +8,12 @@ import {
   TaskStatus,
 } from "@compass/work";
 import { ProjectArchivedError } from "@compass/direction";
-import { ProjectRole } from "../src/constants/ProjectRole.ts";
+import { ProjectRole } from "@compass/access";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 import { asWorkDatabase } from "../src/bootstrap/database/contextDatabase.ts";
-import { workExternalReaders } from "../src/infrastructure/repository/workExternalReaders.ts";
+import { workExternalReaders } from "../src/infrastructure/repository/contextAdapters.ts";
 
 /**
  * Work（`TaskCoordinationService`）と、serverが配線する実際のRole Grant（Access）・Project（Direction）との結合テスト。

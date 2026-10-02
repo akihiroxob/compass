@@ -7,7 +7,7 @@ import { sql } from "kysely";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { ProjectRole } from "../src/constants/ProjectRole.ts";
+import { ProjectRole } from "@compass/access";
 
 /**
  * Outcome確定のRuntimeイベント（`outcome_confirmed`）と、既存`runtime_event`のtable再構築マイグレーション（Task 33）。

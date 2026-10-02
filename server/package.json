@@ -10,6 +10,7 @@
     "lint": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json"
   },
   "dependencies": {
+    "@compass/access": "0.1.0",
     "@compass/direction": "0.1.0",
     "@compass/shared": "0.1.0",
     "@compass/work": "0.1.0",

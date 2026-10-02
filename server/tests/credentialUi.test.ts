@@ -8,8 +8,7 @@ import {
   rotateCredentialInit,
   rotateCredentialPath,
 } from "../src/web/features/credential/credentials.ts";
-import { runtimeScopes } from "../src/domain/model/AccessCredential.ts";
-import { hasMinimumRole, humanProjectPermissions, type HumanRole } from "../src/domain/model/HumanAuth.ts";
+import { hasMinimumRole, humanProjectPermissions, runtimeScopes, type HumanRole } from "@compass/access";
 
 // `server/src/web/permissions.ts`の`canOperate`と同じ判定（frontendのmoduleはserverのtsconfigで読めないためdomainの権限表を直接使う）。
 const canOperate = (role: HumanRole | null, operation: keyof typeof humanProjectPermissions) =>

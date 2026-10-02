@@ -64,5 +64,6 @@ export * from "./infrastructure/SQLiteRuntimeEventRepository.ts";
 export * from "./infrastructure/initialResearchRequest.ts";
 export * from "./infrastructure/initializeDirectionSchema.ts";
 export * from "./infrastructure/isProjectArchived.ts";
+export * from "./infrastructure/listProjectIdsInCreationOrder.ts";
 export * from "./infrastructure/schema.ts";
 export * from "./outcomeCorrelation.ts";
