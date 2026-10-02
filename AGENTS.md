@@ -1,39 +1,44 @@
 # Compass 開発方針
 
-## 仕様の優先順位
+## 仕様の正本
 
 - ユーザーの最新の明示指示を最優先する。
-- `kit/additional-doc.md` を構想・責務境界の主な根拠とする。既存kitと矛盾する場合は追加資料を優先する。
-- 追加資料に「候補」「草案」「未決定」とある事項は、確定要件として扱わない。実装を止めず、既存設計との整合、単純さ、変更容易性を基準に小さな初期選択を行い、理由を記録する。
-- その他の `kit/` 文書は補助仕様。別リポジトリ前提、技術構成のデフォルト、P0〜P4の一括実装指示をそのまま適用しない。
+- `compass-codex-architecture-handoff.md` を統合アーキテクチャの正本とする。
+- 現行文書の入口は `docs/README.md`。確定した設計と現在の実装状況を区別する。
+- 現行文書へ過去の案・作業履歴を残さない。過去情報はGit履歴で参照する。未確定事項は `docs/planning/` へ分離し、確定要件として扱わない。
+- 今回の反映はドキュメントとWachaへのStory・Task登録のみ。コード・DB・設定・実行時に配信するRole文書の変更は登録済みTaskで実施する。移行計画と登録状況は `docs/architecture-migration-plan.md` を参照し、Task登録と実装完了を混同しない。
 
-## 統合と実装範囲
+## 構成と責務
 
-- 最終的にCompassとして方向管理（旧Shirube）とWachaの実行管理をモノレポ・統一された製品へまとめる。
-- Direction / Execution / Runtime / Improvementの責務境界を保つ。責務分離はリポジトリや製品の分離を意味しない。
-- Projectの作成・保存・一覧・詳細から着手し、Intent、Outcomeと成功条件の作成へ段階的に進める。段階間のユーザー確認を必須条件にせず、動くものを完成させてからフィードバックに応じて修正する。
-- ProjectはMission / Vision / Principles / Constraints / Repositories / Resourcesを持つ構想。最初の必須入力項目と、段階ごとの実装範囲は区別する。
-- Wacha統合・自律実行・評価・改善ループを初回の完成条件に含めない。
+- Compassは方向管理とWachaの実行管理を統合するモノレポ・製品とする。
+- `server/`・`orchestrator/`・`ralph/` は独立して実行・build・deployできるシステム。ServerのWeb UI・API・MCPは同じ起動コマンド・同じサーバーで提供する。
+- 主要Bounded Contextは `packages/direction`・`work`・`activity`・`access`。`apps/`を使わず、空の構造を先に作らない。
+- Project / Intent / OutcomeはDirection、Story / Task / Claim / Review / AcceptanceはWorkが所有する。WorkはOutcomeを参照し、Entityを複製しない。
+- Orchestratorは現在状態から専門Roleを起動し、知的判断をRoleへ委譲する。RalphはWorker / Reviewerの実行ループを担う。
+- Activityは意味のある履歴であり、workflow checkpointにしない。Operational Log / Change Log / Activityを区別する。
+- Project別の情報は内容と所有責務で保存先を決める。Compassが所有する判断・評価等のレコードは内部に保持できる。Repository / Docsが正本の成果物は参照を保持し、本文を二重管理しない。KnowledgeはAgent System共通知識だけを置く。
+- Infrastructure → Application → Domainの依存方向を守る。`shared`に業務概念を集めない。
 
-## Wachaから引き継ぐ構成
+## Roleと認可
 
-- 参照コードは `/Users/aokayama/git/wacha`。既存の設計・命名・テスト方針を調査して活用する。
-- MCPとWebServerを一つの起動コマンドで同時に利用可能にする構成を維持する。
-- Wachaの現行方式はHonoの同一サーバー・同一ポートで `/mcp`、`/api`、Web UIを提供するもの。`npm start` は画面のビルド後にサーバーを起動する。
-- WebとMCPの業務処理は共通のアプリケーション層へ委譲する。
-- kitのNext.js / PostgreSQL / Prisma案を自動採用せず、WachaのHono / React・Vite / SQLite・Kysely構成を基準に検討する。
+- PrincipalとRoleを分離する。1回の実行・操作ContextではactiveRoleを1つに固定し、ServerがProject単位のGrantを検証する。
+- RalphのWorker / Reviewerは当面、別Principal・別Credentialで運用する。運用上の支障が具体化した場合に再検討する。
+- 認可はAccess、Claim所有・期限・状態遷移・自己レビュー禁止・自己受入禁止はWorkで強制する。
+- Roleは責務、Skillは再利用手順。Role → Skillの参照とし、Skillへ`allowRoles`を持たせない。Tool metadataはnamespace付き識別子を使う。
+- Role / Skill / Knowledge / PolicyはGit管理し、実行システムはMCPから必要時にContextを取得する。
 
 ## 操作主体と公開経路
 
-- Humanの製品操作はWeb UIを正規入口とする。Human向け機能をCLI、MCP、直接DB操作だけで完結させない。
-- Agentの操作はMCPを正規入口とする。Human向け管理操作をMCPへ無条件に公開しない。
-- Web UIとMCPは同じapplication層へ委譲し、業務規則を入口ごとに重複させない。
-- CLIは開発、移行、障害復旧、自動検証などの保守用途に限定し、通常のHuman操作手順や製品要件の前提にしない。
-- Cloudflare等へのリモート配置を想定し、HumanがサーバーのローカルfilesystemやSQLiteへ直接アクセスする設計を採用しない。
+- Humanの通常操作はWeb UI、AgentはMCPを正規入口とする。Human管理操作をMCPへ無条件に公開しない。
+- Web APIとMCPは同じapplication層へ委譲し、業務規則を入口ごとに重複させない。
+- CLIは開発・移行・障害復旧・自動検証など保守用途に限定する。
+- リモート配置を想定し、HumanがサーバーのfilesystemやSQLiteへ直接アクセスする設計にしない。
 
 ## 作業規約
 
 - 作業前に方針を短く示し、日本語で簡潔に報告する。
-- 不要な大規模リファクタリングを避ける。
-- 変更後は関連するテスト・型チェック・lint・buildを可能な範囲で実行し、未実施と失敗を明示する。
-- 実装済み・未接続・未検証を区別し、模擬実行を自律運転の実証と扱わない。
+- 既存設計・命名・テスト方針を調査し、不要な大規模リファクタリングを避けて段階的に移行する。
+- 参照元は `/Users/aokayama/git/wacha`・`/Users/aokayama/git/shirube`・`/Users/aokayama/git/agent-foundation`。取り込み済み機能を重複移植しない。
+- 現在のHono / React・Vite / SQLite・Kysely構成を基準とし、技術変更を構成例だけから自動採用しない。
+- 変更後は関連テスト・型チェック・lint・buildを可能な範囲で実行し、未実施と失敗を明示する。
+- 実装済み・未接続・未検証を区別する。模擬実行を自律運転の実証と扱わない。
