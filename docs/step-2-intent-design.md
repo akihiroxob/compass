@@ -1,6 +1,6 @@
 # Intentの現行仕様
 
-IntentはHumanが現在実現したい状態。Projectの継続的な存在理由であるMissionと区別する。型は [Intent.ts](../src/domain/model/Intent.ts)、入力規則は [intentSchema.ts](../src/shared/intentSchema.ts)。
+IntentはHumanが現在実現したい状態。Projectの継続的な存在理由であるMissionと区別する。型は [Intent.ts](../server/src/domain/model/Intent.ts)、入力規則は [intentSchema.ts](../server/src/shared/intentSchema.ts)。
 
 ## 項目と状態
 

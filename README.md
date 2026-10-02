@@ -9,7 +9,7 @@ Projectの方向と実行を管理するアプリケーションです。Human�
 - [現在の実装状況](docs/implementation-status.md)
 - [Wacha向け移行計画](docs/architecture-migration-plan.md)
 
-以下は現在の実装の利用方法です。統合設計の`server/`・`orchestrator/`・`ralph/`分割、Activity、Role / Skill Context APIへの移行は未実施です。`manager`の名前は維持します。実装変更はWacha経由で行います。
+以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供します。統合設計の`packages/`分離、`orchestrator/`・`ralph/`、Activity、Role / Skill Context APIへの移行は未実施です。`manager`の名前は維持します。実装変更はWacha経由で行います。
 
 ## 起動
 
@@ -18,7 +18,7 @@ npm install
 COMPASS_AUTH_MODE=trusted-local COMPASS_INITIAL_OWNER_EMAIL=you@example.com npm start
 ```
 
-`npm start`はWeb UIをbuildしてからHono serverを起動します。同じportで以下を提供します。
+`npm start`はWeb UI（`server/src/web`）を`server/public/`へbuildしてから、repo rootをcwdとしてHono server（`server/src/main.ts`）を起動します。同じportで以下を提供します。
 
 | 接続先 | URL |
 | --- | --- |
@@ -99,4 +99,4 @@ npm run lint
 npm run build
 ```
 
-`lint`は現在、TypeScriptの型チェックです。実HTTPの認証テストはテスト用OIDC providerを使い、実Googleへの接続検証ではありません。fixtureによる閉ループ検証と実Agentの自律運転を区別します。
+rootの`test`・`typecheck`・`lint`・`build`は`server` workspaceへ委譲します（テストは`server/tests/`、cwdは`server/`）。`lint`は現在、TypeScriptの型チェックです。実HTTPの認証テストはテスト用OIDC providerを使い、実Googleへの接続検証ではありません。fixtureによる閉ループ検証と実Agentの自律運転を区別します。

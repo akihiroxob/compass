@@ -64,7 +64,7 @@ Role順序はowner > administrator > editor > viewer。
 
 Sessionなしは401。未所属・取消済みMembership・存在しないProjectは404で区別しない。MembershipのRole不足は403。その後に入力・対象・archive・業務状態を検査する。
 
-Membershipはrequestごとに読み、取消・Role変更を次の操作へ反映する。UIの表示制御に加えてserverが拒否を強制する。権限表の実装は [HumanAuth.ts](../src/domain/model/HumanAuth.ts) にある。
+Membershipはrequestごとに読み、取消・Role変更を次の操作へ反映する。UIの表示制御に加えてserverが拒否を強制する。権限表の実装は [HumanAuth.ts](../server/src/domain/model/HumanAuth.ts) にある。
 
 ## Agent・Runtime Credential
 
@@ -91,4 +91,4 @@ CLIのGrant操作はローカル保守・自動検証用。通常のHuman操作�
 
 Human関連tableは`human_user` / `human_identity` / `web_session` / `auth_login_attempt` / `project_membership` / `project_invitation`。Credentialは`access_credential`。ログイン・招待・権限変更の整合性はtransactionで保つ。
 
-[humanAuthHttpIntegration.test.ts](../test/humanAuthHttpIntegration.test.ts) はテスト用OIDC providerと実HTTP serverを使用する。実Google接続の検証とは区別する。既存テストのSession fixtureはテスト内に限定する。
+[humanAuthHttpIntegration.test.ts](../server/tests/humanAuthHttpIntegration.test.ts) はテスト用OIDC providerと実HTTP serverを使用する。実Google接続の検証とは区別する。既存テストのSession fixtureはテスト内に限定する。

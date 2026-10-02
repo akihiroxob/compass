@@ -6,7 +6,7 @@
 
 | 領域 | 現在の構成・機能 |
 | --- | --- |
-| 起動 | 単一npm package。HonoがWeb UI・`/api`・`/mcp`を同一portで提供 |
+| 起動 | npm workspaces。`server/`（`@compass/server`）がWeb UI（`server/src/web`、build出力`server/public/`）・`/api`・`/mcp`をHonoで同一portに提供。rootの`npm start`等はroot cwdのまま`server/`のentryを起動 |
 | 保存 | SQLite / Kysely。`initializeSchema`によるschema初期化 |
 | Direction | Project・Intent・Outcome・固定成功条件・Research・Decision・Evaluation・ADR参照 |
 | Execution | Story・Task・Claim・Comment・Change Log・Review・Acceptance |
@@ -20,20 +20,20 @@ Research Request / Result / Finding / SynthesisとDirection Decision・Evaluatio
 
 ## Executionの現行契約
 
-DirectionのProjectを共用し、Execution専用のProjectを複製しない。`src/domain/model/execution`、`src/application/service/execution`、`src/infrastructure/repository/execution`等で責務を分ける。
+DirectionのProjectを共用し、Execution専用のProjectを複製しない。`server/src/domain/model/execution`、`server/src/application/service/execution`等で責務を分ける。
 
 Outcomeを参照するStoryは、成功条件・Constraints等の作成時snapshotと相関IDを持つ。相関IDとTaskの`taskKey`によって再送を同じ作業へ収束させる。Work側の受入をOutcome達成とは扱わない。
 
 HumanはExecution一覧・Task詳細・最近の変更を参照でき、editor以上は手動起票・編集・受入・差戻し・取消・Commentを行える。Outcome handoffで管理するStory / TaskはHumanから編集できない。Story / Taskの編集（Web UI・MCPの`edit_story` / `edit_task`）は、内容が変わった場合だけ同じtransactionで`STORY_EDITED` / `TASK_EDITED`をChange Logへ追記し、`payload.changes`に変更前後を残す。MCPの同一`requestId`再送・失敗した編集では記録しない。編集は「最近の変更」とTask詳細の変更履歴に表示する。有効Claimとの競合を拒否し、取消後の古いClaim操作も拒否する。
 
-DirectionとExecutionはapplication portで接続する。現在の境界検証では共通の`project`・`project_grant`を例外として扱う（[executionBoundary.test.ts](../test/executionBoundary.test.ts)）。
+DirectionとExecutionはapplication portで接続する。現在の境界検証では共通の`project`・`project_grant`を例外として扱う（[executionBoundary.test.ts](../server/tests/executionBoundary.test.ts)）。
 
 ## 未実装・未接続・未検証
 
-- `server/` / `orchestrator/` / `ralph/`と`packages/`への構造移行は未実施。
+- `packages/`（direction / work / access / activity）への分離、`orchestrator/` / `ralph/`は未実施。Direction・Execution・Accessのコードは現在`server/src`内にある。
 - 独立したActivity package・DB、Role / Skill / KnowledgeのJIT Context配信は未実装。
 - 本リポジトリには本番Orchestrator / Ralphの実装はない。Ralphの参照元は`/Users/aokayama/git/agent-foundation/ralph`。
-- 実RuntimeによるAgent起動と継続したLv6自律運転は未接続・未検証。`test/support/lv6Runtime.ts`等のfixtureを自律運転の実証としない。
+- 実RuntimeによるAgent起動と継続したLv6自律運転は未接続・未検証。`server/tests/support/lv6Runtime.ts`等のfixtureを自律運転の実証としない。
 - 実Googleとの接続確認は自動テストの対象外。
 
 ## 現在のRuntime API

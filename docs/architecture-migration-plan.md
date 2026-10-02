@@ -6,9 +6,9 @@
 
 | 現在のコード・資産 | 移行先 | 守る境界 |
 | --- | --- | --- |
-| `src/server.ts`、`src/app.ts`、frontend・presentation・DI | `server/` | Web / API / MCPは共通Use Caseへ接続 |
+| 起動・Web UI・HTTP / MCP adapter・DI（`server/`へ移行済み） | `server/` | Web / API / MCPは共通Use Caseへ接続 |
 | Project / Intent / Outcome・Direction use case / repository | `packages/direction/` | OutcomeをWorkへ複製しない |
-| `src/**/execution/`のStory / Task / Claim等 | `packages/work/` | 状態遷移とClaimの不変条件を保持 |
+| `server/src/**/execution/`のStory / Task / Claim等 | `packages/work/` | 状態遷移とClaimの不変条件を保持 |
 | Principal / Grant / Credential / Human認可 | `packages/access/`とServerの認証adapter | Accessの業務規則とtransportを分離 |
 | 新たな意味的履歴のモデル・保存・参照 | `packages/activity/` | Change Log・Operational Logとは別概念 |
 | `agent/<role>.md`、`agent/role-policy.md` | `roles/`、`policies/` | `manager`名を維持し、providerへ本文を埋め込まない |
