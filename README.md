@@ -9,7 +9,7 @@ Projectの方向と実行を管理するアプリケーションです。Human�
 - [現在の実装状況](docs/implementation-status.md)
 - [Wacha向け移行計画](docs/architecture-migration-plan.md)
 
-以下は現在の実装の利用方法です。統合設計の`server/`・`orchestrator/`・`ralph/`分割、`work-manager`、Activity、Role / Skill Context APIへの移行は未実施です。実装変更はWacha経由で行います。
+以下は現在の実装の利用方法です。統合設計の`server/`・`orchestrator/`・`ralph/`分割、Activity、Role / Skill Context APIへの移行は未実施です。`manager`の名前は維持します。実装変更はWacha経由で行います。
 
 ## 起動
 

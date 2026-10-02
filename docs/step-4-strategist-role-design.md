@@ -16,6 +16,6 @@ MCPの専用toolはapplication層で必要なRoleを検査する。remote mode�
 
 ## 確定した移行先
 
-Role名は`manager`から`work-manager`へ移行し、Role Definitionは`roles/`、共通Policyは`policies/`へ配置する。RoleはSkillを参照し、Skillに`allowRoles`を持たせない。machine-readableなTool metadataはnamespace付きにする。
+`manager`を含む既存Role名を維持し、Role Definitionは`roles/`、共通Policyは`policies/`へ配置する。RoleはSkillを参照し、Skillに`allowRoles`を持たせない。machine-readableなTool metadataはnamespace付きにする。
 
 1回の実行・操作Contextは1つのactiveRoleに固定し、ServerがProject Grantを検査する。Role / Skill ContextはMCPからJIT取得する。これは [統合設計](../compass-codex-architecture-handoff.md) 上の確定事項であり、現行APIへの実装は未実施。

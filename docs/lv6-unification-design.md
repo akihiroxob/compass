@@ -18,7 +18,7 @@ Humanの正規入口はWeb UI、AgentはMCP。Web APIとMCPは共通のapplicati
 
 ## DirectionからWorkへの引き渡し
 
-OutcomeはDirectionが所有し、Workは`outcomeId`を参照する。WorkにOutcome Entityを複製しない。Story / Taskへの分解と最終Acceptanceは`work-manager`の責務。Agent processの起動はWork Domainへ含めない。
+OutcomeはDirectionが所有し、Workは`outcomeId`を参照する。WorkにOutcome Entityを複製しない。Story / Taskへの分解と最終Acceptanceは`manager`の責務。Agent processの起動はWork Domainへ含めない。
 
 Workでの受入完了はOutcome達成を意味しない。達成の評価には、固定した成功条件とEvidenceを使う。境界を越える参照はapplicationの契約を通し、相手のRepositoryやDB tableを直接操作しない。
 

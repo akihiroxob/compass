@@ -151,7 +151,7 @@ Orchestrator 自身が専門的な知的作業を抱え込まない。
         │      └─ researcher
         │
         ├─ 未分解 Outcome
-        │      └─ work-manager
+        │      └─ manager
         │
         └─ その他
                └─ 適切な専門 Role
@@ -171,7 +171,7 @@ research_required 状態
 → researcher を起動
 
 未分解 Outcome が存在
-→ work-manager を起動
+→ manager を起動
 ```
 
 以下のような知的判断は専門 Role に委譲する。
@@ -184,7 +184,7 @@ Intent をどの Outcome に具体化するか
 → researcher
 
 Outcome をどの Story / Task に分解するか
-→ work-manager
+→ manager
 ```
 
 Orchestrator を巨大な Manager Agent にしない。
@@ -372,9 +372,9 @@ Agent process の起動そのものは Work Domain の責務ではない。
 
 Work は「仕事の状態」を管理する。
 
-## 6.3 work-manager
+## 6.3 manager
 
-旧 Wacha の `manager` Role は、COMPASS 統合後は `work-manager` とする。
+Wacha の `manager` Role は、COMPASS 統合後も同じ名前で扱う。
 
 責務：
 
@@ -716,7 +716,7 @@ Ralph の Worker / Reviewer は当面、別 Principal・別 Credential で運用
 ```text
 strategist
 researcher
-work-manager
+manager
 worker
 reviewer
 ```
@@ -743,7 +743,7 @@ roles/worker.md
 Principal
   ├─ granted: strategist
   ├─ granted: researcher
-  └─ granted: work-manager
+  └─ granted: manager
 
 今回の実行
   └─ activeRole: researcher
@@ -853,7 +853,7 @@ policies/
 roles/
 ├─ strategist.md
 ├─ researcher.md
-├─ work-manager.md
+├─ manager.md
 ├─ worker.md
 └─ reviewer.md
 ```
@@ -1318,7 +1318,7 @@ compass/
 ├─ roles/
 │  ├─ strategist.md
 │  ├─ researcher.md
-│  ├─ work-manager.md
+│  ├─ manager.md
 │  ├─ worker.md
 │  └─ reviewer.md
 │
@@ -1411,7 +1411,7 @@ role-policy.md
 → policies/role-policy.md
 ```
 
-旧 `manager` Role は `work-manager` へ名称変更する。
+`manager` Role の名前を維持する。
 
 ## Shirube
 
@@ -1578,7 +1578,7 @@ Worker / Reviewer の instruction を Ralph 内へ複製しない。
         │                         │
   strategist                 worker
   researcher                 reviewer
-  work-manager
+  manager
 ```
 
 Agent の実行時 Context：

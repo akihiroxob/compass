@@ -16,7 +16,7 @@
 
 Research Request / Result / Finding / SynthesisとDirection Decision・Evaluationは現在DBに保存する。Intent作成はInitial Research Requestを自動生成する。保存先は内容と所有責務で個別に判断し、Project別であることや本文が長いことを理由に一律移行しない。Strategistを最初に起動するフローへの変更は未実施。
 
-現在のExecution Role名は`manager` / `worker` / `reviewer`。`work-manager`への改名、操作Contextの明示的な`activeRole`、`get_role_context` / `get_skill_context`は未実装。`get_role_instructions`は現在利用できる。
+現在のExecution Role名は`manager` / `worker` / `reviewer`で、統合後も維持する。操作Contextの明示的な`activeRole`、`get_role_context` / `get_skill_context`は未実装。`get_role_instructions`は現在利用できる。
 
 ## Executionの現行契約
 
