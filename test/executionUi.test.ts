@@ -5,6 +5,7 @@ import {
   describePrincipal,
   taskOperationPath,
   appendChangePage,
+  changeEditSummary,
   changeNote,
   changeTarget,
   changesPath,
@@ -63,6 +64,24 @@ test("古い変更の追加読込は同じcursorを重複させず、理由だ�
   assert.equal(changeNote(change(1, { reason: 3 })), null);
   assert.equal(changeTypeLabel("TASK_REJECTED"), "差戻し");
   assert.equal(changeTypeLabel("UNKNOWN_TYPE"), "UNKNOWN_TYPE");
+});
+
+test("編集Changeはラベルと変更内容（タイトルは変更前後、説明・並び順は項目名）を出し、他のChangeには出さない", () => {
+  assert.equal(changeTypeLabel("STORY_EDITED"), "Story編集");
+  assert.equal(changeTypeLabel("TASK_EDITED"), "Task編集");
+  const edited = (type: string, payload: Record<string, unknown>) => changeEditSummary({ type, payload });
+  assert.equal(
+    edited("TASK_EDITED", { changes: { title: { from: "旧", to: "新" }, description: { from: null, to: "x" } } }),
+    "タイトル「旧」→「新」、説明",
+  );
+  assert.equal(edited("STORY_EDITED", { changes: { sortOrder: { from: 1, to: 2 } } }), "並び順");
+  assert.equal(edited("STORY_EDITED", {}), null);
+  assert.equal(edited("TASK_CREATED", { changes: { title: { from: "a", to: "b" } } }), null);
+  assert.deepEqual(changeTarget({ type: "STORY_EDITED", entityId: "s1" }, { stories: [story("s1", { title: "認証" })], tasks: [] }), {
+    kind: "story",
+    id: "s1",
+    title: "認証",
+  });
 });
 
 test("最近の変更は同じProjectの複数StoryをStoryごとに識別し、Taskの変更はTask詳細の対象にする", () => {

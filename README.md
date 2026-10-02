@@ -57,7 +57,7 @@ Sessionは発行から7日または無操作24時間で失効します。secret�
 - Projectを作成し、Mission・Vision・Principles・Constraints・Repositories・Resourcesを登録する。
 - Project内でIntentを作成し、Outcomeと固定成功条件を管理する。
 - Research・Decision・Evidence・Evaluation・Executionを確認する。
-- editor以上はStory / Taskの手動起票・編集、Taskの受入・差戻し・取消・Commentを行う。Outcome handoff管理下のStory / Taskは直接編集できない。
+- editor以上はStory / Taskの手動起票・編集、Taskの受入・差戻し・取消・Commentを行う。Outcome handoff管理下のStory / Taskは直接編集できない。編集は変更前後とともにChange Logへ残り、「最近の変更」で確認できる。
 - administrator以上はProject情報、Agent Grant、Credentialを管理する。ownerはMember招待・権限変更とProject archiveを行う。
 
 archived Projectは参照専用です。復帰・物理削除は提供していません。通常操作にCLIやDBの直接編集は使いません。

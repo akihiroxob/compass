@@ -6,6 +6,7 @@ import { storyCreatePath, storyEditPath, taskCreatePath, taskPath } from "../../
 import { useProjectOperation } from "../../useProjectAccess";
 import {
   appendChangePage,
+  changeEditSummary,
   changeNote,
   changeTarget,
   changesPath,
@@ -91,6 +92,7 @@ const ChangeTargetLabel = ({ target, projectId }: { target: ChangeTarget; projec
 /** Execution Change Logの1件。`target`（「最近の変更」だけ）があれば、対象のTask・Storyを出す。 */
 export const ChangeItem = ({ change, target, projectId, humanNames }: { change: ExecutionChange; target?: ChangeTarget | null; projectId: string; humanNames?: ReadonlyMap<string, string> }) => {
   const note = changeNote(change);
+  const edited = changeEditSummary(change);
   return (
     <li>
       <span className="status-badge muted">{changeTypeLabel(change.type)}</span>{" "}
@@ -99,6 +101,7 @@ export const ChangeItem = ({ change, target, projectId, humanNames }: { change: 
         #{change.cursor} ・ {describePrincipal(change.principalId, humanNames)} ・ {formatTime(change.occurredAt)}
         {change.correlationId && <> ・ 相関ID <code>{change.correlationId}</code></>}
       </small>
+      {edited && <p className="section-note">変更: {edited}</p>}
       {note && <p className="section-note">理由: {note}</p>}
     </li>
   );

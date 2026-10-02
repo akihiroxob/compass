@@ -52,6 +52,18 @@ const canonicalize = (value: unknown): unknown => {
   );
 };
 
+type EditableFields = { title: string; description: string | null; sortOrder: number };
+type FieldChanges = Partial<{ [K in keyof EditableFields]: { from: EditableFields[K]; to: EditableFields[K] } }>;
+
+/** Story・Task編集の変更前後。変わった項目だけを返し、何も変わらなければ`null`（編集Changeを記録しない）。 */
+const diffEditableFields = (before: EditableFields, after: EditableFields): FieldChanges | null => {
+  const changes: Record<string, { from: unknown; to: unknown }> = {};
+  for (const key of ["title", "description", "sortOrder"] as const) {
+    if (before[key] !== after[key]) changes[key] = { from: before[key], to: after[key] };
+  }
+  return Object.keys(changes).length > 0 ? (changes as FieldChanges) : null;
+};
+
 const parseSnapshot = <T>(value: string | null): T | null => (value === null ? null : (JSON.parse(value) as T));
 
 const storyDto = (row: Selectable<StoryTable>) => ({
@@ -297,6 +309,32 @@ export class TaskCoordinationService {
       .returning("cursor")
       .executeTakeFirstOrThrow();
     return Number(row.cursor);
+  }
+
+  /** Story・Taskの編集で内容が変わったときだけ、編集Change（`STORY_EDITED` / `TASK_EDITED`）を同じtransactionで追記する。 */
+  private async appendEditChange(
+    db: DatabaseExecutor,
+    input: {
+      projectId: string;
+      type: "STORY_EDITED" | "TASK_EDITED";
+      entityId: string;
+      principalId: string;
+      actorRole: ActivityActorRole;
+      before: EditableFields;
+      after: EditableFields;
+      occurredAt: number;
+    },
+  ): Promise<void> {
+    const changes = diffEditableFields(input.before, input.after);
+    if (!changes) return;
+    await this.appendChange(db, {
+      projectId: input.projectId,
+      type: input.type,
+      entityId: input.entityId,
+      principalId: input.principalId,
+      payload: { actorRole: input.actorRole, changes },
+      occurredAt: input.occurredAt,
+    });
   }
 
   private async expireClaim(
@@ -1358,7 +1396,7 @@ export class TaskCoordinationService {
 
   // ---- Human operator（Web UI）の手動起票・編集（Task 47。U4）。認可はMembership（`execution.plan`）が入口で済ませる。 ----
   // Outcome handoff（相関ID付きStory・`taskKey`付きTask）はManagerの`issue_story` / `issue_task`の再送で同じ内容へ収束させる
-  // 契約のため、Humanは作成・編集しない（配下へのTask追加も含む）。編集はMCPの`edit_story` / `edit_task`と同じくChange Logを残さない。
+  // 契約のため、Humanは作成・編集しない（配下へのTask追加も含む）。編集はMCPの`edit_story` / `edit_task`と同じく、内容が変わったときだけ編集Changeを残す。
 
   /** 対象StoryがProjectに属し（別ProjectのStory IDは存在しない扱い）、Projectがactiveであること。 */
   private async getOperatorStory(db: DatabaseExecutor, projectId: string, storyId: string) {
@@ -1436,12 +1474,23 @@ export class TaskCoordinationService {
     return this.database.transaction().execute(async (db) => {
       const story = await this.getOperatorStory(db, projectId, storyId);
       this.assertStoryEditableByOperator(story, "editing");
+      const now = this.clock();
       const row = await db
         .updateTable("story")
-        .set({ title: this.requiredText(input.title, "Story title"), description: input.description?.trim() || null, updated_at: this.clock() })
+        .set({ title: this.requiredText(input.title, "Story title"), description: input.description?.trim() || null, updated_at: now })
         .where("id", "=", storyId)
         .returningAll()
         .executeTakeFirstOrThrow();
+      await this.appendEditChange(db, {
+        projectId,
+        type: "STORY_EDITED",
+        entityId: storyId,
+        principalId,
+        actorRole: "operator",
+        before: { title: story.title, description: story.description, sortOrder: story.sort_order },
+        after: { title: row.title, description: row.description, sortOrder: row.sort_order },
+        occurredAt: now,
+      });
       return storyDto(row);
     });
   }
@@ -1524,12 +1573,23 @@ export class TaskCoordinationService {
       if (task.status === TaskStatus.ACCEPTED || task.status === TaskStatus.CANCELED) {
         throw new CoordinationError("INVALID_TASK_STATUS", `Task ${taskId} is ${task.status}`);
       }
+      const now = this.clock();
       const row = await db
         .updateTable("task")
-        .set({ title: this.requiredText(input.title, "Task title"), description: input.description?.trim() || null, updated_at: this.clock() })
+        .set({ title: this.requiredText(input.title, "Task title"), description: input.description?.trim() || null, updated_at: now })
         .where("id", "=", taskId)
         .returningAll()
         .executeTakeFirstOrThrow();
+      await this.appendEditChange(db, {
+        projectId,
+        type: "TASK_EDITED",
+        entityId: taskId,
+        principalId,
+        actorRole: "operator",
+        before: { title: task.title, description: task.description, sortOrder: task.sort_order },
+        after: { title: row.title, description: row.description, sortOrder: row.sort_order },
+        occurredAt: now,
+      });
       return issuedTaskDto(row);
     });
   }
@@ -1667,6 +1727,16 @@ export class TaskCoordinationService {
           .where("id", "=", input.taskId)
           .execute();
         const updated = await this.getTask(db, input.taskId);
+        await this.appendEditChange(db, {
+          projectId: input.projectId,
+          type: "TASK_EDITED",
+          entityId: input.taskId,
+          principalId,
+          actorRole: "manager",
+          before: { title: task.title, description: task.description, sortOrder: task.sort_order },
+          after: { title: updated.title, description: updated.description, sortOrder: updated.sort_order },
+          occurredAt: now,
+        });
         return {
           id: updated.id,
           projectId: updated.project_id,
@@ -1861,6 +1931,16 @@ export class TaskCoordinationService {
           })
           .where("id", "=", input.storyId)
           .execute();
+        await this.appendEditChange(db, {
+          projectId: input.projectId,
+          type: "STORY_EDITED",
+          entityId: input.storyId,
+          principalId,
+          actorRole: "manager",
+          before: { title: story.title, description: story.description, sortOrder: story.sort_order },
+          after: { title, description: input.description?.trim() || null, sortOrder: input.sortOrder ?? story.sort_order },
+          occurredAt: now,
+        });
         return {
           id: input.storyId,
           projectId: input.projectId,

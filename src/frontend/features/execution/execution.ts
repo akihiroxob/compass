@@ -81,6 +81,7 @@ export const changeTypeLabels: Record<string, string> = {
   STORY_STARTED: "Story開始",
   STORY_COMPLETED: "Story完了",
   STORY_CANCELED: "Story取消",
+  STORY_EDITED: "Story編集",
   TASK_CREATED: "Task作成",
   TASK_CLAIMED: "Claim取得",
   TASK_COMPLETED: "作業完了",
@@ -88,6 +89,7 @@ export const changeTypeLabels: Record<string, string> = {
   TASK_ACCEPTED: "受入",
   TASK_REJECTED: "差戻し",
   TASK_CANCELED: "Task取消",
+  TASK_EDITED: "Task編集",
   CLAIM_RELEASED: "Claim解放",
   CLAIM_EXPIRED: "Claim期限切れ",
 };
@@ -140,6 +142,24 @@ export const changeTarget = (change: Pick<ExecutionChange, "type" | "entityId">,
 
 /** Project詳細のStory cardのanchor。「最近の変更」のStory変更から辿る。 */
 export const storyAnchorId = (storyId: string) => `execution-story-${storyId}`;
+
+const editedFieldLabels: Record<string, string> = { title: "タイトル", description: "説明", sortOrder: "並び順" };
+
+/**
+ * 編集Change（`STORY_EDITED` / `TASK_EDITED`）の変更内容。タイトルは変更前後を出し、説明・並び順は変わったことだけを出す。
+ * 編集Change以外・payloadが想定外なら`null`。
+ */
+export const changeEditSummary = (change: Pick<ExecutionChange, "type" | "payload">): string | null => {
+  if (change.type !== "STORY_EDITED" && change.type !== "TASK_EDITED") return null;
+  const { changes } = change.payload;
+  if (typeof changes !== "object" || changes === null) return null;
+  const parts = Object.entries(changes as Record<string, { from?: unknown; to?: unknown }>).map(([field, value]) =>
+    field === "title" && typeof value?.from === "string" && typeof value?.to === "string"
+      ? `タイトル「${value.from}」→「${value.to}」`
+      : (editedFieldLabels[field] ?? field),
+  );
+  return parts.length ? parts.join("、") : null;
+};
 
 /** Changeのpayloadから、表示する補足（差戻し・取消・解放の理由）を取り出す。 */
 export const changeNote = (change: Pick<ExecutionChange, "payload">): string | null => {

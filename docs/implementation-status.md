@@ -24,7 +24,7 @@ DirectionのProjectを共用し、Execution専用のProjectを複製しない。
 
 Outcomeを参照するStoryは、成功条件・Constraints等の作成時snapshotと相関IDを持つ。相関IDとTaskの`taskKey`によって再送を同じ作業へ収束させる。Work側の受入をOutcome達成とは扱わない。
 
-HumanはExecution一覧・Task詳細・最近の変更を参照でき、editor以上は手動起票・編集・受入・差戻し・取消・Commentを行える。Outcome handoffで管理するStory / TaskはHumanから編集できない。有効Claimとの競合を拒否し、取消後の古いClaim操作も拒否する。
+HumanはExecution一覧・Task詳細・最近の変更を参照でき、editor以上は手動起票・編集・受入・差戻し・取消・Commentを行える。Outcome handoffで管理するStory / TaskはHumanから編集できない。Story / Taskの編集（Web UI・MCPの`edit_story` / `edit_task`）は、内容が変わった場合だけ同じtransactionで`STORY_EDITED` / `TASK_EDITED`をChange Logへ追記し、`payload.changes`に変更前後を残す。MCPの同一`requestId`再送・失敗した編集では記録しない。編集は「最近の変更」とTask詳細の変更履歴に表示する。有効Claimとの競合を拒否し、取消後の古いClaim操作も拒否する。
 
 DirectionとExecutionはapplication portで接続する。現在の境界検証では共通の`project`・`project_grant`を例外として扱う（[executionBoundary.test.ts](../test/executionBoundary.test.ts)）。
 

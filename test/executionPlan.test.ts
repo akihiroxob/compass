@@ -105,8 +105,15 @@ test("editorがStory・Taskを起票・編集でき、operatorとしてSTORY_CRE
   assert.equal(editedTask.task.title, "Renamed task");
   assert.equal(editedTask.task.description, null);
   assert.equal(editedTask.task.storyId, story.id);
-  // 編集はMCPのedit_*と同じくChange Logを残さない（list_changesの種別を増やさない）。
-  assert.equal((await json(await asEditor(`/api/projects/${project.id}/changes?limit=1`))).changes[0].entityId, loose.task.id);
+  // 編集は内容が変わったときだけ、operatorの編集Changeを残す。
+  const edits = (await json(await asEditor(`/api/projects/${project.id}/changes?limit=2`))).changes;
+  assert.deepEqual(edits.map((change: any) => [change.type, change.entityId]), [["TASK_EDITED", task.id], ["STORY_EDITED", story.id]]);
+  for (const change of edits) {
+    assert.equal(change.principalId, `human:${editor.humanUserId}`);
+    assert.equal(change.payload.actorRole, "operator");
+  }
+  assert.deepEqual(edits[0].payload.changes, { title: { from: "Manual task", to: "Renamed task" }, description: { from: "Do it", to: null } });
+  assert.deepEqual(edits[1].payload.changes, { title: { from: "Manual story", to: "Renamed story" }, description: { from: null, to: "Why" } });
 
   // Agentは既存のMCPで手動起票のTaskを一覧・Claimできる。
   const listed = await ok(callTool(kit.app, "list_tasks", { projectId: project.id, filter: { availableFor: "work" } }, "wrk"));
@@ -245,4 +252,66 @@ test("Human手動起票はMCPへ公開しない", async () => {
   const names: string[] = JSON.parse(data.slice(6)).result.tools.map((tool: { name: string }) => tool.name);
   for (const name of names) assert.doesNotMatch(name, /operator|human/i);
   assert.ok(names.includes("issue_story") && names.includes("issue_task"));
+});
+
+test("編集Change: 内容が変わらない編集・失敗した編集は記録せず、Task詳細の変更履歴にTask編集が出る", async () => {
+  const kit = await setup();
+  const { project, handoffTask } = await seed(kit);
+  const editor = await createTestHuman(kit.database);
+  await addTestMembership(kit.database, project.id, editor, "editor");
+  const viewer = await createTestHuman(kit.database);
+  await addTestMembership(kit.database, project.id, viewer, "viewer");
+  const asEditor = requestAs(kit.plain, editor);
+  const asViewer = requestAs(kit.plain, viewer);
+  const { story } = await json(await asEditor(storiesPath(project.id), send("POST", { title: "Story", description: "Same" })));
+  const { task } = await json(await asEditor(tasksPath(project.id), send("POST", { title: "Task", storyId: story.id })));
+  const head = async () => (await json(await asEditor(`/api/projects/${project.id}/changes?limit=1`))).changes[0].cursor;
+  const before = await head();
+
+  // 同じ内容（前後の空白は正規化される）の保存は編集Changeを作らない。
+  assert.equal((await asEditor(storiesPath(project.id, story.id), send("PATCH", { title: " Story ", description: "Same" }))).status, 200);
+  assert.equal((await asEditor(tasksPath(project.id, task.id), send("PATCH", { title: "Task", description: "" }))).status, 200);
+  // 失敗した編集（不正入力・handoff・viewer）も記録しない。
+  assert.equal((await asEditor(tasksPath(project.id, task.id), send("PATCH", { title: "" }))).status, 400);
+  assert.equal((await asEditor(tasksPath(project.id, handoffTask.id), send("PATCH", { title: "X" }))).status, 409);
+  assert.equal((await asViewer(tasksPath(project.id, task.id), send("PATCH", { title: "X" }))).status, 403);
+  assert.equal(await head(), before);
+
+  assert.equal((await asEditor(tasksPath(project.id, task.id), send("PATCH", { title: "Task v2" }))).status, 200);
+  // viewerも「最近の変更」とTask詳細の変更履歴で編集を参照できる。
+  const recent = (await json(await asViewer(`/api/projects/${project.id}/changes?limit=1`))).changes[0];
+  assert.equal(recent.type, "TASK_EDITED");
+  assert.equal(recent.entityId, task.id);
+  const detail = await json(await asViewer(`/api/projects/${project.id}/tasks/${task.id}`));
+  assert.deepEqual(detail.changes.map((change: any) => change.type), ["TASK_CREATED", "TASK_EDITED"]);
+  assert.deepEqual(detail.changes[1].payload.changes, { title: { from: "Task", to: "Task v2" } });
+});
+
+test("MCPのedit_story・edit_taskもmanagerの編集Changeを残し、同じrequestIdの再送では重複させない", async () => {
+  const kit = await setup();
+  const { project } = await seed(kit);
+  const story = await ok(callTool(kit.app, "issue_story", { projectId: project.id, title: "Plain", requestId: next("s") }, "mgr"));
+  const task = await ok(callTool(kit.app, "issue_task", { projectId: project.id, storyId: story.id, title: "Plain task", requestId: next("t") }, "mgr"));
+  const listChanges = async () => (await ok(callTool(kit.app, "list_changes", { projectId: project.id }, "wrk"))).changes as any[];
+  const created = (await listChanges()).length;
+
+  const storyRequest = { projectId: project.id, storyId: story.id, title: "Plain v2", description: "Added", requestId: next("es") };
+  const taskRequest = { projectId: project.id, taskId: task.id, title: "Plain task", sortOrder: 99, requestId: next("et") };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await ok(callTool(kit.app, "edit_story", storyRequest, "mgr"));
+    await ok(callTool(kit.app, "edit_task", taskRequest, "mgr"));
+  }
+  // 内容が変わらない編集（新しいrequestId）は記録しない。
+  await ok(callTool(kit.app, "edit_task", { ...taskRequest, requestId: next("et") }, "mgr"));
+  // 権限の無い編集は失敗し、記録しない。
+  assert.equal((await callTool(kit.app, "edit_task", { ...taskRequest, title: "X", requestId: next("et") }, "wrk")).isError, true);
+
+  const edits = (await listChanges()).slice(created);
+  assert.deepEqual(edits.map((change) => [change.type, change.entityId, change.principalId, change.payload.actorRole]), [
+    ["STORY_EDITED", story.id, "mgr", "manager"],
+    ["TASK_EDITED", task.id, "mgr", "manager"],
+  ]);
+  assert.deepEqual(edits[0].payload.changes, { title: { from: "Plain", to: "Plain v2" }, description: { from: null, to: "Added" } });
+  assert.equal(edits[1].payload.changes.sortOrder.to, 99);
+  assert.deepEqual(Object.keys(edits[1].payload.changes), ["sortOrder"]);
 });

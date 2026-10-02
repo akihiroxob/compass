@@ -37,7 +37,7 @@ RalphのWorker / Reviewerは当面、別Principal・別Credentialとする。運
 | 種類 | 内容 | 保存・利用 |
 | --- | --- | --- |
 | Operational Log | request、error、latency、trace | stdout・ログ基盤。通常のAgent Contextに含めない |
-| Change Log | Claim・Task状態遷移など正確な変更 | 構造化・追記型 |
+| Change Log | Claim・Task状態遷移、Story・Taskの作成・編集など正確な変更 | 構造化・追記型 |
 | Activity | 何が起き、何が分かり、何が決まったか | 独立したActivity package、DB保存、原則追記型 |
 
 Activityには`scope`、Project scopeの場合の`projectId`、`type`、`principalId`、`role`、必須の`summary`、任意のMarkdown `body`、`refs`、`occurredAt`、`cursor`を持たせる。`runId`は持たせない。訂正は訂正Activityの追加を優先する。
