@@ -286,7 +286,7 @@ Compass `3eebc9e`の`git ls-files`全311 file（`src/` 224・`test/` 53・`agent
 | `test/directionDecision.test.ts` | `server/tests/directionDecision.test.ts` | server合成（`app.ts`） | direction |  |
 | `test/evaluationReplan.test.ts` | `server/tests/evaluationReplan.test.ts` | server合成（`app.ts`） | direction |  |
 | `test/executionBoundary.test.ts` | `server/tests/executionBoundary.test.ts` | なし（`src/`を静的走査） | work | 02で走査rootを`server/src`へ。03で`packages/*/src`を走査しV7を反映 |
-| `test/executionCoordination.test.ts` | `server/tests/executionCoordination.test.ts` | `TaskCoordinationService`直接＋server合成（`createApplicationServices`・`container`）＋`ProjectRole` | work | 03でV1 / V2解消後、Claim排他・期限・状態遷移の単体部分を`packages/work/tests/`へ分割。Grant・Project状態を伴う部分はserverに残す |
+| `test/executionCoordination.test.ts` | `server/tests/executionCoordination.test.ts` | `TaskCoordinationService`直接＋server合成（`createApplicationServices`）＋`ProjectRole` | work | 03でV1 / V2解消後、Claim排他・期限・状態遷移の単体部分を`packages/work/tests/`へ分割。Grant・Project状態を伴う部分はserverに残す |
 | `test/executionEvidence.test.ts` | `server/tests/executionEvidence.test.ts` | server合成（`app.ts`） | direction |  |
 | `test/executionHandoff.test.ts` | `server/tests/executionHandoff.test.ts` | server合成（`app.ts`） | work |  |
 | `test/executionMcp.test.ts` | `server/tests/executionMcp.test.ts` | server合成（`app.ts`） | work | 応答の`agent/*.md` pathは06まで互換対象 |
@@ -296,21 +296,21 @@ Compass `3eebc9e`の`git ls-files`全311 file（`src/` 224・`test/` 53・`agent
 | `test/executionWebRead.test.ts` | `server/tests/executionWebRead.test.ts` | server合成（`app.ts`） | work |  |
 | `test/frontendApi.test.ts` | `server/tests/frontendApi.test.ts` | Web UI module | server |  |
 | `test/grantForm.test.ts` | `server/tests/grantForm.test.ts` | Web UI module | access |  |
-| `test/humanAuth.test.ts` | `server/tests/humanAuth.test.ts` | server合成（`createApplicationServices`・`container`）＋`schema.ts` | access |  |
+| `test/humanAuth.test.ts` | `server/tests/humanAuth.test.ts` | server合成（`createApplicationServices`）＋`schema.ts` | access |  |
 | `test/humanAuthHttpIntegration.test.ts` | `server/tests/humanAuthHttpIntegration.test.ts` | server合成（`app.ts`）＋OIDC adapter | access |  |
 | `test/humanOidc.test.ts` | `server/tests/humanOidc.test.ts` | server合成（`app.ts`）＋OIDC adapter | access |  |
 | `test/humanWebAuthorization.test.ts` | `server/tests/humanWebAuthorization.test.ts` | server合成（`app.ts`）＋汎用error | access |  |
-| `test/initialResearch.test.ts` | `server/tests/initialResearch.test.ts` | server合成（`createApplicationServices`・`container`）＋`domain/model` | direction |  |
+| `test/initialResearch.test.ts` | `server/tests/initialResearch.test.ts` | server合成（`createApplicationServices`）＋`domain/model` | direction |  |
 | `test/instruction.test.ts` | `server/tests/instruction.test.ts` | server合成（`app.ts`）＋`InstructionService`直接 | server | `../agent/`を読む。02は`agent/`をrootに残しpathを維持。06でRole Context検証へ |
-| `test/intent.test.ts` | `server/tests/intent.test.ts` | server合成（`createApplicationServices`・`container`） | direction |  |
+| `test/intent.test.ts` | `server/tests/intent.test.ts` | server合成（`container`） | direction |  |
 | `test/intentAdapters.test.ts` | `server/tests/intentAdapters.test.ts` | server合成（`app.ts`） | direction |  |
-| `test/intentBrief.test.ts` | `server/tests/intentBrief.test.ts` | server合成（`createApplicationServices`・`container`） | direction |  |
+| `test/intentBrief.test.ts` | `server/tests/intentBrief.test.ts` | server合成（`createApplicationServices`） | direction |  |
 | `test/intentForm.test.ts` | `server/tests/intentForm.test.ts` | Web UI module | direction |  |
 | `test/lv6ClosedLoop.test.ts` | `server/tests/lv6ClosedLoop.test.ts` | server合成（`app.ts`）＋`src/server.ts`を子プロセス起動 | server | 02で起動entry pathを更新。cwdはroot |
 | `test/membershipUi.test.ts` | `server/tests/membershipUi.test.ts` | Web UI module＋`domain/model`型 | access | 03 / 04でpackage公開型へ（A9） |
-| `test/outcome.test.ts` | `server/tests/outcome.test.ts` | server合成（`createApplicationServices`・`container`） | direction |  |
+| `test/outcome.test.ts` | `server/tests/outcome.test.ts` | server合成（`container`） | direction |  |
 | `test/outcomeAdapters.test.ts` | `server/tests/outcomeAdapters.test.ts` | server合成（`app.ts`） | direction |  |
-| `test/outcomeConfirmed.test.ts` | `server/tests/outcomeConfirmed.test.ts` | server合成（`createApplicationServices`・`container`）＋`ProjectRole` | direction |  |
+| `test/outcomeConfirmed.test.ts` | `server/tests/outcomeConfirmed.test.ts` | server合成（`createApplicationServices`）＋`ProjectRole` | direction |  |
 | `test/outcomeEvaluation.test.ts` | `server/tests/outcomeEvaluation.test.ts` | server合成（`app.ts`） | direction | 応答の`agent/*.md` pathは06まで互換対象 |
 | `test/outcomeForm.test.ts` | `server/tests/outcomeForm.test.ts` | Web UI module | direction |  |
 | `test/project.test.ts` | `server/tests/project.test.ts` | use case＋`SQLiteProjectRepository`＋DB直接 | direction | 04でV5解消後に`packages/direction/tests/`へ（Direction schemaだけで実行） |
@@ -318,10 +318,10 @@ Compass `3eebc9e`の`git ls-files`全311 file（`src/` 224・`test/` 53・`agent
 | `test/projectArchive.test.ts` | `server/tests/projectArchive.test.ts` | server合成（`app.ts`）＋各SQLite repository＋`runCli` | direction |  |
 | `test/projectArchiveUi.test.ts` | `server/tests/projectArchiveUi.test.ts` | server合成（`app.ts`）＋Web UI module | direction |  |
 | `test/projectForm.test.ts` | `server/tests/projectForm.test.ts` | Web UI module | direction |  |
-| `test/projectGrant.test.ts` | `server/tests/projectGrant.test.ts` | server合成（`createApplicationServices`・`container`） | access |  |
+| `test/projectGrant.test.ts` | `server/tests/projectGrant.test.ts` | server合成（`createApplicationServices`） | access |  |
 | `test/projectGrantAdapters.test.ts` | `server/tests/projectGrantAdapters.test.ts` | server合成（`app.ts`）＋`runCli` | access |  |
 | `test/remoteMcpHumanCommands.test.ts` | `server/tests/remoteMcpHumanCommands.test.ts` | server合成（`app.ts`） | access |  |
-| `test/research.test.ts` | `server/tests/research.test.ts` | server合成（`createApplicationServices`・`container`） | direction |  |
+| `test/research.test.ts` | `server/tests/research.test.ts` | server合成（`createApplicationServices`） | direction |  |
 | `test/researchDecisionIntegration.test.ts` | `server/tests/researchDecisionIntegration.test.ts` | server合成（`app.ts`） | direction |  |
 | `test/researcherMcp.test.ts` | `server/tests/researcherMcp.test.ts` | server合成（`app.ts`） | direction | `../agent/researcher.md`を読む。06でpath更新 |
 | `test/runtimeEvents.test.ts` | `server/tests/runtimeEvents.test.ts` | server合成（`app.ts`）＋`domain/model` | direction | 応答の`agent/*.md` pathは06まで互換対象 |
