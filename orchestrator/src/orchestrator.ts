@@ -101,6 +101,9 @@ export class Orchestrator {
       timeoutMs: this.config.leaseMs,
     });
     this.store.set(dispatch.key, { ...base, childPid: launched.pid });
+    // PID を記録してから Role のコマンドを始める。記録前に停止すると Agent はコマンドを実行せずに終わるため、
+    // PID の無い記録を回収して次の試行を起動しても、同じ dispatch を同時に動かさない。
+    launched.start();
     report.launched.push(dispatch);
     this.log("dispatch_launched", {
       key: dispatch.key,

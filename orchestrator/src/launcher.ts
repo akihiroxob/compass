@@ -5,7 +5,11 @@ import type { Dispatch } from "./plan.ts";
 
 export type LaunchResult = { ok: true } | { ok: false; error: string };
 
-export type Launched = { pid: number | null; done: Promise<LaunchResult> };
+/**
+ * 起動した Agent。`start()` を呼ぶまで Role のコマンドは実行されない。呼出側は PID を記録してから `start()` する。
+ * 呼ぶ前に Orchestrator が停止した場合、Agent は Role のコマンドを実行せずに終了する。
+ */
+export type Launched = { pid: number | null; done: Promise<LaunchResult>; start(): void };
 
 export interface AgentLauncher {
   launch(dispatch: Dispatch, command: RoleCommand, context: { serverUrl: string; attempt: number; timeoutMs: number }): Launched;
@@ -62,8 +66,19 @@ export const buildAgentEnv = (
   };
 };
 
+/** 起動の gate を待たずに終了したときの終了コード（EX_TEMPFAIL）。 */
+export const launchGateAbortedCode = 75;
+
 /**
- * Role ごとの shell コマンドを子プロセスとして起動する。timeout を過ぎたら process group ごと SIGTERM で停止し、
+ * Role のコマンドの前に、Orchestrator からの開始合図を fd 3 で待つ shell script を付ける。
+ * Orchestrator が合図の前に停止すると fd 3 が EOF になり、Role のコマンドを実行せずに終了する。
+ */
+export const gatedCommand = (command: string): string =>
+  [`IFS= read -r compass_launch_gate <&3 || exit ${launchGateAbortedCode}`, "exec 3<&-", command].join("\n");
+
+/**
+ * Role ごとの shell コマンドを子プロセスとして起動する。PID を記録するまで Role のコマンドを始めないよう、
+ * `start()` の合図を fd 3 で待たせる（Windows を除く）。timeout を過ぎたら process group ごと SIGTERM で停止し、
  * `terminateGraceMs` 後も残っていれば SIGKILL する。
  */
 export class ShellAgentLauncher implements AgentLauncher {
@@ -72,9 +87,9 @@ export class ShellAgentLauncher implements AgentLauncher {
   ) {}
 
   launch(dispatch: Dispatch, command: RoleCommand, context: { serverUrl: string; attempt: number; timeoutMs: number }): Launched {
-    const child = spawn(command.command, {
+    const child = spawn(agentProcessGroup ? gatedCommand(command.command) : command.command, {
       shell: true,
-      stdio: "inherit",
+      stdio: agentProcessGroup ? ["inherit", "inherit", "inherit", "pipe"] : "inherit",
       detached: agentProcessGroup,
       env: buildAgentEnv(this.options.parentEnv ?? process.env, this.options.credentialEnv, dispatch, command, context),
     });
@@ -110,6 +125,15 @@ export class ShellAgentLauncher implements AgentLauncher {
         settle();
       });
     });
-    return { pid: child.pid ?? null, done };
+    const gate = agentProcessGroup ? (child.stdio[3] as NodeJS.WritableStream & { destroy(): void }) : null;
+    // 合図の前に Agent が終了していれば書込は失敗する。結果は exit で扱う。
+    gate?.on("error", () => {});
+    return {
+      pid: child.pid ?? null,
+      done,
+      start: () => {
+        if (gate && pid !== undefined) gate.end("start\n");
+      },
+    };
   }
 }

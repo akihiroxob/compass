@@ -29,6 +29,7 @@ Project 横断で Compass Server の現在状態を読み、次に起動すべ�
 - 失敗（exit 0 以外・timeout）は `retryBackoffMs × 2^(試行回数-1)` 待って `maxAttempts` まで再試行し、上限後は同じ状態で起動しない
 - lease（`leaseMs`）を過ぎた Agent は process group ごと SIGTERM で停止させ、`terminateGraceMs` 後も残れば SIGKILL する。停止を確認してから失敗した試行として扱う
 - Orchestrator が停止（SIGKILL 等）して Agent だけが残った場合も、lease を過ぎた後の周回で旧 Agent の停止を求め（猶予後は SIGKILL）、停止を確認するまで同じ key を起動しない。Orchestrator と Agent がともに停止した実行中の記録は、次の起動時に失敗した試行として回収する
+- Agent の PID を記録するまで Role のコマンドを始めない。Agent の shell は fd 3 で Orchestrator の開始合図を待ち、合図の前に Orchestrator が停止すると（fd 3 が EOF）コマンドを実行せず終了する。spawn 後・PID 記録前に停止しても、PID の無い記録を回収して起動した次の試行と旧 Agent が同時に動かない
 - 状態が進んで計画から消えた key の記録は捨てる
 
 起動記録は重複抑止のためだけのもので、Compass の状態の正本ではありません。失っても現在状態から起動判断をやり直せます（その場合、実行中の Agent と重複し得ます）。`stateDir` を共有しない複数ホストでの並行実行は重複を抑止できません。Agent の Role 側の冪等性（同じ Evaluation への Decision は1件、同じ Outcome の Story は1件）は Server が強制します。
@@ -95,7 +96,7 @@ npm test --workspace orchestrator
 npm run typecheck --workspace orchestrator
 ```
 
-`tests/processRecovery.test.ts` は Orchestrator と Agent を実プロセスで起動し（Server は使わず固定状態）、Orchestrator を SIGKILL した後に残った Agent が lease を過ぎたら停止され（SIGTERM を無視する Agent は猶予後に SIGKILL）、停止を確認してから次の試行が起動されること、Agent が Runtime Credential を読めないことを確認します。
+`tests/processRecovery.test.ts` は Orchestrator と Agent を実プロセスで起動し（Server は使わず固定状態）、Orchestrator を SIGKILL した後に残った Agent が lease を過ぎたら停止され（SIGTERM を無視する Agent は猶予後に SIGKILL）、停止を確認してから次の試行が起動されること、spawn 後・PID 記録前に Orchestrator を SIGKILL しても旧 Agent が Role のコマンドを実行せず次の試行だけが動くこと、Agent が Runtime Credential を読めないことを確認します。
 
 `tests/integration.test.ts` は Server と Orchestrator を別プロセスで起動し（trusted-local・一時 DB・一時 cwd で、親の `COMPASS_*`・`PORT` を引き継がない）、並行起動・再起動・再試行の重複抑止と、Intent → Strategist → Researcher → Strategist → Manager の起動順を確認します。起動される Agent は決定的な fixture（`tests/support/fakeAgent.ts`）で、実 Agent による自律運転の実証ではありません。
 
@@ -105,4 +106,4 @@ npm run typecheck --workspace orchestrator
 - Execution Evidence の還流（`record_execution_evidence`）は行わない。Evaluator の起動条件は還流済みの要約に依存する
 - 複数ホストでの並行実行の重複抑止はない（`stateDir` を共有する1台を前提とする）
 - 旧 Agent の生存は記録した PID の process group で判定する。Orchestrator の停止中に旧 Agent が終わり、同じ PID が別の process group leader に再利用された場合は、その group を旧 Agent とみなして停止し得る
-- Windows では process group を使わず、shell 経由で起動した孫プロセスの停止・生存確認は保証しない
+- Windows では process group と開始合図を使わず、shell 経由で起動した孫プロセスの停止・生存確認と、PID 記録前に停止した場合の重複抑止は保証しない

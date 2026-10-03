@@ -15,7 +15,7 @@
 | Agent | Credential・Project Role Grant・Git管理の`roles/`・`policies/`・`skills/`・`knowledge/`からのRole / Skill Context配信 |
 | Activity | Project scopeのActivityの明示記録・参照（MCP）、Work・Directionの状態変更からのcanonical生成、Role Contextへのsummary接続、Web UIでの閲覧 |
 | Runtime接続面 | event取得・ack、Execution Evidence還流、Orchestrator向けの現在状態Query、scope付きCredential |
-| Orchestrator | `orchestrator/`。Project横断で`get_orchestration_state`を読み、状態判定だけで専門RoleのAgent（設定したshellコマンド）を起動する。dispatch keyの起動記録とprocess lockで並行起動・再起動・再試行の重複を抑止する。Orchestrator停止後に残ったAgentはlease切れ後にprocess groupごと停止（猶予後SIGKILL）を確認してから再試行する。AgentへはRuntime Credentialの環境変数を渡さない |
+| Orchestrator | `orchestrator/`。Project横断で`get_orchestration_state`を読み、状態判定だけで専門RoleのAgent（設定したshellコマンド）を起動する。dispatch keyの起動記録とprocess lockで並行起動・再起動・再試行の重複を抑止する。Orchestrator停止後に残ったAgentはlease切れ後にprocess groupごと停止（猶予後SIGKILL）を確認してから再試行する。AgentはPIDの記録後に開始合図を受けるまでRoleのコマンドを実行しない。AgentへはRuntime Credentialの環境変数を渡さない |
 
 Research Request / Result / Finding / SynthesisとDirection Decision・Evaluationは現在DBに保存する。Intent作成はResearch Requestを作らず、OrchestratorがStrategistを起動してResearchの要否を判断させる。以前に自動作成したInitial Research Requestは削除せず通常のRequestとして残る。保存先は内容と所有責務で個別に判断し、Project別であることや本文が長いことを理由に一律移行しない。
 

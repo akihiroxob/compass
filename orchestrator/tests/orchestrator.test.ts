@@ -27,7 +27,7 @@ class FakeLauncher implements AgentLauncher {
     let finish!: (result: LaunchResult) => void;
     const done = new Promise<LaunchResult>((resolve) => (finish = resolve));
     this.launches.push({ dispatch, attempt: context.attempt, finish });
-    return { pid: null, done };
+    return { pid: null, done, start: () => {} };
   }
 }
 

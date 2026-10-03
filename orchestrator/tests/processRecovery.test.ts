@@ -35,7 +35,7 @@ const waitFor = async (check: () => boolean, what: string, timeoutMs = 20_000) =
   throw new Error(`timed out waiting for ${what}`);
 };
 
-const setup = async (agentEnv: Record<string, string>) => {
+const setup = async (agentEnv: Record<string, string>, orchestratorEnv: Record<string, string> = {}) => {
   const directory = await mkdtemp(join(tmpdir(), "compass-orchestrator-process-"));
   const agentLog = join(directory, "agents.jsonl");
   const configPath = join(directory, "orchestrator.json");
@@ -58,10 +58,11 @@ const setup = async (agentEnv: Record<string, string>) => {
       },
     }),
   );
-  const run = (...args: string[]) =>
+  const run = (...args: string[]) => runWith({}, ...args);
+  const runWith = (extraEnv: Record<string, string>, ...args: string[]) =>
     spawn(process.execPath, ["--import", tsx, staticOrchestrator, configPath, ...args], {
       cwd: directory,
-      env: { ...process.env, RUNTIME_TOKEN: "runtime-secret" },
+      env: { ...process.env, RUNTIME_TOKEN: "runtime-secret", ...orchestratorEnv, ...extraEnv },
       stdio: ["ignore", "ignore", "pipe"],
     });
   const runOnce = async () => {
@@ -87,7 +88,9 @@ const setup = async (agentEnv: Record<string, string>) => {
     }
     await rm(directory, { recursive: true, force: true });
   };
-  return { run, runOnce, events, starts, cleanup };
+  const records = () =>
+    (JSON.parse(readFileSync(join(directory, "state", "dispatches.json"), "utf8")) as { records: Record<string, Record<string, unknown>> }).records;
+  return { run, runWith, runOnce, events, starts, records, cleanup };
 };
 
 /** Orchestrator を起動して最初の Agent が起動したら SIGKILL し、Agent だけが残った状態にする。 */
@@ -156,6 +159,35 @@ test("SIGTERMで止まらない旧Agentは猶予後にSIGKILLし、停止する�
     orchestrator.kill("SIGKILL");
     await orchestratorExit;
     assert.equal(kit.starts()[1]!.attempt, 2);
+  } finally {
+    await kit.cleanup();
+  }
+});
+
+test("Agentをspawnした後・PIDを記録する前にOrchestratorが停止しても、同じdispatchを同時に動かさない", { timeout: 60_000 }, async () => {
+  const kit = await setup({});
+  try {
+    // spawn 後・PID 記録前に Orchestrator が SIGKILL される。記録は childPid: null の実行中で残る。
+    const crashed = await exited(kit.runWith({ STATIC_ORCHESTRATOR_CRASH_BEFORE_PID: "1" }, "--once"));
+    assert.equal(crashed.code, null, crashed.stderr);
+    const [record] = Object.values(kit.records());
+    assert.equal(record!.status, "running");
+    assert.equal(record!.childPid, null);
+    // 開始の合図を受けていない Agent は Role のコマンドを実行しない。
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    assert.equal(kit.starts().length, 0);
+
+    // 再起動: PID の無い記録を回収して次の試行を起動する。動く Agent はこの1つだけ。
+    const orchestrator = kit.run("--once");
+    const orchestratorExit = exited(orchestrator);
+    await waitFor(() => kit.starts().length === 1, "the retried launch");
+    orchestrator.kill("SIGKILL");
+    await orchestratorExit;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.deepEqual(
+      kit.starts().map(({ attempt }) => attempt),
+      [2],
+    );
   } finally {
     await kit.cleanup();
   }

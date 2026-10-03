@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -39,8 +40,27 @@ test("ShellAgentLauncherで起動した子プロセスはRuntime Credentialを�
     parentEnv: { ...process.env, REVIEW_RUNTIME_TOKEN: "marker" },
   });
   const check = `"${process.execPath}" -e "process.exit(process.env.REVIEW_RUNTIME_TOKEN === undefined && process.env.COMPASS_ROLE === 'strategist' ? 0 : 3)"`;
-  const result = await launcher.launch(dispatch, { command: check, env: {} }, { serverUrl: "http://127.0.0.1:1", attempt: 1, timeoutMs: 10_000 }).done;
-  assert.deepEqual(result, { ok: true });
+  const launched = launcher.launch(dispatch, { command: check, env: {} }, { serverUrl: "http://127.0.0.1:1", attempt: 1, timeoutMs: 10_000 });
+  launched.start();
+  assert.deepEqual(await launched.done, { ok: true });
+});
+
+test("ShellAgentLauncherはstart()を呼ぶまでRoleのコマンドを実行しない", { skip: process.platform === "win32" }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "compass-orchestrator-gate-"));
+  try {
+    const marker = join(directory, "started");
+    const launcher = new ShellAgentLauncher({ credentialEnv: [], terminateGraceMs: 100 });
+    const command = `"${process.execPath}" -e "require('node:fs').writeFileSync(process.argv[1], '')" "${marker}"`;
+    const launched = launcher.launch(dispatch, { command, env: {} }, { serverUrl: "http://127.0.0.1:1", attempt: 1, timeoutMs: 10_000 });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.equal(existsSync(marker), false);
+    assert.equal(isAgentAlive(launched.pid!), true, "the Agent waits for the start signal");
+    launched.start();
+    assert.deepEqual(await launched.done, { ok: true });
+    assert.equal(existsSync(marker), true);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("RoleのenvでRuntime Credentialの環境変数名を設定する構成は拒否する", async () => {
@@ -74,6 +94,7 @@ test("timeoutしたAgentがSIGTERMで止まらなければ猶予後にSIGKILLし
       },
       { serverUrl: "http://127.0.0.1:1", attempt: 1, timeoutMs: 1500 },
     );
+    launched.start();
     const result = await launched.done;
     assert.deepEqual(result, { ok: false, error: "timed out after 1500ms" });
     assert.equal(isAgentAlive(launched.pid!), false);
