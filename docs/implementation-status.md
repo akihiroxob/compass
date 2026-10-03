@@ -52,6 +52,8 @@ Outcomeを参照するStoryは、成功条件・Constraints等の作成時snapsh
 
 HumanはExecution一覧・Task詳細・最近の変更を参照でき、editor以上は手動起票・編集・受入・差戻し・取消・Commentを行える。Outcome handoffで管理するStory / TaskはHumanから編集できない。Story / Taskの編集（Web UI・MCPの`edit_story` / `edit_task`）は、内容が変わった場合だけ同じtransactionで`STORY_EDITED` / `TASK_EDITED`をChange Logへ追記し、`payload.changes`に変更前後を残す。MCPの同一`requestId`再送・失敗した編集では記録しない。編集は「最近の変更」とTask詳細の変更履歴に表示する。有効Claimとの競合を拒否し、取消後の古いClaim操作も拒否する。
 
+Project詳細の「Claim保持中」は、既存の`execution`の`activeClaim`だけから、期限内のClaimを持つAgent・Taskを作業中・レビュー待ち・受入待ちに分けて出し、Task詳細へリンクする。期限切れ（`reclaimable`、または表示中に期限を過ぎたClaim）は保持中に含めず、`doing`のTaskを再取得待ちとして件数で出す。取得時刻と再読込を出し、読込中・取得失敗・Claim無しを区別する。Claimは作業権の期限付き保持で、Agentプロセスの稼働を示さない。Role割当・Credentialからは担当を推測せず、Claimを持たないStrategist・Researcher・Evaluatorの状態は出さない。
+
 DirectionとWorkは公開index（`@compass/direction`・`@compass/work`）とapplication portで接続し、DirectionはWorkに依存しない。WorkはProject状態・Role Grantを`WorkStore`の読取port（`ProjectStateReader`・`ProjectGrantReader`）で、Claim・状態遷移と同じtransactionの中で読む。実装はserverが配線し（`server/src/infrastructure/repository/contextAdapters.ts`）、Workは`project`・`project_grant`のtableを直接扱わない。Directionのuse caseが要求するRole・Runtime scopeの認可も、Directionのportへserverの認可serviceを渡す。境界は [executionBoundary.test.ts](../server/tests/executionBoundary.test.ts) で静的に検証する。Workの規則の単体テストは`packages/work/tests/`、Project集約の単体テストは`packages/direction/tests/`にある。
 
 ## Accessの現行契約

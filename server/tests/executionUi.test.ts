@@ -21,6 +21,9 @@ import {
   tasksApiPath,
   storyAnchorId,
   outcomeLoopStage,
+  earliestClaimExpiry,
+  formatClaimExpiry,
+  summarizeClaimHolders,
   type ExecutionChange,
   type ExecutionStory,
   type ExecutionTask,
@@ -170,4 +173,52 @@ test("手動起票の画面・APIのpath", () => {
   assert.equal(storiesApiPath("p1", "s1"), "/api/projects/p1/stories/s1");
   assert.equal(tasksApiPath("p1"), "/api/projects/p1/tasks");
   assert.equal(tasksApiPath("p1", "t1"), "/api/projects/p1/tasks/t1");
+});
+
+// ---- Claim保持中（Task 02） ----
+
+const claim = (principalId: string, expiresAt: number) => ({ claimId: `c-${principalId}-${expiresAt}`, principalId, expiresAt });
+
+test("Claim保持中: 期限内のClaimだけを作業中・レビュー待ち・受入待ちに分け、期限の近い順に並べる", () => {
+  const now = 1_000_000;
+  const holders = summarizeClaimHolders([
+    task("t-wait", "s1", { status: "wait_accept", activeClaim: claim("manager-a", now + 60_000) }),
+    task("t-doing-late", "s1", { status: "doing", activeClaim: claim("worker-b", now + 600_000) }),
+    task("t-doing-soon", "s1", { status: "doing", activeClaim: claim("worker-a", now + 120_000) }),
+    task("t-review", null, { status: "in_review", activeClaim: claim("reviewer-a", now + 300_000) }),
+    task("t-review-free", "s1", { status: "in_review" }),
+    task("t-todo", "s1"),
+  ], now);
+  assert.deepEqual(holders.groups.map((group) => [group.status, group.tasks.map((item) => item.id)]), [
+    ["doing", ["t-doing-soon", "t-doing-late"]],
+    ["in_review", ["t-review"]],
+    ["wait_accept", ["t-wait"]],
+  ]);
+  assert.equal(holders.reclaimableCount, 0);
+  assert.equal(earliestClaimExpiry(holders), now + 60_000);
+});
+
+test("Claim保持中: 期限切れは担当中に含めず、doingなら再取得待ちとして数える（表示中に期限を過ぎた場合も）", () => {
+  const now = 1_000_000;
+  const holders = summarizeClaimHolders([
+    task("t-reclaimable", "s1", { status: "doing", reclaimable: true }),
+    task("t-expired-after-fetch", "s1", { status: "doing", activeClaim: claim("worker-a", now) }),
+    task("t-review-expired", "s1", { status: "in_review", activeClaim: claim("reviewer-a", now - 1) }),
+  ], now);
+  assert.deepEqual(holders.groups, []);
+  assert.equal(holders.reclaimableCount, 2);
+  assert.equal(earliestClaimExpiry(holders), null);
+});
+
+test("Claim保持中: Claimの無いProjectは空のグループと再取得待ち0件", () => {
+  assert.deepEqual(summarizeClaimHolders([task("t1", "s1"), task("t2", "s1", { status: "accepted" })], 0), { groups: [], reclaimableCount: 0 });
+});
+
+test("Claimの期限は分単位の相対表示で、期限切れを区別する", () => {
+  const now = 1_000_000;
+  assert.equal(formatClaimExpiry(now + 30_000, now), "あと1分未満");
+  assert.equal(formatClaimExpiry(now + 25 * 60_000 + 59_000, now), "あと25分");
+  assert.equal(formatClaimExpiry(now + 120 * 60_000, now), "あと2時間");
+  assert.equal(formatClaimExpiry(now + 125 * 60_000, now), "あと2時間5分");
+  assert.equal(formatClaimExpiry(now, now), "期限切れ");
 });

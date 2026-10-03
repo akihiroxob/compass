@@ -1,6 +1,6 @@
 # Project画面の情報設計と視覚方針
 
-Story「CompassのUIを整理し、進行状況とAgentの担当が分かる体験にする」の後続Task（02〜05）が画面判断に使う案。実装済みの仕様ではない。実装したTaskで現行文書へ反映し、この文書から該当箇所を除く。
+Story「CompassのUIを整理し、進行状況とAgentの担当が分かる体験にする」の後続Task（03〜05）が画面判断に使う案。実装済みの仕様ではない。実装したTaskで現行文書へ反映し、この文書から該当箇所を除く。
 
 ## 前提
 
@@ -134,13 +134,7 @@ Outcomeの作成はActive Intentの配下（`/projects/:projectId/intents/:inten
 
 「あなたの操作」も「Agentの担当待ち」も無く、Outcomeの取得失敗も無いときだけ「今すぐ必要な操作はありません」と出す。「あなたの操作」が無く担当待ちだけがある場合は「あなたの操作はありません」と出し、担当待ちを並べる。Credentialの有無はadministrator以外に推測させない。
 
-**担当中のAgent**はTask 02で実装する。
-
-- `execution`の`activeClaim`（期限内）を持つTaskを、Task状態（作業中・レビュー待ち・受入待ち）ごとにまとめる。行はAgent名、Task名、状態、期限（相対表示と絶対時刻）、Task詳細へのリンク。
-- `reclaimable`（期限切れ）は担当中に含めず、「再取得待ち N件」として別に出す。
-- 見出しは「Claim保持中」とし、「稼働中」「作業中のAgent」と言わない。注記で「Claimは作業権の期限付き保持で、Agentプロセスの稼働を示しません」と示す。
-- Strategist・Researcher・Evaluator（Claimを持たないRole）は「Claimで観測できません」と明示し、状態を推測しない。
-- 取得時刻と再読込ボタンを出す。読込中・取得失敗・Claim無しを別の表示にする。
+**担当中のAgent**はProject詳細の「Claim保持中」として実装済み（現行仕様は [implementation-status.md](../implementation-status.md) のExecution）。03で概要viewへ移す。
 
 ## Role・稼働状態の区別
 
@@ -200,7 +194,6 @@ Outcomeの作成はActive Intentの配下（`/projects/:projectId/intents/:inten
 
 ## 後続Taskの受入観点
 
-- **02**: 期限内Claimだけを担当中とし、期限切れは再取得待ちとして別表示する。状態3種を区別し、Task詳細へ移動できる。読込中・失敗・Claim無しが区別され、再読込できる。Claim非保持のRoleを推測表示しない。Desktop・スマートフォン、期限切れ、取得競合後の再読込を確認する。
 - **03**: viewとURLが対応し、戻る・再読込で同じviewに戻る。概要の現在地・次の行動が上記の区分と条件表どおりに出る。Story起票待ち（`not_connected`）・評価待ち（`not_evaluated`）・還流待ちのOutcome、または未着手・差戻し・再取得待ち・期限内Claimの無いレビュー待ち・受入待ちのTaskのいずれかが残るProjectで「今すぐ必要な操作はありません」と出さない。Manager・Evaluatorが割当済みでも、Story起票待ち・評価待ちを担当待ちとして出す。レビュー待ちと受入待ちを別の表示にする。Active Intentが無いProjectでは「Intentを登録」だけを出し「Outcomeを登録」を出さず、Active IntentがありActive Outcomeが無いProjectでだけ「Outcomeを登録」を出す。AgentのClaimを要する作業をHumanの操作ボタンにしない。viewer・editor・administrator・owner・archivedで実行できない操作を勧めない。スマートフォンで概要が短く、設定へ2操作以内で到達できる。
 - **04**: 状態色・タイポグラフィ・動きが上記の方針に沿い、`prefers-reduced-motion`・keyboard focus・コントラストを確認する。
 - **05**: 空・読込・失敗・404が上記の方針に沿い、権限と接続状況に応じた案内を出す。

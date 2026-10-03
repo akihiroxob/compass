@@ -86,3 +86,7 @@ select { font: inherit; min-height: 2.6rem; padding: 0 .75rem; border: 1px solid
 .detail-hero .action-row .button, .detail-hero .form-actions .button { margin-top: 0; width: auto; }
 
 .execution-form select { width: 100%; max-width: 100%; min-width: 0; }
+.claim-holder-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; color: #777168; font-size: .9rem; font-variant-numeric: tabular-nums; } .claim-holder-toolbar .secondary-button { margin: 0; }
+.claim-holder-group h3 { margin: 1.25rem 0 0; font-size: 1rem; font-variant-numeric: tabular-nums; } .claim-holder-group .outcome-list { margin-top: .6rem; padding-left: 0; } .claim-holder-group small { font-variant-numeric: tabular-nums; }
+.claim-holder-agent { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; font-weight: 700; overflow-wrap: anywhere; }
+.claim-holder-stale { margin: 1rem 0 0; padding: .75rem 1rem; border: 1px solid #d89481; border-radius: .7rem; color: #872f1d; background: #fff0eb; } .claim-holder-reclaimable { margin: 1rem 0 0; color: #5c564e; }

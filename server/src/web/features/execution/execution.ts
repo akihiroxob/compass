@@ -274,3 +274,46 @@ export const outcomeLoopStage = (input: { storyCount: number; record: OutcomeExe
   if (input.storyCount > 0) return { stage: "not_reflected", label: "Execution中（結果は未還流）" };
   return { stage: "not_connected", label: "Execution未接続（Storyがありません）" };
 };
+
+// ---- Project詳細の「Claim保持中」（Task 02）。期限内のClaimを持つTaskを状態ごとにまとめ、期限切れは再取得待ちとして分ける。 ----
+
+/** Claimを保持し得るTask状態（作業・レビュー・受入）。表示の順でもある。 */
+export const claimHolderStatuses = ["doing", "in_review", "wait_accept"] as const satisfies readonly TaskStatus[];
+export type ClaimHolderStatus = (typeof claimHolderStatuses)[number];
+export type ClaimHolderGroup = { status: ClaimHolderStatus; tasks: (ExecutionTask & { activeClaim: NonNullable<ExecutionTask["activeClaim"]> })[] };
+export type ClaimHolders = { groups: ClaimHolderGroup[]; reclaimableCount: number };
+
+/**
+ * Claim保持中のTaskの集約。`now`（取得時刻以降）で期限を過ぎたClaimは保持中に含めず、`doing`なら再取得待ちとして数える
+ * （serverの`reclaimable`と同じ判定を、表示中に期限が過ぎた場合にも適用する）。グループは期限の近い順で、空のグループは省く。
+ */
+export const summarizeClaimHolders = (tasks: readonly ExecutionTask[], now: number): ClaimHolders => {
+  const groups = claimHolderStatuses.map((status): ClaimHolderGroup => ({ status, tasks: [] }));
+  let reclaimableCount = 0;
+  for (const task of tasks) {
+    const held = task.activeClaim !== null && task.activeClaim.expiresAt > now;
+    if (!held) {
+      if (task.status === "doing" && (task.reclaimable || task.activeClaim !== null)) reclaimableCount += 1;
+      continue;
+    }
+    groups.find((group) => group.status === task.status)?.tasks.push(task as ClaimHolderGroup["tasks"][number]);
+  }
+  for (const group of groups) group.tasks.sort((a, b) => a.activeClaim.expiresAt - b.activeClaim.expiresAt);
+  return { groups: groups.filter((group) => group.tasks.length > 0), reclaimableCount };
+};
+
+/** Claim期限の相対表示（`now`時点）。秒単位のカウントダウンはしない。 */
+export const formatClaimExpiry = (expiresAt: number, now: number): string => {
+  const minutes = Math.floor((expiresAt - now) / 60_000);
+  if (expiresAt <= now) return "期限切れ";
+  if (minutes < 1) return "あと1分未満";
+  if (minutes < 60) return `あと${minutes}分`;
+  const hours = Math.floor(minutes / 60);
+  return minutes % 60 ? `あと${hours}時間${minutes % 60}分` : `あと${hours}時間`;
+};
+
+/** 保持中のClaimで最も早い期限。表示中に期限を過ぎたら再読込を促すために使う。 */
+export const earliestClaimExpiry = ({ groups }: ClaimHolders): number | null => {
+  const expiries = groups.flatMap((group) => group.tasks.map((task) => task.activeClaim.expiresAt));
+  return expiries.length ? Math.min(...expiries) : null;
+};
