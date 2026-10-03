@@ -2,7 +2,7 @@
 
 ## 目的
 
-この文書は、Compass の MCP における Principal と Project Role の共通運用を定義する。Role ごとの手順は `agent/<role>.md` を正とする。設計の詳細は `docs/step-4-strategist-role-design.md`（Direction）と `docs/lv6-unification-design.md`（Direction と Execution の境界）を参照する。
+この文書は、Compass の MCP における Principal と Project Role の共通運用を定義する。Role ごとの責務は `roles/<role>.md`、再利用する作業手順は `skills/<name>.md`、Agent System 共通の知識は `knowledge/` を正とする。これらは Git 管理の構成資産で、Agent は MCP から必要時に取得する。設計の詳細は `docs/step-4-strategist-role-design.md`（Direction）と `docs/lv6-unification-design.md`（Direction と Execution の境界）を参照する。
 
 現在配信している Role は次のとおり。
 
@@ -38,6 +38,9 @@ Execution（Story / Task / Claim / Comment / Change Log）は旧 Wacha から移
 - trusted-local mode（明示設定の local 開発用）だけは、Bearer の値がそのまま Principal になる。秘密の検証はなく、セキュリティ境界ではない
 - `Authorization` が有るのに形式が不正な場合、`/mcp` は HTTP `401` で拒否する。anonymous へ黙って降格しない
 - `get_role_instructions` は静的な文書の取得であり、Bearer も Grant も要らない
+- `list_skills` / `get_skill_context` も静的な文書の取得で Grant は要らない（remote mode では有効な Credential が要る）。Skill は手順であり、認可を担わない。Role と Skill の対応は Role Definition の `skills` だけで表す
+- `get_role_context` は Project 情報を含むため、要求した Role の Grant が要る（`X-Compass-Active-Role` の指定時は同じ Role に限る）
+- Role Context は Role・Policy・Skill metadata・Project 情報だけを返す。Skill 本文と requiredKnowledge は作業に入るときに `get_skill_context` で取得する。`unavailable` に挙がった入力は推測で補わない。`source.revision` は資産を読んだ Git commit で、`source.dirty` が true なら未 commit の変更を含む
 
 ## エラー
 
@@ -47,7 +50,7 @@ Execution（Story / Task / Claim / Comment / Change Log）は旧 Wacha から移
 | `FORBIDDEN` | 対象 Project の Grant が無い（別 Project・取消済み・存在しない Project を区別しない） | 権限の自己拡張を試みず、報告して停止する |
 | `VALIDATION_ERROR` | 入力が規則に反する（Direction の tool） | `issues` を読んで入力を直す |
 | `NOT_FOUND` / `CONFLICT` | 対象が無い、または現在の状態で許されない（archived な Project への新しい活動を含む） | 状態を再取得して判断する |
-| `INSTRUCTION_UNAVAILABLE` | Instruction ファイルを読めない | 推測で代替せず、報告して停止する |
+| `INSTRUCTION_UNAVAILABLE` | Role・Policy・Skill・Knowledge のファイルを読めない、または形式が不正 | 推測で代替せず、報告して停止する |
 
 Execution の tool は旧 Wacha の契約を維持し、エラーを `{ error: { code, message, retryable } }` で返す（本文は `CODE: message`）。
 
@@ -95,6 +98,6 @@ Direction（Grant・Project・Intent・Outcome）の変更は、保存された 
 
 Execution の Story / Task / Claim の重要な変更は、追記専用の Change Log に保存される。`list_changes({ projectId, afterCursor?, limit? })` で、耐久的な cursor 以降の差分を取得する。`nextCursor` を次の `afterCursor` に渡す。cursor は利用側（Console・外部 Runtime）が保持する。Compass は配送や既読を管理せず、Runtime のプロセス生存・polling・retry も管理しない。
 
-Change Log から Direction への結果の還流（`record_execution_evidence`）は Runtime が行う（`agent/runtime.md`）。Story・Task の変更は、Outcome に相関付く場合 `outcomeId` / `correlationId` を持つ。
+Change Log から Direction への結果の還流（`record_execution_evidence`）は Runtime が行う（`roles/runtime.md`）。Story・Task の変更は、Outcome に相関付く場合 `outcomeId` / `correlationId` を持つ。
 
 Runtime 向けの起動条件（`research_requested` / `research_completed` / `outcome_confirmed` / `outcome_evaluated`）は別の仕組み（`fetch_runtime_events` / `ack_runtime_event`）で、Execution の Change Log とは用途が異なる。

@@ -14,7 +14,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createApp } from "../src/bootstrap/app.ts";
 import { createTestHuman, humanHeaders, type TestHuman } from "./support/humanSession.ts";
-import { InstructionService } from "../src/mcp/InstructionService.ts";
+import { AgentContextService } from "../src/application/agentContext/AgentContextService.ts";
+import { FileAgentAssetRepository } from "../src/infrastructure/agentAssets/FileAgentAssetRepository.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -27,7 +28,7 @@ import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts"
 
 type ToolResult = { isError?: boolean; structuredContent?: Record<string, any>; content?: { type: string; text: string }[] };
 
-const agentRoot = new URL("../../agent/", import.meta.url);
+const assetRoot = new URL("../../", import.meta.url);
 const publicIndex = new URL("../public/index.html", import.meta.url);
 const cliEntry = fileURLToPath(new URL("../src/cli/main.ts", import.meta.url));
 const execFileAsync = promisify(execFile);
@@ -75,7 +76,7 @@ const loopbackSkip = loopbackDenial ? `127.0.0.1へのlistenが拒否された�
 const withEnvironment = async (
   run: (environment: {
     path: string;
-    start: (instructionService?: InstructionService, port?: number) => Promise<Running & { stop: () => Promise<void> }>;
+    start: (agentContextService?: AgentContextService, port?: number) => Promise<Running & { stop: () => Promise<void> }>;
     cli: (...args: string[]) => Promise<{ code: number; stdout: string; stderr: string }>;
   }) => Promise<void>,
 ) => {
@@ -85,11 +86,11 @@ const withEnvironment = async (
   try {
     await run({
       path,
-      start: async (instructionService, port) => {
+      start: async (agentContextService, port) => {
         const database = createDatabase(path);
         await initializeSchema(database);
         signedIn = await createTestHuman(database, { email: "tester@example.com" });
-        const running = await listen(createApp(createApplicationServices(database, instructionService)), port);
+        const running = await listen(createApp(createApplicationServices(database, agentContextService)), port);
         const stop = async () => {
           await running.close();
           await database.destroy();
@@ -178,8 +179,8 @@ test("空DBから、API（Project・Intent）→ CLI（Grant）→ MCP（Instruc
       assert.equal(instructions.isError, undefined);
       const files = instructions.structuredContent?.files as { path: string; kind: string; content: string }[];
       assert.deepEqual(files.map((file) => [file.path, file.kind]), [
-        ["agent/role-policy.md", "shared"],
-        ["agent/strategist.md", "role"],
+        ["policies/role-policy.md", "shared"],
+        ["roles/strategist.md", "role"],
       ]);
 
       // Context: Project・Active Intent・（まだ無い）Outcome。未実装の入力は unavailable で明示される。
@@ -241,7 +242,7 @@ test("Grantは API・CLI のどちらでも発行でき、MCPにはGrant管理to
     // MCPからGrantを発行・取消・一覧するtoolは公開されず、呼んでも権限は増えない。
     await withAgent(server.baseUrl, "self-grant", async (client) => {
       const names = (await client.listTools()).tools.map((tool) => tool.name);
-      assert.equal(names.filter((name) => name !== "get_role_instructions" && /grant|role/i.test(name)).length, 0);
+      assert.equal(names.filter((name) => !["get_role_instructions", "get_role_context"].includes(name) && /grant|role/i.test(name)).length, 0);
       const attempt = await client
         .callTool({ name: "grant_project_role", arguments: { projectId, principalId: "self-grant", role: "strategist" } })
         .then((result) => result as ToolResult, () => ({ isError: true }) as ToolResult);
@@ -254,7 +255,7 @@ test("Grantは API・CLI のどちらでも発行でき、MCPにはGrant管理to
   });
 });
 
-test("get_role_instructionsの応答はWacha互換（role・includeShared・files[{path, kind, content}]）で、内容はagent/の文書と一致する", { skip: loopbackSkip }, async () => {
+test("get_role_instructionsの応答はWacha互換（role・includeShared・files[{path, kind, content}]）で、内容はroles/・policies/の文書と一致する", { skip: loopbackSkip }, async () => {
   await withEnvironment(async ({ start }) => {
     const server = await start();
     await withAgent(server.baseUrl, undefined, async (client) => {
@@ -272,7 +273,7 @@ test("get_role_instructionsの応答はWacha互換（role・includeShared・file
         assert.equal(typeof file.content, "string");
         assert.ok(file.content.length > 0);
         // pathはrepo相対で、内容は実ファイルと一致する。
-        assert.equal(file.content, await readFile(new URL(file.path.replace(/^agent\//, ""), agentRoot), "utf-8"));
+        assert.equal(file.content, await readFile(new URL(file.path, assetRoot), "utf-8"));
       }
       assert.deepEqual(value.files.map((file: { kind: string }) => file.kind), ["shared", "role"]);
       // text contentも同じJSON（structuredContent非対応のclientでも読める）。
@@ -282,7 +283,7 @@ test("get_role_instructionsの応答はWacha互換（role・includeShared・file
       for (const args of [{ role: "strategist" }, { role: "strategist", includeShared: false }]) {
         const roleOnly = (await call(client, "get_role_instructions", args)).structuredContent as Record<string, any>;
         assert.equal(roleOnly.includeShared, false);
-        assert.deepEqual(roleOnly.files.map((file: { path: string; kind: string }) => [file.path, file.kind]), [["agent/strategist.md", "role"]]);
+        assert.deepEqual(roleOnly.files.map((file: { path: string; kind: string }) => [file.path, file.kind]), [["roles/strategist.md", "role"]]);
       }
     });
     await server.stop();
@@ -348,7 +349,7 @@ test("Instructionファイルが欠落するとINSTRUCTION_UNAVAILABLEで失敗�
   const empty = await mkdtemp(join(tmpdir(), "compass-agent-missing-"));
   try {
     await withEnvironment(async ({ start, cli }) => {
-      const server = await start(new InstructionService(empty));
+      const server = await start(new AgentContextService(new FileAgentAssetRepository(empty)));
       const projectId = await createProject(server.baseUrl);
       const intentId = await createIntent(server.baseUrl, projectId);
       await cli("grant", projectId, "strat-1", "strategist");
@@ -357,7 +358,7 @@ test("Instructionファイルが欠落するとINSTRUCTION_UNAVAILABLEで失敗�
         for (const includeShared of [true, false]) {
           const result = await call(client, "get_role_instructions", { role: "strategist", includeShared });
           assert.equal(errorCode(result), "INSTRUCTION_UNAVAILABLE");
-          assert.match(result.structuredContent?.error.message, /agent\/(strategist|role-policy)\.md/);
+          assert.match(result.structuredContent?.error.message, /(roles\/strategist|policies\/role-policy)\.md/);
           assert.equal(result.structuredContent?.files, undefined);
         }
         // Instructionの欠落はGrant・Contextの経路を壊さない。

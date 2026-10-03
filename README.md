@@ -9,7 +9,7 @@ Projectの方向と実行を管理するアプリケーションです。Human�
 - [現在の実装状況](docs/implementation-status.md)
 - [Wacha向け移行計画](docs/architecture-migration-plan.md)
 
-以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/direction`・`packages/work`・`packages/access`・`packages/shared`の業務コードを配線します。`orchestrator/`・`ralph/`、Activity、Role / Skill Context APIへの移行は未実施です。`manager`の名前は維持します。実装変更はWacha経由で行います。
+以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/direction`・`packages/work`・`packages/access`・`packages/shared`の業務コードを配線します。`orchestrator/`・`ralph/`、Activityへの移行は未実施です。`manager`の名前は維持します。実装変更はWacha経由で行います。
 
 ## 起動
 
@@ -73,6 +73,8 @@ export COMPASS_AGENT_TOKEN="cmp_agent.<id>.<secret>"
 MCP endpointは`http://localhost:51800/mcp`、認証headerは`Authorization: Bearer <token>`です。`COMPASS_AGENT_TOKEN`はclient側の環境変数で、serverは読みません。tokenを設定ファイルへ直書きせず、clientが環境変数から読み込むよう設定してください。
 
 現在のRoleは`strategist` / `researcher` / `manager` / `worker` / `reviewer` / `evaluator`。`get_role_instructions({ role, includeShared: true })`でInstructionを取得できます。Grant発行だけではAgentは起動しません。
+
+Role・Skill・Knowledge・Policyはrepo直下の`roles/`・`skills/`・`knowledge/`・`policies/`にGit管理し、MCPから必要時に取得します。起動時は`get_role_context({ projectId, role })`（そのRoleのGrantが必要）でRole Definition・共通Policy・Roleがfrontmatterの`skills`で参照するSkillのmetadata・Project情報を取得し、作業に入るときに`get_skill_context({ name })`でSkill本文とrequiredKnowledgeを取得します。`list_skills`はmetadataの一覧です。応答の`source.revision`は資産を読んだGit commit、`source.dirty`は未commit変更の有無です。Skillは認可を担わず、Roleとの対応はRole Definitionの`skills`だけで表します。Activity summaryは未接続で、Role Contextの`unavailable`に`activity`を返します。
 
 1回の実行で使うRoleは`X-Compass-Active-Role: <role>` headerで固定できます（MCP・Runtime向けAPI）。指定時はそのRoleのGrantだけで認可し、同じAgent名の他Grantは合算しません。trusted-local modeでも、指定時はProject参照・一覧（`get_project`・`list_projects`等）がそのRoleのGrantを持つProjectに限られます。Agent名（Bearer）なしでの指定はProject scopeのtool（Project参照・`update_project`・Intent管理・Work操作等）で`UNAUTHENTICATED`です。ただしtrusted-localの`create_project`はProject作成前の操作でGrantの対象外のため、activeRoleの指定に関係なく実行できます。Grantの無いRole・別Roleのtoolは`FORBIDDEN`、未知の値は400です。同じ`requestId`を別のactiveRoleで再送すると`IDEMPOTENCY_CONFLICT`になります。headerなしは従来どおり操作ごとに必要Roleを検査します。Worker / Reviewerは別Agent名・別Credentialで接続し、Role切替で自己レビュー・自己受入禁止を回避できません。
 

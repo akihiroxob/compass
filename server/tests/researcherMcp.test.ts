@@ -417,12 +417,12 @@ test("get_role_instructionsはresearcherを既存と同じ応答形式で返し�
   assert.deepEqual(
     result.files.map((file: any) => [file.path, file.kind, Object.keys(file).sort().join()]),
     [
-      ["agent/role-policy.md", "shared", "content,kind,path"],
-      ["agent/researcher.md", "role", "content,kind,path"],
+      ["policies/role-policy.md", "shared", "content,kind,path"],
+      ["roles/researcher.md", "role", "content,kind,path"],
     ],
   );
   const content: string = result.files[1].content;
-  assert.equal(content, await readFile(new URL("../../agent/researcher.md", import.meta.url), "utf-8"));
+  assert.equal(content, await readFile(new URL("../../roles/researcher.md", import.meta.url), "utf-8"));
   assert.ok(result.files[0].content.includes("`researcher`"));
 
   for (const section of ["Goal", "対象 Request の決定", "Input", "判断権限", "実行手順", "来歴と再送", "Output", "Allowed", "Forbidden", "Role の意味", "エラー"]) {

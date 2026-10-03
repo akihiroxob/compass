@@ -1,8 +1,9 @@
+/** Role・Policy・Skill・Knowledgeの構成資産を読めない・形式が不正。部分的な応答を返さずに失敗させる。 */
 export class InstructionUnavailableError extends Error {
   readonly code = "INSTRUCTION_UNAVAILABLE";
 
   constructor(
-    /** 読めなかったInstructionのrepo相対path（例: agent/strategist.md）。 */
+    /** 読めなかった構成資産のrepo相対path（例: roles/strategist.md）。 */
     readonly path: string,
     reason: string,
   ) {

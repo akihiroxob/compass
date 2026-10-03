@@ -10,9 +10,9 @@ MCPの専用toolはapplication層で必要なRoleを検査する。remote mode�
 
 ## ContextとInstruction
 
-`get_strategist_context`はProject・Intent・Outcome・判断材料を返す。`get_role_instructions({ role, includeShared })`は現在の`agent/<role>.md`を読み、`includeShared`指定時は`agent/role-policy.md`も返す。静的Instructionは認可の強制手段ではない。
+`get_strategist_context`はProject・Intent・Outcome・判断材料を返す。`get_role_instructions({ role, includeShared })`は現在の`roles/<role>.md`を読み、`includeShared`指定時は`policies/role-policy.md`も返す。静的Instructionは認可の強制手段ではない。
 
-`agent/`は実行時に配信される構成資産なので、変更はWachaの実装Taskで行う。今回の文書整理では変更しない。
+`roles/`・`policies/`・`skills/`・`knowledge/`は実行時に配信される構成資産なので、変更はWachaの実装Taskで行う。
 
 ## 確定した移行先
 

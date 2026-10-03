@@ -588,7 +588,7 @@ test("get_role_instructionsはruntime Roleの文書を返し、Grantはruntime�
   const { database, services, app } = await setup();
   const { project } = await seed(services);
   const result = (await callTool(app, "get_role_instructions", { role: "runtime", includeShared: true })).structuredContent;
-  assert.deepEqual(result.files.map(({ path }: { path: string }) => path), ["agent/role-policy.md", "agent/runtime.md"]);
+  assert.deepEqual(result.files.map(({ path }: { path: string }) => path), ["policies/role-policy.md", "roles/runtime.md"]);
   assert.ok(result.files[1].content.includes("# Runtime Role"));
   const grant = await api(app, "POST", `/api/projects/${project.id}/grants`, undefined, { principalId: "runtime-a", role: "runtime" });
   assert.equal(grant.status, 201);

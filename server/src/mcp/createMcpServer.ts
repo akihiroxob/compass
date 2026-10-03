@@ -5,6 +5,7 @@ import { agentPrincipalOf, ProjectRole, projectRoles, type Caller } from "@compa
 import type { AuthMode } from "../auth/humanAuthConfig.ts";
 import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
 import { registerExecutionTools } from "./registerExecutionTools.ts";
+import { skillStatuses } from "../application/agentContext/AgentAssets.ts";
 import { execute } from "./toolExecution.ts";
 
 const nullableText = (maximum: number) => z.string().max(maximum).nullable().optional();
@@ -250,11 +251,11 @@ export const createMcpServer = (
       {
         title: "Get Role Instructions",
         description:
-          "Get operational instructions for a Project Role. With includeShared=true the shared agent/role-policy.md is returned first. " +
+          "Get operational instructions for a Project Role (roles/<role>.md as-is). With includeShared=true the shared policies/role-policy.md is returned first. " +
           "No Authorization is required. Fails with INSTRUCTION_UNAVAILABLE if an instruction file cannot be read.",
         inputSchema: { role: z.enum(projectRoles), includeShared: z.boolean().optional() },
       },
-      ({ role, includeShared }) => execute(() => services.instructionService.getRoleInstructions(role, includeShared)),
+      ({ role, includeShared }) => execute(() => services.agentContextService.getRoleInstructions(role, includeShared)),
     );
   // remote modeの匿名呼出しはRole文書以外を登録しない（未知toolとして拒否）。Credentialの検証はapp（resolveCaller）が行う。
   if (remote && caller === null) {
@@ -373,6 +374,49 @@ export const createMcpServer = (
   );
 
   registerRoleInstructions();
+  // Role Context（Progressive Disclosure）。起動時はRole・Policy・Skill metadataとProject情報だけを返し、Skill本文はJITで取得させる。
+  server.registerTool(
+    "get_role_context",
+    {
+      title: "Get Role Context",
+      description:
+        "Get what an Agent needs when it starts in a Role: the Role Definition (roles/<role>.md without frontmatter) and the Skill names it uses, " +
+        "the shared Policies, metadata of those Skills (name, description, status, version, requiredKnowledge, namespaced requiredTools; " +
+        "no Skill body), the Project's basic information (Mission, Vision, Principles, Constraints, status) and Project Resources " +
+        "(repositories, resources). Fetch a Skill body and its requiredKnowledge with get_skill_context only when the work needs it, " +
+        "and read Project documents from their Repository / Docs. unavailable lists inputs that are not connected yet " +
+        "(activity: recent Activity summary); do not assume or invent them. source.revision is the Git commit the Role, Policy and Skill " +
+        "files were read from (source.dirty=true means uncommitted changes; null when not available). Does not replace " +
+        "get_strategist_context / get_researcher_context / get_evaluator_context. Requires Authorization: Bearer <AgentName> with a Grant " +
+        "of the requested role in the Project (with X-Compass-Active-Role it must be the same role); UNAUTHENTICATED / FORBIDDEN otherwise. " +
+        "Fails with INSTRUCTION_UNAVAILABLE if a Role, Policy or Skill file cannot be read.",
+      inputSchema: { projectId: z.string().min(1), role: z.enum(projectRoles) },
+    },
+    ({ projectId, role }) => execute(() => services.getRoleContextUseCase.execute(principal, projectId, role)),
+  );
+  // Skillは認可を担わない静的な手順書。Roleとの対応はRole Definitionのskillsだけで表す。
+  server.registerTool(
+    "list_skills",
+    {
+      title: "List Skills",
+      description:
+        "List Skill metadata (no body) sorted by name, with source (Git revision). role narrows to the Skills referenced by roles/<role>.md; " +
+        "it is not an authorization check. Fails with INSTRUCTION_UNAVAILABLE if a Skill file cannot be read.",
+      inputSchema: { status: z.enum(skillStatuses).optional(), role: z.enum(projectRoles).optional() },
+    },
+    ({ status, role }) => execute(() => services.agentContextService.listSkills({ status, role })),
+  );
+  server.registerTool(
+    "get_skill_context",
+    {
+      title: "Get Skill Context",
+      description:
+        "Get a Skill body and the content of its requiredKnowledge (knowledge/<path>), with source (Git revision). " +
+        "NOT_FOUND for an unknown Skill; INSTRUCTION_UNAVAILABLE if the Skill or a required Knowledge file cannot be read.",
+      inputSchema: { name: z.string().min(1) },
+    },
+    ({ name }) => execute(() => services.agentContextService.getSkillContext(name)),
+  );
   server.registerTool(
     "get_strategist_context",
     {

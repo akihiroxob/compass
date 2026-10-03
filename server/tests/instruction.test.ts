@@ -1,22 +1,23 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp } from "./support/humanSession.ts";
-import { InstructionUnavailableError } from "../src/mcp/InstructionUnavailableError.ts";
-import { InstructionService } from "../src/mcp/InstructionService.ts";
+import { AgentContextService } from "../src/application/agentContext/AgentContextService.ts";
+import { InstructionUnavailableError } from "../src/application/agentContext/InstructionUnavailableError.ts";
+import { FileAgentAssetRepository } from "../src/infrastructure/agentAssets/FileAgentAssetRepository.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 
 type ToolResult = { isError?: boolean; structuredContent: Record<string, any> };
 
-const setup = async (instructionService?: InstructionService) => {
+const setup = async (agentContextService?: AgentContextService) => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
-  return { database, app: await createSignedInApp(database, createApplicationServices(database, instructionService)) };
+  return { database, app: await createSignedInApp(database, createApplicationServices(database, agentContextService)) };
 };
 
 const rpc = async (app: ReturnType<typeof createApp>, method: string, params: object, authorization?: string) => {
@@ -39,36 +40,41 @@ const getInstructions = async (app: ReturnType<typeof createApp>, args: object, 
   (await rpc(app, "tools/call", { name: "get_role_instructions", arguments: args }, authorization))
     .result as ToolResult;
 
-/** 一時的なagentディレクトリ。欠落時の挙動を、実際のagent/を壊さずに確認する。 */
+/** 一時的な構成資産のroot（roles/・policies/）。欠落時の挙動を、実際の資産を壊さずに確認する。 */
 const withAgentDir = async (files: Record<string, string>, run: (root: string) => Promise<void>) => {
   const root = await mkdtemp(join(tmpdir(), "compass-agent-"));
   try {
-    await mkdir(root, { recursive: true });
-    for (const [name, content] of Object.entries(files)) await writeFile(join(root, name), content);
+    for (const [name, content] of Object.entries(files)) {
+      await mkdir(dirname(join(root, name)), { recursive: true });
+      await writeFile(join(root, name), content);
+    }
     await run(root);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 };
 
-test("InstructionServiceはrole-policyとRole名からagent/<name>.mdを読む", async () => {
-  const service = new InstructionService();
-  const policy = await service.getInstructionContent("role-policy");
-  assert.equal(policy, await readFile(new URL("../../agent/role-policy.md", import.meta.url), "utf-8"));
+const defaultService = () => new AgentContextService(new FileAgentAssetRepository());
+const serviceAt = (root: string) => new AgentContextService(new FileAgentAssetRepository(root));
+
+test("FileAgentAssetRepositoryはpolicies/role-policy.mdとroles/<role>.mdを読む", async () => {
+  const repository = new FileAgentAssetRepository();
+  const policy = (await repository.getPolicy("role-policy")).content;
+  assert.equal(policy, await readFile(new URL("../../policies/role-policy.md", import.meta.url), "utf-8"));
   assert.ok(policy.includes("# Role Policy"));
-  const strategist = await service.getInstructionContent("strategist");
-  assert.equal(strategist, await readFile(new URL("../../agent/strategist.md", import.meta.url), "utf-8"));
+  const strategist = (await repository.getRole("strategist")).raw;
+  assert.equal(strategist, await readFile(new URL("../../roles/strategist.md", import.meta.url), "utf-8"));
   assert.ok(strategist.includes("# Strategist Role"));
 });
 
-test("InstructionServiceはincludeSharedのときだけsharedを先頭に含める", async () => {
-  const service = new InstructionService();
+test("get_role_instructionsのserviceはincludeSharedのときだけsharedを先頭に含める", async () => {
+  const service = defaultService();
   const withShared = await service.getRoleInstructions("strategist", true);
   assert.deepEqual(
     withShared.files.map((file) => [file.path, file.kind]),
     [
-      ["agent/role-policy.md", "shared"],
-      ["agent/strategist.md", "role"],
+      ["policies/role-policy.md", "shared"],
+      ["roles/strategist.md", "role"],
     ],
   );
   for (const omitted of [undefined, false]) {
@@ -76,36 +82,36 @@ test("InstructionServiceはincludeSharedのときだけsharedを先頭に含め�
     assert.equal(roleOnly.includeShared, false);
     assert.deepEqual(
       roleOnly.files.map((file) => [file.path, file.kind]),
-      [["agent/strategist.md", "role"]],
+      [["roles/strategist.md", "role"]],
     );
   }
 });
 
 test("Instructionファイルが無い・読めない場合はpath入りのINSTRUCTION_UNAVAILABLEで失敗し、部分的な応答を返さない", async () => {
-  await withAgentDir({ "role-policy.md": "# Role Policy" }, async (root) => {
-    const service = new InstructionService(root);
+  await withAgentDir({ "policies/role-policy.md": "# Role Policy" }, async (root) => {
+    const service = serviceAt(root);
     await assert.rejects(
-      () => service.getInstructionContent("strategist"),
+      () => new FileAgentAssetRepository(root).getRole("strategist"),
       (error) =>
         error instanceof InstructionUnavailableError &&
         error.code === "INSTRUCTION_UNAVAILABLE" &&
-        error.path === "agent/strategist.md" &&
-        error.message.includes("agent/strategist.md"),
+        error.path === "roles/strategist.md" &&
+        error.message.includes("roles/strategist.md"),
     );
     await assert.rejects(() => service.getRoleInstructions("strategist", true), InstructionUnavailableError);
   });
-  await withAgentDir({ "strategist.md": "# Strategist Role" }, async (root) => {
+  await withAgentDir({ "roles/strategist.md": "# Strategist Role" }, async (root) => {
     await assert.rejects(
-      () => new InstructionService(root).getRoleInstructions("strategist", true),
-      (error) => error instanceof InstructionUnavailableError && error.path === "agent/role-policy.md",
+      () => serviceAt(root).getRoleInstructions("strategist", true),
+      (error) => error instanceof InstructionUnavailableError && error.path === "policies/role-policy.md",
     );
   });
 });
 
-test("列挙外のInstruction名はagent外のfileを読まずに拒否する", async () => {
-  const service = new InstructionService();
+test("列挙外のRole名はroles外のfileを読まずに拒否する", async () => {
+  const repository = new FileAgentAssetRepository();
   for (const name of ["../package", "admin", "strategist/../role-policy", ""]) {
-    await assert.rejects(() => service.getInstructionContent(name as never), InstructionUnavailableError, name);
+    await assert.rejects(() => repository.getRole(name as never), InstructionUnavailableError, name);
   }
 });
 
@@ -122,12 +128,12 @@ test("get_role_instructionsはBearerなしでもWacha互換の形で返す", asy
   assert.deepEqual(
     value.files.map((file: { path: string; kind: string }) => [file.path, file.kind]),
     [
-      ["agent/role-policy.md", "shared"],
-      ["agent/strategist.md", "role"],
+      ["policies/role-policy.md", "shared"],
+      ["roles/strategist.md", "role"],
     ],
   );
-  assert.equal(value.files[0].content, await readFile(new URL("../../agent/role-policy.md", import.meta.url), "utf-8"));
-  assert.equal(value.files[1].content, await readFile(new URL("../../agent/strategist.md", import.meta.url), "utf-8"));
+  assert.equal(value.files[0].content, await readFile(new URL("../../policies/role-policy.md", import.meta.url), "utf-8"));
+  assert.equal(value.files[1].content, await readFile(new URL("../../roles/strategist.md", import.meta.url), "utf-8"));
 
   // Bearer付き・Grantなしでも同じ応答。
   const withBearer = await getInstructions(app, { role: "strategist", includeShared: true }, "Bearer nobody");
@@ -139,7 +145,7 @@ test("get_role_instructionsはBearerなしでもWacha互換の形で返す", asy
     assert.equal(roleOnly.includeShared, false);
     assert.deepEqual(
       roleOnly.files.map((file: { path: string; kind: string }) => [file.path, file.kind]),
-      [["agent/strategist.md", "role"]],
+      [["roles/strategist.md", "role"]],
     );
   }
   await database.destroy();
@@ -155,12 +161,12 @@ test("get_role_instructionsはenum外のroleを入力検証で拒否する", asy
 });
 
 test("get_role_instructionsはファイル欠落をpath入りのINSTRUCTION_UNAVAILABLE（isError）で返す", async () => {
-  await withAgentDir({ "role-policy.md": "# Role Policy" }, async (root) => {
-    const { database, app } = await setup(new InstructionService(root));
+  await withAgentDir({ "policies/role-policy.md": "# Role Policy" }, async (root) => {
+    const { database, app } = await setup(serviceAt(root));
     const result = await getInstructions(app, { role: "strategist", includeShared: true });
     assert.equal(result.isError, true);
     assert.equal(result.structuredContent.error.code, "INSTRUCTION_UNAVAILABLE");
-    assert.ok(result.structuredContent.error.message.includes("agent/strategist.md"));
+    assert.ok(result.structuredContent.error.message.includes("roles/strategist.md"));
     assert.equal(result.structuredContent.files, undefined);
     await database.destroy();
   });
@@ -209,7 +215,7 @@ test("strategist.mdは必須の節を持ち、記載したtool名がすべてtoo
 });
 
 test("Instructionは人による確認・承認を工程や取得条件にせず、通常フローに置かないと明記する", async () => {
-  const { files } = await new InstructionService().getRoleInstructions("strategist", true);
+  const { files } = await defaultService().getRoleInstructions("strategist", true);
   // 「待たない」「置かない」の否定文は許すため、工程化する肯定形の言い回しだけを検査する。
   const gatePhrasesToAvoid = ["承認を待つ", "承認を得てから", "承認後に", "確認を求めて待つ", "人に確認してから", "画面で確認してから"];
   for (const file of files) {

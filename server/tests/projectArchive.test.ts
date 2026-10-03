@@ -468,7 +468,7 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       "abandon_intent", "ack_runtime_event", "cancel_outcome", "complete_research_request", "create_adr_handoff_request",
       "create_direction_decision", "create_intent",
       "create_outcome", "create_project", "decide_next_outcome", "fetch_runtime_events",
-      "get_intent", "get_outcome", "get_project", "get_research_request", "get_researcher_context", "get_role_instructions",
+      "get_intent", "get_outcome", "get_project", "get_research_request", "get_researcher_context", "get_role_instructions", "get_role_context", "list_skills", "get_skill_context",
       "get_outcome_execution_summary", "get_evaluator_context", "record_outcome_evaluation", "get_strategist_context", "list_adr_references", "list_intents", "list_outcomes", "list_projects",
       "list_research_requests", "record_adr_reference",
       "record_execution_evidence", "register_research_result", "register_research_synthesis", "update_intent", "update_outcome", "update_project",

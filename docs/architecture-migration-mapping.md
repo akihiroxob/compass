@@ -64,10 +64,10 @@ Domain層はReact・Hono・MCP SDK・Kyselyを直接importしていない（V3�
 - 同一portの`/`（Web UI）・`/api`・`/mcp`・`/health`・`/auth/*`。
 - 環境変数: `PORT`・`COMPASS_DB_PATH`・`COMPASS_HOST`・`COMPASS_AUTH_MODE`・`COMPASS_PUBLIC_ORIGIN`・`COMPASS_GOOGLE_CLIENT_ID`・`COMPASS_GOOGLE_CLIENT_SECRET`・`COMPASS_INITIAL_OWNER_EMAIL`・`COMPASS_REGISTRATION_MODE`・`COMPASS_CLAIM_TTL_MS`。起動ディレクトリの`.env`読込。
 - HTTP API: `app.ts`・`registerHumanAuthRoutes.ts`のroute・status・error形式（`{ error: { code, message } }`）。
-- MCP: `createMcpServer.ts`の33 tool（`get_role_instructions`を含む）・`registerExecutionTools.ts`の21 toolの名前・入力・`structuredContent`・error形式（`CoordinationError`の`retryable`を含む）。remote modeの匿名呼出しは`get_role_instructions`だけ。
+- MCP: `createMcpServer.ts`の36 tool（`get_role_instructions`と06で追加した`get_role_context`・`list_skills`・`get_skill_context`を含む）・`registerExecutionTools.ts`の21 toolの名前・入力・`structuredContent`・error形式（`CoordinationError`の`retryable`を含む）。remote modeの匿名呼出しは`get_role_instructions`だけ。
 - 認証: `Authorization: Bearer <AgentName>`（trusted-localのみ）、`cmp_` Credential、Human Session Cookie。
 - DB: 既存table・column・SQLite file。Grantの`manager`は移行後も同じ値。
-- Role文書: `get_role_instructions`の`role`・`includeShared`と`agent/role-policy.md`を先頭に返す応答。
+- Role文書: `get_role_instructions`の`role`・`includeShared`と共通Policyを先頭に返す応答。fileの`path`は06で`policies/role-policy.md`・`roles/<role>.md`へ変更した。
 
 ## 最小移行単位と検証・戻し方
 
@@ -372,7 +372,7 @@ Compassへ取り込み済みの機能は移植しない。下表は未取り込�
 
 | 参照元 | 扱い | Task・内容 |
 | --- | --- | --- |
-| `agent/manager.md`・`worker.md`・`reviewer.md`・`role-policy.md` | 取り込み済み | Compassの`agent/`が正本。Wachaから再移植しない |
+| `agent/manager.md`・`worker.md`・`reviewer.md`・`role-policy.md` | 取り込み済み | Compassの`roles/`・`policies/`が正本。Wachaから再移植しない |
 | `skill/accept-task.md`・`decompose-story.md`・`design-review.md`・`apply-knowledge-update.md` | 移植 → `skills/<name>.md` | 06。frontmatterの`allowRoles: [manager]`を除去し、`roles/manager.md`から参照する。`requiredTools`はnamespace付きに置換 |
 | `skill/implement-task.md` | 移植 → `skills/implement-task.md` | 06。`allowRoles`を除去し`roles/worker.md`から参照。`requiredTools`はnamespace付き |
 | `skill/review-task.md` | 移植 → `skills/review-task.md` | 06。`allowRoles`を除去し`roles/reviewer.md`から参照。`requiredTools`はnamespace付き |

@@ -12,12 +12,22 @@
 | Direction | Project・Intent・Outcome・固定成功条件・Research・Decision・Evaluation・ADR参照 |
 | Execution | Story・Task・Claim・Comment・Change Log・Review・Acceptance |
 | Human | Google OIDC・Web Session・Membership・招待・Web UIでの操作 |
-| Agent | Credential・Project Role Grant・`agent/`からのInstruction配信 |
+| Agent | Credential・Project Role Grant・Git管理の`roles/`・`policies/`・`skills/`・`knowledge/`からのRole / Skill Context配信 |
 | Runtime接続面 | event取得・ack、Execution Evidence還流、scope付きCredential |
 
 Research Request / Result / Finding / SynthesisとDirection Decision・Evaluationは現在DBに保存する。Intent作成はInitial Research Requestを自動生成する。保存先は内容と所有責務で個別に判断し、Project別であることや本文が長いことを理由に一律移行しない。Strategistを最初に起動するフローへの変更は未実施。
 
-現在のExecution Role名は`manager` / `worker` / `reviewer`で、統合後も維持する。`get_role_context` / `get_skill_context`は未実装。`get_role_instructions`は現在利用できる。
+現在のExecution Role名は`manager` / `worker` / `reviewer`で、統合後も維持する。
+
+## Role / Skill Contextの現行契約
+
+構成資産はrepo直下の`roles/<role>.md`（frontmatterの`skills`で使うSkillを参照）・`policies/role-policy.md`・`skills/<name>.md`（frontmatterに`requiredKnowledge`とnamespace付きの`requiredTools`。`allowRoles`は持たない）・`knowledge/`（Agent System共通知識）に置く。serverの`FileAgentAssetRepository`（infrastructure）がfileとGit revisionを読み、`AgentContextService` / `GetRoleContextUseCase`（`server/src/application/agentContext`）が配信する。
+
+- `get_role_context({ projectId, role })`: 要求RoleのGrantが必要（activeRole指定時は同じRoleに限る）。Role Definition（frontmatterを除いた本文と`skills`）・共通Policy・参照SkillのmetadataとProject基本情報・Project Resourcesを返す。Skill本文・Knowledge本文は含めない。Activity summaryは未接続で`unavailable: ["activity"]`を返す。`get_strategist_context`等のDirection集約は置き換えない
+- `list_skills({ status?, role? })`・`get_skill_context({ name })`: 静的な手順書の取得でGrantは不要（remote modeの匿名呼出しには公開しない）。`role`は認可ではなくRole Definitionの参照による絞り込み
+- 各応答の`source`は資産を読んだHEADの`revision`と、資産directoryの未commit変更の有無`dirty`（Git管理外はnull）
+- 資産の欠落・形式不正（`allowRoles`・namespaceなしのTool・未知のSkill参照・knowledge外のpath）は部分応答を返さず`INSTRUCTION_UNAVAILABLE`。未知のSkillは`NOT_FOUND`
+- `get_role_instructions`は互換のため残し、`policies/role-policy.md`（`includeShared`時に先頭）と`roles/<role>.md`をfileのまま返す
 
 ## Executionの現行契約
 
@@ -40,7 +50,8 @@ Accessは`project`のtableを直接読まない。archive判定・Projectの存�
 ## 未実装・未接続・未検証
 
 - `packages/activity`への分離、`orchestrator/` / `ralph/`は未実施。
-- 独立したActivity package・DB、Role / Skill / KnowledgeのJIT Context配信は未実装。
+- 独立したActivity package・DBは未実装。Role ContextへのActivity summaryの接続は未実施。
+- Role / Skill Contextを実行時に取得するOrchestrator / Ralphは未接続。
 - 本リポジトリには本番Orchestrator / Ralphの実装はない。Ralphの参照元は`/Users/aokayama/git/agent-foundation/ralph`。
 - 実RuntimeによるAgent起動と継続したLv6自律運転は未接続・未検証。`server/tests/support/lv6Runtime.ts`等のfixtureを自律運転の実証としない。
 - 実Googleとの接続確認は自動テストの対象外。

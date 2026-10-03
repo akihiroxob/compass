@@ -1,4 +1,6 @@
-import { InstructionService } from "../mcp/InstructionService.ts";
+import { AgentContextService } from "../application/agentContext/AgentContextService.ts";
+import { GetRoleContextUseCase } from "../application/agentContext/GetRoleContextUseCase.ts";
+import { FileAgentAssetRepository } from "../infrastructure/agentAssets/FileAgentAssetRepository.ts";
 import {
   AbandonIntentUseCase,
   AckRuntimeEventUseCase,
@@ -115,7 +117,8 @@ import {
 /** DBを開かずにUse Caseを組み立てる。containerはimport時にDBを開くため、CLIなどはこちらを使う。 */
 export const createApplicationServices = (
   applicationDatabase: Kysely<Database>,
-  instructionService: InstructionService = new InstructionService(),
+  /** Role・Policy・Skill・Knowledgeの配信。既定はrepo直下のGit管理資産を読む。 */
+  agentContextService: AgentContextService = new AgentContextService(new FileAgentAssetRepository()),
   /** Researchの期限判定・Runtime event ackの記録時刻の時刻源。テストで固定できるよう注入する。 */
   clock: () => number = Date.now,
   /**
@@ -141,6 +144,7 @@ export const createApplicationServices = (
   const projectGrantRepository = new SQLiteProjectGrantRepository(accessDatabase, accessProjectReaders, clock);
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
   const accessCredentialRepository = new SQLiteAccessCredentialRepository(accessDatabase, accessProjectReaders);
+  const getProjectUseCase = new GetProjectUseCase(projectRepository);
   // Execution（旧Wachaから移植）。同じDB・同じプロセスの中で動き、Directionの参照は読取専用ポートだけを通す。
   const workStore = new KyselyWorkStore(asWorkDatabase(applicationDatabase), workExternalReaders);
   const taskCoordinationService = new TaskCoordinationService(
@@ -214,6 +218,7 @@ export const createApplicationServices = (
         intentRepository,
         researchRepository,
       ),
+      getRoleContextUseCase: new GetRoleContextUseCase(projectAuthorization, agentContextService, getProjectUseCase),
       getStrategistContextUseCase: new GetStrategistContextUseCase(
         projectAuthorization,
         projectRepository,
@@ -226,13 +231,13 @@ export const createApplicationServices = (
     };
   };
   const services = {
-    instructionService,
+    agentContextService,
     ...roleAuthorizedServices(projectAuthorizationService, taskCoordinationService),
     createProjectUseCase: new CreateProjectUseCase(projectRepository),
     updateProjectUseCase: new UpdateProjectUseCase(projectRepository),
     archiveProjectUseCase: new ArchiveProjectUseCase(projectRepository),
     listProjectsUseCase: new ListProjectsUseCase(projectRepository),
-    getProjectUseCase: new GetProjectUseCase(projectRepository),
+    getProjectUseCase,
     createIntentUseCase: new CreateIntentUseCase(projectRepository, intentRepository),
     listIntentsUseCase: new ListIntentsUseCase(projectRepository, intentRepository),
     getIntentUseCase: new GetIntentUseCase(projectRepository, intentRepository),

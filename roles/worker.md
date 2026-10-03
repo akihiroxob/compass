@@ -1,3 +1,9 @@
+---
+skills:
+  - implement-task
+  - propose-knowledge-update
+---
+
 # Worker Role
 
 ## 目的
@@ -15,8 +21,13 @@
 - 完了時は `complete_task`、続行しない場合は `release_claim` を呼ぶ
 - Task 外の要件や新しい作業は勝手に広げず manager に返す
 
+## Context と Skill
+
+起動時に `get_role_context({ projectId, role: "worker" })` で Role Definition・共通 Policy・この Role が使う Skill の metadata・Project 情報を取得する。Skill の本文と requiredKnowledge は、その作業に入るときだけ `get_skill_context({ name })` で取得する。この Role が使う Skill は frontmatter の `skills` のとおり。Skill は手順であり、権限は Grant で決まる。
+
 ## 使用する MCP 操作
 
+- `get_role_context` / `list_skills` / `get_skill_context`
 - `list_projects` / `get_project`
 - `list_stories`
 - `list_tasks`

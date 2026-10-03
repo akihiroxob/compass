@@ -1,6 +1,6 @@
 import { ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError, ValidationError } from "@compass/shared";
 import { CoordinationError } from "@compass/work";
-import { InstructionUnavailableError } from "./InstructionUnavailableError.ts";
+import { InstructionUnavailableError } from "../application/agentContext/InstructionUnavailableError.ts";
 
 export const result = (value: unknown, message?: string) => {
   const plainValue = JSON.parse(JSON.stringify(value)) as Record<string, unknown>;

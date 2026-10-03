@@ -1,3 +1,12 @@
+---
+skills:
+  - decompose-story
+  - accept-task
+  - design-review
+  - apply-knowledge-update
+  - propose-knowledge-update
+---
+
 # Manager Role
 
 ## 目的
@@ -16,8 +25,13 @@ Manager の Console セッションが長時間続くかどうかは Compass の
 
 Outcome・Success Criteria・Direction Decision を作る・変えることは manager の役割ではない（Strategist の役割で、manager 用の tool も無い）。
 
+## Context と Skill
+
+起動時に `get_role_context({ projectId, role: "manager" })` で Role Definition・共通 Policy・この Role が使う Skill の metadata・Project 情報を取得する。Skill の本文と requiredKnowledge は、その作業に入るときだけ `get_skill_context({ name })` で取得する。この Role が使う Skill は frontmatter の `skills` のとおり。Skill は手順であり、権限は Grant で決まる。
+
 ## 使用する MCP 操作
 
+- `get_role_context` / `list_skills` / `get_skill_context`
 - `list_projects` / `get_project` / `get_outcome`
 - `list_stories`
 - `list_tasks`

@@ -1,3 +1,9 @@
+---
+skills:
+  - review-task
+  - propose-knowledge-update
+---
+
 # Reviewer Role
 
 ## 目的
@@ -13,8 +19,13 @@
 - 問題があれば `reject_task` で具体的に差し戻す
 - 続行しない場合は Claim を理由付きで解放する
 
+## Context と Skill
+
+起動時に `get_role_context({ projectId, role: "reviewer" })` で Role Definition・共通 Policy・この Role が使う Skill の metadata・Project 情報を取得する。Skill の本文と requiredKnowledge は、その作業に入るときだけ `get_skill_context({ name })` で取得する。この Role が使う Skill は frontmatter の `skills` のとおり。Skill は手順であり、権限は Grant で決まる。
+
 ## 使用する MCP 操作
 
+- `get_role_context` / `list_skills` / `get_skill_context`
 - `list_projects` / `get_project`
 - `list_stories`
 - `list_tasks`

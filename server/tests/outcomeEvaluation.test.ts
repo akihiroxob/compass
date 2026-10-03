@@ -162,7 +162,7 @@ test("EvaluatorがInstructionとContextを取得し、Criterionごとの判定�
   const { project, outcome, evidenceIds, reflected } = await seedEvaluable(kit);
 
   const instructions = ok(await callTool(kit.app, "get_role_instructions", { role: "evaluator", includeShared: true }));
-  assert.deepEqual(instructions.files.map((file: Record<string, string>) => file.path), ["agent/role-policy.md", "agent/evaluator.md"]);
+  assert.deepEqual(instructions.files.map((file: Record<string, string>) => file.path), ["policies/role-policy.md", "roles/evaluator.md"]);
   assert.match(instructions.files[1].content, /# Evaluator Role/);
 
   const context = ok(await getContext(kit.app, project.id, outcome.id));

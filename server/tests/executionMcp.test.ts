@@ -74,10 +74,9 @@ test("Direction toolsとExecution toolsが同じ/mcpから列挙され、tool名
   for (const execution of ["issue_story", "issue_task", "list_tasks", "claim_task", "claim_review", "claim_acceptance", "accept_task", "reject_task", "list_changes"]) {
     assert.ok(names.includes(execution), execution);
   }
-  // 旧Wachaの`list_projects`（Grant済みProject一覧）は移植せず、Directionの`list_projects`一つだけ。Skill系も範囲外。
+  // 旧Wachaの`list_projects`（Grant済みProject一覧）は移植せず、Directionの`list_projects`一つだけ。Skill系はRole Context配信として1つずつ。
   assert.equal(names.filter((name) => name === "list_projects").length, 1);
-  assert.equal(names.includes("list_skills"), false);
-  assert.equal(names.includes("get_skill_context"), false);
+  for (const context of ["get_role_context", "list_skills", "get_skill_context"]) assert.ok(names.includes(context), context);
   await database.destroy();
 });
 
@@ -194,7 +193,7 @@ test("manager・worker・reviewerのInstructionを既存のget_role_instructions
     const result = await callTool(app, "get_role_instructions", { role, includeShared: true });
     assert.equal(result.isError, undefined, role);
     const files = result.structuredContent.files as { path: string; kind: string; content: string }[];
-    assert.deepEqual(files.map((file) => [file.path, file.kind]), [["agent/role-policy.md", "shared"], [`agent/${role}.md`, "role"]]);
+    assert.deepEqual(files.map((file) => [file.path, file.kind]), [["policies/role-policy.md", "shared"], [`roles/${role}.md`, "role"]]);
     assert.ok(files[1]!.content.length > 200, role);
   }
   const shared = (await callTool(app, "get_role_instructions", { role: "worker", includeShared: true })).structuredContent.files[0].content as string;
