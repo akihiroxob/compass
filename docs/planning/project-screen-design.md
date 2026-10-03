@@ -103,28 +103,34 @@ Workの件数は次の区分で数え、各Taskをどれか1つに入れる。�
 | Active Intentが無い | Intentを登録 | `direction.write` | Editor以上へ依頼 |
 | Active Outcomeが無い | Outcomeを登録 | `direction.write` | Editor以上へ依頼 |
 | 期限内Claimの無い`wait_accept`のTaskがある | 受入待ちのTaskを確認（件数） | `execution.intervene` | 表示しない（「Agentの担当待ち」に出る） |
-| Active OutcomeがあるがStoryが無く、Managerが未割当 | Managerを割り当てる | `grant.manage` | Administrator以上へ依頼 |
+| Story起票待ちのOutcomeがあり、Managerが未割当 | Managerを割り当てる | `grant.manage` | Administrator以上へ依頼 |
 | 未着手・差戻し・再取得待ちのTaskがあり、Workerが未割当 | Workerを割り当てる | `grant.manage` | Administrator以上へ依頼 |
 | レビュー待ちのTaskがあり、Reviewerが未割当 | Reviewerを割り当てる | `grant.manage` | Administrator以上へ依頼 |
 | 割当済みAgentにCredentialが無い | Credentialを発行 | `credential.manage` | 表示しない（Credentialはadministratorしか参照できない） |
-| Execution結果が還流済みで未評価、かつEvaluatorが未割当 | Evaluatorを割り当てる | `grant.manage` | Administrator以上へ依頼 |
+| 評価待ちのOutcomeがあり、Evaluatorが未割当 | Evaluatorを割り当てる | `grant.manage` | Administrator以上へ依頼 |
 
 「受入待ちのTaskを確認」は「実行」viewの受入待ちTaskへ移動する。レビュー待ちのTaskはReviewerの担当とし、Humanの介入（受入・差戻し）はTask詳細の既存操作に任せて、概要では勧めない。
 
-「Agentの担当待ち」は、期限内Claimが無く、Agentが次に動く必要のあるTaskを区分ごとに件数で出す。HumanはAgentのClaimを代行できないため、ボタンにせず、状況と必要な担当Roleを文で示し、「実行」viewの該当Taskへリンクする。
+「Agentの担当待ち」は、Agentが次に動く必要のあるOutcomeとTaskを区分ごとに件数で出す。Outcomeは現在地の評価段と同じ`outcomeLoopStage`で判定し、Taskは期限内Claimの無いものを数える。Outcome handoffのStory起票（Manager）、Evaluationの記録（Evaluator）、AgentのClaimはHumanが代行できないため、ボタンにせず、状況と必要な担当Roleを文で示し、根拠の詳細（OutcomeはOutcome詳細、Taskは「実行」viewの該当Task）へリンクする。
 
-| 区分 | 表示例 |
-| --- | --- |
-| 未着手 | 未着手 N件 — Workerの着手待ち |
-| 差戻し | 差戻し N件 — Workerの再着手待ち |
-| 再取得待ち | 再取得待ち N件 — Claimの期限が切れ、Workerの再取得待ち |
-| レビュー待ち（期限内Claim無し） | レビュー待ち N件 — Reviewerの担当待ち |
-| 受入待ち（期限内Claim無し） | 受入待ち N件 — Managerの担当待ち（Editor以上はHumanとしても受入できる） |
+| 区分 | 条件 | 表示例 |
+| --- | --- | --- |
+| Story起票待ち | Active Outcomeの`outcomeLoopStage`が`not_connected` | Story起票待ち N件 — Managerの起票待ち |
+| 評価待ち | Active Outcomeの`outcomeLoopStage`が`not_evaluated` | 評価待ち N件 — Evaluatorの評価待ち |
+| 還流待ち | Active Outcomeの`outcomeLoopStage`が`not_reflected`で、そのOutcomeのTaskに未着手・差戻し・作業中・再取得待ち・レビュー待ち・受入待ちが無い | 還流待ち N件 — Runtimeの結果還流待ち |
+| 未着手 | `todo` | 未着手 N件 — Workerの着手待ち |
+| 差戻し | `rejected` | 差戻し N件 — Workerの再着手待ち |
+| 再取得待ち | `doing`かつ`reclaimable` | 再取得待ち N件 — Claimの期限が切れ、Workerの再取得待ち |
+| レビュー待ち | `in_review`かつ`activeClaim`無し | レビュー待ち N件 — Reviewerの担当待ち |
+| 受入待ち | `wait_accept`かつ`activeClaim`無し | 受入待ち N件 — Managerの担当待ち（Editor以上はHumanとしても受入できる） |
 
-- 担当Roleが未割当なら、その行に「Workerが未割当」のように併記する（割当の操作は「あなたの操作」に出る）。Role割当済みでも、Agentが動いていることは示さない。
+- 担当Roleが未割当なら、その行に「Managerが未割当」のように併記する（割当の操作は「あなたの操作」に出る）。Role割当済みでも、Agentが動いていることは示さない。Story起票待ち・評価待ちはClaimを持たないため、Role割当済みでも「担当中」とは言わない。
+- Story起票待ちはOutcome handoffのStoryを対象にする。Editor以上の手動起票（`execution.plan`）はOutcome handoffを代行しないため、起票ボタンとして勧めない。
+- 評価段が先頭数件に限られる場合も、Story起票待ち・評価待ち・還流待ちの件数は全Active Outcomeで数える。取得に失敗したOutcomeは件数に含めず「一部のOutcomeを確認できません」と再読込の手段を出し、空メッセージにしない。
+- `not_reflected`（Execution中で結果は未還流）のOutcomeは、未完了のTaskが残る間はTask区分で表し、Outcomeとしては数えない。Taskが残らない場合だけ還流待ちとして出す。
 - 期限内Claimを持つTaskは「Agentの担当待ち」に含めず、「Claim保持中」に出す。
 
-「あなたの操作」も「Agentの担当待ち」も無いときだけ「今すぐ必要な操作はありません」と出す。「あなたの操作」が無く担当待ちだけがある場合は「あなたの操作はありません」と出し、担当待ちを並べる。Credentialの有無はadministrator以外に推測させない。
+「あなたの操作」も「Agentの担当待ち」も無く、Outcomeの取得失敗も無いときだけ「今すぐ必要な操作はありません」と出す。「あなたの操作」が無く担当待ちだけがある場合は「あなたの操作はありません」と出し、担当待ちを並べる。Credentialの有無はadministrator以外に推測させない。
 
 **担当中のAgent**はTask 02で実装する。
 
@@ -193,6 +199,6 @@ Workの件数は次の区分で数え、各Taskをどれか1つに入れる。�
 ## 後続Taskの受入観点
 
 - **02**: 期限内Claimだけを担当中とし、期限切れは再取得待ちとして別表示する。状態3種を区別し、Task詳細へ移動できる。読込中・失敗・Claim無しが区別され、再読込できる。Claim非保持のRoleを推測表示しない。Desktop・スマートフォン、期限切れ、取得競合後の再読込を確認する。
-- **03**: viewとURLが対応し、戻る・再読込で同じviewに戻る。概要の現在地・次の行動が上記の区分と条件表どおりに出る。未着手・差戻し・再取得待ち・期限内Claimの無いレビュー待ち・受入待ちのいずれかが残るProjectで「今すぐ必要な操作はありません」と出さない。レビュー待ちと受入待ちを別の表示にする。AgentのClaimを要する作業をHumanの操作ボタンにしない。viewer・editor・administrator・owner・archivedで実行できない操作を勧めない。スマートフォンで概要が短く、設定へ2操作以内で到達できる。
+- **03**: viewとURLが対応し、戻る・再読込で同じviewに戻る。概要の現在地・次の行動が上記の区分と条件表どおりに出る。Story起票待ち（`not_connected`）・評価待ち（`not_evaluated`）・還流待ちのOutcome、または未着手・差戻し・再取得待ち・期限内Claimの無いレビュー待ち・受入待ちのTaskのいずれかが残るProjectで「今すぐ必要な操作はありません」と出さない。Manager・Evaluatorが割当済みでも、Story起票待ち・評価待ちを担当待ちとして出す。レビュー待ちと受入待ちを別の表示にする。AgentのClaimを要する作業をHumanの操作ボタンにしない。viewer・editor・administrator・owner・archivedで実行できない操作を勧めない。スマートフォンで概要が短く、設定へ2操作以内で到達できる。
 - **04**: 状態色・タイポグラフィ・動きが上記の方針に沿い、`prefers-reduced-motion`・keyboard focus・コントラストを確認する。
 - **05**: 空・読込・失敗・404が上記の方針に沿い、権限と接続状況に応じた案内を出す。
