@@ -48,7 +48,7 @@ export const AdrReferenceSection = ({ projectId }: { projectId: string }) => {
       ) : references.length ? (
         <ul className="grant-list">{references.map((reference) => <ReferenceRow key={reference.id} reference={reference} />)}</ul>
       ) : (
-        <p className="unset">ADR参照は未登録です</p>
+        <p className="unset">ADR参照はまだありません。WachaでADRを伴う作業が完了すると、ここに参照が表示されます。</p>
       )}
     </section>
   );

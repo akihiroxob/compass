@@ -4,7 +4,7 @@ import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { storyCreatePath, storyEditPath, taskCreatePath, taskPath } from "../../paths";
 import { useHashTarget } from "../../useHashTarget";
-import { useProjectOperation } from "../../useProjectAccess";
+import { useProjectOperationState } from "../../useProjectAccess";
 import {
   appendChangePage,
   changeEditSummary,
@@ -20,6 +20,7 @@ import {
   isManualOpenStory,
   isSettledTask,
   storyAnchorId,
+  storyEmptyMessage,
   storyStatusLabels,
   taskAnchorId,
   taskStatusLabels,
@@ -57,7 +58,7 @@ export const StoryCard = ({ group, plan = false }: { group: StoryGroup; plan?: b
       <p className="execution-meta">
         {story.correlationId ? <>相関ID <code>{story.correlationId}</code></> : "手動起票（Outcome無し）"} ・ {formatTime(story.updatedAt)} 更新
       </p>
-      {tasks.length ? <ul className="outcome-list">{tasks.map((task) => <TaskRow key={task.id} task={task} />)}</ul> : <p className="unset">Taskは未登録です</p>}
+      {tasks.length ? <ul className="outcome-list">{tasks.map((task) => <TaskRow key={task.id} task={task} />)}</ul> : <p className="unset">Taskはまだありません</p>}
       {plan && isManualOpenStory(story) && (
         <div className="action-row">
           <Link to={taskCreatePath(story.projectId, story.id)} className="secondary-button compact">このStoryにTaskを追加<span className="visually-hidden">（{story.title}）</span></Link>
@@ -179,7 +180,8 @@ const RecentChanges = ({ projectId, overview }: { projectId: string; overview: E
  * Task詳細から行い（Task 46）、editor以上はここからStory・Taskを手動起票・編集できる（Task 47。archivedでは導線を出さない）。
  */
 export const ExecutionSection = ({ projectId }: { projectId: string }) => {
-  const plan = useProjectOperation(projectId, "execution.plan");
+  const planAccess = useProjectOperationState(projectId, "execution.plan").access;
+  const plan = planAccess === "allowed";
   const [overview, setOverview] = useState<ExecutionOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -212,7 +214,7 @@ export const ExecutionSection = ({ projectId }: { projectId: string }) => {
         <Loading />
       ) : (
         <>
-          <StoryList overview={overview} empty="Storyは未登録です" plan={plan} />
+          <StoryList overview={overview} empty={storyEmptyMessage(planAccess)} plan={plan} />
           <RecentChanges projectId={projectId} overview={overview} />
         </>
       )}

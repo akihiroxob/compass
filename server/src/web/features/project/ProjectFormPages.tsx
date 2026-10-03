@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { classifyError, jsonInit, request } from "../../api";
+import { classifyError, loadFailureMessage, jsonInit, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { ProjectOperationGate } from "../../components/ProjectOperationGate";
 import { Shell } from "../../components/Shell";
@@ -13,7 +13,7 @@ export const ProjectEditPage = () => { const { projectId = "" } = useParams(); r
 
 const ProjectEditForm = ({ projectId }: { projectId: string }) => {
   const [project, setProject] = useState<Project | null>(null); const [error, setError] = useState<string | null>(null);
-  useEffect(() => { request<{ project: Project }>(`/api/projects/${projectId}`).then(({ project }) => setProject(project)).catch((reason: unknown) => { const classified = classifyError(reason); setError(classified.kind === "not_found" ? "Projectが見つかりません。" : `読み込みに失敗しました: ${classified.kind === "other" ? classified.message : "入力内容が不正です"}`); }); }, [projectId]);
+  useEffect(() => { request<{ project: Project }>(`/api/projects/${projectId}`).then(({ project }) => setProject(project)).catch((reason: unknown) => setError(loadFailureMessage(classifyError(reason), "Projectが見つからないか、このProjectを閲覧する権限がありません。"))); }, [projectId]);
   if (error) return <Shell><main className="narrow"><Link to="/" className="back-link">← Project一覧</Link><ErrorState message={error} /></main></Shell>;
   if (!project) return <Shell><main className="narrow"><Loading /></main></Shell>;
   return <ProjectForm initial={formValuesFromProject(project)} heading={{ eyebrow: "Edit project", title: "Projectを編集", lede: "変更した内容は保存するまで反映されません。キャンセルすると保存済みの内容のままです。" }} submitLabel="変更を保存" pendingLabel="保存中..." cancelTo={`/projects/${project.id}`} save={async (values) => (await request<{ project: Project }>(`/api/projects/${project.id}`, jsonInit("PATCH", values))).project} />;

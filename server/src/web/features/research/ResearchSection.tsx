@@ -53,7 +53,7 @@ export const ResearchSection = ({ projectId }: { projectId: string }) => {
           {requests.map((item) => <RequestRow key={item.id} request={item} />)}
         </ul>
       ) : (
-        <p className="unset">Research Requestは未登録です</p>
+        <p className="unset">Research Requestはまだありません。StrategistがResearchを必要と判断して依頼すると、ここに表示されます。</p>
       )}
     </section>
   );

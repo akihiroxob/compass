@@ -1,3 +1,6 @@
+import type { IntentStatus } from "./intentForm.ts";
+import type { ProjectOperationAccess } from "./projectAccess.ts";
+
 export type OutcomeStatus = "active" | "evaluating" | "achieved" | "not_achieved" | "cancelled";
 
 export type SuccessCriterion = {
@@ -74,3 +77,15 @@ export const splitOutcomes = (outcomes: Outcome[]): { active: Outcome[]; past: O
   active: outcomes.filter((outcome) => outcome.status === "active"),
   past: outcomes.filter((outcome) => outcome.status !== "active"),
 });
+
+/**
+ * IntentにActiveなOutcomeが無いときの案内。OutcomeはStrategistの判断で登録され、Humanの登録は登録できる場合だけ案内する。
+ * Activeでない（達成・放棄した）Intentや、archivedのProjectには新しいOutcomeが登録されないため、担い手を示さない。
+ */
+export const outcomeEmptyMessage = (intentStatus: IntentStatus, access: ProjectOperationAccess | "loading" | "error", hasPast: boolean): string => {
+  const head = hasPast ? "ActiveなOutcomeはありません。" : "Outcomeはまだありません。";
+  if (intentStatus !== "active" || access === "archived") return hasPast ? head : "Outcomeはありません。";
+  return access === "allowed"
+    ? `${head}Strategistが判断して登録するとここに表示されます。Humanが判断した場合は「Outcomeを登録」から登録できます。`
+    : `${head}Strategistが判断して登録するとここに表示されます。`;
+};

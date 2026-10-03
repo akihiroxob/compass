@@ -58,7 +58,7 @@ export const DecisionSection = ({ projectId, intentId }: { projectId: string; in
       ) : decisions.length ? (
         decisions.map((decision) => <DecisionCard key={decision.id} projectId={projectId} decision={decision} />)
       ) : (
-        <p className="unset">Direction Decisionは未登録です</p>
+        <p className="unset">Direction Decisionはまだありません。StrategistがこのIntentについて判断を記録すると、ここに表示されます。</p>
       )}
     </section>
   );

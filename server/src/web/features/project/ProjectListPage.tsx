@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { classifyError, request } from "../../api";
+import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { Shell } from "../../components/Shell";
 import type { Project } from "../../projectForm";
@@ -20,7 +20,7 @@ export const ProjectListPage = () => {
     let current = true;
     request<{ projects: Project[] }>(projectsApiPath(status))
       .then(({ projects }) => current && setState({ status, projects, error: null }))
-      .catch((reason: unknown) => { const classified = classifyError(reason); current && setState({ status, projects: null, error: classified.kind === "other" ? classified.message : "不明なエラー" }); });
+      .catch((reason: unknown) => { current && setState({ status, projects: null, error: loadFailureMessage(classifyError(reason), "Projectの一覧が見つかりません。") }); });
     return () => { current = false; };
   }, [status]);
   // 切替直後は、前の一覧を出さずに読み込み中を表示する。

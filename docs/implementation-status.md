@@ -67,6 +67,8 @@ Project詳細は`?view=`で「概要」（`overview`。既定・不正値も概�
 - 記録: Activity、Research、ADR参照、Repositories・Resources。
 - 設定: Agent（6 Roleを1つの一覧にし、行を開くと割当・取消。administratorには割当済みAgentのCredentialの有無）、Credential（administratorのみ）、Member・招待、Projectの編集・アーカイブ。
 
+空状態・読込失敗・未定義URLの表示はWeb UI共通とする。空の一覧は誰が登録・起票するか（Strategist・Researcher・Manager等）を示し、Humanが登録できない場合（archived・権限なし）は導線の代わりに理由と依頼先を出す。読込失敗は、存在しない・閲覧権限の無い対象を画面ごとの文言で、接続失敗・サーバー障害・解釈できない応答をサーバーの英語文言ではなく再試行の案内で示す（`server/src/web/api.ts`の`classifyError`・`loadFailureMessage`）。未定義のURLはログイン後に404画面を出し、Project一覧と、Compass内から遷移してきた場合だけ直前の画面へ戻る導線を出す。
+
 ## Accessの現行契約
 
 `packages/access`がAgentのRole Grant・Credential、HumanのMembership・招待・Session・ログイン試行を所有し、認可（`ProjectAuthorizationService`・`RuntimeAuthorizationService`・`HumanProjectAuthorizationService`）を提供する。Human Membership・Agent Grant・Runtime Credentialのscopeは別のモデル・tableで扱う。Claimの所有・期限・状態遷移・自己レビュー / 自己受入の禁止はWorkが強制し、Accessへ移さない。transport（OIDC adapter・Session Cookie・`Authorization`の解決）はserverの`server/src/auth`にある。

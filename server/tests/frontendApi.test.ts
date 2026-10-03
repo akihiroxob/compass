@@ -5,6 +5,7 @@ import {
   classifyError,
   fieldId,
   formatIssuePath,
+  loadFailureMessage,
   request,
 } from "../src/web/api.ts";
 
@@ -107,6 +108,34 @@ test("500・非JSON応答・接続失敗は入力エラーにせずotherと分�
   assert.ok(networkError instanceof ApiError);
   assert.equal(networkError.code, "NETWORK_ERROR");
   assert.equal(classifyError(networkError).kind, "other");
+});
+
+test("接続失敗・サーバー障害・解釈できない応答は、サーバーの英語文言ではなく次の行動を示す", async () => {
+  const unavailable = "サーバーで問題が発生しました。時間をおいて、もう一度お試しください。";
+  const serverError = await rejectionOf(async () =>
+    jsonResponse(500, { error: { code: "INTERNAL_ERROR", message: "Internal Server Error" } }),
+  );
+  assert.deepEqual(classifyError(serverError), { kind: "other", message: unavailable });
+  const htmlError = await rejectionOf(async () => new Response("<html>Bad Gateway</html>", { status: 502 }));
+  assert.deepEqual(classifyError(htmlError), { kind: "other", message: unavailable });
+  const notJsonOk = await rejectionOf(async () => new Response("ok", { status: 200 }));
+  assert.deepEqual(classifyError(notJsonOk), { kind: "other", message: unavailable });
+  const networkError = await rejectionOf(async () => {
+    throw new TypeError("fetch failed");
+  });
+  assert.deepEqual(classifyError(networkError), {
+    kind: "other",
+    message: "サーバーに接続できませんでした。通信状況を確認して、もう一度お試しください。",
+  });
+});
+
+test("読み込み失敗の文言は、not_foundに画面ごとの文言、URL由来の入力エラーに開き直しの案内を出す", () => {
+  assert.equal(loadFailureMessage({ kind: "not_found" }, "Projectが見つかりません。"), "Projectが見つかりません。");
+  assert.equal(
+    loadFailureMessage({ kind: "validation", issues: [] }, "Projectが見つかりません。"),
+    "URLの指定が正しくありません。一覧からもう一度開いてください。",
+  );
+  assert.equal(loadFailureMessage({ kind: "other", message: "x" }, "Projectが見つかりません。"), "x");
 });
 
 test("400でもVALIDATION_ERROR以外のcodeは入力エラーにしない", async () => {

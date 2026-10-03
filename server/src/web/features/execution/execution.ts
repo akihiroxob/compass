@@ -1,3 +1,4 @@
+import type { ProjectOperationAccess } from "../../projectAccess.ts";
 import type {
   CriterionVerdict,
   EvaluationResult,
@@ -319,3 +320,11 @@ export const earliestClaimExpiry = ({ groups }: ClaimHolders): number | null => 
   const expiries = groups.flatMap((group) => group.tasks.map((task) => task.activeClaim.expiresAt));
   return expiries.length ? Math.min(...expiries) : null;
 };
+
+/** Storyが1件も無いときの案内。起票するAgentを示し、手動起票は起票できる場合だけ案内する。archivedでは起票されない。 */
+export const storyEmptyMessage = (access: ProjectOperationAccess | "loading" | "error"): string =>
+  access === "archived"
+    ? "Storyはありません。アーカイブ済みのため、新しいStoryは起票されません。"
+    : access === "allowed"
+      ? "Storyはまだありません。Outcomeが確定するとManagerが起票し、ここに表示されます。Outcomeに依らない作業は「Storyを起票」から手動で起票できます。"
+      : "Storyはまだありません。Outcomeが確定するとManagerが起票し、ここに表示されます。";

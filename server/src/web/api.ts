@@ -17,6 +17,10 @@ export class ApiError extends Error {
   }
 }
 
+// 接続失敗・サーバー障害は読み込みと保存の両方で出すため、入力を失う「再読み込み」ではなく再試行を促す。
+const networkErrorMessage = "サーバーに接続できませんでした。通信状況を確認して、もう一度お試しください。";
+const serverUnavailableMessage = "サーバーで問題が発生しました。時間をおいて、もう一度お試しください。";
+
 type FetchLike = (path: string, init?: RequestInit) => Promise<Response>;
 
 const readJson = async (response: Response): Promise<unknown> => {
@@ -84,7 +88,7 @@ export const request = async <T>(
   try {
     response = await fetchImpl(path, withCsrf(init));
   } catch {
-    throw new ApiError(0, "NETWORK_ERROR", "サーバーに接続できませんでした");
+    throw new ApiError(0, "NETWORK_ERROR", networkErrorMessage);
   }
   const body = await readJson(response);
   if (!response.ok) {
@@ -197,6 +201,8 @@ export const classifyError = (error: unknown): ErrorKind => {
     const message = (error.conflict && conflictMessages[error.conflict]) ?? error.message;
     return { kind: "conflict", message, activeIntentId: error.activeIntentId };
   }
+  // サーバー障害・解釈できない応答は、サーバーの英語文言（例 `Internal Server Error`）を出さない。
+  if (error.status >= 500 || error.code === "INVALID_RESPONSE") return { kind: "other", message: serverUnavailableMessage };
   return { kind: "other", message: error.message };
 };
 
@@ -209,9 +215,9 @@ export const jsonInit = (method: string, body: unknown): RequestInit => ({
 /** bodyを省略した場合はJSON bodyなしのPOSTになる（放棄・取消以外の状態遷移用）。 */
 export const jsonPost = (body?: unknown): RequestInit => (body === undefined ? { method: "POST" } : jsonInit("POST", body));
 
-/** 読み込み失敗時に画面へ出す文言。not_foundだけは画面ごとの文言を渡す。 */
+/** 読み込み失敗時に画面へ出す文言。not_foundだけは画面ごとの文言を渡す。読み込みの入力エラーはURLのIDが不正な場合に限られる。 */
 export const loadFailureMessage = (classified: ErrorKind, notFound: string): string =>
-  classified.kind === "not_found" ? notFound : classified.kind === "validation" ? "入力内容が不正です" : classified.message;
+  classified.kind === "not_found" ? notFound : classified.kind === "validation" ? "URLの指定が正しくありません。一覧からもう一度開いてください。" : classified.message;
 
 /** フォーム送信の失敗表示用。not_foundは、入力を保持したまま再試行できる文言付きの`other`へ変換する。 */
 export const withNotFoundMessage = (classified: ErrorKind, notFound: string): Exclude<ErrorKind, { kind: "not_found" }> =>

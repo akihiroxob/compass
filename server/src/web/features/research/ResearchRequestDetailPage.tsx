@@ -124,7 +124,7 @@ export const ResearchRequestDetailPage = () => {
               {detail.results.length ? (
                 detail.results.map((result) => <ResultCard key={result.id} result={result} />)
               ) : (
-                <p className="unset">Resultは未登録です</p>
+                <p className="unset">Resultはまだありません。Researcherが調査結果を登録すると、ここに表示されます。</p>
               )}
             </section>
             <section className="detail-section" aria-labelledby="syntheses-heading">
@@ -132,7 +132,7 @@ export const ResearchRequestDetailPage = () => {
               {detail.syntheses.length ? (
                 detail.syntheses.map((synthesis) => <SynthesisCard key={synthesis.id} synthesis={synthesis} />)
               ) : (
-                <p className="unset">Synthesisは未登録です</p>
+                <p className="unset">Synthesisはまだありません。ResearcherがResultをまとめると、ここに表示されます。</p>
               )}
             </section>
           </>

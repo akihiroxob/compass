@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { classifyError, request } from "../../api";
+import { classifyError, loadFailureMessage, request } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { Shell } from "../../components/Shell";
@@ -15,6 +15,7 @@ import { IntentSection } from "../intent";
 import { useSession } from "../auth";
 import { humanRoleLabels, MembershipSection, type HumanRole } from "../member";
 import { canOperate } from "../../permissions";
+import { projectOperationAccess } from "../../projectAccess";
 import { ResearchSection } from "../research";
 import { ProjectOverview } from "./ProjectOverview";
 import { parseProjectView, projectViewLabels, projectViewPath, projectViews, type ProjectView } from "./overview";
@@ -34,7 +35,7 @@ export const ProjectDetailPage = () => {
   const session = useSession();
   const load = () => request<{ project: Project; myRole: HumanRole }>(`/api/projects/${projectId}`).then(({ project, myRole }) => { setProject(project); setMyRole(myRole); });
   // 未所属・取消済み・存在しないProjectはserverが区別せず404を返す（存在を漏らさない）。
-  const showLoadError = (reason: unknown) => { const classified = classifyError(reason); setProject(null); setError(classified.kind === "not_found" ? "Projectが見つからないか、このProjectを閲覧する権限がありません。Projectのownerに招待を依頼してください。" : `読み込みに失敗しました: ${classified.kind === "other" ? classified.message : "入力内容が不正です"}`); };
+  const showLoadError = (reason: unknown) => { setProject(null); setError(loadFailureMessage(classifyError(reason), "Projectが見つからないか、このProjectを閲覧する権限がありません。Projectのownerに招待を依頼してください。")); };
   useEffect(() => { load().catch(showLoadError); }, [projectId]);
   const archive = useReasonAction(async (reason) => {
     const invalid = validateArchiveReason(reason);
@@ -47,11 +48,11 @@ export const ProjectDetailPage = () => {
   }, describeArchiveFailure);
   const archived = project?.status === "archived";
   // 導線の表示だけをRoleで切り替える。拒否は常にserverが行う。
-  const canUpdate = canOperate(myRole, "project.update"); const canArchive = canOperate(myRole, "project.archive"); const directionReadOnly = archived || !canOperate(myRole, "direction.write"); const grantReadOnly = archived || !canOperate(myRole, "grant.manage"); const canManageCredential = canOperate(myRole, "credential.manage");
+  const canUpdate = canOperate(myRole, "project.update"); const canArchive = canOperate(myRole, "project.archive"); const directionAccess = project ? projectOperationAccess(project, canOperate(myRole, "direction.write")) : "forbidden"; const grantReadOnly = archived || !canOperate(myRole, "grant.manage"); const canManageCredential = canOperate(myRole, "credential.manage");
   const permissions = { directionWrite: canOperate(myRole, "direction.write"), intervene: canOperate(myRole, "execution.intervene"), grantManage: canOperate(myRole, "grant.manage"), credentialManage: canManageCredential };
   return <Shell><main className="narrow"><Link to="/" className="back-link">← Project一覧</Link>{archived && <> <Link to={projectListPath("archived")} className="back-link">アーカイブ済み一覧</Link></>}{error ? <ErrorState message={error} /> : !project ? <Loading /> : <><div className="detail-hero project-hero"><p className="eyebrow">Project</p><h1>{project.name}</h1>{archived && <p><span className="status-badge muted">{projectStatusLabels.archived}</span></p>}{project.description && <p className="lede">{project.description}</p>}<time>{new Date(project.updatedAt).toLocaleString("ja-JP")} 更新</time>{myRole && <p className="section-note">あなたのRole: {humanRoleLabels[myRole]}</p>}</div>{archived && <ArchiveNotice project={project} />}<ProjectViewNav projectId={project.id} current={view} />
     {view === "overview" && <><p className="overview-mission"><span className="section-label">Mission</span> {project.mission}</p><ProjectOverview key={myRole ?? ""} projectId={project.id} archived={archived} permissions={permissions} /><ClaimHolderSection projectId={project.id} /></>}
-    {view === "direction" && <><section className="direction-panel"><div><p className="section-label">Mission</p><p>{project.mission}</p></div><div><p className="section-label">Vision</p><p>{project.vision ?? <span className="unset">未設定</span>}</p></div></section><IntentSection projectId={project.id} readOnly={directionReadOnly} /><div className="detail-columns"><ListSection title="Principles" values={project.principles} /><ListSection title="Constraints" values={project.constraints} /></div></>}
+    {view === "direction" && <><section className="direction-panel"><div><p className="section-label">Mission</p><p>{project.mission}</p></div><div><p className="section-label">Vision</p><p>{project.vision ?? <span className="unset">未設定</span>}</p></div></section><IntentSection projectId={project.id} access={directionAccess} /><div className="detail-columns"><ListSection title="Principles" values={project.principles} /><ListSection title="Constraints" values={project.constraints} /></div></>}
     {view === "work" && <ExecutionSection projectId={project.id} />}
     {view === "records" && <><ActivitySection projectId={project.id} resources={[...project.repositories, ...project.resources]} /><ResearchSection projectId={project.id} /><AdrReferenceSection projectId={project.id} /><LinkSection title="Repositories" values={project.repositories} /><LinkSection title="Resources" values={project.resources} /></>}
     {view === "settings" && <><AgentSettingsSection projectId={project.id} readOnly={grantReadOnly} showCredentials={canManageCredential} />{canManageCredential && <CredentialSection projectId={project.id} readOnly={archived} />}<MembershipSection key={myRole ?? ""} projectId={project.id} currentHumanId={session?.human.id ?? null} manage={canOperate(myRole, "member.manage")} readOnly={archived} onSelfChanged={() => void load().catch(showLoadError)} />{!archived && (canUpdate || canArchive) && <section className="detail-section" aria-labelledby="project-settings-heading"><h2 id="project-settings-heading">Project</h2><p className="section-note">名前・Mission・Vision等の編集と、Projectのアーカイブです。</p><div className="action-row">{canUpdate && <Link to={`/projects/${project.id}/edit`} className="button">Projectを編集</Link>}{canArchive && <button type="button" className="secondary-button danger" aria-expanded={archive.confirming} onClick={archive.open}>アーカイブ</button>}</div>{canArchive && archive.confirming && <ReasonPanel action={archive} title="このProjectをアーカイブしますか？" description="アーカイブすると、Projectの編集、IntentやOutcomeの登録・変更、Agent・RuntimeのRoleの割当の変更ができなくなります。内容と履歴は参照できます。" label={<>アーカイブの理由 <span>必須</span></>} required confirmLabel="アーカイブする" pendingLabel="アーカイブ中..." />}</section>}</>}

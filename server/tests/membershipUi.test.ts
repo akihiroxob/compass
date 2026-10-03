@@ -79,7 +79,7 @@ test("401とCSRF不一致はSession切れを通知し、入力が残っている
         return classifyError(error);
       }
     })();
-    assert.deepEqual(network, { kind: "other", message: "サーバーに接続できませんでした" });
+    assert.deepEqual(network, { kind: "other", message: "サーバーに接続できませんでした。通信状況を確認して、もう一度お試しください。" });
     assert.equal(lost, 2);
   } finally {
     onSessionLost(null);

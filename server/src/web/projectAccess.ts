@@ -24,3 +24,14 @@ export type KeyedProjectOperationResult<T> = { projectId: string; operation: str
  */
 export const currentProjectOperationResult = <T>(stored: KeyedProjectOperationResult<T> | null, projectId: string, operation: string): T | null =>
   stored !== null && stored.projectId === projectId && stored.operation === operation ? stored.result : null;
+
+/**
+ * 一覧が空で、登録の導線を出せないときに添える案内。登録できる・判定中・判定失敗は`null`（導線だけを出す、または何も出さない）。
+ * 権限の無いHumanには、操作の代わりに依頼先を示す。
+ */
+export const registrationUnavailableNote = (access: ProjectOperationAccess | "loading" | "error", subject: string): string | null =>
+  access === "archived"
+    ? `アーカイブ済みのため、${subject}は登録できません。`
+    : access === "forbidden"
+      ? `${subject}の登録には編集の権限が必要です。必要な場合はProjectのownerにRoleの変更を依頼してください。`
+      : null;
