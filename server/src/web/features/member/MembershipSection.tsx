@@ -3,6 +3,7 @@ import { classifyError, describeActionFailure, loadFailureMessage, request, with
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { statusBadgeClass } from "../../statusTone";
 import {
   changeRoleInit,
   defaultInvitationExpiryHours,
@@ -14,6 +15,7 @@ import {
   invitationExpiryOptions,
   invitationInit,
   invitationStatusLabels,
+  invitationStatusTones,
   invitationsPath,
   isLastOwner,
   membersPath,
@@ -97,7 +99,7 @@ const InvitationRow = ({ projectId, invitation, manage, onChanged }: { projectId
   return (
     <li>
       <div>
-        <strong>{invitation.email}</strong> <span className={`status-badge${status === "pending" ? "" : " muted"}`}>{invitationStatusLabels[status]}</span>
+        <strong>{invitation.email}</strong> <span className={statusBadgeClass(invitationStatusTones[status])}>{invitationStatusLabels[status]}</span>
         <small>{humanRoleLabels[invitation.role]}・{formatTime(invitation.createdAt)} 発行・{formatTime(invitation.expiresAt)} まで有効</small>
       </div>
       {manage && status === "pending" && (

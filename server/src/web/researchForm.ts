@@ -1,3 +1,4 @@
+import type { StatusTone } from "./statusTone.ts";
 export type ResearchRequestKind = "project_watch" | "decision";
 
 export type ResearchRequestStatus =
@@ -88,6 +89,15 @@ export type ResearchRequestDetail = {
 export const researchRequestKindLabels: Record<ResearchRequestKind, string> = {
   project_watch: "Project Watch",
   decision: "Decision",
+};
+
+export const researchRequestStatusTones: Record<ResearchRequestStatus, StatusTone> = {
+  requested: "waiting",
+  running: "progress",
+  completed: "done",
+  insufficient: "warning",
+  not_needed: "muted",
+  cancelled: "muted",
 };
 
 export const researchRequestStatusLabels: Record<ResearchRequestStatus, string> = {

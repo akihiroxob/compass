@@ -1,4 +1,5 @@
-// テストからも読み込むため、他moduleをimportしない純関数だけを置く。
+// テストからも読み込むため、他moduleをimportしない（型だけを除く）純関数だけを置く。
+import type { StatusTone } from "../../statusTone.ts";
 /** Human Role（docs/step-6-human-auth-design.md）。順序はowner > administrator > editor > viewer。 */
 export type HumanRole = "owner" | "administrator" | "editor" | "viewer";
 export const humanRoleOptions: HumanRole[] = ["owner", "administrator", "editor", "viewer"];
@@ -64,6 +65,8 @@ export const defaultInvitationExpiryHours = 168;
 export type InvitationDisplayStatus = InvitationStatus | "expired";
 export const invitationDisplayStatus = (invitation: Pick<Invitation, "status" | "expiresAt">, now: number): InvitationDisplayStatus =>
   invitation.status === "pending" && now >= invitation.expiresAt ? "expired" : invitation.status;
+
+export const invitationStatusTones: Record<InvitationDisplayStatus, StatusTone> = { pending: "waiting", accepted: "done", revoked: "muted", expired: "warning" };
 
 export const invitationStatusLabels: Record<InvitationDisplayStatus, string> = {
   pending: "受諾待ち",

@@ -5,6 +5,7 @@ import { ErrorState, Loading } from "../../components/StateCard";
 import { storyCreatePath, storyEditPath, taskCreatePath, taskPath } from "../../paths";
 import { useHashTarget } from "../../useHashTarget";
 import { useProjectOperationState } from "../../useProjectAccess";
+import { statusBadgeClass } from "../../statusTone";
 import {
   appendChangePage,
   changeEditSummary,
@@ -18,7 +19,6 @@ import {
   formatTime,
   groupTasksByStory,
   isManualOpenStory,
-  isSettledTask,
   storyAnchorId,
   storyEmptyMessage,
   storyStatusLabels,
@@ -30,12 +30,14 @@ import {
   type ExecutionOverview,
   type ExecutionTask,
   type StoryGroup,
+  storyStatusTones,
+  taskTone,
 } from "./execution";
 
 const TaskRow = ({ task }: { task: ExecutionTask }) => (
   <li id={taskAnchorId(task.id)} tabIndex={-1}>
     <Link to={taskPath(task.projectId, task.id)}>
-      <span className={`status-badge${isSettledTask(task.status) ? " muted" : ""}`}>{taskStatusLabels[task.status]}</span> {task.title}
+      <span className={statusBadgeClass(taskTone(task))}>{taskStatusLabels[task.status]}</span> {task.title}
       <small>
         {describeClaim(task)} ・ {formatTime(task.updatedAt)} 更新
       </small>
@@ -52,7 +54,7 @@ export const StoryCard = ({ group, plan = false }: { group: StoryGroup; plan?: b
   return (
     <article id={storyAnchorId(story.id)} tabIndex={-1} className="intent-card execution-story">
       <h3>
-        <span className={`status-badge${story.status === "done" || story.status === "canceled" ? " muted" : ""}`}>{storyStatusLabels[story.status]}</span> {story.title}
+        <span className={statusBadgeClass(storyStatusTones[story.status])}>{storyStatusLabels[story.status]}</span> {story.title}
       </h3>
       {story.description && <p className="section-note">{story.description}</p>}
       <p className="execution-meta">

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { directionDecisionTypeLabels, type DirectionDecision } from "../../directionDecisionForm";
+import { statusBadgeClass } from "../../statusTone";
 import {
   evaluationResultLabels,
   evaluationsPath,
@@ -15,6 +16,9 @@ import {
   type ExecutionOverview,
   type OutcomeEvaluation,
   type OutcomeExecutionRecord,
+  evaluationResultTones,
+  loopStageTone,
+  verdictTones,
 } from "../execution";
 
 type LoopData = {
@@ -46,7 +50,7 @@ const EvaluationCard = ({ evaluation, decisions }: { evaluation: OutcomeEvaluati
   return (
     <article className="intent-card">
       <h4>
-        <span className={`status-badge${evaluation.result === "achieved" ? "" : " muted"}`}>{evaluationResultLabels[evaluation.result]}</span>{" "}
+        <span className={statusBadgeClass(evaluationResultTones[evaluation.result])}>{evaluationResultLabels[evaluation.result]}</span>{" "}
         {formatTime(evaluation.createdAt)} の評価
       </h4>
       <p className="execution-meta">
@@ -56,7 +60,7 @@ const EvaluationCard = ({ evaluation, decisions }: { evaluation: OutcomeEvaluati
         {evaluation.criteria.map((criterion) => (
           <li key={criterion.criterionId}>
             <p className="criterion-title">
-              <span className={`status-badge${criterion.verdict === "met" ? "" : " muted"}`}>{verdictLabels[criterion.verdict]}</span> {criterion.description}
+              <span className={statusBadgeClass(verdictTones[criterion.verdict])}>{verdictLabels[criterion.verdict]}</span> {criterion.description}
             </p>
             <dl>
               <dt>根拠</dt>
@@ -129,7 +133,7 @@ export const OutcomeLoopSection = ({ projectId, intentId, outcomeId }: { project
         <Loading />
       ) : (
         <>
-          <p><span className={`status-badge${stage.stage === "evaluated" && stage.result === "achieved" ? "" : " muted"}`}>{stage.label}</span></p>
+          <p><span className={statusBadgeClass(loopStageTone(stage))}>{stage.label}</span></p>
           <h3>Execution</h3>
           <StoryList overview={data.overview} empty="このOutcomeを参照するStoryはまだありません（Execution未接続）" />
           <h3>Executionの結果（還流）</h3>

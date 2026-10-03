@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { taskPath } from "../../paths";
+import { statusBadgeClass } from "../../statusTone";
 import {
   describePrincipal,
   earliestClaimExpiry,
@@ -12,6 +13,7 @@ import {
   summarizeClaimHolders,
   taskStatusLabels,
   type ExecutionOverview,
+  taskStatusTones,
 } from "./execution";
 
 type Loaded = { overview: ExecutionOverview; fetchedAt: number };
@@ -72,7 +74,7 @@ export const ClaimHolderSection = ({ projectId }: { projectId: string }) => {
             holders.groups.map((group) => (
               <div key={group.status} className="claim-holder-group">
                 <h3 id={`claim-holders-${group.status}`}>
-                  <span className="status-badge">{taskStatusLabels[group.status]}</span> {group.tasks.length}件
+                  <span className={statusBadgeClass(taskStatusTones[group.status])}>{taskStatusLabels[group.status]}</span> {group.tasks.length}件
                 </h3>
                 <ul className="outcome-list" aria-labelledby={`claim-holders-${group.status}`}>
                   {group.tasks.map((task) => (
@@ -93,7 +95,7 @@ export const ClaimHolderSection = ({ projectId }: { projectId: string }) => {
           )}
           {holders.reclaimableCount > 0 && (
             <p className="claim-holder-reclaimable">
-              <span className="status-badge muted">再取得待ち</span> {holders.reclaimableCount}件 — Claimの期限が切れ、Workerの再取得待ちです（担当中ではありません）
+              <span className={statusBadgeClass("warning")}>再取得待ち</span> {holders.reclaimableCount}件 — Claimの期限が切れ、Workerの再取得待ちです（担当中ではありません）
             </p>
           )}
         </>

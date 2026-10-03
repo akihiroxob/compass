@@ -21,6 +21,10 @@ import {
   tasksApiPath,
   storyAnchorId,
   outcomeLoopStage,
+  loopStageTone,
+  storyStatusTones,
+  taskStatusTones,
+  taskTone,
   earliestClaimExpiry,
   formatClaimExpiry,
   summarizeClaimHolders,
@@ -120,6 +124,26 @@ test("閉ループの現在地は未接続・未還流・未評価を成功扱�
   assert.deepEqual(outcomeLoopStage({ storyCount: 1, record, evaluations: [evaluation("insufficient_evidence"), evaluation("achieved")] }), {
     stage: "evaluated", label: "評価済み: Evidence不足", result: "insufficient_evidence",
   });
+});
+
+test("状態badgeの意味は要対応・進行中・完了を区別し、未評価・未還流を達成の色にしない（Task 04）", () => {
+  assert.equal(taskStatusTones.wait_accept, "attention");
+  assert.equal(taskStatusTones.rejected, "attention");
+  assert.equal(taskStatusTones.doing, "progress");
+  assert.equal(taskStatusTones.in_review, "progress");
+  assert.equal(taskStatusTones.todo, "waiting");
+  assert.equal(taskStatusTones.accepted, "done");
+  assert.equal(taskStatusTones.canceled, "muted");
+  assert.equal(storyStatusTones.done, "done");
+  // 期限切れClaimの作業中は担当中（進行中）に見せない。
+  assert.equal(taskTone(task("t1", null, { status: "doing", reclaimable: true })), "warning");
+  assert.equal(taskTone(task("t1", null, { status: "doing" })), "progress");
+  const record = { summary: { state: "accepted" }, evidence: [] } as unknown as OutcomeExecutionRecord;
+  const evaluation = (result: OutcomeEvaluation["result"]) => ({ result }) as OutcomeEvaluation;
+  assert.equal(loopStageTone(outcomeLoopStage({ storyCount: 1, record, evaluations: [] })), "waiting");
+  assert.equal(loopStageTone(outcomeLoopStage({ storyCount: 1, record: null, evaluations: [] })), "progress");
+  assert.equal(loopStageTone(outcomeLoopStage({ storyCount: 1, record, evaluations: [evaluation("achieved")] })), "done");
+  assert.equal(loopStageTone(outcomeLoopStage({ storyCount: 1, record, evaluations: [evaluation("insufficient_evidence")] })), "warning");
 });
 
 test("Human介入の導線は状態とClaimで決まり、受入・差戻しはClaim中に出さない（Task 46）", () => {

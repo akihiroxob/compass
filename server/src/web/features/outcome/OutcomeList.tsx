@@ -6,6 +6,7 @@ import type { Intent } from "../../intentForm";
 import { outcomeEmptyMessage, outcomeStatusLabels, splitOutcomes, type Outcome } from "../../outcomeForm";
 import type { ProjectOperationAccess } from "../../projectAccess";
 import { outcomePath } from "../../paths";
+import { statusBadgeClass } from "../../statusTone";
 
 // ---- Outcome（Step 3）。Evaluation・Execution・Decision・Research・Strategistは未実装のため、達成率や進行状況を表示しない。 ----
 
@@ -16,7 +17,7 @@ const useOutcomes = (projectId: string, intentId: string) => {
   return state;
 };
 
-const OutcomeLinks = ({ projectId, outcomes }: { projectId: string; outcomes: Outcome[] }) => <ul className="outcome-list">{outcomes.map((outcome) => <li key={outcome.id}><Link to={outcomePath(projectId, outcome.intentId, outcome.id)}><span className={`status-badge${outcome.status === "active" ? "" : " muted"}`}>{outcomeStatusLabels[outcome.status]}</span> {outcome.title}<small>成功条件 {outcome.successCriteria.length}件</small></Link></li>)}</ul>;
+const OutcomeLinks = ({ projectId, outcomes }: { projectId: string; outcomes: Outcome[] }) => <ul className="outcome-list">{outcomes.map((outcome) => <li key={outcome.id}><Link to={outcomePath(projectId, outcome.intentId, outcome.id)}><span className={statusBadgeClass(outcome.status === "active" ? "progress" : "muted")}>{outcomeStatusLabels[outcome.status]}</span> {outcome.title}<small>成功条件 {outcome.successCriteria.length}件</small></Link></li>)}</ul>;
 
 /** Project詳細のActive Intent内に表示する、ActiveなOutcomeの一覧。成功条件はOutcome詳細で見る。 */
 export const ActiveOutcomes = ({ projectId, intentId }: { projectId: string; intentId: string }) => {

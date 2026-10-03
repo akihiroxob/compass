@@ -2,9 +2,11 @@ import { Link, useParams } from "react-router-dom";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { Shell } from "../../components/Shell";
 import { intentPath } from "../../paths";
+import { statusBadgeClass } from "../../statusTone";
 import {
   researchRequestKindLabels,
   researchRequestStatusLabels,
+  researchRequestStatusTones,
   type ResearchFinding,
   type ResearchResult,
   type ResearchSynthesis,
@@ -88,7 +90,7 @@ export const ResearchRequestDetailPage = () => {
               <p className="eyebrow">Research Request</p>
               <h1>{detail.request.question}</h1>
               <p>
-                <span className="status-badge">{researchRequestStatusLabels[detail.request.status]}</span>{" "}
+                <span className={statusBadgeClass(researchRequestStatusTones[detail.request.status])}>{researchRequestStatusLabels[detail.request.status]}</span>{" "}
                 <span className="status-badge muted">{researchRequestKindLabels[detail.request.kind]}</span>
               </p>
               <time>{new Date(detail.request.updatedAt).toLocaleString("ja-JP")} 更新</time>

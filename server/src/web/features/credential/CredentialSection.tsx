@@ -4,12 +4,14 @@ import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from ".
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { useHashTarget } from "../../useHashTarget";
+import { statusBadgeClass } from "../../statusTone";
 import {
   allRuntimeScopes,
   credentialExpiryOptions,
   credentialKindLabels,
   credentialStatus,
   credentialStatusLabels,
+  credentialStatusTones,
   credentialSectionId,
   credentialsPath,
   defaultCredentialExpiryDays,
@@ -94,7 +96,7 @@ const CredentialRow = ({ projectId, credential, readOnly, onChanged, onRotated }
   return (
     <li>
       <div>
-        <strong>{credential.principalId}</strong> <span className={`status-badge${status === "active" ? "" : " muted"}`}>{credentialStatusLabels[status]}</span>
+        <strong>{credential.principalId}</strong> <span className={statusBadgeClass(credentialStatusTones[status])}>{credentialStatusLabels[status]}</span>
         <small>{credentialKindLabels[credential.kind]}・<code>{credential.prefix}…</code>{credential.kind === "runtime" && <>・{credential.scopes.join(", ")}</>}</small>
         <small>{formatTime(credential.createdAt)} 発行・{formatTime(credential.revokedAt ?? credential.expiresAt)} {credential.revokedAt === null ? "まで有効" : "に取消"}・最終利用 {credential.lastUsedAt === null ? "なし" : formatTime(credential.lastUsedAt)}</small>
       </div>

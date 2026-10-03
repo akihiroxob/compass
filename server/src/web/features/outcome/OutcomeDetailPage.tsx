@@ -6,6 +6,7 @@ import { Shell } from "../../components/Shell";
 import { outcomeStatusLabels, type Outcome } from "../../outcomeForm";
 import { intentPath, outcomePath } from "../../paths";
 import { useProjectOperation } from "../../useProjectAccess";
+import { statusBadgeClass } from "../../statusTone";
 import { OutcomeLoopSection } from "./OutcomeLoopSection";
 import { useOutcomePage } from "./useOutcomePage";
 
@@ -16,7 +17,7 @@ export const OutcomeDetailPage = () => {
     (classified) => classified.kind === "validation" ? classified.issues.map((issue) => `取消の理由: ${issue.message}`).join(" / ") : classified.kind === "not_found" ? "Outcomeが見つかりません。" : classified.message,
   );
   return <Shell><main className="narrow"><Link to={intentPath(projectId, intentId)} className="back-link">← Intent詳細</Link>{error ? <ErrorState message={error} /> : !outcome ? <Loading /> : <>
-    <div className="detail-hero"><p className="eyebrow">Outcome</p><h1>{outcome.title}</h1><p><span className={`status-badge${outcome.status === "active" ? "" : " muted"}`}>{outcomeStatusLabels[outcome.status]}</span></p><time>{new Date(outcome.updatedAt).toLocaleString("ja-JP")} 更新</time></div>
+    <div className="detail-hero"><p className="eyebrow">Outcome</p><h1>{outcome.title}</h1><p><span className={statusBadgeClass(outcome.status === "active" ? "progress" : "muted")}>{outcomeStatusLabels[outcome.status]}</span></p><time>{new Date(outcome.updatedAt).toLocaleString("ja-JP")} 更新</time></div>
     <section className="detail-section"><dl className="intent-facts"><dt>達成すべき状態</dt><dd>{outcome.description}</dd><dt>仮説</dt><dd>{outcome.hypothesis ?? <span className="unset">未設定</span>}</dd><dt>判断理由（Strategistの判断）</dt><dd>{outcome.rationale}</dd></dl></section>
     <section className="detail-section" aria-labelledby="criteria-heading"><h2 id="criteria-heading">成功条件</h2><p className="section-note">成功条件は作成時に固定されます。変更する場合は、このOutcomeを取り消して新しいOutcomeを作成します。</p><ol className="criteria-list">{outcome.successCriteria.map((criterion) => <li key={criterion.id}><p className="criterion-title">{criterion.description}</p><dl><dt>測定方法</dt><dd>{criterion.measurement}</dd>{criterion.target && <><dt>目標値</dt><dd>{criterion.target}</dd></>}</dl></li>)}</ol></section>
     <OutcomeLoopSection projectId={projectId} intentId={intentId} outcomeId={outcome.id} />

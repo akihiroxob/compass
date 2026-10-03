@@ -8,13 +8,13 @@ import { taskEditPath } from "../../paths";
 import { useProjectOperation, useProjectOperationState } from "../../useProjectAccess";
 import { membersPath, type Member } from "../member";
 import { ChangeItem } from "./ExecutionSection";
+import { statusBadgeClass } from "../../statusTone";
 import {
   availableTaskOperations,
   describeClaim,
   describePrincipal,
   formatTime,
   isManualEditableTask,
-  isSettledTask,
   storyStatusLabels,
   taskDetailApiPath,
   taskOperationNotices,
@@ -22,6 +22,7 @@ import {
   taskStatusLabels,
   type TaskDetail,
   type TaskOperation,
+  taskTone,
 } from "./execution";
 
 /** 未所属・存在しないProjectと、別ProjectのTask IDはどちらも404（serverが区別を漏らさない）。 */
@@ -236,7 +237,7 @@ export const TaskDetailPage = () => {
             <div className="detail-hero">
               <p className="eyebrow">Task</p>
               <h1>{task.title}</h1>
-              <p><span className={`status-badge${isSettledTask(task.status) ? " muted" : ""}`}>{taskStatusLabels[task.status]}</span></p>
+              <p><span className={statusBadgeClass(taskTone(task))}>{taskStatusLabels[task.status]}</span></p>
               <time>{formatTime(task.updatedAt)} 更新</time>
               {currentNotice && <OperationNotice notice={currentNotice} />}
               {plan && isManualEditableTask(task, detail.story) && (

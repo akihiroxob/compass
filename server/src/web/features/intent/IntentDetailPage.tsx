@@ -6,6 +6,7 @@ import { Shell } from "../../components/Shell";
 import { intentStatusLabels, type Intent } from "../../intentForm";
 import { intentPath } from "../../paths";
 import { useProjectOperationState } from "../../useProjectAccess";
+import { statusBadgeClass } from "../../statusTone";
 import { DecisionSection } from "../decision";
 import { OutcomeSection } from "../outcome";
 import { IntentFacts } from "./IntentFacts";
@@ -18,7 +19,7 @@ export const IntentDetailPage = () => {
     (classified) => classified.kind === "validation" ? classified.issues.map((issue) => `${issue.label}: ${issue.message}`).join(" / ") : classified.kind === "not_found" ? "Intentが見つかりません。" : classified.message,
   );
   return <Shell><main className="narrow"><Link to={`/projects/${projectId}`} className="back-link">← Project詳細</Link>{error ? <ErrorState message={error} /> : !intent ? <Loading /> : <>
-    <div className="detail-hero"><p className="eyebrow">Intent</p><h1>{intent.title}</h1><p><span className={`status-badge${intent.status === "active" ? "" : " muted"}`}>{intentStatusLabels[intent.status]}</span></p><time>{new Date(intent.updatedAt).toLocaleString("ja-JP")} 更新</time></div>
+    <div className="detail-hero"><p className="eyebrow">Intent</p><h1>{intent.title}</h1><p><span className={statusBadgeClass(intent.status === "active" ? "progress" : "muted")}>{intentStatusLabels[intent.status]}</span></p><time>{new Date(intent.updatedAt).toLocaleString("ja-JP")} 更新</time></div>
     <section className="detail-section"><IntentFacts intent={intent} /></section>
     <OutcomeSection projectId={projectId} intent={intent} access={directionAccess} />
     <DecisionSection projectId={projectId} intentId={intent.id} />

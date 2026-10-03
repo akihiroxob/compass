@@ -1,4 +1,5 @@
-// テストからも読み込むため、他moduleをimportしない純関数だけを置く。
+// テストからも読み込むため、他moduleをimportしない（型だけを除く）純関数だけを置く。
+import type { StatusTone } from "../../statusTone.ts";
 /** Agent・Runtime向けCredential（Task 37）。secretは発行・rotationの応答だけに含まれ、一覧には無い。 */
 export type CredentialKind = "agent" | "runtime";
 export type RuntimeScope =
@@ -58,6 +59,8 @@ export const defaultRotationGraceHours = 24;
 export type CredentialStatus = "active" | "expired" | "revoked";
 export const credentialStatus = (credential: Pick<Credential, "expiresAt" | "revokedAt">, now: number): CredentialStatus =>
   credential.revokedAt !== null ? "revoked" : now >= credential.expiresAt ? "expired" : "active";
+
+export const credentialStatusTones: Record<CredentialStatus, StatusTone> = { active: "done", expired: "warning", revoked: "muted" };
 
 export const credentialStatusLabels: Record<CredentialStatus, string> = {
   active: "有効",

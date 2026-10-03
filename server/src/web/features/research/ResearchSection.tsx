@@ -3,19 +3,18 @@ import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { researchRequestPath } from "../../paths";
+import { statusBadgeClass } from "../../statusTone";
 import {
   researchRequestKindLabels,
   researchRequestStatusLabels,
+  researchRequestStatusTones,
   type ResearchRequest,
-  type ResearchRequestStatus,
 } from "../../researchForm";
-
-const closedStatuses: ResearchRequestStatus[] = ["completed", "insufficient", "not_needed", "cancelled"];
 
 const RequestRow = ({ request: item }: { request: ResearchRequest }) => (
   <li>
     <Link to={researchRequestPath(item.projectId, item.id)}>
-      <span className={`status-badge${closedStatuses.includes(item.status) ? " muted" : ""}`}>
+      <span className={statusBadgeClass(researchRequestStatusTones[item.status])}>
         {researchRequestStatusLabels[item.status]}
       </span>{" "}
       {item.question}

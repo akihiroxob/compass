@@ -5,6 +5,7 @@ import { ErrorState, Loading } from "../../components/StateCard";
 import { splitIntents, type Intent } from "../../intentForm";
 import { splitOutcomes, type Outcome } from "../../outcomeForm";
 import { intentPath, outcomePath } from "../../paths";
+import { statusBadgeClass, type StatusTone } from "../../statusTone";
 import { credentialSectionId, credentialStatus, credentialsPath, type Credential } from "../credential";
 import {
   evaluationsPath,
@@ -19,6 +20,7 @@ import {
   type LoopStage,
   type OutcomeEvaluation,
   type OutcomeExecutionRecord,
+  taskStatusTones,
 } from "../execution";
 import { agentRoleAnchorId, grantRoleLabels, grantsPath, type Grant } from "../grant";
 import {
@@ -39,6 +41,8 @@ import {
 
 const workBucketLabels: Record<WorkBucket, string> = { ...taskStatusLabels, reclaimable: "再取得待ち" };
 const waitingLabels: Record<WaitingKind, string> = { ...workBucketLabels, story: "Story起票待ち", evaluation: "評価待ち", reflection: "還流待ち" };
+const workBucketTones: Record<WorkBucket, StatusTone> = { ...taskStatusTones, reclaimable: "warning" };
+const waitingTones: Record<WaitingKind, StatusTone> = { ...workBucketTones, story: "waiting", evaluation: "waiting", reflection: "waiting" };
 
 /** 評価段に並べるOutcomeの上限。残りはOutcome詳細へ誘導する（担当待ちの件数は全Active Outcomeで数える）。 */
 const stageDisplayLimit = 5;
@@ -112,7 +116,7 @@ const CurrentPosition = ({ projectId, data, now }: { projectId: string; data: Ov
         <p className="section-label">Work</p>
         {work.length ? (
           <Link to={projectViewPath(projectId, "work")} className="position-work">
-            {work.map(({ bucket, count }) => <span key={bucket}><span className={`status-badge${bucket === "todo" ? " muted" : ""}`}>{workBucketLabels[bucket]}</span> {count}件</span>)}
+            {work.map(({ bucket, count }) => <span key={bucket}><span className={statusBadgeClass(workBucketTones[bucket])}>{workBucketLabels[bucket]}</span> {count}件</span>)}
           </Link>
         ) : <p className="unset">進行中のTaskはありません</p>}
       </li>
@@ -156,7 +160,7 @@ const MyActionItem = ({ projectId, activeIntentId, action }: { projectId: string
 /** Agentの担当待ち 1区分。Humanが代行できないためボタンにせず、担当Roleと根拠の詳細へのリンクを出す。 */
 const WaitingItemRow = ({ projectId, item }: { projectId: string; item: WaitingItem }) => (
   <li>
-    <span><span className="status-badge muted">{waitingLabels[item.kind]}</span> {item.count}件 — {item.note}{item.unassigned && <strong className="waiting-unassigned">（{grantRoleLabels[item.role]}が未割当）</strong>}</span>
+    <span><span className={statusBadgeClass(waitingTones[item.kind])}>{waitingLabels[item.kind]}</span> {item.count}件 — {item.note}{item.unassigned && <strong className="waiting-unassigned">（{grantRoleLabels[item.role]}が未割当）</strong>}</span>
     {item.outcomes.length > 0 && <small>{item.outcomes.map((outcome, index) => <span key={outcome.id}>{index > 0 && "、"}<Link to={outcomeDetailPath(projectId, outcome)}>{outcome.title}</Link></span>)}</small>}
     {item.taskIds[0] && <small><Link to={projectViewPath(projectId, "work", taskAnchorId(item.taskIds[0]))}>該当Taskへ</Link></small>}
   </li>

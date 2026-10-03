@@ -1,4 +1,5 @@
 import type { ProjectOperationAccess } from "../../projectAccess.ts";
+import type { StatusTone } from "../../statusTone.ts";
 import type {
   CriterionVerdict,
   EvaluationResult,
@@ -79,8 +80,21 @@ export const taskStatusLabels: Record<TaskStatus, string> = {
   rejected: "差戻し",
   canceled: "取消",
 };
-/** 終端・完了側の状態は控えめのbadgeで出す。 */
+/** 終端（受入済み・取消）の状態。 */
 export const isSettledTask = (status: TaskStatus) => status === "accepted" || status === "canceled";
+/** 状態badgeの意味。受入待ち・差戻しはHumanかAgentの対応を要し、作業中・レビュー待ちは進行中（Agentの稼働を意味しない）。 */
+export const taskStatusTones: Record<TaskStatus, StatusTone> = {
+  todo: "waiting",
+  doing: "progress",
+  in_review: "progress",
+  wait_accept: "attention",
+  accepted: "done",
+  rejected: "attention",
+  canceled: "muted",
+};
+/** Task行のbadge。期限切れClaimの作業中（再取得待ち）は担当中に見せず警告にする。 */
+export const taskTone = (task: Pick<ExecutionTask, "status" | "reclaimable">): StatusTone => (task.reclaimable ? "warning" : taskStatusTones[task.status]);
+export const storyStatusTones: Record<StoryStatus, StatusTone> = { todo: "waiting", doing: "progress", done: "done", canceled: "muted" };
 
 export const changeTypeLabels: Record<string, string> = {
   STORY_CREATED: "Story作成",
@@ -254,11 +268,13 @@ export const evaluationResultLabels: Record<EvaluationResult, string> = {
   failed: "未達成",
   insufficient_evidence: "Evidence不足",
 };
+export const evaluationResultTones: Record<EvaluationResult, StatusTone> = { achieved: "done", failed: "attention", insufficient_evidence: "warning" };
 export const verdictLabels: Record<CriterionVerdict, string> = {
   met: "満たす",
   not_met: "満たさない",
   insufficient_evidence: "Evidence不足",
 };
+export const verdictTones: Record<CriterionVerdict, StatusTone> = { met: "done", not_met: "attention", insufficient_evidence: "warning" };
 
 export type LoopStage =
   | { stage: "not_connected"; label: string }
@@ -276,6 +292,16 @@ export const outcomeLoopStage = (input: { storyCount: number; record: OutcomeExe
   if (input.record) return { stage: "not_evaluated", label: "未評価（Executionの結果は還流済み）" };
   if (input.storyCount > 0) return { stage: "not_reflected", label: "Execution中（結果は未還流）" };
   return { stage: "not_connected", label: "Execution未接続（Storyがありません）" };
+};
+
+/** 閉ループの段のbadge。評価済みは結果に従い、未評価・未還流を達成のように見せない。 */
+export const loopStageTone = (stage: LoopStage): StatusTone => {
+  switch (stage.stage) {
+    case "evaluated": return evaluationResultTones[stage.result];
+    case "not_reflected": return "progress";
+    case "not_evaluated":
+    case "not_connected": return "waiting";
+  }
 };
 
 // ---- Project詳細の「Claim保持中」（Task 02）。期限内のClaimを持つTaskを状態ごとにまとめ、期限切れは再取得待ちとして分ける。 ----
