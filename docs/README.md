@@ -24,5 +24,6 @@
 - [移行計画](architecture-migration-plan.md): Wachaへ登録したStory・Taskと受入条件。実装完了の記録ではない。
 - [構造移行マッピング](architecture-migration-mapping.md): 全ファイルの移行先・依存違反・互換性契約・移行単位。
 - [設計確認事項](planning/architecture-questions.md): 未確定事項。仕様として適用しない。
+- [Project画面の情報設計と視覚方針](planning/project-screen-design.md): UI整理Storyの後続Taskが使う画面構成案。実装済みの仕様ではない。
 
 現行文書へ過去の案・段階別の作業記録を併記しない。過去情報はGit履歴から参照する。
