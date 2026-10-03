@@ -529,10 +529,13 @@ test(
 );
 
 // --- `npm start` と同じ `server/src/main.ts` を子processで起動する（起動コマンド・設定のfail-fast・trusted-localの経路）
+// main.tsはcwdの`.env`を読むため、cwdを一時directoryにしてrepoのローカル`.env`から隔離する（tsxは解決済みpathで渡す）。
 const serverEntry = fileURLToPath(new URL("../src/main.ts", import.meta.url));
+const tsx = import.meta.resolve("tsx");
 
-const runServer = (env: Record<string, string>) => {
-  const child = spawn(process.execPath, ["--import", "tsx", serverEntry], {
+const runServer = (cwd: string, env: Record<string, string>) => {
+  const child = spawn(process.execPath, ["--import", tsx, serverEntry], {
+    cwd,
     env: { PATH: process.env.PATH ?? "", ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -558,12 +561,12 @@ test("server/src/main.tsはremoteの必須値欠落・初期owner未設定で起
   try {
     // 設定検査はlisten前に失敗するため、loopback禁止環境でも動くよう固定の妥当なPORTを使う。
     const base = { COMPASS_DB_PATH: join(directory, "compass.db"), PORT: "51800" };
-    const missingSecret = runServer({ ...base, COMPASS_PUBLIC_ORIGIN: publicOrigin, COMPASS_GOOGLE_CLIENT_ID: clientId });
+    const missingSecret = runServer(directory, { ...base, COMPASS_PUBLIC_ORIGIN: publicOrigin, COMPASS_GOOGLE_CLIENT_ID: clientId });
     assert.equal(await missingSecret.exited, 1);
     assert.match(missingSecret.output.stderr, /Configuration error: COMPASS_GOOGLE_CLIENT_ID and COMPASS_GOOGLE_CLIENT_SECRET/);
     assert.equal(missingSecret.output.stderr.includes(clientId), false);
 
-    const noOwner = runServer({
+    const noOwner = runServer(directory, {
       ...base,
       COMPASS_PUBLIC_ORIGIN: publicOrigin,
       COMPASS_GOOGLE_CLIENT_ID: clientId,
@@ -573,7 +576,7 @@ test("server/src/main.tsはremoteの必須値欠落・初期owner未設定で起
     assert.match(noOwner.output.stderr, /Configuration error: COMPASS_INITIAL_OWNER_EMAIL/);
     assert.equal(`${noOwner.output.stdout}${noOwner.output.stderr}`.includes(clientSecret), false);
 
-    const production = runServer({ ...base, NODE_ENV: "production", COMPASS_AUTH_MODE: "trusted-local", COMPASS_INITIAL_OWNER_EMAIL: ownerEmail });
+    const production = runServer(directory, { ...base, NODE_ENV: "production", COMPASS_AUTH_MODE: "trusted-local", COMPASS_INITIAL_OWNER_EMAIL: ownerEmail });
     assert.equal(await production.exited, 1);
     assert.match(production.output.stderr, /Configuration error: .*production/);
   } finally {
@@ -588,7 +591,7 @@ test(
     const directory = await mkdtemp(join(tmpdir(), "compass-auth-local-"));
     const port = await freePort();
     const origin = `http://localhost:${port}`;
-    const server = runServer({
+    const server = runServer(directory, {
       COMPASS_DB_PATH: join(directory, "compass.db"),
       PORT: String(port),
       COMPASS_AUTH_MODE: "trusted-local",

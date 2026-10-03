@@ -446,7 +446,9 @@ test("外部Runtime・Agentのharnessは`src/`をimportせず、HTTP / MCPだけ
 });
 
 // --- `npm start`と同じ`server/src/main.ts`を1コマンドで起動し、同一portでWeb UI・API・統一MCPを提供することを確認する
+// main.tsはcwdの`.env`を読むため、cwdを一時directoryにしてrepoのローカル`.env`から隔離する（tsxは解決済みpathで渡す）。
 const serverEntry = fileURLToPath(new URL("../src/main.ts", import.meta.url));
+const tsx = import.meta.resolve("tsx");
 
 const freePort = () =>
   new Promise<number>((resolve, reject) => {
@@ -465,7 +467,8 @@ test(
     const directory = await mkdtemp(join(tmpdir(), "compass-lv6-start-"));
     const port = await freePort();
     const origin = `http://localhost:${port}`;
-    const child = spawn(process.execPath, ["--import", "tsx", serverEntry], {
+    const child = spawn(process.execPath, ["--import", tsx, serverEntry], {
+      cwd: directory,
       env: {
         PATH: process.env.PATH ?? "",
         COMPASS_DB_PATH: join(directory, "compass.db"),

@@ -62,6 +62,11 @@ DirectionとWorkは公開index（`@compass/direction`・`@compass/work`）とapp
 
 Accessは`project`のtableを直接読まない。archive判定・Projectの存在・owner不在Projectの補完に使うProject一覧は`ProjectStateReader` portで読み、Membership・Grant・Credentialの書込と同じtransactionで検査する。Project作成時の初期owner Membershipは、DirectionのProject作成のtransactionの中でAccessの`writeProjectOwnerMembership`が書く。いずれもserverが`contextAdapters.ts`で配線する。AccessがDirectionから使うのは公開indexのuse case（`GetProjectUseCase`・`ListProjectsUseCase`）・型・`ProjectArchivedError`だけで、DirectionはAccessに依存しない。
 
+## 構造移行後の検証範囲
+
+- 自動テスト（`npm test`）: Lv6閉ループ（`server/tests/lv6ClosedLoop.test.ts`。Intent→Research→Outcome→Work→Review / Acceptance→Evaluation→次の判断、固定成功条件のsnapshot、`insufficient_evidence`、別Principal、再起動・重複配送）、`server/src/main.ts`の同一portでのWeb UI・API・MCP、Orchestrator・Ralphの独立プロセスとしての起動・再起動・重複起動抑止・別Credentialを検証する。起動テストは一時directoryをcwdにし、親の`COMPASS_*`・`PORT`を渡さず空きportを使い、ローカルの`.env`と既存portから隔離する。
+- 既存DB: 構造移行前のコードで作ったDB（Activity table・`command_receipt.active_role`なし、Claim中・受入待ちのTaskあり）を現行serverで開き、Story / Task / Claim / Comment / Change Logの参照、移行前のClaimでの完了、別Principalのレビュー・受入、移行前のcommand receiptの再送（headerなしは同じ結果、activeRoleありは`IDEMPOTENCY_CONFLICT`）、canonical Activityが移行後の変更だけから生成されること、Web APIでの参照を手動で確認した。自動テストには含めない。
+
 ## 未実装・未接続・未検証
 
 - `scope=system`のActivityは保存形式だけで、記録・参照の入口（MCP・Web）は無い。
