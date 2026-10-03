@@ -74,7 +74,7 @@ MCP endpointは`http://localhost:51800/mcp`、認証headerは`Authorization: Bea
 
 現在のRoleは`strategist` / `researcher` / `manager` / `worker` / `reviewer` / `evaluator`。`get_role_instructions({ role, includeShared: true })`でInstructionを取得できます。Grant発行だけではAgentは起動しません。
 
-1回の実行で使うRoleは`X-Compass-Active-Role: <role>` headerで固定できます（MCP・Runtime向けAPI）。指定時はそのRoleのGrantだけで認可し、同じAgent名の他Grantは合算しません。trusted-local modeでも、指定時はProject参照・一覧（`get_project`・`list_projects`等）がそのRoleのGrantを持つProjectに限られます。Agent名（Bearer）なしでの指定は`UNAUTHENTICATED`、Grantの無いRole・別Roleのtoolは`FORBIDDEN`、未知の値は400です。同じ`requestId`を別のactiveRoleで再送すると`IDEMPOTENCY_CONFLICT`になります。headerなしは従来どおり操作ごとに必要Roleを検査します。Worker / Reviewerは別Agent名・別Credentialで接続し、Role切替で自己レビュー・自己受入禁止を回避できません。
+1回の実行で使うRoleは`X-Compass-Active-Role: <role>` headerで固定できます（MCP・Runtime向けAPI）。指定時はそのRoleのGrantだけで認可し、同じAgent名の他Grantは合算しません。trusted-local modeでも、指定時はProject参照・一覧（`get_project`・`list_projects`等）がそのRoleのGrantを持つProjectに限られます。Agent名（Bearer）なしでの指定はProject scopeのtool（Project参照・`update_project`・Intent管理・Work操作等）で`UNAUTHENTICATED`です。ただしtrusted-localの`create_project`はProject作成前の操作でGrantの対象外のため、activeRoleの指定に関係なく実行できます。Grantの無いRole・別Roleのtoolは`FORBIDDEN`、未知の値は400です。同じ`requestId`を別のactiveRoleで再送すると`IDEMPOTENCY_CONFLICT`になります。headerなしは従来どおり操作ごとに必要Roleを検査します。Worker / Reviewerは別Agent名・別Credentialで接続し、Role切替で自己レビュー・自己受入禁止を回避できません。
 
 remote modeでは有効なCredentialが必要で、Project / IntentのHuman用変更toolは公開しません。trusted-localでは開発用にAgent名そのもののBearerも使用できます。
 
