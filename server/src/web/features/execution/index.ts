@@ -7,6 +7,7 @@ export {
   executionPath,
   executionStateLabels,
   executionSummaryPath,
+  describePrincipal,
   formatTime,
   outcomeLoopStage,
   verdictLabels,

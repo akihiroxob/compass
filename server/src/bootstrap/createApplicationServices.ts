@@ -105,12 +105,22 @@ import {
   type HumanProjectOperation,
   type ProjectRole,
 } from "@compass/access";
+import {
+  AgentActivityReader,
+  GetActivityUseCase,
+  KyselyActivityStore,
+  ListActivitiesUseCase,
+  RecordActivityUseCase,
+} from "@compass/activity";
 import type { Kysely } from "kysely";
-import { asAccessDatabase, asDirectionDatabase, asWorkDatabase } from "./database/contextDatabase.ts";
+import { asAccessDatabase, asActivityDatabase, asDirectionDatabase, asWorkDatabase } from "./database/contextDatabase.ts";
 import type { Database } from "./database/schema.ts";
 import {
   accessProjectReaders,
+  activityAuthorization,
+  activityProjectReader,
   projectOwnerMembershipWriter,
+  workChangeActivityObserver,
   workExternalReaders,
 } from "../infrastructure/repository/contextAdapters.ts";
 
@@ -145,8 +155,14 @@ export const createApplicationServices = (
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
   const accessCredentialRepository = new SQLiteAccessCredentialRepository(accessDatabase, accessProjectReaders);
   const getProjectUseCase = new GetProjectUseCase(projectRepository);
+  // Activity（意味のある履歴）。Change Log・Operational Logとは別のtableで、Projectの状態はDirectionのreaderで読む。
+  const activityStore = new KyselyActivityStore(asActivityDatabase(applicationDatabase));
+  const activityProjects = activityProjectReader(applicationDatabase);
+  const listActivitiesUseCase = new ListActivitiesUseCase(activityProjects, activityStore);
+  const getActivityUseCase = new GetActivityUseCase(activityProjects, activityStore);
   // Execution（旧Wachaから移植）。同じDB・同じプロセスの中で動き、Directionの参照は読取専用ポートだけを通す。
-  const workStore = new KyselyWorkStore(asWorkDatabase(applicationDatabase), workExternalReaders);
+  // 重要な状態変更は、同じtransactionでcanonical Activityへ投影する。
+  const workStore = new KyselyWorkStore(asWorkDatabase(applicationDatabase), workExternalReaders, workChangeActivityObserver);
   const taskCoordinationService = new TaskCoordinationService(
     workStore,
     new DirectionReferenceLookupService(projectRepository, outcomeRepository),
@@ -173,6 +189,7 @@ export const createApplicationServices = (
   ) => {
     // Runtime向けの入口はRuntime Credentialのscopeで認可する（trusted-localのAgent名だけ暫定のruntime Grant）。
     const runtimeAuthorization = new RuntimeAuthorizationService(projectAuthorization);
+    const activityAuthorizationPort = activityAuthorization(projectAuthorization);
     return {
       projectAuthorizationService: projectAuthorization,
       runtimeAuthorizationService: runtimeAuthorization,
@@ -218,7 +235,14 @@ export const createApplicationServices = (
         intentRepository,
         researchRepository,
       ),
-      getRoleContextUseCase: new GetRoleContextUseCase(projectAuthorization, agentContextService, getProjectUseCase),
+      getRoleContextUseCase: new GetRoleContextUseCase(
+        projectAuthorization,
+        agentContextService,
+        getProjectUseCase,
+        listActivitiesUseCase,
+      ),
+      recordActivityUseCase: new RecordActivityUseCase(activityAuthorizationPort, activityProjects, activityStore, clock),
+      agentActivityReader: new AgentActivityReader(activityAuthorizationPort, listActivitiesUseCase, getActivityUseCase),
       getStrategistContextUseCase: new GetStrategistContextUseCase(
         projectAuthorization,
         projectRepository,
@@ -377,6 +401,9 @@ export const createApplicationServices = (
     listExecution: authorized("project.read", services.listExecutionUseCase),
     getExecutionTask: authorized("project.read", services.getExecutionTaskUseCase),
     listRecentExecutionChanges: authorized("project.read", services.listRecentExecutionChangesUseCase),
+    // Activity閲覧。archivedのProjectも参照できる。記録はAgentのMCP（record_activity）とcanonical生成だけで、Web UIからは記録しない。
+    listActivities: authorized("project.read", listActivitiesUseCase),
+    getActivity: authorized("project.read", getActivityUseCase),
     // Execution介入（Task 46。U3）。Web UI専用で、MCPへは公開しない（Agentは既存のClaim・review・accept toolを使う）。
     acceptExecutionTask: operator("execution.intervene", new AcceptExecutionTaskUseCase(taskCoordinationService)),
     rejectExecutionTask: operator("execution.intervene", new RejectExecutionTaskUseCase(taskCoordinationService)),

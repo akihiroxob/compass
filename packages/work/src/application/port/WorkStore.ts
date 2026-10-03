@@ -83,6 +83,14 @@ export type ChangeRecord = {
   occurred_at: number;
 };
 
+/**
+ * 追記したChangeと、その対象のStory / Task（同じtransactionで読んだ値）。Workの外（Activity等）が状態変更と同じtransactionで
+ * 受け取り、意味のある履歴へ投影するための通知。受け取った側が失敗すれば状態変更も巻き戻る。
+ */
+export type WorkChangeNotice = ChangeRecord & {
+  subject: { kind: "story" | "task"; id: string; title: string; storyId: string | null } | null;
+};
+
 /** Work toolの`requestId`冪等性。同じ`(principal_id, tool_name, request_id)`は保存した結果を再生する。 */
 export type CommandReceiptRecord = {
   principal_id: string;

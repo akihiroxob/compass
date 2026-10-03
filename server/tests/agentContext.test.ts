@@ -154,7 +154,7 @@ test("repoの資産: RoleだけがSkillを参照し、SkillはallowRolesを持�
   await database.destroy();
 });
 
-test("get_role_contextはRole・Policy・Skill metadata・Project情報・Resourcesを返し、Skill本文・Knowledge本文を含めない", async () => {
+test("get_role_contextはRole・Policy・Skill metadata・Project情報・Resources・Activity summaryを返し、Skill本文・Knowledge本文を含めない", async () => {
   const { app, database } = await setup();
   const projectId = await createProject(app);
   await grant(app, projectId, "worker-a", "worker");
@@ -162,7 +162,7 @@ test("get_role_contextはRole・Policy・Skill metadata・Project情報・Resour
   const result = await callTool(app, "get_role_context", { projectId, role: "worker" }, "worker-a");
   assert.equal(result.isError, undefined);
   const context = result.structuredContent;
-  assert.deepEqual(Object.keys(context).sort(), ["policies", "project", "resources", "role", "skills", "source", "unavailable"]);
+  assert.deepEqual(Object.keys(context).sort(), ["activity", "policies", "project", "resources", "role", "skills", "source", "unavailable"]);
   const roleFile = await readFile(new URL("roles/worker.md", repoRoot), "utf-8");
   assert.equal(context.role.name, "worker");
   assert.equal(context.role.path, "roles/worker.md");
@@ -188,8 +188,9 @@ test("get_role_contextはRole・Policy・Skill metadata・Project情報・Resour
   assert.equal(context.project.status, "active");
   assert.deepEqual(context.resources.repositories.map((item: { url: string }) => item.url), ["https://example.com/compass.git"]);
   assert.deepEqual(context.resources.resources.map((item: { kind: string }) => item.kind), ["docs"]);
-  // Activity summaryは未接続（Task 07）であることを明示し、空の履歴として偽装しない。
-  assert.deepEqual(context.unavailable, ["activity"]);
+  // Activity summaryは接続済み。履歴が無いProjectでは空の一覧になる（内容の検証はactivity.test.ts）。
+  assert.deepEqual(context.activity, { activities: [], nextCursor: null });
+  assert.deepEqual(context.unavailable, []);
   if (gitAvailable) {
     const head = (await git("git", ["rev-parse", "HEAD"], { cwd: new URL(".", repoRoot) })).stdout.trim();
     assert.equal(context.source.revision, head);

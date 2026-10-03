@@ -64,7 +64,7 @@ Domain層はReact・Hono・MCP SDK・Kyselyを直接importしていない（V3�
 - 同一portの`/`（Web UI）・`/api`・`/mcp`・`/health`・`/auth/*`。
 - 環境変数: `PORT`・`COMPASS_DB_PATH`・`COMPASS_HOST`・`COMPASS_AUTH_MODE`・`COMPASS_PUBLIC_ORIGIN`・`COMPASS_GOOGLE_CLIENT_ID`・`COMPASS_GOOGLE_CLIENT_SECRET`・`COMPASS_INITIAL_OWNER_EMAIL`・`COMPASS_REGISTRATION_MODE`・`COMPASS_CLAIM_TTL_MS`。起動ディレクトリの`.env`読込。
 - HTTP API: `app.ts`・`registerHumanAuthRoutes.ts`のroute・status・error形式（`{ error: { code, message } }`）。
-- MCP: `createMcpServer.ts`の36 tool（`get_role_instructions`と06で追加した`get_role_context`・`list_skills`・`get_skill_context`を含む）・`registerExecutionTools.ts`の21 toolの名前・入力・`structuredContent`・error形式（`CoordinationError`の`retryable`を含む）。remote modeの匿名呼出しは`get_role_instructions`だけ。
+- MCP: `createMcpServer.ts`の36 tool（`get_role_instructions`と06で追加した`get_role_context`・`list_skills`・`get_skill_context`を含む）・`registerExecutionTools.ts`の21 tool・07で追加した`registerActivityTools.ts`の3 tool（`record_activity`・`list_activities`・`get_activity`）の名前・入力・`structuredContent`・error形式（`CoordinationError`の`retryable`を含む）。remote modeの匿名呼出しは`get_role_instructions`だけ。
 - 認証: `Authorization: Bearer <AgentName>`（trusted-localのみ）、`cmp_` Credential、Human Session Cookie。
 - DB: 既存table・column・SQLite file。Grantの`manager`は移行後も同じ値。
 - Role文書: `get_role_instructions`の`role`・`includeShared`と共通Policyを先頭に返す応答。fileの`path`は06で`policies/role-policy.md`・`roles/<role>.md`へ変更した。

@@ -476,6 +476,8 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       "accept_task", "add_task_comment", "cancel_story", "cancel_task", "claim_acceptance", "claim_review", "claim_task",
       "complete_story", "complete_task", "edit_story", "edit_task", "issue_story", "issue_task", "list_changes",
       "list_stories", "list_task_comments", "list_tasks", "reject_task", "release_claim", "renew_claim", "reviewed_task",
+      // Activityは追記だけで、削除・書換のtoolは無い（訂正は追記）。
+      "get_activity", "list_activities", "record_activity",
     ].sort(),
   );
   const listTool = tools.find(({ name }) => name === "list_projects");

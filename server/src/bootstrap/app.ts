@@ -311,6 +311,18 @@ export const createApp = (
       }),
     ),
   );
+  // Activity閲覧。Membership（viewer以上）で認可し、新しい順のsummary・refsと、1件の本文・訂正を返す。記録はAgentのMCPとcanonical生成だけ。
+  app.get("/api/projects/:projectId/activities", async (c) =>
+    c.json(
+      await human.listActivities.execute(await actorOf(c), c.req.param("projectId"), {
+        beforeCursor: queryNumber(c.req.query("beforeCursor")),
+        limit: queryNumber(c.req.query("limit")),
+      }),
+    ),
+  );
+  app.get("/api/projects/:projectId/activities/:activityId", async (c) =>
+    c.json(await human.getActivity.execute(await actorOf(c), c.req.param("projectId"), c.req.param("activityId"))),
+  );
   // Execution介入（Task 46。U3）。Membershipのeditor以上＝`execution.intervene`。操作者はSessionのHumanから導出し、本文では受け取らない。
   const taskPath = "/api/projects/:projectId/tasks/:taskId";
   app.post(`${taskPath}/accept`, async (c) =>

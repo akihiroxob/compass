@@ -7,12 +7,13 @@
 | 領域 | 現在の構成・機能 |
 | --- | --- |
 | 起動 | npm workspaces。`server/`（`@compass/server`）がWeb UI（`server/src/web`、build出力`server/public/`）・`/api`・`/mcp`をHonoで同一portに提供。rootの`npm start`等はroot cwdのまま`server/`のentryを起動 |
-| 構成 | `packages/direction`（`@compass/direction`）・`packages/work`（`@compass/work`）・`packages/access`（`@compass/access`。Principal・Role Grant・Credential・Membership・Human認証のuse case・規則）・`packages/shared`（`@compass/shared`。汎用errorと入力検証の部品）。transport（OIDC adapter・Cookie・Bearer解決）・DIは`server/src`にある。packageは`src/index.ts`で公開し、serverが配線する |
-| 保存 | 単一SQLite file / Kysely。table型・DDLはDirection・Work・Accessが各packageに持ち、serverの`Database`型と`initializeSchema`が合成する |
+| 構成 | `packages/direction`（`@compass/direction`）・`packages/work`（`@compass/work`）・`packages/access`（`@compass/access`。Principal・Role Grant・Credential・Membership・Human認証のuse case・規則）・`packages/activity`（`@compass/activity`。Activityのmodel・use case・保存）・`packages/shared`（`@compass/shared`。汎用errorと入力検証の部品）。transport（OIDC adapter・Cookie・Bearer解決）・DIは`server/src`にある。packageは`src/index.ts`で公開し、serverが配線する |
+| 保存 | 単一SQLite file / Kysely。table型・DDLはDirection・Work・Access・Activityが各packageに持ち、serverの`Database`型と`initializeSchema`が合成する |
 | Direction | Project・Intent・Outcome・固定成功条件・Research・Decision・Evaluation・ADR参照 |
 | Execution | Story・Task・Claim・Comment・Change Log・Review・Acceptance |
 | Human | Google OIDC・Web Session・Membership・招待・Web UIでの操作 |
 | Agent | Credential・Project Role Grant・Git管理の`roles/`・`policies/`・`skills/`・`knowledge/`からのRole / Skill Context配信 |
+| Activity | Project scopeのActivityの明示記録・参照（MCP）、Workの状態変更からのcanonical生成、Role Contextへのsummary接続、Web UIでの閲覧 |
 | Runtime接続面 | event取得・ack、Execution Evidence還流、scope付きCredential |
 
 Research Request / Result / Finding / SynthesisとDirection Decision・Evaluationは現在DBに保存する。Intent作成はInitial Research Requestを自動生成する。保存先は内容と所有責務で個別に判断し、Project別であることや本文が長いことを理由に一律移行しない。Strategistを最初に起動するフローへの変更は未実施。
@@ -23,11 +24,22 @@ Research Request / Result / Finding / SynthesisとDirection Decision・Evaluatio
 
 構成資産はrepo直下の`roles/<role>.md`（frontmatterの`skills`で使うSkillを参照）・`policies/role-policy.md`・`skills/<name>.md`（frontmatterに`requiredKnowledge`とnamespace付きの`requiredTools`。`allowRoles`は持たない）・`knowledge/`（Agent System共通知識）に置く。serverの`FileAgentAssetRepository`（infrastructure）がfileとGit revisionを読み、`AgentContextService` / `GetRoleContextUseCase`（`server/src/application/agentContext`）が配信する。
 
-- `get_role_context({ projectId, role })`: 要求RoleのGrantが必要（activeRole指定時は同じRoleに限る）。Role Definition（frontmatterを除いた本文と`skills`）・共通Policy・参照SkillのmetadataとProject基本情報・Project Resourcesを返す。Skill本文・Knowledge本文は含めない。Activity summaryは未接続で`unavailable: ["activity"]`を返す。`get_strategist_context`等のDirection集約は置き換えない
+- `get_role_context({ projectId, role })`: 要求RoleのGrantが必要（activeRole指定時は同じRoleに限る）。Role Definition（frontmatterを除いた本文と`skills`）・共通Policy・参照SkillのmetadataとProject基本情報・Project Resources・最近のActivity（`activity`。`list_activities`と同じ形で新しい順に最大20件、summaryとrefsだけ）を返す。Skill本文・Knowledge本文・Activity本文は含めない。`unavailable`は空配列。`get_strategist_context`等のDirection集約は置き換えない
 - `list_skills({ status?, role? })`・`get_skill_context({ name })`: 静的な手順書の取得でGrantは不要（remote modeの匿名呼出しには公開しない）。`role`は認可ではなくRole Definitionの参照による絞り込み
 - 各応答の`source`は資産を読んだHEADの`revision`と、資産directoryの未commit変更の有無`dirty`（Git管理外はnull）
 - 資産の欠落・形式不正（`allowRoles`・namespaceなしのTool・未知のSkill参照・knowledge外のpath）は部分応答を返さず`INSTRUCTION_UNAVAILABLE`。未知のSkillは`NOT_FOUND`
 - `get_role_instructions`は互換のため残し、`policies/role-policy.md`（`includeShared`時に先頭）と`roles/<role>.md`をfileのまま返す
+
+## Activityの現行契約
+
+`packages/activity`がActivity（`activity` table）を所有する。追記専用で、更新・削除の経路は持たない。Change Log（Work）・Runtime event（Direction）・Operational Log（stdout）とは別のtableと契約で、Agentの実行単位（`runId`）は持たない。
+
+- 項目: `id`・`cursor`（全体で単調増加）・`scope`（`project` / `system`。DBのCHECKでprojectIdの有無と整合させる）・`projectId`・`type`（`research.summary`等のdot区切り小文字）・`principalId`・`role`・`summary`（必須、500文字以内）・`body`（任意のMarkdown）・`refs`・`correctsActivityId`・`source`（`recorded` / `canonical`）・`occurredAt`・`recordedAt`。
+- `refs`: `project_resource`（Projectに登録済みのRepository・Resourceの`resourceId`と任意の`path`・`revision`）・`url`（http(s)）・Entity（`intent`・`outcome`・`research_request`・`decision`・`story`・`task`・`activity`のid）。成果物の本文は持たない（未知の項目は拒否）。
+- `record_activity`: PrincipalはBearerから、Roleは入力の`role`（そのRoleのGrantが必要）または`X-Compass-Active-Role`から決める。どちらも無ければ`VALIDATION_ERROR`、activeRoleと異なるRole・Grantの無いRoleは`FORBIDDEN`。archivedのProjectは`CONFLICT`。`runId`等の未知の項目は`VALIDATION_ERROR`。同じPrincipal・`requestId`の再送は同じActivity（`created: false`）を返し、別内容での再利用は`CONFLICT`。訂正は`correctsActivityId`を持つActivityを追記し、元は書き換えない。
+- `list_activities` / `get_activity`: ProjectのいずれかのGrant（activeRole指定時はそのRole）が必要。一覧は本文を含めず`hasBody`を返す。`afterCursor`なしは新しい順で`nextCursor`を次の`beforeCursor`に、`afterCursor`ありは昇順の差分で`nextCursor`を次の`afterCursor`に使う。`principalId`・`role`・`type`・参照（`refKind` + `refId`）で絞り込める。`get_activity`は本文と、そのActivityを訂正したActivity（`corrections`）を返す。
+- canonical生成: Workの`KyselyWorkStore`がChangeを追記した同じtransactionで、serverが配線した通知（`workChangeActivityObserver`）からActivityの`recordCanonicalWorkActivity`を呼ぶ。対象は`STORY_CREATED`・`STORY_COMPLETED`・`STORY_CANCELED`・`TASK_CREATED`・`TASK_COMPLETED`・`TASK_REVIEWED`・`TASK_ACCEPTED`・`TASK_REJECTED`・`TASK_CANCELED`で、Claim操作・編集・Story着手は対象外。`role`はChangeの`actorRole`（Human介入は`operator`）。生成元Changeの`cursor`で一意にするため重複せず、Activityを保存できなければ状態変更も確定しない。導入前のChange Logからは遡って生成しない。
+- Human: Web API `GET /api/projects/:projectId/activities`（`beforeCursor`・`limit`）・`GET /api/projects/:projectId/activities/:activityId`はMembership（viewer以上）で認可し、Project詳細の「Activity」sectionで表示する。`project_resource`参照は登録済みのURLとpath・revisionで表示する。Web UIからは記録しない。
 
 ## Executionの現行契約
 
@@ -49,8 +61,9 @@ Accessは`project`のtableを直接読まない。archive判定・Projectの存�
 
 ## 未実装・未接続・未検証
 
-- `packages/activity`への分離、`orchestrator/` / `ralph/`は未実施。
-- 独立したActivity package・DBは未実装。Role ContextへのActivity summaryの接続は未実施。
+- `orchestrator/` / `ralph/`は未実施。
+- `scope=system`のActivityは保存形式だけで、記録・参照の入口（MCP・Web）は無い。
+- Directionの状態変更（Intent・Outcome・Research・Decision・Evaluation）からのcanonical Activity生成は未接続。現在のcanonical生成はWorkの状態変更だけ。
 - Role / Skill Contextを実行時に取得するOrchestrator / Ralphは未接続。
 - 本リポジトリには本番Orchestrator / Ralphの実装はない。Ralphの参照元は`/Users/aokayama/git/agent-foundation/ralph`。
 - 実RuntimeによるAgent起動と継続したLv6自律運転は未接続・未検証。`server/tests/support/lv6Runtime.ts`等のfixtureを自律運転の実証としない。

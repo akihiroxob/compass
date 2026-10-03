@@ -75,6 +75,7 @@ select { font: inherit; min-height: 2.6rem; padding: 0 .75rem; border: 1px solid
 .detail-section code, .grant-list code, .outcome-list code { font-size: .85em; overflow-wrap: anywhere; }
 .outcome-list small, .grant-list small, .criteria-list dd { overflow-wrap: anywhere; }
 .change-list li { display: block; } .change-list li small { display: block; margin-top: .35rem; } .change-list .section-note { margin: .5rem 0 0; }
+.activity-refs { margin: .45rem 0 0; padding-left: 1.1rem; font-size: .85rem; } .activity-refs li { margin: .15rem 0; } .change-list .pre-wrap { margin-top: .5rem; }
 .execution-changes { margin-top: 1.75rem; }
 .pre-wrap { margin: 0; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
 .evidence-uri { color: #a2462d; font-weight: 700; overflow-wrap: anywhere; }

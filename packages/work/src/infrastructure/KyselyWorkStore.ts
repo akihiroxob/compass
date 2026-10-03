@@ -11,6 +11,7 @@ import type {
   TaskClaimRecord,
   TaskCommentRecord,
   TaskRecord,
+  WorkChangeNotice,
   WorkStore,
 } from "../application/port/WorkStore.ts";
 import type { WorkDatabase } from "./schema.ts";
@@ -26,6 +27,12 @@ export type WorkExternalReaders = (executor: Executor) => {
   projects: ProjectStateReader;
 };
 
+/**
+ * 追記したChangeを、同じ接続・transactionでWorkの外へ通知する（例: canonical Activityの生成）。serverが配線する。
+ * 通知先の失敗は呼び出し元の状態変更ごと巻き戻る。
+ */
+export type WorkChangeObserver = (executor: Executor) => (notice: WorkChangeNotice) => Promise<void>;
+
 const toChange = (row: { cursor: number | bigint } & Omit<ChangeRecord, "cursor">): ChangeRecord => ({
   ...row,
   cursor: Number(row.cursor),
@@ -39,6 +46,7 @@ export class KyselyWorkStore implements WorkStore {
   constructor(
     private readonly db: Executor,
     private readonly externalReaders: WorkExternalReaders,
+    private readonly changeObserver: WorkChangeObserver | null = null,
   ) {
     const readers = externalReaders(db);
     this.grants = readers.grants;
@@ -46,7 +54,9 @@ export class KyselyWorkStore implements WorkStore {
   }
 
   transaction<T>(work: (store: WorkStore) => Promise<T>): Promise<T> {
-    return this.db.transaction().execute((transaction) => work(new KyselyWorkStore(transaction, this.externalReaders)));
+    return this.db.transaction().execute((transaction) =>
+      work(new KyselyWorkStore(transaction, this.externalReaders, this.changeObserver)),
+    );
   }
 
   async findStory(storyId: string): Promise<StoryRecord | null> {
@@ -252,7 +262,23 @@ export class KyselyWorkStore implements WorkStore {
 
   async appendChange(change: Omit<ChangeRecord, "cursor">): Promise<number> {
     const row = await this.db.insertInto("change_log").values(change).returning("cursor").executeTakeFirstOrThrow();
-    return Number(row.cursor);
+    const cursor = Number(row.cursor);
+    if (this.changeObserver) {
+      await this.changeObserver(this.db)({ ...change, cursor, subject: await this.findChangeSubject(change.entity_id) });
+    }
+    return cursor;
+  }
+
+  /** Changeの対象（Story / Task）。Claim等のIDなど、どちらでもなければnull。 */
+  private async findChangeSubject(entityId: string): Promise<WorkChangeNotice["subject"]> {
+    const task = await this.db
+      .selectFrom("task")
+      .select(["id", "title", "story_id"])
+      .where("id", "=", entityId)
+      .executeTakeFirst();
+    if (task) return { kind: "task", id: task.id, title: task.title, storyId: task.story_id };
+    const story = await this.db.selectFrom("story").select(["id", "title"]).where("id", "=", entityId).executeTakeFirst();
+    return story ? { kind: "story", id: story.id, title: story.title, storyId: null } : null;
   }
 
   async findLatestCompleter(taskId: string): Promise<string | null> {

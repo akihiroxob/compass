@@ -16,7 +16,7 @@ export class ProjectAuthorizationService {
      * 操作Contextに固定したRole（`X-Compass-Active-Role`）。nullは互換の「操作ごとに必要Roleを検査」。
      * 指定時は`principalId + projectId + activeRole`のGrantだけで認可し、同じPrincipalの他Grantを合算しない。
      */
-    private readonly activeRole: ProjectRole | null = null,
+    readonly activeRole: ProjectRole | null = null,
   ) {}
 
   /** 同じRepositoryで、認可をactiveRoleのGrantだけに固定したserviceを返す。 */
