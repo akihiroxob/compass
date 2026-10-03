@@ -22,11 +22,12 @@ export const registerActivityTools = (server: McpServer, services: OperationServ
         "read first; body is optional Markdown. refs point to where things are instead of copying them: " +
         "{kind:'project_resource', resourceId (a registered Project repository / resource id), path?, revision?}, {kind:'url', url}, " +
         `or {kind:${activityEntityKinds.map((kind) => `'${kind}'`).join("|")}, id}. Do not copy Repository / Docs content into body. ` +
-        "Activities are append-only: to correct one, record a new Activity with correctsActivityId. Do not send runId or other " +
-        "execution-trace fields (rejected). Task / Story state changes are recorded automatically; do not duplicate them. " +
+        "Activities are append-only: to correct one, record a new Activity with correctsActivityId. Unknown fields such as runId " +
+        "or deliverable content are rejected with VALIDATION_ERROR. Task / Story and Direction (Intent, Outcome, Research Request, Decision, Evaluation, Project archive) state changes are recorded automatically; do not duplicate them. " +
         "The Principal comes from Authorization; role must be a Role you hold in the Project (defaults to X-Compass-Active-Role). " +
         "The same requestId returns the same Activity; reusing it with different content fails with CONFLICT.",
-      inputSchema: {
+      // 未知の項目（runId・成果物本文の取り違え等）をMCP境界で黙って捨てず、use caseの厳格な検査でVALIDATION_ERRORにする。
+      inputSchema: z.looseObject({
         projectId: z.string().min(1),
         type: z.string().describe("Dot-separated lowercase words, e.g. research.summary or decision.recorded"),
         summary: z.string(),
@@ -36,9 +37,7 @@ export const registerActivityTools = (server: McpServer, services: OperationServ
         correctsActivityId: z.string().optional(),
         occurredAt: z.number().int().optional(),
         requestId: z.string().min(1).describe("Caller-generated idempotency key"),
-        // 実行単位（runId）はActivityに持たせない。schemaに無いとzodが黙って捨てるため宣言し、use caseが拒否する。
-        runId: z.unknown().optional(),
-      },
+      }),
     },
     (input) => execute(() => services.recordActivityUseCase.execute(principal, input)),
   );

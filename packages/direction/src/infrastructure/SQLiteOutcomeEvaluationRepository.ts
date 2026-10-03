@@ -12,6 +12,7 @@ import type { DirectionDatabase, OutcomeEvaluationTable } from "./schema.ts";
 import { inputHash } from "@compass/shared";
 import { isProjectArchived } from "./isProjectArchived.ts";
 import { recordOutcomeEvaluatedEvent } from "./runtimeEventRecord.ts";
+import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 const toEvaluation = (row: Selectable<OutcomeEvaluationTable>): OutcomeEvaluation => ({
   id: row.id,
@@ -55,7 +56,10 @@ const replayOf = (
     : { kind: "key_conflict", requestKey: request.requestKey };
 
 export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepository {
-  constructor(private readonly database: Kysely<DirectionDatabase>) {}
+  constructor(
+    private readonly database: Kysely<DirectionDatabase>,
+    private readonly changeObserver: DirectionChangeObserver | null = null,
+  ) {}
 
   async findReplay(projectId: string, request: OutcomeEvaluationRequest): Promise<FindEvaluationReplayResult> {
     const existing = await findByKey(this.database, projectId, request.requestKey);
@@ -105,6 +109,25 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
         intentId: input.intentId,
         outcomeId: request.outcomeId,
         evaluationId: row.id,
+        occurredAt: input.at,
+      });
+      const outcome = await transaction
+        .selectFrom("outcome")
+        .select("title")
+        .where("id", "=", request.outcomeId)
+        .executeTakeFirstOrThrow();
+      await notifyDirectionChange(this.changeObserver, transaction, {
+        type: "outcome_evaluated",
+        projectId,
+        recordId: row.id,
+        title: outcome.title,
+        refs: [
+          { kind: "outcome", id: request.outcomeId },
+          { kind: "intent", id: input.intentId },
+        ],
+        result: input.result,
+        reason: null,
+        principalId: request.principalId,
         occurredAt: input.at,
       });
       return { kind: "created", evaluation: toEvaluation(row) };

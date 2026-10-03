@@ -8,6 +8,7 @@ import type {
 } from "../domain/ProjectRepository.ts";
 import type { CreateProjectInput, UpdateProjectInput } from "../domain/ProjectRepository.ts";
 import type { DirectionDatabase } from "./schema.ts";
+import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 type Queryable = Kysely<DirectionDatabase> | Transaction<DirectionDatabase>;
 
@@ -24,6 +25,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
     private readonly writeOwnerMembership?: ProjectOwnerMembershipWriter,
+    private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
 
   async create(input: CreateProjectInput, ownerHumanUserId?: string): Promise<Project> {
@@ -134,7 +136,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
     const outcome = await this.database.transaction().execute(async (transaction) => {
       const existing = await transaction
         .selectFrom("project")
-        .select("status")
+        .select(["status", "name"])
         .where("id", "=", projectId)
         .executeTakeFirst();
       if (!existing) return "not_found" as const;
@@ -147,6 +149,17 @@ export class SQLiteProjectRepository implements ProjectRepository {
         .set({ status: "archived", archived_at: now, archive_reason: reason, updated_at: now })
         .where("id", "=", projectId)
         .execute();
+      await notifyDirectionChange(this.changeObserver, transaction, {
+        type: "project_archived",
+        projectId,
+        recordId: projectId,
+        title: existing.name,
+        refs: [],
+        result: null,
+        reason,
+        principalId: null,
+        occurredAt: now,
+      });
       return "archived" as const;
     });
 

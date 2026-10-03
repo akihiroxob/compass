@@ -3,6 +3,7 @@ import { Outcome, type SuccessCriterion } from "../domain/Outcome.ts";
 import type { CreateOutcomeInput } from "../domain/OutcomeRepository.ts";
 import type { DirectionDatabase, OutcomeTable, SuccessCriterionTable } from "./schema.ts";
 import { recordOutcomeConfirmedEvent } from "./runtimeEventRecord.ts";
+import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 type Executor = Kysely<DirectionDatabase> | Transaction<DirectionDatabase>;
 
@@ -65,6 +66,7 @@ export const insertOutcomeRow = async (
   originDecisionId: string | null,
   input: CreateOutcomeInput,
   now: number,
+  observer: DirectionChangeObserver | null = null,
 ): Promise<Outcome> => {
   const row = await transaction
     .insertInto("outcome")
@@ -99,6 +101,21 @@ export const insertOutcomeRow = async (
     )
     .execute();
   await recordOutcomeConfirmedEvent(transaction, { projectId, intentId, outcomeId: row.id, occurredAt: now });
+  await notifyDirectionChange(observer, transaction, {
+    type: "outcome_confirmed",
+    projectId,
+    recordId: row.id,
+    title: row.title,
+    refs: [
+      { kind: "outcome", id: row.id },
+      { kind: "intent", id: intentId },
+      ...(originDecisionId ? [{ kind: "decision" as const, id: originDecisionId }] : []),
+    ],
+    result: null,
+    reason: null,
+    principalId: null,
+    occurredAt: now,
+  });
   const [outcome] = await loadOutcomes(transaction, [row]);
   return outcome!;
 };

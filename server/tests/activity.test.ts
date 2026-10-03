@@ -9,7 +9,7 @@ import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts"
 
 /**
  * Activity（docs/architecture-migration-mapping.md Task 07）。MCPでの記録・参照の認可、必須summary・refs・runIdの拒否、
- * requestIdの冪等性、訂正の追記、Workの状態変更からのcanonical生成（同一transaction・重複なし）、Role Context・Web APIへの接続を確認する。
+ * requestIdの冪等性、訂正の追記、Work・Directionの状態変更からのcanonical生成（同一transaction・重複なし）、Role Context・Web APIへの接続を確認する。
  */
 
 type App = ReturnType<typeof createApp>;
@@ -178,6 +178,10 @@ test("summary必須・runIdの拒否・未登録Resource・不正なrefを検証
 
   assert.equal(errorCode(await record(app, "worker-a", { ...base, summary: "   ", requestId: "a" })), "VALIDATION_ERROR");
   assert.equal(errorCode(await record(app, "worker-a", { ...base, runId: "run-1", requestId: "b" })), "VALIDATION_ERROR");
+  // MCP境界で未知のtop-level項目を黙って捨てない（成果物本文の誤送信に呼出元が気づける）。
+  const unknownField = await record(app, "worker-a", { ...base, artifactContent: "# 成果物の本文", requestId: "b2" });
+  assert.equal(errorCode(unknownField), "VALIDATION_ERROR");
+  assert.match(JSON.stringify(unknownField.structuredContent), /artifactContent/);
   assert.equal(errorCode(await record(app, "worker-a", { ...base, type: "Not A Type", requestId: "c" })), "VALIDATION_ERROR");
   assert.equal(
     errorCode(await record(app, "worker-a", { ...base, refs: [{ kind: "project_resource", resourceId: "missing" }], requestId: "d" })),
@@ -237,6 +241,30 @@ test("同じrequestIdの再送は同じActivityを返し、別内容の再利用
   await database.destroy();
 });
 
+test("成功済みrequestIdの再送は、参照Resourceが外れた後も同じActivityを返す", async () => {
+  const { app, database } = await setup();
+  const project = await createProject(app);
+  await grant(app, project.id, "worker-a", "worker");
+  const input = {
+    projectId: project.id,
+    type: "deliverable.published",
+    summary: "設計文書を更新した",
+    refs: [{ kind: "project_resource", resourceId: project.resources[0]!.id, path: "design.md" }],
+    role: "worker",
+    requestId: "r-1",
+  };
+  const first = ok(await record(app, "worker-a", input));
+  assert.equal((await send(app, "PATCH", `/api/projects/${project.id}`, { resources: [] })).status, 200);
+  // 新しい記録としては未登録Resourceで拒否されるが、成功済みの再送は照合だけで返す。
+  assert.equal(errorCode(await record(app, "worker-a", { ...input, requestId: "r-2" })), "VALIDATION_ERROR");
+  const replayed = ok(await record(app, "worker-a", input));
+  assert.equal(replayed.created, false);
+  assert.equal(replayed.activity.id, first.activity.id);
+  // 照合の前にGrantは検証する。
+  assert.equal(errorCode(await record(app, "outsider", input)), "FORBIDDEN");
+  await database.destroy();
+});
+
 test("cursorで差分・古い順のページを取得でき、archivedのProjectでは記録できない", async () => {
   const { app, database } = await setup();
   const project = await createProject(app);
@@ -266,8 +294,18 @@ test("cursorで差分・古い順のページを取得でき、archivedのProjec
     errorCode(await record(app, "worker-a", { projectId: project.id, type: "note", summary: "late", role: "worker", requestId: "r-9" })),
     "CONFLICT",
   );
-  // archived後も履歴は読める。
-  assert.equal(ok(await callTool(app, "list_activities", { projectId: project.id }, "worker-a")).activities.length, 3);
+  // 成功済みrequestIdの再送（通信断後等）は、archive後も同じActivityを返す。別内容ならCONFLICT。
+  const firstInput = { projectId: project.id, type: "note", summary: "note 1", role: "worker", requestId: "r-1" };
+  const replayed = ok(await record(app, "worker-a", firstInput));
+  assert.equal(replayed.created, false);
+  assert.equal(replayed.activity.id, older.activities[0].id);
+  assert.equal(errorCode(await record(app, "worker-a", { ...firstInput, summary: "changed" })), "CONFLICT");
+  // archived後も履歴は読める。archive自体はcanonical Activityとして残る。
+  const afterArchive = ok(await callTool(app, "list_activities", { projectId: project.id }, "worker-a"));
+  assert.deepEqual(
+    afterArchive.activities.map((item: { type: string }) => item.type),
+    ["project.archived", "note", "note", "note"],
+  );
   await database.destroy();
 });
 
@@ -312,6 +350,78 @@ test("Workの重要な状態変更は同じtransactionでcanonical Activityに�
   assert.equal(failed.isError, true);
   const tasks = (await sql<{ title: string }>`select title from task where project_id = ${project.id}`.execute(database)).rows;
   assert.deepEqual(tasks.map(({ title }) => title), ["保存する"]);
+  await database.destroy();
+});
+
+test("Directionの重要な状態変更は同じtransactionで操作者付きのcanonical Activityになり、再送・文言編集では増えない", async () => {
+  const { app, database } = await setup();
+  const project = await createProject(app);
+  await grant(app, project.id, "strategist-a", "strategist");
+  await grant(app, project.id, "worker-a", "worker");
+
+  // Human（Web UI）の操作は認証済みHumanをoperatorとして記録する。Initial Researchの依頼も同じ操作の帰結として残る。
+  const intentResponse = await send(app, "POST", `/api/projects/${project.id}/intents`, { title: "認証を整える", desiredState: "Humanがsign inできる" });
+  assert.equal(intentResponse.status, 201);
+  const intent = ((await intentResponse.json()) as { intent: { id: string } }).intent;
+  assert.equal((await send(app, "PATCH", `/api/projects/${project.id}/intents/${intent.id}`, { title: "認証を整備する" })).status, 200);
+
+  // Agent（MCP）の操作は認可したPrincipalとRoleで記録する。requestKeyの再送では増えない。
+  const decideInput = {
+    projectId: project.id,
+    intentId: intent.id,
+    judgment: "OIDCから着手する",
+    reason: "既存IdPを使える",
+    requestKey: "decide-1",
+    runRef: "run-1",
+    outcome: { title: "OIDCでsign inできる", description: "D", rationale: "R", successCriteria: [{ description: "d", measurement: "m" }] },
+  };
+  const decided = ok(await callTool(app, "decide_next_outcome", decideInput, "strategist-a"));
+  ok(await callTool(app, "decide_next_outcome", decideInput, "strategist-a"));
+  ok(
+    await callTool(
+      app,
+      "cancel_outcome",
+      { projectId: project.id, intentId: intent.id, outcomeId: decided.outcome.id, reason: "範囲を見直す" },
+      "strategist-a",
+    ),
+  );
+
+  assert.equal((await send(app, "POST", `/api/projects/${project.id}/intents/${intent.id}/abandon`, { reason: "方針を変える" })).status, 200);
+
+  const page = ok(await callTool(app, "list_activities", { projectId: project.id, afterCursor: 0 }, "worker-a"));
+  const facts = page.activities.map((item: any) => [item.type, item.principalId.startsWith("human:") ? "human" : item.principalId, item.role, item.source]);
+  assert.deepEqual(facts, [
+    ["intent.created", "human", "operator", "canonical"],
+    ["research.requested", "human", "operator", "canonical"],
+    ["outcome.confirmed", "strategist-a", "strategist", "canonical"],
+    ["decision.recorded", "strategist-a", "strategist", "canonical"],
+    ["outcome.canceled", "strategist-a", "strategist", "canonical"],
+    ["intent.abandoned", "human", "operator", "canonical"],
+  ]);
+  const [created, , confirmed, recorded, canceled, abandoned] = page.activities;
+  assert.equal(created.summary, "Intent「認証を整える」を作成した");
+  assert.deepEqual(created.refs, [{ kind: "intent", id: intent.id }]);
+  assert.deepEqual(
+    confirmed.refs,
+    [
+      { kind: "outcome", id: decided.outcome.id },
+      { kind: "intent", id: intent.id },
+      { kind: "decision", id: decided.decision.id },
+    ],
+  );
+  assert.equal(recorded.summary, "Direction Decision（next_outcome）「OIDCから着手する」を記録した");
+  const detail = ok(await callTool(app, "get_activity", { projectId: project.id, activityId: canceled.id }, "worker-a"));
+  assert.equal(detail.activity.body, "理由: 範囲を見直す");
+  assert.equal(abandoned.summary, "Intent「認証を整備する」を放棄した");
+
+  // Activityを保存できなければDirectionの状態変更も確定しない（同一transaction）。
+  await sql`drop table activity`.execute(database);
+  const failed = await send(app, "POST", `/api/projects/${project.id}/intents`, { title: "残らない", desiredState: "S" });
+  assert.equal(failed.status, 500);
+  const intents = (await sql<{ title: string }>`select title from intent where project_id = ${project.id}`.execute(database)).rows;
+  assert.deepEqual(intents.map(({ title }) => title), ["認証を整備する"]);
+  const requests = (await sql<{ id: string }>`select id from research_request where project_id = ${project.id}`.execute(database)).rows;
+  assert.equal(requests.length, 1);
   await database.destroy();
 });
 

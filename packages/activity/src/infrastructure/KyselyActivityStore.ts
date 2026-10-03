@@ -61,6 +61,11 @@ export class KyselyActivityStore implements ActivityStore {
     return { activity: toActivity(existing), created: false, inputHash: existing.input_hash };
   }
 
+  async findByDedupeKey(dedupeKey: string) {
+    const row = await this.db.selectFrom("activity").selectAll().where("dedupe_key", "=", dedupeKey).executeTakeFirst();
+    return row ? { activity: toActivity(row), inputHash: row.input_hash } : null;
+  }
+
   async find(activityId: string): Promise<Activity | null> {
     const row = await this.db.selectFrom("activity").selectAll().where("id", "=", activityId).executeTakeFirst();
     return row ? toActivity(row) : null;

@@ -13,7 +13,7 @@
 | Execution | Story・Task・Claim・Comment・Change Log・Review・Acceptance |
 | Human | Google OIDC・Web Session・Membership・招待・Web UIでの操作 |
 | Agent | Credential・Project Role Grant・Git管理の`roles/`・`policies/`・`skills/`・`knowledge/`からのRole / Skill Context配信 |
-| Activity | Project scopeのActivityの明示記録・参照（MCP）、Workの状態変更からのcanonical生成、Role Contextへのsummary接続、Web UIでの閲覧 |
+| Activity | Project scopeのActivityの明示記録・参照（MCP）、Work・Directionの状態変更からのcanonical生成、Role Contextへのsummary接続、Web UIでの閲覧 |
 | Runtime接続面 | event取得・ack、Execution Evidence還流、scope付きCredential |
 
 Research Request / Result / Finding / SynthesisとDirection Decision・Evaluationは現在DBに保存する。Intent作成はInitial Research Requestを自動生成する。保存先は内容と所有責務で個別に判断し、Project別であることや本文が長いことを理由に一律移行しない。Strategistを最初に起動するフローへの変更は未実施。
@@ -36,9 +36,10 @@ Research Request / Result / Finding / SynthesisとDirection Decision・Evaluatio
 
 - 項目: `id`・`cursor`（全体で単調増加）・`scope`（`project` / `system`。DBのCHECKでprojectIdの有無と整合させる）・`projectId`・`type`（`research.summary`等のdot区切り小文字）・`principalId`・`role`・`summary`（必須、500文字以内）・`body`（任意のMarkdown）・`refs`・`correctsActivityId`・`source`（`recorded` / `canonical`）・`occurredAt`・`recordedAt`。
 - `refs`: `project_resource`（Projectに登録済みのRepository・Resourceの`resourceId`と任意の`path`・`revision`）・`url`（http(s)）・Entity（`intent`・`outcome`・`research_request`・`decision`・`story`・`task`・`activity`のid）。成果物の本文は持たない（未知の項目は拒否）。
-- `record_activity`: PrincipalはBearerから、Roleは入力の`role`（そのRoleのGrantが必要）または`X-Compass-Active-Role`から決める。どちらも無ければ`VALIDATION_ERROR`、activeRoleと異なるRole・Grantの無いRoleは`FORBIDDEN`。archivedのProjectは`CONFLICT`。`runId`等の未知の項目は`VALIDATION_ERROR`。同じPrincipal・`requestId`の再送は同じActivity（`created: false`）を返し、別内容での再利用は`CONFLICT`。訂正は`correctsActivityId`を持つActivityを追記し、元は書き換えない。
+- `record_activity`: PrincipalはBearerから、Roleは入力の`role`（そのRoleのGrantが必要）または`X-Compass-Active-Role`から決める。どちらも無ければ`VALIDATION_ERROR`、activeRoleと異なるRole・Grantの無いRoleは`FORBIDDEN`。archivedのProjectは`CONFLICT`。`runId`・成果物本文等の未知の項目（top-level・ref内とも）は`VALIDATION_ERROR`。同じPrincipal・`requestId`の再送は、Grantの検証後、Project状態・参照Resourceの検査より先に照合し、同内容なら同じActivity（`created: false`）を返す（archive後・参照Resource削除後も同じ）。別内容での再利用は`CONFLICT`。訂正は`correctsActivityId`を持つActivityを追記し、元は書き換えない。
 - `list_activities` / `get_activity`: ProjectのいずれかのGrant（activeRole指定時はそのRole）が必要。一覧は本文を含めず`hasBody`を返す。`afterCursor`なしは新しい順で`nextCursor`を次の`beforeCursor`に、`afterCursor`ありは昇順の差分で`nextCursor`を次の`afterCursor`に使う。`principalId`・`role`・`type`・参照（`refKind` + `refId`）で絞り込める。`get_activity`は本文と、そのActivityを訂正したActivity（`corrections`）を返す。
 - canonical生成: Workの`KyselyWorkStore`がChangeを追記した同じtransactionで、serverが配線した通知（`workChangeActivityObserver`）からActivityの`recordCanonicalWorkActivity`を呼ぶ。対象は`STORY_CREATED`・`STORY_COMPLETED`・`STORY_CANCELED`・`TASK_CREATED`・`TASK_COMPLETED`・`TASK_REVIEWED`・`TASK_ACCEPTED`・`TASK_REJECTED`・`TASK_CANCELED`で、Claim操作・編集・Story着手は対象外。`role`はChangeの`actorRole`（Human介入は`operator`）。生成元Changeの`cursor`で一意にするため重複せず、Activityを保存できなければ状態変更も確定しない。導入前のChange Logからは遡って生成しない。
+- Directionのcanonical生成: 各SQLite repositoryが状態変更と同じtransactionで通知（`DirectionChangeObserver`）し、serverの`directionChangeActivityObserver`が`recordCanonicalDirectionActivity`を呼ぶ。対象はIntentの作成（`intent.created`）・放棄（`intent.abandoned`）、Outcomeの確定（`outcome.confirmed`。`create_outcome`・`decide_next_outcome`）・取消（`outcome.canceled`）、Research Requestの依頼（`research.requested`。Initial・追加Researchを含む）・終了（`research.closed`）、Direction Decisionの記録（`decision.recorded`）、Outcome Evaluationの記録（`outcome.evaluated`）、Projectのarchive（`project.archived`）。Intent・Outcome・Projectの文言編集、Research結果・Synthesis、ADR・Execution Evidenceは各recordを正とし対象外。放棄に連動するOutcome・Requestの取消は放棄の1件にまとめる。取消・放棄・停止・archive・判断の理由は`body`に残す。操作者は入口が認可した主体で、MCPは認可したPrincipalと要求Role（Direction管理操作はactiveRole、無ければ`operator`）、Web UIは認証済みHuman（`human:{humanUserId}`・`operator`）、Principalのない呼出し（trusted-local・起動時の補完）は`system`。変更されたrecordと種類で一意にするため`requestKey`の再送・再試行で重複せず、Activityを保存できなければ状態変更も確定しない。導入前の状態変更からは遡って生成しない。
 - Human: Web API `GET /api/projects/:projectId/activities`（`beforeCursor`・`limit`）・`GET /api/projects/:projectId/activities/:activityId`はMembership（viewer以上）で認可し、Project詳細の「Activity」sectionで表示する。`project_resource`参照は登録済みのURLとpath・revisionで表示する。Web UIからは記録しない。
 
 ## Executionの現行契約
@@ -63,7 +64,6 @@ Accessは`project`のtableを直接読まない。archive判定・Projectの存�
 
 - `orchestrator/` / `ralph/`は未実施。
 - `scope=system`のActivityは保存形式だけで、記録・参照の入口（MCP・Web）は無い。
-- Directionの状態変更（Intent・Outcome・Research・Decision・Evaluation）からのcanonical Activity生成は未接続。現在のcanonical生成はWorkの状態変更だけ。
 - Role / Skill Contextを実行時に取得するOrchestrator / Ralphは未接続。
 - 本リポジトリには本番Orchestrator / Ralphの実装はない。Ralphの参照元は`/Users/aokayama/git/agent-foundation/ralph`。
 - 実RuntimeによるAgent起動と継続したLv6自律運転は未接続・未検証。`server/tests/support/lv6Runtime.ts`等のfixtureを自律運転の実証としない。

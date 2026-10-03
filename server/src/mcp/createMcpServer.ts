@@ -6,6 +6,7 @@ import type { AuthMode } from "../auth/humanAuthConfig.ts";
 import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
 import { registerActivityTools } from "./registerActivityTools.ts";
 import { registerExecutionTools } from "./registerExecutionTools.ts";
+import { withActivityActor } from "../application/activityActor.ts";
 import { skillStatuses } from "../application/agentContext/AgentAssets.ts";
 import { execute } from "./toolExecution.ts";
 
@@ -224,19 +225,32 @@ export const createMcpServer = (
     return operation();
   };
   // 検査の規則はapplication serviceが持つ。handlerはPrincipalとprojectIdを渡すだけ。
+  // 認可したPrincipalとRoleを操作の間だけ固定し、Directionの状態変更から生成するcanonical Activityの操作者にする。
+  const asGrantedRole = async <T>(projectId: string, role: ProjectRole, operation: (principalId: string) => Promise<T>) => {
+    const principalId = await authorization.requireRole(principal, projectId, role);
+    return withActivityActor({ principalId, role }, () => operation(principalId));
+  };
   const asStrategist = <T>(projectId: string, operation: () => Promise<T>) =>
-    authorization.asRole(principal, projectId, ProjectRole.STRATEGIST, operation);
+    asGrantedRole(projectId, ProjectRole.STRATEGIST, () => operation());
   // Direction Decisionは来歴にprincipalIdを保存するため、認可と同時にBearerから解決したprincipalIdを受け取る。
-  const asStrategistWithPrincipal = async <T>(projectId: string, operation: (principalId: string) => Promise<T>) =>
-    operation(await authorization.requireRole(principal, projectId, ProjectRole.STRATEGIST));
+  const asStrategistWithPrincipal = <T>(projectId: string, operation: (principalId: string) => Promise<T>) =>
+    asGrantedRole(projectId, ProjectRole.STRATEGIST, operation);
   // 来歴のPrincipalはBearerから解決した値だけ。tool入力のprincipalIdは受け付けない。
-  const asResearcher = async <T>(projectId: string, operation: (principalId: string) => Promise<T>) =>
-    operation(await authorization.requireRole(principal, projectId, ProjectRole.RESEARCHER));
+  const asResearcher = <T>(projectId: string, operation: (principalId: string) => Promise<T>) =>
+    asGrantedRole(projectId, ProjectRole.RESEARCHER, operation);
+  // 認可をuse caseが行う操作（Evaluation）。Principalがあれば、use caseが要求するRoleを操作者の立場にする。
+  const asActorOf = <T>(role: ProjectRole, operation: () => Promise<T>) =>
+    principal === null ? operation() : withActivityActor({ principalId: principal, role }, operation);
   // Direction（Project・Intent）の管理操作。Strategist・Researcher・EvaluatorのGrantを持つPrincipalには拒否する（職務分離）。
+  // 操作者の立場はactiveRole（無ければ管理操作のoperator）。Principalなしのtrusted-local呼出しは`system`になる。
   const unlessDirectionRole = <T>(projectId: string, operation: () => Promise<T>) =>
     authorization.unlessRole(principal, projectId, ProjectRole.STRATEGIST, () =>
       authorization.unlessRole(principal, projectId, ProjectRole.RESEARCHER, () =>
-        authorization.unlessRole(principal, projectId, ProjectRole.EVALUATOR, operation),
+        authorization.unlessRole(principal, projectId, ProjectRole.EVALUATOR, () =>
+          principal === null
+            ? operation()
+            : withActivityActor({ principalId: principal, role: authorization.activeRole ?? "operator" }, operation),
+        ),
       ),
     );
 
@@ -908,7 +922,9 @@ export const createMcpServer = (
       inputSchema: outcomeEvaluationSchema,
     },
     ({ projectId, outcomeId, ...input }) =>
-      execute(() => services.recordOutcomeEvaluationUseCase.execute(principal, projectId, outcomeId, input)),
+      execute(() =>
+        asActorOf(ProjectRole.EVALUATOR, () => services.recordOutcomeEvaluationUseCase.execute(principal, projectId, outcomeId, input)),
+      ),
   );
 
   registerExecutionTools(server, services, caller);

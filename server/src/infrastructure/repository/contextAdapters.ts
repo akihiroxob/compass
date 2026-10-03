@@ -8,6 +8,7 @@ import {
 } from "@compass/access";
 import {
   KyselyActivityStore,
+  recordCanonicalDirectionActivity,
   recordCanonicalWorkActivity,
   type ActivityAuthorizationPort,
   type ActivityProjectReader,
@@ -16,6 +17,7 @@ import {
   isProjectArchived,
   listProjectIdsInCreationOrder,
   SQLiteProjectRepository,
+  type DirectionChangeObserver,
   type ProjectOwnerMembershipWriter,
 } from "@compass/direction";
 import { ValidationError } from "@compass/shared";
@@ -26,6 +28,7 @@ import {
   asActivityDatabase,
   asDirectionDatabase,
 } from "../../bootstrap/database/contextDatabase.ts";
+import { currentActivityActor, systemActivityActor } from "../../application/activityActor.ts";
 
 /**
  * Context間で同じ接続・transactionを共有する読み書きの配線。各Contextは他Contextのtableを直接扱わず、
@@ -79,6 +82,23 @@ export const workChangeActivityObserver: WorkChangeObserver = (executor) => {
       payload: JSON.parse(notice.payload) as Record<string, unknown>,
       occurredAt: notice.occurred_at,
       subject: notice.subject,
+    });
+  };
+};
+
+/**
+ * Directionの重要な状態変更から、同じtransactionでcanonical Activityを追記する。変更されたrecordと種類で一意にするため、
+ * 再送（requestKeyの再生では通知しない）・再試行で重複しない。Activityの追記に失敗すれば状態変更も巻き戻る。
+ * 操作者は入口が固定した主体（`withActivityActor`）を使い、無ければDirectionの来歴、それも無ければ`system`とする。
+ */
+export const directionChangeActivityObserver: DirectionChangeObserver = (executor) => {
+  const store = new KyselyActivityStore(asActivityDatabase(executor));
+  return async (notice) => {
+    const actor = currentActivityActor();
+    await recordCanonicalDirectionActivity(store, {
+      ...notice,
+      principalId: actor?.principalId ?? notice.principalId ?? systemActivityActor.principalId,
+      role: actor?.role ?? systemActivityActor.role,
     });
   };
 };

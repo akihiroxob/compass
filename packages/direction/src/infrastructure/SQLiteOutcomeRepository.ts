@@ -10,9 +10,13 @@ import type { CreateOutcomeInput, UpdateOutcomeInput } from "../domain/OutcomeRe
 import type { DirectionDatabase, OutcomeTable } from "./schema.ts";
 import { isProjectArchived } from "./isProjectArchived.ts";
 import { insertOutcomeRow, loadOutcomes } from "./outcomeRecord.ts";
+import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 export class SQLiteOutcomeRepository implements OutcomeRepository {
-  constructor(private readonly database: Kysely<DirectionDatabase>) {}
+  constructor(
+    private readonly database: Kysely<DirectionDatabase>,
+    private readonly changeObserver: DirectionChangeObserver | null = null,
+  ) {}
 
   async create(
     projectId: string,
@@ -31,7 +35,16 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
 
       const now = Date.now();
-      const outcome = await insertOutcomeRow(transaction, projectId, intentId, crypto.randomUUID(), null, input, now);
+      const outcome = await insertOutcomeRow(
+        transaction,
+        projectId,
+        intentId,
+        crypto.randomUUID(),
+        null,
+        input,
+        now,
+        this.changeObserver,
+      );
       return { kind: "created", outcome };
     });
   }
@@ -132,6 +145,22 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
         .where("id", "=", outcomeId)
         .returningAll()
         .executeTakeFirstOrThrow();
+      if (changes.status === "cancelled") {
+        await notifyDirectionChange(this.changeObserver, transaction, {
+          type: "outcome_cancelled",
+          projectId,
+          recordId: row.id,
+          title: row.title,
+          refs: [
+            { kind: "outcome", id: row.id },
+            { kind: "intent", id: intentId },
+          ],
+          result: null,
+          reason: row.cancel_reason,
+          principalId: null,
+          occurredAt: row.updated_at,
+        });
+      }
       const [outcome] = await loadOutcomes(transaction, [row]);
       return { kind: "changed", outcome: outcome! };
     });

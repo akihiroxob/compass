@@ -12,6 +12,7 @@ import type { CreateIntentInput, UpdateIntentInput } from "../domain/IntentRepos
 import type { DirectionDatabase, IntentTable } from "./schema.ts";
 import { ensureInitialResearchRequest } from "./initialResearchRequest.ts";
 import { isProjectArchived } from "./isProjectArchived.ts";
+import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 const toIntent = (row: Selectable<IntentTable>): Intent =>
   new Intent({
@@ -27,7 +28,10 @@ const toIntent = (row: Selectable<IntentTable>): Intent =>
   });
 
 export class SQLiteIntentRepository implements IntentRepository {
-  constructor(private readonly database: Kysely<DirectionDatabase>) {}
+  constructor(
+    private readonly database: Kysely<DirectionDatabase>,
+    private readonly changeObserver: DirectionChangeObserver | null = null,
+  ) {}
 
   async create(projectId: string, input: CreateIntentInput): Promise<CreateIntentResult> {
     return this.database.transaction().execute(async (transaction): Promise<CreateIntentResult> => {
@@ -56,8 +60,19 @@ export class SQLiteIntentRepository implements IntentRepository {
         })
         .returningAll()
         .executeTakeFirstOrThrow();
+      await notifyDirectionChange(this.changeObserver, transaction, {
+        type: "intent_created",
+        projectId,
+        recordId: row.id,
+        title: row.title,
+        refs: [{ kind: "intent", id: row.id }],
+        result: null,
+        reason: null,
+        principalId: null,
+        occurredAt: now,
+      });
       // 同じtransactionでInitial Research Requestとイベントを保存する。どちらかが失敗すればIntentも残らない。
-      await ensureInitialResearchRequest(transaction, row, now);
+      await ensureInitialResearchRequest(transaction, row, now, this.changeObserver);
       return { kind: "created", intent: toIntent(row) };
     });
   }
@@ -132,7 +147,7 @@ export class SQLiteIntentRepository implements IntentRepository {
       { status: "abandoned", abandoned_reason: reason },
       {
         // 放棄されたIntentにactiveなOutcomeを残さない。
-        afterChange: async (transaction) => {
+        afterChange: async (transaction, intent) => {
           await transaction
             .updateTable("outcome")
             .set({
@@ -154,6 +169,18 @@ export class SQLiteIntentRepository implements IntentRepository {
             .where("origin_intent_id", "=", intentId)
             .where("status", "in", ["requested", "running"])
             .execute();
+          // 連動したOutcome・Requestの取消は放棄の帰結なので、Activityは放棄の1件だけにする。
+          await notifyDirectionChange(this.changeObserver, transaction, {
+            type: "intent_abandoned",
+            projectId,
+            recordId: intent.id,
+            title: intent.title,
+            refs: [{ kind: "intent", id: intent.id }],
+            result: null,
+            reason,
+            principalId: null,
+            occurredAt: intent.updated_at,
+          });
         },
       },
     );
@@ -172,7 +199,7 @@ export class SQLiteIntentRepository implements IntentRepository {
         transaction: Transaction<DirectionDatabase>,
         existing: Selectable<IntentTable>,
       ) => Promise<Rejection | null>;
-      afterChange?: (transaction: Transaction<DirectionDatabase>) => Promise<void>;
+      afterChange?: (transaction: Transaction<DirectionDatabase>, intent: Selectable<IntentTable>) => Promise<void>;
     } = {},
   ): Promise<ChangeIntentResult | Rejection> {
     return this.database.transaction().execute(async (transaction): Promise<ChangeIntentResult | Rejection> => {
@@ -195,7 +222,7 @@ export class SQLiteIntentRepository implements IntentRepository {
         .where("project_id", "=", projectId)
         .returningAll()
         .executeTakeFirstOrThrow();
-      await hooks.afterChange?.(transaction);
+      await hooks.afterChange?.(transaction, row);
       return { kind: "changed", intent: toIntent(row) };
     });
   }

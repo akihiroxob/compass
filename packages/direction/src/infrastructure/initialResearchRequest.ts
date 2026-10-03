@@ -2,6 +2,7 @@ import type { Selectable, Transaction } from "kysely";
 import { buildInitialResearchRequest, initialResearchRequestKey } from "../domain/InitialResearchRequest.ts";
 import type { ResearchRequest } from "../domain/Research.ts";
 import type { DirectionDatabase, IntentTable } from "./schema.ts";
+import type { DirectionChangeObserver } from "./directionChange.ts";
 import { insertResearchRequest, toRequest } from "./researchRequestRecord.ts";
 
 /**
@@ -13,6 +14,7 @@ export const ensureInitialResearchRequest = async (
   transaction: Transaction<DirectionDatabase>,
   intent: Pick<Selectable<IntentTable>, "id" | "project_id" | "title">,
   now: number,
+  observer: DirectionChangeObserver | null = null,
 ): Promise<{ kind: "created" | "replayed"; request: ResearchRequest }> => {
   const existing = await transaction
     .selectFrom("research_request")
@@ -26,6 +28,7 @@ export const ensureInitialResearchRequest = async (
     intent.project_id,
     buildInitialResearchRequest({ id: intent.id, title: intent.title }),
     now,
+    observer,
   );
   return { kind: "created", request };
 };

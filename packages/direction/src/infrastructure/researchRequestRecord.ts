@@ -4,6 +4,7 @@ import type { CreateResearchRequestInput } from "../domain/ResearchRepository.ts
 import type { DirectionDatabase, ResearchRequestTable } from "./schema.ts";
 import { inputHash } from "@compass/shared";
 import { recordRuntimeEvent } from "./runtimeEventRecord.ts";
+import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 export const toRequest = (row: Selectable<ResearchRequestTable>): ResearchRequest => ({
   id: row.id,
@@ -34,6 +35,7 @@ export const insertResearchRequest = async (
   projectId: string,
   input: CreateResearchRequestInput,
   now: number,
+  observer: DirectionChangeObserver | null = null,
 ): Promise<ResearchRequest> => {
   const row = await transaction
     .insertInto("research_request")
@@ -66,6 +68,21 @@ export const insertResearchRequest = async (
     researchRequestId: row.id,
     correlationId: row.correlation_id,
     conclusion: null,
+    occurredAt: now,
+  });
+  await notifyDirectionChange(observer, transaction, {
+    type: "research_requested",
+    projectId,
+    recordId: row.id,
+    title: row.question,
+    refs: [
+      { kind: "research_request", id: row.id },
+      ...(row.origin_intent_id ? [{ kind: "intent" as const, id: row.origin_intent_id }] : []),
+      ...(row.origin_outcome_id ? [{ kind: "outcome" as const, id: row.origin_outcome_id }] : []),
+    ],
+    result: null,
+    reason: null,
+    principalId: null,
     occurredAt: now,
   });
   return toRequest(row);

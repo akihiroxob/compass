@@ -32,6 +32,8 @@ export interface ActivityStore {
    */
   append(activity: NewActivity): Promise<{ activity: Activity; created: boolean; inputHash: string | null }>;
   find(activityId: string): Promise<Activity | null>;
+  /** `dedupeKey`で保存済みのActivityとそのhash。未保存ならnull。 */
+  findByDedupeKey(dedupeKey: string): Promise<{ activity: Activity; inputHash: string | null } | null>;
   /** `scope=project`で、`afterCursor`があれば`cursor`の昇順、なければ降順。 */
   listProject(projectId: string, query: ActivityQuery): Promise<Activity[]>;
   /** このActivityを訂正したActivity（`cursor`の昇順）。 */

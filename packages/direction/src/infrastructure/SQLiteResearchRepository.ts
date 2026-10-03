@@ -36,6 +36,7 @@ import type {
 import { inputHash } from "@compass/shared";
 import { isProjectArchived } from "./isProjectArchived.ts";
 import { insertResearchRequest, toRequest } from "./researchRequestRecord.ts";
+import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 import { recordRuntimeEvent } from "./runtimeEventRecord.ts";
 
 type Executor = Kysely<DirectionDatabase> | Transaction<DirectionDatabase>;
@@ -217,6 +218,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
     private readonly clock: () => number = Date.now,
+    private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
 
   async createRequest(
@@ -268,7 +270,10 @@ export class SQLiteResearchRepository implements ResearchRepository {
           }
         }
 
-        return { kind: "created", request: await insertResearchRequest(transaction, projectId, input, now) };
+        return {
+          kind: "created",
+          request: await insertResearchRequest(transaction, projectId, input, now, this.changeObserver),
+        };
       });
   }
 
@@ -727,6 +732,20 @@ export class SQLiteResearchRepository implements ResearchRepository {
           });
         }
       }
+      await notifyDirectionChange(this.changeObserver, transaction, {
+        type: "research_closed",
+        projectId,
+        recordId: row.id,
+        title: row.question,
+        refs: [
+          { kind: "research_request", id: row.id },
+          ...(row.origin_intent_id ? [{ kind: "intent" as const, id: row.origin_intent_id }] : []),
+        ],
+        result: status,
+        reason: stopReason,
+        principalId: null,
+        occurredAt: now,
+      });
       return { kind: "closed", request: toRequest(row) };
     });
   }

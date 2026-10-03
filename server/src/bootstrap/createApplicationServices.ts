@@ -1,5 +1,6 @@
 import { AgentContextService } from "../application/agentContext/AgentContextService.ts";
 import { GetRoleContextUseCase } from "../application/agentContext/GetRoleContextUseCase.ts";
+import { withActivityActor } from "../application/activityActor.ts";
 import { FileAgentAssetRepository } from "../infrastructure/agentAssets/FileAgentAssetRepository.ts";
 import {
   AbandonIntentUseCase,
@@ -101,6 +102,8 @@ import {
   SQLiteProjectGrantRepository,
   SQLiteProjectMembershipRepository,
   StartOidcLoginUseCase,
+  humanOperatorPrincipalId,
+  type HumanActor,
   type HumanIdentityProvider,
   type HumanProjectOperation,
   type ProjectRole,
@@ -120,6 +123,7 @@ import {
   activityAuthorization,
   activityProjectReader,
   projectOwnerMembershipWriter,
+  directionChangeActivityObserver,
   workChangeActivityObserver,
   workExternalReaders,
 } from "../infrastructure/repository/contextAdapters.ts";
@@ -141,11 +145,12 @@ export const createApplicationServices = (
 ) => {
   // Directionのrepositoryへは同じ接続を、Directionが所有するtableの型で渡す。
   const directionDatabase = asDirectionDatabase(applicationDatabase);
-  const projectRepository = new SQLiteProjectRepository(directionDatabase, projectOwnerMembershipWriter);
-  const intentRepository = new SQLiteIntentRepository(directionDatabase);
-  const outcomeRepository = new SQLiteOutcomeRepository(directionDatabase);
-  const researchRepository = new SQLiteResearchRepository(directionDatabase, clock);
-  const directionDecisionRepository = new SQLiteDirectionDecisionRepository(directionDatabase, clock);
+  // Directionの重要な状態変更も、同じtransactionでcanonical Activityへ投影する。
+  const projectRepository = new SQLiteProjectRepository(directionDatabase, projectOwnerMembershipWriter, directionChangeActivityObserver);
+  const intentRepository = new SQLiteIntentRepository(directionDatabase, directionChangeActivityObserver);
+  const outcomeRepository = new SQLiteOutcomeRepository(directionDatabase, directionChangeActivityObserver);
+  const researchRepository = new SQLiteResearchRepository(directionDatabase, clock, directionChangeActivityObserver);
+  const directionDecisionRepository = new SQLiteDirectionDecisionRepository(directionDatabase, clock, directionChangeActivityObserver);
   const adrHandoffRepository = new SQLiteAdrHandoffRepository(directionDatabase);
   const runtimeEventRepository = new SQLiteRuntimeEventRepository(directionDatabase);
   // Accessのrepositoryへは同じ接続をAccessのtableの型で渡し、Project状態（Direction）は同じtransactionで読む実装を渡す。
@@ -171,7 +176,7 @@ export const createApplicationServices = (
   // Direction → Executionは読取専用ポート（Execution自身のtableだけを読む）を通す。Direction側の還流先は自身のRepository。
   const executionSummaryService = new ExecutionSummaryService(workStore);
   const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(directionDatabase);
-  const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(directionDatabase);
+  const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(directionDatabase, directionChangeActivityObserver);
   // Human認証・Membership（docs/step-6-human-auth-design.md）。Agent GrantのRepository・認可とは分離する。
   const humanAccountRepository = new SQLiteHumanAccountRepository(accessDatabase, accessProjectReaders, clock);
   const projectMembershipRepository = new SQLiteProjectMembershipRepository(accessDatabase, accessProjectReaders, clock);
@@ -371,23 +376,36 @@ export const createApplicationServices = (
     operation: HumanProjectOperation,
     useCase: { execute(projectId: string, operatorPrincipalId: string, ...args: Args): Promise<Result> },
   ) => new HumanOperatorUseCase(humanProjectAuthorizationService, operation, useCase);
+  // Project・Directionの変更。canonical Activityの操作者を認証済みHuman（`human:{humanUserId}`、立場operator）に固定する。
+  const directionWrite = <Args extends unknown[], Result>(
+    operation: HumanProjectOperation,
+    useCase: { execute(projectId: string, ...args: Args): Promise<Result> },
+  ) => {
+    const inner = authorized(operation, useCase);
+    return {
+      execute: (actor: HumanActor, projectId: string, ...args: Args) =>
+        withActivityActor({ principalId: humanOperatorPrincipalId(actor), role: "operator" }, () =>
+          inner.execute(actor, projectId, ...args),
+        ),
+    };
+  };
   // Human向けWeb APIの入口。Membershipの認可（domainの権限表）を通してから、MCPと共通のuse caseへ委譲する。
   // Runtime向け（runtime-events・execution-evidence）はHuman向けではないため含めない。
   const human = {
     listProjects: new ListHumanProjectsUseCase(services.listProjectsUseCase, projectMembershipRepository),
     getProject: new GetHumanProjectUseCase(humanProjectAuthorizationService, services.getProjectUseCase),
-    updateProject: authorized("project.update", services.updateProjectUseCase),
-    archiveProject: authorized("project.archive", services.archiveProjectUseCase),
-    createIntent: authorized("direction.write", services.createIntentUseCase),
+    updateProject: directionWrite("project.update", services.updateProjectUseCase),
+    archiveProject: directionWrite("project.archive", services.archiveProjectUseCase),
+    createIntent: directionWrite("direction.write", services.createIntentUseCase),
     listIntents: authorized("project.read", services.listIntentsUseCase),
     getIntent: authorized("project.read", services.getIntentUseCase),
-    updateIntent: authorized("direction.write", services.updateIntentUseCase),
-    abandonIntent: authorized("direction.write", services.abandonIntentUseCase),
-    createOutcome: authorized("direction.write", services.createOutcomeUseCase),
+    updateIntent: directionWrite("direction.write", services.updateIntentUseCase),
+    abandonIntent: directionWrite("direction.write", services.abandonIntentUseCase),
+    createOutcome: directionWrite("direction.write", services.createOutcomeUseCase),
     listOutcomes: authorized("project.read", services.listOutcomesUseCase),
     getOutcome: authorized("project.read", services.getOutcomeUseCase),
-    updateOutcome: authorized("direction.write", services.updateOutcomeUseCase),
-    cancelOutcome: authorized("direction.write", services.cancelOutcomeUseCase),
+    updateOutcome: directionWrite("direction.write", services.updateOutcomeUseCase),
+    cancelOutcome: directionWrite("direction.write", services.cancelOutcomeUseCase),
     grantProjectRole: authorized("grant.manage", services.grantProjectRoleUseCase),
     revokeProjectRole: authorized("grant.manage", services.revokeProjectRoleUseCase),
     listProjectGrants: authorized("grant.read", services.listProjectGrantsUseCase),

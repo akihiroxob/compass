@@ -61,6 +61,7 @@ export * from "./infrastructure/SQLiteOutcomeRepository.ts";
 export * from "./infrastructure/SQLiteProjectRepository.ts";
 export * from "./infrastructure/SQLiteResearchRepository.ts";
 export * from "./infrastructure/SQLiteRuntimeEventRepository.ts";
+export * from "./infrastructure/directionChange.ts";
 export * from "./infrastructure/initialResearchRequest.ts";
 export * from "./infrastructure/initializeDirectionSchema.ts";
 export * from "./infrastructure/isProjectArchived.ts";

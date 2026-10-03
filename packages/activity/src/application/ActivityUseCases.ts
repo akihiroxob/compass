@@ -37,6 +37,13 @@ export class RecordActivityUseCase {
         { path: "role", message: "role is required when the operation context has no active role" },
       ]);
     }
+    // 再送の照合はProject状態・Resourceの検査より先に行う。成功済みの記録は、後でProjectがarchiveされても
+    // 参照Resourceが外れても、通信断後の再送で同じActivityを返せるようにする。
+    const hash = inputHash({ ...content, role: actor.role });
+    const dedupeKey = `recorded:${actor.principalId}:${requestId}`;
+    const saved = await this.store.findByDedupeKey(dedupeKey);
+    if (saved) return { activity: this.replayed(saved, hash, requestId), created: false };
+
     const project = await this.projects.find(content.projectId);
     if (!project) throw projectNotFound(content.projectId);
     if (project.archived) {
@@ -55,7 +62,6 @@ export class RecordActivityUseCase {
       }
     }
 
-    const hash = inputHash({ ...content, role: actor.role });
     const now = this.clock();
     const { activity, created, inputHash: savedHash } = await this.store.append({
       id: this.newId(),
@@ -71,13 +77,18 @@ export class RecordActivityUseCase {
       source: "recorded",
       occurredAt: content.occurredAt ?? now,
       recordedAt: now,
-      dedupeKey: `recorded:${actor.principalId}:${requestId}`,
+      dedupeKey,
       inputHash: hash,
     });
-    if (!created && savedHash !== hash) {
-      throw new ConflictError(`requestId ${requestId} was already used for a different Activity`, { activityId: activity.id });
+    return { activity: created ? activity : this.replayed({ activity, inputHash: savedHash }, hash, requestId), created };
+  }
+
+  /** 同じ`requestId`の保存済みActivity。別の内容での再利用は`CONFLICT`。 */
+  private replayed(saved: { activity: Activity; inputHash: string | null }, hash: string, requestId: string): Activity {
+    if (saved.inputHash !== hash) {
+      throw new ConflictError(`requestId ${requestId} was already used for a different Activity`, { activityId: saved.activity.id });
     }
-    return { activity, created };
+    return saved.activity;
   }
 }
 

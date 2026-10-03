@@ -1,4 +1,4 @@
-import type { Kysely } from "kysely";
+import type { Kysely, Transaction } from "kysely";
 import { sql } from "kysely";
 import type {
   CreateDirectionDecisionResult,
@@ -6,6 +6,7 @@ import type {
   DirectionDecisionRepository,
 } from "../domain/DirectionDecisionRepository.ts";
 import { additionalResearchCorrelationId, additionalResearchRequestKey } from "../domain/AdditionalResearchRequest.ts";
+import type { DirectionDecision } from "../domain/DirectionDecision.ts";
 import type { IntentResearchSummary } from "../domain/Research.ts";
 import type { CreateDirectionDecisionInput, DecideNextOutcomeInput } from "../domain/DirectionDecisionRepository.ts";
 import type { DirectionDatabase } from "./schema.ts";
@@ -18,6 +19,7 @@ import {
 } from "./directionDecisionRecord.ts";
 import { inputHash } from "@compass/shared";
 import { isProjectArchived } from "./isProjectArchived.ts";
+import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 import { insertOutcomeRow, loadOutcomes } from "./outcomeRecord.ts";
 import { findResearchRequestByKey, insertResearchRequest, toRequest } from "./researchRequestRecord.ts";
 
@@ -26,6 +28,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
     private readonly clock: () => number = Date.now,
+    private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
 
   async create(
@@ -94,6 +97,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         hash,
         now,
       );
+      await this.notifyRecorded(transaction, decision);
       if (input.type === "intent_complete") {
         // Intentの達成はStrategistの根拠付き判断でだけ確定する。Outcomeの状態・Executionは変更しない。
         await transaction
@@ -120,6 +124,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
           correlationId: additionalResearchCorrelationId(decisionId),
         },
         now,
+        this.changeObserver,
       );
       return { kind: "created", decision, researchRequest };
     });
@@ -178,7 +183,16 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
       const outcomeId = crypto.randomUUID();
       const decisionId = crypto.randomUUID();
       // Outcomeを先に作る（direction_decision.outcome_idがoutcome.idを参照するFKの前提）。
-      const outcome = await insertOutcomeRow(transaction, projectId, input.intentId, outcomeId, decisionId, input.outcome, now);
+      const outcome = await insertOutcomeRow(
+        transaction,
+        projectId,
+        input.intentId,
+        outcomeId,
+        decisionId,
+        input.outcome,
+        now,
+        this.changeObserver,
+      );
       const decision = await insertDirectionDecisionRow(
         transaction,
         projectId,
@@ -190,7 +204,27 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         hash,
         now,
       );
+      await this.notifyRecorded(transaction, decision);
       return { kind: "created", decision, outcome };
+    });
+  }
+
+  /** Decisionの確定。判断の理由は経緯の中心なので通知に含める（根拠の参照はDecision本体を正とする）。 */
+  private notifyRecorded(transaction: Transaction<DirectionDatabase>, decision: DirectionDecision) {
+    return notifyDirectionChange(this.changeObserver, transaction, {
+      type: "decision_recorded",
+      projectId: decision.projectId,
+      recordId: decision.id,
+      title: decision.judgment,
+      refs: [
+        { kind: "decision", id: decision.id },
+        { kind: "intent", id: decision.intentId },
+        ...(decision.outcomeId ? [{ kind: "outcome" as const, id: decision.outcomeId }] : []),
+      ],
+      result: decision.type,
+      reason: decision.reason,
+      principalId: decision.principalId,
+      occurredAt: decision.createdAt,
     });
   }
 
