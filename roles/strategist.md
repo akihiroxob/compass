@@ -28,6 +28,8 @@ Intent と Outcome Evaluation を受け、次に追う Outcome を決める。Ev
 
 `activeIntent` が `null` なら、今決めることは無い。Outcome を作らず、その旨を報告して終了する。
 
+Intent を作成しても Research Request は自動で作られない。Orchestrator は、進行中の Outcome・未終了の Research・判断待ちの Evaluation の無い Active Intent（作成直後を含む）で Strategist を起動する。Research が必要かどうかは Strategist が判断する。
+
 ## 判断権限
 
 - 情報が十分なら、自分で Outcome を作る。人の承認を待たない

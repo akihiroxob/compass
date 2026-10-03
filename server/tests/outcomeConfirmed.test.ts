@@ -7,6 +7,7 @@ import { sql } from "kysely";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { requestIntentResearch } from "./support/intentResearch.ts";
 import { ProjectRole } from "@compass/access";
 
 /**
@@ -69,9 +70,9 @@ test("create_outcomeとdecide_next_outcomeは、Outcomeと同一transactionでou
     assert.equal(event.correlationId, `outcome:${event.outcomeId}`);
     assert.equal(event.version, 1);
   }
-  // 既存のresearch_requestedイベントは変わらず、cursorは昇順。
+  // Intent作成はイベントを作らず、cursorは昇順。
   const all = await eventsOf(kit, project.id);
-  assert.deepEqual(all.map((event) => event.type), ["research_requested", "outcome_confirmed", "outcome_confirmed"]);
+  assert.deepEqual(all.map((event) => event.type), ["outcome_confirmed", "outcome_confirmed"]);
   assert.deepEqual(all.map((event) => event.cursor), [...all.map((event) => event.cursor)].sort((a, b) => a - b));
   await kit.database.destroy();
 });
@@ -169,7 +170,7 @@ test("既存DBのruntime_eventは再初期化でtableを作り直し、event・s
   try {
     const first = await setup(path);
     const { project, intent } = await seedIntent(first);
-    const request = (await first.services.listResearchRequestsUseCase.execute(project.id, {}))[0]!;
+    const request = await requestIntentResearch(first.services, project.id, intent.id);
     const [event] = await eventsOf(first, project.id);
     assert.ok(event);
     await first.services.grantProjectRoleUseCase.execute(project.id, { principalId: "rt", role: ProjectRole.RUNTIME });

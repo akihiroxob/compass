@@ -8,8 +8,9 @@ Projectの方向と実行を管理するアプリケーションです。Human�
 - [確定した統合アーキテクチャ](compass-codex-architecture-handoff.md)
 - [現在の実装状況](docs/implementation-status.md)
 - [Wacha向け移行計画](docs/architecture-migration-plan.md)
+- [Orchestrator](orchestrator/README.md)
 
-以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/direction`・`packages/work`・`packages/access`・`packages/activity`・`packages/shared`の業務コードを配線します。`orchestrator/`・`ralph/`への移行は未実施です。`manager`の名前は維持します。実装変更はWacha経由で行います。
+以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/direction`・`packages/work`・`packages/access`・`packages/activity`・`packages/shared`の業務コードを配線します。`orchestrator/`はProject横断の現在状態から専門RoleのAgentを起動する独立したBatchで、ServerとはMCPだけで接続します。`ralph/`への移行は未実施です。`manager`の名前は維持します。実装変更はWacha経由で行います。
 
 ## 起動
 
@@ -91,10 +92,11 @@ RuntimeにはAgentとは別のCredentialとscopeを発行します。現在の�
 | event取得・ack | `fetch_runtime_events` / `ack_runtime_event` |
 | Executionの変更取得 | `list_changes` |
 | Evidence還流・結果参照 | `record_execution_evidence` / `get_outcome_execution_summary` |
+| Orchestrator向けの現在状態 | `get_orchestration_state`（scope `runtime:state:read`） |
 
 eventの`nextCursor`はページ送り専用で、再開位置には使いません。再開は`resumeCursor`または0から行います。配送はat-least-onceで、ack再送には同じ`attemptId`を使います。Task受入をOutcome達成として扱わず、Evidenceを評価へ渡します。
 
-実RuntimeによるAgent起動・Lv6自律運転は未接続・未検証です。統合後のOrchestratorは現在状態から起動を判断し、Activity cursorをworkflow checkpointにしません。
+Orchestrator（[orchestrator/README.md](orchestrator/README.md)）は`get_orchestration_state`の現在状態から起動を判断し、Activity cursorやRuntime eventのcursorをworkflow checkpointにしません。Intent作成時にResearch Requestは自動で作られず、OrchestratorがStrategistを起動してResearchの要否を判断させます。実Agentを起動した運用・Lv6自律運転は未検証です。
 
 ## 検証
 
@@ -105,4 +107,4 @@ npm run lint
 npm run build
 ```
 
-rootの`test`・`typecheck`・`lint`は各workspaceへ、`build`は`server` workspaceへ委譲します。テストは`server/tests/`（結合・API・MCP・Web UI・認証）、`packages/work/tests/`（Workの規則）、`packages/direction/tests/`（Project集約）にあり、cwdは各workspaceです。`lint`は現在、TypeScriptの型チェックです。実HTTPの認証テストはテスト用OIDC providerを使い、実Googleへの接続検証ではありません。fixtureによる閉ループ検証と実Agentの自律運転を区別します。
+rootの`test`・`typecheck`・`lint`は各workspaceへ、`build`は`server` workspaceへ委譲します。テストは`server/tests/`（結合・API・MCP・Web UI・認証）、`packages/work/tests/`（Workの規則）、`packages/direction/tests/`（Project集約）、`orchestrator/tests/`（起動判断・重複抑止、ServerとのプロセスをまたぐOrchestratorの結合）にあり、cwdは各workspaceです。`orchestrator`の`build`は型検査で、`npm run build --workspace orchestrator`で独立して実行します。`lint`は現在、TypeScriptの型チェックです。実HTTPの認証テストはテスト用OIDC providerを使い、実Googleへの接続検証ではありません。fixtureによる閉ループ検証と実Agentの自律運転を区別します。

@@ -1,5 +1,4 @@
 import { sql, type ColumnDefinitionBuilder, type Kysely } from "kysely";
-import { ensureInitialResearchRequest } from "./initialResearchRequest.ts";
 import type { DirectionDatabase } from "./schema.ts";
 
 /**
@@ -417,25 +416,6 @@ const initializeAdrHandoffSchema = async (database: Kysely<DirectionDatabase>): 
 };
 
 /**
- * Initial Research Request導入前に作成されたActive Intentへ、Initial Requestとイベントを補う。
- * keyがIntentから決定的で、既にあれば何もしないため、起動のたびに実行しても重複しない（Requestを取り消した後も再作成しない）。
- * archivedのProjectと、Active以外のIntentは対象にしない。導入後に作成したIntentは作成時点で保存済みのため対象外になる。
- */
-const backfillInitialResearchRequests = async (database: Kysely<DirectionDatabase>): Promise<void> => {
-  await database.transaction().execute(async (transaction) => {
-    const intents = await transaction
-      .selectFrom("intent")
-      .innerJoin("project", "project.id", "intent.project_id")
-      .selectAll("intent")
-      .where("intent.status", "=", "active")
-      .where("project.status", "=", "active")
-      .orderBy("intent.created_at", "asc")
-      .execute();
-    for (const intent of intents) await ensureInitialResearchRequest(transaction, intent, Date.now());
-  });
-};
-
-/**
  * Runtime向けの確定イベント。同じRequestに対する同じ種類のイベントは1件に収束させ、再送・復旧・再初期化で重複させない。
  * `sequence`は`autoincrement`で、削除後も番号を再利用しない（Runtimeのcursorが巻き戻らない）。
  */
@@ -838,5 +818,4 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
   await initializeOutcomeExecutionSchema(database);
   await initializeOutcomeEvaluationSchema(database);
   await addDirectionDecisionEvaluationColumn(database);
-  await backfillInitialResearchRequests(database);
 };

@@ -5,6 +5,7 @@
   "type": "module",
   "workspaces": [
     "server",
+    "orchestrator",
     "packages/*"
   ],
   "scripts": {

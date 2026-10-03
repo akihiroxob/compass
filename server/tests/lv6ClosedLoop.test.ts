@@ -221,6 +221,21 @@ test(
 
       // --- 外部Runtime（別プロセス相当）。永続化するのはstoreだけで、再起動ではin-memoryの状態を失う
       const connection: Connection = { baseUrl: () => server.baseUrl, now: () => clock.now, calls: [], dropNextResponse: new Set() };
+
+      // Intent作成はResearch Requestを作らない。最初に起動されたStrategistが情報不足と判断し、追加Researchを依頼する
+      // （Strategistの起動はOrchestratorの責務で、このfixtureでは起動済みの判断結果だけを与える）。
+      const initialResearch = await withMcp(connection, "strategist-1", tokens.strategist.token, (call) =>
+        call("create_direction_decision", {
+          projectId,
+          intentId: intent.id,
+          type: "additional_research",
+          judgment: "Learn what causes duplicate claims before choosing an Outcome",
+          reason: "Nothing is known about the current claim behavior",
+          research: { question: "What causes duplicate claims?", scope: "Claim handling", completionCondition: "The cause is known", budgetTotal: 100 },
+          requestKey: "initial-research",
+          runRef: "strategist:intent",
+        }),
+      );
       const store: RuntimeStore = { resumeCursor: 0, changeCursor: 0, reflected: {} };
       let outcomeConfirmedSeen = 0;
       let crashed = false;
@@ -314,23 +329,25 @@ test(
       assert.deepEqual(firstEvaluations.map((evaluation) => evaluation.result), ["insufficient_evidence", "insufficient_evidence"]);
       assert.deepEqual(secondEvaluations.map((evaluation) => evaluation.result), ["achieved", "insufficient_evidence"]);
 
-      // Direction Decision: 最初のOutcome → 追加Research（最新Evaluation） → 次のOutcome → Intent完了（最新Evaluation）
+      // Direction Decision: 追加Research（Intent起点） → 最初のOutcome → 追加Research（最新Evaluation） → 次のOutcome → Intent完了（最新Evaluation）
       const decisions = (await owner.api("GET", `/api/projects/${projectId}/intents/${intent.id}/decisions`)).decisions as Json[];
       const byType = (type: string) => decisions.filter((decision) => decision.type === type);
       assert.equal(byType("next_outcome").length, 2);
-      assert.equal(byType("additional_research").length, 1);
+      assert.equal(byType("additional_research").length, 2);
       assert.equal(byType("intent_complete").length, 1);
-      assert.equal(byType("additional_research")[0]!.evaluationId, firstEvaluations[0]!.id);
+      const replanResearch = byType("additional_research").find((decision) => decision.evaluationId !== null)!;
+      assert.equal(replanResearch.evaluationId, firstEvaluations[0]!.id);
+      assert.equal(byType("additional_research").find((decision) => decision.evaluationId === null)!.id, initialResearch.decision.id);
       assert.equal(byType("intent_complete")[0]!.evaluationId, secondEvaluations[0]!.id);
-      assert.equal(decisions.length, 4);
+      assert.equal(decisions.length, 5);
 
       // --- 相関ID: Research（decision:<id>）→ Outcome（outcome:<id>）→ Story / Change → Evaluation → 判断を辿れる
       const events = await withMcp(connection, "runtime-1", tokens.runtime.token, (call) => call("fetch_runtime_events", { projectId, afterCursor: 0 }));
       assert.deepEqual(events.events, [], "every event is finally acknowledged for this consumer");
       const allEvents = crashedRuntime.fetchedEvents.concat(runtime.fetchedEvents);
-      // 初回（Intent起点）と追加（Direction Decision起点）のResearch Requestは、どちらもIntentに紐づき相関IDで区別できる
+      // 初回（Intent起点）と再計画（Evaluation起点）のResearch Requestは、どちらもIntentに紐づき、起点のDecisionの相関IDで区別できる
       const research = (await owner.api("GET", `/api/projects/${projectId}/research-requests?originIntentId=${intent.id}`)).requests as Json[];
-      assert.deepEqual(research.map((request) => request.correlationId).sort(), [`decision:${byType("additional_research")[0]!.id}`, `intent:${intent.id}`].sort());
+      assert.deepEqual(research.map((request) => request.correlationId).sort(), byType("additional_research").map((decision) => `decision:${decision.id}`).sort());
       assert.ok(research.every((request) => request.status === "completed"));
       for (const outcome of [first, second]) {
         const correlationId = `outcome:${outcome.id}`;
@@ -382,7 +399,7 @@ test(
       assert.equal(await countRows(server.database, "task", ["project_id", projectId]), 2);
       assert.equal(await countRows(server.database, "outcome", ["project_id", projectId]), 2);
       assert.equal(await countRows(server.database, "outcome_evaluation", ["project_id", projectId]), 4);
-      assert.equal(await countRows(server.database, "direction_decision", ["project_id", projectId]), 4);
+      assert.equal(await countRows(server.database, "direction_decision", ["project_id", projectId]), 5);
       assert.equal(await countRows(server.database, "research_request", ["project_id", projectId]), 2);
 
       // 順序逆転: 古いEvaluationを根拠にした判断・古いchangeCursorの還流は状態を変えない
@@ -407,7 +424,7 @@ test(
       );
       assert.equal(stale.recorded.staleInput, true);
       assert.equal(stale.summary.state, "accepted");
-      assert.equal(await countRows(server.database, "direction_decision", ["project_id", projectId]), 4);
+      assert.equal(await countRows(server.database, "direction_decision", ["project_id", projectId]), 5);
 
       // HumanはWeb UIと同じAPIで結果を確認できる（同一server・同一port）
       const executionSummary = await owner.api("GET", `/api/projects/${projectId}/outcomes/${second.id}/execution-summary`);

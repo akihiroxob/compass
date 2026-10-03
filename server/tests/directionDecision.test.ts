@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp } from "./support/humanSession.ts";
+import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -62,6 +63,7 @@ const seedProject = async (services: Services) => {
     title: "Agents improve software",
     desiredState: "Agents improve the software.",
   });
+  await requestIntentResearch(services, project.id, intent.id);
   return { project, intent };
 };
 

@@ -3,7 +3,6 @@ export * from "./AdrHandoff.ts";
 export * from "./AdrHandoffRepository.ts";
 export * from "./DirectionDecision.ts";
 export * from "./DirectionDecisionRepository.ts";
-export * from "./InitialResearchRequest.ts";
 export * from "./Intent.ts";
 export * from "./IntentRepository.ts";
 export * from "./Outcome.ts";

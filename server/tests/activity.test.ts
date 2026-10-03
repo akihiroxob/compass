@@ -359,7 +359,7 @@ test("Directionの重要な状態変更は同じtransactionで操作者付きの
   await grant(app, project.id, "strategist-a", "strategist");
   await grant(app, project.id, "worker-a", "worker");
 
-  // Human（Web UI）の操作は認証済みHumanをoperatorとして記録する。Initial Researchの依頼も同じ操作の帰結として残る。
+  // Human（Web UI）の操作は認証済みHumanをoperatorとして記録する。
   const intentResponse = await send(app, "POST", `/api/projects/${project.id}/intents`, { title: "認証を整える", desiredState: "Humanがsign inできる" });
   assert.equal(intentResponse.status, 201);
   const intent = ((await intentResponse.json()) as { intent: { id: string } }).intent;
@@ -392,13 +392,12 @@ test("Directionの重要な状態変更は同じtransactionで操作者付きの
   const facts = page.activities.map((item: any) => [item.type, item.principalId.startsWith("human:") ? "human" : item.principalId, item.role, item.source]);
   assert.deepEqual(facts, [
     ["intent.created", "human", "operator", "canonical"],
-    ["research.requested", "human", "operator", "canonical"],
     ["outcome.confirmed", "strategist-a", "strategist", "canonical"],
     ["decision.recorded", "strategist-a", "strategist", "canonical"],
     ["outcome.canceled", "strategist-a", "strategist", "canonical"],
     ["intent.abandoned", "human", "operator", "canonical"],
   ]);
-  const [created, , confirmed, recorded, canceled, abandoned] = page.activities;
+  const [created, confirmed, recorded, canceled, abandoned] = page.activities;
   assert.equal(created.summary, "Intent「認証を整える」を作成した");
   assert.deepEqual(created.refs, [{ kind: "intent", id: intent.id }]);
   assert.deepEqual(
@@ -420,8 +419,6 @@ test("Directionの重要な状態変更は同じtransactionで操作者付きの
   assert.equal(failed.status, 500);
   const intents = (await sql<{ title: string }>`select title from intent where project_id = ${project.id}`.execute(database)).rows;
   assert.deepEqual(intents.map(({ title }) => title), ["認証を整備する"]);
-  const requests = (await sql<{ id: string }>`select id from research_request where project_id = ${project.id}`.execute(database)).rows;
-  assert.equal(requests.length, 1);
   await database.destroy();
 });
 

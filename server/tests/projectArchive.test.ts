@@ -6,6 +6,7 @@ import test from "node:test";
 import { sql } from "kysely";
 import type { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp } from "./support/humanSession.ts";
+import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -389,6 +390,7 @@ test("statusのcheck制約は、active・archived以外の値を保存させな�
 test("AC-14 archivedでも読取のMCP toolは成功し、Project.statusがarchivedになる", async () => {
   const { database, services, app } = await setup();
   const { project, intent, outcome } = await seed(services);
+  await requestIntentResearch(services, project.id, intent.id);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
 
   const got = await callTool(app, "get_project", { projectId: project.id });
@@ -468,7 +470,7 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       "abandon_intent", "ack_runtime_event", "cancel_outcome", "complete_research_request", "create_adr_handoff_request",
       "create_direction_decision", "create_intent",
       "create_outcome", "create_project", "decide_next_outcome", "fetch_runtime_events",
-      "get_intent", "get_outcome", "get_project", "get_research_request", "get_researcher_context", "get_role_instructions", "get_role_context", "list_skills", "get_skill_context",
+      "get_intent", "get_orchestration_state", "get_outcome", "get_project", "get_research_request", "get_researcher_context", "get_role_instructions", "get_role_context", "list_skills", "get_skill_context",
       "get_outcome_execution_summary", "get_evaluator_context", "record_outcome_evaluation", "get_strategist_context", "list_adr_references", "list_intents", "list_outcomes", "list_projects",
       "list_research_requests", "record_adr_reference",
       "record_execution_evidence", "register_research_result", "register_research_synthesis", "update_intent", "update_outcome", "update_project",

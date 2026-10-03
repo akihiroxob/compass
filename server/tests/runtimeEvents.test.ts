@@ -85,8 +85,17 @@ const seed = async (services: Services, name = "Compass") => {
     title: `Agents improve ${name}`,
     desiredState: "Agents improve the software.",
   });
-  const [request] = await services.listResearchRequestsUseCase.execute(project.id, { originIntentId: intent.id });
-  return { project, intent, request: request! };
+  // Intent作成はRequestを作らない。Strategistが追加Researchを判断した後と同じく、Request 1件とresearch_requestedを用意する。
+  const request = await services.createResearchRequestUseCase.execute(project.id, {
+    requestKey: "research-1",
+    kind: "decision",
+    originIntentId: intent.id,
+    question: "What do we need to know?",
+    scope: "Scope",
+    completionCondition: "Strategist can decide",
+    budgetTotal: 10,
+  });
+  return { project, intent, request };
 };
 
 const closeRequest = (services: Services, projectId: string, requestId: string) =>

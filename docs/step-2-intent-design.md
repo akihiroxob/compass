@@ -16,6 +16,4 @@ HumanはProject詳細から作成し、Intent詳細から編集・放棄する�
 
 ## Researchとの接続
 
-現在の実装はIntent作成と同じtransactionでInitial Research RequestとRuntime eventを保存する。Agentの実起動は未接続。
-
-確定したDirectionフローはStrategistがResearchの必要性を判断する方式であり、現行の自動Request作成からの変更は [Wacha向け移行計画](architecture-migration-plan.md) で扱う。
+Intent作成はResearch Requestを作らない。OrchestratorがActive IntentでStrategistを起動し、StrategistがResearchの必要性を判断する（必要なら`additional_research`のDirection Decisionで依頼する）。以前の実装が自動作成したInitial Research Request（`requestKey`が`initial-research:<intentId>`）は削除せず、通常のRequestとして扱う。起動条件は [Orchestrator](../orchestrator/README.md)。

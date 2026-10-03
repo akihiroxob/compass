@@ -6,7 +6,8 @@ export type RuntimeScope =
   | "runtime:event:ack"
   | "execution:change:read"
   | "execution:evidence:write"
-  | "execution:summary:read";
+  | "execution:summary:read"
+  | "runtime:state:read";
 
 export type Credential = {
   id: string;
@@ -31,6 +32,7 @@ export const runtimeScopeOptions: { scope: RuntimeScope; label: string }[] = [
   { scope: "execution:change:read", label: "ExecutionのChange取得" },
   { scope: "execution:evidence:write", label: "Execution Evidenceの還流" },
   { scope: "execution:summary:read", label: "還流済みExecution Summaryの取得" },
+  { scope: "runtime:state:read", label: "Orchestrator向け現在状態の取得" },
 ];
 export const allRuntimeScopes = runtimeScopeOptions.map((option) => option.scope);
 

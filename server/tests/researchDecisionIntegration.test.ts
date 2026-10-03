@@ -16,7 +16,7 @@ import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 
 /**
- * 空DBから、Intent作成（Initial Research Request自動作成）→ Researcher（Result・Synthesis・確定）→
+ * 空DBから、Intent作成 → Strategist（追加Researchの判断）→ Researcher（Result・Synthesis・確定）→
  * Strategist（Intent Brief・Direction Decision・Outcome・ADR handoff/参照）→ Human向けWeb API参照までを、
  * 実HTTPサーバーとMCP SDK clientで通す（docs/research-decision-adr-design.md 段階7）。
  *
@@ -123,15 +123,35 @@ const createProject = async (baseUrl: string, name: string) =>
 const createIntent = async (baseUrl: string, projectId: string, title: string) =>
   (await api(baseUrl, "POST", `/api/projects/${projectId}/intents`, { title, desiredState: "S" })).body.intent as { id: string };
 
+/**
+ * Intent作成はResearch Requestを作らない。Strategist（strat-1）が情報不足と判断し、additional_researchのDecisionでRequestを作る。
+ */
 const initialRequestOf = async (baseUrl: string, projectId: string, intentId: string) => {
   const { body } = await api(baseUrl, "GET", `/api/projects/${projectId}/research-requests?originIntentId=${intentId}`);
-  const requests = body.requests as { id: string; status: string }[];
-  assert.equal(requests.length, 1, JSON.stringify(requests));
-  return requests[0]!;
+  assert.deepEqual(body.requests, []);
+  const decided = await withAgent(baseUrl, "strat-1", (client) =>
+    call(client, "create_direction_decision", {
+      projectId,
+      intentId,
+      type: "additional_research",
+      judgment: "Evidence is insufficient to choose the first Outcome",
+      reason: "Nothing is known yet",
+      research: {
+        question: "What do we need to know to choose the first Outcome?",
+        scope: "The Intent and the Project's Mission",
+        completionCondition: "The Strategist can choose the first Outcome",
+        budgetTotal: 100,
+      },
+      requestKey: `research-${intentId}`,
+      runRef: "strategist-run",
+    }),
+  );
+  assert.equal(decided.isError, undefined, JSON.stringify(decided));
+  return decided.structuredContent!.researchRequest as { id: string; status: string };
 };
 
 test(
-  "空DBから、Intent作成（Initial Research Request）→ Researcher（Result・Synthesis・completed）→ " +
+  "空DBから、Intent作成 → Strategist（追加Research）→ Researcher（Result・Synthesis・completed）→ " +
     "Strategist（Intent Brief・decide_next_outcome・ADR handoff/参照）→ Web APIの参照まで、Human操作なしで完了する",
   { skip: loopbackSkip },
   async () => {
@@ -141,12 +161,12 @@ test(
       const repositoryId = project.repositories[0]!.id;
       const intent = await createIntent(server.baseUrl, project.id, "Ship the claim strategy");
 
-      // Initial Research RequestはIntent作成と同一transactionでCompass application層が自動作成する。
-      const initial = await initialRequestOf(server.baseUrl, project.id, intent.id);
-      assert.equal(initial.status, "requested");
-
       assert.equal((await grant(server.baseUrl, project.id, "researcher-1", "researcher")).status, 201);
       assert.equal((await grant(server.baseUrl, project.id, "strat-1", "strategist")).status, 201);
+
+      // Researchの要否はStrategistが判断する。ここでは追加ResearchとしてRequestを作る。
+      const initial = await initialRequestOf(server.baseUrl, project.id, intent.id);
+      assert.equal(initial.status, "requested");
 
       const now = Date.now();
       const { findingId, synthesisId } = await withAgent(server.baseUrl, "researcher-1", async (client) => {
@@ -274,9 +294,9 @@ test(
         return { outcomeId: decided.structuredContent?.outcome.id as string, decisionId: adrDecisionId };
       });
 
-      // Human向けWeb APIから、Decision（next_outcome・adr_candidate）とADR参照を辿れる。
+      // Human向けWeb APIから、Decision（additional_research・next_outcome・adr_candidate）とADR参照を辿れる。
       const decisions = (await api(server.baseUrl, "GET", `/api/projects/${project.id}/intents/${intent.id}/decisions`)).body.decisions as { type: string; outcomeId: string | null }[];
-      assert.deepEqual(decisions.map((decision) => decision.type).sort(), ["adr_candidate", "next_outcome"]);
+      assert.deepEqual(decisions.map((decision) => decision.type).sort(), ["additional_research", "adr_candidate", "next_outcome"]);
       assert.equal(decisions.find((decision) => decision.type === "next_outcome")?.outcomeId, outcomeId);
 
       const references = (await api(server.baseUrl, "GET", `/api/projects/${project.id}/adr-references`)).body.references as { decisionId: string; path: string; commitSha: string }[];
@@ -300,6 +320,7 @@ test(
       const project = await createProject(server.baseUrl, "P");
       const other = await createProject(server.baseUrl, "Q");
       await grant(server.baseUrl, project.id, "researcher-1", "researcher");
+      await grant(server.baseUrl, project.id, "strat-1", "strategist");
       await grant(server.baseUrl, other.id, "researcher-q", "researcher");
 
       // 1件目: Result・Synthesisを伴うcompleted。

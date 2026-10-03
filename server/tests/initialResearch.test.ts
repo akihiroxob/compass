@@ -6,7 +6,7 @@ import test from "node:test";
 import { sql } from "kysely";
 import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { initialResearchBudget, initialResearchRequestKey, runtimeEventVersion } from "@compass/direction";
+import { runtimeEventVersion } from "@compass/direction";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 
@@ -35,6 +35,25 @@ const seed = async (services: Services) => {
   const project = await services.createProjectUseCase.execute(projectInput);
   const intent = await services.createIntentUseCase.execute(project.id, intentInput);
   return { project, intent };
+};
+
+/** Intent作成はResearch Requestを作らない。Researchの要否はStrategistが判断し、その結果のRequestをここで模す。 */
+const requestResearch = (services: Services, projectId: string, intentId: string, requestKey = "research-1") =>
+  services.createResearchRequestUseCase.execute(projectId, {
+    requestKey,
+    kind: "decision",
+    originIntentId: intentId,
+    question: "What do we need to know?",
+    scope: "Scope",
+    completionCondition: "Strategist can decide",
+    budgetTotal: 10,
+  });
+
+/** 指定したIntentのResearch Requestを作り、Intent作成後の初期状態（Request 1件・research_requested 1件）にする。 */
+const seedWithResearch = async (services: Services) => {
+  const seeded = await seed(services);
+  await requestResearch(services, seeded.project.id, seeded.intent.id);
+  return seeded;
 };
 
 const rowCount = async (database: Context["database"], table: string) => {
@@ -72,58 +91,31 @@ const synthesisInput = (findingIds: string[]) => ({
   validAsOf: start,
 });
 
-test("Intent作成でInitial Research Requestとresearch_requestedイベントが保存され、再起動後も同じ", async () => {
+test("Intent作成はResearch Requestもイベントも自動作成せず、再起動・再初期化でも補わない", async () => {
   const directory = await mkdtemp(join(tmpdir(), "compass-initial-research-"));
   const path = join(directory, "test.db");
   const first = await setup(path);
   const { project, intent } = await seed(first.services);
-
-  const [request, ...others] = await requestsOf(first.services, project.id, intent.id);
-  assert.equal(others.length, 0);
-  assert.ok(request);
-  assert.equal(request.kind, "decision");
-  assert.equal(request.status, "requested");
-  assert.equal(request.originIntentId, intent.id);
-  assert.equal(request.originOutcomeId, null);
-  assert.equal(request.requestKey, initialResearchRequestKey(intent.id));
-  assert.equal(request.budgetTotal, initialResearchBudget);
-  assert.equal(request.deadlineAt, null);
-  assert.ok(request.question.includes(intent.title));
-
-  const events = await eventsOf(first.services, project.id);
-  assert.equal(events.length, 1);
-  assert.deepEqual(
-    { ...events[0], cursor: undefined, id: undefined },
-    {
-      cursor: undefined,
-      id: undefined,
-      version: runtimeEventVersion,
-      type: "research_requested",
-      projectId: project.id,
-      intentId: intent.id,
-      researchRequestId: request.id,
-      outcomeId: null,
-      evaluationId: null,
-      correlationId: request.correlationId,
-      conclusion: null,
-      occurredAt: events[0]!.occurredAt,
-    },
-  );
-  assert.ok(events[0]!.correlationId.length > 0);
+  assert.deepEqual(await requestsOf(first.services, project.id, intent.id), []);
+  assert.deepEqual(await eventsOf(first.services, project.id), []);
   await first.database.destroy();
 
-  // 再起動（schema再初期化を含む）でRequestもイベントも増えず、同じID・cursorで取得できる。
   const restarted = await setup(path);
-  assert.deepEqual(await requestsOf(restarted.services, project.id, intent.id), [request]);
-  assert.deepEqual(await eventsOf(restarted.services, project.id), events);
   await initializeSchema(restarted.database);
-  await initializeSchema(restarted.database);
-  assert.equal(await rowCount(restarted.database, "research_request"), 1);
-  assert.equal(await rowCount(restarted.database, "runtime_event"), 1);
+  assert.equal(await rowCount(restarted.database, "research_request"), 0);
+  assert.equal(await rowCount(restarted.database, "runtime_event"), 0);
+
+  // Researchが必要とStrategistが判断した場合だけRequestとresearch_requestedイベントが保存される。
+  const request = await requestResearch(restarted.services, project.id, intent.id);
+  const events = await eventsOf(restarted.services, project.id);
+  assert.deepEqual(
+    events.map(({ type, version, intentId, researchRequestId, correlationId }) => ({ type, version, intentId, researchRequestId, correlationId })),
+    [{ type: "research_requested", version: runtimeEventVersion, intentId: intent.id, researchRequestId: request.id, correlationId: request.correlationId }],
+  );
   await restarted.database.destroy();
 });
 
-test("Web API・MCPの既存入口も同じuse caseを通り、Initial Requestを1件だけ作る", async () => {
+test("Web API・MCPのIntent作成もResearch Requestを作らない", async () => {
   const { database, services, app } = await setup();
   const web = await services.createProjectUseCase.execute(projectInput);
   const created = await app.request(`/api/projects/${web.id}/intents`, {
@@ -133,8 +125,7 @@ test("Web API・MCPの既存入口も同じuse caseを通り、Initial Request�
   });
   assert.equal(created.status, 201);
   const { intent: webIntent } = (await created.json()) as { intent: { id: string } };
-  assert.equal((await requestsOf(services, web.id, webIntent.id)).length, 1);
-  assert.equal((await eventsOf(services, web.id)).length, 1);
+  assert.deepEqual(await requestsOf(services, web.id, webIntent.id), []);
 
   const mcp = await services.createProjectUseCase.execute({ ...projectInput, name: "Via MCP" });
   const response = await app.request("/mcp", {
@@ -149,51 +140,8 @@ test("Web API・MCPの既存入口も同じuse caseを通り、Initial Request�
   });
   const data = (await response.text()).split("\n").find((line) => line.startsWith("data: "));
   const mcpIntent = JSON.parse(data!.slice(6)).result.structuredContent as { id: string };
-  assert.equal((await requestsOf(services, mcp.id, mcpIntent.id)).length, 1);
-  assert.equal((await eventsOf(services, mcp.id)).length, 1);
-  await database.destroy();
-});
-
-test("Requestまたはイベントの保存に失敗すると、Intentも片方だけ残らない", async () => {
-  for (const table of ["research_request", "runtime_event"]) {
-    const { database, services } = await setup();
-    const project = await services.createProjectUseCase.execute(projectInput);
-    await sql`create trigger fail_${sql.raw(table)} before insert on ${sql.table(table)}
-      begin select raise(abort, 'simulated failure'); end`.execute(database);
-
-    await assert.rejects(services.createIntentUseCase.execute(project.id, intentInput));
-    assert.equal(await rowCount(database, "intent"), 0, `${table}の失敗でIntentが残った`);
-    assert.equal(await rowCount(database, "research_request"), 0);
-    assert.equal(await rowCount(database, "runtime_event"), 0);
-
-    // 失敗は一時的でも、復旧後の作成は通常どおり成功し、Intentごとに1件になる。
-    await sql`drop trigger ${sql.id(`fail_${table}`)}`.execute(database);
-    const intent = await services.createIntentUseCase.execute(project.id, intentInput);
-    assert.equal((await requestsOf(services, project.id, intent.id)).length, 1);
-    assert.equal((await eventsOf(services, project.id)).length, 1);
-    await database.destroy();
-  }
-});
-
-test("再送・不正な作成・archived Projectでは新しいRequestもイベントも作らない", async () => {
-  const { database, services } = await setup();
-  const { project, intent } = await seed(services);
-
-  // 同じProjectへの再作成（再送を含む）はactive Intentがあるため拒否され、何も増えない。
-  await assert.rejects(services.createIntentUseCase.execute(project.id, intentInput), rejectsWith("CONFLICT"));
-  await assert.rejects(services.createIntentUseCase.execute(project.id, { title: " ", desiredState: "" }), rejectsWith("VALIDATION_ERROR"));
-  assert.equal(await rowCount(database, "research_request"), 1);
-  assert.equal(await rowCount(database, "runtime_event"), 1);
-
-  const other = await services.createProjectUseCase.execute({ ...projectInput, name: "Other" });
-  await services.archiveProjectUseCase.execute(other.id, { reason: "Done" });
-  await assert.rejects(services.createIntentUseCase.execute(other.id, intentInput), rejectsWith("CONFLICT"));
-  await assert.rejects(services.createIntentUseCase.execute("missing", intentInput), rejectsWith("NOT_FOUND"));
-  assert.equal(await rowCount(database, "intent"), 1);
-  assert.equal(await rowCount(database, "research_request"), 1);
-  assert.equal(await rowCount(database, "runtime_event"), 1);
-  assert.deepEqual(await eventsOf(services, other.id), []);
-  assert.equal((await requestsOf(services, project.id, intent.id)).length, 1);
+  assert.deepEqual(await requestsOf(services, mcp.id, mcpIntent.id), []);
+  assert.equal(await rowCount(database, "runtime_event"), 0);
   await database.destroy();
 });
 
@@ -201,7 +149,7 @@ test("completed / insufficient / not_neededはStrategistを起動できるresear
   const { database, services } = await setup();
   const conclusions = ["completed", "insufficient", "not_needed"] as const;
   for (const conclusion of conclusions) {
-    const { project, intent } = await seed(services);
+    const { project, intent } = await seedWithResearch(services);
     const [request] = await requestsOf(services, project.id, intent.id);
     if (conclusion === "completed") {
       const result = await services.registerResearchResultUseCase.execute(project.id, request!.id, resultInput());
@@ -228,7 +176,7 @@ test("completed / insufficient / not_neededはStrategistを起動できるresear
     assert.equal(completed.projectId, project.id);
     assert.equal(completed.intentId, intent.id);
     assert.equal(completed.researchRequestId, request!.id);
-    // Initial Requestの作成時と同じcorrelationIdで、Runtimeが一連の流れとして追える。
+    // Requestの作成時と同じcorrelationIdで、Runtimeが一連の流れとして追える。
     assert.equal(completed.correlationId, events[0]!.correlationId);
     assert.ok(completed.cursor > events[0]!.cursor);
 
@@ -244,7 +192,7 @@ test("completed / insufficient / not_neededはStrategistを起動できるresear
 
 test("cancelled・確定できない完了・放棄されたIntentのRequestはresearch_completedイベントを作らない", async () => {
   const { database, services } = await setup();
-  const { project, intent } = await seed(services);
+  const { project, intent } = await seedWithResearch(services);
   const [request] = await requestsOf(services, project.id, intent.id);
 
   // ResultとSynthesisが無いcompletedは確定できず、イベントも作らない。
@@ -258,7 +206,7 @@ test("cancelled・確定できない完了・放棄されたIntentのRequestはr
   assert.deepEqual((await eventsOf(services, project.id)).map(({ type }) => type), ["research_requested"]);
 
   // Intentを放棄すると未終了のRequestは取り消され、以後の確定もイベントにならない。
-  const other = await seed(services);
+  const other = await seedWithResearch(services);
   const [pending] = await requestsOf(services, other.project.id, other.intent.id);
   await services.abandonIntentUseCase.execute(other.project.id, other.intent.id, { reason: "Changed" });
   const [afterAbandon] = await requestsOf(services, other.project.id, other.intent.id);
@@ -270,17 +218,17 @@ test("cancelled・確定できない完了・放棄されたIntentのRequestはr
   );
   assert.deepEqual((await eventsOf(services, other.project.id)).map(({ type }) => type), ["research_requested"]);
 
-  // 放棄後に新しいIntentを作れば、そのIntentのInitial Requestとイベントだけが増える。
+  // 放棄後に新しいIntentを作っても、Requestもイベントも増えない。
   const next = await services.createIntentUseCase.execute(other.project.id, intentInput);
-  assert.equal((await requestsOf(services, other.project.id, next.id)).length, 1);
-  assert.equal((await eventsOf(services, other.project.id)).length, 2);
+  assert.deepEqual(await requestsOf(services, other.project.id, next.id), []);
+  assert.equal((await eventsOf(services, other.project.id)).length, 1);
   await database.destroy();
 });
 
 test("archived Projectでは確定してもイベントを作らず、別Projectのイベントは取得できない", async () => {
   const { database, services } = await setup();
-  const { project, intent } = await seed(services);
-  const other = await seed(services);
+  const { project, intent } = await seedWithResearch(services);
+  const other = await seedWithResearch(services);
   const [request] = await requestsOf(services, project.id, intent.id);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
   await assert.rejects(
@@ -297,7 +245,7 @@ test("archived Projectでは確定してもイベントを作らず、別Project
 
 test("イベントはcursorの昇順で、afterCursorとlimitで差分を取得できる", async () => {
   const { database, services } = await setup();
-  const { project, intent } = await seed(services);
+  const { project, intent } = await seedWithResearch(services);
   const [request] = await requestsOf(services, project.id, intent.id);
   await services.completeResearchRequestUseCase.execute(project.id, request!.id, { conclusion: "not_needed", stopReason: "Known" });
 
@@ -312,58 +260,36 @@ test("イベントはcursorの昇順で、afterCursorとlimitで差分を取得�
   await database.destroy();
 });
 
-test("導入前のActive Intentは再初期化でInitial Requestを1件だけ補い、Intent・Outcomeを壊さない", async () => {
+test("自動作成していた既存のInitial Research Requestは再初期化後も残り、Intent・Outcomeを壊さない", async () => {
   const directory = await mkdtemp(join(tmpdir(), "compass-initial-research-"));
   const path = join(directory, "test.db");
   const first = await setup(path);
   const { project, intent } = await seed(first.services);
   const outcome = await first.services.createOutcomeUseCase.execute(project.id, intent.id, outcomeInput);
-  const abandoned = await seed(first.services);
-  await first.services.abandonIntentUseCase.execute(abandoned.project.id, abandoned.intent.id, { reason: "Old" });
-  const archived = await seed(first.services);
-  await first.services.archiveProjectUseCase.execute(archived.project.id, { reason: "Old" });
-
-  // Initial Request導入前の状態: Intentだけがあり、Request・イベントが無い。
-  await sql`delete from runtime_event`.execute(first.database);
-  await sql`delete from research_request`.execute(first.database);
-  assert.deepEqual(await requestsOf(first.services, project.id, intent.id), []);
-  // 導入前のIntentとOutcomeは、Requestが無くても参照・更新できる。
-  assert.deepEqual(await first.services.getOutcomeUseCase.execute(project.id, intent.id, outcome.id), outcome);
+  // 以前の自動作成と同じkey・相関IDのRequest（既存データ）を再現する。
+  const legacy = await first.services.createResearchRequestUseCase.execute(project.id, {
+    requestKey: `initial-research:${intent.id}`,
+    kind: "decision",
+    originIntentId: intent.id,
+    question: `Intent「${intent.title}」を実現する最初のOutcomeを決めるために、何を知る必要があり、何が既に分かっているか。`,
+    scope: "Scope",
+    completionCondition: "Done",
+    budgetTotal: 100,
+    correlationId: `intent:${intent.id}`,
+  });
+  const events = await eventsOf(first.services, project.id);
   await first.database.destroy();
 
   const restarted = await setup(path);
-  const [backfilled, ...rest] = await requestsOf(restarted.services, project.id, intent.id);
-  assert.equal(rest.length, 0);
-  assert.equal(backfilled!.requestKey, initialResearchRequestKey(intent.id));
-  assert.equal(backfilled!.status, "requested");
-  const events = await eventsOf(restarted.services, project.id);
-  assert.deepEqual(events.map(({ type, researchRequestId }) => [type, researchRequestId]), [["research_requested", backfilled!.id]]);
+  await initializeSchema(restarted.database);
+  assert.deepEqual(await requestsOf(restarted.services, project.id, intent.id), [legacy]);
+  assert.deepEqual(await eventsOf(restarted.services, project.id), events);
   assert.deepEqual(await restarted.services.getOutcomeUseCase.execute(project.id, intent.id, outcome.id), outcome);
-  assert.equal((await restarted.services.getIntentUseCase.execute(project.id, intent.id)).id, intent.id);
 
-  // 放棄済みのIntentとarchivedのProjectには補わない。
-  assert.equal(await rowCount(restarted.database, "research_request"), 1);
-  assert.equal(await rowCount(restarted.database, "runtime_event"), 1);
-
-  // 何度再初期化しても重複しない。取り消したRequestも再作成しない。
-  await restarted.services.cancelResearchRequestUseCase.execute(project.id, backfilled!.id, { reason: "Runtime decided" });
-  await initializeSchema(restarted.database);
-  await initializeSchema(restarted.database);
-  assert.equal(await rowCount(restarted.database, "research_request"), 1);
-  assert.equal(await rowCount(restarted.database, "runtime_event"), 1);
-  assert.equal((await restarted.services.getResearchRequestUseCase.execute(project.id, backfilled!.id)).request.status, "cancelled");
-
-  // 補った後も、既存の入口で追加のResearch Requestを作れる。
-  const extra = await restarted.services.createResearchRequestUseCase.execute(project.id, {
-    requestKey: "extra",
-    kind: "decision",
-    originIntentId: intent.id,
-    question: "More?",
-    scope: "Scope",
-    completionCondition: "Done",
-    budgetTotal: 10,
-  });
-  assert.equal(extra.status, "requested");
-  assert.equal((await eventsOf(restarted.services, project.id)).length, 2);
+  // 既存のRequestは通常のRequestとして確定でき、新しいIntentには自動作成しない。
+  await restarted.services.completeResearchRequestUseCase.execute(project.id, legacy.id, { conclusion: "not_needed", stopReason: "Known" });
+  assert.deepEqual((await eventsOf(restarted.services, project.id)).map(({ type }) => type), ["outcome_confirmed", "research_requested", "research_completed"]);
+  const other = await seed(restarted.services);
+  assert.deepEqual(await requestsOf(restarted.services, other.project.id, other.intent.id), []);
   await restarted.database.destroy();
 });

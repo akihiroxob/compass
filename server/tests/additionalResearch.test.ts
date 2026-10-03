@@ -119,7 +119,7 @@ test("additional_researchはDecision・Request・research_requestedイベント�
   const { project, intent } = await seed(services);
   await seedActors(app, project.id);
   const before = await counts(context);
-  assert.deepEqual(before, { decisions: 0, requests: 1, events: 1 }); // Initial Requestだけ。
+  assert.deepEqual(before, { decisions: 0, requests: 0, events: 0 }); // Intent作成はRequestを作らない。
 
   const created = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id), "strat-1");
   assert.equal(created.isError, undefined);
@@ -139,12 +139,12 @@ test("additional_researchはDecision・Request・research_requestedイベント�
   assert.equal(researchRequest.budgetUsed, 0);
   assert.equal(researchRequest.deadlineAt, null);
   assert.equal(researchRequest.correlationId, `decision:${decision.id}`);
-  assert.deepEqual(await counts(context), { decisions: 1, requests: 2, events: 2 });
+  assert.deepEqual(await counts(context), { decisions: 1, requests: 1, events: 1 });
 
-  // RuntimeはTask 31の入口から、Initial Requestに続く新しいイベントを取得できる。
+  // RuntimeはTask 31の入口から、追加Researchのイベントを取得できる。
   const events = await fetchEvents(app, project.id);
-  assert.equal(events.length, 2);
-  const event = events[1]!;
+  assert.equal(events.length, 1);
+  const event = events[0]!;
   assert.equal(event.type, "research_requested");
   assert.equal(event.projectId, project.id);
   assert.equal(event.intentId, intent.id);
@@ -309,7 +309,7 @@ test("archived Project・非Active Intent・別Project参照・Researcher / Runt
   );
   assert.equal(errorOf(foreignSynthesis).code, "VALIDATION_ERROR");
   assert.equal((await counts(context)).decisions, 0);
-  assert.equal((await counts(context)).requests, 2); // 各ProjectのInitial Request。
+  assert.equal((await counts(context)).requests, 0);
 
   // 非Active Intent。
   await services.abandonIntentUseCase.execute(project.id, intent.id, { reason: "Superseded" });
@@ -354,8 +354,8 @@ test("Decision・Request・イベントのいずれかの保存に失敗する�
     await sql`drop trigger ${sql.id(`fail_${table}`)}`.execute(database);
     const retried = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id), "strat-1");
     assert.equal(retried.isError, undefined);
-    assert.deepEqual(await counts(context), { decisions: 1, requests: 2, events: 2 });
-    assert.equal((await fetchEvents(app, project.id)).length, 2);
+    assert.deepEqual(await counts(context), { decisions: 1, requests: 1, events: 1 });
+    assert.equal((await fetchEvents(app, project.id)).length, 1);
     await database.destroy();
   }
 });

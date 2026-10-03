@@ -16,7 +16,11 @@ export const DirectionAgentRole = {
 export type DirectionAgentRole = (typeof DirectionAgentRole)[keyof typeof DirectionAgentRole];
 
 /** Directionの外部Runtime向け入口が要求するscope。値はAccessのRuntime Credential scopeと同じ。 */
-export type DirectionRuntimeScope = "runtime:event:read" | "runtime:event:ack" | "execution:evidence:write";
+export type DirectionRuntimeScope =
+  | "runtime:event:read"
+  | "runtime:event:ack"
+  | "execution:evidence:write"
+  | "runtime:state:read";
 
 export interface DirectionRoleAuthorizationPort {
   requireRole(principal: Principal, projectId: string, role: DirectionAgentRole): Promise<string>;

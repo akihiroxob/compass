@@ -6,7 +6,7 @@
 
 | 領域 | 現在の構成・機能 |
 | --- | --- |
-| 起動 | npm workspaces。`server/`（`@compass/server`）がWeb UI（`server/src/web`、build出力`server/public/`）・`/api`・`/mcp`をHonoで同一portに提供。rootの`npm start`等はroot cwdのまま`server/`のentryを起動 |
+| 起動 | npm workspaces。`orchestrator/`（`@compass/orchestrator`）はServerと別に実行するBatch。`server/`（`@compass/server`）がWeb UI（`server/src/web`、build出力`server/public/`）・`/api`・`/mcp`をHonoで同一portに提供。rootの`npm start`等はroot cwdのまま`server/`のentryを起動 |
 | 構成 | `packages/direction`（`@compass/direction`）・`packages/work`（`@compass/work`）・`packages/access`（`@compass/access`。Principal・Role Grant・Credential・Membership・Human認証のuse case・規則）・`packages/activity`（`@compass/activity`。Activityのmodel・use case・保存）・`packages/shared`（`@compass/shared`。汎用errorと入力検証の部品）。transport（OIDC adapter・Cookie・Bearer解決）・DIは`server/src`にある。packageは`src/index.ts`で公開し、serverが配線する |
 | 保存 | 単一SQLite file / Kysely。table型・DDLはDirection・Work・Access・Activityが各packageに持ち、serverの`Database`型と`initializeSchema`が合成する |
 | Direction | Project・Intent・Outcome・固定成功条件・Research・Decision・Evaluation・ADR参照 |
@@ -14,9 +14,10 @@
 | Human | Google OIDC・Web Session・Membership・招待・Web UIでの操作 |
 | Agent | Credential・Project Role Grant・Git管理の`roles/`・`policies/`・`skills/`・`knowledge/`からのRole / Skill Context配信 |
 | Activity | Project scopeのActivityの明示記録・参照（MCP）、Work・Directionの状態変更からのcanonical生成、Role Contextへのsummary接続、Web UIでの閲覧 |
-| Runtime接続面 | event取得・ack、Execution Evidence還流、scope付きCredential |
+| Runtime接続面 | event取得・ack、Execution Evidence還流、Orchestrator向けの現在状態Query、scope付きCredential |
+| Orchestrator | `orchestrator/`。Project横断で`get_orchestration_state`を読み、状態判定だけで専門RoleのAgent（設定したshellコマンド）を起動する。dispatch keyの起動記録とprocess lockで並行起動・再起動・再試行の重複を抑止する |
 
-Research Request / Result / Finding / SynthesisとDirection Decision・Evaluationは現在DBに保存する。Intent作成はInitial Research Requestを自動生成する。保存先は内容と所有責務で個別に判断し、Project別であることや本文が長いことを理由に一律移行しない。Strategistを最初に起動するフローへの変更は未実施。
+Research Request / Result / Finding / SynthesisとDirection Decision・Evaluationは現在DBに保存する。Intent作成はResearch Requestを作らず、OrchestratorがStrategistを起動してResearchの要否を判断させる。以前に自動作成したInitial Research Requestは削除せず通常のRequestとして残る。保存先は内容と所有責務で個別に判断し、Project別であることや本文が長いことを理由に一律移行しない。
 
 現在のExecution Role名は`manager` / `worker` / `reviewer`で、統合後も維持する。
 
@@ -39,7 +40,7 @@ Research Request / Result / Finding / SynthesisとDirection Decision・Evaluatio
 - `record_activity`: PrincipalはBearerから、Roleは入力の`role`（そのRoleのGrantが必要）または`X-Compass-Active-Role`から決める。どちらも無ければ`VALIDATION_ERROR`、activeRoleと異なるRole・Grantの無いRoleは`FORBIDDEN`。archivedのProjectは`CONFLICT`。`runId`・成果物本文等の未知の項目（top-level・ref内とも）は`VALIDATION_ERROR`。同じPrincipal・`requestId`の再送は、Grantの検証後、Project状態・参照Resourceの検査より先に照合し、同内容なら同じActivity（`created: false`）を返す（archive後・参照Resource削除後も同じ）。別内容での再利用は`CONFLICT`。訂正は`correctsActivityId`を持つActivityを追記し、元は書き換えない。
 - `list_activities` / `get_activity`: ProjectのいずれかのGrant（activeRole指定時はそのRole）が必要。一覧は本文を含めず`hasBody`を返す。`afterCursor`なしは新しい順で`nextCursor`を次の`beforeCursor`に、`afterCursor`ありは昇順の差分で`nextCursor`を次の`afterCursor`に使う。`principalId`・`role`・`type`・参照（`refKind` + `refId`）で絞り込める。`get_activity`は本文と、そのActivityを訂正したActivity（`corrections`）を返す。
 - canonical生成: Workの`KyselyWorkStore`がChangeを追記した同じtransactionで、serverが配線した通知（`workChangeActivityObserver`）からActivityの`recordCanonicalWorkActivity`を呼ぶ。対象は`STORY_CREATED`・`STORY_COMPLETED`・`STORY_CANCELED`・`TASK_CREATED`・`TASK_COMPLETED`・`TASK_REVIEWED`・`TASK_ACCEPTED`・`TASK_REJECTED`・`TASK_CANCELED`で、Claim操作・編集・Story着手は対象外。`role`はChangeの`actorRole`（Human介入は`operator`）。生成元Changeの`cursor`で一意にするため重複せず、Activityを保存できなければ状態変更も確定しない。導入前のChange Logからは遡って生成しない。
-- Directionのcanonical生成: 各SQLite repositoryが状態変更と同じtransactionで通知（`DirectionChangeObserver`）し、serverの`directionChangeActivityObserver`が`recordCanonicalDirectionActivity`を呼ぶ。対象はIntentの作成（`intent.created`）・放棄（`intent.abandoned`）、Outcomeの確定（`outcome.confirmed`。`create_outcome`・`decide_next_outcome`）・取消（`outcome.canceled`）、Research Requestの依頼（`research.requested`。Initial・追加Researchを含む）・終了（`research.closed`）、Direction Decisionの記録（`decision.recorded`）、Outcome Evaluationの記録（`outcome.evaluated`）、Projectのarchive（`project.archived`）。Intent・Outcome・Projectの文言編集、Research結果・Synthesis、ADR・Execution Evidenceは各recordを正とし対象外。放棄に連動するOutcome・Requestの取消は放棄の1件にまとめる。取消・放棄・停止・archive・判断の理由は`body`に残す。操作者は入口が認可した主体で、MCPは認可したPrincipalと要求Role（Direction管理操作はactiveRole、無ければ`operator`）、Web UIは認証済みHuman（`human:{humanUserId}`・`operator`）、Principalのない呼出し（trusted-local・起動時の補完）は`system`。変更されたrecordと種類で一意にするため`requestKey`の再送・再試行で重複せず、Activityを保存できなければ状態変更も確定しない。導入前の状態変更からは遡って生成しない。
+- Directionのcanonical生成: 各SQLite repositoryが状態変更と同じtransactionで通知（`DirectionChangeObserver`）し、serverの`directionChangeActivityObserver`が`recordCanonicalDirectionActivity`を呼ぶ。対象はIntentの作成（`intent.created`）・放棄（`intent.abandoned`）、Outcomeの確定（`outcome.confirmed`。`create_outcome`・`decide_next_outcome`）・取消（`outcome.canceled`）、Research Requestの依頼（`research.requested`。Strategistの追加Researchを含む）・終了（`research.closed`）、Direction Decisionの記録（`decision.recorded`）、Outcome Evaluationの記録（`outcome.evaluated`）、Projectのarchive（`project.archived`）。Intent・Outcome・Projectの文言編集、Research結果・Synthesis、ADR・Execution Evidenceは各recordを正とし対象外。放棄に連動するOutcome・Requestの取消は放棄の1件にまとめる。取消・放棄・停止・archive・判断の理由は`body`に残す。操作者は入口が認可した主体で、MCPは認可したPrincipalと要求Role（Direction管理操作はactiveRole、無ければ`operator`）、Web UIは認証済みHuman（`human:{humanUserId}`・`operator`）、Principalのない呼出し（trusted-local・起動時の補完）は`system`。変更されたrecordと種類で一意にするため`requestKey`の再送・再試行で重複せず、Activityを保存できなければ状態変更も確定しない。導入前の状態変更からは遡って生成しない。
 - Human: Web API `GET /api/projects/:projectId/activities`（`beforeCursor`・`limit`）・`GET /api/projects/:projectId/activities/:activityId`はMembership（viewer以上）で認可し、Project詳細の「Activity」sectionで表示する。`project_resource`参照は登録済みのURLとpath・revisionで表示する。Web UIからは記録しない。
 
 ## Executionの現行契約
@@ -62,10 +63,10 @@ Accessは`project`のtableを直接読まない。archive判定・Projectの存�
 
 ## 未実装・未接続・未検証
 
-- `orchestrator/` / `ralph/`は未実施。
+- `ralph/`は未実施。
 - `scope=system`のActivityは保存形式だけで、記録・参照の入口（MCP・Web）は無い。
-- Role / Skill Contextを実行時に取得するOrchestrator / Ralphは未接続。
-- 本リポジトリには本番Orchestrator / Ralphの実装はない。Ralphの参照元は`/Users/aokayama/git/agent-foundation/ralph`。
+- OrchestratorはAgentへ`get_role_context`の取得を指示して起動するが、実Agent（Claude Code・Codex等）を起動した運用は未検証。結合テストの起動先はfixture。Execution Evidenceの還流は行わない。複数ホストでの並行実行の重複抑止はない。
+- 本リポジトリにはRalphの実装はない。参照元は`/Users/aokayama/git/agent-foundation/ralph`。
 - 実RuntimeによるAgent起動と継続したLv6自律運転は未接続・未検証。`server/tests/support/lv6Runtime.ts`等のfixtureを自律運転の実証としない。
 - 実Googleとの接続確認は自動テストの対象外。
 
@@ -73,4 +74,4 @@ Accessは`project`のtableを直接読まない。archive判定・Projectの存�
 
 `fetch_runtime_events` / `ack_runtime_event`は現在利用可能。eventの取得・ackにはconsumer単位のcursorと配送状態がある。`list_changes`はExecutionの変更を取得し、`record_execution_evidence`はサーバーが現在状態から導出した結果とEvidence参照をDirectionへ還流する。
 
-これらは現在の接続契約である。確定したOrchestrator設計ではDirection / Workの現在状態で起動を判断し、Activity cursorをworkflow checkpointにしない。既存Runtime APIをActivityとして流用しない。
+これらは現在の接続契約である。Orchestratorはeventではなく`get_orchestration_state`（Runtime Credentialのscope `runtime:state:read`、trusted-localはruntime Grant）の現在状態で起動を判断し、Activity cursor・event cursorをworkflow checkpointにしない。応答はProject・Active Intent・Outcome（Work件数・還流済み要約・最新Evaluationと判断の有無）・Research Requestの状態とIDだけで、本文を含まない。既存Runtime APIをActivityとして流用しない。

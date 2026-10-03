@@ -17,6 +17,7 @@ export const runtimeScopes = [
   "execution:change:read",
   "execution:evidence:write",
   "execution:summary:read",
+  "runtime:state:read",
 ] as const;
 export type RuntimeScope = (typeof runtimeScopes)[number];
 

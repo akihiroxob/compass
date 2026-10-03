@@ -10,7 +10,6 @@ import type {
 } from "../domain/IntentRepository.ts";
 import type { CreateIntentInput, UpdateIntentInput } from "../domain/IntentRepository.ts";
 import type { DirectionDatabase, IntentTable } from "./schema.ts";
-import { ensureInitialResearchRequest } from "./initialResearchRequest.ts";
 import { isProjectArchived } from "./isProjectArchived.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
@@ -71,8 +70,6 @@ export class SQLiteIntentRepository implements IntentRepository {
         principalId: null,
         occurredAt: now,
       });
-      // 同じtransactionでInitial Research Requestとイベントを保存する。どちらかが失敗すればIntentも残らない。
-      await ensureInitialResearchRequest(transaction, row, now, this.changeObserver);
       return { kind: "created", intent: toIntent(row) };
     });
   }

@@ -138,11 +138,10 @@ test("Requestは発端Intentとともに保存され、再起動後も同じID�
   await rm(directory, { recursive: true, force: true });
 });
 
-/** Intent作成時に自動作成されたInitial Request。以降の件数・一覧の期待値はこれを含める。 */
+/** Intent作成はRequestを作らない。同じIntentに先行するRequestがある状態を作る。以降の件数・一覧の期待値はこれを含める。 */
 const initialRequestOf = async (services: Services, projectId: string, intentId: string) => {
-  const [initial, ...rest] = await services.listResearchRequestsUseCase.execute(projectId, { originIntentId: intentId });
-  assert.ok(initial && rest.length === 0, "Intent作成でInitial Requestが1件だけ作成されている");
-  return initial;
+  assert.deepEqual(await services.listResearchRequestsUseCase.execute(projectId, { originIntentId: intentId }), []);
+  return services.createResearchRequestUseCase.execute(projectId, requestInput({ requestKey: "initial", originIntentId: intentId }));
 };
 
 // decision requestはIntentが必須なので、Intent付きで作る。
@@ -352,8 +351,8 @@ test("同じrequestKeyと内容の再送は重複を作らず、内容が異な�
     services.createResearchRequestUseCase.execute(project.id, { ...input, question: "A different question?" }),
     rejectsWith("CONFLICT", (error) => assert.equal(error.details?.requestKey, "request-1")),
   );
-  // Intent作成時のInitial Requestと、この明示的なRequestの2件。再送・拒否では増えない。
-  assert.equal(await rowCount(database, "research_request"), 2);
+  // Intent作成はRequestを作らないため、この明示的なRequestの1件だけ。再送・拒否では増えない。
+  assert.equal(await rowCount(database, "research_request"), 1);
 
   const result = await services.registerResearchResultUseCase.execute(project.id, request.id, resultInput());
   assert.deepEqual(await services.registerResearchResultUseCase.execute(project.id, request.id, resultInput()), result);
@@ -609,8 +608,8 @@ test("期限・予算・状態・入力の不正値を拒否する", async () =>
     services.createResearchRequestUseCase.execute(project.id, requestInput({ kind: "project_watch", originIntentId: intent.id })),
     rejectsWith("VALIDATION_ERROR"),
   );
-  // 不正な入力は保存しない。残るのはIntent作成時のInitial Requestだけ。
-  assert.equal(await rowCount(database, "research_request"), 1);
+  // 不正な入力は保存しない。
+  assert.equal(await rowCount(database, "research_request"), 0);
 
   const watch = await services.createResearchRequestUseCase.execute(
     project.id,
@@ -699,20 +698,17 @@ test("abandonedのIntentとarchivedのProjectには新しいRequestもResearch�
     services.createResearchRequestUseCase.execute(project.id, decisionRequest(intent.id, { requestKey: "after-abandon" })),
     rejectsWith("CONFLICT", (error) => assert.equal(error.details?.status, "abandoned")),
   );
-  // Initial Requestと明示的なRequestの2件のまま。放棄後の新しいRequestは作られない。
-  assert.equal(await rowCount(database, "research_request"), 2);
+  // 明示的なRequestの1件のまま。放棄後の新しいRequestは作られない。
+  assert.equal(await rowCount(database, "research_request"), 1);
   // 放棄されたIntentの未終了Requestは同じtransactionで取り消され、取消はRuntimeイベントにならない。
   const abandoned = await services.listResearchRequestsUseCase.execute(project.id, { originIntentId: intent.id });
   assert.deepEqual(
     abandoned.map(({ status, stopReason }) => [status, stopReason]),
-    [
-      ["cancelled", "Intent abandoned: Changed direction"],
-      ["cancelled", "Intent abandoned: Changed direction"],
-    ],
+    [["cancelled", "Intent abandoned: Changed direction"]],
   );
   assert.deepEqual(
     (await services.listRuntimeEventsUseCase.execute(project.id)).map(({ type }) => type),
-    ["research_requested", "research_requested"],
+    ["research_requested"],
   );
 
   // archived側は、未終了のRequestを持つ別のProjectで確かめる。
@@ -778,8 +774,8 @@ test("DBの制約が同じrequestKeyの重複とIntentのないdecision request�
       .values({ ...row, id: "overspent", request_key: "overspent", budget_used: 2 })
       .execute(),
   );
-  // Intent作成時のInitial Requestと、直接挿入した1件。制約違反の行は残らない。
-  assert.equal(await rowCount(database, "research_request"), 2);
+  // 直接挿入した1件だけ。制約違反の行は残らない。
+  assert.equal(await rowCount(database, "research_request"), 1);
   await database.destroy();
 });
 
@@ -812,8 +808,8 @@ test("initializeSchemaは再実行してもResearchとProject / Intent / Outcome
     await database.schema.dropTable(table).execute();
   }
   await initializeSchema(database);
-  // Research導入前のActive Intentには、再初期化でInitial Requestが1件だけ補われる（Intent・Outcomeには触れない）。
-  assert.equal(await rowCount(database, "research_request"), 1);
+  // Research導入前のActive IntentにもRequestを補わない（Intent・Outcomeには触れない）。
+  assert.equal(await rowCount(database, "research_request"), 0);
   assert.deepEqual(await services.getOutcomeUseCase.execute(project.id, intent.id, outcome.id), outcome);
   const recreated = await services.createResearchRequestUseCase.execute(project.id, decisionRequest(intent.id));
   assert.equal(recreated.status, "requested");

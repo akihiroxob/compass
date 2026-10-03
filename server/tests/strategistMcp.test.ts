@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp } from "./support/humanSession.ts";
+import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -102,9 +103,8 @@ test("StrategistはBearerだけでContextを取得し、create_outcomeで登録�
   assert.equal(value.activeIntent.id, intentId);
   assert.deepEqual(value.outcomes, []);
   assert.deepEqual(value.unavailable, ["evidence"]);
-  // Intent作成と同一transactionでInitial Research Requestが作られ、Intent Briefの`requests`に現れる（Task 25）。
-  assert.equal(value.research.requests.length, 1);
-  assert.equal(value.research.requests[0].status, "requested");
+  // Intent作成はResearch Requestを作らない（Researchの要否はStrategistが判断する）。
+  assert.deepEqual(value.research.requests, []);
   assert.deepEqual(value.research.syntheses, []);
   assert.deepEqual(value.research.conflicts, []);
 
@@ -142,10 +142,11 @@ test("Active Intentが無いProjectのContextはactiveIntent:null・outcomes:[]�
 });
 
 test("get_research_requestはStrategist GrantでSynthesis→Finding→Evidenceを辿れ、Grantなし・別Project・存在しないIDを拒否する", async () => {
-  const { database, app } = await setup();
+  const { database, services, app } = await setup();
   const projectId = await createProject(app);
   const otherProjectId = await createProject(app, "Other");
   const intentId = await createIntent(app, projectId);
+  await requestIntentResearch(services, projectId, intentId);
   await grant(app, projectId, "strat-1");
 
   const context = await callTool(app, "get_strategist_context", { projectId }, "strat-1");

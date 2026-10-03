@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp } from "./support/humanSession.ts";
+import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -282,8 +283,7 @@ test("list_research_requestsはProjectのRequestを状態で絞って返す", as
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
   await grantRole(app, project.id, "researcher-a");
-  // Intent作成時に自動作成されたInitial Requestも一覧に含まれる。
-  const [initial] = await services.listResearchRequestsUseCase.execute(project.id, { originIntentId: intent.id });
+  const initial = await requestIntentResearch(services, project.id, intent.id);
   const open = await createRequest(services, project.id, intent.id, { requestKey: "open" });
   const closed = await createRequest(services, project.id, intent.id, { requestKey: "closed" });
   await callTool(app, "complete_research_request", { projectId: project.id, requestId: closed.id, conclusion: "not_needed", stopReason: "Known" }, "researcher-a");

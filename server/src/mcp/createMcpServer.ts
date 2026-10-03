@@ -884,6 +884,25 @@ export const createMcpServer = (
   );
 
   server.registerTool(
+    "get_orchestration_state",
+    {
+      title: "Get Orchestration State",
+      description:
+        "For an external Orchestrator: read the Project's current state used to decide which specialist Role to start. " +
+        "It returns the Project status, the active Intent (id and status only), the active Intent's Outcomes with the current Work " +
+        "result (Story / Task counts; null before any correlated Story), the Execution summary already reflected into the Outcome and the " +
+        "latest Evaluation with the Direction Decision based on it (decisionId null while undecided), the active Intent's Research Requests " +
+        "and the Project's open (requested / running) Research Requests. No content (Mission, Intent text, Research findings) is included: " +
+        "the started Role reads it through its own Role Context. Reading does not change state and does not depend on Activity or " +
+        "Runtime event cursors. Requires a Runtime Credential (Authorization: Bearer cmp_runtime...) of the Project with the " +
+        "runtime:state:read scope; in trusted-local mode Bearer <RuntimeName> with a runtime Grant is also accepted " +
+        "(UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: { projectId: z.string().min(1) },
+    },
+    ({ projectId }) => execute(() => services.getOrchestrationStateUseCase.execute(caller, projectId)),
+  );
+
+  server.registerTool(
     "get_evaluator_context",
     {
       title: "Get Evaluator Context",
