@@ -99,13 +99,14 @@ export class SQLiteProjectGrantRepository implements ProjectGrantRepository {
     return row !== undefined;
   }
 
-  async listProjectIds(principalId: string): Promise<string[]> {
-    const rows = await this.database
+  async listProjectIds(principalId: string, role?: ProjectRole): Promise<string[]> {
+    let query = this.database
       .selectFrom("project_grant")
       .select("project_id")
       .distinct()
-      .where("principal_id", "=", principalId)
-      .execute();
+      .where("principal_id", "=", principalId);
+    if (role !== undefined) query = query.where("role", "=", role);
+    const rows = await query.execute();
     return rows.map((row) => row.project_id);
   }
 

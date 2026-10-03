@@ -1,12 +1,14 @@
 import {
   looksLikeCredentialToken,
   principalIdSchema,
+  projectRoles,
+  type ProjectRole,
   type AgentCredentialCaller,
   type Caller,
   type Principal,
   type RuntimeCredentialCaller,
 } from "@compass/access";
-import { UnauthenticatedError } from "@compass/shared";
+import { UnauthenticatedError, ValidationError } from "@compass/shared";
 import type { AuthMode } from "./humanAuthConfig.ts";
 
 export class MalformedAuthorizationError extends Error {
@@ -51,4 +53,23 @@ export const resolveCaller = async (
     throw new UnauthenticatedError("remote mode requires an Agent or Runtime Credential issued by Compass");
   }
   return resolvePrincipal(authorization);
+};
+
+/** 操作Contextに固定するRoleを渡すrequest header（MCP・Runtime向けAPI）。 */
+export const ACTIVE_ROLE_HEADER = "X-Compass-Active-Role";
+
+/**
+ * `X-Compass-Active-Role`を解決する。無ければnull（互換: 操作ごとに必要Roleを検査）。
+ * 既存のRole名以外は、Roleなしへ黙って降格せずVALIDATION_ERRORにする。Grantの有無はProjectごとに認可serviceが検査する。
+ */
+export const resolveActiveRole = (header: string | null): ProjectRole | null => {
+  if (header === null) return null;
+  const value = header.trim();
+  const role = projectRoles.find((candidate) => candidate === value);
+  if (role === undefined) {
+    throw new ValidationError(`${ACTIVE_ROLE_HEADER} is invalid`, [
+      { path: ACTIVE_ROLE_HEADER, message: `must be one of ${projectRoles.join(", ")}` },
+    ]);
+  }
+  return role;
 };

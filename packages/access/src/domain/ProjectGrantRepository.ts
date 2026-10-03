@@ -23,8 +23,8 @@ export interface ProjectGrantRepository {
   hasRole(projectId: string, principalId: string, role: ProjectRole): Promise<boolean>;
   /** いずれかのRole Grantを持つか。 */
   hasAnyRole(projectId: string, principalId: string): Promise<boolean>;
-  /** いずれかのRole Grantを持つProjectのID。 */
-  listProjectIds(principalId: string): Promise<string[]>;
+  /** いずれかのRole Grant（`role`の指定時はそのRoleのGrant）を持つProjectのID。 */
+  listProjectIds(principalId: string, role?: ProjectRole): Promise<string[]>;
   /** roleとprincipalIdの昇順。 */
   listByProject(projectId: string): Promise<ProjectGrant[]>;
 }

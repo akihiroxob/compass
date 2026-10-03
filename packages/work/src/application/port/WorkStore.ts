@@ -91,6 +91,8 @@ export type CommandReceiptRecord = {
   input_json: string;
   result_json: string;
   created_at: number;
+  /** 実行時のactiveRole。header導入前の行と、headerなしの互換呼出しはnull。 */
+  active_role: string | null;
 };
 
 /** Outcomeに相関付いたStory・Taskの変更へ付ける相関。 */

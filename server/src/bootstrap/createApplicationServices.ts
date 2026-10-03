@@ -101,6 +101,7 @@ import {
   StartOidcLoginUseCase,
   type HumanIdentityProvider,
   type HumanProjectOperation,
+  type ProjectRole,
 } from "@compass/access";
 import type { Kysely } from "kysely";
 import { asAccessDatabase, asDirectionDatabase, asWorkDatabase } from "./database/contextDatabase.ts";
@@ -139,8 +140,6 @@ export const createApplicationServices = (
   const accessProjects = accessProjectReaders(accessDatabase);
   const projectGrantRepository = new SQLiteProjectGrantRepository(accessDatabase, accessProjectReaders, clock);
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
-  // Runtime向けの入口はRuntime Credentialのscopeで認可する（trusted-localのAgent名だけ暫定のruntime Grant）。
-  const runtimeAuthorizationService = new RuntimeAuthorizationService(projectAuthorizationService);
   const accessCredentialRepository = new SQLiteAccessCredentialRepository(accessDatabase, accessProjectReaders);
   // Execution（旧Wachaから移植）。同じDB・同じプロセスの中で動き、Directionの参照は読取専用ポートだけを通す。
   const workStore = new KyselyWorkStore(asWorkDatabase(applicationDatabase), workExternalReaders);
@@ -160,11 +159,75 @@ export const createApplicationServices = (
   const loginAttemptRepository = new SQLiteLoginAttemptRepository(accessDatabase);
   const registerOrLoginHumanUseCase = new RegisterOrLoginHumanUseCase(humanAccountRepository, humanAuth.initialOwnerEmail);
   const identityProvider = humanAuth.identityProvider ?? null;
+  /**
+   * Agent Role Grant・Runtime Credentialで認可するservice。`X-Compass-Active-Role`の指定時は、認可をそのRoleのGrantだけに
+   * 固定した組をrequestごとに作る（`forActiveRole`）。Human向けWeb APIはMembershipで認可するため含めない。
+   */
+  const roleAuthorizedServices = (
+    projectAuthorization: ProjectAuthorizationService,
+    coordination: TaskCoordinationService,
+  ) => {
+    // Runtime向けの入口はRuntime Credentialのscopeで認可する（trusted-localのAgent名だけ暫定のruntime Grant）。
+    const runtimeAuthorization = new RuntimeAuthorizationService(projectAuthorization);
+    return {
+      projectAuthorizationService: projectAuthorization,
+      runtimeAuthorizationService: runtimeAuthorization,
+      taskCoordinationService: coordination,
+      fetchRuntimeEventsUseCase: new FetchRuntimeEventsUseCase(
+        runtimeAuthorization,
+        projectRepository,
+        runtimeEventRepository,
+      ),
+      ackRuntimeEventUseCase: new AckRuntimeEventUseCase(
+        runtimeAuthorization,
+        projectRepository,
+        runtimeEventRepository,
+        clock,
+      ),
+      recordExecutionEvidenceUseCase: new RecordExecutionEvidenceUseCase(
+        runtimeAuthorization,
+        projectRepository,
+        outcomeRepository,
+        executionSummaryService,
+        outcomeExecutionRepository,
+        clock,
+      ),
+      getEvaluatorContextUseCase: new GetEvaluatorContextUseCase(
+        projectAuthorization,
+        projectRepository,
+        intentRepository,
+        outcomeRepository,
+        outcomeExecutionRepository,
+        outcomeEvaluationRepository,
+      ),
+      recordOutcomeEvaluationUseCase: new RecordOutcomeEvaluationUseCase(
+        projectAuthorization,
+        projectRepository,
+        outcomeRepository,
+        outcomeExecutionRepository,
+        outcomeEvaluationRepository,
+        clock,
+      ),
+      getResearcherContextUseCase: new GetResearcherContextUseCase(
+        projectAuthorization,
+        projectRepository,
+        intentRepository,
+        researchRepository,
+      ),
+      getStrategistContextUseCase: new GetStrategistContextUseCase(
+        projectAuthorization,
+        projectRepository,
+        intentRepository,
+        outcomeRepository,
+        researchRepository,
+        directionDecisionRepository,
+        outcomeEvaluationRepository,
+      ),
+    };
+  };
   const services = {
     instructionService,
-    projectAuthorizationService,
-    runtimeAuthorizationService,
-    taskCoordinationService,
+    ...roleAuthorizedServices(projectAuthorizationService, taskCoordinationService),
     createProjectUseCase: new CreateProjectUseCase(projectRepository),
     updateProjectUseCase: new UpdateProjectUseCase(projectRepository),
     archiveProjectUseCase: new ArchiveProjectUseCase(projectRepository),
@@ -188,25 +251,6 @@ export const createApplicationServices = (
     completeResearchRequestUseCase: new CompleteResearchRequestUseCase(projectRepository, researchRepository),
     cancelResearchRequestUseCase: new CancelResearchRequestUseCase(projectRepository, researchRepository),
     listRuntimeEventsUseCase: new ListRuntimeEventsUseCase(projectRepository, runtimeEventRepository),
-    fetchRuntimeEventsUseCase: new FetchRuntimeEventsUseCase(
-      runtimeAuthorizationService,
-      projectRepository,
-      runtimeEventRepository,
-    ),
-    ackRuntimeEventUseCase: new AckRuntimeEventUseCase(
-      runtimeAuthorizationService,
-      projectRepository,
-      runtimeEventRepository,
-      clock,
-    ),
-    recordExecutionEvidenceUseCase: new RecordExecutionEvidenceUseCase(
-      runtimeAuthorizationService,
-      projectRepository,
-      outcomeRepository,
-      executionSummaryService,
-      outcomeExecutionRepository,
-      clock,
-    ),
     getExecutionSummaryUseCase: new GetExecutionSummaryUseCase(
       projectRepository,
       outcomeRepository,
@@ -220,22 +264,6 @@ export const createApplicationServices = (
     listExecutionUseCase: new ListExecutionUseCase(taskCoordinationService),
     getExecutionTaskUseCase: new GetExecutionTaskUseCase(taskCoordinationService),
     listRecentExecutionChangesUseCase: new ListRecentExecutionChangesUseCase(taskCoordinationService),
-    getEvaluatorContextUseCase: new GetEvaluatorContextUseCase(
-      projectAuthorizationService,
-      projectRepository,
-      intentRepository,
-      outcomeRepository,
-      outcomeExecutionRepository,
-      outcomeEvaluationRepository,
-    ),
-    recordOutcomeEvaluationUseCase: new RecordOutcomeEvaluationUseCase(
-      projectAuthorizationService,
-      projectRepository,
-      outcomeRepository,
-      outcomeExecutionRepository,
-      outcomeEvaluationRepository,
-      clock,
-    ),
     grantProjectRoleUseCase: new GrantProjectRoleUseCase(accessProjects, projectGrantRepository),
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(accessProjects, projectGrantRepository),
     listProjectGrantsUseCase: new ListProjectGrantsUseCase(accessProjects, projectGrantRepository),
@@ -286,21 +314,6 @@ export const createApplicationServices = (
     revokeProjectInvitationUseCase: new RevokeProjectInvitationUseCase(
       humanProjectAuthorizationService,
       projectMembershipRepository,
-    ),
-    getResearcherContextUseCase: new GetResearcherContextUseCase(
-      projectAuthorizationService,
-      projectRepository,
-      intentRepository,
-      researchRepository,
-    ),
-    getStrategistContextUseCase: new GetStrategistContextUseCase(
-      projectAuthorizationService,
-      projectRepository,
-      intentRepository,
-      outcomeRepository,
-      researchRepository,
-      directionDecisionRepository,
-      outcomeEvaluationRepository,
     ),
     createDirectionDecisionUseCase: new CreateDirectionDecisionUseCase(
       projectRepository,
@@ -370,7 +383,18 @@ export const createApplicationServices = (
     createExecutionTask: operator("execution.plan", new CreateExecutionTaskUseCase(taskCoordinationService)),
     editExecutionTask: operator("execution.plan", new EditExecutionTaskUseCase(taskCoordinationService)),
   };
-  return { ...services, human };
+  /** 操作Contextを1つのactiveRoleに固定したservice（MCP・Runtime向けAPIのrequestごと）。Human向けの入口は変えない。 */
+  const forActiveRole = (activeRole: ProjectRole) => ({
+    ...services,
+    human,
+    ...roleAuthorizedServices(
+      projectAuthorizationService.forActiveRole(activeRole),
+      taskCoordinationService.forActiveRole(activeRole),
+    ),
+  });
+  return { ...services, human, forActiveRole };
 };
 
 export type ApplicationServices = ReturnType<typeof createApplicationServices>;
+/** 1 requestの操作Contextで使うservice。activeRoleの指定時は`forActiveRole`の結果、未指定時はApplicationServicesそのもの。 */
+export type OperationServices = Omit<ApplicationServices, "forActiveRole">;

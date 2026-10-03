@@ -132,11 +132,27 @@ export class TaskCoordinationService {
     private readonly directionReferences: DirectionReferenceLookupPort,
     private readonly clock: Clock = () => Date.now(),
     claimTtlMs = Number(process.env.COMPASS_CLAIM_TTL_MS ?? 30 * 60 * 1000),
+    /**
+     * 操作Contextに固定したRole（`X-Compass-Active-Role`）。nullは互換の「操作ごとに必要Roleを検査」。
+     * 指定時はそのRoleのGrantだけで認可し、同じPrincipalの他Grantを合算しない。
+     */
+    private readonly activeRole: string | null = null,
   ) {
     if (!Number.isFinite(claimTtlMs) || claimTtlMs <= 0) {
       throw new RangeError("COMPASS_CLAIM_TTL_MS must be a positive number");
     }
     this.claimTtlMs = claimTtlMs;
+  }
+
+  /** 同じstore・時刻源で、認可をactiveRoleのGrantだけに固定したserviceを返す。 */
+  forActiveRole(activeRole: string): TaskCoordinationService {
+    return new TaskCoordinationService(this.store, this.directionReferences, this.clock, this.claimTtlMs, activeRole);
+  }
+
+  /** 認可に使うRole。activeRoleがあれば、それを持つ場合だけそのRoleに絞る。 */
+  private async grantedRoles(store: WorkStore, projectId: string, principalId: string): Promise<string[]> {
+    const roles = await store.grants.listRoles(projectId, principalId);
+    return this.activeRole === null ? roles : roles.filter((role) => role === this.activeRole);
   }
 
   private requiredText(value: string, field: string): string {
@@ -153,7 +169,7 @@ export class TaskCoordinationService {
     principalId: string,
     role: WorkRole,
   ): Promise<void> {
-    if (!(await store.grants.listRoles(projectId, principalId)).includes(role)) {
+    if (!(await this.grantedRoles(store, projectId, principalId)).includes(role)) {
       throw new CoordinationError(
         "FORBIDDEN",
         `Principal ${principalId} does not have ${role} role for project ${projectId}`,
@@ -167,7 +183,7 @@ export class TaskCoordinationService {
     principalId: string,
     roles: WorkRole[],
   ): Promise<WorkRole> {
-    const granted = await store.grants.listRoles(projectId, principalId);
+    const granted = await this.grantedRoles(store, projectId, principalId);
     const role = roles.find((candidate) => granted.includes(candidate));
     if (!role) {
       throw new CoordinationError(
@@ -183,7 +199,7 @@ export class TaskCoordinationService {
     projectId: string,
     principalId: string,
   ): Promise<void> {
-    if ((await store.grants.listRoles(projectId, principalId)).length === 0) {
+    if ((await this.grantedRoles(store, projectId, principalId)).length === 0) {
       throw new CoordinationError(
         "FORBIDDEN",
         `Principal ${principalId} has no role for project ${projectId}`,
@@ -329,6 +345,13 @@ export class TaskCoordinationService {
     const inputJson = JSON.stringify(canonicalize(input));
     const existing = await store.findReceipt(principalId, toolName, requestId);
     if (existing) {
+      // 別のactiveRoleでの再送に既存結果を返すと、Roleの制約を回避できる。互換の既存行（NULL）とheaderありも別扱い。
+      if ((existing.active_role ?? null) !== this.activeRole) {
+        throw new CoordinationError(
+          "IDEMPOTENCY_CONFLICT",
+          `requestId ${requestId} was already used with a different activeRole`,
+        );
+      }
       if (existing.input_json !== inputJson) {
         throw new CoordinationError(
           "IDEMPOTENCY_CONFLICT",
@@ -346,6 +369,7 @@ export class TaskCoordinationService {
       input_json: inputJson,
       result_json: JSON.stringify(result),
       created_at: this.clock(),
+      active_role: this.activeRole,
     });
     return result;
   }
@@ -447,7 +471,7 @@ export class TaskCoordinationService {
       this.store.listTasks(projectId),
       this.store.listStories(projectId),
       this.store.listActiveClaims(projectId),
-      principalId === null ? Promise.resolve([]) : this.store.grants.listRoles(projectId, principalId),
+      principalId === null ? Promise.resolve([]) : this.grantedRoles(this.store, projectId, principalId),
       this.store.listCompletions(projectId),
     ]);
     const storyOrders = new Map(stories.map((story) => [story.id, story.sort_order]));

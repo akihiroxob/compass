@@ -10,6 +10,8 @@ export class ForbiddenError extends Error {
       requiredRole?: string;
       /** Runtime Credentialのscope不足・種別違い・別Project（Task 37）。 */
       requiredScope?: string;
+      /** 操作Contextに固定したRole（`X-Compass-Active-Role`）。そのRoleでは許されない・Grantが無い場合に返す。 */
+      activeRole?: string;
     },
   ) {
     super(message);

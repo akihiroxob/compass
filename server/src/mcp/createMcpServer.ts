@@ -3,7 +3,7 @@ import { z } from "zod";
 import { directionDecisionRecordTypes } from "@compass/direction";
 import { agentPrincipalOf, ProjectRole, projectRoles, type Caller } from "@compass/access";
 import type { AuthMode } from "../auth/humanAuthConfig.ts";
-import type { ApplicationServices } from "../bootstrap/container.ts";
+import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
 import { registerExecutionTools } from "./registerExecutionTools.ts";
 import { execute } from "./toolExecution.ts";
 
@@ -205,7 +205,7 @@ const outcomeEvaluationSchema = {
  * Agent向けtoolはRole Grantで（Runtime Credentialは種別違いのためPrincipalなし）、Runtime向けtoolはscopeで認可する。
  */
 export const createMcpServer = (
-  services: ApplicationServices,
+  services: OperationServices,
   caller: Caller = null,
   /** 認証mode。remoteではHuman管理・入力toolを登録せず、匿名にはRole文書だけを見せる。 */
   options: { mode?: AuthMode } = {},

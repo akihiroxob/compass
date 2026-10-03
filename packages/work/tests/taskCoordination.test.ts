@@ -334,6 +334,81 @@ test("self-review and self-acceptance compare Principal IDs", async () => {
   );
 });
 
+test("activeRole limits authorization to that Grant and does not combine other Grants", async () => {
+  const { project, task } = await createProjectTask();
+  await grant(project.id, "multi-role", WorkRole.WORKER);
+  await grant(project.id, "multi-role", WorkRole.MANAGER);
+  const asManager = service.forActiveRole(WorkRole.MANAGER);
+  const asWorker = service.forActiveRole(WorkRole.WORKER);
+
+  // managerに固定した操作Contextでは、同じPrincipalのworker Grantで候補・Claimを得られない。
+  assert.deepEqual((await asManager.listTasks("multi-role", project.id, { availableFor: "work" })).tasks, []);
+  await assert.rejects(() => asManager.claimTask("multi-role", task.id, "claim-as-manager"), hasCode("FORBIDDEN"));
+  // Grantの無いRoleを指定した操作Contextでは、参照も拒否する。
+  await assert.rejects(
+    () => service.forActiveRole(WorkRole.REVIEWER).listTasks("multi-role", project.id),
+    hasCode("FORBIDDEN"),
+  );
+
+  const claim = await asWorker.claimTask("multi-role", task.id, "claim-as-worker");
+  await asWorker.addTaskComment("multi-role", task.id, claim.claimId, "verified", "comment");
+  await asWorker.completeTask("multi-role", task.id, claim.claimId, "complete");
+  const changes = await asManager.listChanges("multi-role", project.id);
+  assert.deepEqual(
+    changes.changes.map((change) => change.payload.actorRole),
+    ["worker", "worker"],
+  );
+  // Roleを切り替えても、自己受入の禁止は回避できない。
+  await assert.rejects(
+    () => asManager.claimAcceptance("multi-role", task.id, "acceptance"),
+    hasCode("SELF_ACCEPTANCE_NOT_ALLOWED"),
+  );
+});
+
+test("requestId resent with a different activeRole is a conflict, not the earlier result", async () => {
+  const { project, task } = await createProjectTask();
+  await grant(project.id, "worker-a", WorkRole.WORKER);
+
+  const first = await service.forActiveRole(WorkRole.WORKER).claimTask("worker-a", task.id, "claim");
+  assert.deepEqual(await service.forActiveRole(WorkRole.WORKER).claimTask("worker-a", task.id, "claim"), first);
+  // headerなし（NULL）とheaderありは別のactiveRoleとして扱う。
+  await assert.rejects(() => service.claimTask("worker-a", task.id, "claim"), hasCode("IDEMPOTENCY_CONFLICT"));
+  const receipt = await database
+    .selectFrom("command_receipt")
+    .select("active_role")
+    .where("request_id", "=", "claim")
+    .executeTakeFirstOrThrow();
+  assert.equal(receipt.active_role, WorkRole.WORKER);
+
+  const legacy = await insertTask(project.id, "Task B");
+  await service.claimTask("worker-a", legacy.id, "legacy-claim");
+  await assert.rejects(
+    () => service.forActiveRole(WorkRole.WORKER).claimTask("worker-a", legacy.id, "legacy-claim"),
+    hasCode("IDEMPOTENCY_CONFLICT"),
+  );
+});
+
+test("command_receipt without active_role keeps existing rows as NULL", async () => {
+  await database.schema.dropTable("command_receipt").execute();
+  await database.schema
+    .createTable("command_receipt")
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("tool_name", "text", (column) => column.notNull())
+    .addColumn("request_id", "text", (column) => column.notNull())
+    .addColumn("input_json", "text", (column) => column.notNull())
+    .addColumn("result_json", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("command_receipt_pk", ["principal_id", "tool_name", "request_id"])
+    .execute();
+  await sql`insert into command_receipt values ('worker-a', 'claim_task', 'old', '{}', '{}', 1)`.execute(database);
+
+  await initializeWorkSchema(database);
+  await initializeWorkSchema(database);
+
+  const rows = await database.selectFrom("command_receipt").select(["request_id", "active_role"]).execute();
+  assert.deepEqual(rows, [{ request_id: "old", active_role: null }]);
+});
+
 test("Manager direct review moves in_review to wait_accept when acceptance is claimed", async () => {
   const { project, task } = await createProjectTask();
   await grant(project.id, "worker-a", WorkRole.WORKER);

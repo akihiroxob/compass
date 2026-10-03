@@ -5,7 +5,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { fileURLToPath } from "node:url";
 import { createMcpServer } from "../mcp/createMcpServer.ts";
-import { MalformedAuthorizationError, resolveCaller } from "../auth/resolvePrincipal.ts";
+import { ACTIVE_ROLE_HEADER, MalformedAuthorizationError, resolveActiveRole, resolveCaller } from "../auth/resolvePrincipal.ts";
 import { ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError, ValidationError } from "@compass/shared";
 import { parseProjectStatusFilter } from "@compass/direction";
 import { applicationServices, type ApplicationServices } from "./container.ts";
@@ -27,7 +27,7 @@ export const createApp = (
   // OIDC callbackのcode / state等をrequest logへ残さないよう、`/auth/*`のquery文字列を伏せる。
   app.use(logger((message, ...rest) => console.log(message.replace(/(\/auth\/\S*?)\?\S*/, "$1?[redacted]"), ...rest)));
   // Bearerで呼ぶMCP・Runtime向けAPIだけにCORSを許す。Session Cookieで認証するHuman向け`/api/*`は他originから呼ばせない。
-  const bearerCors = cors({ origin: "*", allowMethods: ["GET", "POST", "OPTIONS"], allowHeaders: ["Authorization", "Content-Type"] });
+  const bearerCors = cors({ origin: "*", allowMethods: ["GET", "POST", "OPTIONS"], allowHeaders: ["Authorization", "Content-Type", ACTIVE_ROLE_HEADER] });
   for (const path of [
     "/mcp",
     "/api/projects/:projectId/runtime-events",
@@ -56,6 +56,12 @@ export const createApp = (
     resolveCaller(c.req.header("Authorization") ?? null, humanAuth.mode, (token) =>
       services.authenticateAccessCredentialUseCase.execute(token),
     );
+  // 操作ContextのactiveRole（docs/architecture-migration-mapping.md）。headerがあればそのRoleのGrantだけで認可するserviceを使う。
+  // headerなしは互換として従来のservice（操作ごとに必要Roleを検査）。Human向け`/api/*`はMembershipで認可し、headerを読まない。
+  const operationServicesOf = (c: Context) => {
+    const activeRole = resolveActiveRole(c.req.header(ACTIVE_ROLE_HEADER) ?? null);
+    return activeRole === null ? services : services.forActiveRole(activeRole);
+  };
   const { human } = services;
 
   // 作成者を同一transactionでowner Membershipにする。
@@ -239,7 +245,7 @@ export const createApp = (
     value === undefined ? undefined : value.trim() === "" ? Number.NaN : Number(value);
   app.get("/api/projects/:projectId/runtime-events", async (c) =>
     c.json(
-      await services.fetchRuntimeEventsUseCase.execute(
+      await operationServicesOf(c).fetchRuntimeEventsUseCase.execute(
         await callerOf(c),
         c.req.param("projectId"),
         { afterCursor: queryNumber(c.req.query("afterCursor")), limit: queryNumber(c.req.query("limit")) },
@@ -249,7 +255,7 @@ export const createApp = (
   app.post("/api/projects/:projectId/runtime-events/:eventId/ack", async (c) => {
     const caller = await callerOf(c);
     const input = await readJsonBody(c.req.raw, "Runtime event ack");
-    const result = await services.ackRuntimeEventUseCase.execute(caller, c.req.param("projectId"), {
+    const result = await operationServicesOf(c).ackRuntimeEventUseCase.execute(caller, c.req.param("projectId"), {
       ...(typeof input === "object" && input !== null ? input : {}),
       eventId: c.req.param("eventId"),
     });
@@ -260,7 +266,7 @@ export const createApp = (
     const caller = await callerOf(c);
     const input = await readJsonBody(c.req.raw, "Execution evidence");
     return c.json(
-      await services.recordExecutionEvidenceUseCase.execute(
+      await operationServicesOf(c).recordExecutionEvidenceUseCase.execute(
         caller,
         c.req.param("projectId"),
         c.req.param("outcomeId"),
@@ -446,10 +452,18 @@ export const createApp = (
       if (!(error instanceof MalformedAuthorizationError || error instanceof UnauthenticatedError)) throw error;
       return c.json({ jsonrpc: "2.0", error: { code: -32001, message: error.message }, id: null }, 401);
     }
+    // activeRoleもこのrequestのヘッダーだけから解決する。不正な値はRoleなしへ降格せず400にする。
+    let operationServices;
+    try {
+      operationServices = operationServicesOf(c);
+    } catch (error) {
+      if (!(error instanceof ValidationError)) throw error;
+      return c.json({ jsonrpc: "2.0", error: { code: -32602, message: error.message }, id: null }, 400);
+    }
     const transport = new WebStandardStreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
     });
-    const server = createMcpServer(services, caller, { mode: humanAuth.mode });
+    const server = createMcpServer(operationServices, caller, { mode: humanAuth.mode });
     await server.connect(transport);
     return transport.handleRequest(c.req.raw);
   });

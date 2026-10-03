@@ -17,7 +17,7 @@
 
 Research Request / Result / Finding / SynthesisとDirection Decision・Evaluationは現在DBに保存する。Intent作成はInitial Research Requestを自動生成する。保存先は内容と所有責務で個別に判断し、Project別であることや本文が長いことを理由に一律移行しない。Strategistを最初に起動するフローへの変更は未実施。
 
-現在のExecution Role名は`manager` / `worker` / `reviewer`で、統合後も維持する。操作Contextの明示的な`activeRole`、`get_role_context` / `get_skill_context`は未実装。`get_role_instructions`は現在利用できる。
+現在のExecution Role名は`manager` / `worker` / `reviewer`で、統合後も維持する。`get_role_context` / `get_skill_context`は未実装。`get_role_instructions`は現在利用できる。
 
 ## Executionの現行契約
 
@@ -32,6 +32,8 @@ DirectionとWorkは公開index（`@compass/direction`・`@compass/work`）とapp
 ## Accessの現行契約
 
 `packages/access`がAgentのRole Grant・Credential、HumanのMembership・招待・Session・ログイン試行を所有し、認可（`ProjectAuthorizationService`・`RuntimeAuthorizationService`・`HumanProjectAuthorizationService`）を提供する。Human Membership・Agent Grant・Runtime Credentialのscopeは別のモデル・tableで扱う。Claimの所有・期限・状態遷移・自己レビュー / 自己受入の禁止はWorkが強制し、Accessへ移さない。transport（OIDC adapter・Session Cookie・`Authorization`の解決）はserverの`server/src/auth`にある。
+
+操作Contextの`activeRole`は、MCP・Runtime向けAPIのrequest header `X-Compass-Active-Role`で受け付ける（serverの`resolveActiveRole`）。headerがあれば、serverはrequestごとに`forActiveRole`で認可をそのRoleに固定したservice（Accessの`ProjectAuthorizationService`・Workの`TaskCoordinationService`と、それらで認可するDirection・Runtimeのuse case）を使い、`principalId + projectId + activeRole`のGrantだけで認可する。他Roleのtool・Grantの無いactiveRoleは`FORBIDDEN`（`activeRole`を応答に含む）、未知の値は400。職務分離（Strategist等のGrantを持つPrincipalへの管理操作の拒否）は緩めない。headerなしは互換として操作ごとに必要Roleを検査し、拒否はRalph移行後に別途判断する。Runtime Credentialはheaderに関係なくscopeで認可する。`command_receipt.active_role`（nullable。既存行はNULL）に実行時のactiveRoleを保存し、同じ`principal_id + tool_name + request_id`を別のactiveRole（headerなしを含む）で再送すると`IDEMPOTENCY_CONFLICT`にする。自己レビュー・自己受入の禁止はPrincipal単位でWorkが強制し、Role切替では回避できない。Human向けWeb APIはMembershipで認可し、headerを読まない。
 
 Accessは`project`のtableを直接読まない。archive判定・Projectの存在・owner不在Projectの補完に使うProject一覧は`ProjectStateReader` portで読み、Membership・Grant・Credentialの書込と同じtransactionで検査する。Project作成時の初期owner Membershipは、DirectionのProject作成のtransactionの中でAccessの`writeProjectOwnerMembership`が書く。いずれもserverが`contextAdapters.ts`で配線する。AccessがDirectionから使うのは公開indexのuse case（`GetProjectUseCase`・`ListProjectsUseCase`）・型・`ProjectArchivedError`だけで、DirectionはAccessに依存しない。
 

@@ -12,6 +12,16 @@ const addTaskKeyColumn = async (database: Kysely<WorkDatabase>): Promise<void> =
 };
 
 /**
+ * activeRole導入（Task 05）以前の`command_receipt`には`active_role`列が無い。列が無い場合だけ追加する（idempotent）。
+ * 既存行はNULLのまま保持し、headerなしの再送とだけ一致させる。
+ */
+const addReceiptActiveRoleColumn = async (database: Kysely<WorkDatabase>): Promise<void> => {
+  const columns = await sql<{ name: string }>`select name from pragma_table_info('command_receipt')`.execute(database);
+  if (columns.rows.some(({ name }) => name === "active_role")) return;
+  await sql`alter table command_receipt add column active_role text`.execute(database);
+};
+
+/**
  * Execution（旧Wachaから移植したStory / Task / Claim / Comment / Change Log / Command Receipt）。
  * すべて`create ... if not exists`で、Direction側のtableには触れない。Directionへの参照（`story.outcome_ref`等）は
  * 境界をまたぐためFKを付けず、作成時のsnapshotで保持する。`project_id`は統合した既存`project.id`を使う。
@@ -159,4 +169,5 @@ export const initializeWorkSchema = async (database: Kysely<WorkDatabase>): Prom
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addPrimaryKeyConstraint("command_receipt_pk", ["principal_id", "tool_name", "request_id"])
     .execute();
+  await addReceiptActiveRoleColumn(database);
 };
