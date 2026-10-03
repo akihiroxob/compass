@@ -214,9 +214,11 @@ export const createMcpServer = (
   const principal = agentPrincipalOf(caller);
   const authorization = services.projectAuthorizationService;
   const runtimeAuthorization = services.runtimeAuthorizationService;
-  // Direction参照tool。remote modeでは対象Projectのいずれかのgrantを要求し、Grantの無いProjectを読ませない。
+  // Direction参照・一覧はremote modeまたはactiveRole指定時にGrantを要求する（activeRole指定時はそのRoleのGrantだけ）。
+  // trusted-localのheaderなしは互換のためGrantを問わない。
+  const requiresGrant = remote || authorization.hasActiveRole;
   const asGrantedReader = async <T>(projectId: string, operation: () => Promise<T>) => {
-    if (remote) await authorization.requireAnyRole(principal, projectId);
+    if (requiresGrant) await authorization.requireAnyRole(principal, projectId);
     return operation();
   };
   // 検査の規則はapplication serviceが持つ。handlerはPrincipalとprojectIdを渡すだけ。
@@ -284,13 +286,14 @@ export const createMcpServer = (
     {
       title: "List Projects",
       description:
-        "List Compass Projects. In remote mode only the Projects where the calling Agent Credential's Principal has a Role Grant are listed.",
+        "List Compass Projects. In remote mode only the Projects where the calling Agent Credential's Principal has a Role Grant are listed; " +
+        "with X-Compass-Active-Role only the Projects where the Principal has a Grant of that Role are listed.",
       inputSchema: {},
     },
     () =>
       execute(async () => {
         const projects = await services.listProjectsUseCase.execute();
-        if (!remote) return { projects };
+        if (!requiresGrant) return { projects };
         const granted = new Set(await authorization.listGrantedProjectIds(principal));
         return { projects: projects.filter((project) => granted.has(project.id)) };
       }),

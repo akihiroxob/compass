@@ -209,6 +209,36 @@ test("Grant済みProjectの一覧はactiveRoleのGrantがあるProjectだけに�
   await database.destroy();
 });
 
+test("trusted-localでもactiveRole指定時はDirection参照・一覧にそのRoleのProject Grantを要求する", async () => {
+  const { database, app } = await setup();
+  const workerProject = await createProject(app, "Worker");
+  const managerProject = await createProject(app, "Manager");
+  await grant(app, workerProject, "multi", "worker");
+  await grant(app, managerProject, "multi", "manager");
+
+  // Grantを全く持たないPrincipalは、activeRole付きではProject本文もDirection参照も得られない。
+  for (const [name, args] of [
+    ["get_project", { projectId: workerProject }],
+    ["list_intents", { projectId: workerProject }],
+  ] as const) {
+    const denied = await callTool(app, name, args, "ungranted", "worker");
+    assert.equal(errorCode(denied), "FORBIDDEN");
+    assert.equal(denied.structuredContent.error.activeRole, "worker");
+  }
+  assert.deepEqual((await callTool(app, "list_projects", {}, "ungranted", "worker")).structuredContent.projects, []);
+
+  // 他RoleのGrantは合算しない。activeRoleのGrantがあるProjectだけを読める。
+  assert.equal(errorCode(await callTool(app, "get_project", { projectId: managerProject }, "multi", "worker")), "FORBIDDEN");
+  assert.equal((await callTool(app, "get_project", { projectId: workerProject }, "multi", "worker")).isError, undefined);
+  const listed = await callTool(app, "list_projects", {}, "multi", "worker");
+  assert.deepEqual(listed.structuredContent.projects.map((project: { id: string }) => project.id), [workerProject]);
+
+  // headerなしは従来どおり（trusted-localではGrantなしでも参照・全件一覧できる）。
+  assert.equal((await callTool(app, "get_project", { projectId: workerProject }, "ungranted")).isError, undefined);
+  assert.equal((await callTool(app, "list_projects", {}, "ungranted")).structuredContent.projects.length, 2);
+  await database.destroy();
+});
+
 test("Runtime向けAPIもactiveRoleを受け付け、trusted-localのAgent名はactiveRoleのGrantだけで認可する", async () => {
   const { database, app } = await setup();
   const projectId = await createProject(app);

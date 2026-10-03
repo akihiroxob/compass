@@ -24,6 +24,11 @@ export class ProjectAuthorizationService {
     return new ProjectAuthorizationService(this.projectGrantRepository, activeRole);
   }
 
+  /** 操作ContextがactiveRoleに固定されているか。固定時はtrusted-localでもProject参照にGrantを要求する。 */
+  get hasActiveRole(): boolean {
+    return this.activeRole !== null;
+  }
+
   /** activeRoleのGrantを要求する。activeRoleが無ければ何もしない。 */
   private async requireActiveRoleGrant(principal: string, projectId: string): Promise<void> {
     if (this.activeRole === null) return;
