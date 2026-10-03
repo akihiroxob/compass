@@ -12,7 +12,7 @@ const projectId = env.COMPASS_PROJECT_ID!;
 const subjectId = env.COMPASS_SUBJECT_ID!;
 appendFileSync(
   env.FAKE_AGENT_LOG!,
-  `${JSON.stringify({ role, subject: `${env.COMPASS_SUBJECT_KIND}:${subjectId}`, key: env.COMPASS_DISPATCH_KEY, attempt: Number(env.COMPASS_DISPATCH_ATTEMPT), pid: process.pid, prompt: env.COMPASS_PROMPT })}\n`,
+  `${JSON.stringify({ role, subject: `${env.COMPASS_SUBJECT_KIND}:${subjectId}`, key: env.COMPASS_DISPATCH_KEY, attempt: Number(env.COMPASS_DISPATCH_ATTEMPT), pid: process.pid, prompt: env.COMPASS_PROMPT, credentialVisible: Object.hasOwn(env, "ORCHESTRATOR_TOKEN") })}\n`,
 );
 if (env.FAKE_AGENT_SLEEP_MS) await new Promise((resolve) => setTimeout(resolve, Number(env.FAKE_AGENT_SLEEP_MS)));
 if (env.FAKE_AGENT_EXIT) process.exit(Number(env.FAKE_AGENT_EXIT));

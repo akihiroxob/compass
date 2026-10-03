@@ -16,6 +16,7 @@ export type DispatchPolicy = {
   leaseMs: number;
   maxAttempts: number;
   retryBackoffMs: number;
+  terminateGraceMs: number;
 };
 
 type StoreFile = { version: 1; records: Record<string, DispatchRecord> };
@@ -30,14 +31,36 @@ export const isProcessAlive = (pid: number): boolean => {
   }
 };
 
+/** Agent は process group の leader として起動する（Windows を除く）。 */
+export const agentProcessGroup = process.platform !== "win32";
+
+/**
+ * 起動した Agent がまだ動いているか。shell 経由の孫プロセスも含めるため process group の生存を見る。
+ * 権限不足（EPERM）は存在するとみなす。
+ */
+export const isAgentAlive = (pid: number): boolean => {
+  if (!agentProcessGroup) return isProcessAlive(pid);
+  try {
+    process.kill(-pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+};
+
+const defaultAlive = (pid: number, kind: "owner" | "agent") => (kind === "agent" ? isAgentAlive(pid) : isProcessAlive(pid));
+
 export type LaunchDecision =
   | { launch: true; attempt: number; recovered?: string }
-  | { launch: false; reason: string; record?: DispatchRecord };
+  | { launch: false; reason: string; record?: DispatchRecord; terminate?: { pid: number; signal: NodeJS.Signals } };
 
 /**
  * 記録と現在時刻から、この key を今起動してよいかを決める純関数。
  * - 実行中（lease 内・所有プロセスが生存）は起動しない（並行・重複起動の抑止）
- * - 所有プロセスが停止した、または lease 切れの実行中は失敗した試行として扱い、再試行の規則に従う（再起動後の回収）
+ * - lease 切れで Agent が生存している実行中は起動せず、Agent の停止を求める（SIGTERM、猶予後は SIGKILL）。
+ *   Orchestrator が停止して timeout の監視が消えても、旧 Agent と同じ key を同時に動かさない
+ * - 所有プロセスが停止した、または lease 切れの実行中は、Agent の停止を確認してから失敗した試行として扱い、
+ *   再試行の規則に従う（再起動後の回収）
  * - 再試行待ちは backoff 経過後だけ、上限到達後は起動しない
  * - 成功済みは同じ状態（key）で再起動しない
  */
@@ -45,7 +68,7 @@ export const decideLaunch = (
   record: DispatchRecord | undefined,
   now: number,
   policy: DispatchPolicy,
-  alive: (pid: number) => boolean = isProcessAlive,
+  alive: (pid: number, kind: "owner" | "agent") => boolean = defaultAlive,
 ): LaunchDecision => {
   if (!record) return { launch: true, attempt: 1 };
   switch (record.status) {
@@ -57,10 +80,14 @@ export const decideLaunch = (
       if (now < record.nextAttemptAt) return { launch: false, reason: "waiting for retry backoff", record };
       return { launch: true, attempt: record.attempt + 1 };
     case "running": {
-      const ownerAlive = record.ownerPid === process.pid || alive(record.ownerPid);
-      const childAlive = record.childPid !== null && alive(record.childPid);
+      const ownerAlive = record.ownerPid === process.pid || alive(record.ownerPid, "owner");
+      const childAlive = record.childPid !== null && alive(record.childPid, "agent");
       if (now < record.leaseExpiresAt && (ownerAlive || childAlive)) {
         return { launch: false, reason: "already running", record };
+      }
+      if (childAlive) {
+        const signal = now >= record.leaseExpiresAt + policy.terminateGraceMs ? "SIGKILL" : "SIGTERM";
+        return { launch: false, reason: "lease expired; stopping the previous agent", record, terminate: { pid: record.childPid!, signal } };
       }
       const recovered = now >= record.leaseExpiresAt ? "lease expired" : "orchestrator stopped while running";
       if (record.attempt >= policy.maxAttempts) {

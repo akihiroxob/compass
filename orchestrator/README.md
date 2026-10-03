@@ -27,7 +27,8 @@ Project 横断で Compass Server の現在状態を読み、次に起動すべ�
 - 実行中（lease 内で、Orchestrator または起動した Agent のプロセスが生存）の key は起動しない。Orchestrator を再起動しても、動き続けている Agent を重複起動しない
 - 成功（exit 0）した key は同じ状態で再起動しない。Agent が状態を変えずに終えた場合も同じ
 - 失敗（exit 0 以外・timeout）は `retryBackoffMs × 2^(試行回数-1)` 待って `maxAttempts` まで再試行し、上限後は同じ状態で起動しない
-- lease（`leaseMs`）を過ぎた Agent は停止させ、失敗した試行として扱う。Orchestrator と Agent がともに停止した実行中の記録は、次の起動時に失敗した試行として回収する
+- lease（`leaseMs`）を過ぎた Agent は process group ごと SIGTERM で停止させ、`terminateGraceMs` 後も残れば SIGKILL する。停止を確認してから失敗した試行として扱う
+- Orchestrator が停止（SIGKILL 等）して Agent だけが残った場合も、lease を過ぎた後の周回で旧 Agent の停止を求め（猶予後は SIGKILL）、停止を確認するまで同じ key を起動しない。Orchestrator と Agent がともに停止した実行中の記録は、次の起動時に失敗した試行として回収する
 - 状態が進んで計画から消えた key の記録は捨てる
 
 起動記録は重複抑止のためだけのもので、Compass の状態の正本ではありません。失っても現在状態から起動判断をやり直せます（その場合、実行中の Agent と重複し得ます）。`stateDir` を共有しない複数ホストでの並行実行は重複を抑止できません。Agent の Role 側の冪等性（同じ Evaluation への Decision は1件、同じ Outcome の Story は1件）は Server が強制します。
@@ -45,6 +46,7 @@ Project 横断で Compass Server の現在状態を読み、次に起動すべ�
   "maxAttempts": 3,
   "retryBackoffMs": 60000,
   "maxConcurrent": 2,
+  "terminateGraceMs": 10000,
   "projects": [{ "projectId": "<projectId>", "tokenEnv": "COMPASS_ORCHESTRATOR_TOKEN" }],
   "roles": {
     "strategist": { "command": "claude -p \"$COMPASS_PROMPT\"", "env": {} },
@@ -57,9 +59,10 @@ Project 横断で Compass Server の現在状態を読み、次に起動すべ�
 
 - `projects[].tokenEnv`: Server への Bearer を読む環境変数名。remote mode では Project の Administrator が Web UI で発行した Runtime Credential（scope `runtime:state:read`）、trusted-local では `runtime` Grant を持つ名前。Credential は Project ごとに発行する。Server へは常に `X-Compass-Active-Role: runtime` を送る
 - `stateDir`: 設定 file からの相対 path。省略時は `.compass-orchestrator`
-- `roles`: Role ごとの shell コマンド。書かなかった Role の対象は起動せず、記録もしない。Agent の Credential・MCP 設定は Role ごとの Principal で Agent 側に持たせる（`env` で設定 file の path 等を渡せる）。Orchestrator の token を Agent へ渡さない
+- `terminateGraceMs`: lease 切れの Agent を SIGTERM してから SIGKILL するまでの猶予。省略時は 10 秒
+- `roles`: Role ごとの shell コマンド。書かなかった Role の対象は起動せず、記録もしない。Agent の Credential・MCP 設定は Role ごとの Principal で Agent 側に持たせる（`env` で設定 file の path 等を渡せる）。Orchestrator の token を Agent へ渡さない。Agent の環境変数からはすべての `projects[].tokenEnv` を除き、`roles.*.env` でそれらの名前を設定する構成は起動時に拒否する
 
-起動する Agent には次の環境変数を渡します。
+起動する Agent には、Orchestrator の環境変数（Credential を除く）と `env` に加えて次の環境変数を渡します。
 
 | 環境変数 | 内容 |
 | --- | --- |
@@ -92,6 +95,8 @@ npm test --workspace orchestrator
 npm run typecheck --workspace orchestrator
 ```
 
+`tests/processRecovery.test.ts` は Orchestrator と Agent を実プロセスで起動し（Server は使わず固定状態）、Orchestrator を SIGKILL した後に残った Agent が lease を過ぎたら停止され（SIGTERM を無視する Agent は猶予後に SIGKILL）、停止を確認してから次の試行が起動されること、Agent が Runtime Credential を読めないことを確認します。
+
 `tests/integration.test.ts` は Server と Orchestrator を別プロセスで起動し（trusted-local・一時 DB・一時 cwd で、親の `COMPASS_*`・`PORT` を引き継がない）、並行起動・再起動・再試行の重複抑止と、Intent → Strategist → Researcher → Strategist → Manager の起動順を確認します。起動される Agent は決定的な fixture（`tests/support/fakeAgent.ts`）で、実 Agent による自律運転の実証ではありません。
 
 ## 未接続・未検証
@@ -99,3 +104,5 @@ npm run typecheck --workspace orchestrator
 - 実 Agent（Claude Code・Codex 等）を起動した運用は未検証
 - Execution Evidence の還流（`record_execution_evidence`）は行わない。Evaluator の起動条件は還流済みの要約に依存する
 - 複数ホストでの並行実行の重複抑止はない（`stateDir` を共有する1台を前提とする）
+- 旧 Agent の生存は記録した PID の process group で判定する。Orchestrator の停止中に旧 Agent が終わり、同じ PID が別の process group leader に再利用された場合は、その group を旧 Agent とみなして停止し得る
+- Windows では process group を使わず、shell 経由で起動した孫プロセスの停止・生存確認は保証しない

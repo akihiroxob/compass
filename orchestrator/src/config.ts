@@ -20,6 +20,8 @@ const configSchema = z.object({
   maxAttempts: z.number().int().min(1).max(20).default(3),
   retryBackoffMs: z.number().int().min(0).default(60_000),
   maxConcurrent: z.number().int().min(1).max(20).default(2),
+  /** lease 切れ・timeout で Agent を停止するとき、SIGTERM から SIGKILL へ切り替えるまでの猶予。 */
+  terminateGraceMs: z.number().int().min(0).default(10_000),
   projects: z
     .array(
       z.object({
@@ -35,13 +37,14 @@ const configSchema = z.object({
 export type RoleCommand = z.infer<typeof roleCommandSchema>;
 
 export type OrchestratorConfig = Omit<z.infer<typeof configSchema>, "projects"> & {
-  projects: { projectId: string; token: string }[];
+  projects: { projectId: string; tokenEnv: string; token: string }[];
 };
 
 export class ConfigError extends Error {}
 
 /**
  * 設定 file（JSON）を読み、Credential を環境変数から解決する。token の値は設定 file にもログにも書かない。
+ * Role の `env` で Credential の環境変数名を上書きすることは許さない（Orchestrator の Credential を Agent へ渡さない）。
  */
 export const loadConfig = (path: string, env: NodeJS.ProcessEnv = process.env): OrchestratorConfig => {
   let raw: unknown;
@@ -59,7 +62,14 @@ export const loadConfig = (path: string, env: NodeJS.ProcessEnv = process.env): 
   const projects = parsed.data.projects.map(({ projectId, tokenEnv }) => {
     const token = env[tokenEnv]?.trim();
     if (!token) throw new ConfigError(`The environment variable ${tokenEnv} for Project ${projectId} is not set`);
-    return { projectId, token };
+    return { projectId, tokenEnv, token };
   });
+  const credentialEnv = new Set(projects.map(({ tokenEnv }) => tokenEnv));
+  for (const [role, command] of Object.entries(parsed.data.roles)) {
+    const leaked = Object.keys(command?.env ?? {}).filter((name) => credentialEnv.has(name));
+    if (leaked.length > 0) {
+      throw new ConfigError(`roles.${role}.env must not set the orchestrator credential variables: ${leaked.join(", ")}`);
+    }
+  }
   return { ...parsed.data, stateDir: resolve(dirname(path), parsed.data.stateDir), projects };
 };

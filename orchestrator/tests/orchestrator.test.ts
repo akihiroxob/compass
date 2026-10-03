@@ -50,7 +50,8 @@ const setup = async (overrides: Partial<OrchestratorConfig> = {}) => {
     maxAttempts: 2,
     retryBackoffMs: 500,
     maxConcurrent: 5,
-    projects: [{ projectId: "p-1", token: "runtime-1" }],
+    terminateGraceMs: 1_000,
+    projects: [{ projectId: "p-1", tokenEnv: "RUNTIME_TOKEN", token: "runtime-1" }],
     roles: { strategist: { command: "true", env: {} }, researcher: { command: "true", env: {} } },
     ...overrides,
   };
@@ -140,7 +141,7 @@ test("lease切れの実行は回収して再試行し、Roleのコマンドが�
 });
 
 test("状態を読めないProjectは他のProjectの起動を妨げず、記録も消さない", async () => {
-  const kit = await setup({ projects: [{ projectId: "p-1", token: "t" }, { projectId: "p-2", token: "t" }] });
+  const kit = await setup({ projects: [{ projectId: "p-1", tokenEnv: "T", token: "t" }, { projectId: "p-2", tokenEnv: "T", token: "t" }] });
   try {
     kit.states.set("p-2", baseState("p-2"));
     const orchestrator = kit.create();

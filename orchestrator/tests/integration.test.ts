@@ -141,7 +141,7 @@ const setup = async () => {
       ? readFileSync(agentLog, "utf8")
           .trim()
           .split("\n")
-          .map((line) => JSON.parse(line) as { role: string; subject: string; key: string; attempt: number; pid: number; prompt: string })
+          .map((line) => JSON.parse(line) as { role: string; subject: string; key: string; attempt: number; pid: number; prompt: string; credentialVisible: boolean })
       : [];
   const stop = async () => {
     server.kill("SIGTERM");
@@ -163,6 +163,8 @@ test(
       const [first] = kit.launches();
       assert.match(first!.prompt, /get_role_context/);
       assert.equal(first!.attempt, 1);
+      // OrchestratorのRuntime CredentialはAgentへ渡さない。
+      assert.equal(first!.credentialVisible, false);
 
       // 2. 未終了のResearchだけを見てResearcherを起動する（fixtureはnot_neededで終える）。
       await kit.runOnce();

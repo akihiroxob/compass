@@ -6,7 +6,7 @@ import test from "node:test";
 import { acquireProcessLock, decideLaunch, DispatchStore, finishRecord, type DispatchRecord } from "../src/dispatchStore.ts";
 import type { Dispatch } from "../src/plan.ts";
 
-const policy = { leaseMs: 1000, maxAttempts: 3, retryBackoffMs: 100 };
+const policy = { leaseMs: 1000, maxAttempts: 3, retryBackoffMs: 100, terminateGraceMs: 500 };
 const deadPid = 2_147_483_646;
 const alive = (pid: number) => pid !== deadPid;
 
@@ -33,10 +33,33 @@ test("実行中はleaseの間起動せず、所有プロセス・子プロセス
   assert.equal(decideLaunch(running({ childPid: 12345 }), 10, policy, alive).launch, false);
   // どちらも停止している: 失敗した試行として次の試行へ。
   assert.deepEqual(decideLaunch(running(), 10, policy, alive), { launch: true, attempt: 2, recovered: "orchestrator stopped while running" });
-  // lease切れは生存していても回収する（Agentはtimeoutで停止させる）。
+  // lease切れで所有プロセスだけが生存している（Agentは停止済み）: 次の試行へ。
   assert.deepEqual(decideLaunch(running({ ownerPid: 12345 }), 1000, policy, alive), { launch: true, attempt: 2, recovered: "lease expired" });
   // 上限に達していれば打ち切る。
   assert.equal(decideLaunch(running({ attempt: 3 }), 1000, policy, alive).launch, false);
+});
+
+test("lease切れでも旧Agentが生存している間は同じkeyを起動せず、停止を求めて猶予後はSIGKILLにする", () => {
+  // Orchestratorが停止し（SIGKILL等でtimeoutの監視も消えた）、旧Agentだけが残っている。
+  const orphan = running({ childPid: 222 });
+  const kinds: string[] = [];
+  const probe = (pid: number, kind: "owner" | "agent") => {
+    kinds.push(`${kind}:${pid}`);
+    return alive(pid);
+  };
+  assert.deepEqual(decideLaunch(orphan, 1000, policy, probe), {
+    launch: false,
+    reason: "lease expired; stopping the previous agent",
+    record: orphan,
+    terminate: { pid: 222, signal: "SIGTERM" },
+  });
+  assert.deepEqual(kinds, [`owner:${deadPid}`, "agent:222"]);
+  assert.deepEqual((decideLaunch(orphan, 1499, policy, alive) as { terminate?: unknown }).terminate, { pid: 222, signal: "SIGTERM" });
+  assert.deepEqual((decideLaunch(orphan, 1500, policy, alive) as { terminate?: unknown }).terminate, { pid: 222, signal: "SIGKILL" });
+  // 上限到達でも、旧Agentの停止を確認するまでは打ち切りを確定しない。
+  assert.equal((decideLaunch(running({ childPid: 222, attempt: 3 }), 1000, policy, alive) as { reason?: string }).reason, "lease expired; stopping the previous agent");
+  // 旧Agentの停止を確認した後に、失敗した試行として次の試行へ進む。
+  assert.deepEqual(decideLaunch(orphan, 1000, policy, (pid) => pid !== deadPid && pid !== 222), { launch: true, attempt: 2, recovered: "lease expired" });
 });
 
 test("失敗はbackoff付きで上限まで再試行し、成功で確定する", () => {

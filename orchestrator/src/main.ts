@@ -18,7 +18,7 @@ const main = async () => {
   const orchestrator = new Orchestrator(
     config,
     new McpCompassStateReader(config.serverUrl),
-    new ShellAgentLauncher(),
+    new ShellAgentLauncher({ credentialEnv: config.projects.map(({ tokenEnv }) => tokenEnv), terminateGraceMs: config.terminateGraceMs }),
     new DispatchStore(config.stateDir),
   );
   try {

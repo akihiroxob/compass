@@ -1,7 +1,7 @@
 import type { CompassStateReader } from "./compassClient.ts";
 import type { OrchestratorConfig } from "./config.ts";
 import { decideLaunch, finishRecord, type DispatchPolicy, type DispatchStore } from "./dispatchStore.ts";
-import type { AgentLauncher } from "./launcher.ts";
+import { terminateAgent, type AgentLauncher } from "./launcher.ts";
 import { planDispatches, type Dispatch } from "./plan.ts";
 
 /** Operational Log。stdout / stderr へ出す実行記録で、Compass の Activity・Change Log には書かない。 */
@@ -31,8 +31,14 @@ export class Orchestrator {
     private readonly store: DispatchStore,
     private readonly clock: () => number = Date.now,
     private readonly log: OperationalLog = jsonLog,
+    private readonly terminate: (pid: number, signal: NodeJS.Signals) => void = terminateAgent,
   ) {
-    this.policy = { leaseMs: config.leaseMs, maxAttempts: config.maxAttempts, retryBackoffMs: config.retryBackoffMs };
+    this.policy = {
+      leaseMs: config.leaseMs,
+      maxAttempts: config.maxAttempts,
+      retryBackoffMs: config.retryBackoffMs,
+      terminateGraceMs: config.terminateGraceMs,
+    };
   }
 
   async tick(): Promise<TickReport> {
@@ -73,6 +79,11 @@ export class Orchestrator {
     const decision = decideLaunch(this.store.get(dispatch.key), now, this.policy);
     if (!decision.launch) {
       const record = decision.record;
+      // lease 切れで旧 Agent が残っている（停止した Orchestrator が起動した等）。停止を求め、停止を確認した後の周回で再試行する。
+      if (decision.terminate) {
+        this.terminate(decision.terminate.pid, decision.terminate.signal);
+        this.log("dispatch_terminating", { key: dispatch.key, pid: decision.terminate.pid, signal: decision.terminate.signal });
+      }
       // 実行中のまま上限に達した記録（lease 切れ・停止）は、打ち切りとして確定させる。
       if (record?.status === "running" && decision.reason.startsWith("gave up")) {
         this.store.set(dispatch.key, finishRecord(record.attempt, { ok: false, error: decision.reason }, now, this.policy));
