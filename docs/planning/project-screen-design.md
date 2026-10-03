@@ -101,13 +101,15 @@ Workの件数は次の区分で数え、各Taskをどれか1つに入れる。�
 | 条件 | 表示 | 実行に必要な権限 | 権限が無い場合 |
 | --- | --- | --- | --- |
 | Active Intentが無い | Intentを登録 | `direction.write` | Editor以上へ依頼 |
-| Active Outcomeが無い | Outcomeを登録 | `direction.write` | Editor以上へ依頼 |
+| Active Intentがあり、Active Outcomeが無い | Outcomeを登録 | `direction.write` | Editor以上へ依頼 |
 | 期限内Claimの無い`wait_accept`のTaskがある | 受入待ちのTaskを確認（件数） | `execution.intervene` | 表示しない（「Agentの担当待ち」に出る） |
 | Story起票待ちのOutcomeがあり、Managerが未割当 | Managerを割り当てる | `grant.manage` | Administrator以上へ依頼 |
 | 未着手・差戻し・再取得待ちのTaskがあり、Workerが未割当 | Workerを割り当てる | `grant.manage` | Administrator以上へ依頼 |
 | レビュー待ちのTaskがあり、Reviewerが未割当 | Reviewerを割り当てる | `grant.manage` | Administrator以上へ依頼 |
 | 割当済みAgentにCredentialが無い | Credentialを発行 | `credential.manage` | 表示しない（Credentialはadministratorしか参照できない） |
 | 評価待ちのOutcomeがあり、Evaluatorが未割当 | Evaluatorを割り当てる | `grant.manage` | Administrator以上へ依頼 |
+
+Outcomeの作成はActive Intentの配下（`/projects/:projectId/intents/:intentId/outcomes/new`）でしか行えないため、Active Intentが無いProjectでは「Intentを登録」だけを出し、「Outcomeを登録」は出さない。
 
 「受入待ちのTaskを確認」は「実行」viewの受入待ちTaskへ移動する。レビュー待ちのTaskはReviewerの担当とし、Humanの介入（受入・差戻し）はTask詳細の既存操作に任せて、概要では勧めない。
 
@@ -199,6 +201,6 @@ Workの件数は次の区分で数え、各Taskをどれか1つに入れる。�
 ## 後続Taskの受入観点
 
 - **02**: 期限内Claimだけを担当中とし、期限切れは再取得待ちとして別表示する。状態3種を区別し、Task詳細へ移動できる。読込中・失敗・Claim無しが区別され、再読込できる。Claim非保持のRoleを推測表示しない。Desktop・スマートフォン、期限切れ、取得競合後の再読込を確認する。
-- **03**: viewとURLが対応し、戻る・再読込で同じviewに戻る。概要の現在地・次の行動が上記の区分と条件表どおりに出る。Story起票待ち（`not_connected`）・評価待ち（`not_evaluated`）・還流待ちのOutcome、または未着手・差戻し・再取得待ち・期限内Claimの無いレビュー待ち・受入待ちのTaskのいずれかが残るProjectで「今すぐ必要な操作はありません」と出さない。Manager・Evaluatorが割当済みでも、Story起票待ち・評価待ちを担当待ちとして出す。レビュー待ちと受入待ちを別の表示にする。AgentのClaimを要する作業をHumanの操作ボタンにしない。viewer・editor・administrator・owner・archivedで実行できない操作を勧めない。スマートフォンで概要が短く、設定へ2操作以内で到達できる。
+- **03**: viewとURLが対応し、戻る・再読込で同じviewに戻る。概要の現在地・次の行動が上記の区分と条件表どおりに出る。Story起票待ち（`not_connected`）・評価待ち（`not_evaluated`）・還流待ちのOutcome、または未着手・差戻し・再取得待ち・期限内Claimの無いレビュー待ち・受入待ちのTaskのいずれかが残るProjectで「今すぐ必要な操作はありません」と出さない。Manager・Evaluatorが割当済みでも、Story起票待ち・評価待ちを担当待ちとして出す。レビュー待ちと受入待ちを別の表示にする。Active Intentが無いProjectでは「Intentを登録」だけを出し「Outcomeを登録」を出さず、Active IntentがありActive Outcomeが無いProjectでだけ「Outcomeを登録」を出す。AgentのClaimを要する作業をHumanの操作ボタンにしない。viewer・editor・administrator・owner・archivedで実行できない操作を勧めない。スマートフォンで概要が短く、設定へ2操作以内で到達できる。
 - **04**: 状態色・タイポグラフィ・動きが上記の方針に沿い、`prefers-reduced-motion`・keyboard focus・コントラストを確認する。
 - **05**: 空・読込・失敗・404が上記の方針に沿い、権限と接続状況に応じた案内を出す。
