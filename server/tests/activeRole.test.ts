@@ -191,6 +191,32 @@ test("activeRoleでも職務分離は緩めず、Grantの無いactiveRoleでの�
   await database.destroy();
 });
 
+test("activeRole指定時はPrincipalなしの管理操作を拒否し、headerなし匿名の互換は維持する", async () => {
+  const { database, app, services } = await setup();
+  const projectId = await createProject(app);
+  await grant(app, projectId, "manager-only", "manager");
+  const intentInput = { projectId, title: "Intent", desiredState: "done" };
+
+  // Bearerなし＋activeRoleはGrant検査の対象Principalが無いためUNAUTHENTICATED。Projectは変更されない。
+  const anonymousUpdate = await callTool(app, "update_project", { projectId, description: "changed anonymously" }, undefined, "manager");
+  assert.equal(errorCode(anonymousUpdate), "UNAUTHENTICATED");
+  assert.equal(errorCode(await callTool(app, "create_intent", intentInput, undefined, "manager")), "UNAUTHENTICATED");
+  assert.notEqual((await services.getProjectUseCase.execute(projectId)).description, "changed anonymously");
+  assert.deepEqual((await callTool(app, "list_intents", { projectId }, "manager-only", "manager")).structuredContent.intents, []);
+
+  // Grant保持者はactiveRole付きで管理操作できる。
+  assert.equal((await callTool(app, "create_intent", intentInput, "manager-only", "manager")).isError, undefined);
+  assert.equal(
+    (await callTool(app, "update_project", { projectId, description: "by manager" }, "manager-only", "manager")).isError,
+    undefined,
+  );
+
+  // headerなし匿名は従来どおり管理操作できる（互換）。
+  assert.equal((await callTool(app, "update_project", { projectId, description: "anonymous compat" })).isError, undefined);
+  assert.equal((await services.getProjectUseCase.execute(projectId)).description, "anonymous compat");
+  await database.destroy();
+});
+
 test("Grant済みProjectの一覧はactiveRoleのGrantがあるProjectだけに絞る", async () => {
   const { database, app, services } = await setup();
   const workerProject = await createProject(app, "Worker");

@@ -80,12 +80,17 @@ export class ProjectAuthorizationService {
 
   /**
    * 職務分離の誤用防止。そのRoleのGrantを持つPrincipalだけを拒否し、Principalなし・Grantなしは通す（管理面との互換）。
+   * activeRoleの指定時はPrincipalなしをUNAUTHENTICATEDとし、activeRoleのGrantを要求する。
    * Agent名を変えれば回避できるため、trusted-localでは構造上の保証（Role用toolに該当操作が無いこと）が本体になる。
    */
   async requireNotRole(principal: Principal, projectId: string, role: ProjectRole): Promise<void> {
+    if (principal === null) {
+      if (this.activeRole !== null) throw new UnauthenticatedError();
+      return;
+    }
     // activeRoleの指定時は、activeRoleのGrantも要求する。職務分離は緩めず、他Grantによる拒否は従来どおり行う。
-    if (principal !== null) await this.requireActiveRoleGrant(principal, projectId);
-    if (principal !== null && (await this.projectGrantRepository.hasRole(projectId, principal, role))) {
+    await this.requireActiveRoleGrant(principal, projectId);
+    if (await this.projectGrantRepository.hasRole(projectId, principal, role)) {
       throw new ForbiddenError(`The ${role} role is not allowed to perform this operation`, {
         requiredRole: role,
         projectId,
