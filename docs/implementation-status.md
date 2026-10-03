@@ -56,6 +56,17 @@ Project詳細の「Claim保持中」は、既存の`execution`の`activeClaim`�
 
 DirectionとWorkは公開index（`@compass/direction`・`@compass/work`）とapplication portで接続し、DirectionはWorkに依存しない。WorkはProject状態・Role Grantを`WorkStore`の読取port（`ProjectStateReader`・`ProjectGrantReader`）で、Claim・状態遷移と同じtransactionの中で読む。実装はserverが配線し（`server/src/infrastructure/repository/contextAdapters.ts`）、Workは`project`・`project_grant`のtableを直接扱わない。Directionのuse caseが要求するRole・Runtime scopeの認可も、Directionのportへserverの認可serviceを渡す。境界は [executionBoundary.test.ts](../server/tests/executionBoundary.test.ts) で静的に検証する。Workの規則の単体テストは`packages/work/tests/`、Project集約の単体テストは`packages/direction/tests/`にある。
 
+## Project詳細（Web UI）
+
+Project詳細は`?view=`で「概要」（`overview`。既定・不正値も概要）・「方向」（`direction`）・「実行」（`work`）・「記録」（`records`）・「設定」（`settings`）に分け、表示中のviewのsectionだけを読み込む。Hero（名前・状態・自分のRole）とarchivedの通知は全viewに出し、view切替（`nav`、選択中に`aria-current="page"`）は上端へstickyにする。他viewのTask・Role行へは`?view=work#execution-task-…`・`?view=settings#agent-role-…`で辿り、読込後に移動してfocusする。
+
+- 概要: Mission（1行）、現在地（Intent → Outcome → Work → 評価）、次の行動、Claim保持中。Workは`execution`のTaskを未着手・作業中・再取得待ち・レビュー待ち・受入待ち・差戻しの1区分ずつに数え、評価はActive Outcomeごとの`outcomeLoopStage`を先頭5件まで出す。
+- 次の行動: 「あなたの操作」（最大3件。Intent登録はActive Intentが無いとき、Outcome登録はActive IntentがありActive Outcomeが無いときだけ。期限内Claimの無い受入待ちの確認、Story起票待ち・着手待ち・レビュー待ち・評価待ちに対する未割当Roleの割当、administratorにはCredentialの無い割当済みAgent）と、「Agentの担当待ち」（Story起票待ち・評価待ち・還流待ちのOutcome、期限内Claimの無い未着手・差戻し・再取得待ち・レビュー待ち・受入待ちのTask）に分ける。権限の無い操作は依頼先を示し、AgentのClaimやOutcome handoffを要する作業をHumanの操作にしない。archivedでは出さない。取得できなかったOutcomeは件数に含めず再読込を出す。判定は`server/src/web/features/project/overview.ts`。
+- 方向: Mission・Vision、Intent（Active Outcome・過去のIntent）、Principles・Constraints。
+- 実行: Story・Task一覧、起票の導線、最近の変更。
+- 記録: Activity、Research、ADR参照、Repositories・Resources。
+- 設定: Agent（6 Roleを1つの一覧にし、行を開くと割当・取消。administratorには割当済みAgentのCredentialの有無）、Credential（administratorのみ）、Member・招待、Projectの編集・アーカイブ。
+
 ## Accessの現行契約
 
 `packages/access`がAgentのRole Grant・Credential、HumanのMembership・招待・Session・ログイン試行を所有し、認可（`ProjectAuthorizationService`・`RuntimeAuthorizationService`・`HumanProjectAuthorizationService`）を提供する。Human Membership・Agent Grant・Runtime Credentialのscopeは別のモデル・tableで扱う。Claimの所有・期限・状態遷移・自己レビュー / 自己受入の禁止はWorkが強制し、Accessへ移さない。transport（OIDC adapter・Session Cookie・`Authorization`の解決）はserverの`server/src/auth`にある。

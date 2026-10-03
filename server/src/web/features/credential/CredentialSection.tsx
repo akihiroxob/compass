@@ -3,12 +3,14 @@ import { classifyError, describeActionFailure, loadFailureMessage, request, with
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { useHashTarget } from "../../useHashTarget";
 import {
   allRuntimeScopes,
   credentialExpiryOptions,
   credentialKindLabels,
   credentialStatus,
   credentialStatusLabels,
+  credentialSectionId,
   credentialsPath,
   defaultCredentialExpiryDays,
   defaultRotationGraceHours,
@@ -154,6 +156,8 @@ export const CredentialSection = ({ projectId, readOnly = false }: { projectId: 
     [projectId],
   );
   useEffect(() => { void load(); }, [load]);
+  // 概要の「Credentialを発行」から`?view=settings#agent-credentials`で辿ったとき、一覧の読込後に移動する。
+  useHashTarget(credentials !== null);
 
   const toggleScope = (scope: RuntimeScope, checked: boolean) =>
     setScopes((current) => (checked ? [...current, scope] : current.filter((item) => item !== scope)));
@@ -176,7 +180,7 @@ export const CredentialSection = ({ projectId, readOnly = false }: { projectId: 
   };
 
   return (
-    <section className="detail-section" aria-labelledby="credential-heading">
+    <section id={credentialSectionId} tabIndex={-1} className="detail-section" aria-labelledby="credential-heading">
       <h2 id="credential-heading">Agent・Runtime Credential</h2>
       <p className="section-note">
         MCP・Runtime向けAPIの <code>Authorization: Bearer &lt;token&gt;</code> に設定するtokenです。Agent CredentialはこのProjectのRole割当で、Runtime Credentialは選んだscopeで認可します。

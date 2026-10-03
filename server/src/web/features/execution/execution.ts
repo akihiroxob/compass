@@ -147,6 +147,8 @@ export const changeTarget = (change: Pick<ExecutionChange, "type" | "entityId">,
 
 /** Project詳細のStory cardのanchor。「最近の変更」のStory変更から辿る。 */
 export const storyAnchorId = (storyId: string) => `execution-story-${storyId}`;
+/** Project詳細のTask行のanchor。概要の「次の行動」から「実行」viewの該当Taskへ辿る。 */
+export const taskAnchorId = (taskId: string) => `execution-task-${taskId}`;
 
 const editedFieldLabels: Record<string, string> = { title: "タイトル", description: "説明", sortOrder: "並び順" };
 

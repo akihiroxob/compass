@@ -11,8 +11,12 @@ export {
   describePrincipal,
   formatTime,
   outcomeLoopStage,
+  taskAnchorId,
+  taskStatusLabels,
   verdictLabels,
   type ExecutionOverview,
+  type ExecutionTask,
+  type LoopStage,
   type OutcomeEvaluation,
   type OutcomeExecutionRecord,
 } from "./execution";

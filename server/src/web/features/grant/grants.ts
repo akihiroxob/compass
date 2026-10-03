@@ -15,6 +15,12 @@ export const grantRoleLabels: Record<GrantRole, string> = {
   runtime: "Runtime",
 };
 
+/** Project詳細の「設定」viewで、Humanが割当を管理するAgentのRole（表示の順）。Runtimeの割当はCredentialの発行と組で扱う。 */
+export const agentRoles = ["strategist", "researcher", "manager", "worker", "reviewer", "evaluator"] as const satisfies readonly GrantRole[];
+export type AgentRole = (typeof agentRoles)[number];
+/** 「設定」viewのRole行のanchor。概要の「次の行動」から辿る。 */
+export const agentRoleAnchorId = (role: GrantRole) => `agent-role-${role}`;
+
 export const grantsPath = (projectId: string) => `/api/projects/${projectId}/grants`;
 
 /** 取消のpath。principalIdは`/`や空白を含み得るためURLエンコードする。 */

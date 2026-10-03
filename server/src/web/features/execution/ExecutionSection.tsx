@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { storyCreatePath, storyEditPath, taskCreatePath, taskPath } from "../../paths";
+import { useHashTarget } from "../../useHashTarget";
 import { useProjectOperation } from "../../useProjectAccess";
 import {
   appendChangePage,
@@ -20,6 +21,7 @@ import {
   isSettledTask,
   storyAnchorId,
   storyStatusLabels,
+  taskAnchorId,
   taskStatusLabels,
   type ChangePage,
   type ChangeTarget,
@@ -30,7 +32,7 @@ import {
 } from "./execution";
 
 const TaskRow = ({ task }: { task: ExecutionTask }) => (
-  <li>
+  <li id={taskAnchorId(task.id)} tabIndex={-1}>
     <Link to={taskPath(task.projectId, task.id)}>
       <span className={`status-badge${isSettledTask(task.status) ? " muted" : ""}`}>{taskStatusLabels[task.status]}</span> {task.title}
       <small>
@@ -189,6 +191,8 @@ export const ExecutionSection = ({ projectId }: { projectId: string }) => {
       .catch((reason: unknown) => { if (current) setError(loadFailureMessage(classifyError(reason), "Projectが見つかりません。")); });
     return () => { current = false; };
   }, [projectId]);
+  // 概要の「次の行動」などから`?view=work#…`で辿ったTask・Storyへ、一覧の読込後に移動する。
+  useHashTarget(overview !== null);
   return (
     <section className="detail-section" aria-labelledby="execution-heading">
       <h2 id="execution-heading">Execution</h2>

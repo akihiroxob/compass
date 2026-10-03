@@ -65,6 +65,9 @@ export const credentialStatusLabels: Record<CredentialStatus, string> = {
   revoked: "取消済み",
 };
 
+/** 「設定」viewのCredential sectionのanchor。概要の「次の行動」から辿る。 */
+export const credentialSectionId = "agent-credentials";
+
 export const credentialsPath = (projectId: string, credentialId?: string) =>
   `/api/projects/${projectId}/credentials${credentialId ? `/${credentialId}` : ""}`;
 export const rotateCredentialPath = (projectId: string, credentialId: string) =>
