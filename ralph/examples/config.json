@@ -1,0 +1,35 @@
+{
+  "serverUrl": "http://127.0.0.1:51800",
+  "projectId": "<projectId>",
+  "projectRoot": "..",
+  "agentProvider": "claude",
+  "pollIntervalSeconds": 300,
+  "retry": {
+    "initialSeconds": 300,
+    "tokenLimitSeconds": 1800
+  },
+  "logging": {
+    "path": ".compass-ralph/logs/ralph.log",
+    "idleHeartbeatSeconds": 3600
+  },
+  "claude": {
+    "command": "claude",
+    "dangerouslySkipPermissions": true
+  },
+  "codex": {
+    "command": "codex",
+    "dangerouslyBypassApprovalsAndSandbox": false
+  },
+  "roles": {
+    "worker": {
+      "tokenEnv": "COMPASS_RALPH_WORKER_TOKEN",
+      "agentProvider": "claude",
+      "model": ""
+    },
+    "reviewer": {
+      "tokenEnv": "COMPASS_RALPH_REVIEWER_TOKEN",
+      "agentProvider": "codex",
+      "model": ""
+    }
+  }
+}

@@ -20,7 +20,7 @@
 | --- | --- | --- |
 | Goal / Vision | `project.vision`のfield・column・API名を変更しない。Direction packageでも`Vision`の名称のまま移す。`Goal`は導入しない | 概念図の`Goal`と`Vision`の同一性は未合意。改名は製品判断として[設計確認事項](planning/architecture-questions.md)に残す |
 | evaluator | Role・Grant・`get_evaluator_context` / `record_outcome_evaluation`を維持し、`roles/evaluator.md`へ移す。Outcome Evaluationは`packages/direction`が所有する | 初期Role候補にないことは廃止の合意ではない |
-| runtime Role | trusted-local開発用Roleとして維持し、`roles/runtime.md`へ移す。08ではOrchestratorの現在状態Query（`get_orchestration_state`）の認可に使う（remote modeはRuntime Credentialのscope `runtime:state:read`）。Ralphでの扱いは09で判断する | remote modeではRuntime Credentialのscopeで認可しており、Runtime APIの互換を壊さない |
+| runtime Role | trusted-local開発用Roleとして維持し、`roles/runtime.md`へ移す。08ではOrchestratorの現在状態Query（`get_orchestration_state`）の認可に使う（remote modeはRuntime Credentialのscope `runtime:state:read`）。Ralphはruntime Roleを使わず、`worker` / `reviewer`のGrantとactiveRoleだけで接続する（09） | remote modeではRuntime Credentialのscopeで認可しており、Runtime APIの互換を壊さない |
 | package manager | npm workspacesを使う。`package-lock.json`を維持し、pnpmへ移行しない。root `npm start` / `npm test` / `npm run typecheck` / `npm run build`は名前と意味を保つ。起動系はroot cwdを保ち、`build`・`typecheck`・`test`はworkspaceへ委譲できる（[rootの設定・文書](#rootの設定文書)） | 推奨Treeのpnpm構成は構成例であり、技術変更を自動採用しない。npm workspacesで独立build・実行の要件を満たせる |
 | activeRole transport | MCPとRuntime向けAPIで、request header `X-Compass-Active-Role`を受け付ける。MCPはrequestごとにstatelessで、`Authorization`と同じ`resolveCaller`の段階で解決する。Tool入力・Credentialには持たせない | 現行の`resolveCaller`が1 requestの`Authorization`だけで主体を確定する構造に、最小変更で追加できる。Credentialへ固定すると1 Principalの複数Grantから実行ごとに1 Roleを選べない |
 | activeRole互換期間 | 05ではheaderなしを従来どおり「操作ごとに必要Roleを検査」で受け付け、headerがあれば`principalId + projectId + activeRole`のGrantだけで認可する（他Grantを合算しない）。Ralph・Orchestrator接続（08 / 09）はheaderを必須で送る。headerなしの拒否はRalph移行後の別判断とする | 稼働中の開発支援Wacha・既存Ralphの接続を05で壊さない |
@@ -339,7 +339,7 @@ root cwdの互換（`.env`読込・`COMPASS_DB_PATH`の既定`compass.db`はproc
 | 現在 | 扱い | 更新するTask・内容 |
 | --- | --- | --- |
 | `.env.example` | root残置 | 変更なし。環境変数名は互換性契約どおり。新しい変数を足すTaskで追記する |
-| `.gitignore` | root残置 | 変更不要。`public/`・`*.db`・`node_modules/`は階層を問わず一致するため、build出力を`server/public/`へ移しても除外は維持される |
+| `.gitignore` | root残置 | `public/`・`*.db`・`node_modules/`は階層を問わず一致するため、build出力を`server/public/`へ移しても除外は維持される。09でRalphのOperational Log等の`.compass-ralph/`を追加 |
 | `.mcp.json` | root残置 | 変更しない。開発支援Wacha（`localhost:51743`）への接続設定で、Compass製品の設定ではない。09でも置換しない |
 | `.ralph/config.json` | root残置 | 変更しない。稼働中の既存Ralph（agent-foundationからinstall）がこのrepoのTaskを処理する設定。09で作る`ralph/`の設定例と混同しない |
 | `AGENTS.md` | root残置 | 構成の記述は移行先を前提に書かれている。pathを変えたTaskで記述と実配置のずれを確認する |
@@ -348,7 +348,7 @@ root cwdの互換（`.env`読込・`COMPASS_DB_PATH`の既定`compass.db`はproc
 | `apm.yml`・`apm.lock.yaml` | root残置 | 移行しない。開発Agent向けにagent-foundationのSkill・hookを`.agents/`・`.claude/`・`.codex/`へ配布する設定で、製品が配信する`skills/`・`knowledge/`とは別物 |
 | `compass-codex-architecture-handoff.md` | root残置 | 統合アーキテクチャの正本。設計変更時だけ更新 |
 | `docs/**`（13 files） | 残置 | 各Taskで現行情報だけを更新。`docs/planning/`は未確定事項 |
-| `package.json` | root残置 | 02で`"workspaces": ["server", "packages/*"]`を追加し、`dependencies`を`server/package.json`へ移す。03 / 04で各packageの依存を分ける。08で`orchestrator`を追加。bashの`ralph/`をworkspaceに含めるかは09で判断。script名と意味は維持する |
+| `package.json` | root残置 | 02で`"workspaces": ["server", "packages/*"]`を追加し、`dependencies`を`server/package.json`へ移す。03 / 04で各packageの依存を分ける。08で`orchestrator`、09で`ralph`を追加（bash実装の実行にnpm依存はなく、workspaceはテスト・構文検査用）。script名と意味は維持する |
 | `package-lock.json` | root残置 | 手編集しない。workspace化に伴い`npm install`で再生成し、依存versionが変わらないことをdiffで確認する |
 | `tsconfig.json` | root残置 | 共通`compilerOptions`だけを残し、各workspaceの`tsconfig.json`が`extends`する。`include`（`src/**`・`test/**`）と`baseUrl`は各workspaceへ移す。`paths`の`@mcp/*`は使用箇所がないため02で削除する。`src/frontend/tsconfig.json`・`vite.config.ts`はfrontendとして`server/src/web/`へ移し、`outDir`を`server/public/`へ変える |
 
@@ -392,10 +392,11 @@ Ralphはbash実装のまま移す。正本の推奨Treeにある`ralph/src/`は�
 
 | 参照元 | 扱い | Task・内容 |
 | --- | --- | --- |
-| `ralph/bin/ralph`・`ralph/bin/ralph-loop` | 移植 → `ralph/bin/` | 09。Compassの`/mcp`へ接続し、Worker / Reviewerを別Principal・別Credentialで起動する |
+| `ralph/bin/ralph`・`ralph/bin/ralph-loop` | 移植 → `ralph/bin/` | 09。Compassの`/mcp`へ接続し、Worker / Reviewerを別Principal・別Credentialで起動する。`bin/ralph`はpythonの`init`（repoの`.mcp.json`・`.claude/settings.json`を書き換える）を移さず、`run`だけのbashの入口にする。MCP接続設定は実行ごとにproviderへ渡す |
 | `ralph/backends/wacha.sh` | 移植 → `ralph/backends/compass.sh` | 09。接続先・`cmp_` Credential・`X-Compass-Active-Role` headerをCompass向けに変える。稼働中Wacha向けの既存Ralphは置換しない |
 | `ralph/providers/claude.sh`・`codex.sh` | 移植 → `ralph/providers/` | 09。provider固有の起動処理だけを持つ |
 | `ralph/prompts/worker.md`・`reviewer.md` | 縮小して移植 → `ralph/prompts/` | 09。Role手順を含めず、Role Contextを取得して従う起動指示だけにする。Role本文は`roles/`の正本をMCPから取得する |
+| `ralph/prompts/manager.md`（`e2d954c`以降に追加） | 移植しない | 最終受入はRalphの責務（Worker / Reviewerループ）の外 |
 | `ralph/examples/config.json` | 移植 → `ralph/examples/config.json` | 09。Compassの接続先とRole別Credentialの例に変える |
 | `ralph/README.md` | 移植 → `ralph/README.md` | 09。Compass向けの独立実行・build・deploy手順に書き換える |
 | `scripts/install_ralph.py`・`tests/test_ralph_installer.py` | 移植しない | agent-foundationで他repo向けのinstallerとして残る。Compassの`ralph/`は`ralph/bin/ralph`を直接起動する |

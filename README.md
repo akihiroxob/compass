@@ -9,8 +9,9 @@ Projectの方向と実行を管理するアプリケーションです。Human�
 - [現在の実装状況](docs/implementation-status.md)
 - [Wacha向け移行計画](docs/architecture-migration-plan.md)
 - [Orchestrator](orchestrator/README.md)
+- [Ralph](ralph/README.md)
 
-以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/direction`・`packages/work`・`packages/access`・`packages/activity`・`packages/shared`の業務コードを配線します。`orchestrator/`はProject横断の現在状態から専門RoleのAgentを起動する独立したBatchで、ServerとはMCPだけで接続します。`ralph/`への移行は未実施です。`manager`の名前は維持します。実装変更はWacha経由で行います。
+以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/direction`・`packages/work`・`packages/access`・`packages/activity`・`packages/shared`の業務コードを配線します。`orchestrator/`はProject横断の現在状態から専門RoleのAgentを起動する独立したBatchで、ServerとはMCPだけで接続します。`ralph/`はWorker / ReviewerのAgentを1 Taskずつ起動する独立したLoopで、同じくMCPだけで接続します。`manager`の名前は維持します。実装変更はWacha経由で行います。
 
 ## 起動
 
@@ -107,4 +108,4 @@ npm run lint
 npm run build
 ```
 
-rootの`test`・`typecheck`・`lint`は各workspaceへ、`build`は`server` workspaceへ委譲します。テストは`server/tests/`（結合・API・MCP・Web UI・認証）、`packages/work/tests/`（Workの規則）、`packages/direction/tests/`（Project集約）、`orchestrator/tests/`（起動判断・重複抑止、ServerとのプロセスをまたぐOrchestratorの結合）にあり、cwdは各workspaceです。`orchestrator`の`build`は型検査で、`npm run build --workspace orchestrator`で独立して実行します。`lint`は現在、TypeScriptの型チェックです。実HTTPの認証テストはテスト用OIDC providerを使い、実Googleへの接続検証ではありません。fixtureによる閉ループ検証と実Agentの自律運転を区別します。
+rootの`test`・`typecheck`・`lint`は各workspaceへ、`build`は`server` workspaceへ委譲します。テストは`server/tests/`（結合・API・MCP・Web UI・認証）、`packages/work/tests/`（Workの規則）、`packages/direction/tests/`（Project集約）、`orchestrator/tests/`（起動判断・重複抑止、ServerとのプロセスをまたぐOrchestratorの結合）、`ralph/tests/`（ServerとのプロセスをまたぐRalphの結合）にあり、cwdは各workspaceです。`orchestrator`の`build`は型検査、`ralph`の`build`はshell scriptの構文検査で、`npm run build --workspace orchestrator` / `ralph`で独立して実行します。`lint`は現在、TypeScriptの型チェックです。実HTTPの認証テストはテスト用OIDC providerを使い、実Googleへの接続検証ではありません。fixtureによる閉ループ検証と実Agentの自律運転を区別します。

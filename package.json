@@ -6,6 +6,7 @@
   "workspaces": [
     "server",
     "orchestrator",
+    "ralph",
     "packages/*"
   ],
   "scripts": {

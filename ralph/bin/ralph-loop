@@ -1,0 +1,476 @@
+#!/usr/bin/env bash
+# Worker / Reviewerを1実行ずつ起動し、対象Taskがなくなるまで監視する。
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+使い方: ralph-loop [--config PATH] [--once] <auto|worker|reviewer>
+EOF
+  exit 1
+}
+
+RALPH_LOGGING_ACTIVE=false
+RALPH_LOG_FILE=""
+RALPH_LOG_STDOUT_PID=""
+RALPH_LOG_STDERR_PID=""
+RALPH_LOG_ROLE_FILE=""
+RALPH_TMP_DIR=""
+RALPH_SLEEP_PID=""
+
+ralph_log() {
+  local format="$1"
+  shift
+  if [[ "$RALPH_LOGGING_ACTIVE" == true ]]; then
+    printf "$format" "$@"
+  else
+    printf '[%s] ' "$(date '+%Y-%m-%d %H:%M:%S')"
+    printf "$format" "$@"
+  fi
+}
+
+ralph_log_error() {
+  ralph_log "$@" >&2
+}
+
+ralph_log_stream() {
+  local output_fd="$1"
+  local line formatted log_role
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    log_role="$(<"$RALPH_LOG_ROLE_FILE")"
+    printf -v formatted '[%s][%s] %s\n' \
+      "$(date '+%Y-%m-%d %H:%M:%S')" "$log_role" "$line"
+    printf '%s' "$formatted" >&"$output_fd"
+    printf '%s' "$formatted" >>"$RALPH_LOG_FILE"
+  done
+}
+
+setup_logging() {
+  local configured_path stdout_pipe stderr_pipe previous_umask
+  configured_path="$(config_optional_string '.logging.path')"
+  if [[ -z "$configured_path" ]]; then
+    RALPH_LOG_FILE="$PROJECT_ROOT/.compass-ralph/logs/ralph.log"
+  elif [[ "$configured_path" == /* ]]; then
+    RALPH_LOG_FILE="$configured_path"
+  else
+    RALPH_LOG_FILE="$PROJECT_ROOT/$configured_path"
+  fi
+
+  previous_umask="$(umask)"
+  umask 077
+  mkdir -p "$(dirname "$RALPH_LOG_FILE")"
+  touch "$RALPH_LOG_FILE"
+  umask "$previous_umask"
+
+  RALPH_LOG_ROLE_FILE="$RALPH_TMP_DIR/role"
+  printf '%s' "$role" >"$RALPH_LOG_ROLE_FILE"
+  stdout_pipe="$RALPH_TMP_DIR/stdout"
+  stderr_pipe="$RALPH_TMP_DIR/stderr"
+  mkfifo "$stdout_pipe" "$stderr_pipe"
+
+  exec 3>&1 4>&2
+  ralph_log_stream 3 <"$stdout_pipe" &
+  RALPH_LOG_STDOUT_PID=$!
+  ralph_log_stream 4 <"$stderr_pipe" &
+  RALPH_LOG_STDERR_PID=$!
+  exec >"$stdout_pipe" 2>"$stderr_pipe"
+  RALPH_LOGGING_ACTIVE=true
+}
+
+cleanup_logging() {
+  [[ "$RALPH_LOGGING_ACTIVE" == true ]] || return 0
+  RALPH_LOGGING_ACTIVE=false
+  exec 1>&3 2>&4
+  exec 3>&- 4>&-
+  wait "$RALPH_LOG_STDOUT_PID" 2>/dev/null || true
+  wait "$RALPH_LOG_STDERR_PID" 2>/dev/null || true
+}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RALPH_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+CONFIG_PATH="${COMPASS_RALPH_CONFIG:-}"
+RUN_ONCE=false
+mode=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --config)
+      [[ -n "${2:-}" ]] || usage
+      CONFIG_PATH="$2"
+      shift 2
+      ;;
+    --once)
+      RUN_ONCE=true
+      shift
+      ;;
+    auto | worker | reviewer)
+      [[ -z "$mode" ]] || usage
+      mode="$1"
+      shift
+      ;;
+    *) usage ;;
+  esac
+done
+[[ -n "$mode" ]] || usage
+role="$mode"
+
+# 稼働中の既存Ralph（.ralph/config.json）と混同しないよう、設定は明示したfileだけを読む。
+[[ -n "$CONFIG_PATH" ]] || {
+  ralph_log_error '--configまたはCOMPASS_RALPH_CONFIGで設定fileを指定してください。\n'
+  exit 1
+}
+[[ -f "$CONFIG_PATH" ]] || {
+  ralph_log_error 'Ralph設定が見つかりません: %s\n' "$CONFIG_PATH"
+  exit 1
+}
+CONFIG_DIR="$(cd "$(dirname "$CONFIG_PATH")" && pwd)"
+CONFIG_PATH="$CONFIG_DIR/$(basename "$CONFIG_PATH")"
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || {
+    ralph_log_error '必要なコマンドが見つかりません: %s\n' "$1"
+    exit 1
+  }
+}
+
+config_string() {
+  local expression="$1"
+  jq -er "$expression | strings | select(length > 0)" "$CONFIG_PATH"
+}
+
+config_optional_string() {
+  local expression="$1"
+  jq -r "$expression // empty | strings" "$CONFIG_PATH"
+}
+
+require_command jq
+jq -e 'type == "object"' "$CONFIG_PATH" >/dev/null || {
+  ralph_log_error 'Ralph設定はJSONオブジェクトである必要があります: %s\n' "$CONFIG_PATH"
+  exit 1
+}
+
+PROJECT_ROOT="$(config_optional_string '.projectRoot')"
+if [[ -z "$PROJECT_ROOT" ]]; then
+  PROJECT_ROOT="$PWD"
+elif [[ "$PROJECT_ROOT" != /* ]]; then
+  PROJECT_ROOT="$CONFIG_DIR/$PROJECT_ROOT"
+fi
+[[ -d "$PROJECT_ROOT" ]] || {
+  ralph_log_error 'projectRootがディレクトリではありません: %s\n' "$PROJECT_ROOT"
+  exit 1
+}
+PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
+
+if ! COMPASS_PROJECT_ID="$(config_string '.projectId')"; then
+  ralph_log_error 'projectIdを設定してください: %s\n' "$CONFIG_PATH"
+  exit 1
+fi
+if ! COMPASS_SERVER_URL="$(config_string '.serverUrl')"; then
+  ralph_log_error 'serverUrlを設定してください: %s\n' "$CONFIG_PATH"
+  exit 1
+fi
+COMPASS_SERVER_URL="${COMPASS_SERVER_URL%/}"
+POLL_INTERVAL_SECONDS="$(jq -er '.pollIntervalSeconds // 300 | numbers | select(. >= 1) | floor' "$CONFIG_PATH")"
+RETRY_INITIAL_SECONDS="$(jq -er '.retry.initialSeconds // 300 | numbers | select(. >= 1) | floor' "$CONFIG_PATH")"
+RETRY_TOKEN_LIMIT_SECONDS="$(jq -er '.retry.tokenLimitSeconds // 1800 | numbers | select(. >= 1) | floor' "$CONFIG_PATH")"
+IDLE_HEARTBEAT_SECONDS="$(jq -er '.logging.idleHeartbeatSeconds // 3600 | numbers | select(. >= 1) | floor' "$CONFIG_PATH")"
+export RALPH_CONFIG_PATH="$CONFIG_PATH"
+
+# Worker / Reviewerは別Principal・別Credentialで接続する。tokenは値ではなく環境変数名を設定に書き、
+# 読み込んだ後はRalphの環境変数から消す。起動するAgentへは、そのRoleのtokenだけをCOMPASS_RALPH_TOKENで渡す。
+RALPH_WORKER_TOKEN=""
+RALPH_REVIEWER_TOKEN=""
+load_role_tokens() {
+  local candidate token_env token
+  local -a token_envs=()
+  for candidate in worker reviewer; do
+    token_env="$(config_optional_string ".roles.${candidate}.tokenEnv")"
+    if [[ -z "$token_env" ]]; then
+      if [[ "$mode" == auto || "$mode" == "$candidate" ]]; then
+        ralph_log_error 'roles.%s.tokenEnvを設定してください: %s\n' "$candidate" "$CONFIG_PATH"
+        exit 1
+      fi
+      continue
+    fi
+    [[ "$token_env" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || {
+      ralph_log_error 'roles.%s.tokenEnvは環境変数名で指定してください: %s\n' "$candidate" "$token_env"
+      exit 1
+    }
+    token="$(printenv "$token_env" || true)"
+    if [[ -z "$token" && ("$mode" == auto || "$mode" == "$candidate") ]]; then
+      ralph_log_error '%sのCredentialを環境変数%sに設定してください。\n' "$candidate" "$token_env"
+      exit 1
+    fi
+    case "$candidate" in
+      worker) RALPH_WORKER_TOKEN="$token" ;;
+      reviewer) RALPH_REVIEWER_TOKEN="$token" ;;
+    esac
+    token_envs+=("$token_env")
+  done
+  if ((${#token_envs[@]} == 2)) && [[ "${token_envs[0]}" == "${token_envs[1]}" ]]; then
+    ralph_log_error 'WorkerとReviewerには別のCredentialを設定してください（tokenEnvが同じです）。\n'
+    exit 1
+  fi
+  if [[ -n "$RALPH_WORKER_TOKEN" && "$RALPH_WORKER_TOKEN" == "$RALPH_REVIEWER_TOKEN" ]]; then
+    ralph_log_error 'WorkerとReviewerには別のCredentialを設定してください（tokenが同じです）。\n'
+    exit 1
+  fi
+  for token_env in ${token_envs[@]+"${token_envs[@]}"}; do
+    unset "$token_env"
+  done
+  unset COMPASS_RALPH_TOKEN
+}
+load_role_tokens
+
+source "$RALPH_ROOT/backends/compass.sh"
+
+previous_umask="$(umask)"
+umask 077
+RALPH_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/compass-ralph.XXXXXX")"
+umask "$previous_umask"
+rendered_prompt="$RALPH_TMP_DIR/prompt.md"
+
+cleanup() {
+  local exit_status=$?
+  if [[ -n "$RALPH_SLEEP_PID" ]]; then
+    kill "$RALPH_SLEEP_PID" 2>/dev/null || true
+  fi
+  cleanup_logging
+  rm -rf "$RALPH_TMP_DIR"
+  return "$exit_status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+setup_logging
+backend_requirements
+
+set_log_role() {
+  printf '%s' "$role" >"$RALPH_LOG_ROLE_FILE"
+}
+
+set_role_identity() {
+  case "$1" in
+    worker) RALPH_ROLE_TOKEN="$RALPH_WORKER_TOKEN" ;;
+    reviewer) RALPH_ROLE_TOKEN="$RALPH_REVIEWER_TOKEN" ;;
+  esac
+  RALPH_ACTIVE_ROLE="$1"
+  backend_set_identity
+}
+
+prepare_role() {
+  local selected_role="$1"
+  local priority_status="${2:-}"
+  local prompt_path prompt_content
+  role="$selected_role"
+  set_log_role
+  set_role_identity "$role"
+  AGENT_PROVIDER="$(config_optional_string ".roles.${role}.agentProvider")"
+  if [[ -z "$AGENT_PROVIDER" ]]; then
+    AGENT_PROVIDER="$(config_optional_string '.agentProvider')"
+    AGENT_PROVIDER="${AGENT_PROVIDER:-claude}"
+  fi
+  RALPH_AGENT_COMMAND="$(config_optional_string ".roles.${role}.command")"
+  RALPH_AGENT_MODEL="$(config_optional_string ".roles.${role}.model")"
+  case "$AGENT_PROVIDER" in
+    claude) source "$RALPH_ROOT/providers/claude.sh" ;;
+    codex) source "$RALPH_ROOT/providers/codex.sh" ;;
+    *)
+      ralph_log_error '未対応のagentProviderです: %s\n' "$AGENT_PROVIDER"
+      exit 1
+      ;;
+  esac
+  prompt_path="$(config_optional_string ".roles.${role}.prompt")"
+  if [[ -z "$prompt_path" ]]; then
+    prompt_path="$RALPH_ROOT/prompts/$role.md"
+  elif [[ "$prompt_path" != /* ]]; then
+    prompt_path="$CONFIG_DIR/$prompt_path"
+  fi
+  [[ -f "$prompt_path" ]] || {
+    ralph_log_error 'Promptが見つかりません: %s\n' "$prompt_path"
+    exit 1
+  }
+  prompt_content="$(<"$prompt_path")"
+  prompt_content="${prompt_content//\{\{PROJECT_ID\}\}/$COMPASS_PROJECT_ID}"
+  prompt_content="${prompt_content//\{\{PROJECT_ROOT\}\}/$PROJECT_ROOT}"
+  printf '%s\n' "$prompt_content" >"$rendered_prompt"
+  if [[ "$priority_status" == rejected ]]; then
+    printf '\n今回の自動実行では、利用可能な`rejected` Taskを優先して1件選んでください。\n' >>"$rendered_prompt"
+  fi
+  provider_requirements
+}
+
+AUTO_REVIEWER_RETRY_AT=0
+AUTO_WORKER_RETRY_AT=0
+
+auto_role_retry_at() {
+  case "$1" in
+    reviewer) printf '%s\n' "$AUTO_REVIEWER_RETRY_AT" ;;
+    worker) printf '%s\n' "$AUTO_WORKER_RETRY_AT" ;;
+  esac
+}
+
+auto_set_role_retry_at() {
+  local retry_at="$2"
+  case "$1" in
+    reviewer) AUTO_REVIEWER_RETRY_AT="$retry_at" ;;
+    worker) AUTO_WORKER_RETRY_AT="$retry_at" ;;
+  esac
+}
+
+select_auto_role() {
+  local candidate candidate_summary pending retry_at
+  local reviewer_summary worker_summary
+  role=auto
+  set_log_role
+  for candidate in reviewer worker; do
+    set_role_identity "$candidate"
+    candidate_summary="$(backend_get_task_summary "$candidate")" || return 1
+    case "$candidate" in
+      reviewer) reviewer_summary="$candidate_summary" ;;
+      worker) worker_summary="$candidate_summary" ;;
+    esac
+    pending="$(backend_pending_count "$candidate" "$candidate_summary")"
+    retry_at="$(auto_role_retry_at "$candidate")"
+    if (( pending > 0 && $(date +%s) >= retry_at )); then
+      role="$candidate"
+      set_log_role
+      summary="$candidate_summary"
+      return 0
+    fi
+  done
+  role=auto
+  summary="$(jq -cn --argjson reviewer "$reviewer_summary" --argjson worker "$worker_summary" \
+    '{reviewer: $reviewer, worker: $worker}')"
+}
+
+if [[ "$mode" == auto ]]; then
+  ralph_log 'Ralphを開始します。mode=auto projectId=%s server=%s log=%s\n' \
+    "$COMPASS_PROJECT_ID" "$COMPASS_SERVER_URL" "$RALPH_LOG_FILE"
+else
+  prepare_role "$mode"
+  ralph_log 'Ralphを開始します。provider=%s role=%s command=%s model=%s projectId=%s server=%s log=%s\n' \
+    "$AGENT_PROVIDER" "$role" "${RALPH_AGENT_COMMAND:-default}" \
+    "${RALPH_AGENT_MODEL:-default}" "$COMPASS_PROJECT_ID" "$COMPASS_SERVER_URL" "$RALPH_LOG_FILE"
+fi
+
+# SIGTERM / SIGINTで待機を中断できるよう、sleepを子プロセスにしてwaitする。
+pause() {
+  sleep "$1" &
+  RALPH_SLEEP_PID=$!
+  wait "$RALPH_SLEEP_PID"
+  RALPH_SLEEP_PID=""
+}
+
+wait_before_retry() {
+  local reason="$1"
+  local delay="${2:-$RETRY_INITIAL_SECONDS}"
+  if [[ "$RUN_ONCE" == true ]]; then
+    ralph_log_error '%s\n' "$reason"
+    exit 1
+  fi
+  ralph_log_error '%s %d秒後に再試行します。\n' "$reason" "$delay"
+  pause "$delay"
+}
+
+last_idle_log_epoch=0
+last_idle_summary=""
+
+while true; do
+  if [[ "$mode" == auto ]]; then
+    if ! select_auto_role; then
+      wait_before_retry 'Compassの状態取得に失敗しました。'
+      continue
+    fi
+    if [[ "$role" == auto ]]; then
+      pending=0
+    else
+      pending="$(backend_pending_count "$role" "$summary")"
+    fi
+  elif ! summary="$(backend_get_task_summary "$role")"; then
+    wait_before_retry 'Compassの状態取得に失敗しました。'
+    continue
+  else
+    pending="$(backend_pending_count "$role" "$summary")"
+  fi
+  if (( pending == 0 )); then
+    current_epoch="$(date +%s)"
+    normalized_summary="$(jq -cS . <<<"$summary")"
+    if [[ "$mode" == auto ]]; then
+      status='自動実行対象なし'
+    else
+      status="$(backend_format_status "$role" "$summary")"
+    fi
+    if [[ "$RUN_ONCE" == true ]]; then
+      ralph_log '対象がないため終了します。%s\n' "$status"
+      exit 0
+    fi
+    if (( last_idle_log_epoch == 0 )); then
+      ralph_log '待機を開始します。%s 確認間隔=%d秒\n' "$status" "$POLL_INTERVAL_SECONDS"
+      last_idle_log_epoch="$current_epoch"
+    elif [[ "$normalized_summary" != "$last_idle_summary" ]]; then
+      ralph_log '待機中にTask状態が変化しました。%s\n' "$status"
+      last_idle_log_epoch="$current_epoch"
+    elif (( current_epoch - last_idle_log_epoch >= IDLE_HEARTBEAT_SECONDS )); then
+      ralph_log '待機中です。%s\n' "$status"
+      last_idle_log_epoch="$current_epoch"
+    fi
+    last_idle_summary="$normalized_summary"
+    pause "$POLL_INTERVAL_SECONDS"
+    continue
+  fi
+
+  last_idle_log_epoch=0
+  last_idle_summary=""
+  if [[ "$mode" == auto ]]; then
+    priority_status=""
+    if [[ "$role" == worker && "$(jq -r '.availableRejected' <<<"$summary")" -gt 0 ]]; then
+      priority_status=rejected
+    fi
+    prepare_role "$role" "$priority_status"
+  fi
+  backend_print_status "$role" "$summary"
+  ralph_log '%sを起動します。\n' "$role"
+  # Agentの実行中にSIGTERMを受けた場合は、Agentの終了を待ってから次を起動せずに終了する。
+  if provider_run "$rendered_prompt" "$PROJECT_ROOT"; then
+    provider_status=0
+  else
+    provider_status=$?
+  fi
+  if (( provider_status != 0 )); then
+    PROVIDER_TOKEN_LIMIT_RESET_PARSED=false
+    PROVIDER_TOKEN_LIMIT_RETRY_SECONDS=""
+    if provider_hit_token_limit; then
+      if [[ "$PROVIDER_TOKEN_LIMIT_RESET_PARSED" == true ]]; then
+        retry_delay="$PROVIDER_TOKEN_LIMIT_RETRY_SECONDS"
+        retry_reason="${role}がToken上限に達しました。Reset時刻を検出しました。"
+      else
+        retry_delay="$RETRY_TOKEN_LIMIT_SECONDS"
+        retry_reason="${role}がToken上限に達しました。"
+      fi
+      if [[ "$mode" == auto && "$RUN_ONCE" != true ]]; then
+        auto_set_role_retry_at "$role" "$(($(date +%s) + retry_delay))"
+        ralph_log_error '%s %d秒間このRoleを待機し、次のRoleを確認します。\n' \
+          "$retry_reason" "$retry_delay"
+      else
+        wait_before_retry "$retry_reason" "$retry_delay"
+      fi
+    else
+      wait_before_retry "${role}が終了コード ${provider_status} で終了しました。"
+    fi
+    continue
+  fi
+  if [[ "$RUN_ONCE" == true ]]; then
+    ralph_log '%sが終了しました。\n' "$role"
+    exit 0
+  fi
+
+  if ! updated_summary="$(backend_get_task_summary "$role")"; then
+    wait_before_retry 'Agent実行後のCompass状態取得に失敗しました。'
+    continue
+  fi
+  if [[ "$(jq -cS . <<<"$summary")" == "$(jq -cS . <<<"$updated_summary")" ]]; then
+    wait_before_retry "${role}実行後もTask状態が変化しませんでした。"
+    continue
+  fi
+done

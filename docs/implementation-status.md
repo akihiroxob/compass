@@ -6,7 +6,7 @@
 
 | 領域 | 現在の構成・機能 |
 | --- | --- |
-| 起動 | npm workspaces。`orchestrator/`（`@compass/orchestrator`）はServerと別に実行するBatch。`server/`（`@compass/server`）がWeb UI（`server/src/web`、build出力`server/public/`）・`/api`・`/mcp`をHonoで同一portに提供。rootの`npm start`等はroot cwdのまま`server/`のentryを起動 |
+| 起動 | npm workspaces。`orchestrator/`（`@compass/orchestrator`）はServerと別に実行するBatch、`ralph/`（`@compass/ralph`。bash実装でnpm workspaceはテスト・構文検査用）はServerと別に実行するLoop。`server/`（`@compass/server`）がWeb UI（`server/src/web`、build出力`server/public/`）・`/api`・`/mcp`をHonoで同一portに提供。rootの`npm start`等はroot cwdのまま`server/`のentryを起動 |
 | 構成 | `packages/direction`（`@compass/direction`）・`packages/work`（`@compass/work`）・`packages/access`（`@compass/access`。Principal・Role Grant・Credential・Membership・Human認証のuse case・規則）・`packages/activity`（`@compass/activity`。Activityのmodel・use case・保存）・`packages/shared`（`@compass/shared`。汎用errorと入力検証の部品）。transport（OIDC adapter・Cookie・Bearer解決）・DIは`server/src`にある。packageは`src/index.ts`で公開し、serverが配線する |
 | 保存 | 単一SQLite file / Kysely。table型・DDLはDirection・Work・Access・Activityが各packageに持ち、serverの`Database`型と`initializeSchema`が合成する |
 | Direction | Project・Intent・Outcome・固定成功条件・Research・Decision・Evaluation・ADR参照 |
@@ -16,6 +16,7 @@
 | Activity | Project scopeのActivityの明示記録・参照（MCP）、Work・Directionの状態変更からのcanonical生成、Role Contextへのsummary接続、Web UIでの閲覧 |
 | Runtime接続面 | event取得・ack、Execution Evidence還流、Orchestrator向けの現在状態Query、scope付きCredential |
 | Orchestrator | `orchestrator/`。Project横断で`get_orchestration_state`を読み、状態判定だけで専門RoleのAgent（設定したshellコマンド）を起動する。dispatch keyの起動記録とprocess lockで並行起動・再起動・再試行の重複を抑止する。Orchestrator停止後に残ったAgentはlease切れ後にprocess groupごと停止（猶予後SIGKILL）を確認してから再試行する。AgentはPIDの記録後に開始合図を受けるまでRoleのコマンドを実行しない。AgentへはRuntime Credentialの環境変数を渡さない |
+| Ralph | `ralph/`。`list_tasks`の`availableFor`でWorker / Reviewerの対象を確認し、Claude Code・CodexのAgentを1 Taskずつ起動する。Worker / Reviewerは別Credential（Role別の`tokenEnv`）と`X-Compass-Active-Role`で接続し、同じCredentialの設定は起動を拒否する。AgentへはそのRoleのtokenだけを渡し、起動指示はRole Contextの取得だけでRole手順を含めない。Claimは保持せず、停止したAgentのTaskはClaim期限後に再取得される |
 
 Research Request / Result / Finding / SynthesisとDirection Decision・Evaluationは現在DBに保存する。Intent作成はResearch Requestを作らず、OrchestratorがStrategistを起動してResearchの要否を判断させる。以前に自動作成したInitial Research Requestは削除せず通常のRequestとして残る。保存先は内容と所有責務で個別に判断し、Project別であることや本文が長いことを理由に一律移行しない。
 
@@ -63,10 +64,9 @@ Accessは`project`のtableを直接読まない。archive判定・Projectの存�
 
 ## 未実装・未接続・未検証
 
-- `ralph/`は未実施。
 - `scope=system`のActivityは保存形式だけで、記録・参照の入口（MCP・Web）は無い。
 - OrchestratorはAgentへ`get_role_context`の取得を指示して起動するが、実Agent（Claude Code・Codex等）を起動した運用は未検証。結合テストの起動先はfixture。Execution Evidenceの還流は行わない。複数ホストでの並行実行の重複抑止はない。
-- 本リポジトリにはRalphの実装はない。参照元は`/Users/aokayama/git/agent-foundation/ralph`。
+- RalphがClaude Code・Codexの実Agentを起動してTaskを処理するループは未検証。結合テスト（`ralph/tests/ralph.test.ts`）の起動先はfixture。実CLIはMCP接続のheader（Authorization・`X-Compass-Active-Role`）の送信だけを手動で確認した。remote modeのAgent Credentialでの接続は自動テストの対象外。
 - 実RuntimeによるAgent起動と継続したLv6自律運転は未接続・未検証。`server/tests/support/lv6Runtime.ts`等のfixtureを自律運転の実証としない。
 - 実Googleとの接続確認は自動テストの対象外。
 

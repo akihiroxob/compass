@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Compass Ralphの入口。`ralph run [auto|worker|reviewer] [--config PATH] [--once]`をralph-loopへ渡す。
+set -euo pipefail
+
+usage() {
+  cat >&2 <<'EOF'
+使い方: ralph run [auto|worker|reviewer] [--config PATH] [--once]
+  --config PATH  Ralph設定file（省略時はCOMPASS_RALPH_CONFIG）
+  --once         対象があれば1回だけAgentを起動し、終了を待って終了する
+EOF
+  exit 1
+}
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+[[ "${1:-}" == run ]] || usage
+shift
+role=auto
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    auto | worker | reviewer)
+      role="$1"
+      shift
+      ;;
+    --config)
+      [[ -n "${2:-}" ]] || usage
+      args+=(--config "$2")
+      shift 2
+      ;;
+    --once)
+      args+=(--once)
+      shift
+      ;;
+    *) usage ;;
+  esac
+done
+
+exec "$SCRIPT_DIR/ralph-loop" ${args[@]+"${args[@]}"} "$role"

@@ -153,3 +153,6 @@ apm_modules/
 .agents
 .claude
 .codex
+
+# Compass Ralph の Operational Log
+.compass-ralph/
