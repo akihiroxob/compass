@@ -78,23 +78,53 @@ Project詳細を次のviewに分ける。viewはURLのquery（`?view=`）で表�
 | --- | --- | --- |
 | Intent | Active Intentの題名、または未登録 | `intents` |
 | Outcome | Active Outcomeの件数と題名 | `intents/:id/outcomes` |
-| Work | ProjectのTaskを状態別に件数表示（作業中・レビュー待ち・受入待ち・差戻し） | `execution` |
+| Work | ProjectのTaskを状態別に件数表示（未着手・作業中・再取得待ち・レビュー待ち・受入待ち・差戻し）。0件の状態は省く | `execution` |
 | 評価 | Active Outcomeごとの`outcomeLoopStage`のラベル | `execution?outcomeId=`、`execution-summary`、`evaluations` |
 
 評価段はActive Outcomeの件数分だけAPIを呼ぶ。件数が多い場合は先頭数件に限り、残りはOutcome詳細へ誘導する。各段から根拠の詳細（Intent詳細、Outcome詳細、「実行」view）へリンクする。Executionの受入をOutcomeの達成として表示しない。
 
-**次の行動**は、条件を上から評価して最大3件を出す。自分の権限で実行できるものはボタン、できないものは依頼先の文言にする。archivedでは出さない。
+Workの件数は次の区分で数え、各Taskをどれか1つに入れる。状態名は`taskStatusLabels`を使い、`in_review`（レビュー待ち）と`wait_accept`（受入待ち）をまとめない。
+
+| 区分 | 条件（`execution`のTask） | 次に動く担当 |
+| --- | --- | --- |
+| 未着手 | `todo` | Worker |
+| 差戻し | `rejected` | Worker（再着手） |
+| 再取得待ち | `doing`かつ`reclaimable` | Worker（再取得） |
+| 作業中 | `doing`かつ`activeClaim`あり | Claim保持中のWorker |
+| レビュー待ち | `in_review` | Reviewer。`activeClaim`が無ければHumanも受入・差戻しできる |
+| 受入待ち | `wait_accept` | Manager。`activeClaim`が無ければHumanも受入・差戻しできる |
+
+**次の行動**は「あなたの操作」と「Agentの担当待ち」の2つに分けて出す。archivedではどちらも出さない。
+
+「あなたの操作」は、条件を上から評価して最大3件を出す。自分の権限で実行できるものはボタン、できないものは依頼先の文言にする。
 
 | 条件 | 表示 | 実行に必要な権限 | 権限が無い場合 |
 | --- | --- | --- | --- |
 | Active Intentが無い | Intentを登録 | `direction.write` | Editor以上へ依頼 |
 | Active Outcomeが無い | Outcomeを登録 | `direction.write` | Editor以上へ依頼 |
-| 期限内Claimの無い`in_review`・`wait_accept`のTaskがある | 受入待ちのTaskを確認（件数） | `execution.intervene` | 表示のみ |
+| 期限内Claimの無い`wait_accept`のTaskがある | 受入待ちのTaskを確認（件数） | `execution.intervene` | 表示しない（「Agentの担当待ち」に出る） |
 | Active OutcomeがあるがStoryが無く、Managerが未割当 | Managerを割り当てる | `grant.manage` | Administrator以上へ依頼 |
+| 未着手・差戻し・再取得待ちのTaskがあり、Workerが未割当 | Workerを割り当てる | `grant.manage` | Administrator以上へ依頼 |
+| レビュー待ちのTaskがあり、Reviewerが未割当 | Reviewerを割り当てる | `grant.manage` | Administrator以上へ依頼 |
 | 割当済みAgentにCredentialが無い | Credentialを発行 | `credential.manage` | 表示しない（Credentialはadministratorしか参照できない） |
 | Execution結果が還流済みで未評価、かつEvaluatorが未割当 | Evaluatorを割り当てる | `grant.manage` | Administrator以上へ依頼 |
 
-該当が無ければ「今すぐ必要な操作はありません」と出す。Credentialの有無はadministrator以外に推測させない。
+「受入待ちのTaskを確認」は「実行」viewの受入待ちTaskへ移動する。レビュー待ちのTaskはReviewerの担当とし、Humanの介入（受入・差戻し）はTask詳細の既存操作に任せて、概要では勧めない。
+
+「Agentの担当待ち」は、期限内Claimが無く、Agentが次に動く必要のあるTaskを区分ごとに件数で出す。HumanはAgentのClaimを代行できないため、ボタンにせず、状況と必要な担当Roleを文で示し、「実行」viewの該当Taskへリンクする。
+
+| 区分 | 表示例 |
+| --- | --- |
+| 未着手 | 未着手 N件 — Workerの着手待ち |
+| 差戻し | 差戻し N件 — Workerの再着手待ち |
+| 再取得待ち | 再取得待ち N件 — Claimの期限が切れ、Workerの再取得待ち |
+| レビュー待ち（期限内Claim無し） | レビュー待ち N件 — Reviewerの担当待ち |
+| 受入待ち（期限内Claim無し） | 受入待ち N件 — Managerの担当待ち（Editor以上はHumanとしても受入できる） |
+
+- 担当Roleが未割当なら、その行に「Workerが未割当」のように併記する（割当の操作は「あなたの操作」に出る）。Role割当済みでも、Agentが動いていることは示さない。
+- 期限内Claimを持つTaskは「Agentの担当待ち」に含めず、「Claim保持中」に出す。
+
+「あなたの操作」も「Agentの担当待ち」も無いときだけ「今すぐ必要な操作はありません」と出す。「あなたの操作」が無く担当待ちだけがある場合は「あなたの操作はありません」と出し、担当待ちを並べる。Credentialの有無はadministrator以外に推測させない。
 
 **担当中のAgent**はTask 02で実装する。
 
@@ -138,11 +168,12 @@ Project詳細を次のviewに分ける。viewはURLのquery（`?view=`）で表�
 
 | 意味 | 用途 | 方針 |
 | --- | --- | --- |
-| 要対応 | 受入待ち、差戻し、次の行動 | アクセント（`#a2462d`）の塗りbadge |
+| 要対応 | 受入待ち、差戻し、あなたの操作 | アクセント（`#a2462d`）の塗りbadge |
+| 待機 | 未着手、Agentの担当待ち | 塗りの無い枠線badge |
 | 進行中 | 作業中、レビュー待ち、Claim保持中 | 落ち着いた青系の塗りbadge |
 | 完了 | 受入済み、評価で達成 | 緑系の淡い背景 |
 | 終了・控えめ | 取消、過去のIntent | 既存の`muted` |
-| 警告・失敗 | 読込失敗、期限切れ、危険な操作 | 既存の`error`・`danger` |
+| 警告・失敗 | 読込失敗、再取得待ち（期限切れ）、危険な操作 | 既存の`error`・`danger` |
 
 色だけに頼らず、必ずラベル文字を併記する。文字と背景はWCAG AAのコントラスト比を満たす。
 
@@ -162,6 +193,6 @@ Project詳細を次のviewに分ける。viewはURLのquery（`?view=`）で表�
 ## 後続Taskの受入観点
 
 - **02**: 期限内Claimだけを担当中とし、期限切れは再取得待ちとして別表示する。状態3種を区別し、Task詳細へ移動できる。読込中・失敗・Claim無しが区別され、再読込できる。Claim非保持のRoleを推測表示しない。Desktop・スマートフォン、期限切れ、取得競合後の再読込を確認する。
-- **03**: viewとURLが対応し、戻る・再読込で同じviewに戻る。概要の現在地・次の行動が上記の条件表どおりに出る。viewer・editor・administrator・owner・archivedで実行できない操作を勧めない。スマートフォンで概要が短く、設定へ2操作以内で到達できる。
+- **03**: viewとURLが対応し、戻る・再読込で同じviewに戻る。概要の現在地・次の行動が上記の区分と条件表どおりに出る。未着手・差戻し・再取得待ち・期限内Claimの無いレビュー待ち・受入待ちのいずれかが残るProjectで「今すぐ必要な操作はありません」と出さない。レビュー待ちと受入待ちを別の表示にする。AgentのClaimを要する作業をHumanの操作ボタンにしない。viewer・editor・administrator・owner・archivedで実行できない操作を勧めない。スマートフォンで概要が短く、設定へ2操作以内で到達できる。
 - **04**: 状態色・タイポグラフィ・動きが上記の方針に沿い、`prefers-reduced-motion`・keyboard focus・コントラストを確認する。
 - **05**: 空・読込・失敗・404が上記の方針に沿い、権限と接続状況に応じた案内を出す。
