@@ -24,6 +24,7 @@ import { agentRoleAnchorId, grantRoleLabels, grantsPath, type Grant } from "../g
 import {
   agentsWithoutCredential,
   countWork,
+  nextClaimExpiry,
   nextActionSummary,
   planNextActions,
   projectViewPath,
@@ -89,8 +90,8 @@ const loadOverview = async (projectId: string, showCredentials: boolean): Promis
 const outcomeDetailPath = (projectId: string, outcome: OverviewOutcome) => outcomePath(projectId, outcome.intentId, outcome.id);
 
 /** 現在地: Direction（Intent・Outcome）→ Work → 評価。各段から根拠の詳細へ辿る。Executionの受入をOutcomeの達成として出さない。 */
-const CurrentPosition = ({ projectId, data }: { projectId: string; data: OverviewData }) => {
-  const work = countWork(data.tasks, data.fetchedAt);
+const CurrentPosition = ({ projectId, data, now }: { projectId: string; data: OverviewData; now: number }) => {
+  const work = countWork(data.tasks, now);
   const shown = data.progress.slice(0, stageDisplayLimit);
   return (
     <ol className="position-steps" aria-label="現在地">
@@ -169,12 +170,14 @@ export const ProjectOverview = ({ projectId, archived, permissions }: { projectI
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // 判定の基準時刻。取得時刻から始め、表示中にClaimの期限を過ぎたときだけ進める（「Claim保持中」と同じ判定にそろえる）。
+  const [now, setNow] = useState(0);
   const { credentialManage } = permissions;
   const load = useCallback((isCurrent: () => boolean = () => true) => {
     setPending(true);
     setError(null);
     return loadOverview(projectId, credentialManage)
-      .then((loaded) => { if (isCurrent()) setData(loaded); })
+      .then((loaded) => { if (isCurrent()) { setData(loaded); setNow(loaded.fetchedAt); } })
       .catch((reason: unknown) => { if (isCurrent()) setError(loadFailureMessage(classifyError(reason), "Projectが見つかりません。")); })
       .finally(() => { if (isCurrent()) setPending(false); });
   }, [projectId, credentialManage]);
@@ -184,15 +187,21 @@ export const ProjectOverview = ({ projectId, archived, permissions }: { projectI
     void load(() => current);
     return () => { current = false; };
   }, [load]);
+  const expiry = data ? nextClaimExpiry([...data.tasks, ...data.progress.flatMap((item) => item.tasks)], now) : null;
+  useEffect(() => {
+    if (expiry === null) return;
+    const timer = setTimeout(() => setNow(Date.now()), Math.min(Math.max(expiry - Date.now() + 1, 0), 2 ** 31 - 1));
+    return () => clearTimeout(timer);
+  }, [expiry, now]);
   const next = data && !archived
     ? planNextActions({
         activeIntentId: data.activeIntent?.id ?? null,
         outcomes: data.progress,
         tasks: data.tasks,
         assignedRoles: new Set(data.grants.map((grant) => grant.role)),
-        agentsWithoutCredential: data.credentials ? agentsWithoutCredential(data.grants, data.credentials.filter((item) => credentialStatus(item, data.fetchedAt) === "active")) : null,
+        agentsWithoutCredential: data.credentials ? agentsWithoutCredential(data.grants, data.credentials.filter((item) => credentialStatus(item, now) === "active")) : null,
         permissions,
-        now: data.fetchedAt,
+        now,
       })
     : null;
   const summary = next ? nextActionSummary(next) : null;
@@ -211,7 +220,7 @@ export const ProjectOverview = ({ projectId, archived, permissions }: { projectI
         <Loading />
       ) : (
         <>
-          <CurrentPosition projectId={projectId} data={data} />
+          <CurrentPosition projectId={projectId} data={data} now={now} />
           <h3 id="next-actions-heading">次の行動</h3>
           {!next ? (
             <p className="unset">アーカイブ済みのため、次の行動はありません。</p>

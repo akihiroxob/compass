@@ -58,10 +58,10 @@ DirectionとWorkは公開index（`@compass/direction`・`@compass/work`）とapp
 
 ## Project詳細（Web UI）
 
-Project詳細は`?view=`で「概要」（`overview`。既定・不正値も概要）・「方向」（`direction`）・「実行」（`work`）・「記録」（`records`）・「設定」（`settings`）に分け、表示中のviewのsectionだけを読み込む。Hero（名前・状態・自分のRole）とarchivedの通知は全viewに出し、view切替（`nav`、選択中に`aria-current="page"`）は上端へstickyにする。他viewのTask・Role行へは`?view=work#execution-task-…`・`?view=settings#agent-role-…`で辿り、読込後に移動してfocusする。
+Project詳細は`?view=`で「概要」（`overview`。既定・不正値も概要）・「方向」（`direction`）・「実行」（`work`）・「記録」（`records`）・「設定」（`settings`）に分け、表示中のviewのsectionだけを読み込む。Hero（名前・状態・自分のRole）とarchivedの通知は全viewに出し、view切替（`nav`、選択中に`aria-current="page"`）は上端へstickyにする。他viewのTask・Role行へは`?view=work#execution-task-…`・`?view=settings#agent-role-…`で辿り、読込後に移動してfocusする。decodeできないhash（例 `#%`）は無視し、viewを通常どおり表示する。
 
 - 概要: Mission（1行）、現在地（Intent → Outcome → Work → 評価）、次の行動、Claim保持中。Workは`execution`のTaskを未着手・作業中・再取得待ち・レビュー待ち・受入待ち・差戻しの1区分ずつに数え、評価はActive Outcomeごとの`outcomeLoopStage`を先頭5件まで出す。
-- 次の行動: 「あなたの操作」（最大3件。Intent登録はActive Intentが無いとき、Outcome登録はActive IntentがありActive Outcomeが無いときだけ。期限内Claimの無い受入待ちの確認、Story起票待ち・着手待ち・レビュー待ち・評価待ちに対する未割当Roleの割当、administratorにはCredentialの無い割当済みAgent）と、「Agentの担当待ち」（Story起票待ち・評価待ち・還流待ちのOutcome、期限内Claimの無い未着手・差戻し・再取得待ち・レビュー待ち・受入待ちのTask）に分ける。権限の無い操作は依頼先を示し、AgentのClaimやOutcome handoffを要する作業をHumanの操作にしない。archivedでは出さない。取得できなかったOutcomeは件数に含めず再読込を出す。判定は`server/src/web/features/project/overview.ts`。
+- 次の行動: 「あなたの操作」（最大3件。Intent登録はActive Intentが無いとき、Outcome登録はActive IntentがありActive Outcomeが無いときだけ。期限内Claimの無い受入待ちの確認、Story起票待ち・着手待ち・レビュー待ち・評価待ちに対する未割当Roleの割当、administratorにはCredentialの無い割当済みAgent）と、「Agentの担当待ち」（Story起票待ち・評価待ち・還流待ちのOutcome、期限内Claimの無い未着手・差戻し・再取得待ち・レビュー待ち・受入待ちのTask）に分ける。権限の無い操作は依頼先を示し、AgentのClaimやOutcome handoffを要する作業をHumanの操作にしない。archivedでは出さない。取得できなかったOutcomeは件数に含めず再読込を出す。現在地のWorkと次の行動は、Claim保持中と同じく表示中にClaimの期限を過ぎた時点で再判定する。判定は`server/src/web/features/project/overview.ts`。
 - 方向: Mission・Vision、Intent（Active Outcome・過去のIntent）、Principles・Constraints。
 - 実行: Story・Task一覧、起票の導線、最近の変更。
 - 記録: Activity、Research、ADR参照、Repositories・Resources。

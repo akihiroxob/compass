@@ -5,6 +5,7 @@ import type { GrantRole } from "../src/web/features/grant/grants.ts";
 import {
   agentsWithoutCredential,
   countWork,
+  nextClaimExpiry,
   nextActionSummary,
   parseProjectView,
   planNextActions,
@@ -12,6 +13,7 @@ import {
   type NextActionInput,
   type OutcomeProgress,
 } from "../src/web/features/project/overview.ts";
+import { hashTargetId } from "../src/web/useHashTarget.ts";
 
 /** Project詳細の概要（Task 03）の判定。画面の描画・実ブラウザ確認はTaskの作業コメントに記録する。 */
 
@@ -165,4 +167,26 @@ test("Credentialの無い割当済みAgentを、Runtimeはruntime、それ以外
     { principalId: "rt", kind: "agent" },
     { principalId: "a-ok-runtime", kind: "runtime" },
   ]), ["a-revoked", "a-expired", "rt"]);
+});
+
+test("表示中にClaimの期限を過ぎたら、同じTaskを再取得待ちとして数え直し、担当待ちに出す", () => {
+  const expiresAt = now + 60_000;
+  const tasks = [task("doing", { status: "doing", activeClaim: { claimId: "c", principalId: "w", expiresAt } }), task("review", { status: "in_review", activeClaim: held("r") })];
+  assert.equal(nextClaimExpiry(tasks, now), expiresAt);
+  assert.deepEqual(countWork(tasks, now), [{ bucket: "doing", count: 1 }, { bucket: "in_review", count: 1 }]);
+  assert.deepEqual(planNextActions(input({ tasks })).waiting, []);
+  const later = expiresAt + 1;
+  assert.deepEqual(countWork(tasks, later), [{ bucket: "reclaimable", count: 1 }, { bucket: "in_review", count: 1 }]);
+  assert.deepEqual(planNextActions(input({ tasks, now: later })).waiting.map((item) => item.kind), ["reclaimable", "in_review"]);
+  assert.equal(nextClaimExpiry(tasks, later), null);
+  assert.equal(nextClaimExpiry([task("todo")], now), null);
+});
+
+test("URLのhashは要素idにdecodeし、空や不正なpercent-encodingは無視する", () => {
+  assert.equal(hashTargetId("#execution-task-t1"), "execution-task-t1");
+  assert.equal(hashTargetId("#agent-role-%E6%9C%AA"), "agent-role-未");
+  assert.equal(hashTargetId(""), null);
+  assert.equal(hashTargetId("#"), null);
+  assert.equal(hashTargetId("#%"), null);
+  assert.equal(hashTargetId("#%E0%A4%A"), null);
 });

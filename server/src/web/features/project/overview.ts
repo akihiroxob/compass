@@ -47,6 +47,12 @@ export const countWork = (tasks: readonly OverviewTask[], now: number): { bucket
     .map((bucket) => ({ bucket, count: tasks.filter((task) => workBucket(task, now) === bucket).length }))
     .filter((item) => item.count > 0);
 
+/** `now`より後に期限を迎える最も早いClaimの期限。概要はこの時刻に区分・次の行動を再判定する。無ければ`null`。 */
+export const nextClaimExpiry = (tasks: readonly Pick<OverviewTask, "activeClaim">[], now: number): number | null => {
+  const expiries = tasks.flatMap((task) => (task.activeClaim && task.activeClaim.expiresAt > now ? [task.activeClaim.expiresAt] : []));
+  return expiries.length ? Math.min(...expiries) : null;
+};
+
 // ---- 次の行動 ----
 
 export type OverviewOutcome = { id: string; intentId: string; title: string };
