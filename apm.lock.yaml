@@ -1,11 +1,11 @@
 lockfile_version: '1'
-generated_at: '2026-09-25T02:57:35.886969+00:00'
+generated_at: '2026-10-03T04:43:49.522553+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: akihiroxob/agent-foundation
   name: agent-harness
   host: github.com
-  resolved_commit: e2d954ca58fe51ad21badd1814694ddc0523482a
+  resolved_commit: 7d23fcebc917380fd62870532f75414b9c3114fe
   version: 0.1.0
   package_type: apm_package
   deployed_files:
@@ -32,7 +32,7 @@ dependencies:
     .claude/skills/review-documentation-impact/SKILL.md: sha256:3abf6480cef2a400bfa73dc043f7e58ed1b62358689b50a3438a29c6b91e3d71
     .claude/skills/review-documentation-impact/agents/openai.yaml: sha256:df87dc907c6371caf83d9128e14ffa88ade6af0f3d3d0ff4b0fce00dab4b33c5
     .codex/hooks/agent-foundation/.apm/hooks/scripts/check-dangerous-command.py: sha256:51e68e83eb8af3904cf96e4ca6a62ebe21dc9f527b1c4a3d8ba4508091015bea
-  content_hash: sha256:2210e4a95b10ada7b53a848688beea5f072b83c83947205ba970d726703668a9
+  content_hash: sha256:a661c755ab3eaeceefbcb635aa060e8f898d018eed0e45bfd3c1a8518665f1de
 deployments:
 - kind: project-relative
   target: claude
