@@ -1,0 +1,38 @@
+{
+  "name": "@compass/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p src/web && vite build --config src/web/vite.config.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "lint": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json"
+  },
+  "dependencies": {
+    "@compass/access": "0.1.0",
+    "@compass/activity": "0.1.0",
+    "@compass/direction": "0.1.0",
+    "@compass/shared": "0.1.0",
+    "@compass/work": "0.1.0",
+    "@hono/node-server": "^1.19.12",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-sqlite3": "^12.8.0",
+    "hono": "^4.12.9",
+    "kysely": "^0.28.15",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vite": "^7.1.0"
+  }
+}

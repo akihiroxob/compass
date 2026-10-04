@@ -1,0 +1,153 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  ApiError,
+  classifyError,
+  fieldId,
+  formatIssuePath,
+  loadFailureMessage,
+  request,
+} from "../src/web/api.ts";
+
+const jsonResponse = (status: number, body: unknown) =>
+  new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+
+const rejectionOf = async (fetchImpl: () => Promise<Response>) => {
+  try {
+    await request("/api/projects", undefined, fetchImpl);
+  } catch (error) {
+    return error;
+  }
+  assert.fail("request should reject");
+};
+
+test("issue pathを入力ラベルとfield idへ対応づける", () => {
+  assert.equal(formatIssuePath("name"), "Project名");
+  assert.equal(formatIssuePath("principles.0"), "Principles 1");
+  assert.equal(formatIssuePath("repositories.1.url"), "Repositories 2のURL");
+  assert.equal(formatIssuePath("resources.0.kind"), "Resources 1の種類");
+  assert.equal(formatIssuePath(""), "入力全体");
+  assert.equal(fieldId("repositories.1.url"), "field-repositories-1-url");
+});
+
+test("400 VALIDATION_ERRORはissues付きの入力エラーとして分類する", async () => {
+  const error = await rejectionOf(async () =>
+    jsonResponse(400, {
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Project input is invalid",
+        issues: [
+          { path: "principles.0", message: "principle is required" },
+          { path: "repositories.0.url", message: "must be a valid URL" },
+        ],
+      },
+    }),
+  );
+  assert.deepEqual(classifyError(error), {
+    kind: "validation",
+    issues: [
+      { fieldId: "field-principles-0", label: "Principles 1", message: "principle is required" },
+      {
+        fieldId: "field-repositories-0-url",
+        label: "Repositories 1のURL",
+        message: "must be a valid URL",
+      },
+    ],
+  });
+});
+
+test("issuesがないVALIDATION_ERRORとbody全体のissueはfieldに紐づけない", async () => {
+  const withoutIssues = await rejectionOf(async () =>
+    jsonResponse(400, { error: { code: "VALIDATION_ERROR", message: "invalid" } }),
+  );
+  assert.deepEqual(classifyError(withoutIssues), {
+    kind: "validation",
+    issues: [{ fieldId: null, label: "入力全体", message: "invalid" }],
+  });
+
+  const invalidJson = await rejectionOf(async () =>
+    jsonResponse(400, {
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Project input is invalid",
+        issues: [{ path: "", message: "request body must be valid JSON" }],
+      },
+    }),
+  );
+  const classified = classifyError(invalidJson);
+  assert.equal(classified.kind, "validation");
+  assert.equal(classified.kind === "validation" && classified.issues[0]?.fieldId, null);
+});
+
+test("404 NOT_FOUNDは入力エラーでも一般の失敗でもなくnot_foundと分類する", async () => {
+  const error = await rejectionOf(async () =>
+    jsonResponse(404, { error: { code: "NOT_FOUND", message: "Project not found" } }),
+  );
+  assert.deepEqual(classifyError(error), { kind: "not_found" });
+});
+
+test("500・非JSON応答・接続失敗は入力エラーにせずotherと分類する", async () => {
+  const serverError = await rejectionOf(async () =>
+    jsonResponse(500, { error: { code: "INTERNAL_ERROR", message: "Internal Server Error" } }),
+  );
+  assert.equal(classifyError(serverError).kind, "other");
+
+  const htmlError = await rejectionOf(async () => new Response("<html>Bad Gateway</html>", { status: 502 }));
+  assert.ok(htmlError instanceof ApiError);
+  assert.equal(htmlError.status, 502);
+  assert.equal(htmlError.code, "HTTP_ERROR");
+  assert.equal(classifyError(htmlError).kind, "other");
+
+  const notJsonOk = await rejectionOf(async () => new Response("ok", { status: 200 }));
+  assert.ok(notJsonOk instanceof ApiError);
+  assert.equal(notJsonOk.code, "INVALID_RESPONSE");
+
+  const networkError = await rejectionOf(async () => {
+    throw new TypeError("fetch failed");
+  });
+  assert.ok(networkError instanceof ApiError);
+  assert.equal(networkError.code, "NETWORK_ERROR");
+  assert.equal(classifyError(networkError).kind, "other");
+});
+
+test("接続失敗・サーバー障害・解釈できない応答は、サーバーの英語文言ではなく次の行動を示す", async () => {
+  const unavailable = "サーバーで問題が発生しました。時間をおいて、もう一度お試しください。";
+  const serverError = await rejectionOf(async () =>
+    jsonResponse(500, { error: { code: "INTERNAL_ERROR", message: "Internal Server Error" } }),
+  );
+  assert.deepEqual(classifyError(serverError), { kind: "other", message: unavailable });
+  const htmlError = await rejectionOf(async () => new Response("<html>Bad Gateway</html>", { status: 502 }));
+  assert.deepEqual(classifyError(htmlError), { kind: "other", message: unavailable });
+  const notJsonOk = await rejectionOf(async () => new Response("ok", { status: 200 }));
+  assert.deepEqual(classifyError(notJsonOk), { kind: "other", message: unavailable });
+  const networkError = await rejectionOf(async () => {
+    throw new TypeError("fetch failed");
+  });
+  assert.deepEqual(classifyError(networkError), {
+    kind: "other",
+    message: "サーバーに接続できませんでした。通信状況を確認して、もう一度お試しください。",
+  });
+});
+
+test("読み込み失敗の文言は、not_foundに画面ごとの文言、URL由来の入力エラーに開き直しの案内を出す", () => {
+  assert.equal(loadFailureMessage({ kind: "not_found" }, "Projectが見つかりません。"), "Projectが見つかりません。");
+  assert.equal(
+    loadFailureMessage({ kind: "validation", issues: [] }, "Projectが見つかりません。"),
+    "URLの指定が正しくありません。一覧からもう一度開いてください。",
+  );
+  assert.equal(loadFailureMessage({ kind: "other", message: "x" }, "Projectが見つかりません。"), "x");
+});
+
+test("400でもVALIDATION_ERROR以外のcodeは入力エラーにしない", async () => {
+  const error = await rejectionOf(async () =>
+    jsonResponse(400, { error: { code: "BAD_REQUEST", message: "bad" } }),
+  );
+  assert.equal(classifyError(error).kind, "other");
+});
+
+test("成功応答はJSONをそのまま返す", async () => {
+  const body = await request<{ projects: unknown[] }>("/api/projects", undefined, async () =>
+    jsonResponse(200, { projects: [] }),
+  );
+  assert.deepEqual(body, { projects: [] });
+});

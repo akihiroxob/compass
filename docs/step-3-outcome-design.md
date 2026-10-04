@@ -1,0 +1,24 @@
+# Outcome・成功条件の現行仕様
+
+OutcomeはIntentへ近づくために実現する観測可能な状態。Directionが所有する。型は [Outcome.ts](../packages/direction/src/domain/Outcome.ts)、入力規則は [outcomeSchema.ts](../packages/direction/src/application/outcomeSchema.ts)。
+
+## 項目と固定条件
+
+Project / IntentのID、title、description、任意のhypothesis、rationale、status、cancelReason、successCriteria、任意のoriginDecisionId、作成更新日時を持つ。
+
+- title: 必須、100文字まで。
+- description / rationale: 必須、各2,000文字まで。
+- hypothesis: 任意、2,000文字まで。
+- successCriteria: 1〜10件。各descriptionは500文字、measurementは1,000文字、任意のtargetは200文字まで。
+
+作成後のdescription / rationale / successCriteriaは固定。active時にtitle / hypothesisだけ変更できる。取消には理由が必要。Intentがactiveでない場合やProjectがarchivedの場合は書込を拒否する。
+
+## 操作と評価
+
+HumanはWeb UIから、Agentはstrategist GrantでMCPから操作する。主要toolは`create_outcome` / `list_outcomes` / `get_outcome` / `update_outcome` / `cancel_outcome`と、Decisionを伴う`decide_next_outcome`。
+
+WorkのStoryはOutcomeを参照し、作成時の成功条件等をsnapshotとして持つ。WorkによるTask受入はOutcome達成を意味しない。
+
+現在のEvaluationはevaluator Grantを持つAgentが全Criterionを`met` / `not_met` / `insufficient_evidence`で判定する。`met` / `not_met`には対象Outcomeへ還流済みのEvidence参照が必要。総合結果は全件metならachieved、not_metがあればfailed、それ以外はinsufficient_evidenceとして導出する。
+
+Evaluation保存はOutcomeのstatusを変更しない。StrategistはEvaluationを根拠に次Outcome・追加調査・Intent完了等を判断する。実Agentによる自律運転は未検証。
