@@ -10,7 +10,7 @@ import {
 
 const intent = (overrides: Partial<Intent>): Intent => ({
   id: "i1",
-  projectId: "p1",
+  workspaceId: "w1",
   title: "Title",
   desiredState: "State",
   completionDefinition: null,

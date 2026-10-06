@@ -1,5 +1,6 @@
 export type AdrReference = {
   id: string;
+  workspaceId: string;
   projectId: string;
   decisionId: string;
   repositoryId: string;
@@ -7,6 +8,7 @@ export type AdrReference = {
   commitSha: string;
   pullRequestUrl: string | null;
   correlationId: string;
+  requestKey: string;
   principalId: string;
   createdAt: number;
 };

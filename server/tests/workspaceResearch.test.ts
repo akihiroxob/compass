@@ -3,6 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { createElement, type ComponentType } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { register } from "tsx/esm/api";
+import type { ResearchRequest, ResearchRequestDetail } from "../src/web/researchForm.ts";
 import { sql } from "kysely";
 import { CreateWorkspaceProjectUseCase, CreateWorkspaceUseCase, SQLiteProjectRepository, SQLiteWorkspaceRepository } from "@compass/organization";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -55,6 +60,40 @@ const resultInput = (requestKey = "result", resourceId?: string) => ({ requestKe
 const synthesisInput = (findingId: string, overrides: object = {}) => ({ requestKey: "synthesis", principalId: "researcher", runRef: "run", conclusion: "Conclusion", findingIds: [findingId], validAsOf: 1, ...overrides });
 const decisionInput = (intentId: string, overrides: object = {}) => ({ requestKey: "decision", runRef: "run", type: "adr_candidate", intentId,
   judgment: "Document the choice", reason: "Evidence supports the choice", ...overrides });
+
+test("Research一覧のWorkspace応答から閲覧Projectの詳細リンクを辿れる", async () => {
+  const { database, services, workspace, intent, direction, createProject } = await setup();
+  const web = register({ namespace: "research-ui", tsconfig: fileURLToPath(new URL("../src/web/tsconfig.json", import.meta.url)) });
+  try {
+    const project = await createProject.execute(workspace.id, { name: "Project" });
+    const research = await direction.createResearchRequestUseCase.execute(workspace.id, requestInput(intent.id));
+    await direction.registerResearchResultUseCase.execute(workspace.id, research.id, resultInput());
+    const app = await createSignedInApp(database, services);
+    const response = await app.request(`/api/projects/${project.id}/research-requests`);
+    assert.equal(response.status, 200);
+    const { requests } = await response.json() as { requests: ResearchRequest[] };
+    assert.equal(requests.length, 1);
+    assert.equal("projectId" in requests[0]!, false);
+    assert.equal(requests[0]!.workspaceId, workspace.id);
+
+    // Web用tsconfigで実際のReact行を描画し、生成したhrefを詳細APIへ渡す。
+    const { RequestRow } = await web.import("../src/web/features/research/ResearchSection.tsx", import.meta.url) as {
+      RequestRow: ComponentType<{ projectId: string; request: ResearchRequest }>;
+    };
+    const { MemoryRouter } = await web.import("react-router-dom", import.meta.url);
+    const markup = renderToStaticMarkup(createElement(MemoryRouter, null,
+      createElement(RequestRow, { projectId: project.id, request: requests[0]! })));
+    const href = /href="([^"]+)"/.exec(markup)?.[1];
+    assert.equal(href, `/projects/${project.id}/research/${research.id}`);
+    const match = /^\/projects\/([^/]+)\/research\/([^/]+)$/.exec(href!);
+    assert.ok(match);
+    const detailResponse = await app.request(`/api/projects/${match[1]}/research-requests/${match[2]}`);
+    assert.equal(detailResponse.status, 200);
+    const { detail } = await detailResponse.json() as { detail: ResearchRequestDetail };
+    assert.equal(detail.request.id, research.id);
+    assert.equal(detail.results[0]!.summary, "Summary");
+  } finally { await web.unregister(); await database.destroy(); }
+});
 
 test("Research version, Decision evidence and ADR artifact references persist through file DB reopen", async () => {
   const directory = await mkdtemp(join(tmpdir(), "compass-workspace-research-"));

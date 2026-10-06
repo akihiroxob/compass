@@ -12,7 +12,7 @@ import {
 
 const outcome = (overrides: Partial<Outcome>): Outcome => ({
   id: "o1",
-  projectId: "p1",
+  workspaceId: "w1",
   intentId: "i1",
   title: "Title",
   description: "Description",
@@ -20,6 +20,7 @@ const outcome = (overrides: Partial<Outcome>): Outcome => ({
   rationale: "Rationale",
   status: "active",
   cancelReason: null,
+  originDecisionId: null,
   successCriteria: [
     { id: "c1", outcomeId: "o1", position: 0, description: "First", measurement: "Measured", target: null },
     { id: "c2", outcomeId: "o1", position: 1, description: "Second", measurement: "Observed", target: "= 0" },

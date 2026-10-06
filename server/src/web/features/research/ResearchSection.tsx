@@ -11,9 +11,9 @@ import {
   type ResearchRequest,
 } from "../../researchForm";
 
-const RequestRow = ({ request: item }: { request: ResearchRequest }) => (
+export const RequestRow = ({ projectId, request: item }: { projectId: string; request: ResearchRequest }) => (
   <li>
-    <Link to={researchRequestPath(item.projectId, item.id)}>
+    <Link to={researchRequestPath(projectId, item.id)}>
       <span className={statusBadgeClass(researchRequestStatusTones[item.status])}>
         {researchRequestStatusLabels[item.status]}
       </span>{" "}
@@ -49,7 +49,7 @@ export const ResearchSection = ({ projectId }: { projectId: string }) => {
         <Loading />
       ) : requests.length ? (
         <ul className="grant-list">
-          {requests.map((item) => <RequestRow key={item.id} request={item} />)}
+          {requests.map((item) => <RequestRow key={item.id} projectId={projectId} request={item} />)}
         </ul>
       ) : (
         <p className="unset">Research Requestはまだありません。StrategistがResearchを必要と判断して依頼すると、ここに表示されます。</p>

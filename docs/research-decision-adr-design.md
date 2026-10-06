@@ -34,4 +34,6 @@ Research Evidenceは`uri`・`versionHash`に加え、任意の`resourceId`で同
 
 Workspace Grant/Credentialと認可付きWorkspace API/MCPは未接続。公開入口は引き続きProject IDを受け取り、serverのadapterが所属Workspaceを明示解決する。所属Projectが1件の場合だけ利用でき、複数Project（archivedを含む）のWorkspaceは`CONFLICT`（`reason: workspace_direction_required`）。ContextはProject Grantを先に検査し、移行中は`project`参照も付ける。Runtime eventは同じtransactionで単一ProjectのWorkspaceだけに投影し、Projectが無い/複数のWorkspaceにProject eventを作らない。Runtime event本体のWorkspace化は未接続。
 
+Research一覧・詳細のWeb応答は所有先の`workspaceId`を返し、`projectId`は返さない。現行UIの詳細URL `/projects/:projectId/research/:requestId` は、閲覧中のProject IDで生成する。DecisionとIntent・Outcomeのリンクも閲覧中のProjectを用い、recordの所有先をURLのProjectとして扱わない。ADR参照の`projectId`は成果物の対象Projectを示し、`workspaceId`と併せて保持する。
+
 新規DBの保存・同じschemaでの再初期化、別Workspace拒否、archive、Activity失敗時のrollback、Contextの上限、既存Project Web/MCP経路の非公開境界は`server/tests/workspaceResearch.test.ts`で検証する。旧DBデータの変換と旧ID保全は検証対象にしない。
