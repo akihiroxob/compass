@@ -19,7 +19,7 @@ WachaのCompass ProjectにStory `99bfa15a-c27b-4c4f-8a39-37764760a466` とTask 1
 | 状態確認・Role起動 | `orchestrator/`（Project単位の状態を横断して確認） | 現在状態を判定し専門判断をRoleへ委譲 | Workspace単位の状態でWorkspace RoleとProjectのmanagerを起動する |
 | agent-foundationのRalph | `ralph/` | Worker / Reviewerループ、MCPからContext取得 | Project scopeの実行ループのまま。Workspaceを直接所有・選択しない |
 
-参照元は`/Users/aokayama/git/wacha`、`/Users/aokayama/git/shirube`、`/Users/aokayama/git/agent-foundation`。Compassへ取り込み済みの機能を重複移植しない。構造移行でのファイル全件の配置・依存違反・互換性契約・移行単位は [構造移行マッピング](architecture-migration-mapping.md) に記す。Workspace移行での変更先は同マッピングではなく、ADR 0001と影響マップ（Workspace Story 01 Task 02）で定める。
+参照元は`/Users/aokayama/git/wacha`、`/Users/aokayama/git/shirube`、`/Users/aokayama/git/agent-foundation`。Compassへ取り込み済みの機能を重複移植しない。構造移行でのファイル全件の配置・依存違反・互換性契約・移行単位は [構造移行マッピング](architecture-migration-mapping.md) に記す。Workspace移行での変更先は同マッピングではなく、ADR 0001と[Workspace移行 影響マップ](workspace-migration-impact-map.md)で定める。
 
 ### 作業順と受入条件
 
@@ -48,7 +48,7 @@ workspace・build（npm workspaces）、`activeRole`のtransport・互換期間�
 
 ## Workspace移行
 
-[ADR 0001 WorkspaceとProjectの境界](adr/0001-workspace-project-boundary.md) を実装するため、WachaのCompass ProjectにStory 01〜12とTaskを登録済み。登録は実装完了を意味しない。順序はStory番号と各Taskの前提で示し、Wachaは依存を自動制御しない。
+[ADR 0001 WorkspaceとProjectの境界](adr/0001-workspace-project-boundary.md) を実装するため、WachaのCompass ProjectにStory 01〜12とTaskを登録済み。登録は実装完了を意味しない。順序はStory番号と各Taskの前提で示し、Wachaは依存を自動制御しない。各Taskのファイル単位の変更先・互換期間・データ変換・rollbackの確認点は[影響マップ](workspace-migration-impact-map.md)に記す。
 
 | Story | 内容 | 主な受入条件 |
 | --- | --- | --- |
