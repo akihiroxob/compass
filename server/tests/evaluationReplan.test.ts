@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
+import { SQLiteWorkspaceRepository } from "@compass/organization";
+import { asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
 import type { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
@@ -173,6 +175,65 @@ const events = async (kit: Kit, projectId: string) =>
 
 const intentStatus = async (kit: Kit, projectId: string, intentId: string) =>
   (await kit.services.getIntentUseCase.execute(projectId, intentId)).status;
+
+const directionSnapshot = async ({ database }: Kit) => ({
+  intents: await database.selectFrom("intent").selectAll().execute(),
+  outcomes: await database.selectFrom("outcome").selectAll().execute(),
+  criteria: await database.selectFrom("success_criterion").selectAll().execute(),
+  decisions: await database.selectFrom("direction_decision").selectAll().execute(),
+  activities: await database.selectFrom("activity").selectAll().execute(),
+  events: await database.selectFrom("runtime_event").selectAll().execute(),
+});
+
+for (const operation of ["next_outcome", "intent_complete"] as const) {
+  test(`${operation}はProjectがactiveでもarchived WorkspaceのIntent/Outcomeを変更せず、部分保存を残さない`, async () => {
+    const kit = await setup();
+    try {
+      const { project, intent, evaluation } = await seedEvaluated(kit, ["met", "met"]);
+      await new SQLiteWorkspaceRepository(asOrganizationDatabase(kit.database)).archive(project.workspaceId, "Done");
+      assert.equal((await kit.services.getProjectUseCase.execute(project.id)).status, "active");
+      const before = await directionSnapshot(kit);
+      const args = decisionArgs(project.id, intent.id, {
+        evaluationId: evaluation.id,
+        ...(operation === "next_outcome" ? { outcome: outcomeInput() } : { type: operation }),
+      });
+      const tool = operation === "next_outcome" ? "decide_next_outcome" : "create_direction_decision";
+      const error = errorOf(await callTool(kit.app, tool, args, "str"));
+      assert.equal(error.code, "CONFLICT");
+      assert.equal(error.workspaceStatus, "archived");
+      assert.ok(error.message.includes(project.workspaceId));
+      assert.deepEqual(await directionSnapshot(kit), before);
+    } finally {
+      await kit.database.destroy();
+    }
+  });
+
+  test(`${operation}はactive Workspaceでも後続保存の失敗時にEntity・Decision・通知を全て巻き戻す`, async () => {
+    const kit = await setup();
+    try {
+      const { project, intent, evaluation } = await seedEvaluated(kit, ["met", "met"]);
+      const before = await directionSnapshot(kit);
+      if (operation === "next_outcome") {
+        // Outcome・成功条件・Activity・Runtime event保存後のDecision保存を失敗させる。
+        await sql`create trigger reject_decision before insert on direction_decision
+          begin select raise(abort, 'decision rejected'); end`.execute(kit.database);
+        await assert.rejects(kit.services.decideNextOutcomeUseCase.execute(project.id, "str", {
+          ...decisionArgs(project.id, intent.id), evaluationId: evaluation.id, outcome: outcomeInput(),
+        }), /decision rejected/);
+      } else {
+        // Decision・Activity保存後のIntent状態更新を失敗させる。
+        await sql`create trigger reject_completion before update of status on intent when new.status = 'achieved'
+          begin select raise(abort, 'completion rejected'); end`.execute(kit.database);
+        await assert.rejects(kit.services.createDirectionDecisionUseCase.execute(project.id, "str", {
+          ...decisionArgs(project.id, intent.id), evaluationId: evaluation.id, type: operation,
+        }), /completion rejected/);
+      }
+      assert.deepEqual(await directionSnapshot(kit), before);
+    } finally {
+      await kit.database.destroy();
+    }
+  });
+}
 
 test("Evaluationの確定はoutcome_evaluatedを1件だけ作り、Runtimeが相関ID・evaluationId付きで取得できる（再送では増えない）", async () => {
   const kit = await setup();

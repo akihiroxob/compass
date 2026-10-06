@@ -4,6 +4,7 @@ import type { IntentResearchSummary } from "./Research.ts";
 import type { Outcome } from "./Outcome.ts";
 import type { ResearchRequest } from "./Research.ts";
 import type { ProjectArchivedResult } from "./ProjectArchivedResult.ts";
+import type { WorkspaceArchivedResult } from "./WorkspaceArchivedResult.ts";
 import type { DirectionDecisionRecordType } from "./DirectionDecision.ts";
 import type { CreateOutcomeInput } from "./OutcomeRepository.ts";
 
@@ -73,7 +74,8 @@ type DirectionDecisionWriteRejection =
   | { kind: "evaluation_result_mismatch"; evaluationId: string; result: string }
   /** intent_completeの対象Intentに完了定義（completionDefinition）が無い。 */
   | { kind: "no_completion_definition" }
-  | ProjectArchivedResult;
+  | ProjectArchivedResult
+  | (WorkspaceArchivedResult & { workspaceId: string });
 
 /** `researchRequest`はadditional_researchのDecisionが同時に作ったRequest。他のtypeではnull。 */
 export type CreateDirectionDecisionResult =
@@ -88,7 +90,8 @@ export type DecideNextOutcomeResult =
 
 /**
  * Direction Decisionの永続化。作成後は変更しない（追記のみ）。書込はすべてProjectのarchived確認と
- * 同一transactionで行う。`intentBriefSnapshot`は呼び出し側（application層）がResearchRepositoryから
+ * 同一transactionで行う。Intent完了・Outcome作成は所属Workspaceのarchivedも同じtransactionで確認する。
+ * `intentBriefSnapshot`は呼び出し側（application層）がResearchRepositoryから
  * 読み取り、判断時点のsnapshotとしてそのまま保存する。
  */
 export interface DirectionDecisionRepository {

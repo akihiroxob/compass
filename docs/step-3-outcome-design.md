@@ -21,6 +21,8 @@ OutcomeとIntentのWorkspace一致をRepositoryとDBの複合FKで強制する�
 
 HumanはWeb UIから、Agentはstrategist GrantでMCPから操作する。主要toolは`create_outcome` / `list_outcomes` / `get_outcome` / `update_outcome` / `cancel_outcome`と、Decisionを伴う`decide_next_outcome`。
 
+`decide_next_outcome`も、Outcome・成功条件・Decision・Activity・Runtime eventを保存するtransaction内で所属Workspaceのarchiveを検査する。WorkspaceだけarchivedでProjectがactiveでも`CONFLICT`（`workspaceStatus: archived`）を返し、部分保存を残さない。
+
 WorkのStoryはOutcomeを参照し、作成時の成功条件等をsnapshotとして持つ。WorkによるTask受入はOutcome達成を意味しない。
 
 現在のEvaluationはevaluator Grantを持つAgentが全Criterionを`met` / `not_met` / `insufficient_evidence`で判定する。`met` / `not_met`には対象Outcomeへ還流済みのEvidence参照が必要。総合結果は全件metならachieved、not_metがあればfailed、それ以外はinsufficient_evidenceとして導出する。

@@ -215,6 +215,7 @@ export const createApplicationServices = (
   const directionDecisionRepository = new SQLiteDirectionDecisionRepository(
     directionDatabase,
     directionProjectReaders,
+    directionWorkspaceReaders,
     clock,
     directionChangeObserver,
   );

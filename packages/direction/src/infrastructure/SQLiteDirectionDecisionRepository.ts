@@ -19,6 +19,7 @@ import {
 } from "./directionDecisionRecord.ts";
 import { inputHash } from "@compass/shared";
 import type { DirectionProjectReaders } from "./directionProjectReaders.ts";
+import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 import { insertOutcomeRow, loadOutcomes } from "./outcomeRecord.ts";
 import { findResearchRequestByKey, insertResearchRequest, toRequest } from "./researchRequestRecord.ts";
@@ -28,6 +29,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
     private readonly projects: DirectionProjectReaders,
+    private readonly workspaces: DirectionWorkspaceReaders,
     private readonly clock: () => number = Date.now,
     private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
@@ -39,6 +41,11 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
   ): Promise<CreateDirectionDecisionResult> {
     return this.database.transaction().execute(async (transaction): Promise<CreateDirectionDecisionResult> => {
       if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
+      const workspaceId = await this.projects(transaction).findDirectionWorkspaceId(projectId);
+      // Intentを直接変更する経路も、canonical Intent Repositoryと同じWorkspace制約を守る。
+      if (input.type === "intent_complete" && await this.workspaces(transaction).isArchived(workspaceId)) {
+        return { kind: "workspace_archived", workspaceId };
+      }
 
       const hash = inputHash(input);
       const existing = await findDecisionByRequestKey(transaction, projectId, input.requestKey);
@@ -59,7 +66,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         .selectFrom("intent")
         .select(["status", "completion_definition"])
         .where("id", "=", input.intentId)
-        .where("workspace_id", "=", await this.projects(transaction).findDirectionWorkspaceId(projectId))
+        .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
@@ -105,7 +112,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
           .updateTable("intent")
           .set({ status: "achieved", updated_at: now })
           .where("id", "=", input.intentId)
-          .where("workspace_id", "=", await this.projects(transaction).findDirectionWorkspaceId(projectId))
+          .where("workspace_id", "=", workspaceId)
           .execute();
       }
       if (!input.research) return { kind: "created", decision, researchRequest: null };
@@ -138,6 +145,9 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
   ): Promise<DecideNextOutcomeResult> {
     return this.database.transaction().execute(async (transaction): Promise<DecideNextOutcomeResult> => {
       if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
+      const workspaceId = await this.projects(transaction).findDirectionWorkspaceId(projectId);
+      // Outcome・成功条件・Decision・通知を保存するtransaction内で所有Workspaceの状態を検査する。
+      if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived", workspaceId };
 
       const hash = inputHash(input);
       const existing = await findDecisionByRequestKey(transaction, projectId, input.requestKey);
@@ -157,7 +167,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         .selectFrom("intent")
         .select("status")
         .where("id", "=", input.intentId)
-        .where("workspace_id", "=", await this.projects(transaction).findDirectionWorkspaceId(projectId))
+        .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
@@ -186,7 +196,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
       // Outcomeを先に作る（direction_decision.outcome_idがoutcome.idを参照するFKの前提）。
       const outcome = await insertOutcomeRow(
         transaction,
-        await this.projects(transaction).findDirectionWorkspaceId(projectId),
+        workspaceId,
         input.intentId,
         outcomeId,
         decisionId,
