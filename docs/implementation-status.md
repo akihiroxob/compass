@@ -49,7 +49,7 @@ Research Request / Result / Finding / SynthesisとDirection Decision・Evaluatio
 
 ## Executionの現行契約
 
-DirectionのProjectを共用し、Execution専用のProjectを複製しない。`packages/work`がStory / Task / Claim / Review / Acceptanceを所有する。状態遷移・Claimの排他と期限・自己レビュー / 自己受入の禁止はapplication層（`TaskCoordinationService`）が持ち、保存は`WorkStore` port（Kysely実装は`packages/work/src/infrastructure`）を通す。
+Organizationが所有するProjectを実行境界として共用し、Execution専用のProjectを複製しない。`packages/work`がStory / Task / Claim / Review / Acceptanceを所有する。状態遷移・Claimの排他と期限・自己レビュー / 自己受入の禁止はapplication層（`TaskCoordinationService`）が持ち、保存は`WorkStore` port（Kysely実装は`packages/work/src/infrastructure`）を通す。
 
 Outcomeを参照するStoryは、成功条件・Constraints等の作成時snapshotと相関IDを持つ。相関IDとTaskの`taskKey`によって再送を同じ作業へ収束させる。Work側の受入をOutcome達成とは扱わない。
 
@@ -57,7 +57,7 @@ HumanはExecution一覧・Task詳細・最近の変更を参照でき、editor�
 
 Project詳細の「Claim保持中」は、既存の`execution`の`activeClaim`だけから、期限内のClaimを持つAgent・Taskを作業中・レビュー待ち・受入待ちに分けて出し、Task詳細へリンクする。期限切れ（`reclaimable`、または表示中に期限を過ぎたClaim）は保持中に含めず、`doing`のTaskを再取得待ちとして件数で出す。取得時刻と再読込を出し、読込中・取得失敗・Claim無しを区別する。Claimは作業権の期限付き保持で、Agentプロセスの稼働を示さない。Role割当・Credentialからは担当を推測せず、Claimを持たないStrategist・Researcher・Evaluatorの状態は出さない。
 
-DirectionとWorkは公開index（`@compass/direction`・`@compass/work`）とapplication portで接続し、DirectionはWorkに依存しない。WorkはProject状態・Role Grantを`WorkStore`の読取port（`ProjectStateReader`・`ProjectGrantReader`）で、Claim・状態遷移と同じtransactionの中で読む。実装はserverが配線し（`server/src/infrastructure/repository/contextAdapters.ts`）、Workは`project`・`project_grant`のtableを直接扱わない。Directionのuse caseが要求するRole・Runtime scopeの認可も、Directionのportへserverの認可serviceを渡す。境界は [executionBoundary.test.ts](../server/tests/executionBoundary.test.ts) で静的に検証する。Workの規則の単体テストは`packages/work/tests/`、Project集約の単体テストは`packages/direction/tests/`にある。
+DirectionとWorkは公開index（`@compass/direction`・`@compass/work`）とapplication portで接続し、DirectionはWorkに依存しない。WorkはProject状態・Role Grantを`WorkStore`の読取port（`ProjectStateReader`・`ProjectGrantReader`）で、Claim・状態遷移と同じtransactionの中で読む。実装はserverが配線し（`server/src/infrastructure/repository/contextAdapters.ts`）、Workは`project`・`project_grant`のtableを直接扱わない。Directionのuse caseが要求するRole・Runtime scopeの認可も、Directionのportへserverの認可serviceを渡す。境界は [executionBoundary.test.ts](../server/tests/executionBoundary.test.ts) で静的に検証する。Workの規則の単体テストは`packages/work/tests/`、Workspace・Projectの単体テスト（Project作成・更新・archive、Mission等のWorkspaceへの読書き、起動時移行）は`packages/organization/tests/`にある。Direction固有のpackage単体テストは無く、Directionの振る舞いは`server/tests/`で検証する。
 
 ## Project詳細（Web UI）
 
@@ -82,7 +82,7 @@ Web UIのstyleはSass（SCSS）で`server/src/web/styles/`に置き、`main.scss
 
 操作Contextの`activeRole`は、MCP・Runtime向けAPIのrequest header `X-Compass-Active-Role`で受け付ける（serverの`resolveActiveRole`）。headerがあれば、serverはrequestごとに`forActiveRole`で認可をそのRoleに固定したservice（Accessの`ProjectAuthorizationService`・Workの`TaskCoordinationService`と、それらで認可するDirection・Runtimeのuse case）を使い、`principalId + projectId + activeRole`のGrantだけで認可する。MCPのDirection参照・`list_projects`は、remote modeに加えtrusted-localでもactiveRole指定時はそのRoleのGrantを要求する（headerなしのtrusted-localは互換としてGrantを問わない）。Principalなしでの指定はProject scopeのtool（管理操作の`update_project`・Intent管理を含む）で`UNAUTHENTICATED`。trusted-localの`create_project`はProject作成前の操作でGrantの対象外のため、activeRoleの指定に関係なく実行できる。他Roleのtool・Grantの無いactiveRoleは`FORBIDDEN`。Accessが拒否する場合のうち、activeRoleと異なるRoleのtool、Project参照・管理操作でactiveRoleのGrantが無い場合は応答の`error.activeRole`にactiveRoleを返す（MCP・Runtime向けAPIとも`ForbiddenError`のdetailsを`error`へ展開する）。activeRoleと同じRoleのtoolでGrantが無い場合（`requiredRole`のみ）と、WorkのTask操作の拒否（`CoordinationError`）には含めない。未知の値は400。職務分離（Strategist等のGrantを持つPrincipalへの管理操作の拒否）は緩めない。headerなしは互換として操作ごとに必要Roleを検査し、拒否はRalph移行後に別途判断する。Runtime Credentialはheaderに関係なくscopeで認可する。`command_receipt.active_role`（nullable。既存行はNULL）に実行時のactiveRoleを保存し、同じ`principal_id + tool_name + request_id`を別のactiveRole（headerなしを含む）で再送すると`IDEMPOTENCY_CONFLICT`にする。自己レビュー・自己受入の禁止はPrincipal単位でWorkが強制し、Role切替では回避できない。Human向けWeb APIはMembershipで認可し、headerを読まない。
 
-Accessは`project`のtableを直接読まない。archive判定・Projectの存在・owner不在Projectの補完に使うProject一覧は`ProjectStateReader` portで読み、Membership・Grant・Credentialの書込と同じtransactionで検査する。Project作成時の初期owner Membershipは、DirectionのProject作成のtransactionの中でAccessの`writeProjectOwnerMembership`が書く。いずれもserverが`contextAdapters.ts`で配線する。AccessがDirectionから使うのは公開indexのuse case（`GetProjectUseCase`・`ListProjectsUseCase`）・型・`ProjectArchivedError`だけで、DirectionはAccessに依存しない。
+Accessは`project`のtableを直接読まない。archive判定・Projectの存在・owner不在Projectの補完に使うProject一覧は`ProjectStateReader` portで読み、Membership・Grant・Credentialの書込と同じtransactionで検査する。Project作成時の初期owner Membershipは、OrganizationのProject作成（`SQLiteProjectRepository`）のtransactionの中で、serverが`ProjectOwnerMembershipWriter`として渡したAccessの`writeProjectOwnerMembership`が書く。いずれもserverが`contextAdapters.ts`で配線する。AccessがOrganizationから使うのは公開indexのuse case（`GetProjectUseCase`・`ListProjectsUseCase`）・型（`ProjectDetail`・`ProjectStatus`）・`ProjectArchivedError`だけで、AccessはDirection・Workに依存せず、OrganizationはAccessに依存しない。
 
 ## 構造移行後の検証範囲
 

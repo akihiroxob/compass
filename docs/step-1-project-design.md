@@ -1,6 +1,6 @@
 # Projectの現行仕様
 
-現在の実装では、Projectは目的・原則・制約・参照先を共有する最上位コンテキスト。現在の型は [Project.ts](../packages/direction/src/domain/Project.ts)、入力規則は [projectSchema.ts](../packages/direction/src/application/projectSchema.ts) を参照する。現在の所有先はDirection。Workspace導入後はMission / Vision / Principles / ConstraintsをWorkspaceへ移し、ProjectはOrganizationが所有する実行境界になる（[ADR 0001](adr/0001-workspace-project-boundary.md)）。
+ProjectはOrganization（`packages/organization`）が所有する実行境界で、1つのWorkspaceに所属する（[ADR 0001](adr/0001-workspace-project-boundary.md)）。型は [Project.ts](../packages/organization/src/domain/Project.ts)、入力規則は [projectSchema.ts](../packages/organization/src/application/projectSchema.ts) を参照する。Mission / Vision / Principles / Constraintsの正本は所属Workspaceで、Projectの入出力（`ProjectDetail`）は互換のため所属Workspaceの値を合成して同じ項目で読み書きする。所属Workspace IDとWorkspaceの公開入口は未接続。
 
 ## 項目
 
@@ -17,7 +17,7 @@
 | archivedAt / archiveReason | archive日時・理由。active時はnull |
 | id / createdAt / updatedAt | serverが管理 |
 
-Mission / Vision / Principles / ConstraintsはProject aggregateに保持する。RepositoryとResourceは複数件を持ち、ProjectをRepositoryと1:1に固定しない。未入力のdescription / visionはnull。
+Mission / Vision / Principles / Constraintsは所属Workspaceに保持し、Project（Entity）はname・description（目的）・status・Repository / Resourceを持つ。RepositoryはProjectのResourceの一つで、複数件を持ち、ProjectをRepositoryと1:1に固定しない。未入力のdescription / visionはnull。
 
 ## 作成と更新
 
@@ -25,11 +25,11 @@ HumanはWeb UIを使う。Web APIは`POST /api/projects`、`GET /api/projects`�
 
 更新は部分更新で、未指定項目を維持する。任意テキストはnull / 空文字でクリアできる。配列は全体置換で、空配列は全件削除。Repository / Resourceの既存IDを指定するとIDを維持し、未知・別ProjectのIDは新しいIDとして保存する。重複IDと更新項目なしは拒否する。
 
-親と子要素を同じtransactionで保存し、失敗時は一部だけ更新しない。楽観ロックは提供していない。archive後は [archive規則](step-5-project-archive-design.md) を適用する。
+作成は戦略値を持つ専用のWorkspaceを同じtransactionで作る。更新はMission等を所属Workspaceへ、それ以外をProjectへ書き、archivedのWorkspaceへのMission等の更新は409で拒否する。親と子要素を同じtransactionで保存し、失敗時は一部だけ更新しない。楽観ロックは提供していない。archive後は [archive規則](step-5-project-archive-design.md) を適用する。
 
 ## 保存と画面
 
-SQLiteの`project`、`project_principle`、`project_constraint`、`project_repository_link`、`project_resource`に保存する。子要素は入力順を保持する。
+SQLiteの`project`・`project_repository_link`・`project_resource`と、所属Workspaceの`workspace`・`workspace_principle`・`workspace_constraint`に保存する。子要素は入力順を保持する。`project`の旧列（`mission`・`vision`）と`project_principle`・`project_constraint`は読み書きしない（旧列を正本としていたProjectはserver起動時の移行で一度だけWorkspaceへ写す）。
 
 画面は一覧`/`、作成`/projects/new`、詳細`/projects/:projectId`、編集`/projects/:projectId/edit`。詳細にはIntent・Outcome・Research・Decision・Execution・Member・Agent管理を表示する。未設定・空一覧・読み込み失敗を区別する。
 

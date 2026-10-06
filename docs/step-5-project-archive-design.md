@@ -4,7 +4,7 @@
 
 Projectは作成時active。ownerがWeb UIから理由を指定するとarchivedへ遷移する。Web APIは`POST /api/projects/:projectId/archive`。理由はtrim後1〜2,000文字。復帰・物理削除・MCP・CLIによるarchiveは提供しない。
 
-`status`、`archivedAt`、`archiveReason`を保存し、`updatedAt`をarchive日時に更新する。再archiveは409で拒否し、理由や日時を上書きしない。
+`status`、`archivedAt`、`archiveReason`を保存し、`updatedAt`をarchive日時に更新する。所属Workspaceに他のactiveなProjectが無ければ、Workspaceも同じ理由・日時でarchiveする。再archiveは409で拒否し、理由や日時を上書きしない。
 
 ## 参照専用
 
