@@ -88,6 +88,7 @@ Accessは`project`・`workspace`のtableを直接読まない。archive判定・
 
 ## 構造移行後の検証範囲
 
+- Workspace参照（`server/tests/workspaceReference.test.ts`）: 新規のSQLite fileへWorkspace・Project・Resource・Membership・Grantを保存し、DBを閉じて同じschemaを再初期化したapplicationで、Web APIとMCPのProject参照、所属Project一覧、archivedの読取、Workspace/Project権限の非継承を検証する。HTTP入口は`app.request`で呼び、Serverプロセスの再起動や実ブラウザの検証とは区別する。
 - 自動テスト（`npm test`）: Lv6閉ループ（`server/tests/lv6ClosedLoop.test.ts`。Intent→Research→Outcome→Work→Review / Acceptance→Evaluation→次の判断、固定成功条件のsnapshot、`insufficient_evidence`、別Principal、再起動・重複配送）、`server/src/main.ts`の同一portでのWeb UI・API・MCP、Orchestrator・Ralphの独立プロセスとしての起動・再起動・重複起動抑止・別Credentialを検証する。起動テストは一時directoryをcwdにし、親の`COMPASS_*`・`PORT`を渡さず空きportを使い、ローカルの`.env`と既存portから隔離する。
 - 既存DB: 構造移行前のコードで作ったDB（Activity table・`command_receipt.active_role`なし、Claim中・受入待ちのTaskあり）を現行serverで開き、Story / Task / Claim / Comment / Change Logの参照、移行前のClaimでの完了、別Principalのレビュー・受入、移行前のcommand receiptの再送（headerなしは同じ結果、activeRoleありは`IDEMPOTENCY_CONFLICT`）、canonical Activityが移行後の変更だけから生成されること、Web APIでの参照を手動で確認した。自動テストには含めない。
 

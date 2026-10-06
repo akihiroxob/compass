@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import type { HumanActor } from "@compass/access";
 import { createApp } from "../src/bootstrap/app.ts";
@@ -9,8 +12,8 @@ import { addTestMembership, createTestHuman, requestAs, type TestHuman } from ".
 
 type Body = Record<string, any>;
 
-const setup = async () => {
-  const database = createDatabase(":memory:");
+const setup = async (databasePath = ":memory:") => {
+  const database = createDatabase(databasePath);
   await initializeSchema(database);
   const services = createApplicationServices(database);
   const app = createApp(services);
@@ -47,8 +50,8 @@ const callTool = async (app: ReturnType<typeof createApp>, name: string, args: o
  * owner Aliceが2つのWorkspaceを持つ。Workspace Wには所属Project A・B、Workspace Xには所属Project Y。
  * BobはProject AのviewerでWorkspace Wのviewer（Project Bのmemberではない）。
  */
-const seed = async () => {
-  const context = await setup();
+const seed = async (databasePath = ":memory:") => {
+  const context = await setup(databasePath);
   const { database, services } = context;
   const alice = await createTestHuman(database, { email: "alice@example.com" });
   const bob = await createTestHuman(database, { email: "bob@example.com" });
@@ -98,6 +101,56 @@ test("Project参照は所属workspaceIdを返し、Workspaceの参照・所属Pr
   const beta = projects.find(({ id }) => id === projectB.id)!;
   assert.deepEqual(beta.repositories.map(({ name }: Body) => name), ["platform"]);
   await database.destroy();
+});
+
+test("新規DBのWorkspace・Project・Resource参照と認可は同じschemaでの再起動後も維持される", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "compass-workspace-reference-"));
+  const databasePath = join(directory, "compass.db");
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const { database, services, app, alice, bob, workspaceId, projectA, projectB, projectY } = await seed(databasePath);
+  let databaseClosed = false;
+  t.after(async () => { if (!databaseClosed) await database.destroy(); });
+  await services.grantProjectRoleUseCase.execute(projectA.id, { principalId: "planner", role: "manager" });
+  await services.human.archiveProject.execute(actorOf(alice), projectB.id, { reason: "Merged" });
+  await services.human.archiveProject.execute(actorOf(alice), projectY.id, { reason: "Done" });
+
+  const paths = [
+    "/api/workspaces",
+    "/api/workspaces?status=archived",
+    `/api/workspaces/${workspaceId}`,
+    `/api/workspaces/${workspaceId}/projects`,
+    `/api/workspaces/${workspaceId}/projects?status=archived`,
+    `/api/workspaces/${projectY.workspaceId}`,
+    `/api/workspaces/${projectY.workspaceId}/projects?status=archived`,
+    `/api/projects/${projectA.id}`,
+    `/api/projects/${projectB.id}`,
+  ];
+  const before = await Promise.all(paths.map((path) => get(requestAs(app, alice), path)));
+  const agentBefore = (await callTool(app, "get_project", { projectId: projectA.id }, "planner")).structuredContent;
+  await database.destroy();
+  databaseClosed = true;
+
+  const reopened = await setup(databasePath);
+  t.after(() => reopened.database.destroy());
+  const after = await Promise.all(paths.map((path) => get(requestAs(reopened.app, alice), path)));
+  assert.deepEqual(after, before, "所属・戦略値・Resource ID・archive状態・Membershipを保存したまま再参照できる");
+  assert.deepEqual(
+    (await callTool(reopened.app, "get_project", { projectId: projectA.id }, "planner")).structuredContent,
+    agentBefore,
+    "保存済みのGrantでMCPも同じProject参照を返す",
+  );
+  const listed = (await callTool(reopened.app, "list_projects", {}, "planner")).structuredContent.projects as Body[];
+  assert.equal(listed.find(({ id }) => id === projectA.id)!.workspaceId, workspaceId);
+
+  const asBob = requestAs(reopened.app, bob);
+  assert.equal((await get(asBob, `/api/workspaces/${workspaceId}`)).myRole, "viewer");
+  assert.deepEqual(
+    ((await get(asBob, `/api/workspaces/${workspaceId}/projects?status=archived`)).projects as Body[]).map(({ id }) => id),
+    [projectB.id],
+  );
+  for (const path of [`/api/projects/${projectB.id}`, `/api/workspaces/${projectY.workspaceId}`, `/api/workspaces/${projectY.workspaceId}/projects`]) {
+    assert.equal((await get(asBob, path, 404)).error.code, "NOT_FOUND");
+  }
 });
 
 test("別Workspaceは未所属と存在しないIDを区別せず404で、Workspace memberにProjectの詳細を継承しない", async () => {
