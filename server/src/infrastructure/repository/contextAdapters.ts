@@ -23,6 +23,7 @@ import {
   type DirectionProjectReaders,
   type DirectionWorkspaceReaders,
   recordOutcomeConfirmedEvent,
+  recordRuntimeEvent,
 } from "@compass/direction";
 import {
   findProjectRepository,
@@ -97,6 +98,7 @@ export const directionProjectReaders: DirectionProjectReaders = (executor) => {
     isArchived: (projectId) => isProjectArchived(database, projectId),
     findRepository: (projectId, repositoryId) => findProjectRepository(database, projectId, repositoryId),
     findConstraints: (projectId) => findProjectWorkspaceConstraints(database, projectId),
+    findWorkspaceId: (projectId) => findProjectWorkspaceId(database, projectId),
     findDirectionWorkspaceId: async (projectId) => {
       const workspaceId = await findProjectWorkspaceId(database, projectId);
       if (!workspaceId) throw new NotFoundError(`Project ${projectId} was not found`);
@@ -110,6 +112,13 @@ export const directionProjectReaders: DirectionProjectReaders = (executor) => {
 
 /** Intent/Outcomeが直接読むWorkspaceの状態。Projectを経由しない。 */
 export const directionWorkspaceReaders: DirectionWorkspaceReaders = (executor) => ({
+  resourceBelongsToWorkspace: async (workspaceId, resourceId) => {
+    const row = await asOrganizationDatabase(executor).selectFrom("project_resource")
+      .innerJoin("project", "project.id", "project_resource.project_id")
+      .select("project_resource.id").where("project_resource.id", "=", resourceId)
+      .where("project.workspace_id", "=", workspaceId).executeTakeFirst();
+    return row !== undefined;
+  },
   isArchived: (workspaceId) => isWorkspaceArchived(asOrganizationDatabase(executor), workspaceId),
 });
 
@@ -178,6 +187,20 @@ export const directionChangeObserver: DirectionChangeObserver = (executor) => {
   const activity = directionChangeActivityObserver(executor);
   return async (notice) => {
     await activity(notice);
+    if ((notice.type === "research_requested" || notice.type === "research_closed") && notice.workspaceId !== undefined) {
+      const projectIds = await listWorkspaceProjectIds(asOrganizationDatabase(executor), notice.workspaceId);
+      const request = await asDirectionDatabase(executor).selectFrom("research_request").selectAll().where("id", "=", notice.recordId).executeTakeFirstOrThrow();
+      const intent = request.origin_intent_id ? await asDirectionDatabase(executor).selectFrom("intent").select("status").where("id", "=", request.origin_intent_id).executeTakeFirst() : null;
+      if (projectIds.length === 1 && (notice.type === "research_requested" || (notice.result !== "cancelled" && intent?.status === "active"))) {
+        await recordRuntimeEvent(executor, {
+          type: notice.type === "research_requested" ? "research_requested" : "research_completed",
+          projectId: projectIds[0]!, intentId: request.origin_intent_id, researchRequestId: request.id,
+          correlationId: request.correlation_id,
+          conclusion: notice.type === "research_requested" ? null : request.status as "completed" | "insufficient" | "not_needed",
+          occurredAt: notice.occurredAt,
+        });
+      }
+    }
     // S03-03までのRuntime投影。単一Projectだけ旧Project eventへ接続し、WorkspaceのみのOutcomeにProjectを捏造しない。
     if (notice.type === "outcome_confirmed" && notice.workspaceId !== undefined) {
       const projectIds = await listWorkspaceProjectIds(asOrganizationDatabase(executor), notice.workspaceId);

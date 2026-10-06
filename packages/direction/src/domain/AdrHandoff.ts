@@ -7,6 +7,8 @@ import type { UsedSynthesisReference } from "./DirectionDecision.ts";
  * （呼び出し側が別の自由記述を渡すのではなく、既に記録済みのDirection Decisionの内容だけを転記する）。
  */
 export type AdrHandoffRequestPayload = {
+  readonly workspaceId: string;
+  readonly projectId: string;
   readonly decisionId: string;
   readonly intentId: string;
   readonly usedSyntheses: readonly UsedSynthesisReference[];
@@ -21,6 +23,7 @@ export type AdrHandoffRequestPayload = {
 /** Wachaへの依頼として生成し保存したfixture。作成後は変更しない。 */
 export type AdrHandoffRequest = {
   readonly id: string;
+  readonly workspaceId: string;
   readonly projectId: string;
   readonly decisionId: string;
   readonly repositoryId: string;
@@ -37,6 +40,7 @@ export type AdrHandoffRequest = {
  */
 export type AdrReference = {
   readonly id: string;
+  readonly workspaceId: string;
   readonly projectId: string;
   readonly decisionId: string;
   readonly repositoryId: string;

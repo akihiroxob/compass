@@ -1,7 +1,7 @@
 import type { DirectionDecision } from "../domain/DirectionDecision.ts";
 import type { Outcome } from "../domain/Outcome.ts";
 import type { DirectionDecisionRepository } from "../domain/DirectionDecisionRepository.ts";
-import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
+import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import { parseDecideNextOutcomeInput } from "./directionDecisionSchema.ts";
 import { NotFoundError } from "@compass/shared";
@@ -14,26 +14,26 @@ import { throwDirectionDecisionRejection } from "./directionDecisionRejection.ts
  */
 export class DecideNextOutcomeUseCase {
   constructor(
-    private readonly projectReader: DirectionProjectReader,
+    private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly researchRepository: ResearchRepository,
     private readonly directionDecisionRepository: DirectionDecisionRepository,
   ) {}
 
   async execute(
-    projectId: string,
+    workspaceId: string,
     principalId: string,
     input: unknown,
   ): Promise<{ decision: DirectionDecision; outcome: Outcome }> {
     const parsed = parseDecideNextOutcomeInput(input);
-    if (!(await this.projectReader.exists(projectId))) {
-      throw new NotFoundError(`Project ${projectId} was not found`);
+    if (!(await this.workspaceReader.findById(workspaceId))) {
+      throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     }
-    const intentBriefSnapshot = await this.researchRepository.findIntentResearchSummary(projectId, parsed.intentId);
-    const result = await this.directionDecisionRepository.decideNextOutcome(projectId, intentBriefSnapshot, {
+    const intentBriefSnapshot = await this.researchRepository.findIntentResearchSummary(workspaceId, parsed.intentId);
+    const result = await this.directionDecisionRepository.decideNextOutcome(workspaceId, intentBriefSnapshot, {
       ...parsed,
       principalId,
     });
-    throwDirectionDecisionRejection(result, projectId, parsed.intentId);
+    throwDirectionDecisionRejection(result, workspaceId, parsed.intentId);
     if (result.kind === "created" || result.kind === "replayed") {
       return { decision: result.decision, outcome: result.outcome };
     }

@@ -65,3 +65,5 @@ export * from "./application/port/DirectionWorkspaceReader.ts";
 export * from "./infrastructure/directionWorkspaceReaders.ts";
 export * from "./application/port/ProjectDirectionReaders.ts";
 export { recordOutcomeConfirmedEvent } from "./infrastructure/runtimeEventRecord.ts";
+
+export { recordRuntimeEvent } from "./infrastructure/runtimeEventRecord.ts";

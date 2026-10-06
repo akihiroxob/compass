@@ -3,8 +3,6 @@ import type { DirectionDecision } from "./DirectionDecision.ts";
 import type { IntentResearchSummary } from "./Research.ts";
 import type { Outcome } from "./Outcome.ts";
 import type { ResearchRequest } from "./Research.ts";
-import type { ProjectArchivedResult } from "./ProjectArchivedResult.ts";
-import type { WorkspaceArchivedResult } from "./WorkspaceArchivedResult.ts";
 import type { DirectionDecisionRecordType } from "./DirectionDecision.ts";
 import type { CreateOutcomeInput } from "./OutcomeRepository.ts";
 
@@ -74,8 +72,7 @@ type DirectionDecisionWriteRejection =
   | { kind: "evaluation_result_mismatch"; evaluationId: string; result: string }
   /** intent_completeの対象Intentに完了定義（completionDefinition）が無い。 */
   | { kind: "no_completion_definition" }
-  | ProjectArchivedResult
-  | (WorkspaceArchivedResult & { workspaceId: string });
+  | { kind: "workspace_archived"; workspaceId: string };
 
 /** `researchRequest`はadditional_researchのDecisionが同時に作ったRequest。他のtypeではnull。 */
 export type CreateDirectionDecisionResult =
@@ -89,30 +86,30 @@ export type DecideNextOutcomeResult =
   | DirectionDecisionWriteRejection;
 
 /**
- * Direction Decisionの永続化。作成後は変更しない（追記のみ）。書込はすべてProjectのarchived確認と
- * 同一transactionで行う。Intent完了・Outcome作成は所属Workspaceのarchivedも同じtransactionで確認する。
+ * Direction Decisionの永続化。作成後は変更しない（追記のみ）。書込はすべてWorkspaceのarchived確認と
+ * 同一transactionで行う。Intent完了・Outcome作成も同じWorkspaceの状態を確認する。
  * `intentBriefSnapshot`は呼び出し側（application層）がResearchRepositoryから
  * 読み取り、判断時点のsnapshotとしてそのまま保存する。
  */
 export interface DirectionDecisionRepository {
   /**
    * next_outcome以外の5種の判断を記録する。同じrequestKeyの再送は新しい行を作らず既存のDecisionを返す。
-   * additional_researchは、判断・Research Request・`research_requested`イベントを1 transactionで保存し、部分保存を許さない。
-   * usedSyntheses・usedFindingIdsは同じProjectに存在し、指定versionが現在のSynthesis versionと一致する場合だけ受け付ける。
+   * additional_researchは、判断・Research Request・Workspace通知を1 transactionで保存し、部分保存を許さない。
+   * usedSyntheses・usedFindingIdsは同じWorkspaceに存在し、指定versionが現在のSynthesis versionと一致する場合だけ受け付ける。
    * `evaluationId`は同じIntentの、最新で、まだ判断に使われていない評価だけを受け付ける。
    * intent_completeは完了定義を持つIntentに、achievedの評価を根拠にしてだけ記録でき、同じtransactionでIntentを`achieved`にする。
    */
   create(
-    projectId: string,
+    workspaceId: string,
     intentBriefSnapshot: IntentResearchSummary,
     input: CreateDirectionDecisionInput & { principalId: string },
   ): Promise<CreateDirectionDecisionResult>;
   /** next_outcome判断とOutcome（成功条件含む）を1 transactionで保存する。部分保存を許さない。 */
   decideNextOutcome(
-    projectId: string,
+    workspaceId: string,
     intentBriefSnapshot: IntentResearchSummary,
     input: DecideNextOutcomeInput & { principalId: string },
   ): Promise<DecideNextOutcomeResult>;
   /** 指定Intent配下のDecisionを新しい順に返す。 */
-  findByIntent(projectId: string, intentId: string): Promise<DirectionDecision[]>;
+  findByIntent(workspaceId: string, intentId: string): Promise<DirectionDecision[]>;
 }

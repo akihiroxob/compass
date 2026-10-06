@@ -1,18 +1,19 @@
 import type { Intent } from "../domain/Intent.ts";
 import type { Outcome } from "../domain/Outcome.ts";
-import type { ProjectDetail } from "@compass/organization";
+import type { Workspace } from "@compass/organization";
 import type { IntentResearchSummary } from "../domain/Research.ts";
 import type { OutcomeEvaluation } from "../domain/OutcomeEvaluation.ts";
 import type { DirectionDecisionRepository } from "../domain/DirectionDecisionRepository.ts";
-import type { ProjectIntentReader } from "./port/ProjectDirectionReaders.ts";
-import type { OutcomeEvaluationRepository } from "../domain/OutcomeEvaluationRepository.ts";
-import type { ProjectOutcomeReader } from "./port/ProjectDirectionReaders.ts";
-import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
+import type { IntentRepository } from "../domain/IntentRepository.ts";
+import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
+import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import { NotFoundError } from "@compass/shared";
-import { DirectionAgentRole, type DirectionRoleAuthorizationPort, type Principal } from "./port/DirectionAuthorizationPort.ts";
+import { DirectionAgentRole } from "./port/DirectionAuthorizationPort.ts";
 
 /** 未実装で、Agentが存在を仮定・捏造してはならない入力。実装した時点で該当要素を外す。 */
+export const strategistResearchLimit = 50;
+
 export const unavailableStrategistInputs = ["evidence"] as const;
 
 /**
@@ -21,10 +22,15 @@ export const unavailableStrategistInputs = ["evidence"] as const;
  */
 export type StrategistEvaluation = OutcomeEvaluation & { decisionId: string | null };
 
+/** Evaluationの保存scope切替中もWorkspace IDを明示して読むport。 */
+export interface WorkspaceEvaluationReader {
+  findLatestByWorkspaceIntent(workspaceId: string, intentId: string): Promise<OutcomeEvaluation[]>;
+}
+
 export type StrategistContext = {
   principalId: string;
   role: DirectionAgentRole;
-  project: ProjectDetail;
+  workspace: Workspace;
   activeIntent: Intent | null;
   /** Active Intent配下の全状態のOutcome（新しい順）。取消済みも含め、過去の試行の重複提案を避けられるようにする。 */
   outcomes: Outcome[];
@@ -32,53 +38,55 @@ export type StrategistContext = {
   research: IntentResearchSummary | null;
   /** Active Intent配下の各Outcomeの最新Evaluation（新しい順）。Active Intentが無ければ空。 */
   evaluations: StrategistEvaluation[];
+  researchHistory: { requestCount: number; synthesisCount: number; conflictCount: number; truncated: boolean } | null;
   unavailable: readonly string[];
 };
 
 /**
- * StrategistがOutcomeを決めるために必要な、Project・Active Intent・既存Outcome・Intent Brief・最新のOutcome Evaluationを
+ * StrategistがOutcomeを決めるために必要な、Workspace・Active Intent・既存Outcome・Intent Brief・最新のOutcome Evaluationを
  * 1回で返す。Evaluationは再計画（次のOutcome・追加Research）とIntent完了の判断材料で、Evidence本文は含めない。
  */
 export class GetStrategistContextUseCase {
   constructor(
-    private readonly authorization: DirectionRoleAuthorizationPort,
-    private readonly projectReader: DirectionProjectReader,
-    private readonly intentRepository: ProjectIntentReader,
-    private readonly outcomeRepository: ProjectOutcomeReader,
-    private readonly researchRepository: ResearchRepository,
-    private readonly directionDecisionRepository: DirectionDecisionRepository,
-    private readonly outcomeEvaluationRepository: OutcomeEvaluationRepository,
+    private readonly workspaceReader: DirectionWorkspaceReader,
+    private readonly intentRepository: IntentRepository,
+    private readonly outcomeRepository: OutcomeRepository,
+    private readonly researchRepository: Pick<ResearchRepository, "findRequests" | "findRequestDetail" | "findIntentResearchSummary" | "findRelatedFindings">,
+    private readonly directionDecisionRepository: Pick<DirectionDecisionRepository, "findByIntent">,
+    private readonly outcomeEvaluationRepository: WorkspaceEvaluationReader,
   ) {}
 
-  async execute(principal: Principal, projectId: string): Promise<StrategistContext> {
-    const principalId = await this.authorization.requireRole(principal, projectId, DirectionAgentRole.STRATEGIST);
-    const project = await this.projectReader.findDetailById(projectId);
-    if (!project) throw new NotFoundError(`Project ${projectId} was not found`);
-    const intents = await this.intentRepository.findByProject(projectId);
+  async execute(principalId: string, workspaceId: string): Promise<StrategistContext> {
+    const workspace = await this.workspaceReader.findById(workspaceId);
+    if (!workspace) throw new NotFoundError(`Workspace ${workspaceId} was not found`);
+    const intents = await this.intentRepository.findByWorkspace(workspaceId);
     const activeIntent = intents.find((intent) => intent.status === "active") ?? null;
     const outcomes = activeIntent
-      ? await this.outcomeRepository.findByIntent(projectId, activeIntent.id)
+      ? await this.outcomeRepository.findByIntent(workspaceId, activeIntent.id)
       : [];
     const research = activeIntent
-      ? await this.researchRepository.findIntentResearchSummary(projectId, activeIntent.id)
+      ? await this.researchRepository.findIntentResearchSummary(workspaceId, activeIntent.id)
       : null;
-    const evaluations = activeIntent ? await this.evaluationsOf(projectId, activeIntent.id) : [];
+    const evaluations = activeIntent ? await this.evaluationsOf(workspaceId, activeIntent.id) : [];
     return {
       principalId,
       role: DirectionAgentRole.STRATEGIST,
-      project,
+      workspace,
       activeIntent,
       outcomes,
-      research,
+      research: research ? { requests: research.requests.slice(0, strategistResearchLimit),
+        syntheses: research.syntheses.slice(0, strategistResearchLimit), conflicts: research.conflicts.slice(0, strategistResearchLimit) } : null,
+      researchHistory: research ? { requestCount: research.requests.length, synthesisCount: research.syntheses.length,
+        conflictCount: research.conflicts.length, truncated: [research.requests, research.syntheses, research.conflicts].some(items => items.length > strategistResearchLimit) } : null,
       evaluations,
       unavailable: unavailableStrategistInputs,
     };
   }
 
-  private async evaluationsOf(projectId: string, intentId: string): Promise<StrategistEvaluation[]> {
-    const evaluations = await this.outcomeEvaluationRepository.findLatestByIntent(projectId, intentId);
+  private async evaluationsOf(workspaceId: string, intentId: string): Promise<StrategistEvaluation[]> {
+    const evaluations = await this.outcomeEvaluationRepository.findLatestByWorkspaceIntent(workspaceId, intentId);
     if (evaluations.length === 0) return [];
-    const decisions = await this.directionDecisionRepository.findByIntent(projectId, intentId);
+    const decisions = await this.directionDecisionRepository.findByIntent(workspaceId, intentId);
     const decidedBy = new Map(
       decisions.filter((decision) => decision.evaluationId !== null).map((decision) => [decision.evaluationId, decision.id]),
     );

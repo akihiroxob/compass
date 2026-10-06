@@ -1,4 +1,4 @@
-import { projectDirectionRepositories, projectDirectionUseCase } from "../infrastructure/repository/projectDirectionAdapter.ts";
+import { projectDirectionContext, projectDecisionReader, projectResearchReader, projectDirectionRepositories, projectDirectionUseCase } from "../infrastructure/repository/projectDirectionAdapter.ts";
 import { AgentContextService } from "../application/agentContext/AgentContextService.ts";
 import { GetRoleContextUseCase } from "../application/agentContext/GetRoleContextUseCase.ts";
 import { withActivityActor } from "../application/activityActor.ts";
@@ -194,7 +194,7 @@ export const createApplicationServices = (
   const workspaceIntentRepository = new SQLiteIntentRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
   const workspaceOutcomeRepository = new SQLiteOutcomeRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
   const { intents: intentRepository, outcomes: outcomeRepository } = projectDirectionRepositories(projectRepository, workspaceIntentRepository, workspaceOutcomeRepository);
-  const workspaceDirection = {
+  const workspaceBasics = {
     createIntentUseCase: new CreateIntentUseCase(workspaceRepository, workspaceIntentRepository),
     listIntentsUseCase: new ListIntentsUseCase(workspaceRepository, workspaceIntentRepository),
     getIntentUseCase: new GetIntentUseCase(workspaceRepository, workspaceIntentRepository),
@@ -206,20 +206,37 @@ export const createApplicationServices = (
     updateOutcomeUseCase: new UpdateOutcomeUseCase(workspaceRepository, workspaceOutcomeRepository),
     cancelOutcomeUseCase: new CancelOutcomeUseCase(workspaceRepository, workspaceOutcomeRepository),
   };
-  const researchRepository = new SQLiteResearchRepository(
+  const workspaceResearchRepository = new SQLiteResearchRepository(
     directionDatabase,
-    directionProjectReaders,
-    clock,
-    directionChangeObserver,
-  );
-  const directionDecisionRepository = new SQLiteDirectionDecisionRepository(
-    directionDatabase,
-    directionProjectReaders,
     directionWorkspaceReaders,
     clock,
     directionChangeObserver,
   );
-  const adrHandoffRepository = new SQLiteAdrHandoffRepository(directionDatabase, directionProjectReaders);
+  const workspaceDecisionRepository = new SQLiteDirectionDecisionRepository(
+    directionDatabase,
+    directionWorkspaceReaders,
+    clock,
+    directionChangeObserver,
+  );
+  const researchRepository = projectResearchReader(projectRepository, workspaceResearchRepository);
+  const directionDecisionRepository = projectDecisionReader(projectRepository, workspaceDecisionRepository);
+  const adrHandoffRepository = new SQLiteAdrHandoffRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders);
+  const workspaceDirection = {
+    ...workspaceBasics,
+    createAdrHandoffRequestUseCase: new CreateAdrHandoffRequestUseCase(workspaceRepository, adrHandoffRepository),
+    recordAdrReferenceUseCase: new RecordAdrReferenceUseCase(workspaceRepository, adrHandoffRepository),
+    listAdrReferencesUseCase: new ListAdrReferencesUseCase(workspaceRepository, adrHandoffRepository),
+    createResearchRequestUseCase: new CreateResearchRequestUseCase(workspaceRepository, workspaceResearchRepository),
+    listResearchRequestsUseCase: new ListResearchRequestsUseCase(workspaceRepository, workspaceResearchRepository),
+    getResearchRequestUseCase: new GetResearchRequestUseCase(workspaceRepository, workspaceResearchRepository),
+    registerResearchResultUseCase: new RegisterResearchResultUseCase(workspaceRepository, workspaceResearchRepository),
+    registerResearchSynthesisUseCase: new RegisterResearchSynthesisUseCase(workspaceRepository, workspaceResearchRepository),
+    completeResearchRequestUseCase: new CompleteResearchRequestUseCase(workspaceRepository, workspaceResearchRepository),
+    cancelResearchRequestUseCase: new CancelResearchRequestUseCase(workspaceRepository, workspaceResearchRepository),
+    createDirectionDecisionUseCase: new CreateDirectionDecisionUseCase(workspaceRepository, workspaceResearchRepository, workspaceDecisionRepository),
+    decideNextOutcomeUseCase: new DecideNextOutcomeUseCase(workspaceRepository, workspaceResearchRepository, workspaceDecisionRepository),
+    listDirectionDecisionsUseCase: new ListDirectionDecisionsUseCase(workspaceRepository, workspaceIntentRepository, workspaceDecisionRepository),
+  };
   const runtimeEventRepository = new SQLiteRuntimeEventRepository(directionDatabase);
   // Accessのrepositoryへは同じ接続をAccessのtableの型で渡し、Project状態（Organization）は同じtransactionで読む実装を渡す。
   const accessDatabase = asAccessDatabase(applicationDatabase);
@@ -249,6 +266,19 @@ export const createApplicationServices = (
     directionProjectReaders,
     directionChangeObserver,
   );
+  const workspaceContexts = {
+    getResearcherContextUseCase: new GetResearcherContextUseCase(workspaceRepository, workspaceIntentRepository, workspaceResearchRepository),
+    getStrategistContextUseCase: new GetStrategistContextUseCase(workspaceRepository, workspaceIntentRepository, workspaceOutcomeRepository,
+      workspaceResearchRepository, workspaceDecisionRepository, {
+        // S03-03までのEvaluation読取adapter。Project scopeの行をWorkspaceに属するOutcomeで限定する。
+        findLatestByWorkspaceIntent: async (workspaceId, intentId) => {
+          const projects = [...await projectRepository.findAllInWorkspace(workspaceId), ...await projectRepository.findAllInWorkspace(workspaceId, "archived")];
+          const evaluations = (await Promise.all(projects.map(project => outcomeEvaluationRepository.findLatestByIntent(project.id, intentId)))).flat();
+          const outcomes = new Set((await workspaceOutcomeRepository.findByIntent(workspaceId, intentId)).map(outcome => outcome.id));
+          return evaluations.filter(evaluation => outcomes.has(evaluation.outcomeId)).sort((a, b) => b.createdAt - a.createdAt);
+        },
+      }),
+  };
   // Human認証・Membership（docs/step-6-human-auth-design.md）。Agent GrantのRepository・認可とは分離する。
   const humanAccountRepository = new SQLiteHumanAccountRepository(
     accessDatabase,
@@ -330,12 +360,7 @@ export const createApplicationServices = (
         outcomeEvaluationRepository,
         clock,
       ),
-      getResearcherContextUseCase: new GetResearcherContextUseCase(
-        projectAuthorization,
-        projectRepository,
-        intentRepository,
-        researchRepository,
-      ),
+      getResearcherContextUseCase: projectDirectionContext(projectRepository, projectAuthorization, "researcher", workspaceContexts.getResearcherContextUseCase),
       getRoleContextUseCase: new GetRoleContextUseCase(
         projectAuthorization,
         agentContextService,
@@ -348,15 +373,7 @@ export const createApplicationServices = (
         ),
       }, clock),
       agentActivityReader: new AgentActivityReader(activityAuthorizationPort, listActivitiesUseCase, getActivityUseCase),
-      getStrategistContextUseCase: new GetStrategistContextUseCase(
-        projectAuthorization,
-        projectRepository,
-        intentRepository,
-        outcomeRepository,
-        researchRepository,
-        directionDecisionRepository,
-        outcomeEvaluationRepository,
-      ),
+      getStrategistContextUseCase: projectDirectionContext(projectRepository, projectAuthorization, "strategist", workspaceContexts.getStrategistContextUseCase),
     };
   };
   const services = {
@@ -377,13 +394,13 @@ export const createApplicationServices = (
     getOutcomeUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.getOutcomeUseCase),
     updateOutcomeUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.updateOutcomeUseCase),
     cancelOutcomeUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.cancelOutcomeUseCase),
-    createResearchRequestUseCase: new CreateResearchRequestUseCase(projectRepository, researchRepository),
-    listResearchRequestsUseCase: new ListResearchRequestsUseCase(projectRepository, researchRepository),
-    getResearchRequestUseCase: new GetResearchRequestUseCase(projectRepository, researchRepository),
-    registerResearchResultUseCase: new RegisterResearchResultUseCase(projectRepository, researchRepository),
-    registerResearchSynthesisUseCase: new RegisterResearchSynthesisUseCase(projectRepository, researchRepository),
-    completeResearchRequestUseCase: new CompleteResearchRequestUseCase(projectRepository, researchRepository),
-    cancelResearchRequestUseCase: new CancelResearchRequestUseCase(projectRepository, researchRepository),
+    createResearchRequestUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.createResearchRequestUseCase),
+    listResearchRequestsUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.listResearchRequestsUseCase),
+    getResearchRequestUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.getResearchRequestUseCase),
+    registerResearchResultUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.registerResearchResultUseCase),
+    registerResearchSynthesisUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.registerResearchSynthesisUseCase),
+    completeResearchRequestUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.completeResearchRequestUseCase),
+    cancelResearchRequestUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.cancelResearchRequestUseCase),
     listRuntimeEventsUseCase: new ListRuntimeEventsUseCase(projectRepository, runtimeEventRepository),
     getExecutionSummaryUseCase: new GetExecutionSummaryUseCase(
       projectRepository,
@@ -450,24 +467,14 @@ export const createApplicationServices = (
       humanProjectAuthorizationService,
       projectMembershipRepository,
     ),
-    createDirectionDecisionUseCase: new CreateDirectionDecisionUseCase(
-      projectRepository,
-      researchRepository,
-      directionDecisionRepository,
-    ),
-    decideNextOutcomeUseCase: new DecideNextOutcomeUseCase(
-      projectRepository,
-      researchRepository,
-      directionDecisionRepository,
-    ),
-    createAdrHandoffRequestUseCase: new CreateAdrHandoffRequestUseCase(projectRepository, adrHandoffRepository),
-    recordAdrReferenceUseCase: new RecordAdrReferenceUseCase(projectRepository, adrHandoffRepository),
-    listAdrReferencesUseCase: new ListAdrReferencesUseCase(projectRepository, adrHandoffRepository),
-    listDirectionDecisionsUseCase: new ListDirectionDecisionsUseCase(
-      projectRepository,
-      intentRepository,
-      directionDecisionRepository,
-    ),
+    createDirectionDecisionUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.createDirectionDecisionUseCase),
+    decideNextOutcomeUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.decideNextOutcomeUseCase),
+    createAdrHandoffRequestUseCase: { execute: async (projectId: string, principalId: string, input: unknown) =>
+      projectDirectionUseCase(projectRepository, workspaceDirection.createAdrHandoffRequestUseCase).execute(projectId, principalId, { ...(input as object), projectId }) },
+    recordAdrReferenceUseCase: { execute: async (projectId: string, principalId: string, input: unknown) =>
+      projectDirectionUseCase(projectRepository, workspaceDirection.recordAdrReferenceUseCase).execute(projectId, principalId, { ...(input as object), projectId }) },
+    listAdrReferencesUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.listAdrReferencesUseCase),
+    listDirectionDecisionsUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.listDirectionDecisionsUseCase),
   };
   const authorized = <Args extends unknown[], Result>(
     operation: HumanProjectOperation,
@@ -571,7 +578,7 @@ export const createApplicationServices = (
       taskCoordinationService.forActiveRole(activeRole),
     ),
   });
-  return { ...services, workspaceDirection, human, forActiveRole };
+  return { ...services, workspaceDirection: { ...workspaceDirection, ...workspaceContexts }, human, forActiveRole };
 };
 
 export type ApplicationServices = ReturnType<typeof createApplicationServices>;

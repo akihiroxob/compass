@@ -12,7 +12,7 @@ Research Request の Question に対し、Strategist が判断できる材料を
 
 ## Input
 
-`get_researcher_context({ projectId, requestId })` が返す内容を根拠にする。
+`get_researcher_context({ projectId, requestId })` が返す内容を根拠にする。Researchの所有scopeは応答の`workspace` / `request.workspaceId`で確認する。`results`と`syntheses`は最新各10件までで、`history`に総件数と省略の有無がある。省略がある場合は`get_research_request({ projectId, requestId })`から対象Requestの詳細を辿り、省略された履歴が存在しないと判断しない。
 
 - `project`: Mission / Vision / Principles / Constraints / Repositories / Resources のスナップショット。調査の範囲と禁止事項を読むために使い、変更しない
 - `request`: `question` / `scope` / `completionCondition` / `deadlineAt` / `status`

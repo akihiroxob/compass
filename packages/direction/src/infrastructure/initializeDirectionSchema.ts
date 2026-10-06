@@ -2,27 +2,30 @@ import { sql, type ColumnDefinitionBuilder, type Kysely } from "kysely";
 import type { DirectionDatabase } from "./schema.ts";
 
 /**
- * Research集約。すべて`create ... if not exists`なので既存DBへ再適用でき、Project / Intent / Outcomeのtableには触れない。
- * Findingは、SynthesisがIDで参照しProject内で再利用するため独立tableにする。Evidence参照・Synthesisとの関連は
+ * Research集約。Workspace scopeの新規DB定義。同じschemaのDBへ再適用できる。旧Project scopeのDBは再作成する。
+ * Findingは、SynthesisがIDで参照しWorkspace内で再利用するため独立tableにする。Evidence参照・Synthesisとの関連は
  * 関連tableで表し、参照整合をDBの外部キーで守る。要素単位で検索しない文字列配列（unknowns等）はJSON列に置く。
- * Project一致は、子の行をRequest / Resultから導いた`project_id`で保存することでRepositoryが保証する。
+ * Workspace一致は、Repositoryの検査と親子の複合FKで保証する。
  */
 const initializeResearchSchema = async (database: Kysely<DirectionDatabase>): Promise<void> => {
-  const projectId = (column: ColumnDefinitionBuilder) =>
-    column.notNull().references("project.id").onDelete("cascade");
+  const workspaceId = (column: ColumnDefinitionBuilder) =>
+    column.notNull().references("workspace.id").onDelete("cascade");
 
   await database.schema
     .createTable("research_request")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", projectId)
+    .addColumn("workspace_id", "text", workspaceId)
+    .addUniqueConstraint("research_request_id_workspace_unique", ["id", "workspace_id"])
     .addColumn("request_key", "text", (column) => column.notNull())
     .addColumn("input_hash", "text", (column) => column.notNull())
     .addColumn("kind", "text", (column) =>
       column.notNull().check(sql`kind in ('project_watch', 'decision')`),
     )
-    .addColumn("origin_intent_id", "text", (column) => column.references("intent.id").onDelete("cascade"))
-    .addColumn("origin_outcome_id", "text", (column) => column.references("outcome.id").onDelete("cascade"))
+    .addColumn("origin_intent_id", "text")
+    .addForeignKeyConstraint("research_origin_intent_workspace_fk", ["origin_intent_id", "workspace_id"], "intent", ["id", "workspace_id"], constraint => constraint.onDelete("cascade"))
+    .addColumn("origin_outcome_id", "text")
+    .addForeignKeyConstraint("research_origin_outcome_workspace_fk", ["origin_outcome_id", "workspace_id"], "outcome", ["id", "workspace_id"], constraint => constraint.onDelete("cascade"))
     .addColumn("question", "text", (column) => column.notNull())
     .addColumn("scope", "text", (column) => column.notNull())
     .addColumn("completion_condition", "text", (column) => column.notNull())
@@ -47,29 +50,29 @@ const initializeResearchSchema = async (database: Kysely<DirectionDatabase>): Pr
       sql`kind = 'project_watch' or origin_intent_id is not null`,
     )
     .execute();
-  // 同じProject・requestKeyの再送は1件に収束させる。Initial Requestはkeyを発端Intentから決定的に作る。
+  // 同じWorkspace・requestKeyの再送は1件に収束させる。Initial Requestはkeyを発端Intentから決定的に作る。
   await database.schema
-    .createIndex("research_request_project_key_idx")
+    .createIndex("research_request_workspace_key_idx")
     .unique()
     .ifNotExists()
     .on("research_request")
-    .columns(["project_id", "request_key"])
+    .columns(["workspace_id", "request_key"])
     .execute();
   await database.schema
     .createIndex("research_request_origin_intent_idx")
     .ifNotExists()
     .on("research_request")
-    .columns(["project_id", "origin_intent_id"])
+    .columns(["workspace_id", "origin_intent_id"])
     .execute();
 
   await database.schema
     .createTable("research_result")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", projectId)
-    .addColumn("request_id", "text", (column) =>
-      column.notNull().references("research_request.id").onDelete("cascade"),
-    )
+    .addColumn("workspace_id", "text", workspaceId)
+    .addUniqueConstraint("research_result_id_workspace_unique", ["id", "workspace_id"])
+    .addColumn("request_id", "text", column => column.notNull())
+    .addForeignKeyConstraint("research_result_parent_workspace_fk", ["request_id", "workspace_id"], "research_request", ["id", "workspace_id"], constraint => constraint.onDelete("cascade"))
     .addColumn("sequence", "integer", (column) => column.notNull())
     .addColumn("request_key", "text", (column) => column.notNull())
     .addColumn("input_hash", "text", (column) => column.notNull())
@@ -101,10 +104,10 @@ const initializeResearchSchema = async (database: Kysely<DirectionDatabase>): Pr
     .createTable("research_evidence_ref")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", projectId)
-    .addColumn("result_id", "text", (column) =>
-      column.notNull().references("research_result.id").onDelete("cascade"),
-    )
+    .addColumn("workspace_id", "text", workspaceId)
+    .addUniqueConstraint("research_evidence_ref_id_workspace_unique", ["id", "workspace_id"])
+    .addColumn("result_id", "text", column => column.notNull())
+    .addForeignKeyConstraint("research_evidence_ref_parent_workspace_fk", ["result_id", "workspace_id"], "research_result", ["id", "workspace_id"], constraint => constraint.onDelete("cascade"))
     .addColumn("position", "integer", (column) => column.notNull())
     .addColumn("kind", "text", (column) =>
       column
@@ -114,6 +117,7 @@ const initializeResearchSchema = async (database: Kysely<DirectionDatabase>): Pr
     .addColumn("uri", "text", (column) => column.notNull())
     .addColumn("retrieved_at", "integer", (column) => column.notNull())
     .addColumn("version_hash", "text")
+    .addColumn("resource_id", "text", column => column.references("project_resource.id").onDelete("set null"))
     .execute();
   await database.schema
     .createIndex("research_evidence_ref_result_position_idx")
@@ -127,13 +131,13 @@ const initializeResearchSchema = async (database: Kysely<DirectionDatabase>): Pr
     .createTable("research_finding")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", projectId)
+    .addColumn("workspace_id", "text", workspaceId)
+    .addUniqueConstraint("research_finding_id_workspace_unique", ["id", "workspace_id"])
     .addColumn("request_id", "text", (column) =>
       column.notNull().references("research_request.id").onDelete("cascade"),
     )
-    .addColumn("result_id", "text", (column) =>
-      column.notNull().references("research_result.id").onDelete("cascade"),
-    )
+    .addColumn("result_id", "text", column => column.notNull())
+    .addForeignKeyConstraint("research_finding_parent_workspace_fk", ["result_id", "workspace_id"], "research_result", ["id", "workspace_id"], constraint => constraint.onDelete("cascade"))
     .addColumn("position", "integer", (column) => column.notNull())
     .addColumn("statement", "text", (column) => column.notNull())
     .addColumn("confidence", "text", (column) =>
@@ -153,10 +157,10 @@ const initializeResearchSchema = async (database: Kysely<DirectionDatabase>): Pr
     .columns(["result_id", "position"])
     .execute();
   await database.schema
-    .createIndex("research_finding_project_idx")
+    .createIndex("research_finding_workspace_idx")
     .ifNotExists()
     .on("research_finding")
-    .column("project_id")
+    .column("workspace_id")
     .execute();
 
   await database.schema
@@ -188,10 +192,10 @@ const initializeResearchSchema = async (database: Kysely<DirectionDatabase>): Pr
     .createTable("research_synthesis")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", projectId)
-    .addColumn("request_id", "text", (column) =>
-      column.notNull().references("research_request.id").onDelete("cascade"),
-    )
+    .addColumn("workspace_id", "text", workspaceId)
+    .addUniqueConstraint("research_synthesis_id_workspace_unique", ["id", "workspace_id"])
+    .addColumn("request_id", "text", column => column.notNull())
+    .addForeignKeyConstraint("research_synthesis_parent_workspace_fk", ["request_id", "workspace_id"], "research_request", ["id", "workspace_id"], constraint => constraint.onDelete("cascade"))
     .addColumn("request_key", "text", (column) => column.notNull())
     .addColumn("input_hash", "text", (column) => column.notNull())
     .addColumn("version", "integer", (column) => column.notNull().check(sql`version >= 1`))
@@ -218,10 +222,10 @@ const initializeResearchSchema = async (database: Kysely<DirectionDatabase>): Pr
   await sql`create unique index if not exists research_synthesis_supersedes_idx
     on research_synthesis (supersedes_id) where supersedes_id is not null`.execute(database);
   await database.schema
-    .createIndex("research_synthesis_project_idx")
+    .createIndex("research_synthesis_workspace_idx")
     .ifNotExists()
     .on("research_synthesis")
-    .column("project_id")
+    .column("workspace_id")
     .execute();
 
   await database.schema
@@ -271,9 +275,12 @@ const initializeDirectionDecisionSchema = async (database: Kysely<DirectionDatab
     .createTable("direction_decision")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
-    .addColumn("intent_id", "text", (column) => column.notNull().references("intent.id").onDelete("cascade"))
-    .addColumn("outcome_id", "text", (column) => column.references("outcome.id").onDelete("cascade"))
+    .addColumn("workspace_id", "text", (column) => column.notNull().references("workspace.id").onDelete("cascade"))
+    .addUniqueConstraint("decision_id_workspace_unique", ["id", "workspace_id"])
+    .addColumn("intent_id", "text", column => column.notNull())
+    .addForeignKeyConstraint("decision_intent_workspace_fk", ["intent_id", "workspace_id"], "intent", ["id", "workspace_id"], constraint => constraint.onDelete("cascade"))
+    .addColumn("outcome_id", "text")
+    .addForeignKeyConstraint("decision_outcome_workspace_fk", ["outcome_id", "workspace_id"], "outcome", ["id", "workspace_id"], constraint => constraint.onDelete("cascade"))
     .addColumn("type", "text", (column) =>
       column
         .notNull()
@@ -293,17 +300,17 @@ const initializeDirectionDecisionSchema = async (database: Kysely<DirectionDatab
     .addCheckConstraint("direction_decision_outcome_requires_next_outcome", sql`(type = 'next_outcome') = (outcome_id is not null)`)
     .execute();
   await database.schema
-    .createIndex("direction_decision_project_key_idx")
+    .createIndex("direction_decision_workspace_key_idx")
     .unique()
     .ifNotExists()
     .on("direction_decision")
-    .columns(["project_id", "request_key"])
+    .columns(["workspace_id", "request_key"])
     .execute();
   await database.schema
     .createIndex("direction_decision_intent_idx")
     .ifNotExists()
     .on("direction_decision")
-    .columns(["project_id", "intent_id"])
+    .columns(["workspace_id", "intent_id"])
     .execute();
 
   await database.schema
@@ -345,8 +352,10 @@ const initializeAdrHandoffSchema = async (database: Kysely<DirectionDatabase>): 
     .createTable("adr_handoff_request")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("workspace_id", "text", (column) => column.notNull().references("workspace.id").onDelete("cascade"))
     .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
-    .addColumn("decision_id", "text", (column) => column.notNull().references("direction_decision.id"))
+    .addColumn("decision_id", "text", column => column.notNull())
+    .addForeignKeyConstraint("adr_decision_workspace_fk", ["decision_id", "workspace_id"], "direction_decision", ["id", "workspace_id"])
     .addColumn("repository_id", "text", (column) => column.notNull().references("project_repository_link.id"))
     .addColumn("correlation_id", "text", (column) => column.notNull())
     .addColumn("request_key", "text", (column) => column.notNull())
@@ -356,11 +365,11 @@ const initializeAdrHandoffSchema = async (database: Kysely<DirectionDatabase>): 
     .addColumn("created_at", "integer", (column) => column.notNull())
     .execute();
   await database.schema
-    .createIndex("adr_handoff_request_project_key_idx")
+    .createIndex("adr_handoff_request_workspace_key_idx")
     .unique()
     .ifNotExists()
     .on("adr_handoff_request")
-    .columns(["project_id", "request_key"])
+    .columns(["workspace_id", "request_key"])
     .execute();
   // recordReferenceが、依頼を経た参照だけを受け付けるための照合に使う。
   await database.schema
@@ -374,8 +383,10 @@ const initializeAdrHandoffSchema = async (database: Kysely<DirectionDatabase>): 
     .createTable("adr_reference")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("workspace_id", "text", (column) => column.notNull().references("workspace.id").onDelete("cascade"))
     .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
-    .addColumn("decision_id", "text", (column) => column.notNull().references("direction_decision.id"))
+    .addColumn("decision_id", "text", column => column.notNull())
+    .addForeignKeyConstraint("adr_decision_workspace_fk", ["decision_id", "workspace_id"], "direction_decision", ["id", "workspace_id"])
     .addColumn("repository_id", "text", (column) => column.notNull().references("project_repository_link.id"))
     .addColumn("path", "text", (column) => column.notNull())
     .addColumn("commit_sha", "text", (column) => column.notNull())
@@ -387,17 +398,17 @@ const initializeAdrHandoffSchema = async (database: Kysely<DirectionDatabase>): 
     .addColumn("created_at", "integer", (column) => column.notNull())
     .execute();
   await database.schema
-    .createIndex("adr_reference_project_key_idx")
+    .createIndex("adr_reference_workspace_key_idx")
     .unique()
     .ifNotExists()
     .on("adr_reference")
-    .columns(["project_id", "request_key"])
+    .columns(["workspace_id", "request_key"])
     .execute();
   await database.schema
-    .createIndex("adr_reference_project_created_idx")
+    .createIndex("adr_reference_workspace_created_idx")
     .ifNotExists()
     .on("adr_reference")
-    .columns(["project_id", "created_at"])
+    .columns(["workspace_id", "created_at"])
     .execute();
 };
 
@@ -697,6 +708,7 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     .addColumn("workspace_id", "text", (column) =>
       column.notNull().references("workspace.id").onDelete("cascade"),
     )
+    .addUniqueConstraint("outcome_id_workspace_unique", ["id", "workspace_id"])
     .addColumn("intent_id", "text", (column) => column.notNull())
     .addColumn("title", "text", (column) => column.notNull())
     .addForeignKeyConstraint(

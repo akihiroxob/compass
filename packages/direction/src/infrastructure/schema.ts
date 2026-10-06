@@ -41,7 +41,7 @@ export type SuccessCriterionTable = {
 /** `unknowns` / `options` / `risks`は不変な文字列配列のJSON。要素単位では検索しない。 */
 export type ResearchRequestTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   request_key: string;
   input_hash: string;
   kind: "project_watch" | "decision";
@@ -62,7 +62,7 @@ export type ResearchRequestTable = {
 
 export type ResearchResultTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   request_id: string;
   sequence: number;
   request_key: string;
@@ -79,18 +79,19 @@ export type ResearchResultTable = {
 
 export type ResearchEvidenceRefTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   result_id: string;
   position: number;
   kind: "url" | "repository_file" | "issue" | "pull_request" | "ci" | "wacha_run";
   uri: string;
   retrieved_at: number;
   version_hash: string | null;
+  resource_id: string | null;
 };
 
 export type ResearchFindingTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   request_id: string;
   result_id: string;
   position: number;
@@ -116,7 +117,7 @@ export type ResearchFindingConflictTable = {
 
 export type ResearchSynthesisTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   request_id: string;
   request_key: string;
   input_hash: string;
@@ -141,7 +142,7 @@ export type ResearchSynthesisFindingTable = {
 /** Compassを正本とするDirection Decision。作成後は変更しない（追記のみ）。 */
 export type DirectionDecisionTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   intent_id: string;
   /** next_outcomeのときだけ設定される。outcome.idへのFK。 */
   outcome_id: string | null;
@@ -183,6 +184,7 @@ export type DirectionDecisionFindingTable = {
 /** `adr_candidate` DecisionからWachaへ渡す依頼のfixture。作成後は変更しない。`payload`はJSON snapshot。 */
 export type AdrHandoffRequestTable = {
   id: string;
+  workspace_id: string;
   project_id: string;
   decision_id: string;
   repository_id: string;
@@ -197,6 +199,7 @@ export type AdrHandoffRequestTable = {
 /** Wachaが完了させたADR作成結果の参照。本文は複製せず、path / commit SHA / PR URLだけを保持する。 */
 export type AdrReferenceTable = {
   id: string;
+  workspace_id: string;
   project_id: string;
   decision_id: string;
   repository_id: string;
@@ -302,7 +305,7 @@ export type OutcomeEvaluationTable = {
 
 /**
  * Directionが所有するtable。単一SQLite fileの一部で、serverが他Contextのtableと合成する。
- * Intent/Outcomeの`workspace_id`、未切替Entityの`project_id`のFK先はOrganizationが所有する。
+ * Intent/Outcome/Research/Decision/ADRの`workspace_id`、artifactと未切替Entityの`project_id`のFK先はOrganizationが所有する。
  * DirectionはWorkspace/Projectの状態をserverが渡すreaderで読む。
  */
 export type DirectionDatabase = {

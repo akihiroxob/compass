@@ -9,7 +9,7 @@ import type { DirectionDatabase } from "./schema.ts";
  * 同じRequest・同じ種類のイベントは1件に収束し、重複して呼んでも新しい行を作らない。
  */
 export const recordRuntimeEvent = async (
-  transaction: Transaction<DirectionDatabase>,
+  transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
   event: {
     type: RuntimeEventType;
     projectId: string;
@@ -69,7 +69,7 @@ export const recordOutcomeConfirmedEvent = async (
  * 再送（同じrequestKey）では呼ばれない。相関IDはOutcomeの`outcome:{outcomeId}`で、確定からExecution・評価までを1本で辿れる。
  */
 export const recordOutcomeEvaluatedEvent = async (
-  transaction: Transaction<DirectionDatabase>,
+  transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
   evaluation: { projectId: string; intentId: string; outcomeId: string; evaluationId: string; occurredAt: number },
 ): Promise<void> => {
   await transaction

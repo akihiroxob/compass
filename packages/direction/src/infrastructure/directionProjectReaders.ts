@@ -6,6 +6,7 @@ import type { DirectionDatabase } from "./schema.ts";
  * 直接扱わず、serverが同じ接続・transactionで読む実装を渡す。
  */
 export type DirectionProjectReaders = (executor: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>) => {
+  findWorkspaceId(projectId: string): Promise<string | null>;
   /** 移行中のProject Direction経路。共有Workspaceは拒否する。 */
   findDirectionWorkspaceId(projectId: string): Promise<string>;
   /** Projectがarchivedか。Projectが無い場合はfalse（存在の扱いは各操作に任せる）。 */

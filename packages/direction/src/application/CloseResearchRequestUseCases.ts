@@ -1,5 +1,5 @@
 import type { ResearchRequest } from "../domain/Research.ts";
-import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
+import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import type {
   CloseResearchRequestResult,
   ResearchRepository,
@@ -11,8 +11,8 @@ import {
 import { ConflictError, NotFoundError } from "@compass/shared";
 import { throwCommonResearchRejection } from "./researchRejection.ts";
 
-const toClosedRequest = (result: CloseResearchRequestResult, projectId: string, requestId: string) => {
-  throwCommonResearchRejection(result, projectId, requestId);
+const toClosedRequest = (result: CloseResearchRequestResult, workspaceId: string, requestId: string) => {
+  throwCommonResearchRejection(result, workspaceId, requestId);
   if (result.kind === "incomplete") {
     throw new ConflictError(
       `Research Request ${requestId} cannot be completed without a ${result.missing}; close it as insufficient or not_needed instead`,
@@ -29,30 +29,30 @@ const toClosedRequest = (result: CloseResearchRequestResult, projectId: string, 
  */
 export class CompleteResearchRequestUseCase {
   constructor(
-    private readonly projectReader: DirectionProjectReader,
+    private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly researchRepository: ResearchRepository,
   ) {}
 
-  async execute(projectId: string, requestId: string, input: unknown): Promise<ResearchRequest> {
+  async execute(workspaceId: string, requestId: string, input: unknown): Promise<ResearchRequest> {
     const parsed = parseCompleteResearchRequestInput(input);
-    if (!(await this.projectReader.exists(projectId))) {
-      throw new NotFoundError(`Project ${projectId} was not found`);
+    if (!(await this.workspaceReader.findById(workspaceId))) {
+      throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     }
-    return toClosedRequest(await this.researchRepository.complete(projectId, requestId, parsed), projectId, requestId);
+    return toClosedRequest(await this.researchRepository.complete(workspaceId, requestId, parsed), workspaceId, requestId);
   }
 }
 
 export class CancelResearchRequestUseCase {
   constructor(
-    private readonly projectReader: DirectionProjectReader,
+    private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly researchRepository: ResearchRepository,
   ) {}
 
-  async execute(projectId: string, requestId: string, input: unknown): Promise<ResearchRequest> {
+  async execute(workspaceId: string, requestId: string, input: unknown): Promise<ResearchRequest> {
     const { reason } = parseCancelResearchRequestInput(input);
-    if (!(await this.projectReader.exists(projectId))) {
-      throw new NotFoundError(`Project ${projectId} was not found`);
+    if (!(await this.workspaceReader.findById(workspaceId))) {
+      throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     }
-    return toClosedRequest(await this.researchRepository.cancel(projectId, requestId, reason), projectId, requestId);
+    return toClosedRequest(await this.researchRepository.cancel(workspaceId, requestId, reason), workspaceId, requestId);
   }
 }

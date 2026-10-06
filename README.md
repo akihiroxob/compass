@@ -78,7 +78,7 @@ MCP endpointは`http://localhost:51800/mcp`、認証headerは`Authorization: Bea
 
 現在のRoleは`strategist` / `researcher` / `manager` / `worker` / `reviewer` / `evaluator`。`get_role_instructions({ role, includeShared: true })`でInstructionを取得できます。Grant発行だけではAgentは起動しません。
 
-Intent/Outcomeの保存と応答はWorkspace所有（`workspaceId`）です。WorkspaceのDirection公開入口はまだ接続していないため、既存のProject画面・API・MCPは所属Projectが1件のWorkspaceだけ利用できます。複数Project（archivedも含む）のWorkspaceではDirection操作・集約Contextが`CONFLICT`（`reason: workspace_direction_required`）になります。Project IDをWorkspace IDとして渡すことはできません。Research・Decision・Evaluation・Runtimeのscope切替と認可付きWorkspace入口は後続Taskです。
+Intent/Outcome/Research/Decisionの保存と応答はWorkspace所有（`workspaceId`）です。WorkspaceのDirection公開入口はまだ接続していないため、既存のProject画面・API・MCPは所属Projectが1件のWorkspaceだけ利用できます。複数Project（archivedも含む）のWorkspaceではDirection操作・集約Contextが`CONFLICT`（`reason: workspace_direction_required`）になります。Project IDをWorkspace IDとして渡すことはできません。ADR依頼/参照もWorkspace所有で、対象artifactのProject/Repository参照を保持します。Evaluation・Execution還流・Runtimeのscope切替と認可付きWorkspace入口は後続Taskです。旧Project scopeのResearch/Decision schemaは変換せず、開発DBを再作成して起動します。テストは`COMPASS_DB_PATH=:memory: npm test`でローカルDBから隔離できます。
 
 Role・Skill・Knowledge・Policyはrepo直下の`roles/`・`skills/`・`knowledge/`・`policies/`にGit管理し、MCPから必要時に取得します。起動時は`get_role_context({ projectId, role })`（そのRoleのGrantが必要）でRole Definition・共通Policy・Roleがfrontmatterの`skills`で参照するSkillのmetadata・Project情報を取得し、作業に入るときに`get_skill_context({ name })`でSkill本文とrequiredKnowledgeを取得します。`list_skills`はmetadataの一覧です。応答の`source.revision`は資産を読んだGit commit、`source.dirty`は未commit変更の有無です。Skillは認可を担わず、Roleとの対応はRole Definitionの`skills`だけで表します。Role Contextの`activity`は最近のActivityのsummaryとrefs（本文なし）です。
 

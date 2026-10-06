@@ -343,7 +343,7 @@ test("Researcher toolはBearerなし・Grantなし・別Project・取消済み�
   }
 
   for (const target of [request, otherRequest]) {
-    const detail = await services.getResearchRequestUseCase.execute(target.projectId, target.id);
+    const detail = await services.workspaceDirection.getResearchRequestUseCase.execute(target.workspaceId, target.id);
     assert.equal(detail.results.length, 0);
     assert.equal(detail.syntheses.length, 0);
     assert.equal(detail.request.status, "requested");

@@ -13,7 +13,7 @@ Intent と Outcome Evaluation を受け、次に追う Outcome を決める。Ev
 
 ## Input
 
-`get_strategist_context({ projectId })` が返す内容だけを根拠にする。
+`get_strategist_context({ projectId })` が返す内容を根拠にする。Directionの所有scopeは応答の`workspace`で確認する。`research`のrequests/syntheses/conflictsは各50件までで、`researchHistory`に総件数と省略の有無がある。省略された履歴が存在しないと判断せず、必要な根拠は`list_research_requests` / `get_research_request`で辿る。
 
 - `project`: Mission / Vision / Principles / Constraints / Repositories / Resources
 - `activeIntent`: Project の active な Intent（最大 1 件）。無ければ `null`

@@ -1,9 +1,11 @@
 import { ConflictError, NotFoundError } from "@compass/shared";
-import { ProjectArchivedError } from "@compass/organization";
+import { WorkspaceArchivedError, ProjectArchivedError } from "@compass/organization";
 
 /** ADR Handoff Request・ADR Reference作成で共通の拒否結果。`created` / `replayed`はそれぞれのuse caseが扱う。 */
 type CommonAdrHandoffRejection =
   | { kind: "project_archived" }
+  | { kind: "workspace_archived" }
+  | { kind: "project_not_in_workspace" }
   | { kind: "key_conflict"; requestKey: string }
   | { kind: "decision_not_found" }
   | { kind: "decision_not_adr_candidate"; type: string }
@@ -11,11 +13,13 @@ type CommonAdrHandoffRejection =
   | { kind: "handoff_request_not_found" };
 
 /** 共通の拒否結果をアプリケーション層のエラーへ変換する。該当しない結果（created/replayed）は何もしない。 */
-export const throwAdrHandoffRejection = (result: { kind: string }, projectId: string): void => {
+export const throwAdrHandoffRejection = (result: { kind: string }, workspaceId: string, projectId: string): void => {
   const rejection = result as CommonAdrHandoffRejection;
+  if (rejection.kind === "workspace_archived") throw new WorkspaceArchivedError(workspaceId);
+  if (rejection.kind === "project_not_in_workspace") throw new NotFoundError("Target Project was not found in the Workspace");
   if (rejection.kind === "project_archived") throw new ProjectArchivedError(projectId);
   if (rejection.kind === "decision_not_found") {
-    throw new NotFoundError(`Direction Decision was not found in Project ${projectId}`);
+    throw new NotFoundError(`Direction Decision was not found in Workspace ${workspaceId}`);
   }
   if (rejection.kind === "decision_not_adr_candidate") {
     throw new ConflictError(

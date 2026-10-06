@@ -33,7 +33,7 @@ const loadDecisions = async (
     .execute();
   return rows.map((row) => ({
     id: row.id,
-    projectId: row.project_id,
+    workspaceId: row.workspace_id,
     intentId: row.intent_id,
     outcomeId: row.outcome_id,
     evaluationId: row.evaluation_id,
@@ -53,21 +53,21 @@ const loadDecisions = async (
   }));
 };
 
-export const findDecisionByRequestKey = (transaction: Transaction<DirectionDatabase>, projectId: string, requestKey: string) =>
+export const findDecisionByRequestKey = (transaction: Transaction<DirectionDatabase>, workspaceId: string, requestKey: string) =>
   transaction
     .selectFrom("direction_decision")
     .selectAll()
-    .where("project_id", "=", projectId)
+    .where("workspace_id", "=", workspaceId)
     .where("request_key", "=", requestKey)
     .executeTakeFirst();
 
 /**
- * 使用したSynthesis・Findingが同じProjectに存在し、Synthesisは指定versionが現在versionと一致することを検証する。
+ * 使用したSynthesis・Findingが同じWorkspaceに存在し、Synthesisは指定versionが現在versionと一致することを検証する。
  * 不一致は呼び出し側が`invalid_reference` / `synthesis_version_mismatch`として拒否する。
  */
 export const validateResearchReferences = async (
   transaction: Transaction<DirectionDatabase>,
-  projectId: string,
+  workspaceId: string,
   usedSyntheses: readonly { synthesisId: string; version: number }[],
   usedFindingIds: readonly string[],
 ):
@@ -80,7 +80,7 @@ export const validateResearchReferences = async (
     const rows = await transaction
       .selectFrom("research_synthesis")
       .select(["id", "version"])
-      .where("project_id", "=", projectId)
+      .where("workspace_id", "=", workspaceId)
       .where(
         "id",
         "in",
@@ -101,7 +101,7 @@ export const validateResearchReferences = async (
     const rows = await transaction
       .selectFrom("research_finding")
       .select("id")
-      .where("project_id", "=", projectId)
+      .where("workspace_id", "=", workspaceId)
       .where("id", "in", [...usedFindingIds])
       .execute();
     const known = new Set(rows.map((row) => row.id));
@@ -118,7 +118,7 @@ export const validateResearchReferences = async (
  */
 export const insertDirectionDecisionRow = async (
   transaction: Transaction<DirectionDatabase>,
-  projectId: string,
+  workspaceId: string,
   id: string,
   type: DirectionDecision["type"],
   outcomeId: string | null,
@@ -131,7 +131,7 @@ export const insertDirectionDecisionRow = async (
     .insertInto("direction_decision")
     .values({
       id,
-      project_id: projectId,
+      workspace_id: workspaceId,
       intent_id: input.intentId,
       outcome_id: outcomeId,
       type,
@@ -185,24 +185,25 @@ export type EvaluationReferenceRejection =
   | { kind: "evaluation_result_mismatch"; evaluationId: string; result: string };
 
 /**
- * Decisionが根拠にするOutcome Evaluationを検証する。同じProject・同じIntentのOutcomeの、最新の評価だけを根拠にでき
+ * Decisionが根拠にするOutcome Evaluationを検証する。同じWorkspace・同じIntentのOutcomeの、最新の評価だけを根拠にでき
  * （再評価で古くなった評価からは遷移しない）、1つの評価を根拠にできるDecisionは1件だけ（Strategistの重複起動で
  * 再計画・Intent完了を二重にしない。`direction_decision_evaluation_idx`が並行時も保証する）。
  * intent_completeはachievedの評価だけを根拠にできる。取消済みOutcomeの評価は根拠にしない。
  */
 export const validateEvaluationReference = async (
   transaction: Transaction<DirectionDatabase>,
-  projectId: string,
+  workspaceId: string,
   intentId: string,
   evaluationId: string,
   type: DirectionDecision["type"],
 ): Promise<{ kind: "ok" } | EvaluationReferenceRejection> => {
   const evaluation = await transaction
     .selectFrom("outcome_evaluation")
-    .select(["id", "outcome_id", "result"])
-    .where("id", "=", evaluationId)
-    .where("project_id", "=", projectId)
-    .where("intent_id", "=", intentId)
+    .innerJoin("outcome", "outcome.id", "outcome_evaluation.outcome_id")
+    .select(["outcome_evaluation.id as id", "outcome_evaluation.outcome_id as outcome_id", "outcome_evaluation.result as result"])
+    .where("outcome_evaluation.id", "=", evaluationId)
+    .where("outcome.workspace_id", "=", workspaceId)
+    .where("outcome_evaluation.intent_id", "=", intentId)
     .executeTakeFirst();
   if (!evaluation) return { kind: "invalid_reference", reference: "evaluation", ids: [evaluationId] };
 

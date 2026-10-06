@@ -28,7 +28,7 @@ export type UsedSynthesisReference = {
  */
 export type DirectionDecision = {
   readonly id: string;
-  readonly projectId: string;
+  readonly workspaceId: string;
   readonly intentId: string;
   readonly outcomeId: string | null;
   /** 根拠にしたOutcome Evaluation。Evaluationを経ない判断はnull。 */

@@ -147,7 +147,7 @@ test("StrategistはSynthesis/Findingを根拠にDirection Decisionを記録で�
   );
   assert.equal(created.isError, undefined);
   const decision = created.structuredContent.decision;
-  assert.equal(decision.projectId, project.id);
+  assert.equal(decision.workspaceId, project.workspaceId);
   assert.equal(decision.intentId, intent.id);
   assert.equal(decision.outcomeId, null);
   assert.equal(decision.type, "additional_research");

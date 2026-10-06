@@ -111,7 +111,7 @@ test("Requestは発端Intentとともに保存され、再起動後も同じID�
   assert.equal(created.status, "requested");
   assert.equal(created.kind, "project_watch");
   assert.equal(created.originIntentId, null);
-  assert.equal(created.projectId, project.id);
+  assert.equal(created.workspaceId, project.workspaceId);
   assert.equal(created.budgetUsed, 0);
   assert.equal(created.stopReason, null);
   assert.equal(created.correlationId, "corr-1");
@@ -178,7 +178,7 @@ test("Result・Finding・Synthesisを登録して完了でき、Projectと発端
   // FindingはResultのEvidence参照だけを指し、来歴（Principal / run）を引き継ぐ。
   assert.deepEqual(result.findings[0]!.evidenceRefIds, result.evidenceRefs.map(({ id }) => id));
   assert.deepEqual(result.findings[1]!.evidenceRefIds, [result.evidenceRefs[1]!.id]);
-  assert.ok(result.findings.every((finding) => finding.projectId === project.id && finding.requestId === request.id));
+  assert.ok(result.findings.every((finding) => finding.workspaceId === project.workspaceId && finding.requestId === request.id));
   assert.ok(result.findings.every((finding) => finding.principalId === "researcher-a" && finding.runRef === "run-001"));
 
   const running = (await first.services.getResearchRequestUseCase.execute(project.id, request.id)).request;
@@ -742,7 +742,7 @@ test("DBの制約が同じrequestKeyの重複とIntentのないdecision request�
   const { project, intent } = await seed(services);
   const request = await services.createResearchRequestUseCase.execute(project.id, decisionRequest(intent.id));
   const row = {
-    project_id: project.id,
+    workspace_id: project.workspaceId,
     input_hash: "h",
     kind: "decision" as const,
     origin_intent_id: intent.id,

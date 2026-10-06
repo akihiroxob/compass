@@ -3,12 +3,11 @@ import type { ResearchRequest } from "../domain/Research.ts";
 import type { CreateResearchRequestInput } from "../domain/ResearchRepository.ts";
 import type { DirectionDatabase, ResearchRequestTable } from "./schema.ts";
 import { inputHash } from "@compass/shared";
-import { recordRuntimeEvent } from "./runtimeEventRecord.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 export const toRequest = (row: Selectable<ResearchRequestTable>): ResearchRequest => ({
   id: row.id,
-  projectId: row.project_id,
+  workspaceId: row.workspace_id,
   kind: row.kind,
   originIntentId: row.origin_intent_id,
   originOutcomeId: row.origin_outcome_id,
@@ -27,12 +26,13 @@ export const toRequest = (row: Selectable<ResearchRequestTable>): ResearchReques
 });
 
 /**
- * Requestの保存と`research_requested`イベントの追記を、必ず同じtransactionで行う唯一の経路。
+ * Requestの保存とWorkspace通知を同じtransactionで行う唯一の経路。
+ * serverのobserverがcanonical Activityと移行中のRuntime eventへ投影する。
  * 呼び出し側が存在・状態・冪等性（requestKey）を検査した後に呼ぶ。
  */
 export const insertResearchRequest = async (
   transaction: Transaction<DirectionDatabase>,
-  projectId: string,
+  workspaceId: string,
   input: CreateResearchRequestInput,
   now: number,
   observer: DirectionChangeObserver | null = null,
@@ -41,7 +41,7 @@ export const insertResearchRequest = async (
     .insertInto("research_request")
     .values({
       id: crypto.randomUUID(),
-      project_id: projectId,
+      workspace_id: workspaceId,
       request_key: input.requestKey,
       input_hash: inputHash(input),
       kind: input.kind,
@@ -61,18 +61,9 @@ export const insertResearchRequest = async (
     })
     .returningAll()
     .executeTakeFirstOrThrow();
-  await recordRuntimeEvent(transaction, {
-    type: "research_requested",
-    projectId,
-    intentId: row.origin_intent_id,
-    researchRequestId: row.id,
-    correlationId: row.correlation_id,
-    conclusion: null,
-    occurredAt: now,
-  });
   await notifyDirectionChange(observer, transaction, {
     type: "research_requested",
-    projectId,
+    workspaceId,
     recordId: row.id,
     title: row.question,
     refs: [
@@ -90,12 +81,12 @@ export const insertResearchRequest = async (
 
 export const findResearchRequestByKey = async (
   transaction: Transaction<DirectionDatabase>,
-  projectId: string,
+  workspaceId: string,
   requestKey: string,
 ): Promise<Selectable<ResearchRequestTable> | undefined> =>
   transaction
     .selectFrom("research_request")
     .selectAll()
-    .where("project_id", "=", projectId)
+    .where("workspace_id", "=", workspaceId)
     .where("request_key", "=", requestKey)
     .executeTakeFirst();

@@ -33,7 +33,7 @@ export const projectDirectionUseCase = <Args extends unknown[], Result>(
   },
 });
 
-/** Project基準のResearch/Decision/Evaluation/Execution Contextが読む参照だけを変換する。 */
+/** Project基準のEvaluation/Execution/Orchestrationが読む参照だけを変換する。 */
 export const projectDirectionRepositories = (projects: ProjectRepository, intents: IntentRepository, outcomes: OutcomeRepository): {
   intents: ProjectIntentReader; outcomes: ProjectOutcomeReader;
 } => {
@@ -49,3 +49,28 @@ export const projectDirectionRepositories = (projects: ProjectRepository, intent
     },
   };
 };
+
+/** S03-04までのProject Context/Runtimeが使う読取だけを明示的に変換する。 */
+export const projectResearchReader = (projects: ProjectRepository, research: import("@compass/direction").ResearchRepository) => ({
+  findRequests: async (id: string, query?: import("@compass/direction").ResearchRequestQuery) => research.findRequests(await resolveProjectDirectionWorkspace(projects, id), query),
+  findRequestDetail: async (id: string, requestId: string) => research.findRequestDetail(await resolveProjectDirectionWorkspace(projects, id), requestId),
+  findIntentResearchSummary: async (id: string, intentId: string) => research.findIntentResearchSummary(await resolveProjectDirectionWorkspace(projects, id), intentId),
+  findRelatedFindings: async (id: string, requestId: string, limit: number) => research.findRelatedFindings(await resolveProjectDirectionWorkspace(projects, id), requestId, limit),
+});
+
+export const projectDecisionReader = (projects: ProjectRepository, decisions: import("@compass/direction").DirectionDecisionRepository) => ({
+  findByIntent: async (id: string, intentId: string) => decisions.findByIntent(await resolveProjectDirectionWorkspace(projects, id), intentId),
+});
+
+/** 認可は旧Project Grantを先に検査し、共有WorkspaceはContextへ渡さない。 */
+export const projectDirectionContext = <Args extends unknown[], Result>(
+  projects: ProjectRepository,
+  authorization: import("@compass/direction").DirectionRoleAuthorizationPort,
+  role: import("@compass/direction").DirectionAgentRole,
+  context: { execute(principalId: string, workspaceId: string, ...args: Args): Promise<Result> },
+) => ({ execute: async (principal: string | null, projectId: string, ...args: Args) => {
+  const principalId = await authorization.requireRole(principal, projectId, role);
+  const workspaceId = await resolveProjectDirectionWorkspace(projects, projectId);
+  const result = await context.execute(principalId, workspaceId, ...args);
+  return { ...result, project: await projects.findDetailById(projectId) };
+} });

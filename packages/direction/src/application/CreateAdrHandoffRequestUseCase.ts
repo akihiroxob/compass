@@ -1,6 +1,6 @@
 import type { AdrHandoffRequest } from "../domain/AdrHandoff.ts";
 import type { AdrHandoffRepository } from "../domain/AdrHandoffRepository.ts";
-import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
+import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import { parseCreateAdrHandoffRequestInput } from "./adrHandoffSchema.ts";
 import { NotFoundError } from "@compass/shared";
 import { throwAdrHandoffRejection } from "./adrHandoffRejection.ts";
@@ -11,18 +11,18 @@ import { throwAdrHandoffRejection } from "./adrHandoffRejection.ts";
  */
 export class CreateAdrHandoffRequestUseCase {
   constructor(
-    private readonly projectReader: DirectionProjectReader,
+    private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly adrHandoffRepository: AdrHandoffRepository,
   ) {}
 
-  async execute(projectId: string, principalId: string, input: unknown): Promise<AdrHandoffRequest> {
+  async execute(workspaceId: string, principalId: string, input: unknown): Promise<AdrHandoffRequest> {
     const parsed = parseCreateAdrHandoffRequestInput(input);
-    if (!(await this.projectReader.exists(projectId))) {
-      throw new NotFoundError(`Project ${projectId} was not found`);
+    if (!(await this.workspaceReader.findById(workspaceId))) {
+      throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     }
-    const result = await this.adrHandoffRepository.createRequest(projectId, { ...parsed, principalId });
+    const result = await this.adrHandoffRepository.createRequest(workspaceId, { ...parsed, principalId });
     if (result.kind === "created" || result.kind === "replayed") return result.request;
-    throwAdrHandoffRejection(result, projectId);
+    throwAdrHandoffRejection(result, workspaceId, parsed.projectId);
     throw new Error(`Unexpected result: ${result.kind}`);
   }
 }
