@@ -61,3 +61,7 @@ export * from "./infrastructure/repositoryReference.ts";
 export * from "./infrastructure/initializeDirectionSchema.ts";
 export * from "./infrastructure/schema.ts";
 export * from "./outcomeCorrelation.ts";
+export * from "./application/port/DirectionWorkspaceReader.ts";
+export * from "./infrastructure/directionWorkspaceReaders.ts";
+export * from "./application/port/ProjectDirectionReaders.ts";
+export { recordOutcomeConfirmedEvent } from "./infrastructure/runtimeEventRecord.ts";

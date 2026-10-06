@@ -1,6 +1,6 @@
 import type { DirectionDecision } from "../domain/DirectionDecision.ts";
 import type { DirectionDecisionRepository } from "../domain/DirectionDecisionRepository.ts";
-import type { IntentRepository } from "../domain/IntentRepository.ts";
+import type { ProjectIntentReader } from "./port/ProjectDirectionReaders.ts";
 import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { NotFoundError } from "@compass/shared";
 
@@ -8,7 +8,7 @@ import { NotFoundError } from "@compass/shared";
 export class ListDirectionDecisionsUseCase {
   constructor(
     private readonly projectReader: DirectionProjectReader,
-    private readonly intentRepository: IntentRepository,
+    private readonly intentRepository: ProjectIntentReader,
     private readonly directionDecisionRepository: DirectionDecisionRepository,
   ) {}
 

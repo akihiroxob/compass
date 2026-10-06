@@ -397,7 +397,7 @@ test(
       // 二重Story・二重Outcome・二重Evaluation・二重Decisionがない（DBを観測）
       assert.equal(await countRows(server.database, "story", ["project_id", projectId]), 2);
       assert.equal(await countRows(server.database, "task", ["project_id", projectId]), 2);
-      assert.equal(await countRows(server.database, "outcome", ["project_id", projectId]), 2);
+      assert.equal(await countRows(server.database, "outcome", ["workspace_id", (await server.database.selectFrom("project").select("workspace_id").where("id", "=", projectId).executeTakeFirstOrThrow()).workspace_id!]), 2);
       assert.equal(await countRows(server.database, "outcome_evaluation", ["project_id", projectId]), 4);
       assert.equal(await countRows(server.database, "direction_decision", ["project_id", projectId]), 5);
       assert.equal(await countRows(server.database, "research_request", ["project_id", projectId]), 2);

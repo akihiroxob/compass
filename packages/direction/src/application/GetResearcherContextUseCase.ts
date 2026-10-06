@@ -7,7 +7,7 @@ import type {
   ResearchResult,
   ResearchSynthesis,
 } from "../domain/Research.ts";
-import type { IntentRepository } from "../domain/IntentRepository.ts";
+import type { ProjectIntentReader } from "./port/ProjectDirectionReaders.ts";
 import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import { NotFoundError } from "@compass/shared";
@@ -43,7 +43,7 @@ export class GetResearcherContextUseCase {
   constructor(
     private readonly authorization: DirectionRoleAuthorizationPort,
     private readonly projectReader: DirectionProjectReader,
-    private readonly intentRepository: IntentRepository,
+    private readonly intentRepository: ProjectIntentReader,
     private readonly researchRepository: ResearchRepository,
   ) {}
 

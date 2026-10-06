@@ -169,7 +169,7 @@ test("AccessはDirection・Workに依存しない", () => {
 
 test("Direction・Work・AccessはOrganizationの公開indexのerror・参照モデル・use caseの型だけを使い、Repository・tableを使わない", () => {
   const allowed: [typeof workFiles, Set<string>][] = [
-    [directionFiles, new Set(["ProjectArchivedError", "ProjectDetail", "ProjectStatus"])],
+    [directionFiles, new Set(["ProjectArchivedError", "ProjectDetail", "ProjectStatus", "WorkspaceArchivedError", "Workspace"])],
     [workFiles, new Set(["ProjectArchivedError"])],
     [
       accessFiles,

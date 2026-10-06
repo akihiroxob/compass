@@ -1,20 +1,20 @@
 import type { Intent } from "../domain/Intent.ts";
 import type { IntentRepository } from "../domain/IntentRepository.ts";
-import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
+import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import { NotFoundError } from "@compass/shared";
 
 export class GetIntentUseCase {
   constructor(
-    private readonly projectReader: DirectionProjectReader,
+    private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly intentRepository: IntentRepository,
   ) {}
 
-  async execute(projectId: string, intentId: string): Promise<Intent> {
-    if (!(await this.projectReader.exists(projectId))) {
-      throw new NotFoundError(`Project ${projectId} was not found`);
+  async execute(workspaceId: string, intentId: string): Promise<Intent> {
+    if (!(await this.workspaceReader.findById(workspaceId))) {
+      throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     }
-    const intent = await this.intentRepository.findById(projectId, intentId);
-    if (!intent) throw new NotFoundError(`Intent ${intentId} was not found in Project ${projectId}`);
+    const intent = await this.intentRepository.findById(workspaceId, intentId);
+    if (!intent) throw new NotFoundError(`Intent ${intentId} was not found in Workspace ${workspaceId}`);
     return intent;
   }
 }

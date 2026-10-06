@@ -18,6 +18,7 @@ import { asAccessDatabase, asDirectionDatabase, asOrganizationDatabase } from ".
 import {
   accessProjectReaders,
   directionProjectReaders,
+  directionWorkspaceReaders,
   projectRepositoryReferenceFinder,
 } from "../src/infrastructure/repository/contextAdapters.ts";
 
@@ -316,17 +317,17 @@ test("AC-11 Repositoryを直接呼んでも、archivedのProjectには何も書�
   const projectBefore = await services.getProjectUseCase.execute(project.id);
 
   const projects = new SQLiteProjectRepository(asOrganizationDatabase(database), projectRepositoryReferenceFinder);
-  const intents = new SQLiteIntentRepository(asDirectionDatabase(database), directionProjectReaders);
-  const outcomes = new SQLiteOutcomeRepository(asDirectionDatabase(database), directionProjectReaders);
+  const intents = new SQLiteIntentRepository(asDirectionDatabase(database), directionWorkspaceReaders);
+  const outcomes = new SQLiteOutcomeRepository(asDirectionDatabase(database), directionWorkspaceReaders);
   const grants = new SQLiteProjectGrantRepository(asAccessDatabase(database), accessProjectReaders);
   const archived = { kind: "project_archived" };
   assert.deepEqual(await projects.update(project.id, { name: "Changed" }), archived);
-  assert.deepEqual(await intents.create(project.id, { title: "T", desiredState: "S", completionDefinition: null }), archived);
-  assert.deepEqual(await intents.update(project.id, intent.id, { title: "Changed" }), archived);
-  assert.deepEqual(await intents.abandon(project.id, intent.id, "x"), archived);
-  assert.deepEqual(await outcomes.create(project.id, intent.id, { ...outcomeInput, hypothesis: null, successCriteria: [{ description: "d", measurement: "m", target: null }] }), archived);
-  assert.deepEqual(await outcomes.update(project.id, intent.id, outcome.id, { title: "Changed" }), archived);
-  assert.deepEqual(await outcomes.cancel(project.id, intent.id, outcome.id, "x"), archived);
+  assert.deepEqual(await intents.create(project.workspaceId, { title: "T", desiredState: "S", completionDefinition: null }), { kind: "workspace_archived" });
+  assert.deepEqual(await intents.update(project.workspaceId, intent.id, { title: "Changed" }), { kind: "workspace_archived" });
+  assert.deepEqual(await intents.abandon(project.workspaceId, intent.id, "x"), { kind: "workspace_archived" });
+  assert.deepEqual(await outcomes.create(project.workspaceId, intent.id, { ...outcomeInput, hypothesis: null, successCriteria: [{ description: "d", measurement: "m", target: null }] }), { kind: "workspace_archived" });
+  assert.deepEqual(await outcomes.update(project.workspaceId, intent.id, outcome.id, { title: "Changed" }), { kind: "workspace_archived" });
+  assert.deepEqual(await outcomes.cancel(project.workspaceId, intent.id, outcome.id, "x"), { kind: "workspace_archived" });
   assert.deepEqual(await grants.grant(project.id, "strat-2", "strategist"), archived);
   assert.deepEqual(await grants.revoke(project.id, "strat-1", "strategist"), archived);
   assert.deepEqual(await projects.archive(project.id, "again"), { kind: "already_archived" });

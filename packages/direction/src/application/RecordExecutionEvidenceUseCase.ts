@@ -1,6 +1,6 @@
 import type { OutcomeExecutionEvidence, OutcomeExecutionSummary } from "../domain/OutcomeExecution.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
-import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
+import type { ProjectOutcomeReader } from "./port/ProjectDirectionReaders.ts";
 import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { parseRecordExecutionEvidenceInput } from "./executionEvidenceSchema.ts";
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
@@ -35,7 +35,7 @@ export class RecordExecutionEvidenceUseCase<TCaller> {
   constructor(
     private readonly authorization: DirectionRuntimeAuthorizationPort<TCaller>,
     private readonly projectReader: DirectionProjectReader,
-    private readonly outcomeRepository: OutcomeRepository,
+    private readonly outcomeRepository: ProjectOutcomeReader,
     private readonly executionSummary: ExecutionSummaryPort,
     private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
     private readonly clock: () => number,

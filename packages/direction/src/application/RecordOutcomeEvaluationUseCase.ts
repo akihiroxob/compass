@@ -9,7 +9,7 @@ import type {
   OutcomeEvaluationRequest,
 } from "../domain/OutcomeEvaluationRepository.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
-import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
+import type { ProjectOutcomeReader } from "./port/ProjectDirectionReaders.ts";
 import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { parseRecordOutcomeEvaluationInput } from "./outcomeEvaluationSchema.ts";
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
@@ -33,7 +33,7 @@ export class RecordOutcomeEvaluationUseCase {
   constructor(
     private readonly authorization: DirectionRoleAuthorizationPort,
     private readonly projectReader: DirectionProjectReader,
-    private readonly outcomeRepository: OutcomeRepository,
+    private readonly outcomeRepository: ProjectOutcomeReader,
     private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
     private readonly outcomeEvaluationRepository: OutcomeEvaluationRepository,
     private readonly clock: () => number,

@@ -1,26 +1,26 @@
 import type { Intent } from "../domain/Intent.ts";
 import type { IntentRepository } from "../domain/IntentRepository.ts";
-import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
+import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import { parseCreateIntentInput } from "./intentSchema.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
-import { ProjectArchivedError } from "@compass/organization";
+import { WorkspaceArchivedError } from "@compass/organization";
 
 export class CreateIntentUseCase {
   constructor(
-    private readonly projectReader: DirectionProjectReader,
+    private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly intentRepository: IntentRepository,
   ) {}
 
-  async execute(projectId: string, input: unknown): Promise<Intent> {
+  async execute(workspaceId: string, input: unknown): Promise<Intent> {
     const parsed = parseCreateIntentInput(input);
-    if (!(await this.projectReader.exists(projectId))) {
-      throw new NotFoundError(`Project ${projectId} was not found`);
+    if (!(await this.workspaceReader.findById(workspaceId))) {
+      throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     }
-    const result = await this.intentRepository.create(projectId, parsed);
-    if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
+    const result = await this.intentRepository.create(workspaceId, parsed);
+    if (result.kind === "workspace_archived") throw new WorkspaceArchivedError(workspaceId);
     if (result.kind === "active_exists") {
       throw new ConflictError(
-        `Project ${projectId} already has an active Intent ${result.activeIntentId}; abandon it before creating another`,
+        `Workspace ${workspaceId} already has an active Intent ${result.activeIntentId}; abandon it before creating another`,
         { activeIntentId: result.activeIntentId },
       );
     }

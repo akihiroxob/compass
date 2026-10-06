@@ -59,7 +59,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         .selectFrom("intent")
         .select(["status", "completion_definition"])
         .where("id", "=", input.intentId)
-        .where("project_id", "=", projectId)
+        .where("workspace_id", "=", await this.projects(transaction).findDirectionWorkspaceId(projectId))
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
@@ -105,7 +105,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
           .updateTable("intent")
           .set({ status: "achieved", updated_at: now })
           .where("id", "=", input.intentId)
-          .where("project_id", "=", projectId)
+          .where("workspace_id", "=", await this.projects(transaction).findDirectionWorkspaceId(projectId))
           .execute();
       }
       if (!input.research) return { kind: "created", decision, researchRequest: null };
@@ -157,7 +157,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         .selectFrom("intent")
         .select("status")
         .where("id", "=", input.intentId)
-        .where("project_id", "=", projectId)
+        .where("workspace_id", "=", await this.projects(transaction).findDirectionWorkspaceId(projectId))
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
@@ -186,7 +186,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
       // Outcomeを先に作る（direction_decision.outcome_idがoutcome.idを参照するFKの前提）。
       const outcome = await insertOutcomeRow(
         transaction,
-        projectId,
+        await this.projects(transaction).findDirectionWorkspaceId(projectId),
         input.intentId,
         outcomeId,
         decisionId,

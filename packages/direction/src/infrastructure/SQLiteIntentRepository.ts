@@ -10,13 +10,13 @@ import type {
 } from "../domain/IntentRepository.ts";
 import type { CreateIntentInput, UpdateIntentInput } from "../domain/IntentRepository.ts";
 import type { DirectionDatabase, IntentTable } from "./schema.ts";
-import type { DirectionProjectReaders } from "./directionProjectReaders.ts";
+import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 const toIntent = (row: Selectable<IntentTable>): Intent =>
   new Intent({
     id: row.id,
-    projectId: row.project_id,
+    workspaceId: row.workspace_id,
     title: row.title,
     desiredState: row.desired_state,
     completionDefinition: row.completion_definition,
@@ -29,17 +29,17 @@ const toIntent = (row: Selectable<IntentTable>): Intent =>
 export class SQLiteIntentRepository implements IntentRepository {
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
-    private readonly projects: DirectionProjectReaders,
+    private readonly workspaces: DirectionWorkspaceReaders,
     private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
 
-  async create(projectId: string, input: CreateIntentInput): Promise<CreateIntentResult> {
+  async create(workspaceId: string, input: CreateIntentInput): Promise<CreateIntentResult> {
     return this.database.transaction().execute(async (transaction): Promise<CreateIntentResult> => {
-      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
+      if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
       const active = await transaction
         .selectFrom("intent")
         .select("id")
-        .where("project_id", "=", projectId)
+        .where("workspace_id", "=", workspaceId)
         .where("status", "=", "active")
         .executeTakeFirst();
       if (active) return { kind: "active_exists", activeIntentId: active.id };
@@ -49,7 +49,7 @@ export class SQLiteIntentRepository implements IntentRepository {
         .insertInto("intent")
         .values({
           id: crypto.randomUUID(),
-          project_id: projectId,
+          workspace_id: workspaceId,
           title: input.title,
           desired_state: input.desiredState,
           completion_definition: input.completionDefinition,
@@ -62,7 +62,7 @@ export class SQLiteIntentRepository implements IntentRepository {
         .executeTakeFirstOrThrow();
       await notifyDirectionChange(this.changeObserver, transaction, {
         type: "intent_created",
-        projectId,
+        workspaceId,
         recordId: row.id,
         title: row.title,
         refs: [{ kind: "intent", id: row.id }],
@@ -75,35 +75,35 @@ export class SQLiteIntentRepository implements IntentRepository {
     });
   }
 
-  async findByProject(projectId: string): Promise<Intent[]> {
+  async findByWorkspace(workspaceId: string): Promise<Intent[]> {
     const rows = await this.database
       .selectFrom("intent")
       .selectAll()
-      .where("project_id", "=", projectId)
+      .where("workspace_id", "=", workspaceId)
       .orderBy("created_at", "desc")
       .orderBy(sql`rowid`, "desc")
       .execute();
     return rows.map(toIntent);
   }
 
-  async findById(projectId: string, intentId: string): Promise<Intent | null> {
+  async findById(workspaceId: string, intentId: string): Promise<Intent | null> {
     const row = await this.database
       .selectFrom("intent")
       .selectAll()
       .where("id", "=", intentId)
-      .where("project_id", "=", projectId)
+      .where("workspace_id", "=", workspaceId)
       .executeTakeFirst();
     return row ? toIntent(row) : null;
   }
 
   async update(
-    projectId: string,
+    workspaceId: string,
     intentId: string,
     input: UpdateIntentInput,
   ): Promise<UpdateIntentResult> {
     // undefinedの項目はKyselyがSETから除外するため、未指定の列は変更されない。
     return this.changeActive(
-      projectId,
+      workspaceId,
       intentId,
       {
         title: input.title,
@@ -135,12 +135,12 @@ export class SQLiteIntentRepository implements IntentRepository {
   }
 
   async abandon(
-    projectId: string,
+    workspaceId: string,
     intentId: string,
     reason: string | null,
   ): Promise<ChangeIntentResult> {
     return this.changeActive<never>(
-      projectId,
+      workspaceId,
       intentId,
       { status: "abandoned", abandoned_reason: reason },
       {
@@ -170,7 +170,7 @@ export class SQLiteIntentRepository implements IntentRepository {
           // 連動したOutcome・Requestの取消は放棄の帰結なので、Activityは放棄の1件だけにする。
           await notifyDirectionChange(this.changeObserver, transaction, {
             type: "intent_abandoned",
-            projectId,
+            workspaceId,
             recordId: intent.id,
             title: intent.title,
             refs: [{ kind: "intent", id: intent.id }],
@@ -185,13 +185,13 @@ export class SQLiteIntentRepository implements IntentRepository {
   }
 
   /**
-   * Project配下のactiveなIntentだけを、状態確認と同一transactionで更新する。
+   * Workspace配下のactiveなIntentだけを、状態確認と同一transactionで更新する。
    * guardは更新前に結果を返して拒否でき、afterChangeは同一transaction内で関連データを更新する。
    */
   private async changeActive<Rejection extends MeaningLockedResult = never>(
-    projectId: string,
+    workspaceId: string,
     intentId: string,
-    changes: Partial<Omit<IntentTable, "id" | "project_id" | "created_at" | "updated_at">>,
+    changes: Partial<Omit<IntentTable, "id" | "workspace_id" | "created_at" | "updated_at">>,
     hooks: {
       guard?: (
         transaction: Transaction<DirectionDatabase>,
@@ -201,12 +201,12 @@ export class SQLiteIntentRepository implements IntentRepository {
     } = {},
   ): Promise<ChangeIntentResult | Rejection> {
     return this.database.transaction().execute(async (transaction): Promise<ChangeIntentResult | Rejection> => {
-      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
+      if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
       const existing = await transaction
         .selectFrom("intent")
         .selectAll()
         .where("id", "=", intentId)
-        .where("project_id", "=", projectId)
+        .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!existing) return { kind: "not_found" };
       if (existing.status !== "active") return { kind: "not_active", status: existing.status };
@@ -217,7 +217,7 @@ export class SQLiteIntentRepository implements IntentRepository {
         .updateTable("intent")
         .set({ ...changes, updated_at: Date.now() })
         .where("id", "=", intentId)
-        .where("project_id", "=", projectId)
+        .where("workspace_id", "=", workspaceId)
         .returningAll()
         .executeTakeFirstOrThrow();
       await hooks.afterChange?.(transaction, row);

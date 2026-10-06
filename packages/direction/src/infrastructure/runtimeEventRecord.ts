@@ -1,4 +1,4 @@
-import type { Transaction } from "kysely";
+import type { Kysely, Transaction } from "kysely";
 import { runtimeEventVersion, type RuntimeEventType } from "../domain/RuntimeEvent.ts";
 import { outcomeCorrelationId } from "../outcomeCorrelation.ts";
 import type { ResearchConclusion } from "../domain/Research.ts";
@@ -42,7 +42,7 @@ export const recordRuntimeEvent = async (
  * RuntimeがManagerを起動して`issue_story`へ渡す相関IDと一致させる。同じOutcomeのイベントは1件に収束する。
  */
 export const recordOutcomeConfirmedEvent = async (
-  transaction: Transaction<DirectionDatabase>,
+  transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
   outcome: { projectId: string; intentId: string; outcomeId: string; occurredAt: number },
 ): Promise<void> => {
   await transaction

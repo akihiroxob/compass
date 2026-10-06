@@ -431,7 +431,7 @@ test("Directionの重要な状態変更は同じtransactionで操作者付きの
   await sql`drop table activity`.execute(database);
   const failed = await send(app, "POST", `/api/projects/${project.id}/intents`, { title: "残らない", desiredState: "S" });
   assert.equal(failed.status, 500);
-  const intents = (await sql<{ title: string }>`select title from intent where project_id = ${project.id}`.execute(database)).rows;
+  const intents = (await sql<{ title: string }>`select title from intent where workspace_id = ${project.workspaceId}`.execute(database)).rows;
   assert.deepEqual(intents.map(({ title }) => title), ["認証を整備する"]);
   await database.destroy();
 });
@@ -505,8 +505,7 @@ test("複数ProjectのDirectionはWorkspace、Work・明示記録・archiveは�
   await grant(app, b.id, "manager-a", "manager");
   await grant(app, a.id, "worker-a", "worker");
   const services = createApplicationServices(database);
-  await services.createIntentUseCase.execute(a.id, { title: "IA", desiredState: "S" });
-  await services.createIntentUseCase.execute(b.id, { title: "IB", desiredState: "S" });
+  await services.workspaceDirection.createIntentUseCase.execute(workspace.id, { title: "IA", desiredState: "S" });
   ok(await callTool(app, "issue_story", { projectId: a.id, title: "SA", requestId: "sa" }, "manager-a"));
   ok(await callTool(app, "issue_story", { projectId: b.id, title: "SB", requestId: "sb" }, "manager-a"));
   const recorded = ok(await record(app, "worker-a", { projectId: a.id, role: "worker", type: "note", summary: "A", requestId: "ra" }));
@@ -514,7 +513,6 @@ test("複数ProjectのDirectionはWorkspace、Work・明示記録・archiveは�
   const store = new KyselyActivityStore(asActivityDatabase(database));
   const workspaceActivities = await store.listWorkspace(workspace.id, { limit: 100, afterCursor: 0 });
   assert.deepEqual(workspaceActivities.map(x => [x.scope, x.workspaceId, x.projectId, x.type]), [
-    ["workspace", workspace.id, null, "intent.created"],
     ["workspace", workspace.id, null, "intent.created"],
   ]);
   const projectA = await store.listProject(a.id, { limit: 100, afterCursor: 0 });
@@ -539,7 +537,7 @@ test("Activity保存失敗は複数Project WorkspaceでDirection/Work/archive/�
   await grant(app, b.id, "manager-a", "manager");
   const before = await database.selectFrom("change_log").selectAll().execute();
   await sql`create trigger reject_activity before insert on activity begin select raise(abort, 'activity rejected'); end`.execute(database);
-  await assert.rejects(services.createIntentUseCase.execute(a.id, { title: "not saved", desiredState: "S" }));
+  await assert.rejects(services.workspaceDirection.createIntentUseCase.execute(workspace.id, { title: "not saved", desiredState: "S" }), /activity rejected/);
   const story = await callTool(app, "issue_story", { projectId: a.id, title: "not saved", requestId: "fail-story" }, "manager-a");
   assert.equal(story.isError, true);
   await assert.rejects(services.archiveProjectUseCase.execute(a.id, { reason: "not saved" }));
@@ -581,7 +579,7 @@ test("新規DBのActivityは同じschemaで再起動後もscope/ID/cursorを保�
   try {
     await initializeSchema(database);
     const { workspace, a } = await sharedWorkspace(database);
-    await createApplicationServices(database).createIntentUseCase.execute(a.id, { title: "I", desiredState: "S" });
+    await createApplicationServices(database).workspaceDirection.createIntentUseCase.execute(workspace.id, { title: "I", desiredState: "S" });
     const store = new KyselyActivityStore(asActivityDatabase(database));
     const saved = await store.listWorkspace(workspace.id, { limit: 10 });
     await database.destroy();
@@ -603,11 +601,8 @@ test("変更transaction内で所属が失われた場合は通知時に検出し
   const { workspace, a } = await sharedWorkspace(database);
   await grant(app, a.id, "manager-a", "manager");
   const services = createApplicationServices(database);
-  await sql`create trigger lose_intent_workspace after insert on intent begin
-    update project set workspace_id = null where id = new.project_id; end`.execute(database);
-  await assert.rejects(services.createIntentUseCase.execute(a.id, { title: "fail", desiredState: "S" }), /no Workspace/);
-  assert.deepEqual(await database.selectFrom("intent").selectAll().execute(), []);
-  await sql`drop trigger lose_intent_workspace`.execute(database);
+  // Intent通知は所有Workspaceを直接使うため、Projectの所属解決を経由しない。
+  // 未切替のProject由来通知（Work/archive）は所属欠損を同一transactionで拒否する。
   await sql`create trigger lose_story_workspace after insert on story begin
     update project set workspace_id = null where id = new.project_id; end`.execute(database);
   assert.equal((await callTool(app, "issue_story", { projectId: a.id, title: "fail", requestId: "lose-story" }, "manager-a")).isError, true);

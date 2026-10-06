@@ -255,7 +255,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
             .selectFrom("intent")
             .select("status")
             .where("id", "=", input.originIntentId)
-            .where("project_id", "=", projectId)
+            .where("workspace_id", "=", await this.projects(transaction).findDirectionWorkspaceId(projectId))
             .executeTakeFirst();
           if (!intent) return { kind: "intent_not_found" };
           if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
@@ -264,7 +264,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
               .selectFrom("outcome")
               .select("id")
               .where("id", "=", input.originOutcomeId)
-              .where("project_id", "=", projectId)
+              .where("workspace_id", "=", await this.projects(transaction).findDirectionWorkspaceId(projectId))
               .where("intent_id", "=", input.originIntentId)
               .executeTakeFirst();
             if (!outcome) return { kind: "outcome_not_found" };

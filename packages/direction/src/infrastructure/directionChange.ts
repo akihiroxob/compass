@@ -18,9 +18,8 @@ export type DirectionChangeType =
 /** 状態変更が関わるDirectionのEntity。 */
 export type DirectionChangeRef = { kind: "intent" | "outcome" | "research_request" | "decision"; id: string };
 
-export type DirectionChangeNotice = {
+export type DirectionChangeNotice = ({ workspaceId: string; projectId?: never } | { projectId: string; workspaceId?: never }) & {
   type: DirectionChangeType;
-  projectId: string;
   /** 変更されたrecord（Intent・Outcome・Request・Decision・Evaluation）のID。同じ種類の変更はrecordごとに1回。 */
   recordId: string;
   /** 人が読む対象名（Intent・Outcomeのtitle、Researchのquestion等）。 */

@@ -1,3 +1,4 @@
+import { projectDirectionRepositories, projectDirectionUseCase } from "../infrastructure/repository/projectDirectionAdapter.ts";
 import { AgentContextService } from "../application/agentContext/AgentContextService.ts";
 import { GetRoleContextUseCase } from "../application/agentContext/GetRoleContextUseCase.ts";
 import { withActivityActor } from "../application/activityActor.ts";
@@ -151,8 +152,9 @@ import {
   accessWorkspaceReaders,
   activityAuthorization,
   activityProjectReader,
-  directionChangeActivityObserver,
+  directionChangeObserver,
   directionProjectReaders,
+  directionWorkspaceReaders,
   ownerMembershipWriters,
   projectChangeActivityObserver,
   projectRepositoryReferenceFinder,
@@ -186,22 +188,35 @@ export const createApplicationServices = (
     asOrganizationDatabase(applicationDatabase),
     ownerMembershipWriters.workspace,
   );
-  // Directionのrepositoryへは同じ接続を、Directionが所有するtableの型で渡す。Project状態は同じtransactionで読むreaderを渡す。
+  // Directionのrepositoryへは同じ接続を、自身のtable型で渡す。Workspace/Project状態は同じtransactionで読むreaderを渡す。
   const directionDatabase = asDirectionDatabase(applicationDatabase);
   // Directionの重要な状態変更も、同じtransactionでcanonical Activityへ投影する。
-  const intentRepository = new SQLiteIntentRepository(directionDatabase, directionProjectReaders, directionChangeActivityObserver);
-  const outcomeRepository = new SQLiteOutcomeRepository(directionDatabase, directionProjectReaders, directionChangeActivityObserver);
+  const workspaceIntentRepository = new SQLiteIntentRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
+  const workspaceOutcomeRepository = new SQLiteOutcomeRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
+  const { intents: intentRepository, outcomes: outcomeRepository } = projectDirectionRepositories(projectRepository, workspaceIntentRepository, workspaceOutcomeRepository);
+  const workspaceDirection = {
+    createIntentUseCase: new CreateIntentUseCase(workspaceRepository, workspaceIntentRepository),
+    listIntentsUseCase: new ListIntentsUseCase(workspaceRepository, workspaceIntentRepository),
+    getIntentUseCase: new GetIntentUseCase(workspaceRepository, workspaceIntentRepository),
+    updateIntentUseCase: new UpdateIntentUseCase(workspaceRepository, workspaceIntentRepository),
+    abandonIntentUseCase: new AbandonIntentUseCase(workspaceRepository, workspaceIntentRepository),
+    createOutcomeUseCase: new CreateOutcomeUseCase(workspaceRepository, workspaceOutcomeRepository),
+    listOutcomesUseCase: new ListOutcomesUseCase(workspaceRepository, workspaceIntentRepository, workspaceOutcomeRepository),
+    getOutcomeUseCase: new GetOutcomeUseCase(workspaceRepository, workspaceIntentRepository, workspaceOutcomeRepository),
+    updateOutcomeUseCase: new UpdateOutcomeUseCase(workspaceRepository, workspaceOutcomeRepository),
+    cancelOutcomeUseCase: new CancelOutcomeUseCase(workspaceRepository, workspaceOutcomeRepository),
+  };
   const researchRepository = new SQLiteResearchRepository(
     directionDatabase,
     directionProjectReaders,
     clock,
-    directionChangeActivityObserver,
+    directionChangeObserver,
   );
   const directionDecisionRepository = new SQLiteDirectionDecisionRepository(
     directionDatabase,
     directionProjectReaders,
     clock,
-    directionChangeActivityObserver,
+    directionChangeObserver,
   );
   const adrHandoffRepository = new SQLiteAdrHandoffRepository(directionDatabase, directionProjectReaders);
   const runtimeEventRepository = new SQLiteRuntimeEventRepository(directionDatabase);
@@ -231,7 +246,7 @@ export const createApplicationServices = (
   const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(
     directionDatabase,
     directionProjectReaders,
-    directionChangeActivityObserver,
+    directionChangeObserver,
   );
   // Human認証・Membership（docs/step-6-human-auth-design.md）。Agent GrantのRepository・認可とは分離する。
   const humanAccountRepository = new SQLiteHumanAccountRepository(
@@ -351,16 +366,16 @@ export const createApplicationServices = (
     archiveProjectUseCase: new ArchiveProjectUseCase(projectRepository),
     listProjectsUseCase: new ListProjectsUseCase(projectRepository),
     getProjectUseCase,
-    createIntentUseCase: new CreateIntentUseCase(projectRepository, intentRepository),
-    listIntentsUseCase: new ListIntentsUseCase(projectRepository, intentRepository),
-    getIntentUseCase: new GetIntentUseCase(projectRepository, intentRepository),
-    updateIntentUseCase: new UpdateIntentUseCase(projectRepository, intentRepository),
-    abandonIntentUseCase: new AbandonIntentUseCase(projectRepository, intentRepository),
-    createOutcomeUseCase: new CreateOutcomeUseCase(projectRepository, outcomeRepository),
-    listOutcomesUseCase: new ListOutcomesUseCase(projectRepository, intentRepository, outcomeRepository),
-    getOutcomeUseCase: new GetOutcomeUseCase(projectRepository, intentRepository, outcomeRepository),
-    updateOutcomeUseCase: new UpdateOutcomeUseCase(projectRepository, outcomeRepository),
-    cancelOutcomeUseCase: new CancelOutcomeUseCase(projectRepository, outcomeRepository),
+    createIntentUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.createIntentUseCase),
+    listIntentsUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.listIntentsUseCase),
+    getIntentUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.getIntentUseCase),
+    updateIntentUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.updateIntentUseCase),
+    abandonIntentUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.abandonIntentUseCase),
+    createOutcomeUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.createOutcomeUseCase),
+    listOutcomesUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.listOutcomesUseCase),
+    getOutcomeUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.getOutcomeUseCase),
+    updateOutcomeUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.updateOutcomeUseCase),
+    cancelOutcomeUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.cancelOutcomeUseCase),
     createResearchRequestUseCase: new CreateResearchRequestUseCase(projectRepository, researchRepository),
     listResearchRequestsUseCase: new ListResearchRequestsUseCase(projectRepository, researchRepository),
     getResearchRequestUseCase: new GetResearchRequestUseCase(projectRepository, researchRepository),
@@ -555,9 +570,9 @@ export const createApplicationServices = (
       taskCoordinationService.forActiveRole(activeRole),
     ),
   });
-  return { ...services, human, forActiveRole };
+  return { ...services, workspaceDirection, human, forActiveRole };
 };
 
 export type ApplicationServices = ReturnType<typeof createApplicationServices>;
 /** 1 requestの操作Contextで使うservice。activeRoleの指定時は`forActiveRole`の結果、未指定時はApplicationServicesそのもの。 */
-export type OperationServices = Omit<ApplicationServices, "forActiveRole">;
+export type OperationServices = Omit<ApplicationServices, "forActiveRole" | "workspaceDirection">;

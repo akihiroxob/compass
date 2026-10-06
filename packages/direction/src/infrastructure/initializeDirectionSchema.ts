@@ -663,9 +663,10 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     .createTable("intent")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", (column) =>
-      column.notNull().references("project.id").onDelete("cascade"),
+    .addColumn("workspace_id", "text", (column) =>
+      column.notNull().references("workspace.id").onDelete("cascade"),
     )
+    .addUniqueConstraint("intent_id_workspace_unique", ["id", "workspace_id"])
     .addColumn("title", "text", (column) => column.notNull())
     .addColumn("desired_state", "text", (column) => column.notNull())
     .addColumn("completion_definition", "text")
@@ -677,14 +678,14 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     .addColumn("updated_at", "integer", (column) => column.notNull())
     .execute();
 
-  // Active Intentは Projectにつき最大1件。アプリケーション層の検査に加えてDBでも強制する。
-  await sql`create unique index if not exists intent_one_active_per_project
-    on intent (project_id) where status = 'active'`.execute(database);
+  // Active Intentは Workspaceにつき最大1件。アプリケーション層の検査に加えてDBでも強制する。
+  await sql`create unique index if not exists intent_one_active_per_workspace
+    on intent (workspace_id) where status = 'active'`.execute(database);
   await database.schema
-    .createIndex("intent_project_id_idx")
+    .createIndex("intent_workspace_id_idx")
     .ifNotExists()
     .on("intent")
-    .column("project_id")
+    .column("workspace_id")
     .execute();
 
   // statusのcheckは、後続で公開する状態値（evaluating / achieved / not_achieved）も含める。
@@ -693,13 +694,18 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     .createTable("outcome")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", (column) =>
-      column.notNull().references("project.id").onDelete("cascade"),
+    .addColumn("workspace_id", "text", (column) =>
+      column.notNull().references("workspace.id").onDelete("cascade"),
     )
-    .addColumn("intent_id", "text", (column) =>
-      column.notNull().references("intent.id").onDelete("cascade"),
-    )
+    .addColumn("intent_id", "text", (column) => column.notNull())
     .addColumn("title", "text", (column) => column.notNull())
+    .addForeignKeyConstraint(
+      "outcome_intent_workspace_fk",
+      ["intent_id", "workspace_id"],
+      "intent",
+      ["id", "workspace_id"],
+      (constraint) => constraint.onDelete("cascade"),
+    )
     .addColumn("description", "text", (column) => column.notNull())
     .addColumn("hypothesis", "text")
     .addColumn("rationale", "text", (column) => column.notNull())

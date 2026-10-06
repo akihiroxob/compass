@@ -17,3 +17,4 @@ export * from "./ResearchRepository.ts";
 export * from "./RuntimeEvent.ts";
 export * from "./RuntimeEventDelivery.ts";
 export * from "./RuntimeEventRepository.ts";
+export * from "./WorkspaceArchivedResult.ts";

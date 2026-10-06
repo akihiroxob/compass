@@ -33,7 +33,7 @@ test("Intentは作成時にactiveで保存され、再起動後も同じIDと内
   const project = await first.services.createProjectUseCase.execute(projectInput);
   const created = await first.services.createIntentUseCase.execute(project.id, intentInput);
   assert.equal(created.status, "active");
-  assert.equal(created.projectId, project.id);
+  assert.equal(created.workspaceId, project.workspaceId);
   assert.equal(created.abandonedReason, null);
   await first.database.destroy();
 
@@ -131,8 +131,8 @@ test("DBの部分一意indexが、application層を経由しない2件目のActi
   const project = await services.createProjectUseCase.execute(projectInput);
   const first = await services.createIntentUseCase.execute(project.id, intentInput);
   const insert = (status: string) =>
-    sql`insert into intent (id, project_id, title, desired_state, status, created_at, updated_at)
-      values (${crypto.randomUUID()}, ${project.id}, 't', 'd', ${status}, 1, 1)`.execute(database);
+    sql`insert into intent (id, workspace_id, title, desired_state, status, created_at, updated_at)
+      values (${crypto.randomUUID()}, ${project.workspaceId}, 't', 'd', ${status}, 1, 1)`.execute(database);
 
   await assert.rejects(insert("active"), /UNIQUE/);
   await assert.rejects(insert("draft"), /CHECK/);

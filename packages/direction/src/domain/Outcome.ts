@@ -15,7 +15,7 @@ export type SuccessCriterion = {
 
 export type OutcomeProperties = {
   id: string;
-  projectId: string;
+  workspaceId: string;
   intentId: string;
   title: string;
   description: string;
@@ -32,7 +32,7 @@ export type OutcomeProperties = {
 
 export class Outcome {
   readonly id: string;
-  readonly projectId: string;
+  readonly workspaceId: string;
   readonly intentId: string;
   readonly title: string;
   readonly description: string;
@@ -47,7 +47,7 @@ export class Outcome {
 
   constructor(properties: OutcomeProperties) {
     this.id = properties.id;
-    this.projectId = properties.projectId;
+    this.workspaceId = properties.workspaceId;
     this.intentId = properties.intentId;
     this.title = properties.title;
     this.description = properties.description;

@@ -2,7 +2,7 @@ import type { Generated } from "kysely";
 
 export type IntentTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   title: string;
   desired_state: string;
   completion_definition: string | null;
@@ -14,7 +14,7 @@ export type IntentTable = {
 
 export type OutcomeTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   intent_id: string;
   title: string;
   description: string;
@@ -302,7 +302,8 @@ export type OutcomeEvaluationTable = {
 
 /**
  * Directionが所有するtable。単一SQLite fileの一部で、serverが他Contextのtableと合成する。
- * `project_id`のFK先（`project`）はOrganizationが所有し、DirectionはProjectの状態をserverが渡すreaderで読む。
+ * Intent/Outcomeの`workspace_id`、未切替Entityの`project_id`のFK先はOrganizationが所有する。
+ * DirectionはWorkspace/Projectの状態をserverが渡すreaderで読む。
  */
 export type DirectionDatabase = {
   intent: IntentTable;

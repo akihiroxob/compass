@@ -4,14 +4,18 @@ OutcomeはIntentへ近づくために実現する観測可能な状態。Directi
 
 ## 項目と固定条件
 
-Project / IntentのID、title、description、任意のhypothesis、rationale、status、cancelReason、successCriteria、任意のoriginDecisionId、作成更新日時を持つ。
+Workspace / IntentのID、title、description、任意のhypothesis、rationale、status、cancelReason、successCriteria、任意のoriginDecisionId、作成更新日時を持つ。
 
 - title: 必須、100文字まで。
 - description / rationale: 必須、各2,000文字まで。
 - hypothesis: 任意、2,000文字まで。
 - successCriteria: 1〜10件。各descriptionは500文字、measurementは1,000文字、任意のtargetは200文字まで。
 
-作成後のdescription / rationale / successCriteriaは固定。active時にtitle / hypothesisだけ変更できる。取消には理由が必要。Intentがactiveでない場合やProjectがarchivedの場合は書込を拒否する。
+作成後のdescription / rationale / successCriteriaは固定。active時にtitle / hypothesisだけ変更できる。取消には理由が必要。Intentがactiveでない場合やWorkspaceがarchivedの場合は書込を拒否する。
+
+OutcomeとIntentのWorkspace一致をRepositoryとDBの複合FKで強制する。成功条件は`outcome_id`で同じOutcomeへ結び付ける。
+
+保存・application use caseはWorkspace単位。Workspace Directionの公開入口は未接続。既存Project入口は所属Workspaceを明示解決し、所属Projectが1件の場合だけ操作・参照できる。複数Project（archivedを含む）のWorkspaceは`CONFLICT`（`reason: workspace_direction_required`）で拒否する。応答は`workspaceId`を返し、`projectId`は持たない。Project archive時の拒否は従来どおり。
 
 ## 操作と評価
 

@@ -81,7 +81,7 @@ test("Web APIでOutcomeを作成・一覧・詳細・更新・取消でき、Int
 
   const intent = ((await (await app.request(`/api/projects/${projectId}/intents/${intentId}`)).json()) as { intent: object }).intent;
   assert.deepEqual(Object.keys(intent).sort(), [
-    "abandonedReason", "completionDefinition", "createdAt", "desiredState", "id", "projectId", "status", "title", "updatedAt",
+    "abandonedReason", "completionDefinition", "createdAt", "desiredState", "id", "status", "title", "updatedAt", "workspaceId",
   ]);
   await database.destroy();
 });

@@ -33,7 +33,7 @@ COMPASS_AUTH_MODE=trusted-local COMPASS_INITIAL_OWNER_EMAIL=you@example.com npm 
 
 設定項目は [.env.example](.env.example) を参照してください。起動ディレクトリに`.env`があればserverが読み込みます。`.env.example`自体は読み込みません。`PORT`は`.env`読込前に確定するため、シェルの環境変数として渡してください。既定portは51800、`COMPASS_DB_PATH`はSQLiteの保存先、`COMPASS_CLAIM_TTL_MS`はClaim有効期間（既定30分）です。DBが無い場合は起動時に現在の定義からschemaを作成します。
 
-リリース前の開発DBはschema変更時に破棄・再作成できます。Activityの3 scope対応は新規DBのschemaを対象とし、旧Activity tableへの列追加・履歴変換は行いません。DBを開いているCompassプロセスを停止してから、`COMPASS_DB_PATH`が指すDB fileを削除し、serverを起動してください。データ・ログイン情報・Credential・cursorは引き継ぎません。旧DBの非破壊migrationや旧クライアント互換は開発の必須条件にしません。
+リリース前の開発DBはschema変更時に破棄・再作成できます。Activityの3 scope対応とIntent/OutcomeのWorkspace所有列は新規DBのschemaを対象とし、旧tableへの列追加・履歴変換は行いません。DBを開いているCompassプロセスを停止してから、`COMPASS_DB_PATH`が指すDB fileを削除し、serverを起動してください。データ・ログイン情報・Credential・cursorは引き継ぎません。旧DBの非破壊migrationや旧クライアント互換は開発の必須条件にしません。
 
 portが使用中なら既存プロセスを停止せず、同じ認証設定に`PORT=52000`等を加えて起動します。開発用の`npm run dev`はserverとViteを起動します。Viteの画面を使う場合は、そのoriginを`COMPASS_PUBLIC_ORIGIN`へ指定してください。
 
@@ -77,6 +77,8 @@ export COMPASS_AGENT_TOKEN="cmp_agent.<id>.<secret>"
 MCP endpointは`http://localhost:51800/mcp`、認証headerは`Authorization: Bearer <token>`です。`COMPASS_AGENT_TOKEN`はclient側の環境変数で、serverは読みません。tokenを設定ファイルへ直書きせず、clientが環境変数から読み込むよう設定してください。
 
 現在のRoleは`strategist` / `researcher` / `manager` / `worker` / `reviewer` / `evaluator`。`get_role_instructions({ role, includeShared: true })`でInstructionを取得できます。Grant発行だけではAgentは起動しません。
+
+Intent/Outcomeの保存と応答はWorkspace所有（`workspaceId`）です。WorkspaceのDirection公開入口はまだ接続していないため、既存のProject画面・API・MCPは所属Projectが1件のWorkspaceだけ利用できます。複数Project（archivedも含む）のWorkspaceではDirection操作・集約Contextが`CONFLICT`（`reason: workspace_direction_required`）になります。Project IDをWorkspace IDとして渡すことはできません。Research・Decision・Evaluation・Runtimeのscope切替と認可付きWorkspace入口は後続Taskです。
 
 Role・Skill・Knowledge・Policyはrepo直下の`roles/`・`skills/`・`knowledge/`・`policies/`にGit管理し、MCPから必要時に取得します。起動時は`get_role_context({ projectId, role })`（そのRoleのGrantが必要）でRole Definition・共通Policy・Roleがfrontmatterの`skills`で参照するSkillのmetadata・Project情報を取得し、作業に入るときに`get_skill_context({ name })`でSkill本文とrequiredKnowledgeを取得します。`list_skills`はmetadataの一覧です。応答の`source.revision`は資産を読んだGit commit、`source.dirty`は未commit変更の有無です。Skillは認可を担わず、Roleとの対応はRole Definitionの`skills`だけで表します。Role Contextの`activity`は最近のActivityのsummaryとrefs（本文なし）です。
 

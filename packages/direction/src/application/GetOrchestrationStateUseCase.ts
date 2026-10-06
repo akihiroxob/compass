@@ -3,11 +3,11 @@ import type { OutcomeStatus } from "../domain/Outcome.ts";
 import type { IntentStatus } from "../domain/Intent.ts";
 import type { ProjectStatus } from "@compass/organization";
 import type { ResearchRequestKind, ResearchRequestStatus } from "../domain/Research.ts";
-import type { IntentRepository } from "../domain/IntentRepository.ts";
+import type { ProjectIntentReader } from "./port/ProjectDirectionReaders.ts";
 import type { DirectionDecisionRepository } from "../domain/DirectionDecisionRepository.ts";
 import type { OutcomeEvaluationRepository } from "../domain/OutcomeEvaluationRepository.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
-import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
+import type { ProjectOutcomeReader } from "./port/ProjectDirectionReaders.ts";
 import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import { isClosedResearchStatus } from "../domain/Research.ts";
@@ -76,8 +76,8 @@ export class GetOrchestrationStateUseCase<TCaller> {
   constructor(
     private readonly authorization: DirectionRuntimeAuthorizationPort<TCaller>,
     private readonly projectReader: DirectionProjectReader,
-    private readonly intentRepository: IntentRepository,
-    private readonly outcomeRepository: OutcomeRepository,
+    private readonly intentRepository: ProjectIntentReader,
+    private readonly outcomeRepository: ProjectOutcomeReader,
     private readonly researchRepository: ResearchRepository,
     private readonly directionDecisionRepository: DirectionDecisionRepository,
     private readonly outcomeEvaluationRepository: OutcomeEvaluationRepository,

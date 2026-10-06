@@ -45,7 +45,9 @@ test("Web APIでIntentを作成・一覧・詳細・更新・放棄でき、Proj
   assert.equal(created.status, 201);
   const { intent } = (await created.json()) as IntentBody;
   assert.equal(intent.status, "active");
-  assert.equal(intent.projectId, projectId);
+  const projectDetail = await (await app.request(`/api/projects/${projectId}`)).json() as { project: { workspaceId: string } };
+  assert.equal(intent.workspaceId, projectDetail.project.workspaceId);
+  assert.equal("projectId" in intent, false);
 
   const listed = (await (await app.request(`/api/projects/${projectId}/intents`)).json()) as { intents: unknown[] };
   assert.deepEqual(listed.intents, [intent]);

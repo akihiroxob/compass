@@ -82,7 +82,7 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
         .selectFrom("intent")
         .select("status")
         .where("id", "=", input.intentId)
-        .where("project_id", "=", projectId)
+        .where("workspace_id", "=", await this.projects(transaction).findDirectionWorkspaceId(projectId))
         .executeTakeFirstOrThrow();
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
 

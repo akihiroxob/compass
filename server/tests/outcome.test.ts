@@ -47,7 +47,7 @@ test("Outcomeはactiveで保存され、成功条件は入力順で、再起動�
   const { project, intent } = await seed(first.services);
   const created = await first.services.createOutcomeUseCase.execute(project.id, intent.id, outcomeInput);
   assert.equal(created.status, "active");
-  assert.equal(created.projectId, project.id);
+  assert.equal(created.workspaceId, project.workspaceId);
   assert.equal(created.intentId, intent.id);
   assert.equal(created.cancelReason, null);
   assert.deepEqual(
@@ -150,8 +150,8 @@ test("DBの制約が、application層を経由しない重複positionと不正�
     /UNIQUE/,
   );
   const insert = (status: string) =>
-    sql`insert into outcome (id, project_id, intent_id, title, description, rationale, status, created_at, updated_at)
-      values (${crypto.randomUUID()}, ${project.id}, ${intent.id}, 't', 'd', 'r', ${status}, 1, 1)`.execute(database);
+    sql`insert into outcome (id, workspace_id, intent_id, title, description, rationale, status, created_at, updated_at)
+      values (${crypto.randomUUID()}, ${project.workspaceId}, ${intent.id}, 't', 'd', 'r', ${status}, 1, 1)`.execute(database);
   await assert.rejects(insert("proposed"), /CHECK/);
   // 予約済みの状態値は、DB変更なしで後続が使える。
   await insert("achieved");

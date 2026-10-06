@@ -1,4 +1,4 @@
-import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
+import type { ProjectOutcomeReader } from "./port/ProjectDirectionReaders.ts";
 import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 
 /**
@@ -8,7 +8,7 @@ import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 export class DirectionReferenceLookupService {
   constructor(
     private readonly projectReader: DirectionProjectReader,
-    private readonly outcomeRepository: OutcomeRepository,
+    private readonly outcomeRepository: ProjectOutcomeReader,
   ) {}
 
   async getOutcomeSnapshot(projectId: string, outcomeId: string) {

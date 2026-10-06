@@ -3,10 +3,10 @@ import type { Outcome } from "../domain/Outcome.ts";
 import type { OutcomeEvaluation } from "../domain/OutcomeEvaluation.ts";
 import type { OutcomeExecutionRecord } from "../domain/OutcomeExecution.ts";
 import type { ProjectDetail } from "@compass/organization";
-import type { IntentRepository } from "../domain/IntentRepository.ts";
+import type { ProjectIntentReader } from "./port/ProjectDirectionReaders.ts";
 import type { OutcomeEvaluationRepository } from "../domain/OutcomeEvaluationRepository.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
-import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
+import type { ProjectOutcomeReader } from "./port/ProjectDirectionReaders.ts";
 import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { NotFoundError } from "@compass/shared";
 import { DirectionAgentRole, type DirectionRoleAuthorizationPort, type Principal } from "./port/DirectionAuthorizationPort.ts";
@@ -37,8 +37,8 @@ export class GetEvaluatorContextUseCase {
   constructor(
     private readonly authorization: DirectionRoleAuthorizationPort,
     private readonly projectReader: DirectionProjectReader,
-    private readonly intentRepository: IntentRepository,
-    private readonly outcomeRepository: OutcomeRepository,
+    private readonly intentRepository: ProjectIntentReader,
+    private readonly outcomeRepository: ProjectOutcomeReader,
     private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
     private readonly outcomeEvaluationRepository: OutcomeEvaluationRepository,
   ) {}

@@ -21,6 +21,8 @@ import {
   findAdrReferencedRepositoryId,
   type DirectionChangeObserver,
   type DirectionProjectReaders,
+  type DirectionWorkspaceReaders,
+  recordOutcomeConfirmedEvent,
 } from "@compass/direction";
 import {
   findProjectRepository,
@@ -37,7 +39,7 @@ import {
   type ProjectChangeObserver,
   type ProjectRepositoryReferenceFinder,
 } from "@compass/organization";
-import { ConflictError, ValidationError } from "@compass/shared";
+import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
 import type { WorkChangeObserver, WorkExternalReaders } from "@compass/work";
 import {
   asAccessDatabase,
@@ -95,8 +97,21 @@ export const directionProjectReaders: DirectionProjectReaders = (executor) => {
     isArchived: (projectId) => isProjectArchived(database, projectId),
     findRepository: (projectId, repositoryId) => findProjectRepository(database, projectId, repositoryId),
     findConstraints: (projectId) => findProjectWorkspaceConstraints(database, projectId),
+    findDirectionWorkspaceId: async (projectId) => {
+      const workspaceId = await findProjectWorkspaceId(database, projectId);
+      if (!workspaceId) throw new NotFoundError(`Project ${projectId} was not found`);
+      if ((await listWorkspaceProjectIds(database, workspaceId)).length !== 1) {
+        throw new ConflictError("Workspace Direction requires the Workspace entry point", { reason: "workspace_direction_required" });
+      }
+      return workspaceId;
+    },
   };
 };
+
+/** Intent/Outcomeが直接読むWorkspaceの状態。Projectを経由しない。 */
+export const directionWorkspaceReaders: DirectionWorkspaceReaders = (executor) => ({
+  isArchived: (workspaceId) => isWorkspaceArchived(asOrganizationDatabase(executor), workspaceId),
+});
 
 /** OrganizationのWorkspace・Project作成のtransactionで、作成者の初期owner Membership（Access）を書く。 */
 export const ownerMembershipWriters: OwnerMembershipWriters = {
@@ -147,11 +162,30 @@ export const directionChangeActivityObserver: DirectionChangeObserver = (executo
     const actor = currentActivityActor();
     await recordCanonicalDirectionActivity(store, {
       ...notice,
-      // Direction保存はまだProject scope。通知のProject IDから所属Workspaceを同じtransactionで解決する。
-      workspaceId: await activityWorkspaceId(executor, notice.projectId),
+      // 切替済みの通知はWorkspace IDを直接使い、未切替の通知だけProjectから解決する。
+      workspaceId: notice.workspaceId !== undefined ? notice.workspaceId : await activityWorkspaceId(executor, notice.projectId),
       principalId: actor?.principalId ?? notice.principalId ?? systemActivityActor.principalId,
       role: actor?.role ?? systemActivityActor.role,
     });
+  };
+};
+
+/**
+ * Directionの状態変更を同じtransactionでActivityと移行中のRuntimeへ投影する。
+ * S03-03まで、単一ProjectのWorkspaceだけ既存Project eventへ接続する。
+ */
+export const directionChangeObserver: DirectionChangeObserver = (executor) => {
+  const activity = directionChangeActivityObserver(executor);
+  return async (notice) => {
+    await activity(notice);
+    // S03-03までのRuntime投影。単一Projectだけ旧Project eventへ接続し、WorkspaceのみのOutcomeにProjectを捏造しない。
+    if (notice.type === "outcome_confirmed" && notice.workspaceId !== undefined) {
+      const projectIds = await listWorkspaceProjectIds(asOrganizationDatabase(executor), notice.workspaceId);
+      const intentId = notice.refs.find(ref => ref.kind === "intent")?.id;
+      if (projectIds.length === 1 && intentId) {
+        await recordOutcomeConfirmedEvent(executor, { projectId: projectIds[0]!, intentId, outcomeId: notice.recordId, occurredAt: notice.occurredAt });
+      }
+    }
   };
 };
 

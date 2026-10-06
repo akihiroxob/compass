@@ -1,6 +1,6 @@
 import type { OutcomeEvaluation } from "../domain/OutcomeEvaluation.ts";
 import type { OutcomeEvaluationRepository } from "../domain/OutcomeEvaluationRepository.ts";
-import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
+import type { ProjectOutcomeReader } from "./port/ProjectDirectionReaders.ts";
 import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { NotFoundError } from "@compass/shared";
 
@@ -11,7 +11,7 @@ import { NotFoundError } from "@compass/shared";
 export class ListOutcomeEvaluationsUseCase {
   constructor(
     private readonly projectReader: DirectionProjectReader,
-    private readonly outcomeRepository: OutcomeRepository,
+    private readonly outcomeRepository: ProjectOutcomeReader,
     private readonly outcomeEvaluationRepository: OutcomeEvaluationRepository,
   ) {}
 

@@ -1,6 +1,6 @@
 import type { OutcomeExecutionRecord } from "../domain/OutcomeExecution.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
-import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
+import type { ProjectOutcomeReader } from "./port/ProjectDirectionReaders.ts";
 import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { NotFoundError } from "@compass/shared";
 
@@ -12,7 +12,7 @@ import { NotFoundError } from "@compass/shared";
 export class GetExecutionSummaryUseCase {
   constructor(
     private readonly projectReader: DirectionProjectReader,
-    private readonly outcomeRepository: OutcomeRepository,
+    private readonly outcomeRepository: ProjectOutcomeReader,
     private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
   ) {}
 
