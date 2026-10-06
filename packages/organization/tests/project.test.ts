@@ -4,15 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
-import { CreateProjectUseCase, GetProjectUseCase, initializeDirectionSchema, SQLiteProjectRepository } from "../src/index.ts";
-import { createDirectionDatabase } from "./support/directionDatabase.ts";
+import { CreateProjectUseCase, GetProjectUseCase, initializeOrganizationSchema, SQLiteProjectRepository } from "../src/index.ts";
+import { createOrganizationDatabase, noRepositoryReference } from "./support/organizationDatabase.ts";
 
 test("Project aggregate is persisted and survives reopening the database", async () => {
   const directory = await mkdtemp(join(tmpdir(), "compass-project-"));
   const path = join(directory, "test.db");
-  const firstDatabase = createDirectionDatabase(path);
-  await initializeDirectionSchema(firstDatabase);
-  const createProject = new CreateProjectUseCase(new SQLiteProjectRepository(firstDatabase));
+  const firstDatabase = createOrganizationDatabase(path);
+  await initializeOrganizationSchema(firstDatabase);
+  const createProject = new CreateProjectUseCase(new SQLiteProjectRepository(firstDatabase, noRepositoryReference));
 
   const created = await createProject.execute({
     name: " Compass ",
@@ -26,10 +26,10 @@ test("Project aggregate is persisted and survives reopening the database", async
   });
   await firstDatabase.destroy();
 
-  const reopenedDatabase = createDirectionDatabase(path);
-  await initializeDirectionSchema(reopenedDatabase);
+  const reopenedDatabase = createOrganizationDatabase(path);
+  await initializeOrganizationSchema(reopenedDatabase);
   const found = await new GetProjectUseCase(
-    new SQLiteProjectRepository(reopenedDatabase),
+    new SQLiteProjectRepository(reopenedDatabase, noRepositoryReference),
   ).execute(created.id);
 
   assert.equal(found.id, created.id);
@@ -45,9 +45,9 @@ test("Project aggregate is persisted and survives reopening the database", async
 });
 
 test("CreateProjectUseCase rejects invalid input", async () => {
-  const database = createDirectionDatabase(":memory:");
-  await initializeDirectionSchema(database);
-  const useCase = new CreateProjectUseCase(new SQLiteProjectRepository(database));
+  const database = createOrganizationDatabase(":memory:");
+  await initializeOrganizationSchema(database);
+  const useCase = new CreateProjectUseCase(new SQLiteProjectRepository(database, noRepositoryReference));
 
   await assert.rejects(
     () => useCase.execute({ name: " ", mission: "", repositories: [{ name: "x", url: "file:///tmp/x" }] }),
@@ -60,9 +60,9 @@ test("CreateProjectUseCase rejects invalid input", async () => {
 });
 
 test("GetProjectUseCase distinguishes a missing project", async () => {
-  const database = createDirectionDatabase(":memory:");
-  await initializeDirectionSchema(database);
-  const useCase = new GetProjectUseCase(new SQLiteProjectRepository(database));
+  const database = createOrganizationDatabase(":memory:");
+  await initializeOrganizationSchema(database);
+  const useCase = new GetProjectUseCase(new SQLiteProjectRepository(database, noRepositoryReference));
 
   await assert.rejects(
     () => useCase.execute("missing"),
@@ -75,9 +75,9 @@ test("GetProjectUseCase distinguishes a missing project", async () => {
 });
 
 test("Project children keep input order and a failed child insert rolls back the parent", async () => {
-  const database = createDirectionDatabase(":memory:");
-  await initializeDirectionSchema(database);
-  const repository = new SQLiteProjectRepository(database);
+  const database = createOrganizationDatabase(":memory:");
+  await initializeOrganizationSchema(database);
+  const repository = new SQLiteProjectRepository(database, noRepositoryReference);
   const createProject = new CreateProjectUseCase(repository);
 
   const created = await createProject.execute({

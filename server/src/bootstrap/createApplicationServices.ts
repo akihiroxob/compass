@@ -5,7 +5,6 @@ import { FileAgentAssetRepository } from "../infrastructure/agentAssets/FileAgen
 import {
   AbandonIntentUseCase,
   AckRuntimeEventUseCase,
-  ArchiveProjectUseCase,
   CancelOutcomeUseCase,
   CancelResearchRequestUseCase,
   CompleteResearchRequestUseCase,
@@ -13,7 +12,6 @@ import {
   CreateDirectionDecisionUseCase,
   CreateIntentUseCase,
   CreateOutcomeUseCase,
-  CreateProjectUseCase,
   CreateResearchRequestUseCase,
   DecideNextOutcomeUseCase,
   DirectionReferenceLookupService,
@@ -23,7 +21,6 @@ import {
   GetOrchestrationStateUseCase,
   GetIntentUseCase,
   GetOutcomeUseCase,
-  GetProjectUseCase,
   GetResearcherContextUseCase,
   GetResearchRequestUseCase,
   GetStrategistContextUseCase,
@@ -32,7 +29,6 @@ import {
   ListIntentsUseCase,
   ListOutcomeEvaluationsUseCase,
   ListOutcomesUseCase,
-  ListProjectsUseCase,
   ListResearchRequestsUseCase,
   ListRuntimeEventsUseCase,
   RecordAdrReferenceUseCase,
@@ -46,13 +42,19 @@ import {
   SQLiteOutcomeEvaluationRepository,
   SQLiteOutcomeExecutionRepository,
   SQLiteOutcomeRepository,
-  SQLiteProjectRepository,
   SQLiteResearchRepository,
   SQLiteRuntimeEventRepository,
   UpdateIntentUseCase,
   UpdateOutcomeUseCase,
-  UpdateProjectUseCase,
 } from "@compass/direction";
+import {
+  ArchiveProjectUseCase,
+  CreateProjectUseCase,
+  GetProjectUseCase,
+  ListProjectsUseCase,
+  SQLiteProjectRepository,
+  UpdateProjectUseCase,
+} from "@compass/organization";
 import {
   AcceptExecutionTaskUseCase,
   AddExecutionTaskCommentUseCase,
@@ -117,18 +119,26 @@ import {
   RecordActivityUseCase,
 } from "@compass/activity";
 import type { Kysely } from "kysely";
-import { asAccessDatabase, asActivityDatabase, asDirectionDatabase, asWorkDatabase } from "./database/contextDatabase.ts";
+import {
+  asAccessDatabase,
+  asActivityDatabase,
+  asDirectionDatabase,
+  asOrganizationDatabase,
+  asWorkDatabase,
+} from "./database/contextDatabase.ts";
 import type { Database } from "./database/schema.ts";
 import {
   accessProjectReaders,
   activityAuthorization,
   activityProjectReader,
-  projectOwnerMembershipWriter,
   directionChangeActivityObserver,
+  directionProjectReaders,
+  projectChangeActivityObserver,
+  projectOwnerMembershipWriter,
+  projectRepositoryReferenceFinder,
   workChangeActivityObserver,
   workExternalReaders,
 } from "../infrastructure/repository/contextAdapters.ts";
-import { projectWorkspaceAssigner } from "../infrastructure/repository/projectWorkspace.ts";
 
 /** DBを開かずにUse Caseを組み立てる。containerはimport時にDBを開くため、CLIなどはこちらを使う。 */
 export const createApplicationServices = (
@@ -145,29 +155,40 @@ export const createApplicationServices = (
     initialOwnerEmail: null,
   },
 ) => {
-  // Directionのrepositoryへは同じ接続を、Directionが所有するtableの型で渡す。
+  // Project（Workspaceを含む）はOrganizationが所有する。Projectのarchiveも同じtransactionでcanonical Activityへ投影する。
+  const projectRepository = new SQLiteProjectRepository(
+    asOrganizationDatabase(applicationDatabase),
+    projectRepositoryReferenceFinder,
+    projectOwnerMembershipWriter,
+    projectChangeActivityObserver,
+  );
+  // Directionのrepositoryへは同じ接続を、Directionが所有するtableの型で渡す。Project状態は同じtransactionで読むreaderを渡す。
   const directionDatabase = asDirectionDatabase(applicationDatabase);
   // Directionの重要な状態変更も、同じtransactionでcanonical Activityへ投影する。
-  const projectRepository = new SQLiteProjectRepository(
+  const intentRepository = new SQLiteIntentRepository(directionDatabase, directionProjectReaders, directionChangeActivityObserver);
+  const outcomeRepository = new SQLiteOutcomeRepository(directionDatabase, directionProjectReaders, directionChangeActivityObserver);
+  const researchRepository = new SQLiteResearchRepository(
     directionDatabase,
-    projectOwnerMembershipWriter,
+    directionProjectReaders,
+    clock,
     directionChangeActivityObserver,
-    projectWorkspaceAssigner,
   );
-  const intentRepository = new SQLiteIntentRepository(directionDatabase, directionChangeActivityObserver);
-  const outcomeRepository = new SQLiteOutcomeRepository(directionDatabase, directionChangeActivityObserver);
-  const researchRepository = new SQLiteResearchRepository(directionDatabase, clock, directionChangeActivityObserver);
-  const directionDecisionRepository = new SQLiteDirectionDecisionRepository(directionDatabase, clock, directionChangeActivityObserver);
-  const adrHandoffRepository = new SQLiteAdrHandoffRepository(directionDatabase);
+  const directionDecisionRepository = new SQLiteDirectionDecisionRepository(
+    directionDatabase,
+    directionProjectReaders,
+    clock,
+    directionChangeActivityObserver,
+  );
+  const adrHandoffRepository = new SQLiteAdrHandoffRepository(directionDatabase, directionProjectReaders);
   const runtimeEventRepository = new SQLiteRuntimeEventRepository(directionDatabase);
-  // Accessのrepositoryへは同じ接続をAccessのtableの型で渡し、Project状態（Direction）は同じtransactionで読む実装を渡す。
+  // Accessのrepositoryへは同じ接続をAccessのtableの型で渡し、Project状態（Organization）は同じtransactionで読む実装を渡す。
   const accessDatabase = asAccessDatabase(applicationDatabase);
   const accessProjects = accessProjectReaders(accessDatabase);
   const projectGrantRepository = new SQLiteProjectGrantRepository(accessDatabase, accessProjectReaders, clock);
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
   const accessCredentialRepository = new SQLiteAccessCredentialRepository(accessDatabase, accessProjectReaders);
   const getProjectUseCase = new GetProjectUseCase(projectRepository);
-  // Activity（意味のある履歴）。Change Log・Operational Logとは別のtableで、Projectの状態はDirectionのreaderで読む。
+  // Activity（意味のある履歴）。Change Log・Operational Logとは別のtableで、Projectの状態はOrganizationのreaderで読む。
   const activityStore = new KyselyActivityStore(asActivityDatabase(applicationDatabase));
   const activityProjects = activityProjectReader(applicationDatabase);
   const listActivitiesUseCase = new ListActivitiesUseCase(activityProjects, activityStore);
@@ -182,8 +203,12 @@ export const createApplicationServices = (
   );
   // Direction → Executionは読取専用ポート（Execution自身のtableだけを読む）を通す。Direction側の還流先は自身のRepository。
   const executionSummaryService = new ExecutionSummaryService(workStore);
-  const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(directionDatabase);
-  const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(directionDatabase, directionChangeActivityObserver);
+  const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(directionDatabase, directionProjectReaders);
+  const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(
+    directionDatabase,
+    directionProjectReaders,
+    directionChangeActivityObserver,
+  );
   // Human認証・Membership（docs/step-6-human-auth-design.md）。Agent GrantのRepository・認可とは分離する。
   const humanAccountRepository = new SQLiteHumanAccountRepository(accessDatabase, accessProjectReaders, clock);
   const projectMembershipRepository = new SQLiteProjectMembershipRepository(accessDatabase, accessProjectReaders, clock);

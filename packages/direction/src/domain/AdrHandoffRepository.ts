@@ -1,5 +1,5 @@
 import type { AdrHandoffRequest, AdrReference } from "./AdrHandoff.ts";
-import type { ProjectArchivedResult } from "./ProjectRepository.ts";
+import type { ProjectArchivedResult } from "./ProjectArchivedResult.ts";
 
 export type CreateAdrHandoffRequestInput = {
   decisionId: string;

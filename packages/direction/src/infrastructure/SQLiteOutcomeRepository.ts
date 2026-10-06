@@ -8,13 +8,14 @@ import type {
 } from "../domain/OutcomeRepository.ts";
 import type { CreateOutcomeInput, UpdateOutcomeInput } from "../domain/OutcomeRepository.ts";
 import type { DirectionDatabase, OutcomeTable } from "./schema.ts";
-import { isProjectArchived } from "./isProjectArchived.ts";
+import type { DirectionProjectReaders } from "./directionProjectReaders.ts";
 import { insertOutcomeRow, loadOutcomes } from "./outcomeRecord.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 export class SQLiteOutcomeRepository implements OutcomeRepository {
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
+    private readonly projects: DirectionProjectReaders,
     private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
 
@@ -24,7 +25,7 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     input: CreateOutcomeInput,
   ): Promise<CreateOutcomeResult> {
     return this.database.transaction().execute(async (transaction): Promise<CreateOutcomeResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
       const intent = await transaction
         .selectFrom("intent")
         .select("status")
@@ -121,7 +122,7 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     >,
   ): Promise<ChangeOutcomeResult> {
     return this.database.transaction().execute(async (transaction): Promise<ChangeOutcomeResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
       const intent = await transaction
         .selectFrom("intent")
         .select("id")

@@ -12,7 +12,7 @@
     "lint": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@compass/direction": "0.1.0",
+    "@compass/organization": "0.1.0",
     "@compass/shared": "0.1.0",
     "kysely": "^0.28.15",
     "zod": "^4.3.6"

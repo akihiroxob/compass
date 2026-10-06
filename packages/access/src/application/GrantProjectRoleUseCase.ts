@@ -1,5 +1,5 @@
 import type { ProjectGrantRepository, GrantResult } from "../domain/ProjectGrantRepository.ts";
-import { ProjectArchivedError } from "@compass/direction";
+import { ProjectArchivedError } from "@compass/organization";
 import type { ProjectStateReader } from "./port/ProjectStateReader.ts";
 import { parseProjectGrantInput } from "./projectGrantSchema.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";

@@ -1,4 +1,4 @@
-import type { Project } from "../domain/Project.ts";
+import type { ProjectDetail } from "../domain/Project.ts";
 import type { ProjectRepository } from "../domain/ProjectRepository.ts";
 import { parseArchiveProjectInput } from "./projectSchema.ts";
 import { NotFoundError } from "@compass/shared";
@@ -11,7 +11,7 @@ import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
 export class ArchiveProjectUseCase {
   constructor(private readonly projectRepository: ProjectRepository) {}
 
-  async execute(projectId: string, input: unknown): Promise<Project> {
+  async execute(projectId: string, input: unknown): Promise<ProjectDetail> {
     const { reason } = parseArchiveProjectInput(input);
     const result = await this.projectRepository.archive(projectId, reason);
     if (result.kind === "not_found") throw new NotFoundError(`Project ${projectId} was not found`);

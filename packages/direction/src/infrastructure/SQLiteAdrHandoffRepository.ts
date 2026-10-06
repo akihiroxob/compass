@@ -14,20 +14,21 @@ import {
   findAdrHandoffRequestForReference,
   findAdrReferenceByKey,
   findDecisionForHandoff,
-  findProjectConstraints,
-  findRepositoryForHandoff,
   toReference,
   toRequest,
 } from "./adrHandoffRecord.ts";
 import { inputHash } from "@compass/shared";
-import { isProjectArchived } from "./isProjectArchived.ts";
+import type { DirectionProjectReaders } from "./directionProjectReaders.ts";
 
 export class SQLiteAdrHandoffRepository implements AdrHandoffRepository {
-  constructor(private readonly database: Kysely<DirectionDatabase>) {}
+  constructor(
+    private readonly database: Kysely<DirectionDatabase>,
+    private readonly projects: DirectionProjectReaders,
+  ) {}
 
   async createRequest(projectId: string, input: CreateAdrHandoffRequestInput): Promise<CreateAdrHandoffRequestResult> {
     return this.database.transaction().execute(async (transaction): Promise<CreateAdrHandoffRequestResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
 
       const hash = inputHash(input);
       const existing = await findAdrHandoffRequestByKey(transaction, projectId, input.requestKey);
@@ -40,10 +41,10 @@ export class SQLiteAdrHandoffRepository implements AdrHandoffRepository {
       if (!decision) return { kind: "decision_not_found" };
       if (decision.type !== "adr_candidate") return { kind: "decision_not_adr_candidate", type: decision.type };
 
-      const repository = await findRepositoryForHandoff(transaction, projectId, input.repositoryId);
+      const repository = await this.projects(transaction).findRepository(projectId, input.repositoryId);
       if (!repository) return { kind: "repository_not_found", repositoryId: input.repositoryId };
 
-      const constraints = await findProjectConstraints(transaction, projectId);
+      const constraints = await this.projects(transaction).findConstraints(projectId);
       const payload = await buildAdrHandoffPayload(transaction, decision, repository, constraints);
 
       const row = await transaction
@@ -68,7 +69,7 @@ export class SQLiteAdrHandoffRepository implements AdrHandoffRepository {
 
   async recordReference(projectId: string, input: RecordAdrReferenceInput): Promise<RecordAdrReferenceResult> {
     return this.database.transaction().execute(async (transaction): Promise<RecordAdrReferenceResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
 
       const hash = inputHash(input);
       const existing = await findAdrReferenceByKey(transaction, projectId, input.requestKey);
@@ -81,7 +82,7 @@ export class SQLiteAdrHandoffRepository implements AdrHandoffRepository {
       if (!decision) return { kind: "decision_not_found" };
       if (decision.type !== "adr_candidate") return { kind: "decision_not_adr_candidate", type: decision.type };
 
-      const repository = await findRepositoryForHandoff(transaction, projectId, input.repositoryId);
+      const repository = await this.projects(transaction).findRepository(projectId, input.repositoryId);
       if (!repository) return { kind: "repository_not_found", repositoryId: input.repositoryId };
 
       const handoffRequest = await findAdrHandoffRequestForReference(

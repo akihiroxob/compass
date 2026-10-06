@@ -3,7 +3,7 @@ import type { MemberView, ProjectMembershipRepository } from "../domain/ProjectM
 import { parseChangeMemberRoleInput, parseCreateInvitationInput } from "./humanAuthSchema.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
 import { LastOwnerError } from "./error/LastOwnerError.ts";
-import { ProjectArchivedError } from "@compass/direction";
+import { ProjectArchivedError } from "@compass/organization";
 import type { HumanProjectAuthorizationService } from "./HumanProjectAuthorizationService.ts";
 import { generateSecretToken, hashSecretToken } from "./secretToken.ts";
 

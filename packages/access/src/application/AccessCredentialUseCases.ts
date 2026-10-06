@@ -4,7 +4,7 @@ import type { HumanActor } from "../domain/HumanAuth.ts";
 import type { AccessCredentialRepository, NewCredentialSecret } from "../domain/AccessCredentialRepository.ts";
 import { parseIssueCredentialInput, parseRotateCredentialInput } from "./credentialSchema.ts";
 import { ConflictError, NotFoundError, UnauthenticatedError } from "@compass/shared";
-import { ProjectArchivedError } from "@compass/direction";
+import { ProjectArchivedError } from "@compass/organization";
 import type { HumanProjectAuthorizationService } from "./HumanProjectAuthorizationService.ts";
 import type { AgentCredentialCaller, RuntimeCredentialCaller } from "./RuntimeAuthorizationService.ts";
 import { generateSecretToken, hashSecretToken, secretEquals } from "./secretToken.ts";

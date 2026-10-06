@@ -10,10 +10,10 @@ import type {
 } from "../domain/OutcomeEvaluationRepository.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { parseRecordOutcomeEvaluationInput } from "./outcomeEvaluationSchema.ts";
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
-import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
+import { ProjectArchivedError } from "@compass/organization";
 import { DirectionAgentRole, type DirectionRoleAuthorizationPort, type Principal } from "./port/DirectionAuthorizationPort.ts";
 
 export type RecordOutcomeEvaluationResult = {
@@ -32,7 +32,7 @@ export type RecordOutcomeEvaluationResult = {
 export class RecordOutcomeEvaluationUseCase {
   constructor(
     private readonly authorization: DirectionRoleAuthorizationPort,
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly outcomeRepository: OutcomeRepository,
     private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
     private readonly outcomeEvaluationRepository: OutcomeEvaluationRepository,
@@ -48,7 +48,7 @@ export class RecordOutcomeEvaluationUseCase {
     // 認可はProjectの存在確認より先。Grantを持たないPrincipalへProjectやOutcomeの存在有無を漏らさない。
     const principalId = await this.authorization.requireRole(principal, projectId, DirectionAgentRole.EVALUATOR);
     const parsed = parseRecordOutcomeEvaluationInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     const outcome = await this.outcomeRepository.findByIdInProject(projectId, outcomeId);

@@ -1,13 +1,13 @@
 import type { Intent } from "../domain/Intent.ts";
 import type { Outcome } from "../domain/Outcome.ts";
-import type { Project } from "../domain/Project.ts";
+import type { ProjectDetail } from "@compass/organization";
 import type { IntentResearchSummary } from "../domain/Research.ts";
 import type { OutcomeEvaluation } from "../domain/OutcomeEvaluation.ts";
 import type { DirectionDecisionRepository } from "../domain/DirectionDecisionRepository.ts";
 import type { IntentRepository } from "../domain/IntentRepository.ts";
 import type { OutcomeEvaluationRepository } from "../domain/OutcomeEvaluationRepository.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import { NotFoundError } from "@compass/shared";
 import { DirectionAgentRole, type DirectionRoleAuthorizationPort, type Principal } from "./port/DirectionAuthorizationPort.ts";
@@ -24,7 +24,7 @@ export type StrategistEvaluation = OutcomeEvaluation & { decisionId: string | nu
 export type StrategistContext = {
   principalId: string;
   role: DirectionAgentRole;
-  project: Project;
+  project: ProjectDetail;
   activeIntent: Intent | null;
   /** Active Intent配下の全状態のOutcome（新しい順）。取消済みも含め、過去の試行の重複提案を避けられるようにする。 */
   outcomes: Outcome[];
@@ -42,7 +42,7 @@ export type StrategistContext = {
 export class GetStrategistContextUseCase {
   constructor(
     private readonly authorization: DirectionRoleAuthorizationPort,
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly intentRepository: IntentRepository,
     private readonly outcomeRepository: OutcomeRepository,
     private readonly researchRepository: ResearchRepository,
@@ -52,7 +52,7 @@ export class GetStrategistContextUseCase {
 
   async execute(principal: Principal, projectId: string): Promise<StrategistContext> {
     const principalId = await this.authorization.requireRole(principal, projectId, DirectionAgentRole.STRATEGIST);
-    const project = await this.projectRepository.findById(projectId);
+    const project = await this.projectReader.findDetailById(projectId);
     if (!project) throw new NotFoundError(`Project ${projectId} was not found`);
     const intents = await this.intentRepository.findByProject(projectId);
     const activeIntent = intents.find((intent) => intent.status === "active") ?? null;

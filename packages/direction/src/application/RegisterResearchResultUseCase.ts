@@ -1,5 +1,5 @@
 import type { ResearchResult } from "../domain/Research.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import { parseRegisterResearchResultInput } from "./researchSchema.ts";
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
@@ -8,13 +8,13 @@ import { throwCommonResearchRejection } from "./researchRejection.ts";
 /** 調査結果（Result・Finding・Evidence参照）を未終了のRequestへ追記する。Principalとrunの来歴は入力から保存する。 */
 export class RegisterResearchResultUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly researchRepository: ResearchRepository,
   ) {}
 
   async execute(projectId: string, requestId: string, input: unknown): Promise<ResearchResult> {
     const parsed = parseRegisterResearchResultInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     const result = await this.researchRepository.registerResult(projectId, requestId, parsed);

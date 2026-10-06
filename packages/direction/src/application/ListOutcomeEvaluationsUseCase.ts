@@ -1,7 +1,7 @@
 import type { OutcomeEvaluation } from "../domain/OutcomeEvaluation.ts";
 import type { OutcomeEvaluationRepository } from "../domain/OutcomeEvaluationRepository.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { NotFoundError } from "@compass/shared";
 
 /**
@@ -10,13 +10,13 @@ import { NotFoundError } from "@compass/shared";
  */
 export class ListOutcomeEvaluationsUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly outcomeRepository: OutcomeRepository,
     private readonly outcomeEvaluationRepository: OutcomeEvaluationRepository,
   ) {}
 
   async execute(projectId: string, outcomeId: string): Promise<OutcomeEvaluation[]> {
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     if (!(await this.outcomeRepository.findByIdInProject(projectId, outcomeId))) {

@@ -1,19 +1,19 @@
 import type { DirectionDecision } from "../domain/DirectionDecision.ts";
 import type { DirectionDecisionRepository } from "../domain/DirectionDecisionRepository.ts";
 import type { IntentRepository } from "../domain/IntentRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { NotFoundError } from "@compass/shared";
 
 /** IntentのDirection Decisionを新しい順に返す読み取り専用のQuery。Human向け画面（Task 29）で使う。 */
 export class ListDirectionDecisionsUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly intentRepository: IntentRepository,
     private readonly directionDecisionRepository: DirectionDecisionRepository,
   ) {}
 
   async execute(projectId: string, intentId: string): Promise<DirectionDecision[]> {
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     if (!(await this.intentRepository.findById(projectId, intentId))) {

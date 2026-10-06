@@ -2,20 +2,6 @@ import { sql, type ColumnDefinitionBuilder, type Kysely } from "kysely";
 import type { DirectionDatabase } from "./schema.ts";
 
 /**
- * Project archive導入前のDBには`project`のarchive列が無い。`create table if not exists`では追加されないため、
- * 列が無い場合だけ追加する（idempotent）。`default 'active'`で既存の全行がactiveになり、既存行・子tableは書き換えない。
- * SQLiteの`ADD COLUMN`はtable制約を足せないため、archived_at / archive_reasonとstatusの整合はRepositoryが保証する。
- */
-const addProjectArchiveColumns = async (database: Kysely<DirectionDatabase>): Promise<void> => {
-  const columns = await sql<{ name: string }>`select name from pragma_table_info('project')`.execute(database);
-  if (columns.rows.some(({ name }) => name === "status")) return;
-  await sql`alter table project add column status text not null default 'active' check (status in ('active', 'archived'))`.execute(database);
-  await sql`alter table project add column archived_at integer`.execute(database);
-  await sql`alter table project add column archive_reason text`.execute(database);
-};
-
-
-/**
  * Research集約。すべて`create ... if not exists`なので既存DBへ再適用でき、Project / Intent / Outcomeのtableには触れない。
  * Findingは、SynthesisがIDで参照しProject内で再利用するため独立tableにする。Evidence参照・Synthesisとの関連は
  * 関連tableで表し、参照整合をDBの外部キーで守る。要素単位で検索しない文字列配列（unknowns等）はJSON列に置く。
@@ -671,64 +657,8 @@ const initializeOutcomeEvaluationSchema = async (database: Kysely<DirectionDatab
     .execute();
 };
 
-/** Directionが所有するtableの作成・移行。serverの`initializeSchema`が他Contextより先に呼ぶ（他Contextのtableが`project`を参照するため）。 */
+/** Directionが所有するtableの作成・移行。`project`（Organization）を参照するため、serverの`initializeSchema`がOrganizationの後に呼ぶ。 */
 export const initializeDirectionSchema = async (database: Kysely<DirectionDatabase>): Promise<void> => {
-  await database.schema
-    .createTable("project")
-    .ifNotExists()
-    .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("name", "text", (column) => column.notNull())
-    .addColumn("description", "text")
-    .addColumn("mission", "text", (column) => column.notNull())
-    .addColumn("vision", "text")
-    .addColumn("created_at", "integer", (column) => column.notNull())
-    .addColumn("updated_at", "integer", (column) => column.notNull())
-    .addColumn("status", "text", (column) =>
-      column.notNull().defaultTo("active").check(sql`status in ('active', 'archived')`),
-    )
-    .addColumn("archived_at", "integer")
-    .addColumn("archive_reason", "text")
-    .execute();
-  await addProjectArchiveColumns(database);
-
-  for (const table of ["project_principle", "project_constraint"] as const) {
-    await database.schema
-      .createTable(table)
-      .ifNotExists()
-      .addColumn("id", "text", (column) => column.primaryKey())
-      .addColumn("project_id", "text", (column) =>
-        column.notNull().references("project.id").onDelete("cascade"),
-      )
-      .addColumn("value", "text", (column) => column.notNull())
-      .addColumn("sort_order", "integer", (column) => column.notNull())
-      .execute();
-  }
-
-  await database.schema
-    .createTable("project_repository_link")
-    .ifNotExists()
-    .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", (column) =>
-      column.notNull().references("project.id").onDelete("cascade"),
-    )
-    .addColumn("name", "text", (column) => column.notNull())
-    .addColumn("url", "text", (column) => column.notNull())
-    .addColumn("sort_order", "integer", (column) => column.notNull())
-    .execute();
-
-  await database.schema
-    .createTable("project_resource")
-    .ifNotExists()
-    .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", (column) =>
-      column.notNull().references("project.id").onDelete("cascade"),
-    )
-    .addColumn("name", "text", (column) => column.notNull())
-    .addColumn("url", "text", (column) => column.notNull())
-    .addColumn("kind", "text")
-    .addColumn("sort_order", "integer", (column) => column.notNull())
-    .execute();
-
   await database.schema
     .createTable("intent")
     .ifNotExists()

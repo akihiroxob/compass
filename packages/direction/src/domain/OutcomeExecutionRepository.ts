@@ -4,7 +4,7 @@ import type {
   ExecutionStoryResult,
   OutcomeExecutionRecord,
 } from "./OutcomeExecution.ts";
-import type { ProjectArchivedResult } from "./ProjectRepository.ts";
+import type { ProjectArchivedResult } from "./ProjectArchivedResult.ts";
 
 export type RecordOutcomeExecutionInput = {
   outcomeId: string;

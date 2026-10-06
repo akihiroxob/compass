@@ -13,8 +13,7 @@ export type DirectionChangeType =
   | "research_requested"
   | "research_closed"
   | "decision_recorded"
-  | "outcome_evaluated"
-  | "project_archived";
+  | "outcome_evaluated";
 
 /** 状態変更が関わるDirectionのEntity。 */
 export type DirectionChangeRef = { kind: "intent" | "outcome" | "research_request" | "decision"; id: string };
@@ -22,14 +21,14 @@ export type DirectionChangeRef = { kind: "intent" | "outcome" | "research_reques
 export type DirectionChangeNotice = {
   type: DirectionChangeType;
   projectId: string;
-  /** 変更されたrecord（Intent・Outcome・Request・Decision・Evaluation・Project）のID。同じ種類の変更はrecordごとに1回。 */
+  /** 変更されたrecord（Intent・Outcome・Request・Decision・Evaluation）のID。同じ種類の変更はrecordごとに1回。 */
   recordId: string;
-  /** 人が読む対象名（Intent・Outcomeのtitle、Researchのquestion、Project名等）。 */
+  /** 人が読む対象名（Intent・Outcomeのtitle、Researchのquestion等）。 */
   title: string;
   refs: DirectionChangeRef[];
   /** 結論（Researchの終了状態・Decisionの種類・Evaluationの総合結果）。 */
   result: string | null;
-  /** 取消・放棄・停止・archiveの理由。 */
+  /** 取消・放棄・停止の理由。 */
   reason: string | null;
   /** Directionが来歴として保存しているPrincipal（Decision・Evaluation）。保存しない変更はnull。 */
   principalId: string | null;

@@ -1,17 +1,17 @@
 import type { ResearchRequestDetail } from "../domain/Research.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import { NotFoundError } from "@compass/shared";
 
 /** Requestと、Result → Finding / Evidence参照、Synthesisの来歴を返す。他ProjectのRequestは存在しないものとして扱う。 */
 export class GetResearchRequestUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly researchRepository: ResearchRepository,
   ) {}
 
   async execute(projectId: string, requestId: string): Promise<ResearchRequestDetail> {
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     const detail = await this.researchRepository.findRequestDetail(projectId, requestId);

@@ -1,9 +1,9 @@
 import type { Outcome } from "../domain/Outcome.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { parseUpdateOutcomeInput } from "./outcomeSchema.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
-import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
+import { ProjectArchivedError } from "@compass/organization";
 
 /**
  * activeなOutcomeのtitleとhypothesisだけを更新する。
@@ -11,7 +11,7 @@ import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
  */
 export class UpdateOutcomeUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly outcomeRepository: OutcomeRepository,
   ) {}
 
@@ -22,7 +22,7 @@ export class UpdateOutcomeUseCase {
     input: unknown,
   ): Promise<Outcome> {
     const { changes, fixedFields } = parseUpdateOutcomeInput(input);
-    const project = await this.projectRepository.findById(projectId);
+    const project = await this.projectReader.findDetailById(projectId);
     if (!project) throw new NotFoundError(`Project ${projectId} was not found`);
     // 固定項目の拒否はRepositoryへ進む前に行うため、archivedの拒否（409）をここでも先に返す。書込の本体はRepositoryのtransaction内で検査する。
     if (project.status === "archived") throw new ProjectArchivedError(projectId);

@@ -1,6 +1,6 @@
 import type { Principal, ProjectAuthorizationService, ProjectRole } from "@compass/access";
 import { recentActivitySummaryLimit, type ListActivitiesUseCase } from "@compass/activity";
-import type { GetProjectUseCase } from "@compass/direction";
+import type { GetProjectUseCase } from "@compass/organization";
 import type { AgentContextService } from "./AgentContextService.ts";
 
 /** Role Contextへまだ接続していない入力。推測で埋めず、名前だけを示す。現在はすべて接続済み。 */

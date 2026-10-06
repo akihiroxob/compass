@@ -8,3 +8,6 @@ export const createOrganizationDatabase = (path = ":memory:") => {
   sqlite.pragma("foreign_keys = ON");
   return new Kysely<OrganizationDatabase>({ dialect: new SqliteDialect({ database: sqlite }) });
 };
+
+/** ADR Handoff（Direction）からの参照が無い前提の`ProjectRepositoryReferenceFinder`。 */
+export const noRepositoryReference = async (): Promise<string | null> => null;

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createMcpServer } from "../mcp/createMcpServer.ts";
 import { ACTIVE_ROLE_HEADER, MalformedAuthorizationError, resolveActiveRole, resolveCaller } from "../auth/resolvePrincipal.ts";
 import { ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError, ValidationError } from "@compass/shared";
-import { parseProjectStatusFilter } from "@compass/direction";
+import { parseProjectStatusFilter } from "@compass/organization";
 import { applicationServices, type ApplicationServices } from "./container.ts";
 import {
   CsrfRejectedError,

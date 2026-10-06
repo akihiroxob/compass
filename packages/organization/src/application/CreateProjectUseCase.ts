@@ -1,4 +1,4 @@
-import type { Project } from "../domain/Project.ts";
+import type { ProjectDetail } from "../domain/Project.ts";
 import type { ProjectRepository } from "../domain/ProjectRepository.ts";
 import { parseCreateProjectInput } from "./projectSchema.ts";
 
@@ -9,7 +9,7 @@ export class CreateProjectUseCase {
    * `actor`を渡すと、作成者を同一transactionでowner Membershipにする（docs/step-6-human-auth-design.md）。
    * Web APIへのActorの受け渡しはTask 42で行い、それまでの呼出し（Web / MCP）はowner不在のProjectを作る。
    */
-  async execute(input: unknown, actor?: { humanUserId: string }): Promise<Project> {
+  async execute(input: unknown, actor?: { humanUserId: string }): Promise<ProjectDetail> {
     return this.projectRepository.create(parseCreateProjectInput(input), actor?.humanUserId);
   }
 }

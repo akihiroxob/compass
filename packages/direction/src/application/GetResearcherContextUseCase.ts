@@ -1,5 +1,5 @@
 import type { Intent } from "../domain/Intent.ts";
-import type { Project } from "../domain/Project.ts";
+import type { ProjectDetail } from "@compass/organization";
 import type {
   EvidenceReference,
   ResearchFinding,
@@ -8,7 +8,7 @@ import type {
   ResearchSynthesis,
 } from "../domain/Research.ts";
 import type { IntentRepository } from "../domain/IntentRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import { NotFoundError } from "@compass/shared";
 import { DirectionAgentRole, type DirectionRoleAuthorizationPort, type Principal } from "./port/DirectionAuthorizationPort.ts";
@@ -23,7 +23,7 @@ export type ResearcherContext = {
   principalId: string;
   role: DirectionAgentRole;
   /** Mission / Vision / Principles / Constraints / Repositories / Resources を含むProjectの現在の姿。Researcherは変更できない。 */
-  project: Project;
+  project: ProjectDetail;
   request: ResearchRequest;
   /** 発端のIntent。project_watchはnull。 */
   originIntent: Intent | null;
@@ -42,14 +42,14 @@ export type ResearcherContext = {
 export class GetResearcherContextUseCase {
   constructor(
     private readonly authorization: DirectionRoleAuthorizationPort,
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly intentRepository: IntentRepository,
     private readonly researchRepository: ResearchRepository,
   ) {}
 
   async execute(principal: Principal, projectId: string, requestId: string): Promise<ResearcherContext> {
     const principalId = await this.authorization.requireRole(principal, projectId, DirectionAgentRole.RESEARCHER);
-    const project = await this.projectRepository.findById(projectId);
+    const project = await this.projectReader.findDetailById(projectId);
     if (!project) throw new NotFoundError(`Project ${projectId} was not found`);
     const detail = await this.researchRepository.findRequestDetail(projectId, requestId);
     if (!detail) throw new NotFoundError(`Research Request ${requestId} was not found in Project ${projectId}`);

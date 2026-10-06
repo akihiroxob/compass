@@ -1,6 +1,6 @@
 import type { AdrHandoffRequest } from "../domain/AdrHandoff.ts";
 import type { AdrHandoffRepository } from "../domain/AdrHandoffRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { parseCreateAdrHandoffRequestInput } from "./adrHandoffSchema.ts";
 import { NotFoundError } from "@compass/shared";
 import { throwAdrHandoffRejection } from "./adrHandoffRejection.ts";
@@ -11,13 +11,13 @@ import { throwAdrHandoffRejection } from "./adrHandoffRejection.ts";
  */
 export class CreateAdrHandoffRequestUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly adrHandoffRepository: AdrHandoffRepository,
   ) {}
 
   async execute(projectId: string, principalId: string, input: unknown): Promise<AdrHandoffRequest> {
     const parsed = parseCreateAdrHandoffRequestInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     const result = await this.adrHandoffRepository.createRequest(projectId, { ...parsed, principalId });

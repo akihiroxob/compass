@@ -1,37 +1,5 @@
 import type { Generated } from "kysely";
 
-export type ProjectTable = {
-  id: string;
-  name: string;
-  description: string | null;
-  mission: string;
-  vision: string | null;
-  created_at: number;
-  updated_at: number;
-  status: "active" | "archived";
-  archived_at: number | null;
-  archive_reason: string | null;
-};
-
-type OrderedTextTable = {
-  id: string;
-  project_id: string;
-  value: string;
-  sort_order: number;
-};
-
-export type ProjectRepositoryLinkTable = {
-  id: string;
-  project_id: string;
-  name: string;
-  url: string;
-  sort_order: number;
-};
-
-export type ProjectResourceTable = ProjectRepositoryLinkTable & {
-  kind: string | null;
-};
-
 export type IntentTable = {
   id: string;
   project_id: string;
@@ -332,13 +300,11 @@ export type OutcomeEvaluationTable = {
   created_at: number;
 };
 
-/** Directionが所有するtable。単一SQLite fileの一部で、serverが他Contextのtableと合成する。 */
+/**
+ * Directionが所有するtable。単一SQLite fileの一部で、serverが他Contextのtableと合成する。
+ * `project_id`のFK先（`project`）はOrganizationが所有し、DirectionはProjectの状態をserverが渡すreaderで読む。
+ */
 export type DirectionDatabase = {
-  project: ProjectTable;
-  project_principle: OrderedTextTable;
-  project_constraint: OrderedTextTable;
-  project_repository_link: ProjectRepositoryLinkTable;
-  project_resource: ProjectResourceTable;
   intent: IntentTable;
   outcome: OutcomeTable;
   success_criterion: SuccessCriterionTable;

@@ -10,7 +10,7 @@ import type {
 } from "../domain/IntentRepository.ts";
 import type { CreateIntentInput, UpdateIntentInput } from "../domain/IntentRepository.ts";
 import type { DirectionDatabase, IntentTable } from "./schema.ts";
-import { isProjectArchived } from "./isProjectArchived.ts";
+import type { DirectionProjectReaders } from "./directionProjectReaders.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 const toIntent = (row: Selectable<IntentTable>): Intent =>
@@ -29,12 +29,13 @@ const toIntent = (row: Selectable<IntentTable>): Intent =>
 export class SQLiteIntentRepository implements IntentRepository {
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
+    private readonly projects: DirectionProjectReaders,
     private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
 
   async create(projectId: string, input: CreateIntentInput): Promise<CreateIntentResult> {
     return this.database.transaction().execute(async (transaction): Promise<CreateIntentResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
       const active = await transaction
         .selectFrom("intent")
         .select("id")
@@ -200,7 +201,7 @@ export class SQLiteIntentRepository implements IntentRepository {
     } = {},
   ): Promise<ChangeIntentResult | Rejection> {
     return this.database.transaction().execute(async (transaction): Promise<ChangeIntentResult | Rejection> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
       const existing = await transaction
         .selectFrom("intent")
         .selectAll()

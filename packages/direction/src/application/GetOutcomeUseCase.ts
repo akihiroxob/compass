@@ -1,18 +1,18 @@
 import type { Outcome } from "../domain/Outcome.ts";
 import type { IntentRepository } from "../domain/IntentRepository.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { NotFoundError } from "@compass/shared";
 
 export class GetOutcomeUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly intentRepository: IntentRepository,
     private readonly outcomeRepository: OutcomeRepository,
   ) {}
 
   async execute(projectId: string, intentId: string, outcomeId: string): Promise<Outcome> {
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     if (!(await this.intentRepository.findById(projectId, intentId))) {

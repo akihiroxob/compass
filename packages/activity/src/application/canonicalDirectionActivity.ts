@@ -33,7 +33,6 @@ const directionActivities: Record<string, { type: string; summary: (title: strin
   research_closed: { type: "research.closed", summary: (title, result) => `Research「${title}」を${result}で終了した` },
   decision_recorded: { type: "decision.recorded", summary: (title, result) => `Direction Decision（${result}）「${title}」を記録した` },
   outcome_evaluated: { type: "outcome.evaluated", summary: (title, result) => `Outcome「${title}」を評価した（${result}）` },
-  project_archived: { type: "project.archived", summary: (title) => `Project「${title}」をarchiveした` },
 };
 
 export const canonicalDirectionChangeTypes = Object.keys(directionActivities);

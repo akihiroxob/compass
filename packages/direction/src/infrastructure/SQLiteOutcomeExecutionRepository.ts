@@ -16,7 +16,7 @@ import type {
   OutcomeExecutionEvidenceTable,
   OutcomeExecutionSummaryTable,
 } from "./schema.ts";
-import { isProjectArchived } from "./isProjectArchived.ts";
+import type { DirectionProjectReaders } from "./directionProjectReaders.ts";
 
 const toSummary = (row: Selectable<OutcomeExecutionSummaryTable>): OutcomeExecutionSummary => ({
   projectId: row.project_id,
@@ -49,11 +49,14 @@ const sameEvidence = (
 ) => left.kind === right.kind && left.uri === right.uri && left.versionHash === right.versionHash;
 
 export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionRepository {
-  constructor(private readonly database: Kysely<DirectionDatabase>) {}
+  constructor(
+    private readonly database: Kysely<DirectionDatabase>,
+    private readonly projects: DirectionProjectReaders,
+  ) {}
 
   async record(projectId: string, input: RecordOutcomeExecutionInput): Promise<RecordOutcomeExecutionResult> {
     return this.database.transaction().execute(async (transaction): Promise<RecordOutcomeExecutionResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
 
       const existing = await transaction
         .selectFrom("outcome_execution_summary")

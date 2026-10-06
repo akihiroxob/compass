@@ -1,7 +1,7 @@
 import type { DirectionDecision } from "../domain/DirectionDecision.ts";
 import type { ResearchRequest } from "../domain/Research.ts";
 import type { DirectionDecisionRepository } from "../domain/DirectionDecisionRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import { parseCreateDirectionDecisionInput } from "./directionDecisionSchema.ts";
 import { NotFoundError } from "@compass/shared";
@@ -17,7 +17,7 @@ import { throwDirectionDecisionRejection } from "./directionDecisionRejection.ts
  */
 export class CreateDirectionDecisionUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly researchRepository: ResearchRepository,
     private readonly directionDecisionRepository: DirectionDecisionRepository,
   ) {}
@@ -28,7 +28,7 @@ export class CreateDirectionDecisionUseCase {
     input: unknown,
   ): Promise<{ decision: DirectionDecision; researchRequest: ResearchRequest | null }> {
     const parsed = parseCreateDirectionDecisionInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     const intentBriefSnapshot = await this.researchRepository.findIntentResearchSummary(projectId, parsed.intentId);

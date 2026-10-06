@@ -4,7 +4,7 @@ import type { OrganizationDatabase } from "./schema.ts";
 
 /**
  * Workspaceと子（Principles / Constraints）を、渡されたtransactionで書く。並び順は配列の順とする。
- * 既存Projectからの移行・Project作成と同じtransactionでの割当（serverの配線）でも使い、Organizationのtableを他Contextに触らせない。
+ * Workspaceの作成・Project作成と同じtransactionでの作成・既存Projectからの移行で使う。
  */
 export const writeWorkspace = async (
   transaction: Transaction<OrganizationDatabase>,
@@ -35,4 +35,20 @@ export const writeWorkspace = async (
       })),
     ).execute();
   }
+};
+
+/** WorkspaceのPrinciples / Constraintsを、渡されたtransactionで全置換する。並び順は配列の順とする。 */
+export const replaceWorkspaceOrderedValues = async (
+  transaction: Transaction<OrganizationDatabase>,
+  table: "workspace_principle" | "workspace_constraint",
+  workspaceId: string,
+  values: string[],
+): Promise<void> => {
+  await transaction.deleteFrom(table).where("workspace_id", "=", workspaceId).execute();
+  if (!values.length) return;
+  await transaction.insertInto(table).values(
+    values.map((value, sortOrder) => ({
+      id: crypto.randomUUID(), workspace_id: workspaceId, value, sort_order: sortOrder,
+    })),
+  ).execute();
 };

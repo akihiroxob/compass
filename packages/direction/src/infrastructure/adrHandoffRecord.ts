@@ -60,24 +60,6 @@ export const findDecisionForHandoff = async (
   };
 };
 
-export const findRepositoryForHandoff = (transaction: Transaction<DirectionDatabase>, projectId: string, repositoryId: string) =>
-  transaction
-    .selectFrom("project_repository_link")
-    .select(["id", "name", "url"])
-    .where("id", "=", repositoryId)
-    .where("project_id", "=", projectId)
-    .executeTakeFirst();
-
-export const findProjectConstraints = async (transaction: Transaction<DirectionDatabase>, projectId: string): Promise<string[]> => {
-  const rows = await transaction
-    .selectFrom("project_constraint")
-    .select("value")
-    .where("project_id", "=", projectId)
-    .orderBy("sort_order")
-    .execute();
-  return rows.map((row) => row.value);
-};
-
 const decisionEvidence = async (transaction: Transaction<DirectionDatabase>, decisionId: string) => {
   const [syntheses, findings] = await Promise.all([
     transaction

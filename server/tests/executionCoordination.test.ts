@@ -7,7 +7,7 @@ import {
   TaskCoordinationService,
   TaskStatus,
 } from "@compass/work";
-import { ProjectArchivedError } from "@compass/direction";
+import { ProjectArchivedError } from "@compass/organization";
 import { ProjectRole } from "@compass/access";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";

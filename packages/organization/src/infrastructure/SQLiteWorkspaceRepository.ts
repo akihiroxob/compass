@@ -1,4 +1,4 @@
-import type { Kysely, Transaction } from "kysely";
+import type { Kysely } from "kysely";
 import { Workspace, type WorkspaceStatus } from "../domain/Workspace.ts";
 import type {
   ArchiveWorkspaceResult,
@@ -8,7 +8,7 @@ import type {
   WorkspaceRepository,
 } from "../domain/WorkspaceRepository.ts";
 import type { OrganizationDatabase } from "./schema.ts";
-import { writeWorkspace } from "./writeWorkspace.ts";
+import { replaceWorkspaceOrderedValues, writeWorkspace } from "./writeWorkspace.ts";
 
 type OrderedTextTable = "workspace_principle" | "workspace_constraint";
 
@@ -51,10 +51,10 @@ export class SQLiteWorkspaceRepository implements WorkspaceRepository {
         .where("id", "=", workspaceId)
         .execute();
       if (input.principles) {
-        await this.replaceOrderedValues(transaction, "workspace_principle", workspaceId, input.principles);
+        await replaceWorkspaceOrderedValues(transaction, "workspace_principle", workspaceId, input.principles);
       }
       if (input.constraints) {
-        await this.replaceOrderedValues(transaction, "workspace_constraint", workspaceId, input.constraints);
+        await replaceWorkspaceOrderedValues(transaction, "workspace_constraint", workspaceId, input.constraints);
       }
       return "updated" as const;
     });
@@ -118,21 +118,6 @@ export class SQLiteWorkspaceRepository implements WorkspaceRepository {
       archivedAt: row.archived_at,
       archiveReason: row.archive_reason,
     });
-  }
-
-  private async replaceOrderedValues(
-    transaction: Transaction<OrganizationDatabase>,
-    table: OrderedTextTable,
-    workspaceId: string,
-    values: string[],
-  ): Promise<void> {
-    await transaction.deleteFrom(table).where("workspace_id", "=", workspaceId).execute();
-    if (!values.length) return;
-    await transaction.insertInto(table).values(
-      values.map((value, sortOrder) => ({
-        id: crypto.randomUUID(), workspace_id: workspaceId, value, sort_order: sortOrder,
-      })),
-    ).execute();
   }
 
   private async orderedValues(table: OrderedTextTable, workspaceId: string): Promise<string[]> {

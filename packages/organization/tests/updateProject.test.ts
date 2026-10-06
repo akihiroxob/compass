@@ -7,11 +7,11 @@ import { sql } from "kysely";
 import {
   CreateProjectUseCase,
   GetProjectUseCase,
-  initializeDirectionSchema,
+  initializeOrganizationSchema,
   SQLiteProjectRepository,
   UpdateProjectUseCase,
 } from "../src/index.ts";
-import { createDirectionDatabase } from "./support/directionDatabase.ts";
+import { createOrganizationDatabase, noRepositoryReference } from "./support/organizationDatabase.ts";
 
 const fullInput = {
   name: "Compass",
@@ -31,9 +31,9 @@ const fullInput = {
 };
 
 const setup = async (path = ":memory:") => {
-  const database = createDirectionDatabase(path);
-  await initializeDirectionSchema(database);
-  const repository = new SQLiteProjectRepository(database);
+  const database = createOrganizationDatabase(path);
+  await initializeOrganizationSchema(database);
+  const repository = new SQLiteProjectRepository(database, noRepositoryReference);
   return {
     database,
     repository,

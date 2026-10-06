@@ -1,5 +1,5 @@
 import type { Intent, IntentStatus } from "./Intent.ts";
-import type { ProjectArchivedResult } from "./ProjectRepository.ts";
+import type { ProjectArchivedResult } from "./ProjectArchivedResult.ts";
 
 /** 検証済みの入力。検証規則（zod schema）はapplication層が持ち、parseの戻り値がこの型を満たすことを型検査で保証する。 */
 export type CreateIntentInput = {

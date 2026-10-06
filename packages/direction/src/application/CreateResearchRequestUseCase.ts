@@ -1,9 +1,9 @@
 import type { ResearchRequest } from "../domain/Research.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import { parseCreateResearchRequestInput } from "./researchSchema.ts";
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
-import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
+import { ProjectArchivedError } from "@compass/organization";
 
 /**
  * Intentを発端にResearch Requestを登録する。同じrequestKeyの再送は既存のRequestを返し、重複を作らない。
@@ -11,13 +11,13 @@ import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
  */
 export class CreateResearchRequestUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly researchRepository: ResearchRepository,
   ) {}
 
   async execute(projectId: string, input: unknown): Promise<ResearchRequest> {
     const parsed = parseCreateResearchRequestInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     const result = await this.researchRepository.createRequest(projectId, parsed);

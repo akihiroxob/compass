@@ -1,13 +1,13 @@
 import type { Outcome } from "../domain/Outcome.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { parseCancelOutcomeInput } from "./outcomeSchema.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
-import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
+import { ProjectArchivedError } from "@compass/organization";
 
 export class CancelOutcomeUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly outcomeRepository: OutcomeRepository,
   ) {}
 
@@ -18,7 +18,7 @@ export class CancelOutcomeUseCase {
     input: unknown,
   ): Promise<Outcome> {
     const { reason } = parseCancelOutcomeInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     const result = await this.outcomeRepository.cancel(projectId, intentId, outcomeId, reason);

@@ -1,6 +1,9 @@
-import type { Project, ProjectStatus } from "./Project.ts";
+import type { Project, ProjectDetail, ProjectStatus } from "./Project.ts";
 
-/** 検証済みの入力。検証規則（zod schema）はapplication層が持ち、parseの戻り値がこの型を満たすことを型検査で保証する。 */
+/**
+ * 検証済みの入力。検証規則（zod schema）はapplication層が持ち、parseの戻り値がこの型を満たすことを型検査で保証する。
+ * Mission等は既存の公開契約どおりProjectの入力で受け取り、作成するWorkspaceへ書く。
+ */
 export type CreateProjectInput = {
   name: string;
   description: string | null;
@@ -12,7 +15,10 @@ export type CreateProjectInput = {
   resources: { name: string; url: string; kind: string | null }[];
 };
 
-/** 未指定（undefined）の項目は変更しない。Repository / Resourceの`id`は既存行の維持に使う。 */
+/**
+ * 未指定（undefined）の項目は変更しない。Repository / Resourceの`id`は既存行の維持に使う。
+ * Mission等は所属Workspaceの値を更新する。
+ */
 export type UpdateProjectInput = {
   name?: string;
   description?: string | null;
@@ -24,14 +30,11 @@ export type UpdateProjectInput = {
   resources?: { id?: string; name: string; url: string; kind: string | null }[];
 };
 
-/**
- * Projectがarchivedのため書込を拒否した結果。Project配下の書込（Intent・Outcome・Grantを含む）は、
- * 各Repositoryが書込と同一transactionでProjectの状態を検査してこの結果を返す。
- */
+/** Projectがarchivedのため書込を拒否した結果。 */
 export type ProjectArchivedResult = { kind: "project_archived" };
 
 /**
- * 外したRepositoryにADR Handoff Request/Reference（Task 28）が残っており、削除するとその監査記録が
+ * 外したRepositoryにADR Handoff Request/Reference（Direction）が残っており、削除するとその監査記録が
  * 参照先を失うため拒否した結果。
  */
 export type RepositoryReferencedResult = {
@@ -41,31 +44,34 @@ export type RepositoryReferencedResult = {
 };
 
 export type UpdateProjectResult =
-  | { kind: "updated"; project: Project }
+  | { kind: "updated"; project: ProjectDetail }
   | { kind: "not_found" }
   | RepositoryReferencedResult
-  | ProjectArchivedResult;
+  | ProjectArchivedResult
+  | { kind: "workspace_archived"; workspaceId: string };
 
 export type ArchiveProjectResult =
-  | { kind: "archived"; project: Project }
+  | { kind: "archived"; project: ProjectDetail }
   | { kind: "not_found" }
   | { kind: "already_archived" };
 
 export interface ProjectRepository {
   /**
-   * 常にactiveで作成する。statusは入力から受け取らない。
+   * Projectと、その戦略値を持つ専用のWorkspaceを同一transactionで作成する。常にactiveで、statusは入力から受け取らない。
    * `ownerHumanUserId`を渡すと、そのHumanのowner Membershipを同一transactionで作成する（部分保存しない）。
    */
-  create(input: CreateProjectInput, ownerHumanUserId?: string): Promise<Project>;
-  /** 親と子要素は同一transactionで更新する。archivedのProjectは更新しない。 */
+  create(input: CreateProjectInput, ownerHumanUserId?: string): Promise<ProjectDetail>;
+  /** Project・子要素・所属Workspaceの戦略値を同一transactionで更新する。archivedのProjectは更新しない。 */
   update(projectId: string, input: UpdateProjectInput): Promise<UpdateProjectResult>;
   /**
    * activeからarchivedへ遷移する唯一の操作。status・archivedAt・archiveReason・updatedAtを1 transactionで書く。
    * 既にarchivedなら何も書かない（理由・日時を上書きしない）。子データには触れない。
+   * 所属Workspaceに他のactiveなProjectが無ければ、Workspaceも同じ理由・日時でarchiveする。
    */
   archive(projectId: string, reason: string): Promise<ArchiveProjectResult>;
   /** 指定した状態のProjectだけを返す。既定はactive。 */
-  findAll(status?: ProjectStatus): Promise<Project[]>;
+  findAll(status?: ProjectStatus): Promise<ProjectDetail[]>;
   findById(projectId: string): Promise<Project | null>;
+  findDetailById(projectId: string): Promise<ProjectDetail | null>;
   exists(projectId: string): Promise<boolean>;
 }

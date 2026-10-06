@@ -10,11 +10,16 @@ import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { SQLiteIntentRepository, SQLiteOutcomeRepository, SQLiteProjectRepository } from "@compass/direction";
+import { SQLiteIntentRepository, SQLiteOutcomeRepository } from "@compass/direction";
+import { SQLiteProjectRepository } from "@compass/organization";
 import { SQLiteProjectGrantRepository } from "@compass/access";
 import { cliUsage, runCli } from "../src/cli/runCli.ts";
-import { asAccessDatabase, asDirectionDatabase } from "../src/bootstrap/database/contextDatabase.ts";
-import { accessProjectReaders } from "../src/infrastructure/repository/contextAdapters.ts";
+import { asAccessDatabase, asDirectionDatabase, asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import {
+  accessProjectReaders,
+  directionProjectReaders,
+  projectRepositoryReferenceFinder,
+} from "../src/infrastructure/repository/contextAdapters.ts";
 
 type App = ReturnType<typeof createApp>;
 type Body = Record<string, any>;
@@ -310,9 +315,9 @@ test("AC-11 Repositoryを直接呼んでも、archivedのProjectには何も書�
   const before = await counts(database);
   const projectBefore = await services.getProjectUseCase.execute(project.id);
 
-  const projects = new SQLiteProjectRepository(asDirectionDatabase(database));
-  const intents = new SQLiteIntentRepository(asDirectionDatabase(database));
-  const outcomes = new SQLiteOutcomeRepository(asDirectionDatabase(database));
+  const projects = new SQLiteProjectRepository(asOrganizationDatabase(database), projectRepositoryReferenceFinder);
+  const intents = new SQLiteIntentRepository(asDirectionDatabase(database), directionProjectReaders);
+  const outcomes = new SQLiteOutcomeRepository(asDirectionDatabase(database), directionProjectReaders);
   const grants = new SQLiteProjectGrantRepository(asAccessDatabase(database), accessProjectReaders);
   const archived = { kind: "project_archived" };
   assert.deepEqual(await projects.update(project.id, { name: "Changed" }), archived);

@@ -1,10 +1,10 @@
 import type { OutcomeExecutionEvidence, OutcomeExecutionSummary } from "../domain/OutcomeExecution.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { parseRecordExecutionEvidenceInput } from "./executionEvidenceSchema.ts";
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
-import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
+import { ProjectArchivedError } from "@compass/organization";
 import type { ExecutionSummaryPort } from "./port/ExecutionSummaryPort.ts";
 import type { DirectionRuntimeAuthorizationPort } from "./port/DirectionAuthorizationPort.ts";
 
@@ -34,7 +34,7 @@ export type RecordExecutionEvidenceResult = {
 export class RecordExecutionEvidenceUseCase<TCaller> {
   constructor(
     private readonly authorization: DirectionRuntimeAuthorizationPort<TCaller>,
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly outcomeRepository: OutcomeRepository,
     private readonly executionSummary: ExecutionSummaryPort,
     private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
@@ -50,7 +50,7 @@ export class RecordExecutionEvidenceUseCase<TCaller> {
     // 認可はProjectの存在確認より先。Grantを持たないPrincipalへProjectやOutcomeの存在有無を漏らさない。
     const principalId = await this.authorization.requireScope(caller, projectId, "execution:evidence:write");
     const parsed = parseRecordExecutionEvidenceInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     // 別ProjectのOutcome IDも同じNOT_FOUND（存在を区別して漏らさない）。

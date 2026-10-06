@@ -5,11 +5,12 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 /**
- * Direction（packages/direction）・Work（packages/work）・Access（packages/access）が、互いのRepository・tableを直接使わないことの境界test。
- * ソースを静的に走査するため、境界を越える依存を足すとここで失敗する。WorkがDirectionを見るのは公開index（`@compass/direction`）の
- * 相関IDの契約・Evidence還流のport型・archive時のerrorだけで、DirectionからWorkへの依存は持たない。
- * Project状態・Role Grantは、serverがWorkの`WorkStore`へ同じtransactionで読む実装を渡す（Workはproject・project_grantを読まない）。
- * AccessもProject状態をserverが渡す`ProjectStateReader`で読み、projectのtableを直接扱わない。
+ * Organization（packages/organization）・Direction（packages/direction）・Work（packages/work）・Access（packages/access）が、
+ * 互いのRepository・tableを直接使わないことの境界test。ソースを静的に走査するため、境界を越える依存を足すとここで失敗する。
+ * WorkがDirectionを見るのは公開index（`@compass/direction`）の相関IDの契約・Evidence還流のport型だけで、DirectionからWorkへの依存は持たない。
+ * Project（Organization）の状態・Role Grantは、serverがWorkの`WorkStore`へ同じtransactionで読む実装を渡す（Workはproject・project_grantを読まない）。
+ * Access・DirectionもProject状態をserverが渡すreaderで読み、projectのtableを直接扱わない。Organizationの公開indexから使うのは
+ * archive時のerrorとProjectの参照モデル・use caseの型だけ。
  */
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -92,7 +93,6 @@ test("Workのapplication・domainはDB clientとinfrastructureに依存しない
 test("WorkはDirectionの公開indexの契約だけを使い、DirectionのRepository・use case・tableを使わない", () => {
   const allowed = new Set([
     "outcomeCorrelationId",
-    "ProjectArchivedError",
     "ExecutionSummaryPort",
     "ExecutionSummarySnapshot",
     "ExecutionSummaryState",
@@ -158,15 +158,28 @@ test("Accessのapplication・domainはDB clientとinfrastructureに依存しな�
   }
 });
 
-test("AccessはDirectionの公開indexのuse case・型・errorだけを使い、DirectionのRepository・tableを使わない", () => {
-  const allowed = new Set(["ProjectArchivedError", "GetProjectUseCase", "ListProjectsUseCase", "Project", "ProjectStatus"]);
+test("AccessはDirection・Workに依存しない", () => {
   for (const file of accessFiles) {
     for (const specifier of importsOf(file.text)) {
-      assert.ok(!specifier.startsWith("@compass/direction/"), `${file.name} がDirectionの内部 ${specifier} をimportしている`);
-      assert.doesNotMatch(specifier, /^@compass\/work/, `${file.name} が ${specifier} をimportしている`);
+      assert.doesNotMatch(specifier, /^@compass\/(?:direction|work)/, `${file.name} が ${specifier} をimportしている`);
     }
-    for (const name of importedNames(file.text, "@compass/direction")) {
-      assert.ok(allowed.has(name), `${file.name} がDirectionの ${name} を使っている`);
+  }
+});
+
+test("Direction・Work・AccessはOrganizationの公開indexのerror・参照モデル・use caseの型だけを使い、Repository・tableを使わない", () => {
+  const allowed: [typeof workFiles, Set<string>][] = [
+    [directionFiles, new Set(["ProjectArchivedError", "ProjectDetail", "ProjectStatus"])],
+    [workFiles, new Set(["ProjectArchivedError"])],
+    [accessFiles, new Set(["ProjectArchivedError", "GetProjectUseCase", "ListProjectsUseCase", "ProjectDetail", "ProjectStatus"])],
+  ];
+  for (const [files, names] of allowed) {
+    for (const file of files) {
+      for (const specifier of importsOf(file.text)) {
+        assert.ok(!specifier.startsWith("@compass/organization/"), `${file.name} がOrganizationの内部 ${specifier} をimportしている`);
+      }
+      for (const name of importedNames(file.text, "@compass/organization")) {
+        assert.ok(names.has(name), `${file.name} がOrganizationの ${name} を使っている`);
+      }
     }
   }
 });
@@ -209,10 +222,19 @@ test("Activityはactivity tableだけを読み書きし、他のContext・server
   }
 });
 
-test("Organizationは自身のtableだけを読み書きし、sharedだけに依存する。他ContextもWorkspaceのtableを直接使わない", () => {
-  const organizationTables = ["workspace", "workspace_principle", "workspace_constraint"];
+test("Organizationは自身のtableだけを読み書きし、sharedだけに依存する。他ContextもWorkspace・Projectのtableを直接使わない", () => {
+  const organizationTables = [
+    "workspace",
+    "workspace_principle",
+    "workspace_constraint",
+    "project",
+    "project_principle",
+    "project_constraint",
+    "project_repository_link",
+    "project_resource",
+  ];
   const queried = new Set(organizationFiles.flatMap((file) => tablesQueriedIn(file.text)));
-  assert.ok(queried.has("workspace"), "走査が空振りしていない");
+  assert.ok(queried.has("workspace") && queried.has("project") && queried.has("project_resource"), "走査が空振りしていない");
   assert.deepEqual([...queried].filter((table) => !organizationTables.includes(table)), []);
   for (const file of organizationFiles) {
     for (const specifier of importsOf(file.text)) {

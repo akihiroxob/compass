@@ -18,7 +18,7 @@ import {
   validateResearchReferences,
 } from "./directionDecisionRecord.ts";
 import { inputHash } from "@compass/shared";
-import { isProjectArchived } from "./isProjectArchived.ts";
+import type { DirectionProjectReaders } from "./directionProjectReaders.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 import { insertOutcomeRow, loadOutcomes } from "./outcomeRecord.ts";
 import { findResearchRequestByKey, insertResearchRequest, toRequest } from "./researchRequestRecord.ts";
@@ -27,6 +27,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
   /** `clock`は追加Researchの期限判定の時刻源。テストで固定できるよう注入する。 */
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
+    private readonly projects: DirectionProjectReaders,
     private readonly clock: () => number = Date.now,
     private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
@@ -37,7 +38,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
     input: CreateDirectionDecisionInput & { principalId: string },
   ): Promise<CreateDirectionDecisionResult> {
     return this.database.transaction().execute(async (transaction): Promise<CreateDirectionDecisionResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
 
       const hash = inputHash(input);
       const existing = await findDecisionByRequestKey(transaction, projectId, input.requestKey);
@@ -136,7 +137,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
     input: DecideNextOutcomeInput & { principalId: string },
   ): Promise<DecideNextOutcomeResult> {
     return this.database.transaction().execute(async (transaction): Promise<DecideNextOutcomeResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
 
       const hash = inputHash(input);
       const existing = await findDecisionByRequestKey(transaction, projectId, input.requestKey);

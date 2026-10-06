@@ -9,7 +9,7 @@ WachaのCompass ProjectにStory `99bfa15a-c27b-4c4f-8a39-37764760a466` とTask 1
 | 対象 | 構造移行での配置（現況） | 守る境界 | Workspace移行での変更 |
 | --- | --- | --- | --- |
 | 起動・Web UI・HTTP / MCP adapter・DI | `server/` | Web / API / MCPは共通Use Caseへ接続 | 入口にWorkspace / Project scopeを明示する |
-| Project | `packages/direction/` | — | Workspace・ProjectResourceとともに`packages/organization/`が所有する |
+| Project | `packages/direction/`（Workspace移行のS02-03で`packages/organization/`へ移設済み） | — | Workspace・ProjectResourceとともに`packages/organization/`が所有する |
 | Intent / Outcome・Direction use case / repository | `packages/direction/`（Project scope） | OutcomeをWorkへ複製しない | Workspace scopeへ移し、OutcomeTargetProjectを加える |
 | Story / Task / Claim等 | `packages/work/` | 状態遷移とClaimの不変条件を保持 | Project scopeを維持する |
 | Principal / Grant / Credential / Human認可 | `packages/access/`とServerの認証adapter | Accessの業務規則とtransportを分離 | Workspace / ProjectのMembership・Role Grant・Credentialを分ける |

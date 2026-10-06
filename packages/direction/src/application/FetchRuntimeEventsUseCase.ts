@@ -1,5 +1,5 @@
 import type { RuntimeEventFetch } from "../domain/RuntimeEventDelivery.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import type { RuntimeEventRepository } from "../domain/RuntimeEventRepository.ts";
 import { parseRuntimeEventQuery } from "./runtimeEventSchema.ts";
 import { NotFoundError } from "@compass/shared";
@@ -15,7 +15,7 @@ import type { DirectionRuntimeAuthorizationPort } from "./port/DirectionAuthoriz
 export class FetchRuntimeEventsUseCase<TCaller> {
   constructor(
     private readonly authorization: DirectionRuntimeAuthorizationPort<TCaller>,
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly runtimeEventRepository: RuntimeEventRepository,
   ) {}
 
@@ -23,7 +23,7 @@ export class FetchRuntimeEventsUseCase<TCaller> {
     // 認可はProjectの存在確認より先。Grantを持たないPrincipalへProjectの存在有無を漏らさない。
     const consumerId = await this.authorization.requireScope(caller, projectId, "runtime:event:read");
     const query = parseRuntimeEventQuery(input);
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     const events = await this.runtimeEventRepository.findPending(projectId, consumerId, query.afterCursor, query.limit);

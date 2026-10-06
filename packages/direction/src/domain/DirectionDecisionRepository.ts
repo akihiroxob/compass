@@ -3,7 +3,7 @@ import type { DirectionDecision } from "./DirectionDecision.ts";
 import type { IntentResearchSummary } from "./Research.ts";
 import type { Outcome } from "./Outcome.ts";
 import type { ResearchRequest } from "./Research.ts";
-import type { ProjectArchivedResult } from "./ProjectRepository.ts";
+import type { ProjectArchivedResult } from "./ProjectArchivedResult.ts";
 import type { DirectionDecisionRecordType } from "./DirectionDecision.ts";
 import type { CreateOutcomeInput } from "./OutcomeRepository.ts";
 

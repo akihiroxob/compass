@@ -36,15 +36,16 @@ table再作成の共通確認点:
 | --- | --- | --- | --- | --- |
 | `workspace`（新規） | — | id・name・mission・vision・status・archived_at・archive_reason・created_at・updated_at | S02-01 | Workspaceのarchiveは新規活動を拒否する。`project`のarchive列と同じ規則 |
 | `workspace_principle` / `workspace_constraint`（新規） | — | `project_principle` / `project_constraint`と同じ`OrderedTextTable`形 | S02-01 | — |
-| `project` | `mission NOT NULL`・vision・status・archive列。FKの参照先 | A: nullableの`workspace_id`（FK `workspace.id`）を追加。B/C: Mission等の読書きをWorkspaceへ。D: mission・visionを削除 | S02-02（A）、S02-03（B/C）、S12-01（D） | Project IDは変えない。C以降もD完了まで`mission NOT NULL`が残るため、Project作成時の値の扱い（Workspaceの値を写す等）をS02-03で決める。`workspace_id`の`NOT NULL`化は全行の補完後にtable再作成が必要で、参照FKが多いためS12-01で要否を判断する（それまではapplicationで必須を保証） |
-| `project_principle` / `project_constraint` | Projectの子 | Workspaceの子へ値を写す。旧tableはDまで残す | S02-02（写す）、S12-01（削除） | 値と並び順（`sort_order`）を保つ |
-| `project_repository_link` / `project_resource` | Projectの子 | 変更なし（所有packageだけ`packages/organization`へ） | S02-03 | Resource IDは`adr_handoff_request.repository_id`・Activityの`project_resource`参照・Storyの`repository_snapshot`から参照されるため変えない |
+| `project` | `workspace_id`・`strategy_migrated_at`を追加済み。`mission`・`vision`は読み書きしない旧列。FKの参照先 | A: nullableの`workspace_id`（FK `workspace.id`）を追加。B/C: Mission等の読書きをWorkspaceへ。D: mission・visionを削除 | S02-02（A）、S02-03（B/C。実装済み）、S12-01（D） | Project IDは変えない。D完了まで残る`mission NOT NULL`には作成時に空文字を書く（旧列は正本でないことを値でも示す）。`workspace_id`の`NOT NULL`化は全行の補完後にtable再作成が必要で、参照FKが多いためS12-01で要否を判断する（それまではOrganizationの起動時移行と作成で必須を保証） |
+| `project_principle` / `project_constraint` | 読み書きしない旧table | Workspaceの子へ値を写す。旧tableはDまで残す | S02-02・S02-03（写す）、S12-01（削除） | 値と並び順（`sort_order`）を保つ |
+| `project_repository_link` / `project_resource` | Projectの子（`packages/organization`が所有） | 変更なし | S02-03（実装済み） | Resource IDは`adr_handoff_request.repository_id`・Activityの`project_resource`参照・Storyの`repository_snapshot`から参照されるため変えない |
 
-既存データの変換（S02-02で実装済み）: serverの`initializeSchema`が起動のたびに`project.workspace_id`を加え（列が無い場合だけ）、`workspace_id`がnullのProjectごとに、Workspace作成と`project.workspace_id`の設定を1件ずつ同じtransactionで行う（`server/src/infrastructure/repository/projectWorkspace.ts`）。条件を「`workspace_id`がnull」にするため、再実行・途中失敗後の再起動でも重複しない。新規ProjectはDirectionの作成transactionで、serverが配線する`ProjectWorkspaceAssigner`が同じ規則で所属させる。
+既存データの変換（S02-02・S02-03で実装済み）: Organizationの`initializeOrganizationSchema`が起動のたびに、`project`の追加列（`workspace_id`・`strategy_migrated_at`）を列が無い場合だけ加え、`strategy_migrated_at`がnullのProjectごとに1件ずつ同じtransactionで旧列の現在値をWorkspaceへ写す（`packages/organization/src/infrastructure/migrateProjectStrategy.ts`）。未所属ならWorkspaceを作って所属させ、所属済み（S02-02で1対1に作った、所属時点の写しのWorkspace）なら現在値で上書きし、最後に`strategy_migrated_at`を設定する。対象条件により、再実行・途中失敗後の再起動でも重複・二重上書きしない。
 
-- 写す値: name・mission・vision・principles・constraints（並び順を保つ）、status・archived_at・archive_reason、created_at・updated_at。archive済みProjectのWorkspaceはarchivedにする（1 Workspace : 1 Projectなので、activeのまま残すとarchive済みProjectだけを持つWorkspaceへ新規活動を許してしまう）
-- `project.workspace_id`はDirectionの`ProjectTable`型に含めない。所属を書くのはWorkspaceとProjectを合成するserverで、S02-03でProjectとともにOrganizationへ移す
-- S02-02の時点ではWorkspaceの値は所属時点の写しで、Projectの更新・archiveはWorkspaceへ反映しない。戦略値の正本はS02-03の読書き切替まではProjectのため、S02-03は切替時にProjectの現在値をWorkspaceへ写し直す（またはProject更新との同期を先に入れる）ことを確認する
+- 写す値: name・mission・vision・principles・constraints（並び順を保つ）、status・archived_at・archive_reason、updated_at（作成時はcreated_atも）。archive済みProjectのWorkspaceはarchivedにする（1 Workspace : 1 Projectなので、activeのまま残すとarchive済みProjectだけを持つWorkspaceへ新規活動を許してしまう）
+- 新規ProjectはOrganizationの`SQLiteProjectRepository.create`が、戦略値を持つ専用のWorkspaceと同じtransactionで作り、`strategy_migrated_at`を設定する。Workspaceへの所属を選ぶ入口はS02-04・S09-03
+- 正本の切替後、Projectの更新のMission等は所属Workspaceへ書き、Project名の変更はWorkspace名を変えない。Projectのarchiveは、所属Workspaceに他のactiveなProjectが無ければWorkspaceも同じ理由・日時でarchiveする（移行時の規則と同じ）
+- 切替後に旧serverが旧列へ書いた値は反映しない（旧serverが作成した未所属Projectだけは次の起動で写す）。旧serverへ戻す場合はDB fileの複製へ戻す
 
 ### Direction（Workspace scopeへ。S03）
 
@@ -108,7 +109,7 @@ Activityを書く経路は次の3つで、いずれも現行は`projectId`だけ
 | `research_requested` / `research_closed` | `researchRequestRecord.ts`の`insertResearchRequest`（`SQLiteResearchRepository.ts`・`SQLiteDirectionDecisionRepository.ts`から）、`SQLiteResearchRepository.ts` | 引数の`projectId` | `workspaceId` | S03-02 |
 | `decision_recorded` | `SQLiteDirectionDecisionRepository.ts`の`notifyRecorded` | `decision.projectId` | `workspaceId` | S03-02 |
 | `outcome_evaluated` | `SQLiteOutcomeEvaluationRepository.ts` | 引数の`projectId` | `workspaceId` | S03-03 |
-| `project_archived` | `SQLiteProjectRepository.ts`の`archive` | archiveしたProject | Directionの通知から外し、organizationのProject archiveの通知として`projectId`と所属`workspaceId`を持つ | S02-03（organizationへ移す）、S07-01（`workspaceId`を渡す） |
+| `project_archived` | （S02-03でDirectionの通知から外した） | — | Organizationの`SQLiteProjectRepository.archive`が`ProjectChangeNotice`（`projectId`と所属`workspaceId`）を送る | S02-03（実装済み）、S07-01（Activityへ`workspaceId`を渡す） |
 
 Activity側の受け口は`canonicalDirectionActivity.ts`の`DirectionChangeFact`（`projectId`）。Activityは`DirectionChangeNotice`に依存しないため、serverのobserverが変換する現行の形を保つ。
 
@@ -119,7 +120,7 @@ S07-01の完了条件とADRどおり、S07-01でDirectionのcanonical Activity�
 - S03で通知が`workspaceId`だけになった時点で、Activityにworkspace scopeが無いと記録先のProjectを決められない（推測すると誤ったProjectの履歴になり、失敗させるとDirection操作がrollbackする）。そのためS07-01（workspace scopeの導入とDirection canonical Activityの切替）を、S03-01の通知切替より前に完了させる
 - S07-01の時点ではDirectionの記録はまだProject所有なので、通知の`projectId`はその記録を所有するProjectを一意に示す。`directionChangeActivityObserver`は同じexecutorでorganizationのProject readerから所属Workspace IDを解決し、`workspaceId`だけを持つworkspace scopeでappendする。S07-01に必要なのはS02-02の補完（全Projectの`workspace_id`）とS02-03のProject readerで、Story 03は不要
 - S03-01〜03では、上表の通知元ごとに`projectId`を`workspaceId`へ置き換える。置き換え途中は通知を「`workspaceId`を持つ」か「`projectId`を持つ（未切替の通知元）」かの判別可能な形にし、observerは前者をそのまま使い、後者だけProjectから解決する。S03-03の完了時に`projectId`の形を除く。Directionがorganizationのtableを直接読んで解決する形にはしない
-- `project_archived`は、S02-03でorganizationへ移した後もproject scopeのActivity（`dedupe_key`は`direction_change:project_archived:{projectId}`のまま）とし、S07-01で所属Workspace IDを持たせる。`canonicalDirectionActivity.ts`の`directionActivities`から外す時期はS02-03
+- `project_archived`は、S02-03でorganizationへ移した後もproject scopeのActivity（`dedupe_key`は`direction_change:project_archived:{projectId}`のまま）とする。serverの`projectChangeActivityObserver`がActivityの`recordCanonicalProjectActivity`へ渡す（`canonicalDirectionActivity.ts`からはS02-03で外した）。S07-01で所属Workspace IDを持たせる
 
 WachaのS07-01は前提を「Story 02・03」としている。上の順序に合わせてS07-01をS03-01より前に置くか、S03-01へActivityの切替を含めるかは、Task前提・境界の変更としてManagerが決める。決まるまでS03-01の通知切替に着手しない。
 
@@ -147,8 +148,9 @@ S07-01以降に作られるDirectionのActivityはProject Activityの一覧（`l
 
 | 対象（現行ファイル） | project依存 | 変更先 | Task |
 | --- | --- | --- | --- |
-| `packages/direction/src/domain/Project.ts`・`ProjectRepository.ts`、`infrastructure/SQLiteProjectRepository.ts`・`isProjectArchived.ts`・`listProjectIdsInCreationOrder.ts`、`application/CreateProjectUseCase.ts`・`UpdateProjectUseCase.ts`・`ArchiveProjectUseCase.ts`・`GetProjectUseCase.ts`・`ListProjectsUseCase.ts`・`projectSchema.ts`、`error/ProjectArchivedError.ts` | Project本体 | `packages/organization`へ移し、Workspaceを加える。Direction・Access・Work・Activityが使うProject状態の読取（`ProjectStateReader`・`ActivityProjectReader`・WorkStoreの`projects`）はorganizationの実装に差し替える | S02-01、S02-03 |
-| `SQLiteProjectRepository`のProject作成時の初期owner Membership書込（`projectOwnerMembershipWriter`経由） | 同一transactionの原子性 | organization移動後も同じtransactionで書く | S02-03 |
+| `packages/organization/src/domain/Project.ts`・`ProjectRepository.ts`、`infrastructure/SQLiteProjectRepository.ts`・`projectState.ts`・`projectChange.ts`・`migrateProjectStrategy.ts`、`application/*Project*UseCase.ts`・`projectSchema.ts`・`error/ProjectArchivedError.ts` | Project本体（S02-03でDirectionから移設済み） | `Project`（Entity）は所属`workspaceId`を持ちMission等を持たない。公開契約用の参照モデル`ProjectDetail`がWorkspaceの戦略値を合成する（所属Workspace IDの公開はS02-04）。Direction・Access・Work・Activityが使うProject状態の読取（`DirectionProjectReaders`・`AccessProjectReaders`・WorkStoreの`projects`・`ActivityProjectReader`）はserverがorganizationの関数で配線する | S02-01、S02-03（実装済み）、S02-04 |
+| `SQLiteProjectRepository`のProject作成時の初期owner Membership書込（`projectOwnerMembershipWriter`経由）、Repositoryを外す前のADR参照検査（`projectRepositoryReferenceFinder`→Directionの`findAdrReferencedRepositoryId`） | 同一transactionの原子性・監査記録の参照先保持 | organization移動後も同じtransactionで行う（serverが配線） | S02-03（実装済み） |
+| `packages/direction/src/application/port/DirectionProjectReader.ts`・`infrastructure/directionProjectReaders.ts` | DirectionのUse CaseはProjectの存在と参照モデル、Repositoryは同じtransactionでarchive状態・Repository・所属WorkspaceのConstraintsを読む | S03でWorkspaceの存在・archive検査へ置き換える | S02-03（実装済み）、S03-01〜04 |
 | `packages/direction/src/domain/*`（Intent・Outcome・Research・DirectionDecision・AdrHandoff・RuntimeEvent・OutcomeExecution・OutcomeEvaluation と各Repository） | `projectId` field・引数 | `workspaceId`へ。Project固有参照（ADR handoff / reference、Execution Summary / Evidence）は`projectId`を併せ持つ | S03-01〜03 |
 | `packages/direction/src/application/*UseCase.ts`（大半が`projectRepository`を使う）、`*Rejection.ts` | Project存在・archive検査、`requireRole(principal, projectId, role)` | Workspace存在・archive検査、Workspace scopeの認可 | S03-01〜04 |
 | `application/port/DirectionAuthorizationPort.ts` | `requireRole` / `requireScope`が`projectId` | `workspaceId`へ。実装はAccessの`WorkspaceRoleGrant`・Workspace Credential | S03-04、S06-02 |
@@ -164,10 +166,11 @@ S07-01以降に作られるDirectionのActivityはProject Activityの一覧（`l
 | `infrastructure/SQLiteHumanAccountRepository.ts`（`adoptOrphanProjects`） | owner不在Projectをplatform ownerへ | Workspaceにも同じ扱いが必要かをS06-01で判断 | S06-01 |
 | `packages/activity/src/domain/Activity.ts`・`application/ActivityUseCases.ts`・`activitySchema.ts`・`port/ActivityProjectReader.ts`・`infrastructure/KyselyActivityStore.ts` | system / project scope | workspace scopeと`workspaceId`を追加 | S07-01 |
 | `application/canonicalWorkActivity.ts`（`WorkChangeFact`・`recordCanonicalWorkActivity`） | Workの状態変更を`projectId`だけでproject scopeへappend | `WorkChangeFact`に所属Workspace IDを加え、project scopeのまま`workspaceId`を渡す | S07-01 |
-| `application/canonicalDirectionActivity.ts`（`DirectionChangeFact`・`recordCanonicalDirectionActivity`） | DirectionのActivityを`projectId`でproject scopeへappend | `DirectionChangeFact`を`workspaceId`にしworkspace scopeでappend。`project_archived`はorganization由来のproject scopeの記録として外す | S02-03（`project_archived`）、S07-01 |
+| `application/canonicalDirectionActivity.ts`（`DirectionChangeFact`・`recordCanonicalDirectionActivity`） | DirectionのActivityを`projectId`でproject scopeへappend | `DirectionChangeFact`を`workspaceId`にしworkspace scopeでappend | S07-01 |
+| `application/canonicalProjectActivity.ts`（`ProjectChangeFact`・`recordCanonicalProjectActivity`） | Project archiveを`projectId`でproject scopeへappend（S02-03で新設） | 所属Workspace IDを渡す | S07-01 |
 | `application/ActivityUseCases.ts`の`RecordActivityUseCase`、`port/ActivityProjectReader.ts`の`ActivityProjectState` | `record_activity`を`projectId`だけでproject scopeへappend | `ActivityProjectState`に所属Workspace IDを加え、appendへ渡す。workspace scopeの明示記録はS07-02 | S07-01、S07-02 |
 | `server/src/infrastructure/repository/contextAdapters.ts`の`workChangeActivityObserver`・`directionChangeActivityObserver`・`activityProjectReader` | ChangeやDirectionの通知から`project_id`だけを渡す | 同じexecutorでorganizationのProject readerから所属Workspace IDを解決して渡す（Work・Change Logへ`workspace_id`を足さない）。Directionの通知は`workspaceId`を持つものはそのまま使う | S07-01、S03-01〜03 |
-| `packages/direction/src/infrastructure/directionChange.ts`（`DirectionChangeNotice`）と通知元 | `projectId`必須 | 「Directionの状態変更通知」の表のとおり`workspaceId`へ。`project_archived`はorganizationへ | S02-03、S03-01〜03 |
+| `packages/direction/src/infrastructure/directionChange.ts`（`DirectionChangeNotice`）と通知元 | `projectId`必須（`project_archived`はS02-03でorganizationへ移した） | 「Directionの状態変更通知」の表のとおり`workspaceId`へ | S03-01〜03 |
 | `server/src/application/agentContext/GetRoleContextUseCase.ts`・`AgentContextService.ts` | `get_role_context({ projectId, role })`、Project全体とProject Activity | Workspace Role向けとProject Role向けのContextを分ける | S07-03、S07-04 |
 | `server/src/infrastructure/repository/contextAdapters.ts`、`bootstrap/createApplicationServices.ts`・`database/*` | Context間のreader配線とschema合成 | organizationのschema・readerを合成に加える | S02-01〜03 |
 
@@ -233,7 +236,8 @@ S07-01以降に作られるDirectionのActivityはProject Activityの一覧（`l
 | 段階 | 互換期間の扱い | rollbackの確認点 |
 | --- | --- | --- |
 | S02-02（Workspace追加・`workspace_id`補完） | 既存列を維持し、読取は従来どおりProjectでも動く | 追加table・nullable列だけなので、旧serverで同じDBを起動しても動作する（`server/tests/projectWorkspaceMigration.test.ts`）。旧serverが作ったProjectは次の起動で所属を補う。適用前にDB fileを複製し、戻すときは複製へ戻す（README） |
-| S02-03・S03-01〜03（読取→書込の切替） | Direction tableの`project_id`は値を残したまま`workspace_id`を正とする | 切替後に作られた行は旧serverから見えない・矛盾するため、戻す場合はDB fileの複製へ戻す。切替前後で既存ID・件数が一致することをテストする |
+| S02-03（Mission等の読取→書込の切替。実装済み） | `project`の旧列・旧tableは残し、Workspaceを正とする | 切替後のMission等の変更は旧serverから見えない（旧列は空・切替時の値のまま）ため、戻す場合はDB fileの複製へ戻す。切替前後で既存ID・件数・公開参照の値が一致することをテストする（`server/tests/projectWorkspaceMigration.test.ts`） |
+| S03-01〜03（読取→書込の切替） | Direction tableの`project_id`は値を残したまま`workspace_id`を正とする | 切替後に作られた行は旧serverから見えない・矛盾するため、戻す場合はDB fileの複製へ戻す。切替前後で既存ID・件数が一致することをテストする |
 | S03-04・S06・S08（公開契約の切替） | Agent・Orchestrator・Ralphの設定と同時に切り替える。`projectId`をWorkspace IDとして受け付ける別名を作らない | 旧入力が明示的なエラーになることをテストし、黙って別scopeで動かない |
 | S05-01・S06-03・S07-01（table再作成） | 再作成は1 tableずつ別のTaskで行う。S07-01はActivityの全書込経路が正しいscopeとIDを渡す変更（Directionのworkspace scopeへの切替を含む）と同時に行い、S03-01の通知切替より前に完了させる | 再作成前後で行数・主キー・cursor・FK違反0件を比較するテストを置く。S07-01は複数Project所属WorkspaceでWork・Direction・Project archiveの状態変更が移行後schemaでrollbackせず、scope・IDの組合せが正しいことを確認する |
 | S12-01（旧列・旧Grantの削除） | 利用実態の確認後に行う | 一度にすべて削除しない。削除はDB fileの複製を取ってから行う |
@@ -242,7 +246,7 @@ S07-01以降に作られるDirectionのActivityはProject Activityの一覧（`l
 
 | 領域 | test file | 主に影響するTask |
 | --- | --- | --- |
-| Project・archive | `server/tests/projectAdapters.test.ts`・`projectArchive.test.ts`・`projectArchiveUi.test.ts`・`projectForm.test.ts`・`projectOverviewUi.test.ts`・`emptyStateUi.test.ts`、`packages/direction/tests/project.test.ts`・`updateProject.test.ts` | S02 |
+| Project・archive | `server/tests/projectAdapters.test.ts`・`projectArchive.test.ts`・`projectArchiveUi.test.ts`・`projectForm.test.ts`・`projectOverviewUi.test.ts`・`emptyStateUi.test.ts`・`projectWorkspaceMigration.test.ts`・`workspaceSchema.test.ts`、`packages/organization/tests/project.test.ts`・`updateProject.test.ts`・`projectStrategy.test.ts` | S02 |
 | Direction | `intent*.test.ts`・`outcome*.test.ts`・`research*.test.ts`・`initialResearch.test.ts`・`additionalResearch.test.ts`・`directionDecision.test.ts`・`adrHandoff.test.ts`・`strategist*.test.ts`・`researcherMcp.test.ts` | S03 |
 | Execution還流・評価 | `executionEvidence.test.ts`・`executionHandoff.test.ts`・`executionPlan.test.ts`・`outcomeEvaluation.test.ts`・`evaluationReplan.test.ts`・`outcomeConfirmed.test.ts`・`runtimeEvents.test.ts`・`lv6ClosedLoop.test.ts` | S04、S05 |
 | Work | `packages/work/tests/taskCoordination.test.ts`、`server/tests/execution*.test.ts`（Mcp・Coordination・Operator・WebRead・Ui・Boundary） | S04-03、S12-02 |

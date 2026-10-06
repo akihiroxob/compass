@@ -2,12 +2,12 @@ import type { Intent } from "../domain/Intent.ts";
 import type { Outcome } from "../domain/Outcome.ts";
 import type { OutcomeEvaluation } from "../domain/OutcomeEvaluation.ts";
 import type { OutcomeExecutionRecord } from "../domain/OutcomeExecution.ts";
-import type { Project } from "../domain/Project.ts";
+import type { ProjectDetail } from "@compass/organization";
 import type { IntentRepository } from "../domain/IntentRepository.ts";
 import type { OutcomeEvaluationRepository } from "../domain/OutcomeEvaluationRepository.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { NotFoundError } from "@compass/shared";
 import { DirectionAgentRole, type DirectionRoleAuthorizationPort, type Principal } from "./port/DirectionAuthorizationPort.ts";
 
@@ -17,7 +17,7 @@ export const unavailableEvaluatorInputs = ["evidence_content"] as const;
 export type EvaluatorContext = {
   principalId: string;
   role: DirectionAgentRole;
-  project: Project;
+  project: ProjectDetail;
   /** Outcomeの発端のIntent。 */
   intent: Intent | null;
   /** 固定のSuccess Criteria（`id`・`position`・`description`・`measurement`・`target`）を含む。Evaluatorは変更できない。 */
@@ -36,7 +36,7 @@ export type EvaluatorContext = {
 export class GetEvaluatorContextUseCase {
   constructor(
     private readonly authorization: DirectionRoleAuthorizationPort,
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly intentRepository: IntentRepository,
     private readonly outcomeRepository: OutcomeRepository,
     private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
@@ -46,7 +46,7 @@ export class GetEvaluatorContextUseCase {
   async execute(principal: Principal, projectId: string, outcomeId: string): Promise<EvaluatorContext> {
     // 認可はProjectの存在確認より先。Grantを持たないPrincipalへProjectやOutcomeの存在有無を漏らさない。
     const principalId = await this.authorization.requireRole(principal, projectId, DirectionAgentRole.EVALUATOR);
-    const project = await this.projectRepository.findById(projectId);
+    const project = await this.projectReader.findDetailById(projectId);
     if (!project) throw new NotFoundError(`Project ${projectId} was not found`);
     // 別ProjectのOutcome IDも同じNOT_FOUND。
     const outcome = await this.outcomeRepository.findByIdInProject(projectId, outcomeId);

@@ -1,5 +1,5 @@
 import { ConflictError, NotFoundError } from "@compass/shared";
-import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
+import { ProjectArchivedError } from "@compass/organization";
 
 /** Request配下の書込で共通の拒否結果。それ以外の結果は各use caseが扱う。 */
 type CommonRejection =

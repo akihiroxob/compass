@@ -1,78 +1,86 @@
 import type { Kysely, Transaction } from "kysely";
-import { Project, type ProjectStatus } from "../domain/Project.ts";
+import { Project, type ProjectDetail, type ProjectStatus } from "../domain/Project.ts";
 import type {
   ArchiveProjectResult,
+  CreateProjectInput,
   ProjectRepository,
   RepositoryReferencedResult,
+  UpdateProjectInput,
   UpdateProjectResult,
 } from "../domain/ProjectRepository.ts";
-import type { CreateProjectInput, UpdateProjectInput } from "../domain/ProjectRepository.ts";
-import type { DirectionDatabase } from "./schema.ts";
-import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
+import type { ProjectChangeObserver } from "./projectChange.ts";
+import type { OrganizationDatabase } from "./schema.ts";
+import { replaceWorkspaceOrderedValues, writeWorkspace } from "./writeWorkspace.ts";
 
-type Queryable = Kysely<DirectionDatabase> | Transaction<DirectionDatabase>;
+type Queryable = Kysely<OrganizationDatabase> | Transaction<OrganizationDatabase>;
 
 /**
  * 作成者の初期owner Membership（Accessが所有するtable）を、Project作成と同じtransactionで書く。
- * DirectionはAccessのtableを直接扱わず、serverがこの書込を配線する。失敗すればProjectもrollbackされる。
+ * OrganizationはAccessのtableを直接扱わず、serverがこの書込を配線する。失敗すればProjectもrollbackされる。
  */
 export type ProjectOwnerMembershipWriter = (
-  transaction: Transaction<DirectionDatabase>,
+  transaction: Transaction<OrganizationDatabase>,
   input: { projectId: string; ownerHumanUserId: string; createdAt: number },
 ) => Promise<void>;
 
 /**
- * 作成したProjectを、同じtransactionで所属Workspace（Organizationが所有するtable）へ割り当てる。
- * DirectionはWorkspaceのtableを直接扱わず、serverがこの書込を配線する。失敗すればProjectもrollbackされる。
+ * 指定したRepositoryのうち、ADR Handoff Request/Reference（Directionが所有するtable）から参照されているものがあれば
+ * そのIDを1件返す。OrganizationはDirectionのtableを直接扱わず、serverが同じtransactionで読む実装を配線する。
  */
-export type ProjectWorkspaceAssigner = (
-  transaction: Transaction<DirectionDatabase>,
-  input: { projectId: string },
-) => Promise<void>;
+export type ProjectRepositoryReferenceFinder = (
+  transaction: Transaction<OrganizationDatabase>,
+  repositoryIds: string[],
+) => Promise<string | null>;
+
+/** 旧`project.mission`はNOT NULLのため作成時に書く値。戦略値の正本はWorkspaceで、旧列は読まない。 */
+const unusedLegacyMission = "";
 
 export class SQLiteProjectRepository implements ProjectRepository {
   constructor(
-    private readonly database: Kysely<DirectionDatabase>,
+    private readonly database: Kysely<OrganizationDatabase>,
+    private readonly findRepositoryReference: ProjectRepositoryReferenceFinder,
     private readonly writeOwnerMembership?: ProjectOwnerMembershipWriter,
-    private readonly changeObserver: DirectionChangeObserver | null = null,
-    private readonly assignWorkspace?: ProjectWorkspaceAssigner,
+    private readonly changeObserver: ProjectChangeObserver | null = null,
   ) {}
 
-  async create(input: CreateProjectInput, ownerHumanUserId?: string): Promise<Project> {
+  async create(input: CreateProjectInput, ownerHumanUserId?: string): Promise<ProjectDetail> {
     const id = crypto.randomUUID();
+    const workspaceId = crypto.randomUUID();
     const now = Date.now();
 
     await this.database.transaction().execute(async (transaction) => {
+      // Workspace管理の入口（S02-04以降）までは、Projectごとに戦略値を持つ専用のWorkspaceを作る。
+      await writeWorkspace(transaction, {
+        id: workspaceId,
+        name: input.name,
+        mission: input.mission,
+        vision: input.vision,
+        principles: input.principles,
+        constraints: input.constraints,
+        createdAt: now,
+        updatedAt: now,
+        status: "active",
+        archivedAt: null,
+        archiveReason: null,
+      });
       await transaction
         .insertInto("project")
         .values({
           id,
+          workspace_id: workspaceId,
           name: input.name,
           description: input.description,
-          mission: input.mission,
-          vision: input.vision,
+          mission: unusedLegacyMission,
+          vision: null,
           created_at: now,
           updated_at: now,
           status: "active",
           archived_at: null,
           archive_reason: null,
+          strategy_migrated_at: now,
         })
         .execute();
 
-      if (input.principles.length) {
-        await transaction.insertInto("project_principle").values(
-          input.principles.map((value, sortOrder) => ({
-            id: crypto.randomUUID(), project_id: id, value, sort_order: sortOrder,
-          })),
-        ).execute();
-      }
-      if (input.constraints.length) {
-        await transaction.insertInto("project_constraint").values(
-          input.constraints.map((value, sortOrder) => ({
-            id: crypto.randomUUID(), project_id: id, value, sort_order: sortOrder,
-          })),
-        ).execute();
-      }
       if (input.repositories.length) {
         await transaction.insertInto("project_repository_link").values(
           input.repositories.map((item, sortOrder) => ({
@@ -91,21 +99,27 @@ export class SQLiteProjectRepository implements ProjectRepository {
         if (!this.writeOwnerMembership) throw new Error("ProjectOwnerMembershipWriter is not configured");
         await this.writeOwnerMembership(transaction, { projectId: id, ownerHumanUserId, createdAt: now });
       }
-      await this.assignWorkspace?.(transaction, { projectId: id });
     });
 
-    return (await this.findById(id))!;
+    return (await this.findDetailById(id))!;
   }
 
   async update(projectId: string, input: UpdateProjectInput): Promise<UpdateProjectResult> {
     const outcome = await this.database.transaction().execute(async (transaction) => {
       const existing = await transaction
         .selectFrom("project")
-        .select("status")
-        .where("id", "=", projectId)
+        .innerJoin("workspace", "workspace.id", "project.workspace_id")
+        .select(["project.status as status", "workspace.id as workspaceId", "workspace.status as workspaceStatus"])
+        .where("project.id", "=", projectId)
         .executeTakeFirst();
-      if (!existing) return "not_found" as const;
-      if (existing.status === "archived") return "project_archived" as const;
+      if (!existing) return { kind: "not_found" as const };
+      if (existing.status === "archived") return { kind: "project_archived" as const };
+      const updatesStrategy = [input.mission, input.vision, input.principles, input.constraints].some(
+        (value) => value !== undefined,
+      );
+      if (updatesStrategy && existing.workspaceStatus === "archived") {
+        return { kind: "workspace_archived" as const, workspaceId: existing.workspaceId };
+      }
 
       // Repositoryを外す変更はADR Handoff Request/Referenceの参照先を失わせないか、他の書込より先に検査する。
       // 途中まで書き込んでから拒否すると、そのtransactionはKyselyの仕様上そのまま commit されてしまうため。
@@ -115,76 +129,91 @@ export class SQLiteProjectRepository implements ProjectRepository {
       }
 
       // undefinedの項目はKyselyがSETから除外するため、未指定の列は変更されない。
+      // 戦略値だけの変更でもProjectのupdated_atを進める（一覧の更新順は従来どおりProject単位）。
+      const now = Date.now();
       await transaction
         .updateTable("project")
-        .set({
-          name: input.name,
-          description: input.description,
-          mission: input.mission,
-          vision: input.vision,
-          updated_at: Date.now(),
-        })
+        .set({ name: input.name, description: input.description, updated_at: now })
         .where("id", "=", projectId)
         .execute();
 
-      if (input.principles) {
-        await this.replaceOrderedValues(transaction, "project_principle", projectId, input.principles);
-      }
-      if (input.constraints) {
-        await this.replaceOrderedValues(transaction, "project_constraint", projectId, input.constraints);
+      if (updatesStrategy) {
+        await transaction
+          .updateTable("workspace")
+          .set({ mission: input.mission, vision: input.vision, updated_at: now })
+          .where("id", "=", existing.workspaceId)
+          .execute();
+        if (input.principles) {
+          await replaceWorkspaceOrderedValues(transaction, "workspace_principle", existing.workspaceId, input.principles);
+        }
+        if (input.constraints) {
+          await replaceWorkspaceOrderedValues(transaction, "workspace_constraint", existing.workspaceId, input.constraints);
+        }
       }
       if (input.repositories) await this.syncRepositories(transaction, projectId, input.repositories);
       if (input.resources) await this.syncResources(transaction, projectId, input.resources);
-      return "updated" as const;
+      return { kind: "updated" as const };
     });
 
-    if (outcome === "not_found" || outcome === "project_archived") return { kind: outcome };
-    if (outcome !== "updated") return outcome;
-    return { kind: "updated", project: (await this.findById(projectId))! };
+    if (outcome.kind !== "updated") return outcome;
+    return { kind: "updated", project: (await this.findDetailById(projectId))! };
   }
 
   async archive(projectId: string, reason: string): Promise<ArchiveProjectResult> {
     const outcome = await this.database.transaction().execute(async (transaction) => {
       const existing = await transaction
         .selectFrom("project")
-        .select(["status", "name"])
+        .select(["status", "name", "workspace_id"])
         .where("id", "=", projectId)
         .executeTakeFirst();
       if (!existing) return "not_found" as const;
       if (existing.status === "archived") return "already_archived" as const;
+      const workspaceId = existing.workspace_id;
+      if (workspaceId === null) throw new Error(`Project ${projectId} does not belong to a Workspace`);
 
       // updated_atはarchived_atと同じ値にする（Intentの放棄・Outcomeの取消がupdated_atを更新するのと同じ）。
       const now = Date.now();
-      await transaction
-        .updateTable("project")
-        .set({ status: "archived", archived_at: now, archive_reason: reason, updated_at: now })
-        .where("id", "=", projectId)
-        .execute();
-      await notifyDirectionChange(this.changeObserver, transaction, {
-        type: "project_archived",
-        projectId,
-        recordId: projectId,
-        title: existing.name,
-        refs: [],
-        result: null,
-        reason,
-        principalId: null,
-        occurredAt: now,
-      });
+      const archived = { status: "archived" as const, archived_at: now, archive_reason: reason, updated_at: now };
+      await transaction.updateTable("project").set(archived).where("id", "=", projectId).execute();
+      // 他にactiveなProjectが無いWorkspaceは、新規活動を受けないよう同じ理由・日時でarchiveする（移行時の規則と同じ）。
+      const activeProject = await transaction
+        .selectFrom("project")
+        .select("id")
+        .where("workspace_id", "=", workspaceId)
+        .where("status", "=", "active")
+        .executeTakeFirst();
+      if (!activeProject) {
+        await transaction
+          .updateTable("workspace")
+          .set(archived)
+          .where("id", "=", workspaceId)
+          .where("status", "=", "active")
+          .execute();
+      }
+      if (this.changeObserver) {
+        await this.changeObserver(transaction)({
+          type: "project_archived",
+          projectId,
+          workspaceId,
+          title: existing.name,
+          reason,
+          occurredAt: now,
+        });
+      }
       return "archived" as const;
     });
 
     if (outcome !== "archived") return { kind: outcome };
-    return { kind: "archived", project: (await this.findById(projectId))! };
+    return { kind: "archived", project: (await this.findDetailById(projectId))! };
   }
 
-  async findAll(status: ProjectStatus = "active"): Promise<Project[]> {
+  async findAll(status: ProjectStatus = "active"): Promise<ProjectDetail[]> {
     const rows = await this.database
       .selectFrom("project")
       .select("id")
       .where("status", "=", status)
       .execute();
-    return Promise.all(rows.map(async ({ id }) => (await this.findById(id))!));
+    return Promise.all(rows.map(async ({ id }) => (await this.findDetailById(id))!));
   }
 
   async exists(projectId: string): Promise<boolean> {
@@ -203,10 +232,9 @@ export class SQLiteProjectRepository implements ProjectRepository {
       .where("id", "=", projectId)
       .executeTakeFirst();
     if (!row) return null;
+    if (row.workspace_id === null) throw new Error(`Project ${projectId} does not belong to a Workspace`);
 
-    const [principles, constraints, repositories, resources] = await Promise.all([
-      this.orderedValues(this.database, "project_principle", projectId),
-      this.orderedValues(this.database, "project_constraint", projectId),
+    const [repositories, resources] = await Promise.all([
       this.database.selectFrom("project_repository_link").select(["id", "name", "url"])
         .where("project_id", "=", projectId).orderBy("sort_order").execute(),
       this.database.selectFrom("project_resource").select(["id", "name", "url", "kind"])
@@ -215,12 +243,9 @@ export class SQLiteProjectRepository implements ProjectRepository {
 
     return new Project({
       id: row.id,
+      workspaceId: row.workspace_id,
       name: row.name,
       description: row.description,
-      mission: row.mission,
-      vision: row.vision,
-      principles,
-      constraints,
       repositories,
       resources,
       createdAt: row.created_at,
@@ -231,28 +256,44 @@ export class SQLiteProjectRepository implements ProjectRepository {
     });
   }
 
-  private async replaceOrderedValues(
-    transaction: Transaction<DirectionDatabase>,
-    table: "project_principle" | "project_constraint",
-    projectId: string,
-    values: string[],
-  ): Promise<void> {
-    await transaction.deleteFrom(table).where("project_id", "=", projectId).execute();
-    if (!values.length) return;
-    await transaction.insertInto(table).values(
-      values.map((value, sortOrder) => ({
-        id: crypto.randomUUID(), project_id: projectId, value, sort_order: sortOrder,
-      })),
-    ).execute();
+  async findDetailById(projectId: string): Promise<ProjectDetail | null> {
+    const project = await this.findById(projectId);
+    if (!project) return null;
+    const workspace = await this.database
+      .selectFrom("workspace")
+      .select(["mission", "vision"])
+      .where("id", "=", project.workspaceId)
+      .executeTakeFirstOrThrow();
+    const [principles, constraints] = await Promise.all([
+      this.orderedValues(this.database, "workspace_principle", project.workspaceId),
+      this.orderedValues(this.database, "workspace_constraint", project.workspaceId),
+    ]);
+    // 既存の公開契約と同じ項目・順序にする（所属Workspace IDは含めない）。
+    return {
+      id: project.id,
+      name: project.name,
+      description: project.description,
+      mission: workspace.mission,
+      vision: workspace.vision,
+      principles,
+      constraints,
+      repositories: project.repositories,
+      resources: project.resources,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+      status: project.status,
+      archivedAt: project.archivedAt,
+      archiveReason: project.archiveReason,
+    };
   }
 
   /**
-   * 入力から外れる既存Repositoryのうち、ADR Handoff Request/Reference（Task 28）から参照されている行が
+   * 入力から外れる既存Repositoryのうち、ADR Handoff Request/Reference（Direction）から参照されている行が
    * あれば最初の1件を返す。`adr_handoff_request` / `adr_reference` の`repository_id`はonDelete cascadeを
    * 付けていない意図的な監査保持のため、削除前にdomainの`repository_referenced`として検査し拒否する。
    */
   private async findRepositoryRemovalConflict(
-    transaction: Transaction<DirectionDatabase>,
+    transaction: Transaction<OrganizationDatabase>,
     projectId: string,
     items: NonNullable<UpdateProjectInput["repositories"]>,
   ): Promise<RepositoryReferencedResult | null> {
@@ -262,14 +303,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
     const removed = existingRows.filter((row) => !keptIds.has(row.id));
     if (!removed.length) return null;
 
-    const removedIds = removed.map((row) => row.id);
-    const [handoffRow, referenceRow] = await Promise.all([
-      transaction.selectFrom("adr_handoff_request").select("repository_id")
-        .where("repository_id", "in", removedIds).executeTakeFirst(),
-      transaction.selectFrom("adr_reference").select("repository_id")
-        .where("repository_id", "in", removedIds).executeTakeFirst(),
-    ]);
-    const repositoryId = handoffRow?.repository_id ?? referenceRow?.repository_id;
+    const repositoryId = await this.findRepositoryReference(transaction, removed.map((row) => row.id));
     if (!repositoryId) return null;
 
     const repositoryName = removed.find((row) => row.id === repositoryId)?.name ?? repositoryId;
@@ -281,7 +315,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
    * idなし・未知のid・他Projectのidは新規行として追加し、入力に現れない既存行は削除する。
    */
   private async syncRepositories(
-    transaction: Transaction<DirectionDatabase>,
+    transaction: Transaction<OrganizationDatabase>,
     projectId: string,
     items: NonNullable<UpdateProjectInput["repositories"]>,
   ): Promise<void> {
@@ -310,7 +344,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
   }
 
   private async syncResources(
-    transaction: Transaction<DirectionDatabase>,
+    transaction: Transaction<OrganizationDatabase>,
     projectId: string,
     items: NonNullable<UpdateProjectInput["resources"]>,
   ): Promise<void> {
@@ -340,11 +374,11 @@ export class SQLiteProjectRepository implements ProjectRepository {
 
   private async orderedValues(
     database: Queryable,
-    table: "project_principle" | "project_constraint",
-    projectId: string,
+    table: "workspace_principle" | "workspace_constraint",
+    workspaceId: string,
   ): Promise<string[]> {
     const rows = await database.selectFrom(table).select("value")
-      .where("project_id", "=", projectId).orderBy("sort_order").execute();
+      .where("workspace_id", "=", workspaceId).orderBy("sort_order").execute();
     return rows.map(({ value }) => value);
   }
 }

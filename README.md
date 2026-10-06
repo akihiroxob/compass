@@ -11,7 +11,7 @@ Projectの方向と実行を管理するアプリケーションです。Human�
 - [Orchestrator](orchestrator/README.md)
 - [Ralph](ralph/README.md)
 
-以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/organization`・`packages/direction`・`packages/work`・`packages/access`・`packages/activity`・`packages/shared`の業務コードを配線します（`packages/organization`のWorkspaceは公開入口が未接続です）。`orchestrator/`はProject横断の現在状態から専門RoleのAgentを起動する独立したBatchで、ServerとはMCPだけで接続します。`ralph/`はWorker / ReviewerのAgentを1 Taskずつ起動する独立したLoopで、同じくMCPだけで接続します。`manager`の名前は維持します。実装変更はWacha経由で行います。
+以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/organization`・`packages/direction`・`packages/work`・`packages/access`・`packages/activity`・`packages/shared`の業務コードを配線します（`packages/organization`はWorkspace・Projectを所有します。Workspaceの公開入口は未接続で、Mission等はProjectの入出力で所属Workspaceの値を読み書きします）。`orchestrator/`はProject横断の現在状態から専門RoleのAgentを起動する独立したBatchで、ServerとはMCPだけで接続します。`ralph/`はWorker / ReviewerのAgentを1 Taskずつ起動する独立したLoopで、同じくMCPだけで接続します。`manager`の名前は維持します。実装変更はWacha経由で行います。
 
 ## 起動
 
@@ -31,7 +31,7 @@ COMPASS_AUTH_MODE=trusted-local COMPASS_INITIAL_OWNER_EMAIL=you@example.com npm 
 
 ブラウザで`/login`を開き、初期ownerのemailでログインします。trusted-localはloopback限定の開発用で、emailの本人確認を行いません。`NODE_ENV=production`では起動を拒否します。
 
-設定項目は [.env.example](.env.example) を参照してください。起動ディレクトリに`.env`があればserverが読み込みます。`.env.example`自体は読み込みません。`PORT`は`.env`読込前に確定するため、シェルの環境変数として渡してください。既定portは51800、`COMPASS_DB_PATH`はSQLiteの保存先（schemaの追加と既存データの非破壊な移行は起動時に自動で行います。更新前のserverへ戻す場合に備え、更新前にDB fileを複製してください。戻すときはserverを止めて複製を`COMPASS_DB_PATH`へ戻します）、`COMPASS_CLAIM_TTL_MS`はClaim有効期間（既定30分）です。
+設定項目は [.env.example](.env.example) を参照してください。起動ディレクトリに`.env`があればserverが読み込みます。`.env.example`自体は読み込みません。`PORT`は`.env`読込前に確定するため、シェルの環境変数として渡してください。既定portは51800、`COMPASS_DB_PATH`はSQLiteの保存先（schemaの追加と既存データの非破壊な移行は起動時に自動で行います。更新前のserverへ戻す場合に備え、更新前にDB fileを複製してください。Mission等の正本をWorkspaceへ移した後の変更は更新前のserverから見えないため、戻すときはserverを止めて複製を`COMPASS_DB_PATH`へ戻します）、`COMPASS_CLAIM_TTL_MS`はClaim有効期間（既定30分）です。
 
 portが使用中なら既存プロセスを停止せず、同じ認証設定に`PORT=52000`等を加えて起動します。開発用の`npm run dev`はserverとViteを起動します。Viteの画面を使う場合は、そのoriginを`COMPASS_PUBLIC_ORIGIN`へ指定してください。
 

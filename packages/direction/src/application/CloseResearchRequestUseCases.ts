@@ -1,5 +1,5 @@
 import type { ResearchRequest } from "../domain/Research.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import type {
   CloseResearchRequestResult,
   ResearchRepository,
@@ -29,13 +29,13 @@ const toClosedRequest = (result: CloseResearchRequestResult, projectId: string, 
  */
 export class CompleteResearchRequestUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly researchRepository: ResearchRepository,
   ) {}
 
   async execute(projectId: string, requestId: string, input: unknown): Promise<ResearchRequest> {
     const parsed = parseCompleteResearchRequestInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     return toClosedRequest(await this.researchRepository.complete(projectId, requestId, parsed), projectId, requestId);
@@ -44,13 +44,13 @@ export class CompleteResearchRequestUseCase {
 
 export class CancelResearchRequestUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly researchRepository: ResearchRepository,
   ) {}
 
   async execute(projectId: string, requestId: string, input: unknown): Promise<ResearchRequest> {
     const { reason } = parseCancelResearchRequestInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     return toClosedRequest(await this.researchRepository.cancel(projectId, requestId, reason), projectId, requestId);

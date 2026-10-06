@@ -34,7 +34,7 @@ import type {
   ResearchSynthesisTable,
 } from "./schema.ts";
 import { inputHash } from "@compass/shared";
-import { isProjectArchived } from "./isProjectArchived.ts";
+import type { DirectionProjectReaders } from "./directionProjectReaders.ts";
 import { insertResearchRequest, toRequest } from "./researchRequestRecord.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 import { recordRuntimeEvent } from "./runtimeEventRecord.ts";
@@ -217,6 +217,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
   /** `clock`は期限判定の時刻源。テストで固定できるよう注入する。 */
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
+    private readonly projects: DirectionProjectReaders,
     private readonly clock: () => number = Date.now,
     private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
@@ -228,7 +229,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
     return this.database
       .transaction()
       .execute(async (transaction): Promise<CreateResearchRequestResult> => {
-        if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+        if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
 
         const hash = inputHash(input);
         const existing = await transaction
@@ -437,7 +438,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
     return this.database
       .transaction()
       .execute(async (transaction): Promise<RegisterResearchResultResult> => {
-        if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+        if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
         const request = await findRequestRow(transaction, projectId, requestId);
         if (!request) return { kind: "request_not_found" };
 
@@ -573,7 +574,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
     return this.database
       .transaction()
       .execute(async (transaction): Promise<RegisterResearchSynthesisResult> => {
-        if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+        if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
         const request = await findRequestRow(transaction, projectId, requestId);
         if (!request) return { kind: "request_not_found" };
 
@@ -698,7 +699,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
     findMissing: (transaction: Transaction<DirectionDatabase>) => Promise<"result" | "synthesis" | null>,
   ): Promise<CloseResearchRequestResult> {
     return this.database.transaction().execute(async (transaction): Promise<CloseResearchRequestResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
       const request = await findRequestRow(transaction, projectId, requestId);
       if (!request) return { kind: "request_not_found" };
       if (isClosedResearchStatus(request.status)) return { kind: "not_open", status: request.status };

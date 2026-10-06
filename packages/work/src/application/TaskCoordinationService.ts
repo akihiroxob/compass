@@ -1,4 +1,5 @@
-import { outcomeCorrelationId, ProjectArchivedError } from "@compass/direction";
+import { outcomeCorrelationId } from "@compass/direction";
+import { ProjectArchivedError } from "@compass/organization";
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
 import { StoryStatus } from "../domain/StoryStatus.ts";
 import { TaskStatus, type TaskStatus as TaskStatusValue } from "../domain/TaskStatus.ts";

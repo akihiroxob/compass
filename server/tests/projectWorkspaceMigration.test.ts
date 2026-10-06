@@ -6,8 +6,8 @@ import test from "node:test";
 import { sql, type Kysely } from "kysely";
 import { initializeAccessSchema } from "@compass/access";
 import { initializeActivitySchema } from "@compass/activity";
-import { CreateProjectUseCase, initializeDirectionSchema, SQLiteProjectRepository } from "@compass/direction";
-import { GetWorkspaceUseCase, initializeOrganizationSchema, SQLiteWorkspaceRepository } from "@compass/organization";
+import { initializeDirectionSchema } from "@compass/direction";
+import { GetWorkspaceUseCase, SQLiteWorkspaceRepository } from "@compass/organization";
 import { initializeWorkSchema } from "@compass/work";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -21,12 +21,13 @@ import {
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 import type { Database } from "../src/bootstrap/database/schema.ts";
 import { addTestMembership, createSignedInApp, createTestHuman } from "./support/humanSession.ts";
+import { archiveLegacyProject, createLegacyProjectTables, insertLegacyProject } from "./support/legacyProjectSchema.ts";
 
 type Row = Record<string, unknown>;
 
-/** `project.workspace_id`を加える前（Workspace Story 02 Task 01の時点）のschema。 */
+/** Workspace導入前のschema（`project`はDirectionが所有し、Organizationのtableは無い）。 */
 const initializeLegacySchema = async (database: Kysely<Database>) => {
-  await initializeOrganizationSchema(asOrganizationDatabase(database));
+  await createLegacyProjectTables(database);
   await initializeDirectionSchema(asDirectionDatabase(database));
   await initializeWorkSchema(asWorkDatabase(database));
   await initializeAccessSchema(asAccessDatabase(database));
@@ -44,7 +45,7 @@ const withTemporaryDatabase = async (run: (path: string) => Promise<void>) => {
 
 const workspaceTables = ["workspace", "workspace_principle", "workspace_constraint"];
 
-/** Workspaceのtableを除く全tableの全行。`project`は追加した`workspace_id`を除いて比べる。 */
+/** Workspaceのtableを除く全tableの全行。`project`は追加した`workspace_id`・`strategy_migrated_at`を除いて比べる。 */
 const snapshotExistingRows = async (database: Kysely<Database>) => {
   const tables = (
     await sql<{ name: string }>`select name from sqlite_master where type = 'table' and name not like 'sqlite_%' order by name`.execute(database)
@@ -52,7 +53,8 @@ const snapshotExistingRows = async (database: Kysely<Database>) => {
   const snapshot: Record<string, Row[]> = {};
   for (const table of tables) {
     const rows = (await sql<Row>`select * from ${sql.table(table)} order by rowid`.execute(database)).rows;
-    snapshot[table] = table === "project" ? rows.map(({ workspace_id: _workspaceId, ...row }) => row) : rows;
+    snapshot[table] =
+      table === "project" ? rows.map(({ workspace_id: _workspaceId, strategy_migrated_at: _migratedAt, ...row }) => row) : rows;
   }
   return snapshot;
 };
@@ -82,12 +84,11 @@ const callTool = async (app: Awaited<ReturnType<typeof createSignedInApp>>, name
 
 /**
  * 移行前のDBへ、Project（active・archived）とWork・Grant・Credential・Membership・Activity・Change Logを用意する。
- * 移行前のserverにはWorkspaceへの割当が無いため、Projectは割当なしのRepositoryで作る。
+ * 移行前のserverにはWorkspaceが無いため、Projectは旧schemaの行として作る。
  */
 const seedLegacyDatabase = async (database: Kysely<Database>) => {
   await initializeLegacySchema(database);
-  const createProject = new CreateProjectUseCase(new SQLiteProjectRepository(asDirectionDatabase(database)));
-  const alpha = await createProject.execute({
+  const alpha = await insertLegacyProject(database, {
     name: "Alpha",
     description: "Execution boundary",
     mission: "Keep direction explicit",
@@ -95,8 +96,9 @@ const seedLegacyDatabase = async (database: Kysely<Database>) => {
     principles: ["Trace decisions", "Prefer small steps"],
     constraints: ["No destructive migration"],
     repositories: [{ name: "compass", url: "https://github.com/example/compass" }],
+    createdAt: 1_000,
   });
-  const beta = await createProject.execute({ name: "Beta", mission: "Ship the archive flow" });
+  const beta = await insertLegacyProject(database, { name: "Beta", mission: "Ship the archive flow", createdAt: 2_000 });
 
   const services = createApplicationServices(database);
   const app = await createSignedInApp(database, services);
@@ -111,7 +113,7 @@ const seedLegacyDatabase = async (database: Kysely<Database>) => {
   );
   const story = await callTool(app, "issue_story", { projectId: alpha.id, title: "Story", requestId: "story-1" }, "planner");
   await callTool(app, "issue_task", { projectId: alpha.id, storyId: story.id, title: "Task", requestId: "task-1" }, "planner");
-  await services.archiveProjectUseCase.execute(beta.id, { reason: "Superseded" });
+  await archiveLegacyProject(database, beta.id, "Superseded", 3_000);
   return { alpha, beta };
 };
 
@@ -149,20 +151,35 @@ test("既存ProjectごとにWorkspaceを作って所属させ、Project IDと既
         archiveReason: null,
       },
     );
-    const archivedBeta = await new SQLiteProjectRepository(asDirectionDatabase(upgraded)).findById(beta.id);
     const betaWorkspace = await getWorkspace(upgraded, assigned[1].workspace_id!);
     assert.equal(betaWorkspace.status, "archived");
-    assert.equal(betaWorkspace.archivedAt, archivedBeta!.archivedAt);
+    assert.equal(betaWorkspace.archivedAt, 3_000);
     assert.equal(betaWorkspace.archiveReason, "Superseded");
     assert.deepEqual((await sql`pragma foreign_key_check`.execute(upgraded)).rows, []);
+
+    // 公開の参照（Web API・MCP・Role Contextが使うuse case）は、移行前と同じ値をWorkspaceの正本から返す。
+    const services = createApplicationServices(upgraded);
+    const migratedAlpha = await services.getProjectUseCase.execute(alpha.id);
+    assert.deepEqual(
+      [migratedAlpha.mission, migratedAlpha.vision, migratedAlpha.principles, migratedAlpha.constraints],
+      ["Keep direction explicit", "Every change has a reason", ["Trace decisions", "Prefer small steps"], ["No destructive migration"]],
+    );
+    assert.deepEqual(migratedAlpha.repositories.map(({ name }) => name), ["compass"]);
+    assert.equal((await services.getProjectUseCase.execute(beta.id)).status, "archived");
+    // 正本の切替後の更新はWorkspaceへ書き、旧列は書き換えない。
+    await services.updateProjectUseCase.execute(alpha.id, { mission: "Changed after migration" });
+    assert.equal((await getWorkspace(upgraded, assigned[0].workspace_id!)).mission, "Changed after migration");
     await upgraded.destroy();
 
-    // 再起動（schema初期化の再実行）でWorkspaceを重複して作らず、所属も変えない。
+    // 再起動（schema初期化の再実行）でWorkspaceを重複して作らず、所属も、切替後のWorkspaceの値も旧列で上書きしない。
     const restarted = createDatabase(path);
     await initializeSchema(restarted);
     assert.deepEqual(await projectWorkspaceIds(restarted), assigned);
     assert.equal((await restarted.selectFrom("workspace").select("id").execute()).length, 2);
-    assert.deepEqual(await snapshotExistingRows(restarted), before);
+    assert.equal((await getWorkspace(restarted, assigned[0].workspace_id!)).mission, "Changed after migration");
+    const { project: _project, ...otherRows } = await snapshotExistingRows(restarted);
+    const { project: _before, ...otherBefore } = before;
+    assert.deepEqual(otherRows, otherBefore);
     await restarted.destroy();
   });
 });
@@ -171,11 +188,10 @@ test("移行が途中で失敗しても、所属済みのProjectは保たれ、�
   await withTemporaryDatabase(async (path) => {
     const legacy = createDatabase(path);
     await initializeLegacySchema(legacy);
-    const createProject = new CreateProjectUseCase(new SQLiteProjectRepository(asDirectionDatabase(legacy)));
-    const first = await createProject.execute({ name: "First", mission: "M", principles: ["P"] });
-    const broken = await createProject.execute({ name: "Broken", mission: "M", constraints: ["C"] });
-    // 2件目のWorkspace作成の途中（子tableの書込）で失敗させる。
-    await sql`create trigger fail_broken_constraint before insert on workspace_constraint
+    const first = await insertLegacyProject(legacy, { name: "First", mission: "M", principles: ["P"], createdAt: 1_000 });
+    const broken = await insertLegacyProject(legacy, { name: "Broken", mission: "M", constraints: ["C"], createdAt: 2_000 });
+    // 2件目の移行の途中（Workspaceを書いた後の所属の設定）で失敗させる。
+    await sql`create trigger fail_broken_assignment before update on project when new.name = 'Broken'
       begin select raise(abort, 'simulated failure'); end`.execute(legacy);
     await legacy.destroy();
 
@@ -187,7 +203,7 @@ test("移行が途中で失敗しても、所属済みのProjectは保たれ、�
     assert.equal(partial[1].workspace_id, null);
     // 失敗したProjectのWorkspaceは残らない（同じtransactionで戻る）。
     assert.deepEqual((await failed.selectFrom("workspace").select("name").execute()).map(({ name }) => name), ["First"]);
-    await sql`drop trigger fail_broken_constraint`.execute(failed);
+    await sql`drop trigger fail_broken_assignment`.execute(failed);
     await failed.destroy();
 
     const retried = createDatabase(path);
@@ -228,21 +244,20 @@ test("移行後のProject作成は同じtransactionでWorkspaceへ所属させ�
   await database.destroy();
 });
 
-test("移行後のDBを移行前のserverのschema初期化・Repositoryで開いてもProjectを読み書きでき、次の起動で所属が補われる", async () => {
+test("正本の切替後に旧serverが書いたProjectは次の起動で所属を補い、切替済みProjectのWorkspaceは旧列で上書きしない", async () => {
   await withTemporaryDatabase(async (path) => {
     const upgraded = createDatabase(path);
     await initializeSchema(upgraded);
     const existing = await createApplicationServices(upgraded).createProjectUseCase.execute({ name: "Existing", mission: "M" });
-    await upgraded.destroy();
 
-    // 移行前のserverは`workspace_id`を知らず、Projectを割当なしで作る。
-    const previous = createDatabase(path);
-    await initializeLegacySchema(previous);
-    const projects = new SQLiteProjectRepository(asDirectionDatabase(previous));
-    const created = await new CreateProjectUseCase(projects).execute({ name: "Created by previous server", mission: "M" });
-    assert.equal((await projects.update(existing.id, { mission: "Updated" })).kind, "updated");
-    assert.equal((await projects.findById(existing.id))?.mission, "Updated");
-    await previous.destroy();
+    // 旧serverは`workspace_id`・`strategy_migrated_at`を知らず、旧列だけを読み書きする。
+    const created = await insertLegacyProject(upgraded, {
+      name: "Created by previous server",
+      mission: "Legacy",
+      createdAt: existing.createdAt + 1,
+    });
+    await sql`update project set mission = 'Updated by previous server' where id = ${existing.id}`.execute(upgraded);
+    await upgraded.destroy();
 
     const restarted = createDatabase(path);
     await initializeSchema(restarted);
@@ -250,6 +265,10 @@ test("移行後のDBを移行前のserverのschema初期化・Repositoryで開�
     assert.deepEqual(assigned.map(({ id }) => id), [existing.id, created.id]);
     assert.ok(assigned.every(({ workspace_id }) => workspace_id));
     assert.equal((await restarted.selectFrom("workspace").select("id").execute()).length, 2);
+    const services = createApplicationServices(restarted);
+    assert.equal((await services.getProjectUseCase.execute(created.id)).mission, "Legacy");
+    // 切替後の旧列への書込は反映しない（旧serverへ戻す場合はDB fileの複製へ戻す。README）。
+    assert.equal((await services.getProjectUseCase.execute(existing.id)).mission, "M");
     await restarted.destroy();
   });
 });

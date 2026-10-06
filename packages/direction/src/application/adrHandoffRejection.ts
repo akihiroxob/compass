@@ -1,5 +1,5 @@
 import { ConflictError, NotFoundError } from "@compass/shared";
-import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
+import { ProjectArchivedError } from "@compass/organization";
 
 /** ADR Handoff Request・ADR Reference作成で共通の拒否結果。`created` / `replayed`はそれぞれのuse caseが扱う。 */
 type CommonAdrHandoffRejection =

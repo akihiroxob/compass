@@ -10,7 +10,7 @@ import type {
 } from "../domain/OutcomeEvaluationRepository.ts";
 import type { DirectionDatabase, OutcomeEvaluationTable } from "./schema.ts";
 import { inputHash } from "@compass/shared";
-import { isProjectArchived } from "./isProjectArchived.ts";
+import type { DirectionProjectReaders } from "./directionProjectReaders.ts";
 import { recordOutcomeEvaluatedEvent } from "./runtimeEventRecord.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
@@ -58,6 +58,7 @@ const replayOf = (
 export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepository {
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
+    private readonly projects: DirectionProjectReaders,
     private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
 
@@ -75,7 +76,7 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
         const replay = replayOf(existing, request);
         return replay.kind === "replayed" ? replay : { kind: "key_conflict", requestKey: request.requestKey };
       }
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
       // 達成済み・中止したIntentのOutcomeを評価して、Strategistの起動（再計画）を誤って作らない。
       const intent = await transaction
         .selectFrom("intent")

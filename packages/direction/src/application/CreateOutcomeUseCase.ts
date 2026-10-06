@@ -1,20 +1,20 @@
 import type { Outcome } from "../domain/Outcome.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { parseCreateOutcomeInput } from "./outcomeSchema.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
-import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
+import { ProjectArchivedError } from "@compass/organization";
 
 /** Strategist（またはHuman）の判断結果としてOutcomeと成功条件を登録する。Intentからの自動生成は行わない。 */
 export class CreateOutcomeUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly projectReader: DirectionProjectReader,
     private readonly outcomeRepository: OutcomeRepository,
   ) {}
 
   async execute(projectId: string, intentId: string, input: unknown): Promise<Outcome> {
     const parsed = parseCreateOutcomeInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
+    if (!(await this.projectReader.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     const result = await this.outcomeRepository.create(projectId, intentId, parsed);
