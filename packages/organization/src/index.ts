@@ -10,3 +10,4 @@ export * from "./application/ArchiveWorkspaceUseCase.ts";
 export * from "./infrastructure/initializeOrganizationSchema.ts";
 export * from "./infrastructure/SQLiteWorkspaceRepository.ts";
 export * from "./infrastructure/schema.ts";
+export * from "./infrastructure/writeWorkspace.ts";

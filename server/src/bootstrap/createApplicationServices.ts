@@ -128,6 +128,7 @@ import {
   workChangeActivityObserver,
   workExternalReaders,
 } from "../infrastructure/repository/contextAdapters.ts";
+import { projectWorkspaceAssigner } from "../infrastructure/repository/projectWorkspace.ts";
 
 /** DBを開かずにUse Caseを組み立てる。containerはimport時にDBを開くため、CLIなどはこちらを使う。 */
 export const createApplicationServices = (
@@ -147,7 +148,12 @@ export const createApplicationServices = (
   // Directionのrepositoryへは同じ接続を、Directionが所有するtableの型で渡す。
   const directionDatabase = asDirectionDatabase(applicationDatabase);
   // Directionの重要な状態変更も、同じtransactionでcanonical Activityへ投影する。
-  const projectRepository = new SQLiteProjectRepository(directionDatabase, projectOwnerMembershipWriter, directionChangeActivityObserver);
+  const projectRepository = new SQLiteProjectRepository(
+    directionDatabase,
+    projectOwnerMembershipWriter,
+    directionChangeActivityObserver,
+    projectWorkspaceAssigner,
+  );
   const intentRepository = new SQLiteIntentRepository(directionDatabase, directionChangeActivityObserver);
   const outcomeRepository = new SQLiteOutcomeRepository(directionDatabase, directionChangeActivityObserver);
   const researchRepository = new SQLiteResearchRepository(directionDatabase, clock, directionChangeActivityObserver);

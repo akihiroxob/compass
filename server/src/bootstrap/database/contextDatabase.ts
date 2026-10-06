@@ -39,3 +39,7 @@ export const asApplicationDatabase = (database: AnyDatabase): Kysely<Database> =
 /** Directionが渡したtransactionを、Accessのtableの型へ変える。同じtransactionのまま書く。 */
 export const asAccessTransaction = (transaction: Transaction<DirectionDatabase>): Transaction<AccessDatabase> =>
   transaction as unknown as Transaction<AccessDatabase>;
+
+/** Directionが渡したtransactionを、Organizationのtableの型へ変える。同じtransactionのまま書く。 */
+export const asOrganizationTransaction = (transaction: Transaction<DirectionDatabase>): Transaction<OrganizationDatabase> =>
+  transaction as unknown as Transaction<OrganizationDatabase>;

@@ -2,7 +2,7 @@
 
 ソースコードと公開入口に基づく現況。移行後の設計は [Architecture Handoff](../compass-codex-architecture-handoff.md) と [ADR 0001](adr/0001-workspace-project-boundary.md) を参照する。
 
-Workspaceは`packages/organization`のモデル・保存・application use case（作成・参照・一覧・更新・archive）だけを実装した。ProjectはまだWorkspaceに所属せず、Web API・MCP・Web UIの入口も無い。archivedのWorkspaceは更新を拒否する。Activityにworkspace scopeが無いため、Workspaceの作成・archiveはActivityを記録しない。現在はProjectがMission等の戦略・Direction・Work・Resourceを兼ね、Direction・Access・Activity・OrchestratorはProject単位で動作する。
+Workspaceは`packages/organization`のモデル・保存・application use case（作成・参照・一覧・更新・archive）を実装した。全Projectは1つのWorkspaceに所属する（`project.workspace_id`）。既存Projectはserver起動時の移行で、新規Projectは作成と同じtransactionで、Projectの名前・Mission・Vision・Principles・Constraints・status・archive列を写したWorkspaceへ所属させる。Workspaceの値は所属時点の写しで、Projectの更新・archiveはWorkspaceへ反映しない（戦略値の正本は引き続きProject）。Web API・MCP・Web UIの入口は無い。archivedのWorkspaceは更新を拒否する。Activityにworkspace scopeが無いため、Workspaceの作成・archiveはActivityを記録しない。現在はProjectがMission等の戦略・Direction・Work・Resourceを兼ね、Direction・Access・Activity・OrchestratorはProject単位で動作する。
 
 ## 実装済み
 

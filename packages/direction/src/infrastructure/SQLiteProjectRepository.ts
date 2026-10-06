@@ -21,11 +21,21 @@ export type ProjectOwnerMembershipWriter = (
   input: { projectId: string; ownerHumanUserId: string; createdAt: number },
 ) => Promise<void>;
 
+/**
+ * 作成したProjectを、同じtransactionで所属Workspace（Organizationが所有するtable）へ割り当てる。
+ * DirectionはWorkspaceのtableを直接扱わず、serverがこの書込を配線する。失敗すればProjectもrollbackされる。
+ */
+export type ProjectWorkspaceAssigner = (
+  transaction: Transaction<DirectionDatabase>,
+  input: { projectId: string },
+) => Promise<void>;
+
 export class SQLiteProjectRepository implements ProjectRepository {
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
     private readonly writeOwnerMembership?: ProjectOwnerMembershipWriter,
     private readonly changeObserver: DirectionChangeObserver | null = null,
+    private readonly assignWorkspace?: ProjectWorkspaceAssigner,
   ) {}
 
   async create(input: CreateProjectInput, ownerHumanUserId?: string): Promise<Project> {
@@ -81,6 +91,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
         if (!this.writeOwnerMembership) throw new Error("ProjectOwnerMembershipWriter is not configured");
         await this.writeOwnerMembership(transaction, { projectId: id, ownerHumanUserId, createdAt: now });
       }
+      await this.assignWorkspace?.(transaction, { projectId: id });
     });
 
     return (await this.findById(id))!;

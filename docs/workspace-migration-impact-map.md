@@ -40,7 +40,11 @@ table再作成の共通確認点:
 | `project_principle` / `project_constraint` | Projectの子 | Workspaceの子へ値を写す。旧tableはDまで残す | S02-02（写す）、S12-01（削除） | 値と並び順（`sort_order`）を保つ |
 | `project_repository_link` / `project_resource` | Projectの子 | 変更なし（所有packageだけ`packages/organization`へ） | S02-03 | Resource IDは`adr_handoff_request.repository_id`・Activityの`project_resource`参照・Storyの`repository_snapshot`から参照されるため変えない |
 
-既存データの変換（S02-02）: `workspace_id`がnullのProjectごとに、Workspace作成（name・mission・vision・principles・constraintsを写す。statusはProjectに合わせる）と`project.workspace_id`の設定を同じtransactionで行う。条件を「`workspace_id`がnull」にすることで再実行・途中失敗後の再起動でも重複しない。archive済みProjectのWorkspaceもarchivedにするかはS02-02で決める（ADRはarchive済みWorkspace・Projectへdispatchしない）。
+既存データの変換（S02-02で実装済み）: serverの`initializeSchema`が起動のたびに`project.workspace_id`を加え（列が無い場合だけ）、`workspace_id`がnullのProjectごとに、Workspace作成と`project.workspace_id`の設定を1件ずつ同じtransactionで行う（`server/src/infrastructure/repository/projectWorkspace.ts`）。条件を「`workspace_id`がnull」にするため、再実行・途中失敗後の再起動でも重複しない。新規ProjectはDirectionの作成transactionで、serverが配線する`ProjectWorkspaceAssigner`が同じ規則で所属させる。
+
+- 写す値: name・mission・vision・principles・constraints（並び順を保つ）、status・archived_at・archive_reason、created_at・updated_at。archive済みProjectのWorkspaceはarchivedにする（1 Workspace : 1 Projectなので、activeのまま残すとarchive済みProjectだけを持つWorkspaceへ新規活動を許してしまう）
+- `project.workspace_id`はDirectionの`ProjectTable`型に含めない。所属を書くのはWorkspaceとProjectを合成するserverで、S02-03でProjectとともにOrganizationへ移す
+- S02-02の時点ではWorkspaceの値は所属時点の写しで、Projectの更新・archiveはWorkspaceへ反映しない。戦略値の正本はS02-03の読書き切替まではProjectのため、S02-03は切替時にProjectの現在値をWorkspaceへ写し直す（またはProject更新との同期を先に入れる）ことを確認する
 
 ### Direction（Workspace scopeへ。S03）
 
@@ -228,7 +232,7 @@ S07-01以降に作られるDirectionのActivityはProject Activityの一覧（`l
 
 | 段階 | 互換期間の扱い | rollbackの確認点 |
 | --- | --- | --- |
-| S02-02（Workspace追加・`workspace_id`補完） | 既存列を維持し、読取は従来どおりProjectでも動く | 追加table・nullable列だけなので、旧serverで同じDBを起動しても動作することを確認する。適用前にDB fileを複製し、複製から戻せることを手順に残す |
+| S02-02（Workspace追加・`workspace_id`補完） | 既存列を維持し、読取は従来どおりProjectでも動く | 追加table・nullable列だけなので、旧serverで同じDBを起動しても動作する（`server/tests/projectWorkspaceMigration.test.ts`）。旧serverが作ったProjectは次の起動で所属を補う。適用前にDB fileを複製し、戻すときは複製へ戻す（README） |
 | S02-03・S03-01〜03（読取→書込の切替） | Direction tableの`project_id`は値を残したまま`workspace_id`を正とする | 切替後に作られた行は旧serverから見えない・矛盾するため、戻す場合はDB fileの複製へ戻す。切替前後で既存ID・件数が一致することをテストする |
 | S03-04・S06・S08（公開契約の切替） | Agent・Orchestrator・Ralphの設定と同時に切り替える。`projectId`をWorkspace IDとして受け付ける別名を作らない | 旧入力が明示的なエラーになることをテストし、黙って別scopeで動かない |
 | S05-01・S06-03・S07-01（table再作成） | 再作成は1 tableずつ別のTaskで行う。S07-01はActivityの全書込経路が正しいscopeとIDを渡す変更（Directionのworkspace scopeへの切替を含む）と同時に行い、S03-01の通知切替より前に完了させる | 再作成前後で行数・主キー・cursor・FK違反0件を比較するテストを置く。S07-01は複数Project所属WorkspaceでWork・Direction・Project archiveの状態変更が移行後schemaでrollbackせず、scope・IDの組合せが正しいことを確認する |

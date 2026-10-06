@@ -31,7 +31,7 @@ COMPASS_AUTH_MODE=trusted-local COMPASS_INITIAL_OWNER_EMAIL=you@example.com npm 
 
 ブラウザで`/login`を開き、初期ownerのemailでログインします。trusted-localはloopback限定の開発用で、emailの本人確認を行いません。`NODE_ENV=production`では起動を拒否します。
 
-設定項目は [.env.example](.env.example) を参照してください。起動ディレクトリに`.env`があればserverが読み込みます。`.env.example`自体は読み込みません。`PORT`は`.env`読込前に確定するため、シェルの環境変数として渡してください。既定portは51800、`COMPASS_DB_PATH`はSQLiteの保存先、`COMPASS_CLAIM_TTL_MS`はClaim有効期間（既定30分）です。
+設定項目は [.env.example](.env.example) を参照してください。起動ディレクトリに`.env`があればserverが読み込みます。`.env.example`自体は読み込みません。`PORT`は`.env`読込前に確定するため、シェルの環境変数として渡してください。既定portは51800、`COMPASS_DB_PATH`はSQLiteの保存先（schemaの追加と既存データの非破壊な移行は起動時に自動で行います。更新前のserverへ戻す場合に備え、更新前にDB fileを複製してください。戻すときはserverを止めて複製を`COMPASS_DB_PATH`へ戻します）、`COMPASS_CLAIM_TTL_MS`はClaim有効期間（既定30分）です。
 
 portが使用中なら既存プロセスを停止せず、同じ認証設定に`PORT=52000`等を加えて起動します。開発用の`npm run dev`はserverとViteを起動します。Viteの画面を使う場合は、そのoriginを`COMPASS_PUBLIC_ORIGIN`へ指定してください。
 

@@ -14,7 +14,11 @@ const tableNames = async (database: ReturnType<typeof createDatabase>) =>
   (await sql<{ name: string }>`select name from sqlite_master where type = 'table' order by name`.execute(database)).rows
     .map(({ name }) => name);
 
-test("Workspace導入前のDBにserverのschema初期化を適用すると、既存Projectを変えずにWorkspaceのtableを加える", async () => {
+/** `workspace_id`はDirectionの型に無いため、serverが加えた列も含めて読む。 */
+const projectRowOf = async (database: ReturnType<typeof createDatabase>, projectId: string) =>
+  (await sql<Record<string, unknown>>`select * from project where id = ${projectId}`.execute(database)).rows[0];
+
+test("Workspace導入前のDBにserverのschema初期化を適用すると、Workspaceのtableを加え既存Projectを1つのWorkspaceへ所属させる", async () => {
   const directory = await mkdtemp(join(tmpdir(), "compass-workspace-schema-"));
   const path = join(directory, "test.db");
 
@@ -32,8 +36,9 @@ test("Workspace導入前のDBにserverのschema初期化を適用すると、既
   await initializeSchema(upgraded);
   const tables = await tableNames(upgraded);
   for (const table of ["workspace", "workspace_principle", "workspace_constraint"]) assert.ok(tables.includes(table), table);
-  assert.deepEqual(await upgraded.selectFrom("project").selectAll().where("id", "=", project.id).executeTakeFirst(), projectRow);
-  assert.deepEqual(await upgraded.selectFrom("workspace").selectAll().execute(), []);
+  const { workspace_id: workspaceId, ...upgradedRow } = await projectRowOf(upgraded, project.id);
+  assert.deepEqual(upgradedRow, projectRow);
+  assert.deepEqual((await upgraded.selectFrom("workspace").select("id").execute()).map(({ id }) => id), [workspaceId]);
 
   const workspace = await new CreateWorkspaceUseCase(new SQLiteWorkspaceRepository(asOrganizationDatabase(upgraded))).execute({
     name: "Compass", mission: "Make direction explicit", principles: ["Trace decisions"],
@@ -47,8 +52,8 @@ test("Workspace導入前のDBにserverのschema初期化を適用すると、既
     await new GetWorkspaceUseCase(new SQLiteWorkspaceRepository(asOrganizationDatabase(restarted))).execute(workspace.id),
     workspace,
   );
-  assert.deepEqual(await restarted.selectFrom("project").selectAll().where("id", "=", project.id).executeTakeFirst(), projectRow);
-  assert.equal((await restarted.selectFrom("workspace").select("id").execute()).length, 1);
+  assert.deepEqual(await projectRowOf(restarted, project.id), { ...projectRow, workspace_id: workspaceId });
+  assert.equal((await restarted.selectFrom("workspace").select("id").execute()).length, 2);
   assert.deepEqual((await sql`pragma foreign_key_check`.execute(restarted)).rows, []);
   await restarted.destroy();
   await rm(directory, { recursive: true });

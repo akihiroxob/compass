@@ -8,6 +8,7 @@ import type {
   WorkspaceRepository,
 } from "../domain/WorkspaceRepository.ts";
 import type { OrganizationDatabase } from "./schema.ts";
+import { writeWorkspace } from "./writeWorkspace.ts";
 
 type OrderedTextTable = "workspace_principle" | "workspace_constraint";
 
@@ -18,24 +19,17 @@ export class SQLiteWorkspaceRepository implements WorkspaceRepository {
     const id = crypto.randomUUID();
     const now = Date.now();
 
-    await this.database.transaction().execute(async (transaction) => {
-      await transaction
-        .insertInto("workspace")
-        .values({
-          id,
-          name: input.name,
-          mission: input.mission,
-          vision: input.vision,
-          created_at: now,
-          updated_at: now,
-          status: "active",
-          archived_at: null,
-          archive_reason: null,
-        })
-        .execute();
-      await this.replaceOrderedValues(transaction, "workspace_principle", id, input.principles);
-      await this.replaceOrderedValues(transaction, "workspace_constraint", id, input.constraints);
-    });
+    await this.database.transaction().execute((transaction) =>
+      writeWorkspace(transaction, {
+        id,
+        ...input,
+        createdAt: now,
+        updatedAt: now,
+        status: "active",
+        archivedAt: null,
+        archiveReason: null,
+      }),
+    );
 
     return (await this.findById(id))!;
   }

@@ -11,12 +11,21 @@ import {
   asOrganizationDatabase,
   asWorkDatabase,
 } from "./contextDatabase.ts";
+import {
+  addProjectWorkspaceColumn,
+  assignWorkspacesToUnassignedProjects,
+} from "../../infrastructure/repository/projectWorkspace.ts";
 import type { Database } from "./schema.ts";
 
-/** Organizationを先に作る。他Contextのtableが`workspace`を参照する列は移行の後続Taskで加える。 */
+/**
+ * Organizationを先に作る。Direction（`project`）の後に`project.workspace_id`を加え、未所属の既存Projectを
+ * それぞれのWorkspaceへ所属させる。Direction各tableの`workspace_id`は移行の後続Taskで加える。
+ */
 export const initializeSchema = async (database: Kysely<Database>): Promise<void> => {
   await initializeOrganizationSchema(asOrganizationDatabase(database));
   await initializeDirectionSchema(asDirectionDatabase(database));
+  await addProjectWorkspaceColumn(database);
+  await assignWorkspacesToUnassignedProjects(database);
   await initializeWorkSchema(asWorkDatabase(database));
   await initializeAccessSchema(asAccessDatabase(database));
   await initializeActivitySchema(asActivityDatabase(database));

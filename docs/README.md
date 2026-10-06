@@ -7,7 +7,7 @@
 - [Direction・Workの境界](lv6-unification-design.md)
 - [Research・Decision・ADR](research-decision-adr-design.md)
 
-統合設計と実装状況は別に扱う。設計の確定は実装完了を意味しない。Workspaceは設計を確定したが、実装は`packages/organization`のモデル・保存・use caseだけで公開入口とProjectの所属は未接続。現在の実装はProjectがDirectionも兼ねる。下記「現在の実装と利用方法」の各文書は現行のProject単位の動作を説明する。
+統合設計と実装状況は別に扱う。設計の確定は実装完了を意味しない。Workspaceは設計を確定したが、実装は`packages/organization`のモデル・保存・use caseと、既存・新規ProjectのWorkspaceへの所属（`project.workspace_id`）まで。公開入口は未接続で、戦略値の読書きは引き続きProjectを使う。現在の実装はProjectがDirectionも兼ねる。下記「現在の実装と利用方法」の各文書は現行のProject単位の動作を説明する。
 
 ## 現在の実装と利用方法
 
