@@ -85,6 +85,21 @@ Story ID・Task ID・Change Logのcursorは変換しない。回帰はS12-02で�
 | --- | --- | --- | --- | --- |
 | `activity` | `scope in ('project', 'system')`のCHECK、`activity_scope_project_check`、`project_id` FK、`cursor` autoincrement、`activity_project_cursor_idx` | `workspace_id`を追加し、scopeに`workspace`を加えてADRの組合せ表をCHECKで強制（table再作成） | S07-01 | 既存のproject行へ`workspace_id`を補い、system行はnullのまま。cursor・id・`dedupe_key`・`corrects_activity_id`を保つ。過去行の再分類はしない |
 
+project scopeのActivityを書く経路は次の3つで、いずれも現行は`projectId`だけを渡す。project行に`workspace_id`必須のCHECKを入れると、これらが`workspace_id`を渡さない限り追記が失敗する。canonical Activityは状態変更と同じtransactionで追記するため、失敗は状態変更そのものを巻き戻す（Story / Taskの起票・完了・レビュー・受入・差戻し・取消、Direction操作、Project archiveが失敗する）。
+
+| 経路 | 現行の書込 | 同じtransactionの内容 |
+| --- | --- | --- |
+| Work由来のcanonical Activity | `server/src/infrastructure/repository/contextAdapters.ts`の`workChangeActivityObserver`がChange（`project_id`のみ）を`WorkChangeFact`へ変換し、`packages/activity/src/application/canonicalWorkActivity.ts`の`recordCanonicalWorkActivity`が`scope: project`・`projectId`でappend | `packages/work/src/infrastructure/KyselyWorkStore.ts`のChange Log追記直後に`changeObserver`を呼ぶ |
+| Direction由来のcanonical Activity | `contextAdapters.ts`の`directionChangeActivityObserver`→`canonicalDirectionActivity.ts`の`recordCanonicalDirectionActivity` | Directionの状態変更（`project_archived`を含む） |
+| 明示記録（`record_activity`・Web API） | `packages/activity/src/application/ActivityUseCases.ts`の`RecordActivityUseCase`が`ActivityProjectReader`（`contextAdapters.ts`の`activityProjectReader`）でProject状態を読み、`scope: project`でappend | 記録のみ |
+
+そのためS07-01では、CHECKの強制と同じ変更で、project scopeの全経路がProjectの所属Workspace IDを渡すようにする。
+
+- Workは`workspace_id`を持たない（Project scopeのまま）。Change Logや`WorkChangeNotice`へ`workspace_id`を足さず、serverの`workChangeActivityObserver`が同じexecutor（同じtransaction）でorganizationのProject readerから所属Workspace IDを解決して`WorkChangeFact`に渡す。`directionChangeActivityObserver`も同様に解決する。Activityはprojectのtableを直接読まない現行の境界を保つ
+- `RecordActivityUseCase`は`ActivityProjectState`に所属Workspace IDを加えて受け取り、appendに渡す。`project_archived`等のOrganizationの記録もproject scopeのままWorkspace IDを持つ。Workspace scopeへ移すDirectionのcanonical ActivityはS07-02
+- `workspace_id`を解決できないProject（S02-02の補完漏れ）は、CHECK違反として状態変更ごと失敗させる。黙ってsystem scopeやnullへ落とさない。S02-02の補完がS07-01の前提であることを着手時に確認する
+- 回帰: `server/tests/activity.test.ts`の「Workの重要な状態変更は同じtransactionでcanonical Activityになり、再送・Claim操作では増えない」「Directionの重要な状態変更は同じtransactionで操作者付きのcanonical Activityになり…」「Agentはsummary必須…」を移行後schemaで実行し、生成された行の`workspace_id`がProjectの所属Workspaceと一致することを加える。`server/tests/execution*.test.ts`のStory / Task操作が移行後schemaで成功することも確認する
+
 ## applicationとpackage
 
 | 対象（現行ファイル） | project依存 | 変更先 | Task |
@@ -105,7 +120,10 @@ Story ID・Task ID・Change Logのcursorは変換しない。回帰はS12-02で�
 | `application/HumanProjectAuthorizationService.ts`・`HumanProjectUseCases.ts`・`ProjectMembershipUseCases.ts` | HumanのDirection操作もProject Membershipで認可 | Direction・Workspace管理はWorkspaceMembership、WorkはProjectMembership | S06-01、S06-04 |
 | `infrastructure/SQLiteHumanAccountRepository.ts`（`adoptOrphanProjects`） | owner不在Projectをplatform ownerへ | Workspaceにも同じ扱いが必要かをS06-01で判断 | S06-01 |
 | `packages/activity/src/domain/Activity.ts`・`application/ActivityUseCases.ts`・`activitySchema.ts`・`port/ActivityProjectReader.ts`・`infrastructure/KyselyActivityStore.ts` | system / project scope | workspace scopeと`workspaceId`を追加 | S07-01 |
-| `application/canonicalDirectionActivity.ts` | DirectionのActivityをproject scopeで記録 | workspace scopeへ（`project_archived`等のOrganizationの記録はproject scopeのまま） | S07-02 |
+| `application/canonicalWorkActivity.ts`（`WorkChangeFact`・`recordCanonicalWorkActivity`） | Workの状態変更を`projectId`だけでproject scopeへappend | `WorkChangeFact`に所属Workspace IDを加え、project scopeのまま`workspaceId`を渡す | S07-01 |
+| `application/canonicalDirectionActivity.ts` | DirectionのActivityをproject scopeで記録 | S07-01でproject scopeのまま`workspaceId`を渡す。S07-02でworkspace scopeへ（`project_archived`等のOrganizationの記録はproject scopeのまま） | S07-01、S07-02 |
+| `application/ActivityUseCases.ts`の`RecordActivityUseCase`、`port/ActivityProjectReader.ts`の`ActivityProjectState` | `record_activity`を`projectId`だけでproject scopeへappend | `ActivityProjectState`に所属Workspace IDを加え、appendへ渡す。workspace scopeの記録はS07-02 | S07-01、S07-02 |
+| `server/src/infrastructure/repository/contextAdapters.ts`の`workChangeActivityObserver`・`directionChangeActivityObserver`・`activityProjectReader` | ChangeやDirectionの通知から`project_id`だけを渡す | 同じexecutorでorganizationのProject readerから所属Workspace IDを解決して渡す（Work・Change Logへ`workspace_id`を足さない） | S07-01 |
 | `server/src/application/agentContext/GetRoleContextUseCase.ts`・`AgentContextService.ts` | `get_role_context({ projectId, role })`、Project全体とProject Activity | Workspace Role向けとProject Role向けのContextを分ける | S07-03、S07-04 |
 | `server/src/infrastructure/repository/contextAdapters.ts`、`bootstrap/createApplicationServices.ts`・`database/*` | Context間のreader配線とschema合成 | organizationのschema・readerを合成に加える | S02-01〜03 |
 
@@ -173,7 +191,7 @@ Story ID・Task ID・Change Logのcursorは変換しない。回帰はS12-02で�
 | S02-02（Workspace追加・`workspace_id`補完） | 既存列を維持し、読取は従来どおりProjectでも動く | 追加table・nullable列だけなので、旧serverで同じDBを起動しても動作することを確認する。適用前にDB fileを複製し、複製から戻せることを手順に残す |
 | S02-03・S03-01〜03（読取→書込の切替） | Direction tableの`project_id`は値を残したまま`workspace_id`を正とする | 切替後に作られた行は旧serverから見えない・矛盾するため、戻す場合はDB fileの複製へ戻す。切替前後で既存ID・件数が一致することをテストする |
 | S03-04・S06・S08（公開契約の切替） | Agent・Orchestrator・Ralphの設定と同時に切り替える。`projectId`をWorkspace IDとして受け付ける別名を作らない | 旧入力が明示的なエラーになることをテストし、黙って別scopeで動かない |
-| S05-01・S06-03・S07-01（table再作成） | 再作成は1 tableずつ別のTaskで行う | 再作成前後で行数・主キー・cursor・FK違反0件を比較するテストを置く |
+| S05-01・S06-03・S07-01（table再作成） | 再作成は1 tableずつ別のTaskで行う。S07-01はproject scopeのActivityの全書込経路が`workspace_id`を渡す変更と同時に行う | 再作成前後で行数・主キー・cursor・FK違反0件を比較するテストを置く。S07-01はWork・Directionの状態変更が移行後schemaでrollbackしないことを確認する |
 | S12-01（旧列・旧Grantの削除） | 利用実態の確認後に行う | 一度にすべて削除しない。削除はDB fileの複製を取ってから行う |
 
 ## 回帰の根拠になる既存テスト
@@ -185,7 +203,7 @@ Story ID・Task ID・Change Logのcursorは変換しない。回帰はS12-02で�
 | Execution還流・評価 | `executionEvidence.test.ts`・`executionHandoff.test.ts`・`executionPlan.test.ts`・`outcomeEvaluation.test.ts`・`evaluationReplan.test.ts`・`outcomeConfirmed.test.ts`・`runtimeEvents.test.ts`・`lv6ClosedLoop.test.ts` | S04、S05 |
 | Work | `packages/work/tests/taskCoordination.test.ts`、`server/tests/execution*.test.ts`（Mcp・Coordination・Operator・WebRead・Ui・Boundary） | S04-03、S12-02 |
 | Access | `projectGrant*.test.ts`・`grantForm.test.ts`・`activeRole.test.ts`・`accessCredential.test.ts`・`credentialUi.test.ts`・`human*.test.ts`・`membershipUi.test.ts`・`remoteMcpHumanCommands.test.ts` | S06 |
-| Activity・Role Context | `packages/activity/tests/activityStore.test.ts`、`server/tests/activity.test.ts`・`activityUi.test.ts`・`agentContext.test.ts`・`instruction.test.ts` | S07 |
+| Activity・Role Context | `packages/activity/tests/activityStore.test.ts`、`server/tests/activity.test.ts`（Work・Directionの状態変更と同じtransactionのcanonical Activity、`record_activity`）・`activityUi.test.ts`・`agentContext.test.ts`・`instruction.test.ts` | S07 |
 | Orchestrator・Ralph | `server/tests/orchestrationState.test.ts`、`orchestrator/tests/*.test.ts`、`ralph/tests/ralph.test.ts` | S08 |
 | 入口全体 | `server/tests/app.test.ts`・`frontendApi.test.ts`・`executionBoundary.test.ts`（package間のDB直接操作の検査） | 全Story |
 
