@@ -6,7 +6,7 @@ HumanはGoogle OIDCで認証し、CompassのWeb SessionでWeb UIを操作する�
 
 | 主体 | 資格情報 | 認可 |
 | --- | --- | --- |
-| Human | Web Session Cookie | Project Membership |
+| Human | Web Session Cookie | Project Membership / Workspace Membership（対象scopeごと） |
 | Agent | Agent CredentialのBearer | Project Role Grant |
 | Runtime | Runtime CredentialのBearer | Project・scope |
 
@@ -60,13 +60,16 @@ Role順序はowner > administrator > editor > viewer。
 | Project更新、Agent Grant、Credential管理 | administrator |
 | archive、招待、Membership変更・取消 | owner |
 
-Workspace Membership（Project Membershipとは別。相互に継承しない）の権限表。入口（Web API・UI）は未接続。
+Workspace MembershipはProject Membershipとは別で、相互に継承しない。Human向けの参照Web API（`GET /api/workspaces`・`GET /api/workspaces/:workspaceId`・`GET /api/workspaces/:workspaceId/projects`）はWeb SessionとWorkspace Membershipによる認可まで接続済み。所属Project一覧ではpurpose・Repository・Resourceを参照できるが、Project詳細・Workの参照には別途Project Membershipが必要。Projectの応答は所属`workspaceId`を含む。Workspace管理操作（作成・更新・archive・既存WorkspaceへのProject作成・member管理）の入口、Workspace MCP、Web UIは未接続。
+
+以下はapplication層のWorkspace権限表であり、参照以外のWeb API接続は後続Taskで行う。
 
 | Workspace操作 | 最低Role |
 | --- | --- |
 | Workspace作成 | ログイン済み。作成者がownerになる |
 | Workspace一覧 | 有効なWorkspace Membershipを持つWorkspaceのみ |
-| Workspace・Member参照 | viewer |
+| Workspace・所属Project一覧参照 | viewer |
+| Member参照（入口未接続） | viewer |
 | Direction変更（Workspace scope化後に接続） | editor |
 | Mission等の更新、既存WorkspaceへのProject作成（作成者がProjectのowner） | administrator |
 | archive、Member追加（所属ProjectのMemberに限る）・Role変更・取消 | owner |

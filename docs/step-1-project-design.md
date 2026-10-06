@@ -1,6 +1,6 @@
 # Projectの現行仕様
 
-ProjectはOrganization（`packages/organization`）が所有する実行境界で、1つのWorkspaceに所属する（[ADR 0001](adr/0001-workspace-project-boundary.md)）。型は [Project.ts](../packages/organization/src/domain/Project.ts)、入力規則は [projectSchema.ts](../packages/organization/src/application/projectSchema.ts) を参照する。Mission / Vision / Principles / Constraintsの正本は所属Workspaceで、Projectの入出力（`ProjectDetail`）は互換のため所属Workspaceの値を合成して同じ項目で読み書きする。所属Workspace IDとWorkspaceの公開入口は未接続。
+ProjectはOrganization（`packages/organization`）が所有する実行境界で、1つのWorkspaceに所属する（[ADR 0001](adr/0001-workspace-project-boundary.md)）。型は [Project.ts](../packages/organization/src/domain/Project.ts)、入力規則は [projectSchema.ts](../packages/organization/src/application/projectSchema.ts) を参照する。Mission / Vision / Principles / Constraintsの正本は所属Workspaceで、Projectの入出力（`ProjectDetail`）は互換のため所属Workspaceの値を合成して同じ項目で読み書きする。Projectの参照（Web API・MCP・Role Context）は所属`workspaceId`を返す。Workspaceの公開入口はHuman向けの参照Web API（一覧・詳細・所属Project一覧）まで接続済みで、Workspace管理操作・Workspace MCP・Web UIは未接続。
 
 ## 項目
 
@@ -14,6 +14,7 @@ ProjectはOrganization（`packages/organization`）が所有する実行境界�
 | repositories | 最大20件、各id・name・http(s) URL |
 | resources | 最大50件、各id・name・http(s) URL・任意のkind |
 | status | `active` / `archived` |
+| workspaceId | 所属Workspace ID。serverが管理し、Projectの応答に含める |
 | archivedAt / archiveReason | archive日時・理由。active時はnull |
 | id / createdAt / updatedAt | serverが管理 |
 
