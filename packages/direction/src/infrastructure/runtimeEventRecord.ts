@@ -12,7 +12,7 @@ export const recordRuntimeEvent = async (
   transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
   event: {
     type: RuntimeEventType;
-    projectId: string;
+    workspaceId: string;
     intentId: string | null;
     researchRequestId: string;
     correlationId: string;
@@ -26,7 +26,7 @@ export const recordRuntimeEvent = async (
       id: crypto.randomUUID(),
       event_version: runtimeEventVersion,
       event_type: event.type,
-      project_id: event.projectId,
+      workspace_id: event.workspaceId,
       intent_id: event.intentId,
       research_request_id: event.researchRequestId,
       correlation_id: event.correlationId,
@@ -43,7 +43,7 @@ export const recordRuntimeEvent = async (
  */
 export const recordOutcomeConfirmedEvent = async (
   transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
-  outcome: { projectId: string; intentId: string; outcomeId: string; occurredAt: number },
+  outcome: { workspaceId: string; intentId: string; outcomeId: string; occurredAt: number },
 ): Promise<void> => {
   await transaction
     .insertInto("runtime_event")
@@ -51,7 +51,7 @@ export const recordOutcomeConfirmedEvent = async (
       id: crypto.randomUUID(),
       event_version: runtimeEventVersion,
       event_type: "outcome_confirmed",
-      project_id: outcome.projectId,
+      workspace_id: outcome.workspaceId,
       intent_id: outcome.intentId,
       research_request_id: null,
       outcome_id: outcome.outcomeId,
@@ -70,7 +70,7 @@ export const recordOutcomeConfirmedEvent = async (
  */
 export const recordOutcomeEvaluatedEvent = async (
   transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
-  evaluation: { projectId: string; intentId: string; outcomeId: string; evaluationId: string; occurredAt: number },
+  evaluation: { workspaceId: string; intentId: string; outcomeId: string; evaluationId: string; occurredAt: number },
 ): Promise<void> => {
   await transaction
     .insertInto("runtime_event")
@@ -78,7 +78,7 @@ export const recordOutcomeEvaluatedEvent = async (
       id: crypto.randomUUID(),
       event_version: runtimeEventVersion,
       event_type: "outcome_evaluated",
-      project_id: evaluation.projectId,
+      workspace_id: evaluation.workspaceId,
       intent_id: evaluation.intentId,
       research_request_id: null,
       outcome_id: evaluation.outcomeId,

@@ -117,5 +117,8 @@ export const initializeOrganizationSchema = async (database: Kysely<Organization
       .execute();
   }
   await initializeProjectSchema(database);
+  // 他ContextがProjectの所属Workspaceを複合FKで参照するための親キー。
+  await database.schema.createIndex("project_id_workspace_idx").ifNotExists().unique()
+    .on("project").columns(["id", "workspace_id"]).execute();
   await migrateProjectStrategyToWorkspaces(database);
 };

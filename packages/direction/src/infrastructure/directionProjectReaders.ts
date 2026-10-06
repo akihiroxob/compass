@@ -7,8 +7,6 @@ import type { DirectionDatabase } from "./schema.ts";
  */
 export type DirectionProjectReaders = (executor: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>) => {
   findWorkspaceId(projectId: string): Promise<string | null>;
-  /** 移行中のProject Direction経路。共有Workspaceは拒否する。 */
-  findDirectionWorkspaceId(projectId: string): Promise<string>;
   /** Projectがarchivedか。Projectが無い場合はfalse（存在の扱いは各操作に任せる）。 */
   isArchived(projectId: string): Promise<boolean>;
   /** Projectに登録されたRepository。他Projectのidは見つからない扱い。 */

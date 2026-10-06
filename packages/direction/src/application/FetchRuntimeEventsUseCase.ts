@@ -1,9 +1,8 @@
 import type { RuntimeEventFetch } from "../domain/RuntimeEventDelivery.ts";
-import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
+import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import type { RuntimeEventRepository } from "../domain/RuntimeEventRepository.ts";
 import { parseRuntimeEventQuery } from "./runtimeEventSchema.ts";
 import { NotFoundError } from "@compass/shared";
-import type { DirectionRuntimeAuthorizationPort } from "./port/DirectionAuthorizationPort.ts";
 
 /**
  * 外部Runtimeが、自分（consumer）にとって未処理のイベントをcursor付きで取得する。
@@ -12,25 +11,23 @@ import type { DirectionRuntimeAuthorizationPort } from "./port/DirectionAuthoriz
  * `nextCursor`は同じ周回のページ送り用で、再起動後の再開には未確定イベントを追い越さない`resumeCursor`を使う。
  * Agentの起動・polling間隔・backoffはRuntimeの責務で、Compassは持たない。
  */
-export class FetchRuntimeEventsUseCase<TCaller> {
+export class FetchRuntimeEventsUseCase {
   constructor(
-    private readonly authorization: DirectionRuntimeAuthorizationPort<TCaller>,
-    private readonly projectReader: DirectionProjectReader,
+    private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly runtimeEventRepository: RuntimeEventRepository,
   ) {}
 
-  async execute(caller: TCaller, projectId: string, input: unknown = {}): Promise<RuntimeEventFetch> {
-    // 認可はProjectの存在確認より先。Grantを持たないPrincipalへProjectの存在有無を漏らさない。
-    const consumerId = await this.authorization.requireScope(caller, projectId, "runtime:event:read");
+  async execute(consumerId: string, workspaceId: string, input: unknown = {}): Promise<RuntimeEventFetch> {
+    // 公開入口で認可済みの主体・scopeを受け取る。
     const query = parseRuntimeEventQuery(input);
-    if (!(await this.projectReader.exists(projectId))) {
-      throw new NotFoundError(`Project ${projectId} was not found`);
+    if (!(await this.workspaceReader.findById(workspaceId))) {
+      throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     }
-    const events = await this.runtimeEventRepository.findPending(projectId, consumerId, query.afterCursor, query.limit);
+    const events = await this.runtimeEventRepository.findPending(workspaceId, consumerId, query.afterCursor, query.limit);
     return {
       events,
       nextCursor: events.at(-1)?.cursor ?? query.afterCursor,
-      resumeCursor: await this.runtimeEventRepository.findResumeCursor(projectId, consumerId),
+      resumeCursor: await this.runtimeEventRepository.findResumeCursor(workspaceId, consumerId),
     };
   }
 }

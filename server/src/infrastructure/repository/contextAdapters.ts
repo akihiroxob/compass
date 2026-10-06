@@ -40,7 +40,7 @@ import {
   type ProjectChangeObserver,
   type ProjectRepositoryReferenceFinder,
 } from "@compass/organization";
-import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
+import { ConflictError, ValidationError } from "@compass/shared";
 import type { WorkChangeObserver, WorkExternalReaders } from "@compass/work";
 import {
   asAccessDatabase,
@@ -99,14 +99,6 @@ export const directionProjectReaders: DirectionProjectReaders = (executor) => {
     findRepository: (projectId, repositoryId) => findProjectRepository(database, projectId, repositoryId),
     findConstraints: (projectId) => findProjectWorkspaceConstraints(database, projectId),
     findWorkspaceId: (projectId) => findProjectWorkspaceId(database, projectId),
-    findDirectionWorkspaceId: async (projectId) => {
-      const workspaceId = await findProjectWorkspaceId(database, projectId);
-      if (!workspaceId) throw new NotFoundError(`Project ${projectId} was not found`);
-      if ((await listWorkspaceProjectIds(database, workspaceId)).length !== 1) {
-        throw new ConflictError("Workspace Direction requires the Workspace entry point", { reason: "workspace_direction_required" });
-      }
-      return workspaceId;
-    },
   };
 };
 
@@ -171,8 +163,8 @@ export const directionChangeActivityObserver: DirectionChangeObserver = (executo
     const actor = currentActivityActor();
     await recordCanonicalDirectionActivity(store, {
       ...notice,
-      // 切替済みの通知はWorkspace IDを直接使い、未切替の通知だけProjectから解決する。
-      workspaceId: notice.workspaceId !== undefined ? notice.workspaceId : await activityWorkspaceId(executor, notice.projectId),
+      // Directionが所有するWorkspace IDを直接使う。
+      workspaceId: notice.workspaceId,
       principalId: actor?.principalId ?? notice.principalId ?? systemActivityActor.principalId,
       role: actor?.role ?? systemActivityActor.role,
     });
@@ -180,33 +172,30 @@ export const directionChangeActivityObserver: DirectionChangeObserver = (executo
 };
 
 /**
- * Directionの状態変更を同じtransactionでActivityと移行中のRuntimeへ投影する。
- * S03-03まで、単一ProjectのWorkspaceだけ既存Project eventへ接続する。
+ * Directionの状態変更を同じtransactionでWorkspace ActivityとWorkspace Runtime eventへ投影する。
  */
 export const directionChangeObserver: DirectionChangeObserver = (executor) => {
   const activity = directionChangeActivityObserver(executor);
   return async (notice) => {
     await activity(notice);
-    if ((notice.type === "research_requested" || notice.type === "research_closed") && notice.workspaceId !== undefined) {
-      const projectIds = await listWorkspaceProjectIds(asOrganizationDatabase(executor), notice.workspaceId);
+    if ((notice.type === "research_requested" || notice.type === "research_closed")) {
       const request = await asDirectionDatabase(executor).selectFrom("research_request").selectAll().where("id", "=", notice.recordId).executeTakeFirstOrThrow();
       const intent = request.origin_intent_id ? await asDirectionDatabase(executor).selectFrom("intent").select("status").where("id", "=", request.origin_intent_id).executeTakeFirst() : null;
-      if (projectIds.length === 1 && (notice.type === "research_requested" || (notice.result !== "cancelled" && intent?.status === "active"))) {
+      if (notice.type === "research_requested" || (notice.result !== "cancelled" && intent?.status === "active")) {
         await recordRuntimeEvent(executor, {
           type: notice.type === "research_requested" ? "research_requested" : "research_completed",
-          projectId: projectIds[0]!, intentId: request.origin_intent_id, researchRequestId: request.id,
+          workspaceId: notice.workspaceId, intentId: request.origin_intent_id, researchRequestId: request.id,
           correlationId: request.correlation_id,
           conclusion: notice.type === "research_requested" ? null : request.status as "completed" | "insufficient" | "not_needed",
           occurredAt: notice.occurredAt,
         });
       }
     }
-    // S03-03までのRuntime投影。単一Projectだけ旧Project eventへ接続し、WorkspaceのみのOutcomeにProjectを捏造しない。
-    if (notice.type === "outcome_confirmed" && notice.workspaceId !== undefined) {
-      const projectIds = await listWorkspaceProjectIds(asOrganizationDatabase(executor), notice.workspaceId);
+    // Outcome確定はProjectの数によらずWorkspace eventとして保存する。
+    if (notice.type === "outcome_confirmed") {
       const intentId = notice.refs.find(ref => ref.kind === "intent")?.id;
-      if (projectIds.length === 1 && intentId) {
-        await recordOutcomeConfirmedEvent(executor, { projectId: projectIds[0]!, intentId, outcomeId: notice.recordId, occurredAt: notice.occurredAt });
+      if (intentId) {
+        await recordOutcomeConfirmedEvent(executor, { workspaceId: notice.workspaceId, intentId, outcomeId: notice.recordId, occurredAt: notice.occurredAt });
       }
     }
   };

@@ -428,9 +428,7 @@ const createRuntimeEventTable = (database: Kysely<DirectionDatabase>, name: stri
         .notNull()
         .check(sql`event_type in ('research_requested', 'research_completed', 'outcome_confirmed', 'outcome_evaluated')`),
     )
-    .addColumn("project_id", "text", (column) =>
-      column.notNull().references("project.id").onDelete("cascade"),
-    )
+    .addColumn("workspace_id", "text", column => column.notNull().references("workspace.id").onDelete("cascade"))
     .addColumn("intent_id", "text", (column) => column.references("intent.id").onDelete("cascade"))
     .addColumn("research_request_id", "text", (column) =>
       column.references("research_request.id").onDelete("cascade"),
@@ -442,6 +440,11 @@ const createRuntimeEventTable = (database: Kysely<DirectionDatabase>, name: stri
       column.check(sql`conclusion is null or conclusion in ('completed', 'insufficient', 'not_needed')`),
     )
     .addColumn("created_at", "integer", (column) => column.notNull())
+    .addUniqueConstraint("runtime_event_sequence_workspace_unique", ["sequence", "workspace_id"])
+    .addForeignKeyConstraint("runtime_event_intent_workspace_fk", ["intent_id", "workspace_id"], "intent", ["id", "workspace_id"])
+    .addForeignKeyConstraint("runtime_event_request_workspace_fk", ["research_request_id", "workspace_id"], "research_request", ["id", "workspace_id"])
+    .addForeignKeyConstraint("runtime_event_outcome_workspace_fk", ["outcome_id", "workspace_id"], "outcome", ["id", "workspace_id"])
+    .addForeignKeyConstraint("runtime_event_evaluation_workspace_fk", ["evaluation_id", "workspace_id"], "outcome_evaluation", ["id", "workspace_id"])
     .addCheckConstraint(
       "runtime_event_conclusion_matches_type",
       sql`(event_type = 'research_completed') = (conclusion is not null)`,
@@ -454,60 +457,7 @@ const createRuntimeEventTable = (database: Kysely<DirectionDatabase>, name: stri
     )
     .execute();
 
-/**
- * `runtime_event`の`event_type`のCHECK・NOT NULLは`ALTER`で変更できないため、定義が古いDBはSQLite公式の手順
- * （新tableを作って写し、旧tableをdropしてrenameする）で作り直す。対象はTask 33以前（CHECKに`outcome_confirmed`が無く、
- * `research_request_id`がNOT NULLで`outcome_id`列が無い）と、Task 36以前（`outcome_evaluated`と`evaluation_id`列が無い）。
- * `sequence`（Runtimeのcursor）と`autoincrement`の高水位は引き継ぎ、`runtime_event_delivery`・`runtime_event_ack_attempt`のFK（`event_sequence`）は
- * 同名の新tableへ向き直る。旧tableの索引はdropで消え、新しい定義で作り直される。
- * 新しい定義のDBには何もしないため、起動のたびに実行しても安全（idempotent）。
- */
-const migrateRuntimeEventTable = async (database: Kysely<DirectionDatabase>): Promise<void> => {
-  const existing = await sql<{ sql: string }>`select sql from sqlite_master where type = 'table' and name = 'runtime_event'`.execute(database);
-  const definition = existing.rows[0]?.sql;
-  if (definition === undefined || definition.includes("outcome_evaluated")) return;
-  const oldColumns = await sql<{ name: string }>`select name from pragma_table_info('runtime_event')`.execute(database);
-  const copied = [
-    "sequence",
-    "id",
-    "event_version",
-    "event_type",
-    "project_id",
-    "intent_id",
-    "research_request_id",
-    "outcome_id",
-    "correlation_id",
-    "conclusion",
-    "created_at",
-  ].filter((column) => oldColumns.rows.some(({ name }) => name === column));
-  const columnList = sql.join(copied.map((column) => sql.ref(column)));
-
-  // FKの検査を止めるPRAGMAはtransaction内では効かないため、transactionの前後で切り替える。
-  await sql`pragma foreign_keys = off`.execute(database);
-  try {
-    await database.transaction().execute(async (transaction) => {
-      await createRuntimeEventTable(transaction, "runtime_event_new");
-      await sql`insert into runtime_event_new (${columnList}) select ${columnList} from runtime_event`.execute(transaction);
-      const highWater = await sql<{ seq: number }>`select seq from sqlite_sequence where name = 'runtime_event'`.execute(transaction);
-      const seq = highWater.rows[0]?.seq;
-      if (seq !== undefined) {
-        const updated = await sql`update sqlite_sequence set seq = ${seq} where name = 'runtime_event_new'`.execute(transaction);
-        if (!updated.numAffectedRows) {
-          await sql`insert into sqlite_sequence (name, seq) values ('runtime_event_new', ${seq})`.execute(transaction);
-        }
-      }
-      await sql`drop table runtime_event`.execute(transaction);
-      await sql`alter table runtime_event_new rename to runtime_event`.execute(transaction);
-      const violations = await sql`pragma foreign_key_check`.execute(transaction);
-      if (violations.rows.length > 0) throw new Error("runtime_event migration left foreign key violations");
-    });
-  } finally {
-    await sql`pragma foreign_keys = on`.execute(database);
-  }
-};
-
 const initializeRuntimeEventSchema = async (database: Kysely<DirectionDatabase>): Promise<void> => {
-  await migrateRuntimeEventTable(database);
   await createRuntimeEventTable(database, "runtime_event");
   await database.schema
     .createIndex("runtime_event_request_type_idx")
@@ -528,14 +478,14 @@ const initializeRuntimeEventSchema = async (database: Kysely<DirectionDatabase>)
     .column("evaluation_id")
     .execute();
   await database.schema
-    .createIndex("runtime_event_project_sequence_idx")
+    .createIndex("runtime_event_workspace_sequence_idx")
     .ifNotExists()
     .on("runtime_event")
-    .columns(["project_id", "sequence"])
+    .columns(["workspace_id", "sequence"])
     .execute();
 
   // consumerごとの処理結果。イベント本体（追記のみ）とは別tableにし、ackでruntime_eventを更新しない。
-  // 主キーが同じconsumer・同じイベントへの結果を1件に収束させる。Project削除・イベント削除に追随して消える。
+  // 主キーが同じconsumer・同じイベントへの結果を1件に収束させる。Workspace削除・イベント削除に追随して消える。
   await database.schema
     .createTable("runtime_event_delivery")
     .ifNotExists()
@@ -543,9 +493,7 @@ const initializeRuntimeEventSchema = async (database: Kysely<DirectionDatabase>)
     .addColumn("event_sequence", "integer", (column) =>
       column.notNull().references("runtime_event.sequence").onDelete("cascade"),
     )
-    .addColumn("project_id", "text", (column) =>
-      column.notNull().references("project.id").onDelete("cascade"),
-    )
+    .addColumn("workspace_id", "text", column => column.notNull().references("workspace.id").onDelete("cascade"))
     .addColumn("outcome", "text", (column) =>
       column.notNull().check(sql`outcome in ('processed', 'retryable_failure', 'terminal_failure')`),
     )
@@ -553,6 +501,7 @@ const initializeRuntimeEventSchema = async (database: Kysely<DirectionDatabase>)
     .addColumn("last_failure_reason", "text")
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addColumn("updated_at", "integer", (column) => column.notNull())
+    .addForeignKeyConstraint("runtime_event_delivery_workspace_fk", ["event_sequence", "workspace_id"], "runtime_event", ["sequence", "workspace_id"])
     .addPrimaryKeyConstraint("runtime_event_delivery_pk", ["consumer_id", "event_sequence"])
     .addCheckConstraint(
       "runtime_event_delivery_failure_has_reason",
@@ -570,27 +519,29 @@ const initializeRuntimeEventSchema = async (database: Kysely<DirectionDatabase>)
       column.notNull().references("runtime_event.sequence").onDelete("cascade"),
     )
     .addColumn("attempt_id", "text", (column) => column.notNull())
-    .addColumn("project_id", "text", (column) =>
-      column.notNull().references("project.id").onDelete("cascade"),
-    )
+    .addColumn("workspace_id", "text", column => column.notNull().references("workspace.id").onDelete("cascade"))
     .addColumn("input_json", "text", (column) => column.notNull())
     .addColumn("result_json", "text", (column) => column.notNull())
     .addColumn("created_at", "integer", (column) => column.notNull())
+    .addForeignKeyConstraint("runtime_event_ack_attempt_workspace_fk", ["event_sequence", "workspace_id"], "runtime_event", ["sequence", "workspace_id"])
     .addPrimaryKeyConstraint("runtime_event_ack_attempt_pk", ["consumer_id", "event_sequence", "attempt_id"])
     .execute();
 };
 
 /**
  * ExecutionからDirectionへ還流した、Outcomeごとの結果の要約とEvidence参照（Direction所有）。
- * Execution側のtableへのFKは持たない。要約はOutcomeごとに1行（主キー）、Evidenceは
- * `(outcome, kind, uri, version)`で重複しないよう一意にする（versionが無い参照は空文字として扱う）。
+ * Execution側のtableへのFKは持たない。要約はOutcome・Projectごとに1行（主キー）、Evidenceは
+ * `(outcome, project, kind, uri, version)`で重複しないよう一意にする（versionが無い参照は空文字として扱う）。
  */
 const initializeOutcomeExecutionSchema = async (database: Kysely<DirectionDatabase>): Promise<void> => {
   await database.schema
     .createTable("outcome_execution_summary")
     .ifNotExists()
+    .addColumn("workspace_id", "text", column => column.notNull().references("workspace.id").onDelete("cascade"))
     .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
     .addColumn("outcome_id", "text", (column) => column.notNull().references("outcome.id").onDelete("cascade"))
+    .addForeignKeyConstraint("outcome_execution_summary_project_workspace_fk", ["project_id", "workspace_id"], "project", ["id", "workspace_id"])
+    .addForeignKeyConstraint("outcome_execution_summary_workspace_fk", ["outcome_id", "workspace_id"], "outcome", ["id", "workspace_id"])
     .addColumn("correlation_id", "text", (column) => column.notNull())
     .addColumn("state", "text", (column) =>
       column.notNull().check(sql`state in ('accepted', 'rejected', 'canceled', 'incomplete')`),
@@ -600,15 +551,18 @@ const initializeOutcomeExecutionSchema = async (database: Kysely<DirectionDataba
     .addColumn("observed_cursor", "integer", (column) => column.notNull().check(sql`observed_cursor >= 0`))
     .addColumn("principal_id", "text", (column) => column.notNull())
     .addColumn("updated_at", "integer", (column) => column.notNull())
-    .addPrimaryKeyConstraint("outcome_execution_summary_pk", ["outcome_id"])
+    .addPrimaryKeyConstraint("outcome_execution_summary_pk", ["outcome_id", "project_id"])
     .execute();
 
   await database.schema
     .createTable("outcome_execution_evidence")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("workspace_id", "text", column => column.notNull().references("workspace.id").onDelete("cascade"))
     .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
     .addColumn("outcome_id", "text", (column) => column.notNull().references("outcome.id").onDelete("cascade"))
+    .addForeignKeyConstraint("outcome_execution_evidence_project_workspace_fk", ["project_id", "workspace_id"], "project", ["id", "workspace_id"])
+    .addForeignKeyConstraint("outcome_execution_evidence_workspace_fk", ["outcome_id", "workspace_id"], "outcome", ["id", "workspace_id"])
     .addColumn("kind", "text", (column) =>
       column.notNull().check(sql`kind in ('commit', 'pull_request', 'repository_file', 'ci', 'issue', 'url')`),
     )
@@ -619,7 +573,7 @@ const initializeOutcomeExecutionSchema = async (database: Kysely<DirectionDataba
     .addColumn("principal_id", "text", (column) => column.notNull())
     .addColumn("created_at", "integer", (column) => column.notNull())
     .execute();
-  await sql`create unique index if not exists outcome_execution_evidence_identity_idx on outcome_execution_evidence(outcome_id, kind, uri, ifnull(version_hash, ''))`.execute(
+  await sql`create unique index if not exists outcome_execution_evidence_identity_idx on outcome_execution_evidence(outcome_id, project_id, kind, uri, ifnull(version_hash, ''))`.execute(
     database,
   );
   await database.schema
@@ -632,16 +586,20 @@ const initializeOutcomeExecutionSchema = async (database: Kysely<DirectionDataba
 
 /**
  * Outcome Evaluation（Direction所有）。Outcomeごとに追記し、Outcome・Execution側のtableは変更しない。
- * `(project_id, request_key)`を一意にして、同じrequestKeyの再送・並行送信を1件に収束させる。
+ * `(workspace_id, request_key)`を一意にして、同じrequestKeyの再送・並行送信を1件に収束させる。
  */
 const initializeOutcomeEvaluationSchema = async (database: Kysely<DirectionDatabase>): Promise<void> => {
   await database.schema
     .createTable("outcome_evaluation")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("workspace_id", "text", column => column.notNull().references("workspace.id").onDelete("cascade"))
     .addColumn("outcome_id", "text", (column) => column.notNull().references("outcome.id").onDelete("cascade"))
+    .addUniqueConstraint("outcome_evaluation_id_workspace_unique", ["id", "workspace_id"])
+    .addForeignKeyConstraint("outcome_evaluation_outcome_workspace_fk", ["outcome_id", "workspace_id"], "outcome", ["id", "workspace_id"])
     .addColumn("intent_id", "text", (column) => column.notNull())
+    .addForeignKeyConstraint("outcome_evaluation_outcome_intent_fk", ["outcome_id", "intent_id", "workspace_id"], "outcome", ["id", "intent_id", "workspace_id"])
+    .addForeignKeyConstraint("outcome_evaluation_intent_workspace_fk", ["intent_id", "workspace_id"], "intent", ["id", "workspace_id"])
     .addColumn("result", "text", (column) =>
       column.notNull().check(sql`result in ('achieved', 'failed', 'insufficient_evidence')`),
     )
@@ -654,11 +612,11 @@ const initializeOutcomeEvaluationSchema = async (database: Kysely<DirectionDatab
     .addColumn("created_at", "integer", (column) => column.notNull())
     .execute();
   await database.schema
-    .createIndex("outcome_evaluation_project_key_idx")
+    .createIndex("outcome_evaluation_workspace_key_idx")
     .ifNotExists()
     .unique()
     .on("outcome_evaluation")
-    .columns(["project_id", "request_key"])
+    .columns(["workspace_id", "request_key"])
     .execute();
   await database.schema
     .createIndex("outcome_evaluation_outcome_idx")
@@ -710,6 +668,7 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     )
     .addUniqueConstraint("outcome_id_workspace_unique", ["id", "workspace_id"])
     .addColumn("intent_id", "text", (column) => column.notNull())
+    .addUniqueConstraint("outcome_id_intent_workspace_unique", ["id", "intent_id", "workspace_id"])
     .addColumn("title", "text", (column) => column.notNull())
     .addForeignKeyConstraint(
       "outcome_intent_workspace_fk",

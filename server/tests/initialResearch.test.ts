@@ -173,7 +173,7 @@ test("completed / insufficient / not_neededはStrategistを起動できるresear
     const completed = events[1]!;
     assert.equal(completed.conclusion, conclusion);
     assert.equal(completed.version, runtimeEventVersion);
-    assert.equal(completed.projectId, project.id);
+    assert.equal(completed.workspaceId, project.workspaceId);
     assert.equal(completed.intentId, intent.id);
     assert.equal(completed.researchRequestId, request!.id);
     // Requestの作成時と同じcorrelationIdで、Runtimeが一連の流れとして追える。
@@ -238,7 +238,7 @@ test("archived Projectでは確定してもイベントを作らず、別Project
   assert.deepEqual((await eventsOf(services, project.id)).map(({ type }) => type), ["research_requested"]);
 
   const otherEvents = await eventsOf(services, other.project.id);
-  assert.deepEqual(otherEvents.map(({ projectId }) => projectId), [other.project.id]);
+  assert.deepEqual(otherEvents.map(({ workspaceId }) => workspaceId), [other.project.workspaceId]);
   await assert.rejects(eventsOf(services, "missing"), rejectsWith("NOT_FOUND"));
   await database.destroy();
 });

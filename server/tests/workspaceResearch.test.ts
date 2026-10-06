@@ -36,7 +36,9 @@ test("Workspace Research stores and queries without a Project and rejects cross-
     assert.deepEqual(await direction.createResearchRequestUseCase.execute(a.id, requestInput(intent.id)), research);
     await assert.rejects(direction.createResearchRequestUseCase.execute(b.id, requestInput(intent.id)), { code: "NOT_FOUND" });
     await assert.rejects(direction.getResearchRequestUseCase.execute(b.id, research.id), { code: "NOT_FOUND" });
-    assert.deepEqual(await database.selectFrom("runtime_event").selectAll().execute(), []);
+    const events = await database.selectFrom("runtime_event").selectAll().execute();
+    assert.equal(events.length, 1);
+    assert.ok(events.every(event => event.workspace_id === a.id && !("project_id" in event)));
     for (const table of ["research_request", "research_result", "research_finding", "research_evidence_ref", "research_synthesis", "direction_decision"]) {
       const columns = (await sql<{ name: string }>`select name from pragma_table_info(${table})`.execute(database)).rows;
       assert.ok(columns.some(row => row.name === "workspace_id"), table);
@@ -120,7 +122,9 @@ test("Research version, Decision evidence and ADR artifact references persist th
     assert.equal(handoff.payload.projectId, project.id);
     assert.equal(reference.projectId, project.id);
     assert.equal("body" in reference, false);
-    assert.deepEqual(await database.selectFrom("runtime_event").selectAll().execute(), [], "共有Workspaceの研究にProject eventを捏造しない");
+    const events = await database.selectFrom("runtime_event").selectAll().execute();
+    assert.equal(events.length, 2);
+    assert.ok(events.every(event => event.workspace_id === workspace.id && !("project_id" in event)));
     const researcher = await direction.getResearcherContextUseCase.execute("researcher", workspace.id, request.id);
     assert.equal(researcher.workspace.id, workspace.id);
     assert.equal(researcher.results[0]!.evidenceRefs[0]!.resourceId, project.resources[0]!.id);

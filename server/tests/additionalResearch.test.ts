@@ -146,7 +146,7 @@ test("additional_researchはDecision・Request・research_requestedイベント�
   assert.equal(events.length, 1);
   const event = events[0]!;
   assert.equal(event.type, "research_requested");
-  assert.equal(event.projectId, project.id);
+  assert.equal(event.workspaceId, project.workspaceId);
   assert.equal(event.intentId, intent.id);
   assert.equal(event.researchRequestId, researchRequest.id);
   assert.equal(event.correlationId, `decision:${decision.id}`);

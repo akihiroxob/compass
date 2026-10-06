@@ -108,7 +108,7 @@ export class GetOrchestrationStateUseCase<TCaller> {
       decisions.filter((decision) => decision.evaluationId !== null).map((decision) => [decision.evaluationId, decision.id]),
     );
     const latestEvaluations = new Map(
-      (await this.outcomeEvaluationRepository.findLatestByIntent(projectId, activeIntent.id)).map((evaluation) => [
+      (await this.outcomeEvaluationRepository.findLatestByIntent(project.workspaceId, activeIntent.id)).map((evaluation) => [
         evaluation.outcomeId,
         evaluation,
       ]),
@@ -116,7 +116,7 @@ export class GetOrchestrationStateUseCase<TCaller> {
     const outcomes: OrchestrationOutcome[] = [];
     for (const outcome of await this.outcomeRepository.findByIntent(projectId, activeIntent.id)) {
       const work = await this.executionSummary.getOutcomeExecutionSummary(projectId, outcome.id);
-      const execution = await this.outcomeExecutionRepository.find(projectId, outcome.id);
+      const execution = await this.outcomeExecutionRepository.find(project.workspaceId, projectId, outcome.id);
       const evaluation = latestEvaluations.get(outcome.id);
       outcomes.push({
         id: outcome.id,

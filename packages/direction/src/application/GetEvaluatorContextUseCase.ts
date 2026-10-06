@@ -2,14 +2,14 @@ import type { Intent } from "../domain/Intent.ts";
 import type { Outcome } from "../domain/Outcome.ts";
 import type { OutcomeEvaluation } from "../domain/OutcomeEvaluation.ts";
 import type { OutcomeExecutionRecord } from "../domain/OutcomeExecution.ts";
-import type { ProjectDetail } from "@compass/organization";
-import type { ProjectIntentReader } from "./port/ProjectDirectionReaders.ts";
+import type { Workspace } from "@compass/organization";
+import type { IntentRepository } from "../domain/IntentRepository.ts";
 import type { OutcomeEvaluationRepository } from "../domain/OutcomeEvaluationRepository.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
-import type { ProjectOutcomeReader } from "./port/ProjectDirectionReaders.ts";
-import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
-import { NotFoundError } from "@compass/shared";
-import { DirectionAgentRole, type DirectionRoleAuthorizationPort, type Principal } from "./port/DirectionAuthorizationPort.ts";
+import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
+import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
+import { ConflictError, NotFoundError } from "@compass/shared";
+import { DirectionAgentRole } from "./port/DirectionAuthorizationPort.ts";
 
 /** Evaluatorが存在を仮定・捏造してはならない入力。Evidenceは参照だけで、本文は保存していない。 */
 export const unavailableEvaluatorInputs = ["evidence_content"] as const;
@@ -17,7 +17,7 @@ export const unavailableEvaluatorInputs = ["evidence_content"] as const;
 export type EvaluatorContext = {
   principalId: string;
   role: DirectionAgentRole;
-  project: ProjectDetail;
+  workspace: Workspace;
   /** Outcomeの発端のIntent。 */
   intent: Intent | null;
   /** 固定のSuccess Criteria（`id`・`position`・`description`・`measurement`・`target`）を含む。Evaluatorは変更できない。 */
@@ -35,31 +35,34 @@ export type EvaluatorContext = {
  */
 export class GetEvaluatorContextUseCase {
   constructor(
-    private readonly authorization: DirectionRoleAuthorizationPort,
-    private readonly projectReader: DirectionProjectReader,
-    private readonly intentRepository: ProjectIntentReader,
-    private readonly outcomeRepository: ProjectOutcomeReader,
+    private readonly workspaceReader: DirectionWorkspaceReader,
+    private readonly intentRepository: IntentRepository,
+    private readonly outcomeRepository: OutcomeRepository,
     private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
     private readonly outcomeEvaluationRepository: OutcomeEvaluationRepository,
   ) {}
 
-  async execute(principal: Principal, projectId: string, outcomeId: string): Promise<EvaluatorContext> {
-    // 認可はProjectの存在確認より先。Grantを持たないPrincipalへProjectやOutcomeの存在有無を漏らさない。
-    const principalId = await this.authorization.requireRole(principal, projectId, DirectionAgentRole.EVALUATOR);
-    const project = await this.projectReader.findDetailById(projectId);
-    if (!project) throw new NotFoundError(`Project ${projectId} was not found`);
-    // 別ProjectのOutcome IDも同じNOT_FOUND。
-    const outcome = await this.outcomeRepository.findByIdInProject(projectId, outcomeId);
-    if (!outcome) throw new NotFoundError(`Outcome ${outcomeId} was not found in Project ${projectId}`);
+  async execute(principalId: string, workspaceId: string, outcomeId: string): Promise<EvaluatorContext> {
+    // 公開入口で認可済みの主体・scopeを受け取る。
+    const workspace = await this.workspaceReader.findById(workspaceId);
+    if (!workspace) throw new NotFoundError(`Workspace ${workspaceId} was not found`);
+    // 別WorkspaceのOutcome IDも同じNOT_FOUND。
+    const outcome = await this.outcomeRepository.findByIdInWorkspace(workspaceId, outcomeId);
+    if (!outcome) throw new NotFoundError(`Outcome ${outcomeId} was not found in Workspace ${workspaceId}`);
     return {
       principalId,
       role: DirectionAgentRole.EVALUATOR,
-      project,
-      intent: await this.intentRepository.findById(projectId, outcome.intentId),
+      workspace,
+      intent: await this.intentRepository.findById(workspaceId, outcome.intentId),
       outcome,
-      execution: await this.outcomeExecutionRepository.find(projectId, outcomeId),
-      evaluations: await this.outcomeEvaluationRepository.findByOutcome(projectId, outcomeId),
+      execution: await this.soleExecution(workspaceId, outcomeId),
+      evaluations: await this.outcomeEvaluationRepository.findByOutcome(workspaceId, outcomeId),
       unavailable: unavailableEvaluatorInputs,
     };
+  }
+  private async soleExecution(workspaceId: string, outcomeId: string): Promise<OutcomeExecutionRecord | null> {
+    const records = await this.outcomeExecutionRepository.findByOutcome(workspaceId, outcomeId);
+    if (records.length > 1) throw new ConflictError("Multiple Project evaluation requires the Target evaluation contract", { reason: "multi_project_evaluation_required" });
+    return records[0] ?? null;
   }
 }

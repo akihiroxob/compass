@@ -219,7 +219,7 @@ export type RuntimeEventTable = {
   id: string;
   event_version: number;
   event_type: "research_requested" | "research_completed" | "outcome_confirmed" | "outcome_evaluated";
-  project_id: string;
+  workspace_id: string;
   intent_id: string | null;
   /** research系イベントの発端Request。`outcome_confirmed`ではnull。 */
   research_request_id: string | null;
@@ -236,7 +236,7 @@ export type RuntimeEventTable = {
 export type RuntimeEventDeliveryTable = {
   consumer_id: string;
   event_sequence: number;
-  project_id: string;
+  workspace_id: string;
   outcome: "processed" | "retryable_failure" | "terminal_failure";
   retry_count: number;
   last_failure_reason: string | null;
@@ -248,17 +248,18 @@ export type RuntimeEventAckAttemptTable = {
   consumer_id: string;
   event_sequence: number;
   attempt_id: string;
-  project_id: string;
+  workspace_id: string;
   input_json: string;
   result_json: string;
   created_at: number;
 };
 
 /**
- * Executionの結果の要約（Direction所有）。Outcomeごとに1行。`stories`はJSON。Execution側のtableは参照せず、
+ * Executionの結果の要約（Direction所有）。Outcome・Projectごとに1行。`stories`はJSON。Execution側のtableは参照せず、
  * ポート経由で受け取った値だけを保存する。`execution_cursor`が進むときだけ上書きする。
  */
 export type OutcomeExecutionSummaryTable = {
+  workspace_id: string;
   project_id: string;
   outcome_id: string;
   correlation_id: string;
@@ -273,6 +274,7 @@ export type OutcomeExecutionSummaryTable = {
 /** ExecutionがOutcomeへ残したEvidenceへの参照（本文は持たない）。作成後は変更しない。 */
 export type OutcomeExecutionEvidenceTable = {
   id: string;
+  workspace_id: string;
   project_id: string;
   outcome_id: string;
   kind: "commit" | "pull_request" | "repository_file" | "ci" | "issue" | "url";
@@ -286,11 +288,11 @@ export type OutcomeExecutionEvidenceTable = {
 
 /**
  * Outcomeの評価（Direction所有）。追記だけで更新しない。`criteria` / `snapshot`はJSON。Execution側のtableへのFKは持たず、
- * 評価時のExecution Summary・Evidence参照を`snapshot`へ写す。`(project_id, request_key)`で再送を1件に収束させる。
+ * 評価時のExecution Summary・Evidence参照を`snapshot`へ写す。`(workspace_id, request_key)`で再送を1件に収束させる。
  */
 export type OutcomeEvaluationTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   outcome_id: string;
   intent_id: string;
   result: "achieved" | "failed" | "insufficient_evidence";
@@ -305,7 +307,7 @@ export type OutcomeEvaluationTable = {
 
 /**
  * Directionが所有するtable。単一SQLite fileの一部で、serverが他Contextのtableと合成する。
- * Intent/Outcome/Research/Decision/ADRの`workspace_id`、artifactと未切替Entityの`project_id`のFK先はOrganizationが所有する。
+ * Workspace所有の`workspace_id`、artifactとExecutionの発生元の`project_id`のFK先はOrganizationが所有する。
  * DirectionはWorkspace/Projectの状態をserverが渡すreaderで読む。
  */
 export type DirectionDatabase = {

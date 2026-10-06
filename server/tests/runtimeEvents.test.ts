@@ -120,7 +120,7 @@ test("未処理のresearch_requestedをcursor付きで取得しackすると、�
   assert.equal(first.events.length, 1);
   const requested = first.events[0]!;
   assert.equal(requested.type, "research_requested");
-  assert.equal(requested.projectId, project.id);
+  assert.equal(requested.workspaceId, project.workspaceId);
   assert.equal(requested.intentId, intent.id);
   assert.equal(requested.researchRequestId, request.id);
   assert.equal(requested.version, runtimeEventVersion);
@@ -135,6 +135,7 @@ test("未処理のresearch_requestedをcursor付きで取得しackすると、�
   assert.deepEqual(
     { ...body.delivery },
     {
+      workspaceId: project.workspaceId,
       consumerId: "runtime-a",
       eventId: requested.id,
       cursor: requested.cursor,
@@ -164,7 +165,7 @@ test("未処理のresearch_requestedをcursor付きで取得しackすると、�
   const completed = next.events[0]!;
   // research_completedからStrategistを起動するのに必要な項目が揃い、Researcher起動時と同じcorrelationIdを持つ。
   assert.equal(completed.conclusion, "not_needed");
-  assert.equal(completed.projectId, project.id);
+  assert.equal(completed.workspaceId, project.workspaceId);
   assert.equal(completed.intentId, intent.id);
   assert.equal(completed.researchRequestId, request.id);
   assert.equal(completed.version, runtimeEventVersion);
@@ -259,7 +260,7 @@ test("retryable_failureは返り続けて回数と理由を伴い、processedま
   const stored = await database
     .selectFrom("runtime_event_delivery")
     .select(["outcome", "retry_count", "last_failure_reason"])
-    .where("project_id", "=", second.project.id)
+    .where("workspace_id", "=", second.project.workspaceId)
     .executeTakeFirstOrThrow();
   assert.deepEqual(stored, { outcome: "terminal_failure", retry_count: 1, last_failure_reason: "Unsupported event version" });
 
@@ -307,8 +308,8 @@ test("別Projectのイベントは取得もackもできず、Grantは対象Proje
 
   const eventOne = (await fetchEvents(app, one.project.id, "runtime-a")).events[0]!;
   const eventTwo = (await fetchEvents(app, two.project.id, "runtime-b")).events[0]!;
-  assert.equal(eventOne.projectId, one.project.id);
-  assert.equal(eventTwo.projectId, two.project.id);
+  assert.equal(eventOne.workspaceId, one.project.workspaceId);
+  assert.equal(eventTwo.workspaceId, two.project.workspaceId);
 
   // runtime-aはProject Twoの取得・ackにGrantが無い。
   const foreignFetch = await api(app, "GET", `/api/projects/${two.project.id}/runtime-events`, "runtime-a");

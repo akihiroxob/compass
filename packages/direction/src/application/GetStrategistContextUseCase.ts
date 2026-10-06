@@ -22,9 +22,9 @@ export const unavailableStrategistInputs = ["evidence"] as const;
  */
 export type StrategistEvaluation = OutcomeEvaluation & { decisionId: string | null };
 
-/** Evaluationの保存scope切替中もWorkspace IDを明示して読むport。 */
+/** WorkspaceのIntent配下の最新Evaluationを読むport。 */
 export interface WorkspaceEvaluationReader {
-  findLatestByWorkspaceIntent(workspaceId: string, intentId: string): Promise<OutcomeEvaluation[]>;
+  findLatestByIntent(workspaceId: string, intentId: string): Promise<OutcomeEvaluation[]>;
 }
 
 export type StrategistContext = {
@@ -84,7 +84,7 @@ export class GetStrategistContextUseCase {
   }
 
   private async evaluationsOf(workspaceId: string, intentId: string): Promise<StrategistEvaluation[]> {
-    const evaluations = await this.outcomeEvaluationRepository.findLatestByWorkspaceIntent(workspaceId, intentId);
+    const evaluations = await this.outcomeEvaluationRepository.findLatestByIntent(workspaceId, intentId);
     if (evaluations.length === 0) return [];
     const decisions = await this.directionDecisionRepository.findByIntent(workspaceId, intentId);
     const decidedBy = new Map(

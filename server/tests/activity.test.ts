@@ -563,7 +563,7 @@ test("所属欠損の通知はWorkspace IDを捏造せず拒否する", async ()
   await grant(app, a.id, "worker-a", "worker");
   await database.updateTable("project").set({ workspace_id: null }).where("id", "=", a.id).execute();
   const message = /no Workspace/;
-  await assert.rejects(directionChangeActivityObserver(asDirectionDatabase(database))({ type: "intent_created", projectId: a.id, recordId: "i1", title: "I", refs: [], result: null, reason: null, principalId: null, occurredAt: 1 }), message);
+  await assert.rejects(directionChangeActivityObserver(asDirectionDatabase(database))({ type: "intent_created", workspaceId: "missing", recordId: "i1", title: "I", refs: [], result: null, reason: null, principalId: null, occurredAt: 1 }));
   await assert.rejects(projectChangeActivityObserver(asOrganizationDatabase(database))({ type: "project_archived", workspaceId: a.workspaceId, projectId: a.id, title: "A", reason: "R", occurredAt: 1 }), message);
   await assert.rejects(workChangeActivityObserver(asWorkDatabase(database))({ entity_id: "s1", claim_id: null, cursor: 1, project_id: a.id, type: "STORY_CREATED", principal_id: "m", payload: "{}", occurred_at: 1, subject: { kind: "story", id: "s1", title: "S", storyId: null } }), message);
   await assert.rejects(activityProjectReader(database).find(a.id), /does not belong to a Workspace/);

@@ -13,7 +13,7 @@ const toRuntimeEvent = (row: Selectable<RuntimeEventTable>): RuntimeEvent => ({
   id: row.id,
   version: row.event_version,
   type: row.event_type,
-  projectId: row.project_id,
+  workspaceId: row.workspace_id,
   intentId: row.intent_id,
   researchRequestId: row.research_request_id,
   outcomeId: row.outcome_id,
@@ -27,6 +27,7 @@ const toDelivery = (
   row: Selectable<RuntimeEventDeliveryTable>,
   event: Selectable<RuntimeEventTable>,
 ): RuntimeEventDelivery => ({
+  workspaceId: row.workspace_id,
   consumerId: row.consumer_id,
   eventId: event.id,
   cursor: row.event_sequence,
@@ -39,11 +40,11 @@ const toDelivery = (
 export class SQLiteRuntimeEventRepository implements RuntimeEventRepository {
   constructor(private readonly database: Kysely<DirectionDatabase>) {}
 
-  async findAfter(projectId: string, afterCursor: number, limit: number): Promise<RuntimeEvent[]> {
+  async findAfter(workspaceId: string, afterCursor: number, limit: number): Promise<RuntimeEvent[]> {
     const rows = await this.database
       .selectFrom("runtime_event")
       .selectAll()
-      .where("project_id", "=", projectId)
+      .where("workspace_id", "=", workspaceId)
       .where("sequence", ">", afterCursor)
       .orderBy("sequence", "asc")
       .limit(limit)
@@ -52,7 +53,7 @@ export class SQLiteRuntimeEventRepository implements RuntimeEventRepository {
   }
 
   async findPending(
-    projectId: string,
+    workspaceId: string,
     consumerId: string,
     afterCursor: number,
     limit: number,
@@ -64,7 +65,7 @@ export class SQLiteRuntimeEventRepository implements RuntimeEventRepository {
       )
       .selectAll("event")
       .select(["delivery.retry_count as retry_count", "delivery.last_failure_reason as last_failure_reason"])
-      .where("event.project_id", "=", projectId)
+      .where("event.workspace_id", "=", workspaceId)
       .where("event.sequence", ">", afterCursor)
       .where((eb) => eb.or([eb("delivery.outcome", "is", null), eb("delivery.outcome", "=", "retryable_failure")]))
       .orderBy("event.sequence", "asc")
@@ -77,14 +78,14 @@ export class SQLiteRuntimeEventRepository implements RuntimeEventRepository {
     }));
   }
 
-  async findResumeCursor(projectId: string, consumerId: string): Promise<number> {
+  async findResumeCursor(workspaceId: string, consumerId: string): Promise<number> {
     return this.database.transaction().execute(async (transaction) => {
       // 先に最新のcursorを読み、その範囲で最古の未確定イベントを探す。後から追記されたイベントは最新より大きいため、
       // 読んでいる間に追記されても、未ackのイベントを再開位置が追い越さない。
       const latest = await transaction
         .selectFrom("runtime_event")
         .select((eb) => eb.fn.max("sequence").as("sequence"))
-        .where("project_id", "=", projectId)
+        .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       const head = latest?.sequence ?? 0;
       const oldest = await transaction
@@ -93,7 +94,7 @@ export class SQLiteRuntimeEventRepository implements RuntimeEventRepository {
           join.onRef("delivery.event_sequence", "=", "event.sequence").on("delivery.consumer_id", "=", consumerId),
         )
         .select((eb) => eb.fn.min("event.sequence").as("sequence"))
-        .where("event.project_id", "=", projectId)
+        .where("event.workspace_id", "=", workspaceId)
         .where("event.sequence", "<=", head)
         .where((eb) => eb.or([eb("delivery.outcome", "is", null), eb("delivery.outcome", "=", "retryable_failure")]))
         .executeTakeFirst();
@@ -108,7 +109,7 @@ export class SQLiteRuntimeEventRepository implements RuntimeEventRepository {
         .selectFrom("runtime_event")
         .selectAll()
         .where("id", "=", input.eventId)
-        .where("project_id", "=", input.projectId)
+        .where("workspace_id", "=", input.workspaceId)
         .executeTakeFirst();
       if (!event) return { kind: "event_not_found" };
 
@@ -134,7 +135,7 @@ export class SQLiteRuntimeEventRepository implements RuntimeEventRepository {
             consumer_id: input.consumerId,
             event_sequence: event.sequence,
             attempt_id: input.attemptId,
-            project_id: input.projectId,
+            workspace_id: input.workspaceId,
             input_json: inputJson,
             result_json: JSON.stringify(result.delivery),
             created_at: input.at,
@@ -161,7 +162,7 @@ export class SQLiteRuntimeEventRepository implements RuntimeEventRepository {
     if (!existing) {
       const row = {
         ...key,
-        project_id: input.projectId,
+        workspace_id: input.workspaceId,
         outcome: input.outcome,
         retry_count: input.outcome === "retryable_failure" ? 1 : 0,
         last_failure_reason: input.reason,

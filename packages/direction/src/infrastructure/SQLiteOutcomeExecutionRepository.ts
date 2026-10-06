@@ -16,9 +16,12 @@ import type {
   OutcomeExecutionEvidenceTable,
   OutcomeExecutionSummaryTable,
 } from "./schema.ts";
+import { NotFoundError } from "@compass/shared";
+import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
 import type { DirectionProjectReaders } from "./directionProjectReaders.ts";
 
 const toSummary = (row: Selectable<OutcomeExecutionSummaryTable>): OutcomeExecutionSummary => ({
+  workspaceId: row.workspace_id,
   projectId: row.project_id,
   outcomeId: row.outcome_id,
   correlationId: row.correlation_id,
@@ -32,6 +35,7 @@ const toSummary = (row: Selectable<OutcomeExecutionSummaryTable>): OutcomeExecut
 
 const toEvidence = (row: Selectable<OutcomeExecutionEvidenceTable>): OutcomeExecutionEvidence => ({
   id: row.id,
+  workspaceId: row.workspace_id,
   projectId: row.project_id,
   outcomeId: row.outcome_id,
   kind: row.kind,
@@ -52,15 +56,21 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
     private readonly projects: DirectionProjectReaders,
+    private readonly workspaces: DirectionWorkspaceReaders,
   ) {}
 
-  async record(projectId: string, input: RecordOutcomeExecutionInput): Promise<RecordOutcomeExecutionResult> {
+  async record(workspaceId: string, projectId: string, input: RecordOutcomeExecutionInput): Promise<RecordOutcomeExecutionResult> {
     return this.database.transaction().execute(async (transaction): Promise<RecordOutcomeExecutionResult> => {
+      if (await this.projects(transaction).findWorkspaceId(projectId) !== workspaceId) throw new NotFoundError(`Project ${projectId} was not found in Workspace ${workspaceId}`);
+      const outcome = await transaction.selectFrom("outcome").select("id").where("id", "=", input.outcomeId).where("workspace_id", "=", workspaceId).executeTakeFirst();
+      if (!outcome) throw new NotFoundError(`Outcome ${input.outcomeId} was not found in Workspace ${workspaceId}`);
+      if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
       if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
 
       const existing = await transaction
         .selectFrom("outcome_execution_summary")
         .selectAll()
+        .where("workspace_id", "=", workspaceId)
         .where("project_id", "=", projectId)
         .where("outcome_id", "=", input.outcomeId)
         .executeTakeFirst();
@@ -69,7 +79,7 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
       // 保存済みの報告より古いcursorの通知（順序逆転）。要約は巻き戻さず、Evidenceだけ重複なく取り込む。
       const staleInput = existing !== undefined && input.changeCursor < previousObserved;
 
-      // Evidenceは書込の前に、既存との重複（同じOutcome・種別・URI・version）と上限を確認する。
+      // Evidenceは書込の前に、既存との重複（同じOutcome・Project・種別・URI・version）と上限を確認する。
       const fresh: RecordOutcomeExecutionInput["evidence"][number][] = [];
       for (const item of input.evidence) {
         const duplicate =
@@ -77,6 +87,8 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
           (await transaction
             .selectFrom("outcome_execution_evidence")
             .select("id")
+            .where("workspace_id", "=", workspaceId)
+            .where("project_id", "=", projectId)
             .where("outcome_id", "=", input.outcomeId)
             .where("kind", "=", item.kind)
             .where("uri", "=", item.uri)
@@ -87,6 +99,7 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
       const stored = await transaction
         .selectFrom("outcome_execution_evidence")
         .select(({ fn }) => fn.countAll<number>().as("total"))
+        .where("workspace_id", "=", workspaceId)
         .where("outcome_id", "=", input.outcomeId)
         .executeTakeFirstOrThrow();
       if (Number(stored.total) + fresh.length > maximumEvidencePerOutcome) {
@@ -98,6 +111,7 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
         await transaction
           .insertInto("outcome_execution_summary")
           .values({
+            workspace_id: workspaceId,
             project_id: projectId,
             outcome_id: input.outcomeId,
             correlation_id: input.correlationId,
@@ -121,6 +135,8 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
             principal_id: input.principalId,
             updated_at: input.at,
           })
+          .where("workspace_id", "=", workspaceId)
+          .where("project_id", "=", projectId)
           .where("outcome_id", "=", input.outcomeId)
           .execute();
         summaryChanged = true;
@@ -128,6 +144,8 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
         await transaction
           .updateTable("outcome_execution_summary")
           .set({ observed_cursor: observedCursor })
+          .where("workspace_id", "=", workspaceId)
+          .where("project_id", "=", projectId)
           .where("outcome_id", "=", input.outcomeId)
           .execute();
       }
@@ -137,6 +155,7 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
           .insertInto("outcome_execution_evidence")
           .values({
             id: crypto.randomUUID(),
+            workspace_id: workspaceId,
             project_id: projectId,
             outcome_id: input.outcomeId,
             kind: item.kind,
@@ -150,24 +169,32 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
           .execute();
       }
 
-      const record = await this.load(transaction, projectId, input.outcomeId);
+      const record = await this.load(transaction, workspaceId, projectId, input.outcomeId);
       if (record === null) throw new Error("Execution summary was not saved");
       return { kind: "recorded", record, summaryChanged, staleInput, evidenceAdded: fresh.length };
     });
   }
 
-  async find(projectId: string, outcomeId: string): Promise<OutcomeExecutionRecord | null> {
-    return this.load(this.database, projectId, outcomeId);
+  async find(workspaceId: string, projectId: string, outcomeId: string): Promise<OutcomeExecutionRecord | null> {
+    return this.load(this.database, workspaceId, projectId, outcomeId);
+  }
+
+  async findByOutcome(workspaceId: string, outcomeId: string): Promise<OutcomeExecutionRecord[]> {
+    const rows = await this.database.selectFrom("outcome_execution_summary").select("project_id")
+      .where("workspace_id", "=", workspaceId).where("outcome_id", "=", outcomeId).orderBy("project_id").execute();
+    return Promise.all(rows.map(async row => (await this.find(workspaceId, row.project_id, outcomeId))!));
   }
 
   private async load(
     database: Kysely<DirectionDatabase>,
+    workspaceId: string,
     projectId: string,
     outcomeId: string,
   ): Promise<OutcomeExecutionRecord | null> {
     const summary = await database
       .selectFrom("outcome_execution_summary")
       .selectAll()
+      .where("workspace_id", "=", workspaceId)
       .where("project_id", "=", projectId)
       .where("outcome_id", "=", outcomeId)
       .executeTakeFirst();
@@ -175,6 +202,7 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
     const evidence = await database
       .selectFrom("outcome_execution_evidence")
       .selectAll()
+      .where("workspace_id", "=", workspaceId)
       .where("project_id", "=", projectId)
       .where("outcome_id", "=", outcomeId)
       .orderBy("observed_at", "asc")

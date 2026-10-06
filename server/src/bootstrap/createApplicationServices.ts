@@ -1,4 +1,4 @@
-import { projectDirectionContext, projectDecisionReader, projectResearchReader, projectDirectionRepositories, projectDirectionUseCase } from "../infrastructure/repository/projectDirectionAdapter.ts";
+import { resolveProjectDirectionWorkspace, projectDirectionContext, projectDecisionReader, projectResearchReader, projectDirectionRepositories, projectDirectionUseCase } from "../infrastructure/repository/projectDirectionAdapter.ts";
 import { AgentContextService } from "../application/agentContext/AgentContextService.ts";
 import { GetRoleContextUseCase } from "../application/agentContext/GetRoleContextUseCase.ts";
 import { withActivityActor } from "../application/activityActor.ts";
@@ -221,7 +221,7 @@ export const createApplicationServices = (
   const researchRepository = projectResearchReader(projectRepository, workspaceResearchRepository);
   const directionDecisionRepository = projectDecisionReader(projectRepository, workspaceDecisionRepository);
   const adrHandoffRepository = new SQLiteAdrHandoffRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders);
-  const workspaceDirection = {
+  const workspaceDirectionBasics = {
     ...workspaceBasics,
     createAdrHandoffRequestUseCase: new CreateAdrHandoffRequestUseCase(workspaceRepository, adrHandoffRepository),
     recordAdrReferenceUseCase: new RecordAdrReferenceUseCase(workspaceRepository, adrHandoffRepository),
@@ -260,26 +260,32 @@ export const createApplicationServices = (
   );
   // Direction → Executionは読取専用ポート（Execution自身のtableだけを読む）を通す。Direction側の還流先は自身のRepository。
   const executionSummaryService = new ExecutionSummaryService(workStore);
-  const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(directionDatabase, directionProjectReaders);
+  const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders);
   const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(
     directionDatabase,
-    directionProjectReaders,
+    directionWorkspaceReaders,
     directionChangeObserver,
   );
   const workspaceContexts = {
     getResearcherContextUseCase: new GetResearcherContextUseCase(workspaceRepository, workspaceIntentRepository, workspaceResearchRepository),
     getStrategistContextUseCase: new GetStrategistContextUseCase(workspaceRepository, workspaceIntentRepository, workspaceOutcomeRepository,
-      workspaceResearchRepository, workspaceDecisionRepository, {
-        // S03-03までのEvaluation読取adapter。Project scopeの行をWorkspaceに属するOutcomeで限定する。
-        findLatestByWorkspaceIntent: async (workspaceId, intentId) => {
-          const projects = [...await projectRepository.findAllInWorkspace(workspaceId), ...await projectRepository.findAllInWorkspace(workspaceId, "archived")];
-          const evaluations = (await Promise.all(projects.map(project => outcomeEvaluationRepository.findLatestByIntent(project.id, intentId)))).flat();
-          const outcomes = new Set((await workspaceOutcomeRepository.findByIntent(workspaceId, intentId)).map(outcome => outcome.id));
-          return evaluations.filter(evaluation => outcomes.has(evaluation.outcomeId)).sort((a, b) => b.createdAt - a.createdAt);
-        },
-      }),
+      workspaceResearchRepository, workspaceDecisionRepository, outcomeEvaluationRepository),
+    getEvaluatorContextUseCase: new GetEvaluatorContextUseCase(workspaceRepository, workspaceIntentRepository,
+      workspaceOutcomeRepository, outcomeExecutionRepository, outcomeEvaluationRepository),
   };
   // Human認証・Membership（docs/step-6-human-auth-design.md）。Agent GrantのRepository・認可とは分離する。
+  const workspaceDirection = {
+    ...workspaceDirectionBasics,
+    recordOutcomeEvaluationUseCase: new RecordOutcomeEvaluationUseCase(workspaceRepository, workspaceOutcomeRepository,
+      outcomeExecutionRepository, outcomeEvaluationRepository, clock),
+    listOutcomeEvaluationsUseCase: new ListOutcomeEvaluationsUseCase(workspaceRepository, workspaceOutcomeRepository, outcomeEvaluationRepository),
+    recordExecutionEvidenceUseCase: new RecordExecutionEvidenceUseCase(projectRepository, workspaceOutcomeRepository,
+      executionSummaryService, outcomeExecutionRepository, clock),
+    getExecutionSummaryUseCase: new GetExecutionSummaryUseCase(projectRepository, workspaceOutcomeRepository, outcomeExecutionRepository),
+    listRuntimeEventsUseCase: new ListRuntimeEventsUseCase(workspaceRepository, runtimeEventRepository),
+    fetchRuntimeEventsUseCase: new FetchRuntimeEventsUseCase(workspaceRepository, runtimeEventRepository),
+    ackRuntimeEventUseCase: new AckRuntimeEventUseCase(workspaceRepository, runtimeEventRepository, clock),
+  };
   const humanAccountRepository = new SQLiteHumanAccountRepository(
     accessDatabase,
     accessProjectReaders,
@@ -313,25 +319,26 @@ export const createApplicationServices = (
       projectAuthorizationService: projectAuthorization,
       runtimeAuthorizationService: runtimeAuthorization,
       taskCoordinationService: coordination,
-      fetchRuntimeEventsUseCase: new FetchRuntimeEventsUseCase(
-        runtimeAuthorization,
-        projectRepository,
-        runtimeEventRepository,
-      ),
-      ackRuntimeEventUseCase: new AckRuntimeEventUseCase(
-        runtimeAuthorization,
-        projectRepository,
-        runtimeEventRepository,
-        clock,
-      ),
-      recordExecutionEvidenceUseCase: new RecordExecutionEvidenceUseCase(
-        runtimeAuthorization,
-        projectRepository,
-        outcomeRepository,
-        executionSummaryService,
-        outcomeExecutionRepository,
-        clock,
-      ),
+      fetchRuntimeEventsUseCase: {
+        execute: async (caller: Parameters<typeof runtimeAuthorization.requireScope>[0], projectId: string, input: unknown = {}) => {
+          const consumerId = await runtimeAuthorization.requireScope(caller, projectId, "runtime:event:read");
+          return workspaceDirection.fetchRuntimeEventsUseCase.execute(consumerId, await resolveProjectDirectionWorkspace(projectRepository, projectId), input);
+        },
+      },
+      ackRuntimeEventUseCase: {
+        execute: async (caller: Parameters<typeof runtimeAuthorization.requireScope>[0], projectId: string, input: unknown) => {
+          const consumerId = await runtimeAuthorization.requireScope(caller, projectId, "runtime:event:ack");
+          return workspaceDirection.ackRuntimeEventUseCase.execute(consumerId, await resolveProjectDirectionWorkspace(projectRepository, projectId), input);
+        },
+      },
+      recordExecutionEvidenceUseCase: {
+        execute: async (caller: Parameters<typeof runtimeAuthorization.requireScope>[0], projectId: string, outcomeId: string, input: unknown) => {
+          const principalId = await runtimeAuthorization.requireScope(caller, projectId, "execution:evidence:write");
+          return projectDirectionUseCase(projectRepository, {
+            execute: (workspaceId: string) => workspaceDirection.recordExecutionEvidenceUseCase.execute(principalId, workspaceId, projectId, outcomeId, input),
+          }).execute(projectId);
+        },
+      },
       getOrchestrationStateUseCase: new GetOrchestrationStateUseCase(
         runtimeAuthorization,
         projectRepository,
@@ -344,22 +351,13 @@ export const createApplicationServices = (
         executionSummaryService,
         clock,
       ),
-      getEvaluatorContextUseCase: new GetEvaluatorContextUseCase(
-        projectAuthorization,
-        projectRepository,
-        intentRepository,
-        outcomeRepository,
-        outcomeExecutionRepository,
-        outcomeEvaluationRepository,
-      ),
-      recordOutcomeEvaluationUseCase: new RecordOutcomeEvaluationUseCase(
-        projectAuthorization,
-        projectRepository,
-        outcomeRepository,
-        outcomeExecutionRepository,
-        outcomeEvaluationRepository,
-        clock,
-      ),
+      getEvaluatorContextUseCase: projectDirectionContext(projectRepository, projectAuthorization, "evaluator", workspaceContexts.getEvaluatorContextUseCase),
+      recordOutcomeEvaluationUseCase: {
+        execute: async (principal: string | null, projectId: string, outcomeId: string, input: unknown) => {
+          const principalId = await projectAuthorization.requireRole(principal, projectId, "evaluator");
+          return projectDirectionUseCase(projectRepository, workspaceDirection.recordOutcomeEvaluationUseCase).execute(projectId, principalId, outcomeId, input);
+        },
+      },
       getResearcherContextUseCase: projectDirectionContext(projectRepository, projectAuthorization, "researcher", workspaceContexts.getResearcherContextUseCase),
       getRoleContextUseCase: new GetRoleContextUseCase(
         projectAuthorization,
@@ -401,17 +399,13 @@ export const createApplicationServices = (
     registerResearchSynthesisUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.registerResearchSynthesisUseCase),
     completeResearchRequestUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.completeResearchRequestUseCase),
     cancelResearchRequestUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.cancelResearchRequestUseCase),
-    listRuntimeEventsUseCase: new ListRuntimeEventsUseCase(projectRepository, runtimeEventRepository),
-    getExecutionSummaryUseCase: new GetExecutionSummaryUseCase(
-      projectRepository,
-      outcomeRepository,
-      outcomeExecutionRepository,
-    ),
-    listOutcomeEvaluationsUseCase: new ListOutcomeEvaluationsUseCase(
-      projectRepository,
-      outcomeRepository,
-      outcomeEvaluationRepository,
-    ),
+    listRuntimeEventsUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.listRuntimeEventsUseCase),
+    getExecutionSummaryUseCase: {
+      execute: (projectId: string, outcomeId: string) => projectDirectionUseCase(projectRepository, {
+        execute: (workspaceId: string) => workspaceDirection.getExecutionSummaryUseCase.execute(workspaceId, projectId, outcomeId),
+      }).execute(projectId),
+    },
+    listOutcomeEvaluationsUseCase: projectDirectionUseCase(projectRepository, workspaceDirection.listOutcomeEvaluationsUseCase),
     listExecutionUseCase: new ListExecutionUseCase(taskCoordinationService),
     getExecutionTaskUseCase: new GetExecutionTaskUseCase(taskCoordinationService),
     listRecentExecutionChangesUseCase: new ListRecentExecutionChangesUseCase(taskCoordinationService),

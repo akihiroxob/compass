@@ -92,7 +92,10 @@ test("multiple Projects share one Workspace Intent; old Project Direction entry 
     assert.equal((await direction.listIntentsUseCase.execute(workspace.id)).length, 1);
     const outcome = await direction.createOutcomeUseCase.execute(workspace.id, intent.id, outcomeInput);
     assert.equal(outcome.workspaceId, workspace.id);
-    assert.deepEqual(await database.selectFrom("runtime_event").selectAll().execute(), [], "共有WorkspaceにProject eventを捏造しない");
+    const events = await database.selectFrom("runtime_event").selectAll().execute();
+    assert.equal(events.length, 1);
+    assert.equal(events[0]!.workspace_id, workspace.id);
+    assert.equal("project_id" in events[0]!, false);
   } finally { await database.destroy(); }
 });
 

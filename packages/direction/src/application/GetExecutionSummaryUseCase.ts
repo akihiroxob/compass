@@ -1,6 +1,6 @@
 import type { OutcomeExecutionRecord } from "../domain/OutcomeExecution.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
-import type { ProjectOutcomeReader } from "./port/ProjectDirectionReaders.ts";
+import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
 import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { NotFoundError } from "@compass/shared";
 
@@ -12,17 +12,18 @@ import { NotFoundError } from "@compass/shared";
 export class GetExecutionSummaryUseCase {
   constructor(
     private readonly projectReader: DirectionProjectReader,
-    private readonly outcomeRepository: ProjectOutcomeReader,
+    private readonly outcomeRepository: OutcomeRepository,
     private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
   ) {}
 
-  async execute(projectId: string, outcomeId: string): Promise<OutcomeExecutionRecord | null> {
-    if (!(await this.projectReader.exists(projectId))) {
+  async execute(workspaceId: string, projectId: string, outcomeId: string): Promise<OutcomeExecutionRecord | null> {
+    const project = await this.projectReader.findDetailById(projectId);
+    if (!project || project.workspaceId !== workspaceId) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
-    if (!(await this.outcomeRepository.findByIdInProject(projectId, outcomeId))) {
+    if (!(await this.outcomeRepository.findByIdInWorkspace(workspaceId, outcomeId))) {
       throw new NotFoundError(`Outcome ${outcomeId} was not found in Project ${projectId}`);
     }
-    return this.outcomeExecutionRepository.find(projectId, outcomeId);
+    return this.outcomeExecutionRepository.find(workspaceId, projectId, outcomeId);
   }
 }

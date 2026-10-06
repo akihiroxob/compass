@@ -474,41 +474,14 @@ test("archived Projectでは、Evaluationを根拠にした再計画・Intent完
   await kit.database.destroy();
 });
 
-test("Task 36以前のDBは再初期化でruntime_eventを作り直し、既存イベント・cursorを保ったままoutcome_evaluatedとevaluationIdを受け付ける", async () => {
+test("新規Workspace schemaでEvaluation・event・cursorを同じschemaの再起動後も保持する", async () => {
   const directory = mkdtempSync(join(tmpdir(), "compass-replan-"));
   const path = join(directory, "compass.db");
   try {
     const first = await setup(path);
-    const { project, outcome } = await seedEvaluated(first, ["not_met", "met"]);
-    const before = (await events(first, project.id)).filter((item) => item.type !== "outcome_evaluated");
+    const { project, outcome, evaluation: firstEvaluation } = await seedEvaluated(first, ["not_met", "met"]);
+    const before = await events(first, project.id);
 
-    // Task 35時点の定義（outcome_evaluated・evaluation_idが無い）へ戻す。
-    await sql`pragma foreign_keys = off`.execute(first.database);
-    await sql`
-      create table runtime_event_legacy (
-        sequence integer primary key autoincrement,
-        id text not null unique,
-        event_version integer not null,
-        event_type text not null check (event_type in ('research_requested', 'research_completed', 'outcome_confirmed')),
-        project_id text not null references project (id) on delete cascade,
-        intent_id text references intent (id) on delete cascade,
-        research_request_id text references research_request (id) on delete cascade,
-        outcome_id text references outcome (id) on delete cascade,
-        correlation_id text not null,
-        conclusion text,
-        created_at integer not null
-      )
-    `.execute(first.database);
-    await sql`
-      insert into runtime_event_legacy (sequence, id, event_version, event_type, project_id, intent_id, research_request_id, outcome_id, correlation_id, conclusion, created_at)
-      select sequence, id, event_version, event_type, project_id, intent_id, research_request_id, outcome_id, correlation_id, conclusion, created_at from runtime_event where event_type != 'outcome_evaluated'
-    `.execute(first.database);
-    await sql`drop table runtime_event`.execute(first.database);
-    await sql`alter table runtime_event_legacy rename to runtime_event`.execute(first.database);
-    await sql`create unique index runtime_event_outcome_type_idx on runtime_event (outcome_id, event_type)`.execute(first.database);
-    await sql`drop index direction_decision_evaluation_idx`.execute(first.database);
-    await sql`alter table direction_decision drop column evaluation_id`.execute(first.database);
-    await sql`pragma foreign_keys = on`.execute(first.database);
     await first.database.destroy();
 
     const second = await setup(path);
@@ -516,15 +489,15 @@ test("Task 36以前のDBは再初期化でruntime_eventを作り直し、既存�
     const migrated = await events(second, project.id);
     assert.deepEqual(
       migrated.map((item) => [item.id, item.cursor, item.type, item.outcomeId, item.evaluationId]),
-      before.map((item) => [item.id, item.cursor, item.type, item.outcomeId, null]),
+      before.map((item) => [item.id, item.cursor, item.type, item.outcomeId, item.evaluationId]),
     );
 
     const evidence = (await second.services.getExecutionSummaryUseCase.execute(project.id, outcome.id))!.evidence.map((item) => item.id);
     const evaluation = ok(await evaluate(second, project.id, outcome, ["met", "met"], evidence)).evaluation;
     const after = await events(second, project.id);
     const evaluated = after.filter((item) => item.type === "outcome_evaluated");
-    assert.deepEqual(evaluated.map((item) => item.evaluationId), [evaluation.id]);
-    assert.ok(evaluated[0]!.cursor > Math.max(...before.map((item) => item.cursor)));
+    assert.deepEqual(evaluated.map((item) => item.evaluationId), [firstEvaluation.id, evaluation.id]);
+    assert.ok(evaluated[1]!.cursor > Math.max(...before.map((item) => item.cursor)));
     const decided = ok(
       await callTool(
         second.app,
@@ -541,7 +514,7 @@ test("Task 36以前のDBは再初期化でruntime_eventを作り直し、既存�
     assert.equal(await intentStatus(third, project.id, evaluation.intentId), "achieved");
     const context = ok(await callTool(third.app, "get_strategist_context", { projectId: project.id }, "str"));
     assert.equal(context.activeIntent, null);
-    assert.equal((await events(third, project.id)).filter((item) => item.type === "outcome_evaluated").length, 1);
+    assert.equal((await events(third, project.id)).filter((item) => item.type === "outcome_evaluated").length, 2);
     await third.database.destroy();
   } finally {
     rmSync(directory, { recursive: true, force: true });

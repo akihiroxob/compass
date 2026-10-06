@@ -33,7 +33,7 @@ export const projectDirectionUseCase = <Args extends unknown[], Result>(
   },
 });
 
-/** Project基準のEvaluation/Execution/Orchestrationが読む参照だけを変換する。 */
+/** Project基準のWork/Orchestrationが読む参照だけを変換する。 */
 export const projectDirectionRepositories = (projects: ProjectRepository, intents: IntentRepository, outcomes: OutcomeRepository): {
   intents: ProjectIntentReader; outcomes: ProjectOutcomeReader;
 } => {

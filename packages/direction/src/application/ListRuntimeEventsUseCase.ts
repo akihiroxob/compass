@@ -1,5 +1,5 @@
 import type { RuntimeEvent } from "../domain/RuntimeEvent.ts";
-import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
+import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import type { RuntimeEventRepository } from "../domain/RuntimeEventRepository.ts";
 import { parseRuntimeEventQuery } from "./runtimeEventSchema.ts";
 import { NotFoundError } from "@compass/shared";
@@ -10,15 +10,15 @@ import { NotFoundError } from "@compass/shared";
  */
 export class ListRuntimeEventsUseCase {
   constructor(
-    private readonly projectReader: DirectionProjectReader,
+    private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly runtimeEventRepository: RuntimeEventRepository,
   ) {}
 
-  async execute(projectId: string, input: unknown = {}): Promise<RuntimeEvent[]> {
+  async execute(workspaceId: string, input: unknown = {}): Promise<RuntimeEvent[]> {
     const query = parseRuntimeEventQuery(input);
-    if (!(await this.projectReader.exists(projectId))) {
-      throw new NotFoundError(`Project ${projectId} was not found`);
+    if (!(await this.workspaceReader.findById(workspaceId))) {
+      throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     }
-    return this.runtimeEventRepository.findAfter(projectId, query.afterCursor, query.limit);
+    return this.runtimeEventRepository.findAfter(workspaceId, query.afterCursor, query.limit);
   }
 }

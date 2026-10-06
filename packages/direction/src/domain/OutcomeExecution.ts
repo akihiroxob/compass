@@ -24,11 +24,12 @@ export type ExecutionStoryResult = {
 };
 
 /**
- * Outcomeごとに1件保持する、Executionの結果の要約。Story・Task・Commentの本文は複製しない。
+ * Outcome・Projectごとに1件保持する、Executionの結果の要約。Story・Task・Commentの本文は複製しない。
  * 通知の順序や重複に左右されないよう、Execution側の最新Change cursor（`executionCursor`）が
  * 進むときだけ上書きする。
  */
 export type OutcomeExecutionSummary = {
+  readonly workspaceId: string;
   readonly projectId: string;
   readonly outcomeId: string;
   /** DirectionがExecutionへ渡した相関ID（`outcome:{outcomeId}`）。 */
@@ -54,6 +55,7 @@ export type ExecutionEvidenceKind = (typeof executionEvidenceKinds)[number];
  */
 export type OutcomeExecutionEvidence = {
   readonly id: string;
+  readonly workspaceId: string;
   readonly projectId: string;
   readonly outcomeId: string;
   readonly kind: ExecutionEvidenceKind;

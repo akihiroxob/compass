@@ -359,7 +359,7 @@ test(
       }
 
       // ================= 障害系の確認 =================
-      const eventRows = await server.database.selectFrom("runtime_event").selectAll().where("project_id", "=", projectId).orderBy("sequence").execute();
+      const eventRows = await server.database.selectFrom("runtime_event").selectAll().where("workspace_id", "=", project.workspaceId as string).orderBy("sequence").execute();
       const deliveries = await server.database.selectFrom("runtime_event_delivery").selectAll().execute();
       // イベント欠落なし: 全イベントがこのconsumerでprocessedに確定し、Runtimeが少なくとも1回は取得した
       assert.equal(deliveries.length, eventRows.length);

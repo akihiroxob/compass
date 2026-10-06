@@ -1,12 +1,11 @@
 import type { OutcomeExecutionEvidence, OutcomeExecutionSummary } from "../domain/OutcomeExecution.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
-import type { ProjectOutcomeReader } from "./port/ProjectDirectionReaders.ts";
+import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
 import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import { parseRecordExecutionEvidenceInput } from "./executionEvidenceSchema.ts";
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
-import { ProjectArchivedError } from "@compass/organization";
+import { ProjectArchivedError, WorkspaceArchivedError } from "@compass/organization";
 import type { ExecutionSummaryPort } from "./port/ExecutionSummaryPort.ts";
-import type { DirectionRuntimeAuthorizationPort } from "./port/DirectionAuthorizationPort.ts";
 
 /** 観測時刻として許す、現在時刻からの未来方向のずれ（時計の誤差分）。これを超える未来の観測は捏造として拒否する。 */
 const observedAtSkewMilliseconds = 5 * 60 * 1000;
@@ -31,30 +30,30 @@ export type RecordExecutionEvidenceResult = {
  * 導出は毎回現在の状態から行うため、通知の重複・順序逆転・再起動後の再送でも同じ最終状態に収束する。
  * Success Criterionの充足は判定しない（Evaluationの責務）。Outcomeを更新せず、Executionにも書き込まない。
  */
-export class RecordExecutionEvidenceUseCase<TCaller> {
+export class RecordExecutionEvidenceUseCase {
   constructor(
-    private readonly authorization: DirectionRuntimeAuthorizationPort<TCaller>,
     private readonly projectReader: DirectionProjectReader,
-    private readonly outcomeRepository: ProjectOutcomeReader,
+    private readonly outcomeRepository: OutcomeRepository,
     private readonly executionSummary: ExecutionSummaryPort,
     private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
     private readonly clock: () => number,
   ) {}
 
   async execute(
-    caller: TCaller,
+    principalId: string,
+    workspaceId: string,
     projectId: string,
     outcomeId: string,
     input: unknown,
   ): Promise<RecordExecutionEvidenceResult> {
-    // 認可はProjectの存在確認より先。Grantを持たないPrincipalへProjectやOutcomeの存在有無を漏らさない。
-    const principalId = await this.authorization.requireScope(caller, projectId, "execution:evidence:write");
+    // 公開入口で認可済みの主体・scopeを受け取る。
     const parsed = parseRecordExecutionEvidenceInput(input);
-    if (!(await this.projectReader.exists(projectId))) {
+    const project = await this.projectReader.findDetailById(projectId);
+    if (!project || project.workspaceId !== workspaceId) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }
     // 別ProjectのOutcome IDも同じNOT_FOUND（存在を区別して漏らさない）。
-    const outcome = await this.outcomeRepository.findByIdInProject(projectId, outcomeId);
+    const outcome = await this.outcomeRepository.findByIdInWorkspace(workspaceId, outcomeId);
     if (!outcome) throw new NotFoundError(`Outcome ${outcomeId} was not found in Project ${projectId}`);
     if (outcome.status === "cancelled") {
       throw new ConflictError(`Outcome ${outcomeId} is cancelled; Execution evidence is not recorded`, {
@@ -86,7 +85,7 @@ export class RecordExecutionEvidenceUseCase<TCaller> {
       ]);
     }
 
-    const result = await this.outcomeExecutionRepository.record(projectId, {
+    const result = await this.outcomeExecutionRepository.record(workspaceId, projectId, {
       outcomeId,
       correlationId: snapshot.correlationId,
       state: snapshot.state,
@@ -97,6 +96,7 @@ export class RecordExecutionEvidenceUseCase<TCaller> {
       principalId,
       at: now,
     });
+    if (result.kind === "workspace_archived") throw new WorkspaceArchivedError(workspaceId);
     if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
     if (result.kind === "evidence_limit_exceeded") {
       throw new ConflictError(`Outcome ${outcomeId} already has too many Evidence references (limit ${result.limit})`, {

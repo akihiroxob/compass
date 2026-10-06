@@ -27,7 +27,7 @@ export const toRequest = (row: Selectable<ResearchRequestTable>): ResearchReques
 
 /**
  * Requestの保存とWorkspace通知を同じtransactionで行う唯一の経路。
- * serverのobserverがcanonical Activityと移行中のRuntime eventへ投影する。
+ * serverのobserverがcanonical ActivityとWorkspace Runtime eventへ投影する。
  * 呼び出し側が存在・状態・冪等性（requestKey）を検査した後に呼ぶ。
  */
 export const insertResearchRequest = async (

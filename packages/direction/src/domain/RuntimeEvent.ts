@@ -1,7 +1,7 @@
 import type { ResearchConclusion } from "./Research.ts";
 
 /** Runtime向けイベントの形式version。項目の意味を変える場合に上げる。 */
-export const runtimeEventVersion = 1;
+export const runtimeEventVersion = 2;
 
 
 /**
@@ -25,7 +25,7 @@ export type RuntimeEvent = {
   readonly id: string;
   readonly version: number;
   readonly type: RuntimeEventType;
-  readonly projectId: string;
+  readonly workspaceId: string;
   /** 発端Intent。発端を持たない`project_watch`のRequestではnull。 */
   readonly intentId: string | null;
   /** research系イベントの発端Request。`outcome_confirmed`ではnull。 */

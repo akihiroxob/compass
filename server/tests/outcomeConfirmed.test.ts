@@ -8,10 +8,11 @@ import { createApplicationServices } from "../src/bootstrap/createApplicationSer
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
+import { runtimeEventVersion } from "@compass/direction";
 import { ProjectRole } from "@compass/access";
 
 /**
- * Outcome確定のRuntimeイベント（`outcome_confirmed`）と、既存`runtime_event`のtable再構築マイグレーション（Task 33）。
+ * WorkspaceのOutcome確定Runtimeイベントと、同じschemaでの再起動。
  * Runtime（Manager起動）は未接続で、ここでRuntimeとして振る舞うのはtest内のuse case呼び出しだけ。
  */
 
@@ -63,12 +64,12 @@ test("create_outcomeとdecide_next_outcomeは、Outcomeと同一transactionでou
     [created.id, decided.outcome.id],
   );
   for (const event of confirmed) {
-    assert.equal(event.projectId, project.id);
+    assert.equal(event.workspaceId, project.workspaceId);
     assert.equal(event.intentId, intent.id);
     assert.equal(event.researchRequestId, null);
     assert.equal(event.conclusion, null);
     assert.equal(event.correlationId, `outcome:${event.outcomeId}`);
-    assert.equal(event.version, 1);
+    assert.equal(event.version, runtimeEventVersion);
   }
   // Intent作成はイベントを作らず、cursorは昇順。
   const all = await eventsOf(kit, project.id);
@@ -126,7 +127,7 @@ test("Runtimeはoutcome_confirmedをconsumer単位でack・再取得でき、別
   const fetched = await kit.services.fetchRuntimeEventsUseCase.execute("rt", project.id, {});
   const event = fetched.events.find((item) => item.type === "outcome_confirmed")!;
   assert.equal(event.outcomeId, outcome.id);
-  assert.ok(fetched.events.every((item) => item.projectId === project.id));
+  assert.ok(fetched.events.every((item) => item.workspaceId === project.workspaceId));
 
   await kit.services.ackRuntimeEventUseCase.execute("rt", project.id, { eventId: event.id, attemptId: "a-1", outcome: "processed" });
   const after = await kit.services.fetchRuntimeEventsUseCase.execute("rt", project.id, {});
@@ -134,37 +135,10 @@ test("Runtimeはoutcome_confirmedをconsumer単位でack・再取得でき、別
   await kit.database.destroy();
 });
 
-/** Task 33より前のruntime_event（CHECKにoutcome_confirmedが無く、research_request_idがNOT NULL）を作る。 */
-const downgradeRuntimeEvent = async (database: Awaited<ReturnType<typeof setup>>["database"]) => {
-  await sql`pragma foreign_keys = off`.execute(database);
-  await sql`
-    create table runtime_event_legacy (
-      sequence integer primary key autoincrement,
-      id text not null unique,
-      event_version integer not null,
-      event_type text not null check (event_type in ('research_requested', 'research_completed')),
-      project_id text not null references project (id) on delete cascade,
-      intent_id text references intent (id) on delete cascade,
-      research_request_id text not null references research_request (id) on delete cascade,
-      correlation_id text not null,
-      conclusion text check (conclusion is null or conclusion in ('completed', 'insufficient', 'not_needed')),
-      created_at integer not null,
-      constraint runtime_event_conclusion_matches_type check ((event_type = 'research_completed') = (conclusion is not null))
-    )
-  `.execute(database);
-  await sql`
-    insert into runtime_event_legacy (sequence, id, event_version, event_type, project_id, intent_id, research_request_id, correlation_id, conclusion, created_at)
-    select sequence, id, event_version, event_type, project_id, intent_id, research_request_id, correlation_id, conclusion, created_at from runtime_event where event_type != 'outcome_confirmed'
-  `.execute(database);
-  await sql`drop table runtime_event`.execute(database);
-  await sql`alter table runtime_event_legacy rename to runtime_event`.execute(database);
-  await sql`pragma foreign_keys = on`.execute(database);
-};
-
 const runtimeEventSql = async (database: Awaited<ReturnType<typeof setup>>["database"]) =>
   (await sql<{ sql: string }>`select sql from sqlite_master where type = 'table' and name = 'runtime_event'`.execute(database)).rows[0]!.sql;
 
-test("既存DBのruntime_eventは再初期化でtableを作り直し、event・sequence・ack・FKを保ったままoutcome_confirmedを受け付ける（再実行しても変わらない）", async () => {
+test("新規Workspace event schemaは再初期化でもevent・sequence・ack・FKを保つ", async () => {
   const directory = mkdtempSync(join(tmpdir(), "compass-migration-"));
   const path = join(directory, "compass.db");
   try {
@@ -175,15 +149,9 @@ test("既存DBのruntime_eventは再初期化でtableを作り直し、event・s
     assert.ok(event);
     await first.services.grantProjectRoleUseCase.execute(project.id, { principalId: "rt", role: ProjectRole.RUNTIME });
     await first.services.ackRuntimeEventUseCase.execute("rt", project.id, { eventId: event.id, attemptId: "a-1", outcome: "retryable_failure", reason: "busy" });
-    // autoincrementの高水位を最大sequenceより大きくする（削除済みの番号を再利用しない契約）。
-    await downgradeRuntimeEvent(first.database);
-    await sql`insert into runtime_event (sequence, id, event_version, event_type, project_id, intent_id, research_request_id, correlation_id, created_at) values (50, 'tmp', 1, 'research_requested', ${project.id}, ${intent.id}, ${request.id}, 'tmp', 1)`.execute(first.database);
-    // 同じ(request, type)の重複は作れない。高水位だけを残すため、対象のrowを消す。
-    await sql`delete from runtime_event where id = 'tmp'`.execute(first.database);
-    assert.equal((await runtimeEventSql(first.database)).includes("outcome_confirmed"), false);
     await first.database.destroy();
 
-    // 再起動（再初期化）でマイグレーションされる。
+    // 同じschemaで再起動・再初期化する。
     const second = await setup(path);
     assert.equal((await runtimeEventSql(second.database)).includes("outcome_confirmed"), true);
     const migrated = await eventsOf(second, project.id);
@@ -201,14 +169,14 @@ test("既存DBのruntime_eventは再初期化でtableを作り直し、event・s
     const after = await eventsOf(second, project.id);
     const confirmed = after.find((item) => item.type === "outcome_confirmed")!;
     assert.equal(confirmed.outcomeId, outcome.id);
-    assert.ok(confirmed.cursor > 50, `cursor ${confirmed.cursor} は削除済みの番号を再利用しない`);
+    assert.ok(confirmed.cursor > event.cursor, `cursor ${confirmed.cursor} は削除済みの番号を再利用しない`);
     await assert.rejects(
-      () => sql`insert into runtime_event (id, event_version, event_type, project_id, intent_id, research_request_id, correlation_id, created_at) values ('dup', 1, 'research_requested', ${project.id}, ${intent.id}, ${request.id}, 'dup', 1)`.execute(second.database),
+      () => sql`insert into runtime_event (id, event_version, event_type, workspace_id, intent_id, research_request_id, correlation_id, created_at) values ('dup', 1, 'research_requested', ${project.workspaceId}, ${intent.id}, ${request.id}, 'dup', 1)`.execute(second.database),
       /UNIQUE/,
     );
     // Outcomeイベントの発端が食い違う行はCHECKで拒否される。
     await assert.rejects(
-      () => sql`insert into runtime_event (id, event_version, event_type, project_id, intent_id, research_request_id, correlation_id, created_at) values ('bad', 1, 'outcome_confirmed', ${project.id}, ${intent.id}, ${request.id}, 'bad', 1)`.execute(second.database),
+      () => sql`insert into runtime_event (id, event_version, event_type, workspace_id, intent_id, research_request_id, correlation_id, created_at) values ('bad', 1, 'outcome_confirmed', ${project.workspaceId}, ${intent.id}, ${request.id}, 'bad', 1)`.execute(second.database),
       /CHECK/,
     );
     await second.database.destroy();

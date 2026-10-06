@@ -55,7 +55,7 @@ export const loadOutcomes = async (
  * OutcomeとSuccess Criterionを1 transactionで挿入する。`id`・`originDecisionId`は呼び出し側が決める
  * （decideNextOutcomeはDecision行を作る前にOutcomeのIDを確定させ、Decision.outcomeIdのFKに使う）。
  * 存在・状態の確認は呼び出し側が行う。Workspace通知を同じtransactionで送る。
- * serverがcanonical Activityと移行中のRuntime eventへ投影し、通知先の失敗時はOutcome・成功条件も巻き戻る。
+ * serverがcanonical ActivityとWorkspace Runtime eventへ投影し、通知先の失敗時はOutcome・成功条件も巻き戻る。
  */
 export const insertOutcomeRow = async (
   transaction: Transaction<DirectionDatabase>,
