@@ -147,7 +147,7 @@ Orchestrator 自身が専門的な知的作業を抱え込まない。
 ```text
 Workspace の現在状態を確認
         │
-        ├─ 未処理 Intent / Target Project のない Outcome
+        ├─ 未処理 Intent / Target Project のない Outcome / 未完了の archived Target がある Outcome
         │      └─ strategist(workspace)
         │
         ├─ 調査が必要
@@ -1480,7 +1480,7 @@ Worker / Reviewer の instruction を Ralph 内へ複製しない。
 25. `shared` を便利箱にしない。
 26. 空のアーキテクチャ用ディレクトリを先回りして作らない。
 27. 不要な抽象化・Repository・Serviceを作らない。
-28. 既存挙動を維持しながら段階的に移行する。
+28. 責務と業務規則の整合を検証しながら段階的に実装する。リリース前のCompass開発DBはDROP・file削除で再作成してよく、旧DB・旧クライアント互換は必須にしない（[ADR 0001](docs/adr/0001-workspace-project-boundary.md)）。
 
 ---
 

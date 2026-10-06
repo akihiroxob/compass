@@ -48,17 +48,27 @@ workspace・build（npm workspaces）、`activeRole`のtransport・互換期間�
 
 ## Workspace移行
 
-[ADR 0001 WorkspaceとProjectの境界](adr/0001-workspace-project-boundary.md) を実装するため、WachaのCompass ProjectにStory 01〜12とTaskを登録済み。登録は実装完了を意味しない。順序はStory番号と各Taskの前提で示し、Wachaは依存を自動制御しない。各Taskのファイル単位の変更先・互換期間・データ変換・rollbackの確認点は[影響マップ](workspace-migration-impact-map.md)に記す。
+[ADR 0001 WorkspaceとProjectの境界](adr/0001-workspace-project-boundary.md) を実装するため、WachaのCompass ProjectにStory 01〜12とTaskを登録済み。登録は実装完了を意味しない。順序はStory番号と各Taskの前提で示し、Wachaは依存を自動制御しない。各Taskのファイル単位の変更先と検証条件は[影響マップ](workspace-migration-impact-map.md)に記す。
+
+リリース前の開発DBは破棄・再作成できる。tableのDROP・DB file削除を許可し、旧DBからのデータ変換、既存ID・Credential・cursorの引継ぎ、旧server・旧クライアントとの互換は必須にしない。空DBでの初期化・保存・再起動と、現在の認可・業務契約を検証する。schema変更に必要な旧列・旧table・互換コードの整理は各実装Taskで行える。
+
+Activityの移行ではStory番号およびWorkspace handoff v2の推奨順と実施順が異なる。既存のDirection通知がProject IDのみを持ち、Activity追記が業務変更と同じtransactionで行われるため、Story 02受入後にS07-01でworkspace scopeとDirection canonical Activityを切り替え、S07-01受入後にS03-01のDirection通知を切り替える。Wachaの両Taskの前提もこの順序に更新済み。
+
+認可の移行はS03-01〜03（DirectionのWorkspace保存・application集約）→S06-02〜03（Workspace Role Grant・Credential）→S03-04（Direction公開入口）→S06-04（公開済み入口の横断検証）の順とする。S03-01〜03で権限未整備のWorkspace Contextを公開しない。認可付きWorkspace Activity入口のS07-02はS03-01〜03とS06-02〜03の後に接続する。Workspace Role ContextはS07-03〜04で個別に認可検証する。
+
+UIはS09-01で既存Project画面に対するSCSS基盤を確認し、S09-02でWorkspace画面を接続した時に共通トークン・部品がWorkspaceとProjectの双方へ反映されることを実ブラウザで確認する。
+
+有効なOutcomeのTarget Projectがarchiveされ、未完了のExecutionが残る場合は、WorkspaceのStrategistが再計画する。Target・既存Story・成果・Evidenceの参照は保持し、Targetの解除・再割当・Outcome見直しをStrategistが判断する。archive前に評価可能な成果が揃っていればEvaluatorへ進める。この契約はS04-01・S05-02・S08-01〜02の受入条件に登録済み。
 
 | Story | 内容 | 主な受入条件 |
 | --- | --- | --- |
 | 01 | 移行の契約（ADR）と、コード・DB・API・MCP・UIの影響マップ | 業務挙動を変えない。影響マップは現行コードとテストを根拠にする |
-| 02 | Workspace・`packages/organization`・既存ProjectごとのWorkspace生成 | 既存Project ID・Work・Grant・Credential・Change Logを保ち、再実行で重複しない |
-| 03 | DirectionのWorkspace scope化 | 既存IDと根拠を保ち、`project_id`列にWorkspace IDを保存しない |
+| 02 | Workspace・`packages/organization`・Project所属 | 空DBからWorkspaceとProjectを保存でき、全Projectが1つのWorkspaceに属する |
+| 03 | DirectionのWorkspace scope化 | 根拠と参照の整合を保ち、`project_id`列にWorkspace IDを保存しない |
 | 04 | OutcomeTargetProjectとProject別Story handoff | 同一WorkspaceのTargetだけを許可し、target外・別Workspaceを拒否する |
 | 05 | 全Target ProjectのExecution還流とOutcome評価 | 一部Projectの完了だけで評価・達成にしない |
 | 06 | Workspace / ProjectのMembership・Role Grant・Credential分離 | Role継承を作らず、activeRoleとscopeの不一致を拒否する |
 | 07 | Workspace / Project ActivityとRole Context | scope不整合を拒否し、Change Log・Operational Logと混同しない |
 | 08 | Workspace単位の現在状態とOrchestrator dispatch | Project選択をOrchestratorで推論せず、archive済みへdispatchしない |
 | 09〜11 | Workspace UI（Shell・切替、Direction / Project画面、Activity・Agent・設定） | 実データと権限を反映し、プロトタイプの固定値を持ち込まない |
-| 12 | 旧Project前提の段階的な除去と統合回帰 | 破壊的移行を一度に行わず、独立起動と実ブラウザで検証する |
+| 12 | 旧Project前提の除去と統合回帰 | 新規DB・独立起動・実ブラウザで検証する |

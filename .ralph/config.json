@@ -25,7 +25,7 @@
   "roles": {
     "worker": {
       "agentName": "worker",
-      "agentProvider": "claude",
+      "agentProvider": "codex",
       "model": ""
     },
     "reviewer": {

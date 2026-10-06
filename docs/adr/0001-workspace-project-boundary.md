@@ -7,7 +7,7 @@
 
 現行実装のProjectは、Mission・Vision・Principles・Constraints等の戦略、Intent / Outcome以下のDirection、Story / Task以下の実行、Repository等のResourceを1つの単位で兼ねている。複数Projectで1つの成果を目指せず、ProjectとRepositoryの区別も曖昧になる。
 
-Workspaceを導入し、戦略単位と実行単位を分ける。Story・Task・Grant・Credential・Change Log・Activityは既存のProject IDに強く依存しているため、既存Projectを壊さない移行を前提とする。
+Workspaceを導入し、戦略単位と実行単位を分ける。Story・Task・Grant・Credential・Change Log・ActivityのProject scopeを維持し、DirectionのWorkspace scopeと区別する。リリース前の開発DBは破棄・再作成できるため、旧データの変換を実装の前提にしない。
 
 ## 決定
 
@@ -48,6 +48,7 @@ OutcomeとProjectの関連を`OutcomeTargetProject`（`outcomeId`・`projectId`�
 - Outcome向けのStoryを作るときは、Outcomeが存在し、Projectが存在し、ProjectとOutcomeのWorkspaceが一致し、ProjectがそのOutcomeのTargetであることを強制する。
 - 1つのOutcomeから、Target Projectごとに別のStoryを作れる。Storyは`projectId`と`outcomeRef`を持ち続ける。
 - Outcomeの評価には、全Target ProjectのExecution Summary / Evidenceを使う。1 ProjectのTask受入やWork完了をOutcome達成とみなさない。
+- Target設定後にProjectをarchiveしても、Target・既存Story・成果・Evidenceを自動削除しない。有効なOutcomeに未完了のarchived Target（Execution Summary未還流またはincomplete）が残る場合はWorkspaceのStrategistが再計画し、Targetの解除・active Projectへの再割当・Outcomeの見直しを判断する。Target解除後も既存Storyと成果・Evidence参照を保持する。archive前に評価可能となった成果は引き続き評価に利用する。
 
 ### Roleと認可のscope
 
@@ -79,6 +80,7 @@ Activityのscopeは`system` / `workspace` / `project`とする。
 ### Orchestrator・Ralph・Role Context
 
 - OrchestratorはWorkspace単位の現在状態（ID・status・件数が中心で本文を含まない）を読み、状態だけで専門Roleを起動する。Target Projectのない有効なOutcomeは`strategist`、Target ProjectにOutcomeのStoryがなければそのProjectの`manager`、全Target ProjectのExecutionが評価可能なら`evaluator`を起動する。archive済みのWorkspace・Projectへはdispatchしない。
+- 有効なOutcomeに未完了のarchived Targetがある場合は、そのWorkspaceの`strategist`へ再計画をdispatchする。archive済みProjectの`manager`は起動しない。全Targetが評価可能なら、Projectのarchiveだけを理由にEvaluatorへの経路を止めない。
 - Orchestratorは、OutcomeをどのProjectが担当するか、何を調査するか、Storyをどう分けるかを判断しない。Activity cursorをworkflow checkpointにしない。Orchestrator CredentialをAgentへ渡さない。
 - RalphはProject内のWorker / Reviewerの実行ループのまま残す。Workspaceを直接所有・選択せず、必要なWorkspaceの情報はServerのProject Role Contextから受け取る。Worker / Reviewerは別Principal・別Credentialとする。
 - Role Contextは、Workspace Role向け（Mission等・Project要約・最近のWorkspace Activity）とProject Role向け（Project・Resource・Workspace要約・関連Outcome・最近のProject Activity）を区別する。曖昧なoptional parameterの組合せにしない。Role・Policy・Skill本文を必要時に取得する方式は維持する。
@@ -91,14 +93,15 @@ Workspaceが所有するResearch・Decision・Evaluation等、Compassが正本�
 
 standalone WachaはCompassの製品・ランタイムの構成要素ではない。Wachaの開発チーム調整のモデルは`packages/work`・`manager`・Ralphへ統合済みである。repository rootの`.mcp.json`にあるWacha MCPは、Compass自身の開発作業を管理するための開発ツールであり、製品の依存関係ではない。Workspace導入を理由にWachaを再サービス化しない。
 
-## 移行の不変条件
+## 構造変更とDB再作成の方針
 
-- 既存のProject IDをProjectとして維持する。既存Projectごとに新しいWorkspaceを作り、Projectを所属させる。
+- リリース前のCompass開発DBは、schema変更に合わせてtableをDROPするかDB fileを削除し、現在の定義から再作成してよい。旧データ・ID・Credential・cursorの引継ぎと旧クライアント互換は必須にしない。開発用Wachaのデータはこの再作成の対象外とする。
+- 新しいDBではProjectを必ず1つのWorkspaceに所属させ、Workspace / Projectの識別子と所有scopeを区別する。
 - Mission / Vision / Principles / ConstraintsはWorkspaceへ移す。descriptionはProjectのpurpose、Repository / ResourceはProjectに残す。
 - Intent / Outcome / Research / Decision / Evaluation等のscopeをWorkspaceへ移す。Story / Task / Change Log、ProjectのMembership / Grant / CredentialはProjectのまま残す。
-- 既存のProject ActivityはProject Activityとして残し、`workspaceId`を補う。過去のActivityの再分類は必須にしない。
-- 移行は再実行しても重複したWorkspaceを作らない。
-- 一度に破壊的な移行をしない。Project tableは「Workspace追加と`workspace_id`の追加（既存列を維持）」→「読取をWorkspaceへ」→「書込をWorkspaceへ」→「未使用列の削除」の順に移す。file移動・schema変更・挙動変更を同じ段階にまとめない。
+- Activityは新しいDBで正しいscope・IDの組合せを記録する。既存Activityの変換は不要とする。
+- 空DBからの初期化と、同じschemaでの再起動が成功することを検証する。旧DBの非破壊migrationやrollback用のデータコピーは必須にしない。
+- 各Taskは責務と公開入口の整合を保ちながら進める。旧列・旧table・互換用ロジックは、関連する実装を切り替えるTaskで整理してよい。
 - Domain modelは早い段階で`workspaceId`へ変え、最終的なDB列も`workspace_id`にする。`project_id`列にWorkspace IDを保存する互換を長く残さない。Project IDをWorkspace IDと解釈する曖昧な互換経路を作らない。
 
 ## 対象外
