@@ -1,0 +1,55 @@
+// 再利用する見た目の型。値は_tokens.scssのCSS変数を使う。
+@use "tokens";
+
+@mixin narrow {
+  @media (max-width: tokens.$breakpoint-narrow) { @content; }
+}
+
+@mixin focus-ring {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+// 小さな大文字の見出しラベル（eyebrow・dt等）。
+@mixin caps-label($size: var(--text-label), $spacing: .12em) {
+  color: var(--color-text-muted);
+  font-size: $size;
+  font-weight: 800;
+  letter-spacing: $spacing;
+  text-transform: uppercase;
+}
+
+@mixin serif-heading($size) {
+  font-family: var(--font-serif);
+  font-size: $size;
+  font-weight: 500;
+}
+
+// 一覧の1行・小さなカード。
+@mixin list-item {
+  border: 1px solid var(--color-line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--color-raised);
+}
+
+// 一覧の行全体がリンクの場合のhover。
+@mixin list-link {
+  @include list-item;
+  display: block;
+  text-decoration: none;
+  &:hover { border-color: var(--color-accent); box-shadow: var(--shadow-hover); }
+}
+
+// 区画（form-section・detail-section等）。
+@mixin panel {
+  padding: var(--space-lg);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+@mixin unstyled-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}

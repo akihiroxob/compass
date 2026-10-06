@@ -1,0 +1,76 @@
+// デザイントークン。色・文字・余白・角丸・影・動きの値はここだけで定義し、各partialはCSS変数で参照する。
+// 文字色は背景（paper / surface / raised / note）に対してWCAG AA（4.5:1以上）を満たす値に限る。
+
+$breakpoint-narrow: 700px;
+
+:root {
+  // 色
+  --color-text: #24221f;
+  --color-text-secondary: #5c564e;
+  --color-text-muted: #686158;
+  --color-paper: #f4f1eb;
+  --color-surface: #faf8f4;
+  --color-raised: #fff;
+  --color-note: #f0ebe2;
+  --color-subtle: #e4ded5;
+  --color-line: #d8d1c7;
+  --color-line-soft: #e0dad1;
+  --color-line-strong: #c8c0b5;
+  // 入力欄の枠は非テキストのコントラスト（3:1以上）を満たす。
+  --color-line-input: #8b847b;
+  --color-accent: #a2462d;
+  --color-danger: #872f1d;
+  --color-danger-line: #d89481;
+  --color-danger-soft: #fff0eb;
+  --color-danger-softer: #fff7f4;
+  --color-inverse: #292622;
+  --color-inverse-text: #f8f4ed;
+  --color-inverse-muted: #aaa39a;
+  --color-inverse-line: #4b4741;
+  // 焦点表示は背景に対して3:1以上の実線にする。
+  --focus-ring: 3px solid var(--color-accent);
+  --focus-offset: 2px;
+
+  // 状態badgeの意味（statusTone.ts）。文字と背景はWCAG AA（4.5:1以上）。
+  --tone-attention-fg: #fff;
+  --tone-attention-bg: #a2462d;
+  --tone-waiting-fg: #5c564e;
+  --tone-waiting-border: #8b847b;
+  --tone-progress-fg: #fff;
+  --tone-progress-bg: #2f5a7a;
+  --tone-done-fg: #2c5631;
+  --tone-done-bg: #e1eedf;
+  --tone-muted-fg: #5c564e;
+  --tone-muted-bg: #e4ded5;
+  --tone-warning-fg: #872f1d;
+  --tone-warning-bg: #fff0eb;
+  --tone-warning-border: #d89481;
+
+  // 文字
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --text-label: .72rem;
+  --text-small: .85rem;
+  --text-note: .9rem;
+
+  // 余白
+  --space-2xs: .25rem;
+  --space-xs: .4rem;
+  --space-sm: .75rem;
+  --space-md: 1.25rem;
+  --space-lg: 2rem;
+  --space-xl: 3rem;
+
+  // 角丸・影
+  --radius-sm: .7rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.5rem;
+  --radius-pill: 999px;
+  --shadow-hover: 0 6px 16px rgba(45, 37, 28, .06);
+  --shadow-lift: 0 14px 30px rgba(45, 37, 28, .08);
+
+  // 動き。状態変化・移動の理解を助ける範囲に限る（prefers-reduced-motionで無効化）。
+  --motion-fast: .18s;
+}

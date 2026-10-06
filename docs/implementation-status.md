@@ -69,7 +69,9 @@ Project詳細は`?view=`で「概要」（`overview`。既定・不正値も概�
 - 記録: Activity、Research、ADR参照、Repositories・Resources。
 - 設定: Agent（6 Roleを1つの一覧にし、行を開くと割当・取消。administratorには割当済みAgentのCredentialの有無）、Credential（administratorのみ）、Member・招待、Projectの編集・アーカイブ。
 
-状態badgeは意味ごとのtone（`server/src/web/statusTone.ts`）で色を分ける。要対応（受入待ち・差戻し・評価の未達成・成功条件を満たさない）は塗りのアクセント、待機（未着手・未評価・Execution未接続・受諾待ち）は枠線、進行中（作業中・レビュー待ち・Active・Execution中）は青、完了（受入済み・達成・満たす・有効なCredential）は淡い緑、終了・分類ラベル（取消・過去のIntent・Activityの種別等）は控えめ、警告（期限切れClaimの作業中・再取得待ち・Evidence不足・期限切れ）は淡い赤の枠線にする。色は`styles.css`の`--tone-*`で定義し、文字と背景はWCAG AA（4.5:1以上）を満たし、badgeには常に状態のラベルを併記する。動きはview切替と`details`展開の短いfade（約180ms）とbadge色の変化に限り、Claim保持・Role割当に点滅・脈動・回転・カウントダウンを使わない。`prefers-reduced-motion: reduce`ではanimation・transitionを止める。
+状態badgeは意味ごとのtone（`server/src/web/statusTone.ts`）で色を分ける。要対応（受入待ち・差戻し・評価の未達成・成功条件を満たさない）は塗りのアクセント、待機（未着手・未評価・Execution未接続・受諾待ち）は枠線、進行中（作業中・レビュー待ち・Active・Execution中）は青、完了（受入済み・達成・満たす・有効なCredential）は淡い緑、終了・分類ラベル（取消・過去のIntent・Activityの種別等）は控えめ、警告（期限切れClaimの作業中・再取得待ち・Evidence不足・期限切れ）は淡い赤の枠線にする。色は`styles/_tokens.scss`の`--tone-*`で定義し、文字と背景はWCAG AA（4.5:1以上）を満たし、badgeには常に状態のラベルを併記する。動きはview切替と`details`展開の短いfade（約180ms）とbadge色の変化に限り、Claim保持・Role割当に点滅・脈動・回転・カウントダウンを使わない。`prefers-reduced-motion: reduce`ではanimation・transitionを止める。
+
+Web UIのstyleはSass（SCSS）で`server/src/web/styles/`に置き、`main.scss`から`_tokens`（色・文字・余白・角丸・影・動き・焦点表示のCSS変数と狭い画面のbreakpoint）→`_base`（要素の既定値・焦点表示・reduced-motion）→`_layout`（Shell・見出し・view切替）→`_components`（ボタン・StateCard・状態badge・区画・一覧等の画面共通class）→`_features`（機能固有の配置）の順に読み込む。値はtokenだけで定義し、共通の型は`_mixins.scss`のmixin（narrow・focus-ring・caps-label・panel・list-item等）で再利用する。文字色は背景（paper・surface・raised・note）に対して4.5:1以上、入力欄の枠と焦点表示は3:1以上とする。Tailwind等のutility CSSは使わない。
 
 空状態・読込失敗・未定義URLの表示はWeb UI共通とする。空の一覧は誰が登録・起票するか（Strategist・Researcher・Manager等）を示し、Humanが登録できない場合（archived・権限なし）は導線の代わりに理由と依頼先を出す。読込失敗は、存在しない・閲覧権限の無い対象を画面ごとの文言で、接続失敗・サーバー障害・解釈できない応答をサーバーの英語文言ではなく再試行の案内で示す（`server/src/web/api.ts`の`classifyError`・`loadFailureMessage`）。未定義のURLはログイン後に404画面を出し、Project一覧と、Compass内から遷移してきた場合だけ直前の画面へ戻る導線を出す。
 

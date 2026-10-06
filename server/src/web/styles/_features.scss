@@ -1,0 +1,275 @@
+// 機能固有の配置。共通の見た目は_components.scssの部品とmixinを使う。
+@use "mixins" as *;
+
+// Project一覧・作成・編集（features/project）
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+  @include narrow { grid-template-columns: 1fr; }
+}
+.project-card {
+  min-height: 310px;
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  text-decoration: none;
+  transition: transform .15s, box-shadow .15s;
+  &:hover { transform: translateY(-3px); box-shadow: var(--shadow-lift); }
+  h2 { margin: 0 0 .8rem; @include serif-heading(2rem); }
+  > p:not(.card-label) { color: var(--color-text-muted); line-height: 1.55; }
+  time { margin-top: 1rem; color: var(--color-text-muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
+  @media (prefers-reduced-motion: reduce) { &:hover { transform: none; } }
+}
+.mission-preview {
+  margin-top: auto;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--color-subtle);
+  line-height: 1.6;
+  span { display: block; margin-bottom: .35rem; @include caps-label(.7rem); }
+}
+.project-form { display: grid; gap: var(--space-md); }
+.repeat-field {
+  margin: 1.8rem 0 0;
+  padding: 0;
+  border: 0;
+  legend { margin-bottom: .8rem; font-weight: 700; }
+}
+.repeat-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: .6rem;
+  margin-bottom: .6rem;
+  &.links { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  @include narrow { &, &.links { grid-template-columns: 1fr; } }
+}
+.remove { @include narrow { justify-self: start; padding: .3rem 0 .8rem; } }
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: 1rem;
+  @include narrow { flex-direction: column-reverse; }
+}
+.archive-notice { border-left: 4px solid var(--color-accent); padding-left: 1.5rem; }
+.archive-preview { margin-top: var(--space-sm); }
+
+// Project詳細の方向と概要（features/project）
+.direction-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-radius: 1.4rem;
+  color: var(--color-inverse-text);
+  background: var(--color-inverse);
+  overflow: hidden;
+  > div { padding: 2.2rem; }
+  > div + div { border-left: 1px solid var(--color-inverse-line); }
+  p:last-child { margin: 0; font-family: var(--font-serif); font-size: 1.4rem; line-height: 1.6; }
+  .unset { color: var(--color-inverse-muted); }
+  @include narrow { grid-template-columns: 1fr; > div + div { border-top: 1px solid var(--color-inverse-line); border-left: 0; } }
+}
+.overview-mission {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  .section-label { margin-right: .5rem; }
+}
+.position-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-sm);
+  margin: var(--space-md) 0 0;
+  padding: 0;
+  list-style: none;
+  > li { @include list-item; padding: 1rem; overflow-wrap: anywhere; }
+  .section-label { margin-bottom: var(--space-xs); }
+  p { margin: 0; }
+  ul { @include unstyled-list; margin-top: var(--space-xs); line-height: 1.5; }
+  ul li + li { margin-top: var(--space-xs); }
+  small { display: block; color: var(--color-text-muted); }
+  @include narrow { grid-template-columns: 1fr; }
+}
+.position-count, .position-work { font-variant-numeric: tabular-nums; }
+.position-work {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
+  color: inherit;
+  text-decoration: none;
+  &:hover { text-decoration: underline; }
+}
+.next-action-summary { margin: 0 0 1rem; font-weight: 700; }
+.detail-section .next-action-list, .detail-section .position-steps ul, .detail-section .agent-role-list { padding-left: 0; }
+.next-action-list {
+  margin-bottom: var(--space-md);
+  li {
+    @include list-item;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs) .9rem;
+    padding: .8rem 1rem;
+    font-variant-numeric: tabular-nums;
+  }
+  small { color: var(--color-text-muted); }
+  &.waiting { gap: var(--space-xs); li { padding: .55rem .9rem; line-height: 1.6; } }
+}
+.waiting-unassigned { color: var(--color-danger); }
+.agent-role-list { margin-top: var(--space-md); }
+.agent-role {
+  @include list-item;
+  > summary { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; padding: .9rem 1rem; border-radius: var(--radius-sm); cursor: pointer; }
+  > summary::marker { color: var(--color-accent); }
+  &[open] > summary { border-bottom: 1px solid var(--color-line-soft); }
+  > :not(summary) { margin-left: 1rem; margin-right: 1rem; }
+  > :last-child { margin-bottom: 1rem; }
+}
+.agent-role-name { min-width: 7rem; font-weight: 800; }
+.agent-role-agents { display: flex; flex-wrap: wrap; gap: var(--space-xs) .9rem; }
+.agent-role-agent { display: inline-flex; align-items: center; gap: var(--space-xs); }
+
+// Intent（features/intent）
+.past-intents {
+  margin-top: var(--space-md);
+  summary { border-radius: var(--radius-sm); cursor: pointer; font-weight: 700; }
+  summary::marker { color: var(--color-accent); }
+  ul { @include unstyled-list; margin-top: .8rem; display: grid; gap: .5rem; }
+  a { @include list-link; padding: .8rem 1rem; }
+}
+
+// Outcomeと成功条件（features/outcome）
+.outcome-block {
+  margin: 0 0 var(--space-md);
+  .outcome-list { margin-top: var(--space-xs); }
+  .section-label { margin-bottom: .3rem; }
+}
+.criteria-list {
+  @include unstyled-list;
+  display: grid;
+  gap: .8rem;
+  counter-reset: criterion;
+  li {
+    @include list-item;
+    position: relative;
+    padding: 1rem 1rem 1rem 3.2rem;
+    border-radius: .8rem;
+    counter-increment: criterion;
+    &::before {
+      content: counter(criterion);
+      position: absolute;
+      left: 1rem;
+      top: 1rem;
+      width: 1.6rem;
+      height: 1.6rem;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: #fff;
+      background: var(--color-accent);
+      font-size: .75rem;
+      font-weight: 800;
+    }
+  }
+  p { margin: 0; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .criterion-title { font-weight: 700; }
+  dl { margin: .5rem 0 0; }
+  dt { margin-top: .5rem; @include caps-label(.7rem, .1em); }
+  dd { margin: .2rem 0 0; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+}
+.criterion-row {
+  @include list-item;
+  display: grid;
+  gap: .5rem;
+  margin-bottom: .9rem;
+  padding: 1rem;
+  border-radius: .8rem;
+  label { margin-top: 0; font-size: var(--text-small); }
+  .remove { justify-self: start; padding: .2rem 0; }
+}
+.criterion-evidence { display: block; overflow-wrap: anywhere; }
+
+// Agent Grant・Credential・Member（features/grant・credential・member）
+.grant-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  select { max-width: 100%; min-width: 0; }
+  .form-actions { justify-content: flex-start; margin-top: 0; }
+}
+.grant-notice { margin: var(--space-sm) 0 0; color: var(--color-text-secondary); font-size: var(--text-note); }
+.scope-field {
+  margin-top: var(--space-2xs);
+  .checkbox-label { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin-bottom: var(--space-xs); font-weight: 400; }
+}
+.member-role-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  @include narrow { width: 100%; > * { flex: 1 1 auto; } }
+}
+.member-note { flex-basis: 100%; margin: 0; }
+.invitation-link {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-raised);
+  label { display: grid; gap: var(--space-xs); }
+  input { width: 100%; font-family: var(--font-mono); font-size: var(--text-small); }
+}
+
+// ログイン（features/auth）
+.login-forms {
+  display: grid;
+  gap: 1.5rem;
+  margin-top: var(--space-lg);
+  .button { min-width: 16rem; @include narrow { width: 100%; min-width: 0; } }
+}
+.local-login { padding: 1.5rem; border: 1px dashed var(--color-line-strong); border-radius: var(--radius-md); }
+
+// Execution（features/execution）。長い相関ID・URI・commit SHAは狭い画面で折り返す。
+.execution-story {
+  scroll-margin-top: 1rem;
+  + .execution-story { margin-top: 1rem; }
+  h3 { overflow-wrap: anywhere; }
+  > h3:first-child { margin-top: 0; }
+  &:focus-visible, &:target { @include focus-ring; }
+}
+.action-row + .execution-story { margin-top: var(--space-md); }
+.execution-meta { margin: 0 0 .9rem; color: var(--color-text-muted); font-size: .82rem; line-height: 1.6; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.execution-changes { margin-top: 1.75rem; }
+.execution-form select { width: 100%; max-width: 100%; min-width: 0; }
+.change-list {
+  li { display: block; }
+  li small { display: block; margin-top: .35rem; }
+  .section-note { margin: .5rem 0 0; }
+  .pre-wrap { margin-top: .5rem; }
+}
+.activity-refs { margin: .45rem 0 0; padding-left: 1.1rem; font-size: var(--text-small); li { margin: .15rem 0; } }
+.evidence-uri { color: var(--color-accent); font-weight: 700; overflow-wrap: anywhere; }
+.claim-holder-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  color: var(--color-text-muted);
+  font-size: var(--text-note);
+  font-variant-numeric: tabular-nums;
+  .secondary-button { margin: 0; }
+}
+.claim-holder-group {
+  h3 { margin: var(--space-md) 0 0; font-size: 1rem; font-variant-numeric: tabular-nums; }
+  .outcome-list { margin-top: .6rem; padding-left: 0; }
+  small { font-variant-numeric: tabular-nums; }
+}
+.claim-holder-agent { font-family: var(--font-mono); font-size: .9em; font-weight: 700; overflow-wrap: anywhere; }
+.claim-holder-stale { margin: 1rem 0 0; padding: var(--space-sm) 1rem; border: 1px solid var(--color-danger-line); border-radius: var(--radius-sm); color: var(--color-danger); background: var(--color-danger-soft); }
+.claim-holder-reclaimable { margin: 1rem 0 0; color: var(--color-text-secondary); }

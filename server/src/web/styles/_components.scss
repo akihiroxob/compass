@@ -1,0 +1,188 @@
+// 画面をまたいで使う部品（components/と各featureが共有するclass）。
+@use "mixins" as *;
+
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+// ボタン・リンク
+.button, .secondary-button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 3rem;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--color-text);
+  border-radius: var(--radius-pill);
+  text-decoration: none;
+  font-weight: 700;
+  cursor: pointer;
+  &.compact { min-height: 2.4rem; padding: 0 .9rem; font-size: var(--text-note); }
+}
+.button { color: #fff; background: var(--color-text); &:disabled { opacity: .55; cursor: wait; } }
+.secondary-button { background: transparent; }
+.danger { color: var(--color-danger); border-color: var(--color-danger-line); }
+.button.danger { color: #fff; border-color: var(--color-danger); background: var(--color-danger); }
+.text-link, .back-link { color: var(--color-accent); font-weight: 700; }
+.remove, .add-row { border: 0; color: var(--color-accent); background: transparent; cursor: pointer; font-weight: 700; }
+.add-row { padding: .6rem 0; }
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  @include narrow { flex-direction: column; > * { width: 100%; } }
+}
+
+// 読込・失敗・空・404（components/StateCard・NotFoundPage）
+.state-card {
+  margin-top: var(--space-xl);
+  padding: 2.5rem;
+  border: 1px dashed var(--color-line-strong);
+  border-radius: 1.4rem;
+  background: rgba(255, 255, 255, .45);
+  h2 { margin-top: 0; @include serif-heading(1.8rem); }
+  code { font-size: .85em; overflow-wrap: anywhere; }
+  &.error { border-style: solid; border-color: var(--color-danger-line); color: var(--color-danger); background: var(--color-danger-soft); }
+  @include narrow { margin-top: var(--space-lg); padding: 1.5rem; }
+}
+.not-found {
+  h1 { margin: var(--space-2xs) 0 1rem; font-size: clamp(2rem, 5vw, 2.8rem); line-height: 1.15; }
+  .eyebrow { margin: 0; }
+}
+.error-title { font-weight: 700; }
+.unset { color: var(--color-text-muted); }
+.section-note { margin: -.6rem 0 1.4rem; color: var(--color-text-muted); font-size: var(--text-note); line-height: 1.6; }
+.fixed-note { margin: 0 0 var(--space-md); padding: .9rem 1.1rem; border: 1px solid var(--color-line-soft); border-radius: .8rem; color: var(--color-text-secondary); background: var(--color-note); font-size: var(--text-note); line-height: 1.6; }
+.pre-wrap { margin: 0; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+// 状態badge（statusTone.ts）。色だけに頼らずラベル文字を併記する。
+.status-badge {
+  display: inline-block;
+  max-width: 100%;
+  flex-shrink: 0;
+  padding: .15rem .6rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  color: var(--tone-attention-fg);
+  background: var(--tone-attention-bg);
+  font-size: var(--text-label);
+  font-weight: 800;
+  letter-spacing: .08em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+  vertical-align: .1em;
+  transition: color var(--motion-fast), background-color var(--motion-fast), border-color var(--motion-fast);
+  &.tone-waiting { color: var(--tone-waiting-fg); border-color: var(--tone-waiting-border); background: transparent; }
+  &.tone-progress { color: var(--tone-progress-fg); background: var(--tone-progress-bg); }
+  &.tone-done { color: var(--tone-done-fg); background: var(--tone-done-bg); }
+  &.muted, &.tone-muted { color: var(--tone-muted-fg); background: var(--tone-muted-bg); }
+  &.tone-warning { color: var(--tone-warning-fg); border-color: var(--tone-warning-border); background: var(--tone-warning-bg); }
+}
+
+// 区画
+// detail-section内では.detail-section h3の見出しを優先するため、先に定義する。
+.detail-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+  margin: var(--space-md) 0;
+  @include narrow { grid-template-columns: 1fr; }
+}
+.intent-card {
+  padding: 1.5rem;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-raised);
+  h3 { margin: .6rem 0 1rem; @include serif-heading(1.5rem); }
+  h4 { margin: .2rem 0 .8rem; font-size: 1rem; overflow-wrap: anywhere; }
+}
+.form-section, .detail-section {
+  @include panel;
+  @include narrow { padding: 1.4rem 1.1rem; }
+  h2 { margin: 0 0 1.5rem; @include serif-heading(1.65rem); }
+}
+.detail-section {
+  margin-top: var(--space-md);
+  > h2:first-child, > .claim-holder-toolbar:first-child h2 { margin-bottom: 1rem; }
+  h3 { margin: 1.75rem 0 .9rem; @include serif-heading(1.25rem); }
+  ul { padding-left: 1.3rem; line-height: 1.8; }
+  code { font-size: .85em; overflow-wrap: anywhere; }
+  > .intent-facts { margin: 0; }
+  > .intent-card + .intent-card { margin-top: 1rem; }
+}
+// 確認・中止などの注意区画（components/ReasonPanel）。
+.abandon-panel {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-danger-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-danger-softer);
+  h2 { margin: 0 0 .6rem; @include serif-heading(1.5rem); }
+  .state-card { margin-top: 1rem; padding: 1rem var(--space-md); }
+}
+
+// 空一覧の案内と登録導線
+.intent-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  p { margin: 0; }
+  @include narrow { .button { width: 100%; } }
+}
+
+// 説明つき項目（dl）
+.intent-facts {
+  margin: 0 0 var(--space-md);
+  dt { margin-top: .9rem; @include caps-label; }
+  dd { margin: .3rem 0 0; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+}
+
+// 一覧（行カード）
+.outcome-list, .grant-list, .next-action-list, .agent-role-list { @include unstyled-list; display: grid; gap: .6rem; }
+.outcome-list {
+  margin-top: var(--space-md);
+  a { @include list-link; padding: .9rem 1rem; overflow-wrap: anywhere; }
+  small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  code { font-size: .85em; overflow-wrap: anywhere; }
+}
+.link-list {
+  display: grid;
+  gap: .65rem;
+  a {
+    @include list-link;
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    @include narrow { align-items: flex-start; flex-direction: column; }
+  }
+  span { font-weight: 700; }
+  small { color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+}
+.grant-list {
+  margin-top: var(--space-md);
+  li {
+    @include list-item;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    padding: .9rem 1rem;
+    overflow-wrap: anywhere;
+    > .pre-wrap, > .evidence-uri { flex-basis: 100%; }
+  }
+  small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  li small + small { margin-top: .15rem; }
+  code { font-size: .85em; overflow-wrap: anywhere; }
+  .secondary-button { min-height: 2.4rem; }
+  .action-row { margin-top: 0; }
+}
+.outcome-list a, .link-list a, .past-intents a, .grant-list li, .next-action-list li, .position-steps > li, .agent-role {
+  transition: border-color var(--motion-fast), background-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+
+// 開閉（details）
+details[open] > :not(summary) { animation: view-enter var(--motion-fast) ease-out; }

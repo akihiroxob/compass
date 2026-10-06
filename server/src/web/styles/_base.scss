@@ -1,0 +1,64 @@
+// 要素の既定値・焦点表示・reduced-motion。
+@use "mixins" as *;
+
+:root {
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  background: var(--color-paper);
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+a { color: inherit; }
+button, input, textarea, select { font: inherit; }
+
+h1 {
+  max-width: 780px;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(2.7rem, 7vw, 5.6rem);
+  font-weight: 500;
+  line-height: .98;
+  letter-spacing: -.045em;
+}
+
+label {
+  display: grid;
+  gap: .55rem;
+  margin-top: var(--space-md);
+  font-weight: 700;
+  span { color: var(--color-accent); font-size: .75rem; }
+  small { color: var(--color-text-muted); font-weight: 400; }
+}
+
+input, textarea {
+  width: 100%;
+  padding: .85rem 1rem;
+  border: 1px solid var(--color-line-input);
+  border-radius: .65rem;
+  color: var(--color-text);
+  background: var(--color-raised);
+}
+textarea { resize: vertical; line-height: 1.6; }
+select {
+  min-height: 2.6rem;
+  padding: 0 .75rem;
+  border: 1px solid var(--color-line-input);
+  border-radius: .6rem;
+  color: var(--color-text);
+  background: var(--color-raised);
+}
+
+input:focus, textarea:focus, select:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visible { @include focus-ring; }
+
+@keyframes view-enter { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
