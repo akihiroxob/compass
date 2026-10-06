@@ -11,7 +11,7 @@ Projectの方向と実行を管理するアプリケーションです。Human�
 - [Orchestrator](orchestrator/README.md)
 - [Ralph](ralph/README.md)
 
-以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/direction`・`packages/work`・`packages/access`・`packages/activity`・`packages/shared`の業務コードを配線します。`orchestrator/`はProject横断の現在状態から専門RoleのAgentを起動する独立したBatchで、ServerとはMCPだけで接続します。`ralph/`はWorker / ReviewerのAgentを1 Taskずつ起動する独立したLoopで、同じくMCPだけで接続します。`manager`の名前は維持します。実装変更はWacha経由で行います。
+以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/organization`・`packages/direction`・`packages/work`・`packages/access`・`packages/activity`・`packages/shared`の業務コードを配線します（`packages/organization`のWorkspaceは公開入口が未接続です）。`orchestrator/`はProject横断の現在状態から専門RoleのAgentを起動する独立したBatchで、ServerとはMCPだけで接続します。`ralph/`はWorker / ReviewerのAgentを1 Taskずつ起動する独立したLoopで、同じくMCPだけで接続します。`manager`の名前は維持します。実装変更はWacha経由で行います。
 
 ## 起動
 

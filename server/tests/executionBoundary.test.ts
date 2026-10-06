@@ -33,6 +33,7 @@ const directionFiles = sourcesOf("packages/direction/src");
 const sharedFiles = sourcesOf("packages/shared/src");
 const accessFiles = sourcesOf("packages/access/src");
 const activityFiles = sourcesOf("packages/activity/src");
+const organizationFiles = sourcesOf("packages/organization/src");
 const serverFiles = sourcesOf("server/src");
 
 const workTables = ["story", "task", "task_claim", "task_comment", "change_log", "command_receipt"];
@@ -69,6 +70,7 @@ test("走査対象のpackageが空振りしていない", () => {
   assert.ok(sharedFiles.length >= 2, "sharedのソースを走査できている");
   assert.ok(accessFiles.length > 25, "Accessのソースを走査できている");
   assert.ok(activityFiles.length >= 8, "Activityのソースを走査できている");
+  assert.ok(organizationFiles.length >= 10, "Organizationのソースを走査できている");
 });
 
 test("Workが読み書きするtableはWork自身のtableだけで、project・project_grantも直接読まない", () => {
@@ -204,6 +206,34 @@ test("Activityはactivity tableだけを読み書きし、他のContext・server
     for (const specifier of importsOf(file.text)) {
       assert.doesNotMatch(specifier, /^@compass\/activity/, `${file.name} が ${specifier} をimportしている`);
     }
+  }
+});
+
+test("Organizationは自身のtableだけを読み書きし、sharedだけに依存する。他ContextもWorkspaceのtableを直接使わない", () => {
+  const organizationTables = ["workspace", "workspace_principle", "workspace_constraint"];
+  const queried = new Set(organizationFiles.flatMap((file) => tablesQueriedIn(file.text)));
+  assert.ok(queried.has("workspace"), "走査が空振りしていない");
+  assert.deepEqual([...queried].filter((table) => !organizationTables.includes(table)), []);
+  for (const file of organizationFiles) {
+    for (const specifier of importsOf(file.text)) {
+      assert.doesNotMatch(specifier, /^@compass\/(?!shared$)/, `${file.name} が ${specifier} をimportしている`);
+      assert.doesNotMatch(specifier, /(?:\.\.\/)+server\//, `${file.name} が ${specifier} をimportしている`);
+    }
+  }
+  for (const file of organizationFiles.filter((file) => !file.name.includes("/infrastructure/") && !file.name.endsWith("/src/index.ts"))) {
+    for (const specifier of importsOf(file.text)) {
+      assert.notEqual(specifier, "kysely", `${file.name} がKyselyをimportしている`);
+      assert.doesNotMatch(specifier, /infrastructure\//, `${file.name} が ${specifier} をimportしている`);
+    }
+  }
+  for (const file of organizationFiles.filter((file) => file.name.includes("/src/domain/"))) {
+    for (const specifier of importsOf(file.text)) {
+      assert.match(specifier, /^\.\/[A-Za-z]+\.ts$/, `${file.name} が ${specifier} をimportしている`);
+    }
+  }
+  for (const file of [...workFiles, ...directionFiles, ...accessFiles, ...activityFiles, ...sharedFiles]) {
+    const touched = tablesQueriedIn(file.text).filter((table) => organizationTables.includes(table));
+    assert.deepEqual(touched, [], `${file.name} がOrganizationのtableを直接使っている`);
   }
 });
 

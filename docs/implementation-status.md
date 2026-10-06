@@ -2,15 +2,15 @@
 
 ソースコードと公開入口に基づく現況。移行後の設計は [Architecture Handoff](../compass-codex-architecture-handoff.md) と [ADR 0001](adr/0001-workspace-project-boundary.md) を参照する。
 
-Workspaceは未実装。現在はProjectがMission等の戦略・Direction・Work・Resourceを兼ね、Direction・Access・Activity・OrchestratorはProject単位で動作する。
+Workspaceは`packages/organization`のモデル・保存・application use case（作成・参照・一覧・更新・archive）だけを実装した。ProjectはまだWorkspaceに所属せず、Web API・MCP・Web UIの入口も無い。archivedのWorkspaceは更新を拒否する。Activityにworkspace scopeが無いため、Workspaceの作成・archiveはActivityを記録しない。現在はProjectがMission等の戦略・Direction・Work・Resourceを兼ね、Direction・Access・Activity・OrchestratorはProject単位で動作する。
 
 ## 実装済み
 
 | 領域 | 現在の構成・機能 |
 | --- | --- |
 | 起動 | npm workspaces。`orchestrator/`（`@compass/orchestrator`）はServerと別に実行するBatch、`ralph/`（`@compass/ralph`。bash実装でnpm workspaceはテスト・構文検査用）はServerと別に実行するLoop。`server/`（`@compass/server`）がWeb UI（`server/src/web`、build出力`server/public/`）・`/api`・`/mcp`をHonoで同一portに提供。rootの`npm start`等はroot cwdのまま`server/`のentryを起動 |
-| 構成 | `packages/direction`（`@compass/direction`）・`packages/work`（`@compass/work`）・`packages/access`（`@compass/access`。Principal・Role Grant・Credential・Membership・Human認証のuse case・規則）・`packages/activity`（`@compass/activity`。Activityのmodel・use case・保存）・`packages/shared`（`@compass/shared`。汎用errorと入力検証の部品）。transport（OIDC adapter・Cookie・Bearer解決）・DIは`server/src`にある。packageは`src/index.ts`で公開し、serverが配線する |
-| 保存 | 単一SQLite file / Kysely。table型・DDLはDirection・Work・Access・Activityが各packageに持ち、serverの`Database`型と`initializeSchema`が合成する |
+| 構成 | `packages/organization`（`@compass/organization`。Workspaceのmodel・use case・保存。Projectは未移動）・`packages/direction`（`@compass/direction`）・`packages/work`（`@compass/work`）・`packages/access`（`@compass/access`。Principal・Role Grant・Credential・Membership・Human認証のuse case・規則）・`packages/activity`（`@compass/activity`。Activityのmodel・use case・保存）・`packages/shared`（`@compass/shared`。汎用errorと入力検証の部品）。transport（OIDC adapter・Cookie・Bearer解決）・DIは`server/src`にある。packageは`src/index.ts`で公開し、serverが配線する |
+| 保存 | 単一SQLite file / Kysely。table型・DDLはOrganization・Direction・Work・Access・Activityが各packageに持ち、serverの`Database`型と`initializeSchema`が合成する |
 | Direction | Project・Intent・Outcome・固定成功条件・Research・Decision・Evaluation・ADR参照 |
 | Execution | Story・Task・Claim・Comment・Change Log・Review・Acceptance |
 | Human | Google OIDC・Web Session・Membership・招待・Web UIでの操作 |
