@@ -29,8 +29,11 @@ export type ArchiveWorkspaceResult =
   | { kind: "already_archived" };
 
 export interface WorkspaceRepository {
-  /** 常にactiveで作成する。statusは入力から受け取らない。 */
-  create(input: CreateWorkspaceInput): Promise<Workspace>;
+  /**
+   * 常にactiveで作成する。statusは入力から受け取らない。
+   * `ownerHumanUserId`を渡すと、そのHumanのowner Membershipを同一transactionで作成する（部分保存しない）。
+   */
+  create(input: CreateWorkspaceInput, ownerHumanUserId?: string): Promise<Workspace>;
   /** 親と子要素は同一transactionで更新する。archivedのWorkspaceは更新しない。 */
   update(workspaceId: string, input: UpdateWorkspaceInput): Promise<UpdateWorkspaceResult>;
   /**

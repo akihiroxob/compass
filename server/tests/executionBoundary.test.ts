@@ -47,6 +47,7 @@ const accessTables = [
   "project_membership",
   "project_invitation",
   "access_credential",
+  "workspace_membership",
 ];
 
 const tablesQueriedIn = (text: string) =>
@@ -170,7 +171,22 @@ test("Direction・Work・AccessはOrganizationの公開indexのerror・参照モ
   const allowed: [typeof workFiles, Set<string>][] = [
     [directionFiles, new Set(["ProjectArchivedError", "ProjectDetail", "ProjectStatus"])],
     [workFiles, new Set(["ProjectArchivedError"])],
-    [accessFiles, new Set(["ProjectArchivedError", "GetProjectUseCase", "ListProjectsUseCase", "ProjectDetail", "ProjectStatus"])],
+    [
+      accessFiles,
+      new Set([
+        "ProjectArchivedError",
+        "GetProjectUseCase",
+        "ListProjectsUseCase",
+        "ProjectDetail",
+        "ProjectStatus",
+        "WorkspaceArchivedError",
+        "GetWorkspaceUseCase",
+        "ListWorkspacesUseCase",
+        "CreateWorkspaceProjectUseCase",
+        "Workspace",
+        "WorkspaceStatus",
+      ]),
+    ],
   ];
   for (const [files, names] of allowed) {
     for (const file of files) {

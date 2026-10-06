@@ -34,6 +34,8 @@ export type RegisterOrLoginResult =
       invitation: ExistingHumanInvitationOutcome;
       /** このログインでowner Membershipを補完したorphan ProjectのID。 */
       adoptedProjectIds: string[];
+      /** このログインでowner Membershipを補完したowner不在のWorkspaceのID。 */
+      adoptedWorkspaceIds: string[];
     };
 
 export interface HumanAccountRepository {

@@ -2,7 +2,9 @@ import {
   listGrantedRoles,
   projectRoles,
   writeProjectOwnerMembership,
+  writeWorkspaceOwnerMembership,
   type AccessProjectReaders,
+  type AccessWorkspaceReaders,
   type ProjectAuthorizationService,
   type ProjectRole,
 } from "@compass/access";
@@ -23,11 +25,14 @@ import {
   findProjectRepository,
   findProjectWorkspaceConstraints,
   isProjectArchived,
+  isWorkspaceArchived,
   listProjectIdsInCreationOrder,
+  listWorkspaceIdsInCreationOrder,
+  listWorkspaceProjectIds,
   projectExists,
   SQLiteProjectRepository,
+  type OwnerMembershipWriters,
   type ProjectChangeObserver,
-  type ProjectOwnerMembershipWriter,
   type ProjectRepositoryReferenceFinder,
 } from "@compass/organization";
 import { ValidationError } from "@compass/shared";
@@ -71,6 +76,16 @@ export const accessProjectReaders: AccessProjectReaders = (executor) => {
   };
 };
 
+/** AccessがWorkspace Membershipの書込・初期Membershipの補完と同じtransactionで読む、Workspace状態（Organization）。 */
+export const accessWorkspaceReaders: AccessWorkspaceReaders = (executor) => {
+  const database = asOrganizationDatabase(executor);
+  return {
+    isArchived: (workspaceId) => isWorkspaceArchived(database, workspaceId),
+    listIdsInCreationOrder: () => listWorkspaceIdsInCreationOrder(database),
+    listProjectIds: (workspaceId) => listWorkspaceProjectIds(database, workspaceId),
+  };
+};
+
 /** DirectionがIntent・Outcome等の書込と同じtransactionで読む、Project状態・Repository・所属WorkspaceのConstraints（Organization）。 */
 export const directionProjectReaders: DirectionProjectReaders = (executor) => {
   const database = asOrganizationDatabase(executor);
@@ -81,9 +96,11 @@ export const directionProjectReaders: DirectionProjectReaders = (executor) => {
   };
 };
 
-/** OrganizationのProject作成のtransactionで、作成者の初期owner Membership（Access）を書く。 */
-export const projectOwnerMembershipWriter: ProjectOwnerMembershipWriter = (transaction, input) =>
-  writeProjectOwnerMembership(asAccessTransaction(transaction), input);
+/** OrganizationのWorkspace・Project作成のtransactionで、作成者の初期owner Membership（Access）を書く。 */
+export const ownerMembershipWriters: OwnerMembershipWriters = {
+  project: (transaction, input) => writeProjectOwnerMembership(asAccessTransaction(transaction), input),
+  workspace: (transaction, input) => writeWorkspaceOwnerMembership(asAccessTransaction(transaction), input),
+};
 
 /** OrganizationがRepositoryを外すtransactionで、ADR Handoff Request/Reference（Direction）からの参照を読む。 */
 export const projectRepositoryReferenceFinder: ProjectRepositoryReferenceFinder = (transaction, repositoryIds) =>

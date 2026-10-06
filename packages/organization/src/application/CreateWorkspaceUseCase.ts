@@ -5,7 +5,8 @@ import { parseCreateWorkspaceInput } from "./workspaceSchema.ts";
 export class CreateWorkspaceUseCase {
   constructor(private readonly workspaceRepository: WorkspaceRepository) {}
 
-  async execute(input: unknown): Promise<Workspace> {
-    return this.workspaceRepository.create(parseCreateWorkspaceInput(input));
+  /** `actor`を渡すと、作成者を同一transactionでWorkspaceのowner Membershipにする。 */
+  async execute(input: unknown, actor?: { humanUserId: string }): Promise<Workspace> {
+    return this.workspaceRepository.create(parseCreateWorkspaceInput(input), actor?.humanUserId);
   }
 }

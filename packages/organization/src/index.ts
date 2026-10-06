@@ -12,6 +12,7 @@ export * from "./application/ListWorkspacesUseCase.ts";
 export * from "./application/UpdateWorkspaceUseCase.ts";
 export * from "./application/ArchiveWorkspaceUseCase.ts";
 export * from "./application/CreateProjectUseCase.ts";
+export * from "./application/CreateWorkspaceProjectUseCase.ts";
 export * from "./application/GetProjectUseCase.ts";
 export * from "./application/ListProjectsUseCase.ts";
 export * from "./application/UpdateProjectUseCase.ts";

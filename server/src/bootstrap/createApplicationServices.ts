@@ -49,11 +49,18 @@ import {
 } from "@compass/direction";
 import {
   ArchiveProjectUseCase,
+  ArchiveWorkspaceUseCase,
   CreateProjectUseCase,
+  CreateWorkspaceProjectUseCase,
+  CreateWorkspaceUseCase,
   GetProjectUseCase,
+  GetWorkspaceUseCase,
   ListProjectsUseCase,
+  ListWorkspacesUseCase,
   SQLiteProjectRepository,
+  SQLiteWorkspaceRepository,
   UpdateProjectUseCase,
+  UpdateWorkspaceUseCase,
 } from "@compass/organization";
 import {
   AcceptExecutionTaskUseCase,
@@ -104,11 +111,22 @@ import {
   SQLiteLoginAttemptRepository,
   SQLiteProjectGrantRepository,
   SQLiteProjectMembershipRepository,
+  SQLiteWorkspaceMembershipRepository,
   StartOidcLoginUseCase,
+  AddWorkspaceMemberUseCase,
+  ChangeWorkspaceMemberRoleUseCase,
+  CreateHumanWorkspaceProjectUseCase,
+  GetHumanWorkspaceUseCase,
+  HumanWorkspaceAuthorizationService,
+  HumanWorkspaceAuthorizedUseCase,
+  ListHumanWorkspacesUseCase,
+  ListWorkspaceMembersUseCase,
+  RevokeWorkspaceMemberUseCase,
   humanOperatorPrincipalId,
   type HumanActor,
   type HumanIdentityProvider,
   type HumanProjectOperation,
+  type HumanWorkspaceOperation,
   type ProjectRole,
 } from "@compass/access";
 import {
@@ -129,12 +147,13 @@ import {
 import type { Database } from "./database/schema.ts";
 import {
   accessProjectReaders,
+  accessWorkspaceReaders,
   activityAuthorization,
   activityProjectReader,
   directionChangeActivityObserver,
   directionProjectReaders,
+  ownerMembershipWriters,
   projectChangeActivityObserver,
-  projectOwnerMembershipWriter,
   projectRepositoryReferenceFinder,
   workChangeActivityObserver,
   workExternalReaders,
@@ -159,8 +178,12 @@ export const createApplicationServices = (
   const projectRepository = new SQLiteProjectRepository(
     asOrganizationDatabase(applicationDatabase),
     projectRepositoryReferenceFinder,
-    projectOwnerMembershipWriter,
+    ownerMembershipWriters,
     projectChangeActivityObserver,
+  );
+  const workspaceRepository = new SQLiteWorkspaceRepository(
+    asOrganizationDatabase(applicationDatabase),
+    ownerMembershipWriters.workspace,
   );
   // Directionのrepositoryへは同じ接続を、Directionが所有するtableの型で渡す。Project状態は同じtransactionで読むreaderを渡す。
   const directionDatabase = asDirectionDatabase(applicationDatabase);
@@ -210,9 +233,21 @@ export const createApplicationServices = (
     directionChangeActivityObserver,
   );
   // Human認証・Membership（docs/step-6-human-auth-design.md）。Agent GrantのRepository・認可とは分離する。
-  const humanAccountRepository = new SQLiteHumanAccountRepository(accessDatabase, accessProjectReaders, clock);
+  const humanAccountRepository = new SQLiteHumanAccountRepository(
+    accessDatabase,
+    accessProjectReaders,
+    accessWorkspaceReaders,
+    clock,
+  );
   const projectMembershipRepository = new SQLiteProjectMembershipRepository(accessDatabase, accessProjectReaders, clock);
   const humanProjectAuthorizationService = new HumanProjectAuthorizationService(projectMembershipRepository);
+  // Workspace Membership（handoff v2「14.1 Human」）。Project Membershipとは別に認可し、相互に継承しない。
+  const workspaceMembershipRepository = new SQLiteWorkspaceMembershipRepository(
+    accessDatabase,
+    accessWorkspaceReaders,
+    clock,
+  );
+  const humanWorkspaceAuthorizationService = new HumanWorkspaceAuthorizationService(workspaceMembershipRepository);
   const loginAttemptRepository = new SQLiteLoginAttemptRepository(accessDatabase);
   const registerOrLoginHumanUseCase = new RegisterOrLoginHumanUseCase(humanAccountRepository, humanAuth.initialOwnerEmail);
   const identityProvider = humanAuth.identityProvider ?? null;
@@ -346,6 +381,7 @@ export const createApplicationServices = (
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(accessProjects, projectGrantRepository),
     listProjectGrantsUseCase: new ListProjectGrantsUseCase(accessProjects, projectGrantRepository),
     humanProjectAuthorizationService,
+    humanWorkspaceAuthorizationService,
     authenticateAccessCredentialUseCase: new AuthenticateAccessCredentialUseCase(accessCredentialRepository, clock),
     issueAccessCredentialUseCase: new IssueAccessCredentialUseCase(
       humanProjectAuthorizationService,
@@ -433,6 +469,10 @@ export const createApplicationServices = (
         ),
     };
   };
+  const workspaceAuthorized = <Args extends unknown[], Result>(
+    operation: HumanWorkspaceOperation,
+    useCase: { execute(workspaceId: string, ...args: Args): Promise<Result> },
+  ) => new HumanWorkspaceAuthorizedUseCase(humanWorkspaceAuthorizationService, operation, useCase);
   // Human向けWeb APIの入口。Membershipの認可（domainの権限表）を通してから、MCPと共通のuse caseへ委譲する。
   // Runtime向け（runtime-events・execution-evidence）はHuman向けではないため含めない。
   const human = {
@@ -476,6 +516,24 @@ export const createApplicationServices = (
     editExecutionStory: operator("execution.plan", new EditExecutionStoryUseCase(taskCoordinationService)),
     createExecutionTask: operator("execution.plan", new CreateExecutionTaskUseCase(taskCoordinationService)),
     editExecutionTask: operator("execution.plan", new EditExecutionTaskUseCase(taskCoordinationService)),
+    // Workspace（Workspace Membershipで認可）。Web API・UIの入口は未接続（S06-04・S09-03）。作成は認証済みであればよく、
+    // 作成者を同一transactionでowner Membershipにする。
+    createWorkspace: new CreateWorkspaceUseCase(workspaceRepository),
+    listWorkspaces: new ListHumanWorkspacesUseCase(new ListWorkspacesUseCase(workspaceRepository), workspaceMembershipRepository),
+    getWorkspace: new GetHumanWorkspaceUseCase(humanWorkspaceAuthorizationService, new GetWorkspaceUseCase(workspaceRepository)),
+    updateWorkspace: workspaceAuthorized("workspace.update", new UpdateWorkspaceUseCase(workspaceRepository)),
+    archiveWorkspace: workspaceAuthorized("workspace.archive", new ArchiveWorkspaceUseCase(workspaceRepository)),
+    createWorkspaceProject: new CreateHumanWorkspaceProjectUseCase(
+      humanWorkspaceAuthorizationService,
+      new CreateWorkspaceProjectUseCase(projectRepository),
+    ),
+    listWorkspaceMembers: new ListWorkspaceMembersUseCase(humanWorkspaceAuthorizationService, workspaceMembershipRepository),
+    addWorkspaceMember: new AddWorkspaceMemberUseCase(humanWorkspaceAuthorizationService, workspaceMembershipRepository),
+    changeWorkspaceMemberRole: new ChangeWorkspaceMemberRoleUseCase(
+      humanWorkspaceAuthorizationService,
+      workspaceMembershipRepository,
+    ),
+    revokeWorkspaceMember: new RevokeWorkspaceMemberUseCase(humanWorkspaceAuthorizationService, workspaceMembershipRepository),
   };
   /** 操作Contextを1つのactiveRoleに固定したservice（MCP・Runtime向けAPIのrequestごと）。Human向けの入口は変えない。 */
   const forActiveRole = (activeRole: ProjectRole) => ({

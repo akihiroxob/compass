@@ -80,7 +80,7 @@ Story ID・Task ID・Change Logのcursorは変換しない。回帰はS12-02で�
 | `project_grant` | PK `(project_id, principal_id, role)`。roleはCHECKなしでstrategist〜runtimeの7種 | `manager` / `worker` / `reviewer`は維持。`strategist` / `researcher` / `evaluator`は新`workspace_role_grant`へ | S06-02 | Direction Roleの既存Grantを所属Workspaceへ写す。移行後はProject scopeでDirection Roleを拒否するため、旧行の削除はS12-01まで残す。`runtime`のGrant（trusted-local）はWorkspace単位の状態Query（S08-01）の認可でどのscopeに置くかをS08-03で決める |
 | `workspace_role_grant`（新規） | — | `(workspace_id, principal_id, role)` | S06-02 | GrantからProject権限を継承しない |
 | `project_membership` / `project_invitation` | Project単位、最後のowner保護 | 変更なし | — | — |
-| `workspace_membership`（新規） | — | Workspaceの閲覧・Direction管理・Project作成・member管理 | S06-01 | 移行Workspaceの初期memberを決める（既存Projectのownerを一度だけ写す、または`SQLiteHumanAccountRepository.adoptOrphanProjects`と同様にplatform ownerがowner不在のWorkspaceを引き取る）。実行時のRole継承にしない |
+| `workspace_membership`（新規） | S06-01で追加済み。有効な行は(Workspace, Human)につき1件 | Workspaceの閲覧・Direction管理・Project作成・member管理 | S06-01（実装済み） | 初期memberは、server起動時にWorkspace Membershipの行が無いWorkspaceへ所属Projectの有効なProject Membershipを同じRoleで一度だけ写す（`backfillWorkspaceMemberships`）。owner不在のWorkspaceはplatform ownerのログイン時に補完する（`adoptOrphanWorkspaces`）。以後のProject招待・Role変更はWorkspaceへ反映しない（実行時の継承にしない） |
 | `access_credential` | `project_id NOT NULL` FK、`kind`（agent / runtime）、`scopes_json`、`secret_hash` | scope kind（workspace / project）とscope IDを持つ形へ（`NOT NULL`の解除にtable再作成が必要） | S06-03 | Credential ID・`prefix`・`secret_hash`・期限・失効状態を保ち、既存のAgent / Runtime Credentialを再発行なしで使い続けられることをテストする |
 | `human_user` / `human_identity` / `web_session` / `auth_login_attempt` | Project非依存 | 変更なし | — | — |
 
@@ -162,8 +162,8 @@ S07-01以降に作られるDirectionのActivityはProject Activityの一覧（`l
 | `packages/work/src/application/TaskCoordinationService.ts`・`ExecutionOperatorUseCases.ts`・`ExecutionReadUseCases.ts` | Project scope、`ProjectGrantReader`・`ProjectStateReader` | 変更なし。`issue_story`のOutcome参照検査だけS04-03で変わる | S04-03 |
 | `packages/access/src/domain/ProjectRole.ts`、`application/ProjectAuthorizationService.ts`・`GrantProjectRoleUseCase.ts`・`RevokeProjectRoleUseCase.ts`・`ListProjectGrantsUseCase.ts`・`projectGrantSchema.ts` | 7 RoleをProject scopeに集約 | Workspace Role（strategist / researcher / evaluator）とProject Role（manager / worker / reviewer）に分け、Role-scopeの組合せを検証 | S06-02 |
 | `application/RuntimeAuthorizationService.ts`、`AccessCredentialUseCases.ts`・`credentialSchema.ts`、`domain/AccessCredential.ts` | `requireScope(caller, projectId, scope)`、Credentialは`projectId` | scope kind / scope IDで検証 | S06-03 |
-| `application/HumanProjectAuthorizationService.ts`・`HumanProjectUseCases.ts`・`ProjectMembershipUseCases.ts` | HumanのDirection操作もProject Membershipで認可 | Direction・Workspace管理はWorkspaceMembership、WorkはProjectMembership | S06-01、S06-04 |
-| `infrastructure/SQLiteHumanAccountRepository.ts`（`adoptOrphanProjects`） | owner不在Projectをplatform ownerへ | Workspaceにも同じ扱いが必要かをS06-01で判断 | S06-01 |
+| `application/HumanProjectAuthorizationService.ts`・`HumanProjectUseCases.ts`・`ProjectMembershipUseCases.ts` | HumanのDirection操作もProject Membershipで認可 | Direction・Workspace管理はWorkspaceMembership（`HumanWorkspaceAuthorizationService`・`HumanWorkspaceUseCases.ts`・`WorkspaceMembershipUseCases.ts`をS06-01で追加済み）、WorkはProjectMembership。Directionの入口の切替はS03-04・S06-04 | S06-01（実装済み）、S06-04 |
+| `infrastructure/SQLiteHumanAccountRepository.ts`（`adoptOrphanProjects`） | owner不在Projectをplatform ownerへ | owner不在のWorkspaceも同じ規則でplatform ownerへ補完する（`adoptOrphanWorkspaces`） | S06-01（実装済み） |
 | `packages/activity/src/domain/Activity.ts`・`application/ActivityUseCases.ts`・`activitySchema.ts`・`port/ActivityProjectReader.ts`・`infrastructure/KyselyActivityStore.ts` | system / project scope | workspace scopeと`workspaceId`を追加 | S07-01 |
 | `application/canonicalWorkActivity.ts`（`WorkChangeFact`・`recordCanonicalWorkActivity`） | Workの状態変更を`projectId`だけでproject scopeへappend | `WorkChangeFact`に所属Workspace IDを加え、project scopeのまま`workspaceId`を渡す | S07-01 |
 | `application/canonicalDirectionActivity.ts`（`DirectionChangeFact`・`recordCanonicalDirectionActivity`） | DirectionのActivityを`projectId`でproject scopeへappend | `DirectionChangeFact`を`workspaceId`にしworkspace scopeでappend | S07-01 |
@@ -200,7 +200,7 @@ S07-01以降に作られるDirectionのActivityはProject Activityの一覧（`l
 | `/api/projects`・`/api/projects/:projectId`（GET / POST / PATCH）・`/archive` | Projectの参照とWorkspaceへの所属。Workspaceの作成・参照・更新・archiveの入口を追加 | S02-04、S09-03 |
 | `/api/projects/:projectId/intents…`・`/intents/:intentId/outcomes…`・`/research-requests…`・`/intents/:intentId/decisions`・`/adr-references`・`/outcomes/:outcomeId/evaluations`・`/outcomes/:outcomeId/execution-summary`・`/outcomes/:outcomeId/execution-evidence`・`/runtime-events…` | Workspace配下の経路へ。Project配下の旧経路をWorkspaceの別名として残さない | S03-04、S05-01 |
 | `/api/projects/:projectId/grants`・`/credentials` | Workspace用のGrant・Credentialの入口を追加。ProjectのものはProject Roleに限る | S06-02、S06-03、S11-03 |
-| `/api/projects/:projectId/members`・`/invitations` | 維持。WorkspaceMembershipの入口を追加 | S06-01、S11-03 |
+| `/api/projects/:projectId/members`・`/invitations` | 維持。WorkspaceMembershipの入口を追加（use caseはS06-01で実装済み） | S06-04、S11-03 |
 | `/api/projects/:projectId/execution`・`/changes`・`/stories`・`/tasks…` | 変更なし | — |
 | `/api/projects/:projectId/activities…` | 維持し、Workspace Activityの入口を追加 | S07-02 |
 | `/api/auth/*`・`/auth/*`・`/health` | 変更なし | — |

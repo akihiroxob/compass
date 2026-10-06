@@ -3,6 +3,8 @@ import { Project, type ProjectDetail, type ProjectStatus } from "../domain/Proje
 import type {
   ArchiveProjectResult,
   CreateProjectInput,
+  CreateWorkspaceProjectInput,
+  CreateWorkspaceProjectResult,
   ProjectRepository,
   RepositoryReferencedResult,
   UpdateProjectInput,
@@ -10,6 +12,7 @@ import type {
 } from "../domain/ProjectRepository.ts";
 import type { ProjectChangeObserver } from "./projectChange.ts";
 import type { OrganizationDatabase } from "./schema.ts";
+import type { WorkspaceOwnerMembershipWriter } from "./SQLiteWorkspaceRepository.ts";
 import { replaceWorkspaceOrderedValues, writeWorkspace } from "./writeWorkspace.ts";
 
 type Queryable = Kysely<OrganizationDatabase> | Transaction<OrganizationDatabase>;
@@ -22,6 +25,12 @@ export type ProjectOwnerMembershipWriter = (
   transaction: Transaction<OrganizationDatabase>,
   input: { projectId: string; ownerHumanUserId: string; createdAt: number },
 ) => Promise<void>;
+
+/** 作成者の初期owner Membership（Project・同時に作るWorkspace）の書込。serverがAccessの実装を配線する。 */
+export type OwnerMembershipWriters = {
+  project: ProjectOwnerMembershipWriter;
+  workspace: WorkspaceOwnerMembershipWriter;
+};
 
 /**
  * 指定したRepositoryのうち、ADR Handoff Request/Reference（Directionが所有するtable）から参照されているものがあれば
@@ -39,7 +48,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
   constructor(
     private readonly database: Kysely<OrganizationDatabase>,
     private readonly findRepositoryReference: ProjectRepositoryReferenceFinder,
-    private readonly writeOwnerMembership?: ProjectOwnerMembershipWriter,
+    private readonly ownerMembershipWriters?: OwnerMembershipWriters,
     private readonly changeObserver: ProjectChangeObserver | null = null,
   ) {}
 
@@ -49,7 +58,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
     const now = Date.now();
 
     await this.database.transaction().execute(async (transaction) => {
-      // Workspace管理の入口（S02-04以降）までは、Projectごとに戦略値を持つ専用のWorkspaceを作る。
+      // 既存の公開入口（Mission等を含むProject作成）は、Projectごとに戦略値を持つ専用のWorkspaceを作る。
       await writeWorkspace(transaction, {
         id: workspaceId,
         name: input.name,
@@ -63,45 +72,44 @@ export class SQLiteProjectRepository implements ProjectRepository {
         archivedAt: null,
         archiveReason: null,
       });
-      await transaction
-        .insertInto("project")
-        .values({
-          id,
-          workspace_id: workspaceId,
-          name: input.name,
-          description: input.description,
-          mission: unusedLegacyMission,
-          vision: null,
-          created_at: now,
-          updated_at: now,
-          status: "active",
-          archived_at: null,
-          archive_reason: null,
-          strategy_migrated_at: now,
-        })
-        .execute();
-
-      if (input.repositories.length) {
-        await transaction.insertInto("project_repository_link").values(
-          input.repositories.map((item, sortOrder) => ({
-            id: crypto.randomUUID(), project_id: id, ...item, sort_order: sortOrder,
-          })),
-        ).execute();
-      }
-      if (input.resources.length) {
-        await transaction.insertInto("project_resource").values(
-          input.resources.map((item, sortOrder) => ({
-            id: crypto.randomUUID(), project_id: id, ...item, sort_order: sortOrder,
-          })),
-        ).execute();
-      }
+      await this.insertProject(transaction, { id, workspaceId, input, now });
       if (ownerHumanUserId !== undefined) {
-        if (!this.writeOwnerMembership) throw new Error("ProjectOwnerMembershipWriter is not configured");
-        await this.writeOwnerMembership(transaction, { projectId: id, ownerHumanUserId, createdAt: now });
+        // 作成者は同時に作ったWorkspaceのownerにもなる。既存Workspaceへの作成（createInWorkspace）では書かない。
+        await this.requireOwnerMembershipWriters().workspace(transaction, { workspaceId, ownerHumanUserId, createdAt: now });
+        await this.requireOwnerMembershipWriters().project(transaction, { projectId: id, ownerHumanUserId, createdAt: now });
       }
     });
 
     return (await this.findDetailById(id))!;
+  }
+
+  async createInWorkspace(
+    workspaceId: string,
+    input: CreateWorkspaceProjectInput,
+    ownerHumanUserId?: string,
+  ): Promise<CreateWorkspaceProjectResult> {
+    const id = crypto.randomUUID();
+    const now = Date.now();
+
+    const outcome = await this.database.transaction().execute(async (transaction) => {
+      // 書込と同じtransactionで検査し、確認と書込の間に入ったWorkspaceのarchiveを見逃さない。
+      const workspace = await transaction
+        .selectFrom("workspace")
+        .select("status")
+        .where("id", "=", workspaceId)
+        .executeTakeFirst();
+      if (!workspace) return "not_found" as const;
+      if (workspace.status === "archived") return "workspace_archived" as const;
+
+      await this.insertProject(transaction, { id, workspaceId, input, now });
+      if (ownerHumanUserId !== undefined) {
+        await this.requireOwnerMembershipWriters().project(transaction, { projectId: id, ownerHumanUserId, createdAt: now });
+      }
+      return "created" as const;
+    });
+
+    if (outcome !== "created") return { kind: outcome };
+    return { kind: "created", project: (await this.findDetailById(id))! };
   }
 
   async update(projectId: string, input: UpdateProjectInput): Promise<UpdateProjectResult> {
@@ -292,6 +300,50 @@ export class SQLiteProjectRepository implements ProjectRepository {
    * あれば最初の1件を返す。`adr_handoff_request` / `adr_reference` の`repository_id`はonDelete cascadeを
    * 付けていない意図的な監査保持のため、削除前にdomainの`repository_referenced`として検査し拒否する。
    */
+  private requireOwnerMembershipWriters(): OwnerMembershipWriters {
+    if (!this.ownerMembershipWriters) throw new Error("OwnerMembershipWriters is not configured");
+    return this.ownerMembershipWriters;
+  }
+
+  /** Project行とRepository / Resourceを書く。所属Workspaceの作成・検査は呼出し側が同じtransactionで行う。 */
+  private async insertProject(
+    transaction: Transaction<OrganizationDatabase>,
+    { id, workspaceId, input, now }: { id: string; workspaceId: string; input: CreateWorkspaceProjectInput; now: number },
+  ): Promise<void> {
+    await transaction
+      .insertInto("project")
+      .values({
+        id,
+        workspace_id: workspaceId,
+        name: input.name,
+        description: input.description,
+        mission: unusedLegacyMission,
+        vision: null,
+        created_at: now,
+        updated_at: now,
+        status: "active",
+        archived_at: null,
+        archive_reason: null,
+        strategy_migrated_at: now,
+      })
+      .execute();
+
+    if (input.repositories.length) {
+      await transaction.insertInto("project_repository_link").values(
+        input.repositories.map((item, sortOrder) => ({
+          id: crypto.randomUUID(), project_id: id, ...item, sort_order: sortOrder,
+        })),
+      ).execute();
+    }
+    if (input.resources.length) {
+      await transaction.insertInto("project_resource").values(
+        input.resources.map((item, sortOrder) => ({
+          id: crypto.randomUUID(), project_id: id, ...item, sort_order: sortOrder,
+        })),
+      ).execute();
+    }
+  }
+
   private async findRepositoryRemovalConflict(
     transaction: Transaction<OrganizationDatabase>,
     projectId: string,

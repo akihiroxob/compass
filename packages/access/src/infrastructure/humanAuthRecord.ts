@@ -5,6 +5,7 @@ import type {
   ProjectInvitation,
   ProjectMembership,
   WebSession,
+  WorkspaceMembership,
 } from "../domain/HumanAuth.ts";
 import type {
   AccessDatabase,
@@ -13,6 +14,7 @@ import type {
   ProjectInvitationTable,
   ProjectMembershipTable,
   WebSessionTable,
+  WorkspaceMembershipTable,
 } from "./schema.ts";
 
 export const toHumanUser = (row: Selectable<HumanUserTable>): HumanUser => ({
@@ -59,6 +61,18 @@ export const toProjectMembership = (row: Selectable<ProjectMembershipTable>): Pr
   revokedByHumanUserId: row.revoked_by_human_user_id,
 });
 
+export const toWorkspaceMembership = (row: Selectable<WorkspaceMembershipTable>): WorkspaceMembership => ({
+  id: row.id,
+  workspaceId: row.workspace_id,
+  humanUserId: row.human_user_id,
+  role: row.role,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  createdByHumanUserId: row.created_by_human_user_id,
+  revokedAt: row.revoked_at,
+  revokedByHumanUserId: row.revoked_by_human_user_id,
+});
+
 /** `token_hash`は返さない。 */
 export const toProjectInvitation = (row: Selectable<ProjectInvitationTable>): ProjectInvitation => ({
   id: row.id,
@@ -81,6 +95,21 @@ export const countActiveOwners = async (transaction: Transaction<AccessDatabase>
     .selectFrom("project_membership")
     .select((eb) => eb.fn.countAll<number>().as("count"))
     .where("project_id", "=", projectId)
+    .where("role", "=", "owner")
+    .where("revoked_at", "is", null)
+    .executeTakeFirstOrThrow();
+  return Number(row.count);
+};
+
+/** Workspaceの有効なowner数。Role変更・取消の検査と更新は同じ書込transactionで行う。 */
+export const countActiveWorkspaceOwners = async (
+  transaction: Transaction<AccessDatabase>,
+  workspaceId: string,
+): Promise<number> => {
+  const row = await transaction
+    .selectFrom("workspace_membership")
+    .select((eb) => eb.fn.countAll<number>().as("count"))
+    .where("workspace_id", "=", workspaceId)
     .where("role", "=", "owner")
     .where("revoked_at", "is", null)
     .executeTakeFirstOrThrow();

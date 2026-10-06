@@ -60,9 +60,20 @@ Role順序はowner > administrator > editor > viewer。
 | Project更新、Agent Grant、Credential管理 | administrator |
 | archive、招待、Membership変更・取消 | owner |
 
+Workspace Membership（Project Membershipとは別。相互に継承しない）の権限表。入口（Web API・UI）は未接続。
+
+| Workspace操作 | 最低Role |
+| --- | --- |
+| Workspace作成 | ログイン済み。作成者がownerになる |
+| Workspace一覧 | 有効なWorkspace Membershipを持つWorkspaceのみ |
+| Workspace・Member参照 | viewer |
+| Direction変更（Workspace scope化後に接続） | editor |
+| Mission等の更新、既存WorkspaceへのProject作成（作成者がProjectのowner） | administrator |
+| archive、Member追加（所属ProjectのMemberに限る）・Role変更・取消 | owner |
+
 ## 認可の順序と応答
 
-Sessionなしは401。未所属・取消済みMembership・存在しないProjectは404で区別しない。MembershipのRole不足は403。その後に入力・対象・archive・業務状態を検査する。
+Sessionなしは401。未所属・取消済みMembership・存在しないProject / Workspaceは404で区別しない。MembershipのRole不足は403。その後に入力・対象・archive・業務状態を検査する。
 
 Membershipはrequestごとに読み、取消・Role変更を次の操作へ反映する。UIの表示制御に加えてserverが拒否を強制する。権限表の実装は [HumanAuth.ts](../packages/access/src/domain/HumanAuth.ts) にある。
 

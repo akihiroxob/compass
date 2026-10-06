@@ -32,6 +32,7 @@ export type RegisterOrLoginHumanResult =
       bootstrapped: boolean;
       invitation: ExistingHumanInvitationOutcome;
       adoptedProjectIds: string[];
+      adoptedWorkspaceIds: string[];
     };
 
 const requireText = (value: unknown, path: string) =>
@@ -80,6 +81,7 @@ export class RegisterOrLoginHumanUseCase {
       bootstrapped: result.bootstrapped,
       invitation: result.invitation,
       adoptedProjectIds: result.adoptedProjectIds,
+      adoptedWorkspaceIds: result.adoptedWorkspaceIds,
     };
   }
 }

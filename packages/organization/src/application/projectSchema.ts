@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { clearableText, optionalText, parseWith, trimmedText } from "@compass/shared";
-import type { CreateProjectInput, UpdateProjectInput } from "../domain/ProjectRepository.ts";
+import type { CreateProjectInput, CreateWorkspaceProjectInput, UpdateProjectInput } from "../domain/ProjectRepository.ts";
 
 const webUrl = z
   .url("must be a valid URL")
@@ -26,6 +26,14 @@ export const createProjectSchema = z.object({
   constraints: z.array(constraintSchema).max(20).default([]),
   repositories: z.array(namedLinkSchema).max(20).default([]),
   resources: z.array(resourceSchema).max(50).default([]),
+});
+
+/** 既存のWorkspaceへのProject作成。Mission等はWorkspaceの正本を使うため受け取らない（未知の項目は無視する）。 */
+export const createWorkspaceProjectSchema = createProjectSchema.pick({
+  name: true,
+  description: true,
+  repositories: true,
+  resources: true,
 });
 
 /** 更新入力で既存の子要素を維持するための識別子。同じ配列内で重複させない。 */
@@ -72,6 +80,9 @@ export const projectStatusFilterSchema = z.object({
 
 export const parseCreateProjectInput = (input: unknown): CreateProjectInput =>
   parseWith(createProjectSchema, input, "Project");
+
+export const parseCreateWorkspaceProjectInput = (input: unknown): CreateWorkspaceProjectInput =>
+  parseWith(createWorkspaceProjectSchema, input, "Project");
 
 export const parseUpdateProjectInput = (input: unknown): UpdateProjectInput =>
   parseWith(updateProjectSchema, input, "Project");

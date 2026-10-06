@@ -43,7 +43,8 @@ const withTemporaryDatabase = async (run: (path: string) => Promise<void>) => {
   }
 };
 
-const workspaceTables = ["workspace", "workspace_principle", "workspace_constraint"];
+/** 移行で行を作るWorkspaceのtable。`workspace_membership`はAccessが所有し、既存のProject Membershipから初期memberを写す。 */
+const workspaceTables = ["workspace", "workspace_principle", "workspace_constraint", "workspace_membership"];
 
 /** Workspaceのtableを除く全tableの全行。`project`は追加した`workspace_id`・`strategy_migrated_at`を除いて比べる。 */
 const snapshotExistingRows = async (database: Kysely<Database>) => {
@@ -61,6 +62,20 @@ const snapshotExistingRows = async (database: Kysely<Database>) => {
 
 const projectWorkspaceIds = async (database: Kysely<Database>) =>
   (await sql<{ id: string; workspace_id: string | null }>`select id, workspace_id from project order by created_at, id`.execute(database)).rows;
+
+/** WorkspaceごとのMember（Human・Role）と、所属Projectの有効なProject Member。 */
+const membersByWorkspace = async (database: Kysely<Database>) => {
+  const workspace = (
+    await sql<{ workspace_id: string; human_user_id: string; role: string }>`select workspace_id, human_user_id, role
+      from workspace_membership where revoked_at is null order by workspace_id, human_user_id`.execute(database)
+  ).rows;
+  const project = (
+    await sql<{ workspace_id: string; human_user_id: string; role: string }>`select project.workspace_id, human_user_id, role
+      from project_membership join project on project.id = project_membership.project_id
+      where revoked_at is null order by project.workspace_id, human_user_id`.execute(database)
+  ).rows;
+  return { workspace, project };
+};
 
 const getWorkspace = (database: Kysely<Database>, workspaceId: string) =>
   new GetWorkspaceUseCase(new SQLiteWorkspaceRepository(asOrganizationDatabase(database))).execute(workspaceId);
@@ -156,6 +171,11 @@ test("既存ProjectごとにWorkspaceを作って所属させ、Project IDと既
     assert.equal(betaWorkspace.archivedAt, 3_000);
     assert.equal(betaWorkspace.archiveReason, "Superseded");
     assert.deepEqual((await sql`pragma foreign_key_check`.execute(upgraded)).rows, []);
+    // 既存のProject Membershipを所属Workspaceの初期Membershipとして同じRoleで写す（1 Project = 1 Workspaceの移行）。
+    const members = await membersByWorkspace(upgraded);
+    assert.ok(members.workspace.some(({ workspace_id: workspaceId }) => workspaceId === assigned[0].workspace_id));
+    assert.deepEqual(members.workspace, members.project);
+    const backfilled = (await sql<Row>`select * from workspace_membership order by rowid`.execute(upgraded)).rows;
 
     // 公開の参照（Web API・MCP・Role Contextが使うuse case）は、移行前と同じ値をWorkspaceの正本から返す。
     const services = createApplicationServices(upgraded);
@@ -180,6 +200,8 @@ test("既存ProjectごとにWorkspaceを作って所属させ、Project IDと既
     const { project: _project, ...otherRows } = await snapshotExistingRows(restarted);
     const { project: _before, ...otherBefore } = before;
     assert.deepEqual(otherRows, otherBefore);
+    // 初期Membershipの写しは一度だけで、再起動で重複・再作成しない。
+    assert.deepEqual((await sql<Row>`select * from workspace_membership order by rowid`.execute(restarted)).rows, backfilled);
     await restarted.destroy();
   });
 });

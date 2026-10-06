@@ -26,9 +26,17 @@ export const createInvitationSchema = z.object({
 
 export const changeMemberRoleSchema = z.object({ role: humanRoleSchema });
 
+/** Workspace memberの追加。対象は同じWorkspaceのProjectのMember（emailでの検索はしない）。 */
+export const addWorkspaceMemberSchema = z.object({
+  humanUserId: z.string().trim().min(1, "humanUserId must not be empty"),
+  role: humanRoleSchema,
+});
+
 export type CreateInvitationInput = z.infer<typeof createInvitationSchema>;
 
 export const parseCreateInvitationInput = (input: unknown): CreateInvitationInput =>
   parseWith(createInvitationSchema, input, "Invitation");
 
 export const parseChangeMemberRoleInput = (input: unknown) => parseWith(changeMemberRoleSchema, input, "Membership");
+
+export const parseAddWorkspaceMemberInput = (input: unknown) => parseWith(addWorkspaceMemberSchema, input, "Membership");

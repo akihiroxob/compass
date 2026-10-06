@@ -15,6 +15,14 @@ export type CreateProjectInput = {
   resources: { name: string; url: string; kind: string | null }[];
 };
 
+/** 既存のWorkspaceへProjectを作成する入力。Mission等はWorkspaceの正本を使うため受け取らない。 */
+export type CreateWorkspaceProjectInput = Pick<CreateProjectInput, "name" | "description" | "repositories" | "resources">;
+
+export type CreateWorkspaceProjectResult =
+  | { kind: "created"; project: ProjectDetail }
+  | { kind: "not_found" }
+  | { kind: "workspace_archived" };
+
 /**
  * 未指定（undefined）の項目は変更しない。Repository / Resourceの`id`は既存行の維持に使う。
  * Mission等は所属Workspaceの値を更新する。
@@ -58,9 +66,19 @@ export type ArchiveProjectResult =
 export interface ProjectRepository {
   /**
    * Projectと、その戦略値を持つ専用のWorkspaceを同一transactionで作成する。常にactiveで、statusは入力から受け取らない。
-   * `ownerHumanUserId`を渡すと、そのHumanのowner Membershipを同一transactionで作成する（部分保存しない）。
+   * `ownerHumanUserId`を渡すと、そのHumanのProjectとWorkspaceのowner Membershipを同一transactionで作成する（部分保存しない）。
    */
   create(input: CreateProjectInput, ownerHumanUserId?: string): Promise<ProjectDetail>;
+  /**
+   * 既存のactiveなWorkspaceへProjectを作成する。存在とarchivedの検査は書込と同じtransactionで行う。
+   * `ownerHumanUserId`を渡すと、そのHumanのProjectのowner Membershipだけを同一transactionで作成する（Workspaceの
+   * Membershipは変えない）。
+   */
+  createInWorkspace(
+    workspaceId: string,
+    input: CreateWorkspaceProjectInput,
+    ownerHumanUserId?: string,
+  ): Promise<CreateWorkspaceProjectResult>;
   /** Project・子要素・所属Workspaceの戦略値を同一transactionで更新する。archivedのProjectは更新しない。 */
   update(projectId: string, input: UpdateProjectInput): Promise<UpdateProjectResult>;
   /**

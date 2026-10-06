@@ -1,4 +1,4 @@
-import type { Kysely } from "kysely";
+import type { Kysely, Transaction } from "kysely";
 import { Workspace, type WorkspaceStatus } from "../domain/Workspace.ts";
 import type {
   ArchiveWorkspaceResult,
@@ -12,15 +12,27 @@ import { replaceWorkspaceOrderedValues, writeWorkspace } from "./writeWorkspace.
 
 type OrderedTextTable = "workspace_principle" | "workspace_constraint";
 
-export class SQLiteWorkspaceRepository implements WorkspaceRepository {
-  constructor(private readonly database: Kysely<OrganizationDatabase>) {}
+/**
+ * 作成者の初期owner Membership（Accessが所有するtable）を、Workspace作成と同じtransactionで書く。
+ * OrganizationはAccessのtableを直接扱わず、serverがこの書込を配線する。失敗すればWorkspaceもrollbackされる。
+ */
+export type WorkspaceOwnerMembershipWriter = (
+  transaction: Transaction<OrganizationDatabase>,
+  input: { workspaceId: string; ownerHumanUserId: string; createdAt: number },
+) => Promise<void>;
 
-  async create(input: CreateWorkspaceInput): Promise<Workspace> {
+export class SQLiteWorkspaceRepository implements WorkspaceRepository {
+  constructor(
+    private readonly database: Kysely<OrganizationDatabase>,
+    private readonly writeOwnerMembership?: WorkspaceOwnerMembershipWriter,
+  ) {}
+
+  async create(input: CreateWorkspaceInput, ownerHumanUserId?: string): Promise<Workspace> {
     const id = crypto.randomUUID();
     const now = Date.now();
 
-    await this.database.transaction().execute((transaction) =>
-      writeWorkspace(transaction, {
+    await this.database.transaction().execute(async (transaction) => {
+      await writeWorkspace(transaction, {
         id,
         ...input,
         createdAt: now,
@@ -28,8 +40,12 @@ export class SQLiteWorkspaceRepository implements WorkspaceRepository {
         status: "active",
         archivedAt: null,
         archiveReason: null,
-      }),
-    );
+      });
+      if (ownerHumanUserId !== undefined) {
+        if (!this.writeOwnerMembership) throw new Error("WorkspaceOwnerMembershipWriter is not configured");
+        await this.writeOwnerMembership(transaction, { workspaceId: id, ownerHumanUserId, createdAt: now });
+      }
+    });
 
     return (await this.findById(id))!;
   }

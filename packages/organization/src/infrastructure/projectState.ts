@@ -2,7 +2,7 @@ import type { Kysely, Transaction } from "kysely";
 import type { OrganizationDatabase } from "./schema.ts";
 
 /**
- * 他Context（Direction・Work・Access・Activity）が、自身の書込と同一transactionで読むProjectの状態。
+ * 他Context（Direction・Work・Access・Activity）が、自身の書込と同一transactionで読むProject・Workspaceの状態。
  * 他ContextはOrganizationのtableを直接扱わず、serverがこれらの関数を同じ接続・transactionで渡す。
  */
 type Queryable = Kysely<OrganizationDatabase> | Transaction<OrganizationDatabase>;
@@ -50,4 +50,32 @@ export const findProjectWorkspaceConstraints = async (database: Queryable, proje
     .orderBy("workspace_constraint.sort_order")
     .execute();
   return rows.map(({ value }) => value);
+};
+
+/** 書込と同一transactionの中でWorkspaceがarchivedか確認する。Workspaceが無い場合はfalse。 */
+export const isWorkspaceArchived = async (database: Queryable, workspaceId: string): Promise<boolean> => {
+  const row = await database
+    .selectFrom("workspace")
+    .select("status")
+    .where("id", "=", workspaceId)
+    .executeTakeFirst();
+  return row?.status === "archived";
+};
+
+/** active / archivedを問わず、作成順のWorkspace ID（Accessの初期Membershipの補完が使う）。 */
+export const listWorkspaceIdsInCreationOrder = async (database: Queryable): Promise<string[]> => {
+  const rows = await database.selectFrom("workspace").select("id").orderBy("created_at").orderBy("id").execute();
+  return rows.map(({ id }) => id);
+};
+
+/** Workspaceに所属するProjectのID（active / archivedを問わず作成順）。 */
+export const listWorkspaceProjectIds = async (database: Queryable, workspaceId: string): Promise<string[]> => {
+  const rows = await database
+    .selectFrom("project")
+    .select("id")
+    .where("workspace_id", "=", workspaceId)
+    .orderBy("created_at")
+    .orderBy("id")
+    .execute();
+  return rows.map(({ id }) => id);
 };
