@@ -148,7 +148,7 @@ S07-01以降に作られるDirectionのActivityはProject Activityの一覧（`l
 
 | 対象（現行ファイル） | project依存 | 変更先 | Task |
 | --- | --- | --- | --- |
-| `packages/organization/src/domain/Project.ts`・`ProjectRepository.ts`、`infrastructure/SQLiteProjectRepository.ts`・`projectState.ts`・`projectChange.ts`・`migrateProjectStrategy.ts`、`application/*Project*UseCase.ts`・`projectSchema.ts`・`error/ProjectArchivedError.ts` | Project本体（S02-03でDirectionから移設済み） | `Project`（Entity）は所属`workspaceId`を持ちMission等を持たない。公開契約用の参照モデル`ProjectDetail`がWorkspaceの戦略値を合成する（所属Workspace IDの公開はS02-04）。Direction・Access・Work・Activityが使うProject状態の読取（`DirectionProjectReaders`・`AccessProjectReaders`・WorkStoreの`projects`・`ActivityProjectReader`）はserverがorganizationの関数で配線する | S02-01、S02-03（実装済み）、S02-04 |
+| `packages/organization/src/domain/Project.ts`・`ProjectRepository.ts`、`infrastructure/SQLiteProjectRepository.ts`・`projectState.ts`・`projectChange.ts`・`migrateProjectStrategy.ts`、`application/*Project*UseCase.ts`・`projectSchema.ts`・`error/ProjectArchivedError.ts` | Project本体（S02-03でDirectionから移設済み） | `Project`（Entity）は所属`workspaceId`を持ちMission等を持たない。公開契約用の参照モデル`ProjectDetail`がWorkspaceの戦略値を合成し、所属`workspaceId`を含む（S02-04で公開済み）。所属Project一覧は`ListWorkspaceProjectsUseCase`（S02-04で実装済み）。Direction・Access・Work・Activityが使うProject状態の読取（`DirectionProjectReaders`・`AccessProjectReaders`・WorkStoreの`projects`・`ActivityProjectReader`）はserverがorganizationの関数で配線する | S02-01、S02-03、S02-04（実装済み） |
 | `SQLiteProjectRepository`のProject作成時の初期owner Membership書込（`projectOwnerMembershipWriter`経由）、Repositoryを外す前のADR参照検査（`projectRepositoryReferenceFinder`→Directionの`findAdrReferencedRepositoryId`） | 同一transactionの原子性・監査記録の参照先保持 | organization移動後も同じtransactionで行う（serverが配線） | S02-03（実装済み） |
 | `packages/direction/src/application/port/DirectionProjectReader.ts`・`infrastructure/directionProjectReaders.ts` | DirectionのUse CaseはProjectの存在と参照モデル、Repositoryは同じtransactionでarchive状態・Repository・所属WorkspaceのConstraintsを読む | S03でWorkspaceの存在・archive検査へ置き換える | S02-03（実装済み）、S03-01〜04 |
 | `packages/direction/src/domain/*`（Intent・Outcome・Research・DirectionDecision・AdrHandoff・RuntimeEvent・OutcomeExecution・OutcomeEvaluation と各Repository） | `projectId` field・引数 | `workspaceId`へ。Project固有参照（ADR handoff / reference、Execution Summary / Evidence）は`projectId`を併せ持つ | S03-01〜03 |
@@ -180,7 +180,7 @@ S07-01以降に作られるDirectionのActivityはProject Activityの一覧（`l
 
 | tool | 現在の入力 | 変更 | Task |
 | --- | --- | --- | --- |
-| `create_project` / `update_project` / `list_projects` / `get_project` | Projectと戦略値 | Project（purpose・Resource）とWorkspaceの参照へ。Workspace作成・Mission等の管理はHuman Web UIの操作で、MCPへ無条件に公開しない | S02-04、S03-04 |
+| `create_project` / `update_project` / `list_projects` / `get_project` | Projectと戦略値 | Project（purpose・Resource）とWorkspaceの参照へ。`list_projects` / `get_project`は所属`workspaceId`を返す（S02-04で実装済み）。Workspace自体の参照toolはWorkspace Role Grant（S06-02）まで追加しない。Workspace作成・Mission等の管理はHuman Web UIの操作で、MCPへ無条件に公開しない | S02-04、S03-04、S06-02 |
 | `create_intent` / `list_intents` / `get_intent` / `update_intent` / `abandon_intent`、`create_outcome` / `list_outcomes` / `get_outcome` / `update_outcome` / `cancel_outcome`、`create_direction_decision` / `decide_next_outcome`、`get_research_request` / `list_research_requests` / `register_research_result` / `register_research_synthesis` / `complete_research_request`、`get_strategist_context` / `get_researcher_context` / `get_evaluator_context` / `record_outcome_evaluation` | `projectId` | `workspaceId`へ。`projectId`をWorkspace IDと解釈する互換を作らない | S03-04、S05-02 |
 | `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references` | `projectId`・`repositoryId` | `workspaceId`とProject固有の`projectId` | S03-04 |
 | `fetch_runtime_events` / `ack_runtime_event` / `record_execution_evidence` / `get_outcome_execution_summary` | `projectId`、Runtime scope | Workspace（EvidenceとSummaryはTarget Projectも） | S03-04、S05-01 |
@@ -197,7 +197,7 @@ S07-01以降に作られるDirectionのActivityはProject Activityの一覧（`l
 
 | route | 変更 | Task |
 | --- | --- | --- |
-| `/api/projects`・`/api/projects/:projectId`（GET / POST / PATCH）・`/archive` | Projectの参照とWorkspaceへの所属。Workspaceの作成・参照・更新・archiveの入口を追加 | S02-04、S09-03 |
+| `/api/projects`・`/api/projects/:projectId`（GET / POST / PATCH）・`/archive` | Projectの参照とWorkspaceへの所属。Workspaceの作成・参照・更新・archiveの入口を追加。S02-04でProjectの応答に`workspaceId`、Workspaceの参照`GET /api/workspaces`・`/api/workspaces/:workspaceId`・`/api/workspaces/:workspaceId/projects`を追加済み。作成・更新・archive・既存WorkspaceへのProject作成は未接続 | S02-04、S09-03 |
 | `/api/projects/:projectId/intents…`・`/intents/:intentId/outcomes…`・`/research-requests…`・`/intents/:intentId/decisions`・`/adr-references`・`/outcomes/:outcomeId/evaluations`・`/outcomes/:outcomeId/execution-summary`・`/outcomes/:outcomeId/execution-evidence`・`/runtime-events…` | Workspace配下の経路へ。Project配下の旧経路をWorkspaceの別名として残さない | S03-04、S05-01 |
 | `/api/projects/:projectId/grants`・`/credentials` | Workspace用のGrant・Credentialの入口を追加。ProjectのものはProject Roleに限る | S06-02、S06-03、S11-03 |
 | `/api/projects/:projectId/members`・`/invitations` | 維持。WorkspaceMembershipの入口を追加（use caseはS06-01で実装済み） | S06-04、S11-03 |

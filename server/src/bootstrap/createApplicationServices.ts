@@ -57,6 +57,7 @@ import {
   GetWorkspaceUseCase,
   ListProjectsUseCase,
   ListWorkspacesUseCase,
+  ListWorkspaceProjectsUseCase,
   SQLiteProjectRepository,
   SQLiteWorkspaceRepository,
   UpdateProjectUseCase,
@@ -516,11 +517,17 @@ export const createApplicationServices = (
     editExecutionStory: operator("execution.plan", new EditExecutionStoryUseCase(taskCoordinationService)),
     createExecutionTask: operator("execution.plan", new CreateExecutionTaskUseCase(taskCoordinationService)),
     editExecutionTask: operator("execution.plan", new EditExecutionTaskUseCase(taskCoordinationService)),
-    // Workspace（Workspace Membershipで認可）。Web API・UIの入口は未接続（S06-04・S09-03）。作成は認証済みであればよく、
+    // Workspace（Workspace Membershipで認可）。参照（一覧・詳細・所属Project一覧）はWeb APIへ接続済み（S02-04）。
+    // 作成・更新・archive・member管理の入口は未接続（S06-04・S09-03）。作成は認証済みであればよく、
     // 作成者を同一transactionでowner Membershipにする。
     createWorkspace: new CreateWorkspaceUseCase(workspaceRepository),
     listWorkspaces: new ListHumanWorkspacesUseCase(new ListWorkspacesUseCase(workspaceRepository), workspaceMembershipRepository),
     getWorkspace: new GetHumanWorkspaceUseCase(humanWorkspaceAuthorizationService, new GetWorkspaceUseCase(workspaceRepository)),
+    // Workspace memberは所属Projectのpurpose・Resource参照を見られる。Project詳細・WorkはProject Membershipで認可し、継承しない。
+    listWorkspaceProjects: workspaceAuthorized(
+      "workspace.read",
+      new ListWorkspaceProjectsUseCase(workspaceRepository, projectRepository),
+    ),
     updateWorkspace: workspaceAuthorized("workspace.update", new UpdateWorkspaceUseCase(workspaceRepository)),
     archiveWorkspace: workspaceAuthorized("workspace.archive", new ArchiveWorkspaceUseCase(workspaceRepository)),
     createWorkspaceProject: new CreateHumanWorkspaceProjectUseCase(

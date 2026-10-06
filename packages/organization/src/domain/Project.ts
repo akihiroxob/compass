@@ -69,7 +69,7 @@ export type WorkspaceStrategy = {
 };
 
 /**
- * Projectの参照モデル。Projectの値に所属Workspaceの戦略値を合成し、既存の公開契約（Web API・MCP・Role Contextの
- * Projectの応答にMission等を含む形）を保つ。所属Workspace IDの公開はWorkspaceの参照契約（S02-04）で行うため含めない。
+ * Projectの参照モデル。Projectの値（所属Workspace IDを含む）に所属Workspaceの戦略値を合成し、既存の公開契約
+ * （Web API・MCP・Role ContextのProjectの応答にMission等を含む形）を保つ。
  */
-export type ProjectDetail = Omit<ProjectProperties, "workspaceId"> & WorkspaceStrategy;
+export type ProjectDetail = ProjectProperties & WorkspaceStrategy;

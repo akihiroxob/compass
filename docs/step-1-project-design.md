@@ -21,7 +21,7 @@ Mission / Vision / Principles / Constraintsは所属Workspaceに保持し、Proj
 
 ## 作成と更新
 
-HumanはWeb UIを使う。Web APIは`POST /api/projects`、`GET /api/projects`、`GET /api/projects/:projectId`、`PATCH /api/projects/:projectId`。作成にはログイン、参照にはMembership、更新にはadministrator以上が必要。
+HumanはWeb UIを使う。Web APIは`POST /api/projects`、`GET /api/projects`、`GET /api/projects/:projectId`、`PATCH /api/projects/:projectId`。作成にはログイン、参照にはMembership、更新にはadministrator以上が必要。Projectの応答は所属Workspaceの`workspaceId`を含む。所属Workspaceの参照は`GET /api/workspaces/:workspaceId`（Workspace Membership）で行う。
 
 更新は部分更新で、未指定項目を維持する。任意テキストはnull / 空文字でクリアできる。配列は全体置換で、空配列は全件削除。Repository / Resourceの既存IDを指定するとIDを維持し、未知・別ProjectのIDは新しいIDとして保存する。重複IDと更新項目なしは拒否する。
 

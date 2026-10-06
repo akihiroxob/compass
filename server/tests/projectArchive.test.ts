@@ -517,13 +517,13 @@ test("AC-17 CLIにarchive・deleteのコマンドは無く、cliUsageは変わ�
   await database.destroy();
 });
 
-test("AC-18 Project応答は既存項目を保ち、status・archivedAt・archiveReasonが追加されるだけ", async () => {
+test("AC-18 Project応答は既存項目を保ち、所属workspaceId・status・archivedAt・archiveReasonが追加されるだけ", async () => {
   const { database, app } = await setup();
   const created = await send(app, "POST", "/api/projects", { name: "Compass", mission: "m", status: "archived", archiveReason: "x" });
   assert.equal(created.status, 201);
   const project = (await json(created)).project;
   assert.deepEqual(Object.keys(project), [
-    "id", "name", "description", "mission", "vision", "principles", "constraints", "repositories", "resources",
+    "id", "workspaceId", "name", "description", "mission", "vision", "principles", "constraints", "repositories", "resources",
     "createdAt", "updatedAt", "status", "archivedAt", "archiveReason",
   ]);
   assert.equal(project.status, "active");

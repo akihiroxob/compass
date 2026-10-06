@@ -4,7 +4,9 @@ import { sql } from "kysely";
 import {
   ArchiveProjectUseCase,
   CreateProjectUseCase,
+  CreateWorkspaceProjectUseCase,
   initializeOrganizationSchema,
+  ListWorkspaceProjectsUseCase,
   SQLiteProjectRepository,
   SQLiteWorkspaceRepository,
   UpdateProjectUseCase,
@@ -68,9 +70,10 @@ test("作成はMission等を専用Workspaceへ書き、Projectには旧列の値
   assert.deepEqual(project.repositories.map(({ name }) => name), ["core"]);
 
   assert.deepEqual(Object.keys(created), [
-    "id", "name", "description", "mission", "vision", "principles", "constraints",
+    "id", "workspaceId", "name", "description", "mission", "vision", "principles", "constraints",
     "repositories", "resources", "createdAt", "updatedAt", "status", "archivedAt", "archiveReason",
   ]);
+  assert.equal(created.workspaceId, project.workspaceId);
   assert.equal(created.mission, "Make direction explicit");
   assert.deepEqual(created.principles, ["p1", "p2"]);
 
@@ -78,6 +81,33 @@ test("作成はMission等を専用Workspaceへ書き、Projectには旧列の値
   assert.deepEqual(legacy, { mission: "", vision: null });
   assert.deepEqual(principles, []);
   assert.deepEqual(constraints, []);
+  await database.destroy();
+});
+
+test("Workspaceの所属Project一覧は明示したworkspaceIdのProjectだけをstatusで絞り、Mission等を複製しない", async () => {
+  const { database, repository, workspaces, create, archive } = await setup();
+  const first = await create.execute(input);
+  const second = await new CreateWorkspaceProjectUseCase(repository).execute(first.workspaceId, {
+    name: "Platform",
+    resources: [{ name: "Docs", url: "https://docs.example", kind: "docs" }],
+  });
+  const other = await create.execute({ ...input, name: "Other" });
+  const list = new ListWorkspaceProjectsUseCase(workspaces, repository);
+
+  const listed = await list.execute(first.workspaceId);
+  assert.deepEqual(listed.map(({ id }) => id).sort(), [first.id, second.id].sort());
+  assert.ok(listed.every((project) => project.workspaceId === first.workspaceId && !("mission" in project)));
+  assert.deepEqual(listed.find(({ id }) => id === second.id)!.resources.map(({ name }) => name), ["Docs"]);
+  assert.deepEqual((await list.execute(other.workspaceId)).map(({ id }) => id), [other.id]);
+
+  await archive.execute(second.id, { reason: "Merged" });
+  assert.deepEqual((await list.execute(first.workspaceId)).map(({ id }) => id), [first.id]);
+  assert.deepEqual((await list.execute(first.workspaceId, "archived")).map(({ id }) => id), [second.id]);
+  // archivedのWorkspaceも履歴として参照できる。
+  await archive.execute(other.id, { reason: "Done" });
+  assert.equal((await workspaces.findById(other.workspaceId))!.status, "archived");
+  assert.deepEqual((await list.execute(other.workspaceId, "archived")).map(({ id }) => id), [other.id]);
+  await assert.rejects(list.execute("missing"), codeOf("NOT_FOUND"));
   await database.destroy();
 });
 

@@ -318,7 +318,8 @@ export const createMcpServer = (
     "get_project",
     {
       title: "Get Project",
-      description: "Get a Compass Project by ID.",
+      description:
+        "Get a Compass Project by ID. The response includes workspaceId (the owning Workspace) and that Workspace's mission, vision, principles and constraints.",
       inputSchema: { projectId: z.string().min(1) },
     },
     ({ projectId }) => execute(() => asGrantedReader(projectId, () => services.getProjectUseCase.execute(projectId))),

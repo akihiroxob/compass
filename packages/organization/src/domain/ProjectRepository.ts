@@ -89,6 +89,10 @@ export interface ProjectRepository {
   archive(projectId: string, reason: string): Promise<ArchiveProjectResult>;
   /** 指定した状態のProjectだけを返す。既定はactive。 */
   findAll(status?: ProjectStatus): Promise<ProjectDetail[]>;
+  /**
+   * 指定Workspaceに所属し、指定した状態のProjectだけを返す。既定はactive。Mission等はWorkspaceが正本のため合成しない。
+   */
+  findAllInWorkspace(workspaceId: string, status?: ProjectStatus): Promise<Project[]>;
   findById(projectId: string): Promise<Project | null>;
   findDetailById(projectId: string): Promise<ProjectDetail | null>;
   exists(projectId: string): Promise<boolean>;

@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createMcpServer } from "../mcp/createMcpServer.ts";
 import { ACTIVE_ROLE_HEADER, MalformedAuthorizationError, resolveActiveRole, resolveCaller } from "../auth/resolvePrincipal.ts";
 import { ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError, ValidationError } from "@compass/shared";
-import { parseProjectStatusFilter } from "@compass/organization";
+import { parseProjectStatusFilter, parseWorkspaceStatusFilter } from "@compass/organization";
 import { applicationServices, type ApplicationServices } from "./container.ts";
 import {
   CsrfRejectedError,
@@ -85,6 +85,22 @@ export const createApp = (
     const input = await readJsonBody(c.req.raw);
     const project = await human.updateProject.execute(actor, c.req.param("projectId"), input);
     return c.json({ project });
+  });
+
+  // Workspaceの参照（Workspace Membershipで認可。未所属・不在は404）。作成・更新・archive・member管理の入口はまだ公開しない。
+  // 有効なMembershipを持つWorkspaceだけ。既定はactiveのみ。`?status=archived`でアーカイブ済み一覧。
+  app.get("/api/workspaces", async (c) => {
+    const actor = await actorOf(c);
+    return c.json({ workspaces: await human.listWorkspaces.execute(actor, parseWorkspaceStatusFilter(c.req.query("status"))) });
+  });
+  app.get("/api/workspaces/:workspaceId", async (c) =>
+    c.json(await human.getWorkspace.execute(await actorOf(c), c.req.param("workspaceId"))),
+  );
+  // 所属Projectの一覧（purpose・Repository・Resource）。Mission等はWorkspaceの応答を参照する。Project詳細はProject Membershipが必要。
+  app.get("/api/workspaces/:workspaceId/projects", async (c) => {
+    const actor = await actorOf(c);
+    const status = parseProjectStatusFilter(c.req.query("status"));
+    return c.json({ projects: await human.listWorkspaceProjects.execute(actor, c.req.param("workspaceId"), status) });
   });
 
   // archiveはHuman向けのWeb API専用。MCP tool・CLIコマンドへは公開せず、復帰・削除のAPIも作らない。

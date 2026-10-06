@@ -9,6 +9,7 @@ import { initializeActivitySchema } from "@compass/activity";
 import { initializeDirectionSchema } from "@compass/direction";
 import { GetWorkspaceUseCase, SQLiteWorkspaceRepository } from "@compass/organization";
 import { initializeWorkSchema } from "@compass/work";
+import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import {
@@ -20,7 +21,7 @@ import {
 } from "../src/bootstrap/database/contextDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 import type { Database } from "../src/bootstrap/database/schema.ts";
-import { addTestMembership, createSignedInApp, createTestHuman } from "./support/humanSession.ts";
+import { addTestMembership, createSignedInApp, createTestHuman, requestAs } from "./support/humanSession.ts";
 import { archiveLegacyProject, createLegacyProjectTables, insertLegacyProject } from "./support/legacyProjectSchema.ts";
 
 type Row = Record<string, unknown>;
@@ -129,7 +130,7 @@ const seedLegacyDatabase = async (database: Kysely<Database>) => {
   const story = await callTool(app, "issue_story", { projectId: alpha.id, title: "Story", requestId: "story-1" }, "planner");
   await callTool(app, "issue_task", { projectId: alpha.id, storyId: story.id, title: "Task", requestId: "task-1" }, "planner");
   await archiveLegacyProject(database, beta.id, "Superseded", 3_000);
-  return { alpha, beta };
+  return { alpha, beta, owner };
 };
 
 test("既存ProjectごとにWorkspaceを作って所属させ、Project IDと既存のWork・Grant・Credential・Change Log・Activityを保つ", async () => {
@@ -203,6 +204,39 @@ test("既存ProjectごとにWorkspaceを作って所属させ、Project IDと既
     // 初期Membershipの写しは一度だけで、再起動で重複・再作成しない。
     assert.deepEqual((await sql<Row>`select * from workspace_membership order by rowid`.execute(restarted)).rows, backfilled);
     await restarted.destroy();
+  });
+});
+
+test("移行済みの既存ProjectをWeb APIのProject・Workspace参照から同じIDで辿れる", async () => {
+  await withTemporaryDatabase(async (path) => {
+    const legacy = createDatabase(path);
+    const { alpha, beta, owner } = await seedLegacyDatabase(legacy);
+    await legacy.destroy();
+
+    const upgraded = createDatabase(path);
+    await initializeSchema(upgraded);
+    const [alphaWorkspace, betaWorkspace] = (await projectWorkspaceIds(upgraded)).map(({ workspace_id }) => workspace_id!);
+    const asOwner = requestAs(createApp(createApplicationServices(upgraded)), await createTestHuman(upgraded, { email: owner.email }));
+    const read = async (path: string) => {
+      const response = await asOwner(path);
+      const body = (await response.json()) as Record<string, any>;
+      assert.equal(response.status, 200, `${path}: ${JSON.stringify(body)}`);
+      return body;
+    };
+
+    const { project } = await read(`/api/projects/${alpha.id}`);
+    assert.equal(project.workspaceId, alphaWorkspace);
+    assert.equal(project.mission, "Keep direction explicit");
+    // 初期Membershipの写しで、既存Projectのownerは所属Workspaceのownerとして参照できる。
+    const { workspace, myRole } = await read(`/api/workspaces/${alphaWorkspace}`);
+    assert.deepEqual([workspace.name, workspace.mission, myRole], ["Alpha", "Keep direction explicit", "owner"]);
+    const { projects } = await read(`/api/workspaces/${alphaWorkspace}/projects`);
+    assert.deepEqual(projects.map(({ id, description }: Record<string, unknown>) => ({ id, description })), [
+      { id: alpha.id, description: "Execution boundary" },
+    ]);
+    // ownerはbetaのMemberではないため、betaのWorkspaceは未所属として扱う。
+    assert.equal((await asOwner(`/api/workspaces/${betaWorkspace}`)).status, 404);
+    await upgraded.destroy();
   });
 });
 

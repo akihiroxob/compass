@@ -15,6 +15,7 @@ export * from "./application/CreateProjectUseCase.ts";
 export * from "./application/CreateWorkspaceProjectUseCase.ts";
 export * from "./application/GetProjectUseCase.ts";
 export * from "./application/ListProjectsUseCase.ts";
+export * from "./application/ListWorkspaceProjectsUseCase.ts";
 export * from "./application/UpdateProjectUseCase.ts";
 export * from "./application/ArchiveProjectUseCase.ts";
 export * from "./infrastructure/initializeOrganizationSchema.ts";

@@ -67,7 +67,7 @@ test("Web APIでIntentを作成・一覧・詳細・更新・放棄でき、Proj
   const project = ((await (await app.request(`/api/projects/${projectId}`)).json()) as { project: object }).project;
   assert.deepEqual(Object.keys(project).sort(), [
     "archiveReason", "archivedAt", "constraints", "createdAt", "description", "id", "mission", "name", "principles",
-    "repositories", "resources", "status", "updatedAt", "vision",
+    "repositories", "resources", "status", "updatedAt", "vision", "workspaceId",
   ]);
   await database.destroy();
 });

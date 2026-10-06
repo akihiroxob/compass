@@ -224,6 +224,16 @@ export class SQLiteProjectRepository implements ProjectRepository {
     return Promise.all(rows.map(async ({ id }) => (await this.findDetailById(id))!));
   }
 
+  async findAllInWorkspace(workspaceId: string, status: ProjectStatus = "active"): Promise<Project[]> {
+    const rows = await this.database
+      .selectFrom("project")
+      .select("id")
+      .where("workspace_id", "=", workspaceId)
+      .where("status", "=", status)
+      .execute();
+    return Promise.all(rows.map(async ({ id }) => (await this.findById(id))!));
+  }
+
   async exists(projectId: string): Promise<boolean> {
     const row = await this.database
       .selectFrom("project")
@@ -276,9 +286,10 @@ export class SQLiteProjectRepository implements ProjectRepository {
       this.orderedValues(this.database, "workspace_principle", project.workspaceId),
       this.orderedValues(this.database, "workspace_constraint", project.workspaceId),
     ]);
-    // 既存の公開契約と同じ項目・順序にする（所属Workspace IDは含めない）。
+    // 既存の公開契約と同じ項目・順序に、所属Workspace IDを加える。
     return {
       id: project.id,
+      workspaceId: project.workspaceId,
       name: project.name,
       description: project.description,
       mission: workspace.mission,
