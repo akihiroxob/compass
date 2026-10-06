@@ -1,4 +1,4 @@
-// デザイントークン。色・文字・余白・角丸・影・動きの値はここだけで定義し、各partialはCSS変数で参照する。
+// デザイントークン。共通の色・文字・余白・角丸・影・動きの値を定義し、各partialはCSS変数で参照する。
 // 文字色は背景（paper / surface / raised / note）に対してWCAG AA（4.5:1以上）を満たす値に限る。
 
 $breakpoint-narrow: 700px;
