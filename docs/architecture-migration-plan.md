@@ -13,7 +13,7 @@ WachaのCompass ProjectにStory `99bfa15a-c27b-4c4f-8a39-37764760a466` とTask 1
 | Intent / Outcome・Direction use case / repository | `packages/direction/`（Project scope） | OutcomeをWorkへ複製しない | Workspace scopeへ移し、OutcomeTargetProjectを加える |
 | Story / Task / Claim等 | `packages/work/` | 状態遷移とClaimの不変条件を保持 | Project scopeを維持する |
 | Principal / Grant / Credential / Human認可 | `packages/access/`とServerの認証adapter | Accessの業務規則とtransportを分離 | Workspace / ProjectのMembership・Role Grant・Credentialを分ける |
-| 意味的履歴のモデル・保存・参照 | `packages/activity/`（system / project scope） | Change Log・Operational Logとは別概念 | system / workspace / project scopeにする |
+| 意味的履歴のモデル・保存・参照 | `packages/activity/`（system / workspace / project scope。Direction canonicalはWorkspace、Work等は所属Workspace付きProject） | Change Log・Operational Logとは別概念 | Workspace Activityの公開入口・Role Contextを接続する |
 | `agent/<role>.md`、`agent/role-policy.md` | `roles/`、`policies/` | `manager`名を維持し、providerへ本文を埋め込まない | Role ContextをWorkspace Role向けとProject Role向けに分ける |
 | WachaのFileSkillRepository / FileKnowledgeRepository等 | `skills/`、`knowledge/`と配信adapter | Skillは認可しない。Knowledgeは共通知識のみ | なし |
 | 状態確認・Role起動 | `orchestrator/`（Project単位の状態を横断して確認） | 現在状態を判定し専門判断をRoleへ委譲 | Workspace単位の状態でWorkspace RoleとProjectのmanagerを起動する |

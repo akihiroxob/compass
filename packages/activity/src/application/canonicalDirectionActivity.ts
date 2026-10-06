@@ -8,7 +8,8 @@ import type { ActivityStore } from "./port/ActivityStore.ts";
  */
 export type DirectionChangeFact = {
   type: string;
-  projectId: string;
+  /** Project IDからの解決はserverで行い、ここにはWorkspace IDを直接渡す。 */
+  workspaceId: string;
   /** 変更されたrecordのID。同じ種類の変更はrecordごとに1回で、重複生成の判定に使う。 */
   recordId: string;
   title: string;
@@ -59,8 +60,9 @@ export const recordCanonicalDirectionActivity = async (
   const reason = textOf(change.reason);
   await store.append({
     id: newId(),
-    scope: ActivityScope.PROJECT,
-    projectId: change.projectId,
+    scope: ActivityScope.WORKSPACE,
+    workspaceId: change.workspaceId,
+    projectId: null,
     type: definition.type,
     principalId: change.principalId,
     role: change.role,

@@ -9,6 +9,7 @@ const toActivity = (row: ActivityRow): Activity => ({
   id: row.id,
   cursor: Number(row.cursor),
   scope: row.scope as ActivityScope,
+  workspaceId: row.workspace_id,
   projectId: row.project_id,
   type: row.type,
   principalId: row.principal_id,
@@ -35,6 +36,7 @@ export class KyselyActivityStore implements ActivityStore {
       .values({
         id: activity.id,
         scope: activity.scope,
+        workspace_id: activity.workspaceId,
         project_id: activity.projectId,
         type: activity.type,
         principal_id: activity.principalId,
@@ -71,12 +73,20 @@ export class KyselyActivityStore implements ActivityStore {
     return row ? toActivity(row) : null;
   }
 
-  async listProject(projectId: string, query: ActivityQuery): Promise<Activity[]> {
+  listProject(projectId: string, query: ActivityQuery): Promise<Activity[]> {
+    return this.listScope("project", "project_id", projectId, query);
+  }
+
+  listWorkspace(workspaceId: string, query: ActivityQuery): Promise<Activity[]> {
+    return this.listScope("workspace", "workspace_id", workspaceId, query);
+  }
+
+  private async listScope(scope: ActivityScope, column: "project_id" | "workspace_id", id: string, query: ActivityQuery): Promise<Activity[]> {
     let select = this.db
       .selectFrom("activity")
       .selectAll()
-      .where("scope", "=", "project")
-      .where("project_id", "=", projectId);
+      .where("scope", "=", scope)
+      .where(column, "=", id);
     if (query.principalId !== undefined) select = select.where("principal_id", "=", query.principalId);
     if (query.role !== undefined) select = select.where("role", "=", query.role);
     if (query.type !== undefined) select = select.where("type", "=", query.type);
@@ -107,11 +117,20 @@ export class KyselyActivityStore implements ActivityStore {
     return rows.map(toActivity);
   }
 
-  async maxProjectCursor(projectId: string): Promise<number> {
+  maxProjectCursor(projectId: string): Promise<number> {
+    return this.maxScopeCursor("project", "project_id", projectId);
+  }
+
+  maxWorkspaceCursor(workspaceId: string): Promise<number> {
+    return this.maxScopeCursor("workspace", "workspace_id", workspaceId);
+  }
+
+  private async maxScopeCursor(scope: ActivityScope, column: "project_id" | "workspace_id", id: string): Promise<number> {
     const row = await this.db
       .selectFrom("activity")
       .select((builder) => builder.fn.max("cursor").as("cursor"))
-      .where("project_id", "=", projectId)
+      .where("scope", "=", scope)
+      .where(column, "=", id)
       .executeTakeFirst();
     return Number(row?.cursor ?? 0);
   }

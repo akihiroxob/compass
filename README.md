@@ -33,7 +33,7 @@ COMPASS_AUTH_MODE=trusted-local COMPASS_INITIAL_OWNER_EMAIL=you@example.com npm 
 
 設定項目は [.env.example](.env.example) を参照してください。起動ディレクトリに`.env`があればserverが読み込みます。`.env.example`自体は読み込みません。`PORT`は`.env`読込前に確定するため、シェルの環境変数として渡してください。既定portは51800、`COMPASS_DB_PATH`はSQLiteの保存先、`COMPASS_CLAIM_TTL_MS`はClaim有効期間（既定30分）です。DBが無い場合は起動時に現在の定義からschemaを作成します。
 
-リリース前の開発DBはschema変更時に破棄・再作成できます。DBを開いているCompassプロセスを停止してから、`COMPASS_DB_PATH`が指すDB fileを削除し、serverを起動してください。データ・ログイン情報・Credential・cursorは引き継ぎません。旧DBの非破壊migrationや旧クライアント互換は開発の必須条件にしません。
+リリース前の開発DBはschema変更時に破棄・再作成できます。Activityの3 scope対応は新規DBのschemaを対象とし、旧Activity tableへの列追加・履歴変換は行いません。DBを開いているCompassプロセスを停止してから、`COMPASS_DB_PATH`が指すDB fileを削除し、serverを起動してください。データ・ログイン情報・Credential・cursorは引き継ぎません。旧DBの非破壊migrationや旧クライアント互換は開発の必須条件にしません。
 
 portが使用中なら既存プロセスを停止せず、同じ認証設定に`PORT=52000`等を加えて起動します。開発用の`npm run dev`はserverとViteを起動します。Viteの画面を使う場合は、そのoriginを`COMPASS_PUBLIC_ORIGIN`へ指定してください。
 
@@ -80,7 +80,7 @@ MCP endpointは`http://localhost:51800/mcp`、認証headerは`Authorization: Bea
 
 Role・Skill・Knowledge・Policyはrepo直下の`roles/`・`skills/`・`knowledge/`・`policies/`にGit管理し、MCPから必要時に取得します。起動時は`get_role_context({ projectId, role })`（そのRoleのGrantが必要）でRole Definition・共通Policy・Roleがfrontmatterの`skills`で参照するSkillのmetadata・Project情報を取得し、作業に入るときに`get_skill_context({ name })`でSkill本文とrequiredKnowledgeを取得します。`list_skills`はmetadataの一覧です。応答の`source.revision`は資産を読んだGit commit、`source.dirty`は未commit変更の有無です。Skillは認可を担わず、Roleとの対応はRole Definitionの`skills`だけで表します。Role Contextの`activity`は最近のActivityのsummaryとrefs（本文なし）です。
 
-Activityは後から経緯を辿るための履歴です。Agentは`record_activity`で調査結果・判断理由・引き継ぎ等を記録し（`summary`必須、`body`は任意のMarkdown、`refs`で成果物の所在を参照）、`list_activities` / `get_activity`で参照します。いずれもProjectのGrantが必要です。Story・Taskの重要な状態変更（起票・完了・レビュー・受入・差戻し・取消）、Directionの重要な状態変更（Intentの作成・放棄、Outcomeの確定・取消、Researchの依頼・終了、Direction Decision・Outcome Evaluationの記録）、Projectのarchiveはserverが同じtransactionで自動的に記録します。Humanは「Activity」sectionでProject詳細から確認できます。Activityはworkflow checkpointではなく、Change Log（`list_changes`）とも別です。
+Activityは後から経緯を辿るための履歴です。Agentは`record_activity`で調査結果・判断理由・引き継ぎ等を記録し（`summary`必須、`body`は任意のMarkdown、`refs`で成果物の所在を参照）、`list_activities` / `get_activity`で参照します。いずれもProjectのGrantが必要です。応答には所属`workspaceId`が含まれます。Story・Taskの重要な状態変更（起票・完了・レビュー・受入・差戻し・取消）、Directionの重要な状態変更（Intentの作成・放棄、Outcomeの確定・取消、Researchの依頼・終了、Direction Decision・Outcome Evaluationの記録）、Projectのarchiveはserverが同じtransactionで自動的に記録します。Work・Project archive・明示記録はProject Activity、Directionの自動記録はWorkspace Activityです。Humanは「Activity」sectionでProject Activityを確認できます。Workspace Activityは保存・内部取得までで、MCP・Web・Role Contextの入口は未接続です。Activityはworkflow checkpointではなく、Change Log（`list_changes`）とも別です。
 
 1回の実行で使うRoleは`X-Compass-Active-Role: <role>` headerで固定できます（MCP・Runtime向けAPI）。指定時はそのRoleのGrantだけで認可し、同じAgent名の他Grantは合算しません。trusted-local modeでも、指定時はProject参照・一覧（`get_project`・`list_projects`等）がそのRoleのGrantを持つProjectに限られます。Agent名（Bearer）なしでの指定はProject scopeのtool（Project参照・`update_project`・Intent管理・Work操作等）で`UNAUTHENTICATED`です。ただしtrusted-localの`create_project`はProject作成前の操作でGrantの対象外のため、activeRoleの指定に関係なく実行できます。Grantの無いRole・別Roleのtoolは`FORBIDDEN`、未知の値は400です。同じ`requestId`を別のactiveRoleで再送すると`IDEMPOTENCY_CONFLICT`になります。headerなしは従来どおり操作ごとに必要Roleを検査します。Worker / Reviewerは別Agent名・別Credentialで接続し、Role切替で自己レビュー・自己受入禁止を回避できません。
 
@@ -104,7 +104,7 @@ Orchestrator（[orchestrator/README.md](orchestrator/README.md)）は`get_orches
 ## 検証
 
 ```bash
-npm test
+COMPASS_DB_PATH=:memory: npm test
 npm run typecheck
 npm run lint
 npm run build

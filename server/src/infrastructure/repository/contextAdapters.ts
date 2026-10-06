@@ -10,6 +10,7 @@ import {
 } from "@compass/access";
 import {
   KyselyActivityStore,
+  canonicalWorkChangeTypes,
   recordCanonicalDirectionActivity,
   recordCanonicalProjectActivity,
   recordCanonicalWorkActivity,
@@ -23,6 +24,7 @@ import {
 } from "@compass/direction";
 import {
   findProjectRepository,
+  findProjectWorkspaceId,
   findProjectWorkspaceConstraints,
   isProjectArchived,
   isWorkspaceArchived,
@@ -35,7 +37,7 @@ import {
   type ProjectChangeObserver,
   type ProjectRepositoryReferenceFinder,
 } from "@compass/organization";
-import { ValidationError } from "@compass/shared";
+import { ConflictError, ValidationError } from "@compass/shared";
 import type { WorkChangeObserver, WorkExternalReaders } from "@compass/work";
 import {
   asAccessDatabase,
@@ -106,6 +108,13 @@ export const ownerMembershipWriters: OwnerMembershipWriters = {
 export const projectRepositoryReferenceFinder: ProjectRepositoryReferenceFinder = (transaction, repositoryIds) =>
   findAdrReferencedRepositoryId(asDirectionDatabase(transaction), repositoryIds);
 
+/** Activityの所属は状態変更・appendと同じtransactionで解決し、欠損は補正せず拒否する。 */
+const activityWorkspaceId = async (executor: Parameters<typeof asOrganizationDatabase>[0], projectId: string): Promise<string> => {
+  const workspaceId = await findProjectWorkspaceId(asOrganizationDatabase(executor), projectId);
+  if (!workspaceId) throw new ConflictError(`Project ${projectId} has no Workspace for Activity`, { projectId });
+  return workspaceId;
+};
+
 /**
  * Workの重要な状態変更から、同じtransactionでcanonical Activityを追記する。生成元Changeのcursorで一意にするため、
  * 再送（Command Receiptの再生ではChangeを追記しない）・再試行で重複しない。Activityの追記に失敗すれば状態変更も巻き戻る。
@@ -113,8 +122,9 @@ export const projectRepositoryReferenceFinder: ProjectRepositoryReferenceFinder 
 export const workChangeActivityObserver: WorkChangeObserver = (executor) => {
   const store = new KyselyActivityStore(asActivityDatabase(executor));
   return async (notice) => {
-    if (notice.subject === null) return;
+    if (notice.subject === null || !canonicalWorkChangeTypes.includes(notice.type)) return;
     await recordCanonicalWorkActivity(store, {
+      workspaceId: await activityWorkspaceId(executor, notice.project_id),
       cursor: notice.cursor,
       projectId: notice.project_id,
       type: notice.type,
@@ -137,6 +147,8 @@ export const directionChangeActivityObserver: DirectionChangeObserver = (executo
     const actor = currentActivityActor();
     await recordCanonicalDirectionActivity(store, {
       ...notice,
+      // Direction保存はまだProject scope。通知のProject IDから所属Workspaceを同じtransactionで解決する。
+      workspaceId: await activityWorkspaceId(executor, notice.projectId),
       principalId: actor?.principalId ?? notice.principalId ?? systemActivityActor.principalId,
       role: actor?.role ?? systemActivityActor.role,
     });
@@ -153,6 +165,7 @@ export const projectChangeActivityObserver: ProjectChangeObserver = (executor) =
     const actor = currentActivityActor() ?? systemActivityActor;
     await recordCanonicalProjectActivity(store, {
       type: notice.type,
+      workspaceId: await activityWorkspaceId(executor, notice.projectId),
       projectId: notice.projectId,
       title: notice.title,
       reason: notice.reason,
@@ -171,6 +184,7 @@ export const activityProjectReader = (executor: Parameters<typeof asOrganization
       const project = await projects.findById(projectId);
       if (!project) return null;
       return {
+        workspaceId: project.workspaceId,
         archived: project.status === "archived",
         resourceIds: [...project.repositories, ...project.resources].map(({ id }) => id),
       };

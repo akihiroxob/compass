@@ -1,3 +1,4 @@
+import type { ActivityProjectReader } from "./ActivityProjectReader.ts";
 import type { Activity, ActivityEntityKind } from "../../domain/Activity.ts";
 
 /** 保存するActivity。`cursor`は保存時に採番する。 */
@@ -36,8 +37,16 @@ export interface ActivityStore {
   findByDedupeKey(dedupeKey: string): Promise<{ activity: Activity; inputHash: string | null } | null>;
   /** `scope=project`で、`afterCursor`があれば`cursor`の昇順、なければ降順。 */
   listProject(projectId: string, query: ActivityQuery): Promise<Activity[]>;
+  /** Workspace scopeのみ。同じWorkspaceに所属するProject Activityは含めない。 */
+  listWorkspace(workspaceId: string, query: ActivityQuery): Promise<Activity[]>;
+  maxWorkspaceCursor(workspaceId: string): Promise<number>;
   /** このActivityを訂正したActivity（`cursor`の昇順）。 */
   listCorrections(activityId: string): Promise<Activity[]>;
   /** Project（無ければ0）の最新cursor。 */
   maxProjectCursor(projectId: string): Promise<number>;
+}
+
+/** 明示記録のProject状態・所属解決・参照検証とappendを同じtransactionで行う。 */
+export interface ActivityUnitOfWork {
+  execute<T>(work: (store: ActivityStore, projects: ActivityProjectReader) => Promise<T>): Promise<T>;
 }

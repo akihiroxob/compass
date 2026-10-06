@@ -8,6 +8,7 @@ import type { ActivityStore } from "./port/ActivityStore.ts";
  */
 export type ProjectChangeFact = {
   type: "project_archived";
+  workspaceId: string;
   projectId: string;
   title: string;
   reason: string | null;
@@ -34,6 +35,7 @@ export const recordCanonicalProjectActivity = async (
   await store.append({
     id: newId(),
     scope: ActivityScope.PROJECT,
+    workspaceId: change.workspaceId,
     projectId: change.projectId,
     type: "project.archived",
     principalId: change.principalId,

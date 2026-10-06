@@ -79,3 +79,9 @@ export const listWorkspaceProjectIds = async (database: Queryable, workspaceId: 
     .execute();
   return rows.map(({ id }) => id);
 };
+
+/** Projectの所属Workspace ID。存在・所属の欠損はnull。呼出し元のtransactionのまま読む。 */
+export const findProjectWorkspaceId = async (database: Queryable, projectId: string): Promise<string | null> => {
+  const row = await database.selectFrom("project").select("workspace_id").where("id", "=", projectId).executeTakeFirst();
+  return row?.workspace_id ?? null;
+};

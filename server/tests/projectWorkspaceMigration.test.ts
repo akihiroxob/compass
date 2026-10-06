@@ -5,26 +5,20 @@ import { join } from "node:path";
 import test from "node:test";
 import { sql, type Kysely } from "kysely";
 import { initializeAccessSchema } from "@compass/access";
-import { initializeActivitySchema } from "@compass/activity";
 import { initializeDirectionSchema } from "@compass/direction";
 import { GetWorkspaceUseCase, SQLiteWorkspaceRepository } from "@compass/organization";
 import { initializeWorkSchema } from "@compass/work";
-import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import {
   asAccessDatabase,
-  asActivityDatabase,
   asDirectionDatabase,
   asOrganizationDatabase,
   asWorkDatabase,
 } from "../src/bootstrap/database/contextDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 import type { Database } from "../src/bootstrap/database/schema.ts";
-import { addTestMembership, createSignedInApp, createTestHuman, requestAs } from "./support/humanSession.ts";
-import { archiveLegacyProject, createLegacyProjectTables, insertLegacyProject } from "./support/legacyProjectSchema.ts";
-
-type Row = Record<string, unknown>;
+import { createLegacyProjectTables, insertLegacyProject } from "./support/legacyProjectSchema.ts";
 
 /** Workspace導入前のschema（`project`はDirectionが所有し、Organizationのtableは無い）。 */
 const initializeLegacySchema = async (database: Kysely<Database>) => {
@@ -32,7 +26,6 @@ const initializeLegacySchema = async (database: Kysely<Database>) => {
   await initializeDirectionSchema(asDirectionDatabase(database));
   await initializeWorkSchema(asWorkDatabase(database));
   await initializeAccessSchema(asAccessDatabase(database));
-  await initializeActivitySchema(asActivityDatabase(database));
 };
 
 const withTemporaryDatabase = async (run: (path: string) => Promise<void>) => {
@@ -44,202 +37,13 @@ const withTemporaryDatabase = async (run: (path: string) => Promise<void>) => {
   }
 };
 
-/** 移行で行を作るWorkspaceのtable。`workspace_membership`はAccessが所有し、既存のProject Membershipから初期memberを写す。 */
-const workspaceTables = ["workspace", "workspace_principle", "workspace_constraint", "workspace_membership"];
-
-/** Workspaceのtableを除く全tableの全行。`project`は追加した`workspace_id`・`strategy_migrated_at`を除いて比べる。 */
-const snapshotExistingRows = async (database: Kysely<Database>) => {
-  const tables = (
-    await sql<{ name: string }>`select name from sqlite_master where type = 'table' and name not like 'sqlite_%' order by name`.execute(database)
-  ).rows.map(({ name }) => name).filter((name) => !workspaceTables.includes(name));
-  const snapshot: Record<string, Row[]> = {};
-  for (const table of tables) {
-    const rows = (await sql<Row>`select * from ${sql.table(table)} order by rowid`.execute(database)).rows;
-    snapshot[table] =
-      table === "project" ? rows.map(({ workspace_id: _workspaceId, strategy_migrated_at: _migratedAt, ...row }) => row) : rows;
-  }
-  return snapshot;
-};
-
 const projectWorkspaceIds = async (database: Kysely<Database>) =>
   (await sql<{ id: string; workspace_id: string | null }>`select id, workspace_id from project order by created_at, id`.execute(database)).rows;
-
-/** WorkspaceごとのMember（Human・Role）と、所属Projectの有効なProject Member。 */
-const membersByWorkspace = async (database: Kysely<Database>) => {
-  const workspace = (
-    await sql<{ workspace_id: string; human_user_id: string; role: string }>`select workspace_id, human_user_id, role
-      from workspace_membership where revoked_at is null order by workspace_id, human_user_id`.execute(database)
-  ).rows;
-  const project = (
-    await sql<{ workspace_id: string; human_user_id: string; role: string }>`select project.workspace_id, human_user_id, role
-      from project_membership join project on project.id = project_membership.project_id
-      where revoked_at is null order by project.workspace_id, human_user_id`.execute(database)
-  ).rows;
-  return { workspace, project };
-};
 
 const getWorkspace = (database: Kysely<Database>, workspaceId: string) =>
   new GetWorkspaceUseCase(new SQLiteWorkspaceRepository(asOrganizationDatabase(database))).execute(workspaceId);
 
-const callTool = async (app: Awaited<ReturnType<typeof createSignedInApp>>, name: string, args: object, principal: string) => {
-  const response = await app.request("/mcp", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json, text/event-stream",
-      Authorization: `Bearer ${principal}`,
-    },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
-  });
-  const data = (await response.text()).split("\n").find((line) => line.startsWith("data: "));
-  assert.ok(data);
-  const { result } = JSON.parse(data.slice(6));
-  assert.equal(result.isError, undefined, JSON.stringify(result));
-  return result.structuredContent;
-};
-
-/**
- * 移行前のDBへ、Project（active・archived）とWork・Grant・Credential・Membership・Activity・Change Logを用意する。
- * 移行前のserverにはWorkspaceが無いため、Projectは旧schemaの行として作る。
- */
-const seedLegacyDatabase = async (database: Kysely<Database>) => {
-  await initializeLegacySchema(database);
-  const alpha = await insertLegacyProject(database, {
-    name: "Alpha",
-    description: "Execution boundary",
-    mission: "Keep direction explicit",
-    vision: "Every change has a reason",
-    principles: ["Trace decisions", "Prefer small steps"],
-    constraints: ["No destructive migration"],
-    repositories: [{ name: "compass", url: "https://github.com/example/compass" }],
-    createdAt: 1_000,
-  });
-  const beta = await insertLegacyProject(database, { name: "Beta", mission: "Ship the archive flow", createdAt: 2_000 });
-
-  const services = createApplicationServices(database);
-  const app = await createSignedInApp(database, services);
-  const owner = await createTestHuman(database);
-  await addTestMembership(database, alpha.id, owner, "owner");
-  await services.createIntentUseCase.execute(alpha.id, { title: "Intent", desiredState: "State" });
-  await services.grantProjectRoleUseCase.execute(alpha.id, { principalId: "planner", role: "manager" });
-  await services.issueAccessCredentialUseCase.execute(
-    { kind: "human", humanUserId: owner.humanUserId },
-    alpha.id,
-    { kind: "agent", principalId: "planner" },
-  );
-  const story = await callTool(app, "issue_story", { projectId: alpha.id, title: "Story", requestId: "story-1" }, "planner");
-  await callTool(app, "issue_task", { projectId: alpha.id, storyId: story.id, title: "Task", requestId: "task-1" }, "planner");
-  await archiveLegacyProject(database, beta.id, "Superseded", 3_000);
-  return { alpha, beta, owner };
-};
-
-test("既存ProjectごとにWorkspaceを作って所属させ、Project IDと既存のWork・Grant・Credential・Change Log・Activityを保つ", async () => {
-  await withTemporaryDatabase(async (path) => {
-    const legacy = createDatabase(path);
-    const { alpha, beta } = await seedLegacyDatabase(legacy);
-    const before = await snapshotExistingRows(legacy);
-    for (const table of ["story", "task", "project_grant", "access_credential", "project_membership", "change_log", "activity"]) {
-      assert.ok(before[table]?.length, `${table}に移行前の行がある`);
-    }
-    await legacy.destroy();
-
-    const upgraded = createDatabase(path);
-    await initializeSchema(upgraded);
-    assert.deepEqual(await snapshotExistingRows(upgraded), before);
-    const assigned = await projectWorkspaceIds(upgraded);
-    assert.deepEqual(assigned.map(({ id }) => id), [alpha.id, beta.id]);
-    assert.equal(new Set(assigned.map(({ workspace_id }) => workspace_id)).size, 2);
-
-    const alphaWorkspace = await getWorkspace(upgraded, assigned[0].workspace_id!);
-    assert.deepEqual(
-      { ...alphaWorkspace, id: undefined },
-      {
-        id: undefined,
-        name: "Alpha",
-        mission: "Keep direction explicit",
-        vision: "Every change has a reason",
-        principles: ["Trace decisions", "Prefer small steps"],
-        constraints: ["No destructive migration"],
-        createdAt: alpha.createdAt,
-        updatedAt: alpha.updatedAt,
-        status: "active",
-        archivedAt: null,
-        archiveReason: null,
-      },
-    );
-    const betaWorkspace = await getWorkspace(upgraded, assigned[1].workspace_id!);
-    assert.equal(betaWorkspace.status, "archived");
-    assert.equal(betaWorkspace.archivedAt, 3_000);
-    assert.equal(betaWorkspace.archiveReason, "Superseded");
-    assert.deepEqual((await sql`pragma foreign_key_check`.execute(upgraded)).rows, []);
-    // 既存のProject Membershipを所属Workspaceの初期Membershipとして同じRoleで写す（1 Project = 1 Workspaceの移行）。
-    const members = await membersByWorkspace(upgraded);
-    assert.ok(members.workspace.some(({ workspace_id: workspaceId }) => workspaceId === assigned[0].workspace_id));
-    assert.deepEqual(members.workspace, members.project);
-    const backfilled = (await sql<Row>`select * from workspace_membership order by rowid`.execute(upgraded)).rows;
-
-    // 公開の参照（Web API・MCP・Role Contextが使うuse case）は、移行前と同じ値をWorkspaceの正本から返す。
-    const services = createApplicationServices(upgraded);
-    const migratedAlpha = await services.getProjectUseCase.execute(alpha.id);
-    assert.deepEqual(
-      [migratedAlpha.mission, migratedAlpha.vision, migratedAlpha.principles, migratedAlpha.constraints],
-      ["Keep direction explicit", "Every change has a reason", ["Trace decisions", "Prefer small steps"], ["No destructive migration"]],
-    );
-    assert.deepEqual(migratedAlpha.repositories.map(({ name }) => name), ["compass"]);
-    assert.equal((await services.getProjectUseCase.execute(beta.id)).status, "archived");
-    // 正本の切替後の更新はWorkspaceへ書き、旧列は書き換えない。
-    await services.updateProjectUseCase.execute(alpha.id, { mission: "Changed after migration" });
-    assert.equal((await getWorkspace(upgraded, assigned[0].workspace_id!)).mission, "Changed after migration");
-    await upgraded.destroy();
-
-    // 再起動（schema初期化の再実行）でWorkspaceを重複して作らず、所属も、切替後のWorkspaceの値も旧列で上書きしない。
-    const restarted = createDatabase(path);
-    await initializeSchema(restarted);
-    assert.deepEqual(await projectWorkspaceIds(restarted), assigned);
-    assert.equal((await restarted.selectFrom("workspace").select("id").execute()).length, 2);
-    assert.equal((await getWorkspace(restarted, assigned[0].workspace_id!)).mission, "Changed after migration");
-    const { project: _project, ...otherRows } = await snapshotExistingRows(restarted);
-    const { project: _before, ...otherBefore } = before;
-    assert.deepEqual(otherRows, otherBefore);
-    // 初期Membershipの写しは一度だけで、再起動で重複・再作成しない。
-    assert.deepEqual((await sql<Row>`select * from workspace_membership order by rowid`.execute(restarted)).rows, backfilled);
-    await restarted.destroy();
-  });
-});
-
-test("移行済みの既存ProjectをWeb APIのProject・Workspace参照から同じIDで辿れる", async () => {
-  await withTemporaryDatabase(async (path) => {
-    const legacy = createDatabase(path);
-    const { alpha, beta, owner } = await seedLegacyDatabase(legacy);
-    await legacy.destroy();
-
-    const upgraded = createDatabase(path);
-    await initializeSchema(upgraded);
-    const [alphaWorkspace, betaWorkspace] = (await projectWorkspaceIds(upgraded)).map(({ workspace_id }) => workspace_id!);
-    const asOwner = requestAs(createApp(createApplicationServices(upgraded)), await createTestHuman(upgraded, { email: owner.email }));
-    const read = async (path: string) => {
-      const response = await asOwner(path);
-      const body = (await response.json()) as Record<string, any>;
-      assert.equal(response.status, 200, `${path}: ${JSON.stringify(body)}`);
-      return body;
-    };
-
-    const { project } = await read(`/api/projects/${alpha.id}`);
-    assert.equal(project.workspaceId, alphaWorkspace);
-    assert.equal(project.mission, "Keep direction explicit");
-    // 初期Membershipの写しで、既存Projectのownerは所属Workspaceのownerとして参照できる。
-    const { workspace, myRole } = await read(`/api/workspaces/${alphaWorkspace}`);
-    assert.deepEqual([workspace.name, workspace.mission, myRole], ["Alpha", "Keep direction explicit", "owner"]);
-    const { projects } = await read(`/api/workspaces/${alphaWorkspace}/projects`);
-    assert.deepEqual(projects.map(({ id, description }: Record<string, unknown>) => ({ id, description })), [
-      { id: alpha.id, description: "Execution boundary" },
-    ]);
-    // ownerはbetaのMemberではないため、betaのWorkspaceは未所属として扱う。
-    assert.equal((await asOwner(`/api/workspaces/${betaWorkspace}`)).status, 404);
-    await upgraded.destroy();
-  });
-});
-
+// 旧Activityの非破壊移行は対象外。scope変更後の新規DB・再起動・公開入口はactivity.test.tsで検証する。
 test("移行が途中で失敗しても、所属済みのProjectは保たれ、未所属のProjectにだけ再実行でWorkspaceを作る", async () => {
   await withTemporaryDatabase(async (path) => {
     const legacy = createDatabase(path);

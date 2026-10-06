@@ -326,7 +326,11 @@ export const createApplicationServices = (
         getProjectUseCase,
         listActivitiesUseCase,
       ),
-      recordActivityUseCase: new RecordActivityUseCase(activityAuthorizationPort, activityProjects, activityStore, clock),
+      recordActivityUseCase: new RecordActivityUseCase(activityAuthorizationPort, {
+        execute: (work) => applicationDatabase.transaction().execute((transaction) =>
+          work(new KyselyActivityStore(asActivityDatabase(transaction)), activityProjectReader(transaction)),
+        ),
+      }, clock),
       agentActivityReader: new AgentActivityReader(activityAuthorizationPort, listActivitiesUseCase, getActivityUseCase),
       getStrategistContextUseCase: new GetStrategistContextUseCase(
         projectAuthorization,

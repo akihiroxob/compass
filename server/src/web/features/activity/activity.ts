@@ -8,6 +8,8 @@ export type ActivityReference =
 export type ActivitySummary = {
   id: string;
   cursor: number;
+  scope: "project";
+  workspaceId: string;
   projectId: string;
   type: string;
   principalId: string;
