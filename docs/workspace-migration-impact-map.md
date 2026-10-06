@@ -4,7 +4,7 @@
 
 Compassはリリース前のため、開発DBはtableのDROPまたはDB file削除で再作成してよい。旧DBのデータ変換・IDやCredentialの引継ぎ・旧server互換を必須にしない。開発用WachaのDBは再作成対象に含めない。旧列・旧table・互換migrationコードは関連Taskで削除できる。新規DBの正しいscope・FK・index・保存と、同じschemaでの再起動を検証する。実行中のDBを削除する場合は、先にDBを開いているCompassプロセスを停止する。
 
-調査対象はCompass `3cf876b`のコードとテスト。Task番号は「S03-01」（Workspace Story 03のTask 01）の形で示す。
+現況は各Taskで反映済みのコードとテストに合わせる。実装状況は[実装状況](implementation-status.md)、受入状態はWachaで確認する。Task番号は「S03-01」（Workspace Story 03のTask 01）の形で示す。
 
 ## 前提となる現況
 
@@ -85,16 +85,18 @@ WorkのProject scope、Claim・状態遷移・Change Logの規則を維持し、
 
 | table | 現況 | 変更先 | Task | 確認点 |
 | --- | --- | --- | --- | --- |
-| `activity` | `scope in ('project', 'system')`のCHECK、`activity_scope_project_check`、`project_id` FK、cursor・index | CREATE定義へ`workspace_id`とworkspace scopeを加え、ADRの組合せ表をCHECKで強制 | S07-01 | 新規DBでscope/ID・cursor・dedupe・訂正参照と状態変更の原子性を検証する。旧Activityの補完は不要 |
+| `activity` | `scope in ('project', 'workspace', 'system')`のCHECK、`activity_scope_ids_check`、`workspace_id` / `project_id` FK、cursor・indexを実装済み | 保存schemaの追加変更は不要。Workspaceの公開記録・取得を接続する | S07-01（実装済み）、S07-02 | systemは両IDなし、workspaceは`workspace_id`のみ、projectは両ID必須。新規DBでscope/ID・cursor・dedupe・訂正参照と状態変更の原子性を検証する。旧Activityの補完は不要 |
 
-Activityを書く経路は次の4つで、いずれも現行は`projectId`だけを渡し、`scope: project`でappendする。移行後のCHECKを入れると、これらが正しいscopeとIDを渡さない限り追記が失敗する。canonical Activityは状態変更と同じtransactionで追記するため、失敗は状態変更そのものを巻き戻す（Story / Taskの起票・完了・レビュー・受入・差戻し・取消、Direction操作、Project archiveが失敗する）。
+Activityを書く経路は次の4つ。S07-01で全経路の所属Workspace解決とscope/IDの保存を実装済み。serverが同じtransactionのexecutorでOrganizationのProject readerを配線し、所属欠損は補正せず拒否する。canonical Activityは状態変更と同じtransactionで追記するため、所属解決・追記の失敗は状態変更とChange Logも巻き戻す（Story / Taskの起票・完了・レビュー・受入・差戻し・取消、Direction操作、Project archive）。明示記録も所属解決・参照検証・appendを同じtransactionで行う。
 
-| 経路 | 現行の書込 | 同じtransactionの内容 | 移行後のscope |
+append-only・訂正追記・cursor・dedupe・操作者の`principalId` / `role`の意味は維持する。所属Workspaceの追加をRole Grantの継承やworkflow checkpointには使わない。
+
+| 経路 | 現行の書込 | 同じtransactionの内容 | 現行のscope / ID |
 | --- | --- | --- | --- |
-| Work由来のcanonical Activity | `server/src/infrastructure/repository/contextAdapters.ts`の`workChangeActivityObserver`がChange（`project_id`のみ）を`WorkChangeFact`へ変換し、`packages/activity/src/application/canonicalWorkActivity.ts`の`recordCanonicalWorkActivity`が`projectId`でappend | `packages/work/src/infrastructure/KyselyWorkStore.ts`のChange Log追記直後に`changeObserver`を呼ぶ | project（`workspaceId`・`projectId`） |
-| Direction由来のcanonical Activity | `contextAdapters.ts`の`directionChangeActivityObserver`が`DirectionChangeNotice`（次節）を`canonicalDirectionActivity.ts`の`recordCanonicalDirectionActivity`へ渡す | Directionの状態変更 | workspace（`workspaceId`のみ） |
-| Project archive由来のcanonical Activity | `contextAdapters.ts`の`projectChangeActivityObserver`がOrganizationの`ProjectChangeNotice`を`canonicalProjectActivity.ts`へ変換する。通知は既に`workspaceId`を持つが、現行observerと`ProjectChangeFact`は渡さない | `SQLiteProjectRepository.archive`の状態変更 | project（`workspaceId`・`projectId`） |
-| 明示記録（`record_activity`・Web API） | `packages/activity/src/application/ActivityUseCases.ts`の`RecordActivityUseCase`が`ActivityProjectReader`（`contextAdapters.ts`の`activityProjectReader`）でProject状態を読みappend | 記録のみ | project。workspace scopeの記録はS07-02 |
+| Work由来のcanonical Activity | `server/src/infrastructure/repository/contextAdapters.ts`の`workChangeActivityObserver`がChangeの`project_id`から所属Workspaceを解決し、両IDを`WorkChangeFact`へ渡す。`packages/activity/src/application/canonicalWorkActivity.ts`の`recordCanonicalWorkActivity`がappendする | `packages/work/src/infrastructure/KyselyWorkStore.ts`の業務状態変更・Change Log追記・所属解決・Activity追記（Change Log追記直後に`changeObserver`を呼ぶ） | project（`workspaceId`・`projectId`） |
+| Direction由来のcanonical Activity | `contextAdapters.ts`の`directionChangeActivityObserver`が`DirectionChangeNotice.projectId`から所属Workspaceを解決し、`DirectionChangeFact.workspaceId`として`canonicalDirectionActivity.ts`の`recordCanonicalDirectionActivity`へ渡す | Directionの状態変更・所属解決・Activity追記 | workspace（`workspaceId`のみ、`projectId=null`） |
+| Project archive由来のcanonical Activity | `contextAdapters.ts`の`projectChangeActivityObserver`が`ProjectChangeNotice.projectId`から所属Workspaceを解決し、両IDを`canonicalProjectActivity.ts`の`ProjectChangeFact`へ渡す。通知自身も`workspaceId`を持つが、observerは同じexecutorで所属を読み直す | `SQLiteProjectRepository.archive`の状態変更・所属解決・Activity追記 | project（`workspaceId`・`projectId`） |
+| 明示記録（`record_activity`・Web API） | `packages/activity/src/application/ActivityUseCases.ts`の`RecordActivityUseCase`が`ActivityProjectReader`（`contextAdapters.ts`の`activityProjectReader`）から所属`workspaceId`を含むProject状態を読み、両IDでappendする | `ActivityUnitOfWork`内の再送照合・所属解決・Project状態 / Resource / 訂正参照の検証・Activity追記。serverの`createApplicationServices.ts`が同じtransactionのreaderとstoreを配線する | project（`workspaceId`・`projectId`）。workspace scopeの明示記録はS07-02 |
 
 #### Directionの状態変更通知（`DirectionChangeNotice`）
 
@@ -107,18 +109,18 @@ Activityを書く経路は次の4つで、いずれも現行は`projectId`だけ
 | `research_requested` / `research_closed` | `researchRequestRecord.ts`の`insertResearchRequest`（`SQLiteResearchRepository.ts`・`SQLiteDirectionDecisionRepository.ts`から）、`SQLiteResearchRepository.ts` | 引数の`projectId` | `workspaceId` | S03-02 |
 | `decision_recorded` | `SQLiteDirectionDecisionRepository.ts`の`notifyRecorded` | `decision.projectId` | `workspaceId` | S03-02 |
 | `outcome_evaluated` | `SQLiteOutcomeEvaluationRepository.ts` | 引数の`projectId` | `workspaceId` | S03-03 |
-| `project_archived` | （S02-03でDirectionの通知から外した） | — | Organizationの`SQLiteProjectRepository.archive`が`ProjectChangeNotice`（`projectId`と所属`workspaceId`）を送る | S02-03（実装済み）、S07-01（Activityへ`workspaceId`を渡す） |
+| `project_archived` | （S02-03でDirectionの通知から外した） | — | Organizationの`SQLiteProjectRepository.archive`が`ProjectChangeNotice`（`projectId`と所属`workspaceId`）を送る。Activityへの両IDの受け渡しも実装済みで、S03では変更しない | S02-03、S07-01（実装済み） |
 
-Activity側の受け口は`canonicalDirectionActivity.ts`の`DirectionChangeFact`（`projectId`）。Activityは`DirectionChangeNotice`に依存しないため、serverのobserverが変換する現行の形を保つ。
+Activity側の受け口は`canonicalDirectionActivity.ts`の`DirectionChangeFact.workspaceId`で、Project IDを受け取る契約ではない。現行のDirection Entityと`DirectionChangeNotice`はProject単位のため、serverのobserverが通知のProject IDから所属Workspace IDを解決する。Activityは`DirectionChangeNotice`に依存しない。S03では通知元とobserverを切り替え、Workspace IDをFactへ直接渡す。Factとworkspace scopeの保存契約は変更しない。
 
 #### 切替の順序
 
-S07-01の完了条件とADRどおり、S07-01でDirectionのcanonical Activityをworkspace scopeへ切り替える（S07-02へ延期しない）。通知の切替（S03-01〜03）とActivityの切替（S07-01）の順序で次が決まる。
+Directionのcanonical ActivityはS07-01でworkspace scopeへ切替済み。残るDirectionの保存・通知の切替（S03-01〜03）は、次の順序とID契約を守る。
 
-- S03で通知が`workspaceId`だけになった時点で、Activityにworkspace scopeが無いと記録先のProjectを決められない（推測すると誤ったProjectの履歴になり、失敗させるとDirection操作がrollbackする）。そのためS07-01（workspace scopeの導入とDirection canonical Activityの切替）を、S03-01の通知切替より前に完了させる
-- S07-01の時点ではDirectionの記録はまだProject所有なので、通知の`projectId`はその記録を所有するProjectを一意に示す。`directionChangeActivityObserver`は同じexecutorでorganizationのProject readerから所属Workspace IDを解決し、`workspaceId`だけを持つworkspace scopeでappendする。S07-01はStory 02受入（S02-02の所属関連付け・S02-03のProject readerを含む）が前提で、Story 03は不要。旧Projectの補完は必須にせず、新規DBで全Projectに所属`workspace_id`が設定されることを検証する
+- S03で通知が`workspaceId`だけになると、記録先のProjectを一意に選べない。既に実装したWorkspace Activityの保存契約を前提に、S07-01の受入をS03-01の通知切替より先に確認する
+- 現行のDirection EntityはまだProject所有なので、通知の`projectId`はその記録を所有するProjectを一意に示す。`directionChangeActivityObserver`は同じexecutorでorganizationのProject readerから所属Workspace IDを解決し、`workspaceId`だけを持つworkspace scopeでappendする。所属関連付け・Project readerを含むStory 02は受入済み。旧Projectの補完は必須にせず、新規DBで全Projectに所属`workspace_id`が設定されることを検証する
 - S03-01〜03では、上表の通知元ごとに`projectId`を`workspaceId`へ置き換える。置き換え途中は通知を「`workspaceId`を持つ」か「`projectId`を持つ（未切替の通知元）」かの判別可能な形にし、observerは前者をそのまま使い、後者だけProjectから解決する。S03-03の完了時に`projectId`の形を除く。Directionがorganizationのtableを直接読んで解決する形にはしない
-- `project_archived`は、S02-03でorganizationへ移した後もproject scopeのActivity（`dedupe_key`は`direction_change:project_archived:{projectId}`のまま）とする。serverの`projectChangeActivityObserver`がActivityの`recordCanonicalProjectActivity`へ渡す（`canonicalDirectionActivity.ts`からはS02-03で外した）。S07-01で所属Workspace IDを持たせる
+- `project_archived`はorganizationの通知で、所属Workspace ID付きproject scopeのActivityとして保存済み（`dedupe_key`は`direction_change:project_archived:{projectId}`）。serverの`projectChangeActivityObserver`が所属Workspaceを解決し、Activityの`recordCanonicalProjectActivity`へ両IDを渡す。S03のDirection通知切替の対象に含めない
 
 登録済みTaskの着手条件は次のとおり。Wachaは依存を自動制御しないため、着手時に受入状態を確認する。
 
@@ -134,22 +136,22 @@ S07-01の完了条件とADRどおり、S07-01でDirectionのcanonical Activity�
 #### project scopeの経路
 
 - Workは`workspace_id`を持たない（Project scopeのまま）。Change Logや`WorkChangeNotice`へ`workspace_id`を足さず、serverの`workChangeActivityObserver`が同じexecutor（同じtransaction）でorganizationのProject readerから所属Workspace IDを解決して`WorkChangeFact`に渡す。Activityはprojectのtableを直接読まない現行の境界を保つ
-- `RecordActivityUseCase`は`ActivityProjectState`に所属Workspace IDを加えて受け取り、appendに渡す
-- Project archiveは既に通知が持つ`workspaceId`を`projectChangeActivityObserver`から`ProjectChangeFact`へ渡す。同じtransaction内で所属Projectと一致することを保証する。Work・明示記録も、所属`workspace_id`が欠けている場合は状態変更ごと失敗させる。黙ってsystem scopeやnullへ落とさない。Story 02の所属関連付けと新規DBでの保存が受入済みであることを着手時に確認する
+- `RecordActivityUseCase`は`ActivityProjectState.workspaceId`を受け取り、appendに渡す。所属解決・Project状態 / Resource / 訂正参照の検証・appendは`ActivityUnitOfWork`の同じtransaction内で行う。訂正は同一scope・Workspace・ProjectのActivityへの追記に限る
+- Project archiveは`projectChangeActivityObserver`が通知の`projectId`から同じtransactionで所属Workspaceを読み直し、`ProjectChangeFact`へ両IDを渡す。Work・明示記録も、所属`workspace_id`が欠けている場合は操作を失敗させる。黙ってsystem scopeやnullへ落とさない
 
 #### 参照への影響
 
-S07-01以降に作られるDirectionのActivityはProject Activityの一覧（`list_activities`・`/api/projects/:projectId/activities`・Web UIの`features/activity/`・`GetRoleContextUseCase`の最近のProject Activity）に出なくなる。S07-01ではworkspace scopeを読むapplicationのQueryまでを用意する。S07-02の認可付き公開入口はS03-01〜03とS06-02〜03の後、S07-03のRole ContextはStory 03・06の後に接続する。この間、Workspace Activityは保存済みでも公開入口とRole Contextからは未参照であることを実装状況に明記する。開発DBを再作成する場合、旧Activityの再分類や引継ぎは不要。
+DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`list_activities`・`/api/projects/:projectId/activities`・Web UIの`features/activity/`・`GetRoleContextUseCase`の最近のProject Activity）には出ない。内部の`ActivityStore.listWorkspace`・`maxWorkspaceCursor`は実装済みで、Workspace scopeだけを取得し、同じWorkspaceのProject Activityは含めない。既存のcursor・filterを共用する。認可付きWorkspace記録・取得のapplication use caseと公開入口はS07-02でS03-01〜03とS06-02〜03の後、Role ContextはS07-03でStory 03・06の後に接続する。現時点でWorkspace Activityは保存・内部取得済みだが、公開入口・UI・Role Contextは未接続。開発DBを再作成する場合、旧Activityの再分類や引継ぎは不要。
 
 #### 回帰
 
 - 既存: `server/tests/activity.test.ts`の「Workの重要な状態変更は同じtransactionでcanonical Activityになり、再送・Claim操作では増えない」「Directionの重要な状態変更は同じtransactionで操作者付きのcanonical Activityになり…」「Agentはsummary必須…」と、`server/tests/execution*.test.ts`のStory / Task操作を移行後schemaで実行する
-- 追加: 2つのProject（A・B）が所属するWorkspaceで、移行後schemaに対し次を確認する
+- 実装済みの回帰: 2つのProject（A・B）が所属するWorkspaceで、現行schemaに対し次を確認する
   - Direction変更（Intent作成・Outcome確定・Research・Decision・Evaluation）: workspace scope、`workspace_id`が当該Workspace、`project_id`がnull。AにもBにもProject Activityが作られない
   - Project Aのarchive: project scope、`project_id`がA、`workspace_id`が当該Workspace。Bの履歴に出ない
   - Project BのWork状態変更: project scope、`project_id`がB、`workspace_id`が当該Workspace
   - それぞれでActivityの追記を失敗させると、Direction操作・archive・Work状態変更が同じtransactionで巻き戻る（原子性）
-  - S03の切替途中（`projectId`の通知と`workspaceId`の通知が混在）でも同じ結果になる
+- S03で追加確認: 切替途中（`projectId`の通知と`workspaceId`の通知が混在）でも上記と同じ結果になる
 
 ## applicationとpackage
 
