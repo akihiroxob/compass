@@ -22,8 +22,8 @@
 
 ## Wachaへの引き継ぎ
 
-- [移行計画](architecture-migration-plan.md): Wachaへ登録したStory・Task（Workspace移行を含む）と受入条件。実装完了の記録ではない。
-- [構造移行マッピング](architecture-migration-mapping.md): 全ファイルの移行先・依存違反・互換性契約・移行単位。
+- [移行計画](architecture-migration-plan.md): 現行のWorkspace移行と、Workspace導入前の構造移行でWachaへ登録したStory・Taskと受入条件。所有・scopeはADR 0001に従う。実装完了の記録ではない。
+- [構造移行マッピング](architecture-migration-mapping.md): Workspace導入前の構造移行での全ファイルの配置・依存違反・互換性契約・移行単位。Workspace移行の変更先は含まない。
 - [設計確認事項](planning/architecture-questions.md): 未確定事項。仕様として適用しない。
 - [Project画面の情報設計と視覚方針](planning/project-screen-design.md): UI整理Storyの後続Taskが使う画面構成案。実装済みの仕様ではない。
 - [Wacha Skill配布の改善メモ](planning/wacha-skill-delivery.md): Codex・ClaudeへのSkill登録を検討するための案。未採用。

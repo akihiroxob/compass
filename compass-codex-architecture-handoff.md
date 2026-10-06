@@ -1542,14 +1542,14 @@ Worker / Reviewer の instruction を Ralph 内へ複製しない。
 - Wacha / Shirube / agent-foundation の COMPASS モノレポ統合
 - apps/ を使わず独立実行システムをトップレベルへ置く
 - Web / API / MCP を1つの server として提供する
-- Direction / Work / Activity / Access を主要境界とする
+- Organization / Direction / Work / Activity / Access を主要境界とする
 - Outcome を Direction が所有する
 - Role と Principal を分離する
 - activeRole を1実行1つに固定する
 - Role / Skill / Knowledge を Git 管理して MCP 配信する
 - Skill から allowRoles を削除する
 - Project 別情報の保存先を内容と所有責務で分ける
-- Activity を Project の外部記憶として DB 保存する
+- Activity を system / Workspace / Project scope の意味的履歴として DB 保存する
 ```
 
 Workspace と Project の境界（Direction / Work の scope、OutcomeTargetProject、Role / Activity の scope）は [ADR 0001](docs/adr/0001-workspace-project-boundary.md) として作成済み。
