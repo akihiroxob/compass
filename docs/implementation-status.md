@@ -1,6 +1,8 @@
 # 現在の実装状況
 
-ソースコードと公開入口に基づく現況。移行後の設計は [Architecture Handoff](../compass-codex-architecture-handoff.md) を参照する。
+ソースコードと公開入口に基づく現況。移行後の設計は [Architecture Handoff](../compass-codex-architecture-handoff.md) と [ADR 0001](adr/0001-workspace-project-boundary.md) を参照する。
+
+Workspaceは未実装。現在はProjectがMission等の戦略・Direction・Work・Resourceを兼ね、Direction・Access・Activity・OrchestratorはProject単位で動作する。
 
 ## 実装済み
 

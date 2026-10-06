@@ -42,3 +42,20 @@ workspace・build（npm workspaces）、`activeRole`のtransport・互換期間�
 - Research等の保存先を内容と所有責務で分類する。Compass所有のProject別レコードは保持できる。外部を正本とする内容だけ移行・参照切替を設計し、既存Evidence・Decision・Evaluationの参照関係を壊さない。
 
 未確定の製品判断は [設計確認事項](planning/architecture-questions.md) に分離する。確認前に既存Role・DBレコードを削除しない。
+
+## Workspace移行
+
+[ADR 0001 WorkspaceとProjectの境界](adr/0001-workspace-project-boundary.md) を実装するため、WachaのCompass ProjectにStory 01〜12とTaskを登録済み。登録は実装完了を意味しない。順序はStory番号と各Taskの前提で示し、Wachaは依存を自動制御しない。
+
+| Story | 内容 | 主な受入条件 |
+| --- | --- | --- |
+| 01 | 移行の契約（ADR）と、コード・DB・API・MCP・UIの影響マップ | 業務挙動を変えない。影響マップは現行コードとテストを根拠にする |
+| 02 | Workspace・`packages/organization`・既存ProjectごとのWorkspace生成 | 既存Project ID・Work・Grant・Credential・Change Logを保ち、再実行で重複しない |
+| 03 | DirectionのWorkspace scope化 | 既存IDと根拠を保ち、`project_id`列にWorkspace IDを保存しない |
+| 04 | OutcomeTargetProjectとProject別Story handoff | 同一WorkspaceのTargetだけを許可し、target外・別Workspaceを拒否する |
+| 05 | 全Target ProjectのExecution還流とOutcome評価 | 一部Projectの完了だけで評価・達成にしない |
+| 06 | Workspace / ProjectのMembership・Role Grant・Credential分離 | Role継承を作らず、activeRoleとscopeの不一致を拒否する |
+| 07 | Workspace / Project ActivityとRole Context | scope不整合を拒否し、Change Log・Operational Logと混同しない |
+| 08 | Workspace単位の現在状態とOrchestrator dispatch | Project選択をOrchestratorで推論せず、archive済みへdispatchしない |
+| 09〜11 | Workspace UI（Shell・切替、Direction / Project画面、Activity・Agent・設定） | 実データと権限を反映し、プロトタイプの固定値を持ち込まない |
+| 12 | 旧Project前提の段階的な除去と統合回帰 | 破壊的移行を一度に行わず、独立起動と実ブラウザで検証する |

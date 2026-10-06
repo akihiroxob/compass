@@ -1,8 +1,10 @@
 # Research・Decision・ADR
 
-[Architecture Handoff](../compass-codex-architecture-handoff.md) に従う。現在の保存方式は [実装状況](implementation-status.md) を参照する。
+[Architecture Handoff](../compass-codex-architecture-handoff.md) と [ADR 0001](adr/0001-workspace-project-boundary.md) に従う。現在の保存方式は [実装状況](implementation-status.md) を参照する。
 
 ## Directionの判断
+
+Research Request / Result / Finding / Synthesis、Direction Decision、EvaluationはWorkspace scopeとする。EvidenceやADR等のProject固有の成果物はProject Resourceを参照する。
 
 IntentまたはEvaluationを受けて、Strategistが次に追うOutcomeを判断する。情報が十分ならOutcomeを定義し、不足する場合にResearchを依頼する。ResearchをIntentとOutcomeの間の必須工程にしない。
 

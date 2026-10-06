@@ -12,8 +12,8 @@
 
 - Compassは方向管理とWachaの実行管理を統合するモノレポ・製品とする。
 - `server/`・`orchestrator/`・`ralph/` は独立して実行・build・deployできるシステム。ServerのWeb UI・API・MCPは同じ起動コマンド・同じサーバーで提供する。
-- 主要Bounded Contextは `packages/direction`・`work`・`activity`・`access`。`apps/`を使わず、空の構造を先に作らない。
-- Project / Intent / OutcomeはDirection、Story / Task / Claim / Review / AcceptanceはWorkが所有する。WorkはOutcomeを参照し、Entityを複製しない。
+- 主要Bounded Contextは `packages/direction`・`work`・`activity`・`access`。Workspace移行で`packages/organization`を加える。`apps/`を使わず、空の構造を先に作らない。
+- Workspaceは戦略、Projectは実行の境界とする（`docs/adr/0001-workspace-project-boundary.md`）。Workspace / ProjectはOrganization、Intent / OutcomeはWorkspace scopeのDirection、Story / Task / Claim / Review / AcceptanceはProject scopeのWorkが所有する。WorkはOutcomeを参照し、Entityを複製しない。Workspaceは未実装のため、移行Taskで段階的に実装する。
 - Orchestratorは現在状態から専門Roleを起動し、知的判断をRoleへ委譲する。RalphはWorker / Reviewerの実行ループを担う。
 - Activityは意味のある履歴であり、workflow checkpointにしない。Operational Log / Change Log / Activityを区別する。
 - Project別の情報は内容と所有責務で保存先を決める。Compassが所有する判断・評価等のレコードは内部に保持できる。Repository / Docsが正本の成果物は参照を保持し、本文を二重管理しない。KnowledgeはAgent System共通知識だけを置く。
