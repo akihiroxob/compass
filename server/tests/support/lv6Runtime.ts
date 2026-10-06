@@ -104,10 +104,10 @@ export type Tokens = {
 // ---------------------------------------------------------------------------------------------
 
 /** Researcher: Requestの問いに答え、Result・Synthesisを登録して確定する。requestKeyはRequestから決定的に作る。 */
-const runResearcher = async (connection: Connection, tokens: Tokens, event: Json) => {
+const runResearcher = async (connection: Connection, tokens: Tokens, projectId: string, event: Json) => {
   const { principal, token } = tokens.researcher;
   return withMcp(connection, principal, token, async (call) => {
-    const { projectId, researchRequestId: requestId } = event;
+    const { researchRequestId: requestId } = event;
     const context = await call("get_researcher_context", { projectId, requestId });
     if (context.request.status !== "requested" && context.request.status !== "in_progress") return "request already closed";
     const now = connection.now();
@@ -161,10 +161,10 @@ export const outcomePlans = {
 } as const;
 
 /** Strategist: research_completedでOutcomeを決め、outcome_evaluatedで再計画かIntent完了を判断する。 */
-const runStrategist = async (connection: Connection, tokens: Tokens, event: Json) => {
+const runStrategist = async (connection: Connection, tokens: Tokens, projectId: string, event: Json) => {
   const { principal, token } = tokens.strategist;
   return withMcp(connection, principal, token, async (call) => {
-    const { projectId, intentId } = event;
+    const { intentId } = event;
     const context = await call("get_strategist_context", { projectId });
     if (context.activeIntent?.id !== intentId) return "intent is no longer active";
     const common = { projectId, intentId, runRef: `strategist:${event.id}` };
@@ -223,10 +223,10 @@ const runStrategist = async (connection: Connection, tokens: Tokens, event: Json
 };
 
 /** Manager: outcome_confirmedを受け、相関ID付きStoryと、taskKeyで収束するTaskを作る。 */
-const runManager = async (connection: Connection, tokens: Tokens, event: Json, faults: Faults) => {
+const runManager = async (connection: Connection, tokens: Tokens, projectId: string, event: Json, faults: Faults) => {
   const { principal, token } = tokens.manager;
   return withMcp(connection, principal, token, async (call) => {
-    const { projectId, outcomeId, correlationId } = event;
+    const { outcomeId, correlationId } = event;
     const story = await call("issue_story", {
       projectId,
       title: `Deliver outcome ${outcomeId}`,
@@ -372,16 +372,16 @@ export class Runtime {
   }
 
   /** イベント1件のAgent起動。Agentの明示的なCONFLICT / NOT_FOUNDは状態変化で不要になったものとして`processed`で閉じる。 */
-  private async dispatch(event: Json): Promise<string> {
+  private async dispatch(projectId: string, event: Json): Promise<string> {
     const launch = () => {
       switch (event.type) {
         case "research_requested":
-          return runResearcher(this.connection, this.tokens, event);
+          return runResearcher(this.connection, this.tokens, projectId, event);
         case "research_completed":
         case "outcome_evaluated":
-          return runStrategist(this.connection, this.tokens, event);
+          return runStrategist(this.connection, this.tokens, projectId, event);
         case "outcome_confirmed":
-          return runManager(this.connection, this.tokens, event, this.faults);
+          return runManager(this.connection, this.tokens, projectId, event, this.faults);
         default:
           throw new ToolError("runtime", "UNKNOWN_EVENT_TYPE", { message: event.type });
       }
@@ -397,8 +397,8 @@ export class Runtime {
     return notes.join(" | ");
   }
 
-  private async ack(call: Call, event: Json, attemptId: string, outcome: string, reason?: string) {
-    const acked = await call("ack_runtime_event", { projectId: event.projectId, eventId: event.id, attemptId, outcome, ...(reason ? { reason } : {}) });
+  private async ack(call: Call, projectId: string, event: Json, attemptId: string, outcome: string, reason?: string) {
+    const acked = await call("ack_runtime_event", { projectId, eventId: event.id, attemptId, outcome, ...(reason ? { reason } : {}) });
     this.acks.push({ eventId: event.id, attemptId, outcome, recorded: acked.recorded });
     return acked;
   }
@@ -418,14 +418,15 @@ export class Runtime {
       }
       this.fetchedEvents.push(...batch);
       // 並列に処理した結果、完了順がcursor順と逆になる状況を再現するため、1周の中では新しいイベントから処理する。
+      // v2 eventの所有scopeはWorkspace。既存Project入口の操作Contextはfetch時のIDを引き継ぐ。
       for (const event of batch.reverse()) {
         const attemptId = crypto.randomUUID();
         let outcome = "processed";
         let reason: string | undefined;
         let note: string;
         try {
-          note = event.version === 1 ? await this.dispatch(event) : "unknown version";
-          if (event.version !== 1) {
+          note = event.version === 2 ? await this.dispatch(projectId, event) : "unknown version";
+          if (event.version !== 2) {
             outcome = "terminal_failure";
             reason = `unknown event version ${event.version}`;
           }
@@ -439,7 +440,7 @@ export class Runtime {
           this.dispatches.push({ eventId: event.id, type: event.type, attemptId, outcome: "crashed", note, correlationId: event.correlationId });
           throw new RuntimeCrash(`crashed before ack of ${event.type}`);
         }
-        await this.runtime((call) => this.ack(call, event, attemptId, outcome, reason));
+        await this.runtime((call) => this.ack(call, projectId, event, attemptId, outcome, reason));
         this.dispatches.push({ eventId: event.id, type: event.type, attemptId, outcome, note, correlationId: event.correlationId });
         processed += 1;
       }

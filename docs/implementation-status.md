@@ -98,6 +98,7 @@ Accessは`project`・`workspace`のtableを直接読まない。archive判定・
 
 - Workspace参照（`server/tests/workspaceReference.test.ts`）: 新規のSQLite fileへWorkspace・Project・Resource・Membership・Grantを保存し、DBを閉じて同じschemaを再初期化したapplicationで、Web APIとMCPのProject参照、所属Project一覧、archivedの読取、Workspace/Project権限の非継承を検証する。HTTP入口は`app.request`で呼び、Serverプロセスの再起動や実ブラウザの検証とは区別する。
 - 自動テスト（`npm test`）: Lv6閉ループ（`server/tests/lv6ClosedLoop.test.ts`。Intent→Research→Outcome→Work→Review / Acceptance→Evaluation→次の判断、固定成功条件のsnapshot、`insufficient_evidence`、別Principal、再起動・重複配送）、`server/src/main.ts`の同一portでのWeb UI・API・MCP、Orchestrator・Ralphの独立プロセスとしての起動・再起動・重複起動抑止・別Credentialを検証する。起動テストは一時directoryをcwdにし、親の`COMPASS_*`・`PORT`を渡さず空きportを使い、ローカルの`.env`と既存portから隔離する。
+- `server/tests/lv6Runtime.test.ts`はMCP Clientをstub化し、listen無しでRuntime event v2の全4種のAgent dispatch・ack、未知versionのterminal failure、timeoutのretryable failureを検証する。eventの所有scopeはWorkspaceで、既存Project入口に渡す操作Contextはfetch時のProject IDから明示的に引き継ぐ。この検証は実HTTP閉ループや実Agentの自律運転の実証ではない。
 - Activity scope（`server/tests/activity.test.ts`・`packages/activity/tests/activityStore.test.ts`）: 3 scopeのID制約・FK・cursor/filter、複数ProjectのDirection/Work/archive/明示記録の分離、保存失敗・transaction内の所属欠損によるrollback、Project入口からのWorkspace履歴の取得拒否、新規SQLite fileを同じschemaで再初期化した際の保存を検証する。旧Activity schemaの変換・旧履歴の保全は検証対象外。
 
 ## 未実装・未接続・未検証
