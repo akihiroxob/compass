@@ -228,6 +228,14 @@ const initializeAccessCredentialSchema = async (database: Kysely<AccessDatabase>
  */
 export const initializeAccessSchema = async (database: Kysely<AccessDatabase>): Promise<void> => {
   await initializeProjectGrantSchema(database);
+  await database.schema.createTable("workspace_grant").ifNotExists()
+    .addColumn("workspace_id", "text", (column) => column.notNull().references("workspace.id").onDelete("cascade"))
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("role", "text", (column) => column.notNull().check(sql`role in ('strategist', 'researcher', 'evaluator')`))
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("workspace_grant_pk", ["workspace_id", "principal_id", "role"]).execute();
+  await database.schema.createIndex("workspace_grant_principal_idx").ifNotExists()
+    .on("workspace_grant").columns(["principal_id", "workspace_id"]).execute();
   await initializeHumanAuthSchema(database);
   await initializeWorkspaceMembershipSchema(database);
   await initializeAccessCredentialSchema(database);

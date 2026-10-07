@@ -16,8 +16,9 @@ export class ForbiddenError extends Error {
         }
       | {
           workspaceId: string;
-          /** 不足したWorkspaceのHuman Role。 */
+          /** 不足したWorkspaceのHuman / Agent Role。 */
           requiredRole: string;
+          activeRole?: string;
         },
   ) {
     super(message);

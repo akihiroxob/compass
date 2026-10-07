@@ -1,4 +1,4 @@
-/** Project scopeで割り当てるRole。追加時は型・入力検証・Instructionが追随する。 */
+/** Agent Role識別子。既存Project入口の型名を維持し、明示scopeの許可RoleはRoleScopeが定義する。 */
 export const ProjectRole = {
   STRATEGIST: "strategist",
   RESEARCHER: "researcher",

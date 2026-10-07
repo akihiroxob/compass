@@ -40,6 +40,7 @@ const serverFiles = sourcesOf("server/src");
 const workTables = ["story", "task", "task_claim", "task_comment", "change_log", "command_receipt"];
 const accessTables = [
   "project_grant",
+  "workspace_grant",
   "human_user",
   "human_identity",
   "web_session",

@@ -87,6 +87,11 @@ import {
   CreateProjectInvitationUseCase,
   GetHumanAuthBootstrapStatusUseCase,
   GetHumanProjectUseCase,
+  GrantWorkspaceRoleUseCase,
+  RevokeWorkspaceRoleUseCase,
+  ListWorkspaceGrantsUseCase,
+  SQLiteWorkspaceGrantRepository,
+  RoleScopeAuthorizationService,
   GrantProjectRoleUseCase,
   HumanAuthorizedUseCase,
   HumanOperatorUseCase,
@@ -243,6 +248,8 @@ export const createApplicationServices = (
   const accessProjects = accessProjectReaders(accessDatabase);
   const projectGrantRepository = new SQLiteProjectGrantRepository(accessDatabase, accessProjectReaders, clock);
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
+  const workspaceGrantRepository = new SQLiteWorkspaceGrantRepository(accessDatabase, accessWorkspaceReaders, clock);
+  const roleScopeAuthorizationService = new RoleScopeAuthorizationService(workspaceGrantRepository, projectGrantRepository);
   const accessCredentialRepository = new SQLiteAccessCredentialRepository(accessDatabase, accessProjectReaders);
   const getProjectUseCase = new GetProjectUseCase(projectRepository);
   // Activity（意味のある履歴）。Change Log・Operational Logとは別のtableで、Projectの状態はOrganizationのreaderで読む。
@@ -409,6 +416,10 @@ export const createApplicationServices = (
     listExecutionUseCase: new ListExecutionUseCase(taskCoordinationService),
     getExecutionTaskUseCase: new GetExecutionTaskUseCase(taskCoordinationService),
     listRecentExecutionChangesUseCase: new ListRecentExecutionChangesUseCase(taskCoordinationService),
+    roleScopeAuthorizationService,
+    grantWorkspaceRoleUseCase: new GrantWorkspaceRoleUseCase(new GetWorkspaceUseCase(workspaceRepository), workspaceGrantRepository),
+    revokeWorkspaceRoleUseCase: new RevokeWorkspaceRoleUseCase(new GetWorkspaceUseCase(workspaceRepository), workspaceGrantRepository),
+    listWorkspaceGrantsUseCase: new ListWorkspaceGrantsUseCase(new GetWorkspaceUseCase(workspaceRepository), workspaceGrantRepository),
     grantProjectRoleUseCase: new GrantProjectRoleUseCase(accessProjects, projectGrantRepository),
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(accessProjects, projectGrantRepository),
     listProjectGrantsUseCase: new ListProjectGrantsUseCase(accessProjects, projectGrantRepository),
@@ -566,6 +577,7 @@ export const createApplicationServices = (
   /** 操作Contextを1つのactiveRoleに固定したservice（MCP・Runtime向けAPIのrequestごと）。Human向けの入口は変えない。 */
   const forActiveRole = (activeRole: ProjectRole) => ({
     ...services,
+    roleScopeAuthorizationService: roleScopeAuthorizationService.forActiveRole(activeRole),
     human,
     ...roleAuthorizedServices(
       projectAuthorizationService.forActiveRole(activeRole),

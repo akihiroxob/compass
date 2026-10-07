@@ -2,11 +2,19 @@
 
 ## 認証とRole Grant
 
-remote modeではAgent CredentialでPrincipalを認証する。Role GrantはProject・Principal・Roleの組で保持し、発行してもAgentは起動しない。現在のRole名は`strategist` / `researcher` / `manager` / `worker` / `reviewer` / `evaluator`と、trusted-local用の`runtime`。
+remote modeではAgent CredentialでPrincipalを認証する。公開入口のRole GrantはProject・Principal・Roleの組で保持し、発行してもAgentは起動しない。内部applicationのWorkspace Grantは下記で説明する。現在のRole名は`strategist` / `researcher` / `manager` / `worker` / `reviewer` / `evaluator`と、trusted-local用の`runtime`。
 
 HumanはProject詳細のWeb UIからGrantを管理する。一覧はviewer以上、発行・取消はadministrator以上。Human MembershipとAgent Grantを相互代用しない。archived ProjectではGrant変更を拒否する。
 
 MCPの専用toolはapplication層で必要なRoleを検査する。remote modeの参照系も対象ProjectのGrantを検査する。CredentialとRuntime scopeの詳細は [認証仕様](step-6-human-auth-design.md) を参照する。
+
+## Workspace Grantと明示scope認可
+
+Workspace Agent Role Grantは`workspace_grant`へ保存し、`GrantWorkspaceRoleUseCase`・`RevokeWorkspaceRoleUseCase`・`ListWorkspaceGrantsUseCase`をserverへ配線済み。許可Roleは`strategist` / `researcher` / `evaluator`で、Workspace FK・Role CHECK・Workspace/Principal/Roleの複合主キーを持つ。付与・取消は書込と同じtransactionでarchiveを検査し、付与はcreatedAtを保った冪等操作、取消は存在しなければfalse。archivedのGrantは一覧で参照できる。Human Membership・Project Grantからの継承は無い。
+
+`RoleScopeAuthorizationService`は`{ kind: workspace | project, id }`と必要Roleを受け、WorkspaceはDirectionの3Role、Projectは`manager` / `worker` / `reviewer`だけを認可する。操作ContextのactiveRole指定時は必要Roleとの一致も検査し、他RoleのGrantを合算しない。serverの`forActiveRole`もこのserviceを同じRoleに固定する。`runtime`はこのAgent Role-scope認可の対象外で、Credential scopeとして後続Taskで接続する。
+
+Workspace Grantの管理・Directionの公開API/MCP・Workspace Role Context・Workspace Credentialは未接続（S06-03・S03-04・S07）。既存のProject Direction入口は専用Workspaceだけに限定したadapterとProject Grantを引き続き使い、既存のProject Grant入力はDirection Roleも受け付ける。これらは明示scope認可の対象外で、公開入口切替時に除去する（S03-04）。新しいscope認可では同じProjectにDirection Roleの旧GrantがあってもProject scopeで拒否する。`server/tests/workspaceGrant.test.ts`で新規DB・file DB再初期化・archive・FK・全Roleのscope/activeRole境界・Work権限の非継承を確認する。実HTTP・実AgentでのWorkspace運転は未接続・未検証。
 
 ## ContextとInstruction
 
@@ -18,4 +26,4 @@ MCPの専用toolはapplication層で必要なRoleを検査する。remote mode�
 
 `manager`を含む既存Role名を維持し、Role Definitionは`roles/`、共通Policyは`policies/`へ配置する。RoleはSkillを参照し、Skillに`allowRoles`を持たせない。machine-readableなTool metadataはnamespace付きにする。
 
-1回の実行・操作Contextは1つのactiveRoleに固定し、ServerがProject Grantを検査する。Role / Skill ContextはMCPからJIT取得する。これは [統合設計](../compass-codex-architecture-handoff.md) 上の確定事項であり、現行APIへの実装は未実施。
+1回の実行・操作Contextは1つのactiveRoleに固定し、Serverがscopeに対応するGrantを検査する。Role / Skill ContextはMCPからJIT取得する。Project入口のactiveRoleとRole / Skill Contextは実装済み。Workspace公開入口への接続は上記の後続Taskで行う。

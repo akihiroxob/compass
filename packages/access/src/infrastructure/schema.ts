@@ -114,7 +114,16 @@ export type AccessCredentialTable = {
   rotated_from_id: string | null;
 };
 
+/** Workspace DirectionのRole Grant。ProjectのGrantとは独立する。 */
+export type WorkspaceGrantTable = {
+  workspace_id: string;
+  principal_id: string;
+  role: string;
+  created_at: number;
+};
+
 export type AccessDatabase = {
+  workspace_grant: WorkspaceGrantTable;
   project_grant: ProjectGrantTable;
   human_user: HumanUserTable;
   human_identity: HumanIdentityTable;
