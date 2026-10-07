@@ -8,6 +8,7 @@ import {
   grantsPath,
   revokeGrantPath,
   revokeInit,
+  revokeRecoveryNote,
 } from "../src/web/features/grant/grants.ts";
 
 const jsonResponse = (status: number, body: unknown) =>
@@ -78,4 +79,13 @@ test("存在しないProject・通信障害は区別した文言になる", asyn
 test("Projectで新規割当できるRoleはExecutionの3Roleだけ", () => {
   for (const role of ["manager", "worker", "reviewer"] as const) assert.equal(canGrantProjectRole(role), true);
   for (const role of ["strategist", "researcher", "evaluator", "runtime"] as const) assert.equal(canGrantProjectRole(role), false);
+});
+
+test("取消確認の復元説明は、Projectから再割当できるExecution Roleだけが元に戻せると伝える", () => {
+  for (const role of ["manager", "worker", "reviewer"] as const) assert.equal(revokeRecoveryNote(role), "再度割り当てて元に戻せます。");
+  for (const role of ["strategist", "researcher", "evaluator", "runtime"] as const) {
+    const note = revokeRecoveryNote(role);
+    assert.doesNotMatch(note, /元に戻せます/);
+    assert.match(note, /Projectからは再度割り当てできません/);
+  }
 });
