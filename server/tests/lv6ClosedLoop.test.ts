@@ -159,11 +159,60 @@ const createBrowser = (baseUrl: () => string) => {
   };
 };
 
-const countRows = async (database: Kysely<Database>, table: keyof Database, where?: [string, string]) => {
-  let query = database.selectFrom(table as "story").select((eb) => eb.fn.countAll<number>().as("n"));
-  if (where) query = query.where(where[0] as "project_id", "=", where[1]);
-  return Number((await query.executeTakeFirstOrThrow()).n);
+const countWorkRows = async (database: Kysely<Database>, table: "story" | "task", projectId: string) => {
+  const row = await database.selectFrom(table).select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("project_id", "=", projectId).executeTakeFirstOrThrow();
+  return Number(row.n);
 };
+
+const countDirectionRows = async (
+  database: Kysely<Database>,
+  table: "outcome" | "outcome_evaluation" | "direction_decision" | "research_request",
+  workspaceId: string,
+) => {
+  const row = await database.selectFrom(table).select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("workspace_id", "=", workspaceId).executeTakeFirstOrThrow();
+  return Number(row.n);
+};
+
+const closedLoopCounts = async (database: Kysely<Database>, project: { id: string; workspaceId: string }) => ({
+  stories: await countWorkRows(database, "story", project.id),
+  tasks: await countWorkRows(database, "task", project.id),
+  outcomes: await countDirectionRows(database, "outcome", project.workspaceId),
+  evaluations: await countDirectionRows(database, "outcome_evaluation", project.workspaceId),
+  decisions: await countDirectionRows(database, "direction_decision", project.workspaceId),
+  researchRequests: await countDirectionRows(database, "research_request", project.workspaceId),
+});
+
+test("閉ループのDB集計は新規schemaでDirectionをWorkspace、WorkをProjectとして観測する", async () => {
+  const database = createDatabase(":memory:");
+  try {
+    await initializeSchema(database);
+    const scope = { id: "project-A", workspaceId: "workspace-A" };
+    assert.deepEqual(await closedLoopCounts(database, scope), {
+      stories: 0, tasks: 0, outcomes: 0, evaluations: 0, decisions: 0, researchRequests: 0,
+    });
+    const services = createApplicationServices(database);
+    const workspace = await services.human.createWorkspace.execute({ name: "Workspace", mission: "Mission" });
+    const direction = services.workspaceDirection;
+    const intent = await direction.createIntentUseCase.execute(workspace.id, { title: "Intent", desiredState: "Result" });
+    await direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
+      title: "Outcome", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
+    });
+    await direction.createResearchRequestUseCase.execute(workspace.id, {
+      requestKey: "research", kind: "decision", originIntentId: intent.id, question: "Question", scope: "Scope", completionCondition: "Evidence", budgetTotal: 1,
+    });
+    await direction.createDirectionDecisionUseCase.execute(workspace.id, "strategist", {
+      requestKey: "decision", runRef: "run", type: "adr_candidate", intentId: intent.id, judgment: "Document", reason: "Evidence",
+    });
+    assert.deepEqual(await closedLoopCounts(database, { id: scope.id, workspaceId: workspace.id }), {
+      stories: 0, tasks: 0, outcomes: 1, evaluations: 0, decisions: 1, researchRequests: 1,
+    });
+    assert.deepEqual(await closedLoopCounts(database, scope), {
+      stories: 0, tasks: 0, outcomes: 0, evaluations: 0, decisions: 0, researchRequests: 0,
+    });
+  } finally { await database.destroy(); }
+});
 
 const agentPrincipals = {
   researcher: ["researcher-1", "researcher"],
@@ -395,12 +444,10 @@ test(
       assert.ok(!crashedRuntime.acks.some((ack) => ack.eventId === secondConfirmed.id), "the crashed Runtime did not ack");
 
       // 二重Story・二重Outcome・二重Evaluation・二重Decisionがない（DBを観測）
-      assert.equal(await countRows(server.database, "story", ["project_id", projectId]), 2);
-      assert.equal(await countRows(server.database, "task", ["project_id", projectId]), 2);
-      assert.equal(await countRows(server.database, "outcome", ["workspace_id", (await server.database.selectFrom("project").select("workspace_id").where("id", "=", projectId).executeTakeFirstOrThrow()).workspace_id!]), 2);
-      assert.equal(await countRows(server.database, "outcome_evaluation", ["project_id", projectId]), 4);
-      assert.equal(await countRows(server.database, "direction_decision", ["project_id", projectId]), 5);
-      assert.equal(await countRows(server.database, "research_request", ["project_id", projectId]), 2);
+      const observationScope = { id: projectId, workspaceId: project.workspaceId as string };
+      assert.deepEqual(await closedLoopCounts(server.database, observationScope), {
+        stories: 2, tasks: 2, outcomes: 2, evaluations: 4, decisions: 5, researchRequests: 2,
+      });
 
       // 順序逆転: 古いEvaluationを根拠にした判断・古いchangeCursorの還流は状態を変えない
       await withMcp(connection, "strategist-1", tokens.strategist.token, async (call) => {
@@ -424,7 +471,7 @@ test(
       );
       assert.equal(stale.recorded.staleInput, true);
       assert.equal(stale.summary.state, "accepted");
-      assert.equal(await countRows(server.database, "direction_decision", ["project_id", projectId]), 5);
+      assert.equal((await closedLoopCounts(server.database, observationScope)).decisions, 5);
 
       // HumanはWeb UIと同じAPIで結果を確認できる（同一server・同一port）
       const executionSummary = await owner.api("GET", `/api/projects/${projectId}/outcomes/${second.id}/execution-summary`);
