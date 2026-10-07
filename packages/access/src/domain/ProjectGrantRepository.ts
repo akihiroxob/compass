@@ -6,8 +6,8 @@ export type GrantResult = { grant: ProjectGrant; created: boolean };
 
 /** Projectがarchivedなら、書込と同一transactionで検査して`project_archived`を返し、何も書かない。 */
 /**
- * `principal_bound_elsewhere`: そのPrincipalは別Projectの有効なAgent Credentialに束縛されている（Task 37）。
- * 別ProjectのAdministratorが発行したCredentialで、このProjectの権限を得させないため何も書かない。
+ * `principal_bound_elsewhere`: そのPrincipalは別scope（別Project・Workspace）の有効なAgent Credentialに束縛されている（Task 37）。
+ * 別scopeのAdministratorが発行したCredentialで、このProjectの権限を得させないため何も書かない。
  */
 export type GrantOutcome =
   | ({ kind: "granted" } & GrantResult)

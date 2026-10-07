@@ -17,7 +17,9 @@ export class ForbiddenError extends Error {
       | {
           workspaceId: string;
           /** 不足したWorkspaceのHuman / Agent Role。 */
-          requiredRole: string;
+          requiredRole?: string;
+          /** Workspace Runtime Credentialのscope不足・種別違い・別scope。 */
+          requiredScope?: string;
           activeRole?: string;
         },
   ) {

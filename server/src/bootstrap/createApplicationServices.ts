@@ -82,6 +82,7 @@ import {
 } from "@compass/work";
 import {
   AuthenticateAccessCredentialUseCase,
+  CredentialScopeAuthorization,
   ChangeProjectMemberRoleUseCase,
   CompleteOidcLoginUseCase,
   CreateProjectInvitationUseCase,
@@ -250,7 +251,7 @@ export const createApplicationServices = (
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
   const workspaceGrantRepository = new SQLiteWorkspaceGrantRepository(accessDatabase, accessWorkspaceReaders, clock);
   const roleScopeAuthorizationService = new RoleScopeAuthorizationService(workspaceGrantRepository, projectGrantRepository);
-  const accessCredentialRepository = new SQLiteAccessCredentialRepository(accessDatabase, accessProjectReaders);
+  const accessCredentialRepository = new SQLiteAccessCredentialRepository(accessDatabase, accessProjectReaders, accessWorkspaceReaders);
   const getProjectUseCase = new GetProjectUseCase(projectRepository);
   // Activity（意味のある履歴）。Change Log・Operational Logとは別のtableで、Projectの状態はOrganizationのreaderで読む。
   const activityStore = new KyselyActivityStore(asActivityDatabase(applicationDatabase));
@@ -308,6 +309,7 @@ export const createApplicationServices = (
     clock,
   );
   const humanWorkspaceAuthorizationService = new HumanWorkspaceAuthorizationService(workspaceMembershipRepository);
+  const credentialScopeAuthorization = new CredentialScopeAuthorization(humanProjectAuthorizationService, humanWorkspaceAuthorizationService);
   const loginAttemptRepository = new SQLiteLoginAttemptRepository(accessDatabase);
   const registerOrLoginHumanUseCase = new RegisterOrLoginHumanUseCase(humanAccountRepository, humanAuth.initialOwnerEmail);
   const identityProvider = humanAuth.identityProvider ?? null;
@@ -426,22 +428,10 @@ export const createApplicationServices = (
     humanProjectAuthorizationService,
     humanWorkspaceAuthorizationService,
     authenticateAccessCredentialUseCase: new AuthenticateAccessCredentialUseCase(accessCredentialRepository, clock),
-    issueAccessCredentialUseCase: new IssueAccessCredentialUseCase(
-      humanProjectAuthorizationService,
-      accessCredentialRepository,
-      clock,
-    ),
-    rotateAccessCredentialUseCase: new RotateAccessCredentialUseCase(
-      humanProjectAuthorizationService,
-      accessCredentialRepository,
-      clock,
-    ),
-    revokeAccessCredentialUseCase: new RevokeAccessCredentialUseCase(
-      humanProjectAuthorizationService,
-      accessCredentialRepository,
-      clock,
-    ),
-    listAccessCredentialsUseCase: new ListAccessCredentialsUseCase(humanProjectAuthorizationService, accessCredentialRepository),
+    issueAccessCredentialUseCase: new IssueAccessCredentialUseCase(credentialScopeAuthorization, accessCredentialRepository, clock),
+    rotateAccessCredentialUseCase: new RotateAccessCredentialUseCase(credentialScopeAuthorization, accessCredentialRepository, clock),
+    revokeAccessCredentialUseCase: new RevokeAccessCredentialUseCase(credentialScopeAuthorization, accessCredentialRepository, clock),
+    listAccessCredentialsUseCase: new ListAccessCredentialsUseCase(credentialScopeAuthorization, accessCredentialRepository),
     registerOrLoginHumanUseCase,
     getHumanAuthBootstrapStatusUseCase: new GetHumanAuthBootstrapStatusUseCase(humanAccountRepository),
     startOidcLoginUseCase: identityProvider

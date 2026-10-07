@@ -33,7 +33,7 @@ COMPASS_AUTH_MODE=trusted-local COMPASS_INITIAL_OWNER_EMAIL=you@example.com npm 
 
 設定項目は [.env.example](.env.example) を参照してください。起動ディレクトリに`.env`があればserverが読み込みます。`.env.example`自体は読み込みません。`PORT`は`.env`読込前に確定するため、シェルの環境変数として渡してください。既定portは51800、`COMPASS_DB_PATH`はSQLiteの保存先、`COMPASS_CLAIM_TTL_MS`はClaim有効期間（既定30分）です。DBが無い場合は起動時に現在の定義からschemaを作成します。
 
-リリース前の開発DBはschema変更時に破棄・再作成できます。Activityの3 scope対応とIntent/OutcomeのWorkspace所有列は新規DBのschemaを対象とし、旧tableへの列追加・履歴変換は行いません。DBを開いているCompassプロセスを停止してから、`COMPASS_DB_PATH`が指すDB fileを削除し、serverを起動してください。データ・ログイン情報・Credential・cursorは引き継ぎません。旧DBの非破壊migrationや旧クライアント互換は開発の必須条件にしません。
+リリース前の開発DBはschema変更時に破棄・再作成できます。Activityの3 scope対応、Intent/OutcomeのWorkspace所有列、Credentialの明示scope（`access_credential.scope_kind`）は新規DBのschemaを対象とし、旧tableへの列追加・履歴変換は行いません。DBを開いているCompassプロセスを停止してから、`COMPASS_DB_PATH`が指すDB fileを削除し、serverを起動してください。データ・ログイン情報・Credential・cursorは引き継ぎません。旧DBの非破壊migrationや旧クライアント互換は開発の必須条件にしません。
 
 portが使用中なら既存プロセスを停止せず、同じ認証設定に`PORT=52000`等を加えて起動します。開発用の`npm run dev`はserverとViteを起動します。Viteの画面を使う場合は、そのoriginを`COMPASS_PUBLIC_ORIGIN`へ指定してください。
 
@@ -76,7 +76,7 @@ export COMPASS_AGENT_TOKEN="cmp_agent.<id>.<secret>"
 
 MCP endpointは`http://localhost:51800/mcp`、認証headerは`Authorization: Bearer <token>`です。`COMPASS_AGENT_TOKEN`はclient側の環境変数で、serverは読みません。tokenを設定ファイルへ直書きせず、clientが環境変数から読み込むよう設定してください。
 
-現在のRoleは`strategist` / `researcher` / `manager` / `worker` / `reviewer` / `evaluator`。`get_role_instructions({ role, includeShared: true })`でInstructionを取得できます。Grant発行だけではAgentは起動しません。新規Project GrantはManager・Worker・Reviewerと、trusted-localのOrchestrator用`runtime`（CLI・Web API）だけを許可し、Direction Roleは400 `VALIDATION_ERROR`で拒否します。DirectionのWorkspace Grantは内部applicationまで実装済みで、管理UI・Credential・公開入口は未接続です。新規DBでのAgent Direction運転はその接続後に利用できます。保存済みの旧Project Direction Grantは参照・取消できますが、WorkのTask・Story・Comment・Change Log参照には使えません。
+現在のRoleは`strategist` / `researcher` / `manager` / `worker` / `reviewer` / `evaluator`。`get_role_instructions({ role, includeShared: true })`でInstructionを取得できます。Grant発行だけではAgentは起動しません。新規Project GrantはManager・Worker・Reviewerと、trusted-localのOrchestrator用`runtime`（CLI・Web API）だけを許可し、Direction Roleは400 `VALIDATION_ERROR`で拒否します。DirectionのWorkspace Grantは内部applicationまで実装済みで、管理UI・公開入口は未接続です。Workspace CredentialはWeb API（`/api/workspaces/:workspaceId/credentials`）で発行できますが、Workspace Grant・Direction toolの公開入口が未接続のため、まだAgent運転には使えません。新規DBでのAgent Direction運転はその接続後に利用できます。保存済みの旧Project Direction Grantは参照・取消できますが、WorkのTask・Story・Comment・Change Log参照には使えません。
 
 Intent/Outcome/Research/Decision/Evaluation/Runtime eventの保存と応答はWorkspace所有（`workspaceId`）です。WorkspaceのDirection公開入口はまだ接続していないため、既存のProject画面・API・MCPは所属Projectが1件のWorkspaceだけ利用できます。複数Project（archivedも含む）のWorkspaceではDirection操作・集約Contextが`CONFLICT`（`reason: workspace_direction_required`）になります。Project IDをWorkspace IDとして渡すことはできません。ADR依頼/参照もWorkspace所有で、対象artifactのProject/Repository参照を保持します。Execution Summary/Evidenceは`workspaceId`と発生元`projectId`を返し、Outcome・Projectごとに還流状態を保持します。Runtime eventはversion 2で`workspaceId`を返し、`projectId`は持ちません。配送結果にも`workspaceId`を含めます。認可付きWorkspace入口・Target・全Target評価は後続Taskです。旧Project scopeのDirection schemaは変換せず、開発DBを再作成して起動します。テストは`COMPASS_DB_PATH=:memory: npm test`でローカルDBから隔離できます。
 
@@ -90,7 +90,7 @@ remote modeでは有効なCredentialが必要で、Project / IntentのHuman用�
 
 ## Runtimeの接続
 
-RuntimeにはAgentとは別のCredentialとscopeを発行します。現在の接続面は以下です。
+RuntimeにはAgentとは別のCredentialとscopeを発行します。Credentialは発行したWorkspaceまたはProjectだけで使え、互いに転用できません。現在の接続面はProject scopeで、Project Runtime Credentialを使います。
 
 | 用途 | MCP |
 | --- | --- |

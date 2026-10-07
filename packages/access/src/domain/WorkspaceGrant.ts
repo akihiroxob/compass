@@ -9,9 +9,13 @@ export type WorkspaceGrant = {
 };
 export type WorkspaceGrantResult = { grant: WorkspaceGrant; created: boolean };
 export interface WorkspaceGrantRepository {
-  /** archive検査は書込と同じtransactionで行う。再付与はcreatedAtを変えない。 */
+  /**
+   * archive検査は書込と同じtransactionで行う。再付与はcreatedAtを変えない。PrincipalがこのWorkspace以外のscopeの
+   * 有効なAgent Credentialに束縛されていれば`principal_bound_elsewhere`で何も書かない。
+   */
   grant(workspaceId: string, principalId: string, role: WorkspaceRole): Promise<
     | ({ kind: "granted" } & WorkspaceGrantResult)
+    | { kind: "principal_bound_elsewhere" }
     | { kind: "workspace_archived" }
   >;
   /** 取消は冪等で、他のWorkspace・Role・PrincipalのGrantには影響しない。 */

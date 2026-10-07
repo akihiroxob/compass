@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseWith } from "@compass/shared";
+import { ConflictError, parseWith } from "@compass/shared";
 import { WorkspaceArchivedError, type GetWorkspaceUseCase } from "@compass/organization";
 import { workspaceRoles } from "../domain/RoleScope.ts";
 import type { WorkspaceGrantRepository, WorkspaceGrantResult, WorkspaceGrant } from "../domain/WorkspaceGrant.ts";
@@ -23,6 +23,11 @@ export class GrantWorkspaceRoleUseCase extends WorkspaceGrantUseCase {
     await this.requireWorkspace(workspaceId);
     const result = await this.grants.grant(workspaceId, principalId, role);
     if (result.kind === "workspace_archived") throw new WorkspaceArchivedError(workspaceId);
+    if (result.kind === "principal_bound_elsewhere") {
+      throw new ConflictError(`Principal ${principalId} is bound to an Agent Credential of another Workspace or Project`, {
+        conflict: "PRINCIPAL_BOUND_ELSEWHERE",
+      });
+    }
     return { grant: result.grant, created: result.created };
   }
 }

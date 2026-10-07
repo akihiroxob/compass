@@ -31,7 +31,7 @@ const setup = async (mode: "remote" | "trusted-local") => {
   await addTestMembership(database, project.id, owner, "owner");
   const { token } = await services.issueAccessCredentialUseCase.execute(
     { kind: "human", humanUserId: owner.humanUserId },
-    project.id,
+    { kind: "project", id: project.id },
     { kind: "agent", principalId: "manager-1" },
   );
   return { services, app, project, intent, agentBearer: `Bearer ${token}` };

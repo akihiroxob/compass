@@ -19,7 +19,7 @@ export class GrantProjectRoleUseCase {
     const result = await this.projectGrantRepository.grant(projectId, principalId, role);
     if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
     if (result.kind === "principal_bound_elsewhere") {
-      throw new ConflictError(`Principal ${principalId} is bound to an Agent Credential of another Project`, {
+      throw new ConflictError(`Principal ${principalId} is bound to an Agent Credential of another Workspace or Project`, {
         conflict: "PRINCIPAL_BOUND_ELSEWHERE",
       });
     }

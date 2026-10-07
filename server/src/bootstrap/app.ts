@@ -8,6 +8,7 @@ import { createMcpServer } from "../mcp/createMcpServer.ts";
 import { ACTIVE_ROLE_HEADER, MalformedAuthorizationError, resolveActiveRole, resolveCaller } from "../auth/resolvePrincipal.ts";
 import { ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError, ValidationError } from "@compass/shared";
 import { parseProjectStatusFilter, parseWorkspaceStatusFilter } from "@compass/organization";
+import type { CredentialScope } from "@compass/access";
 import { applicationServices, type ApplicationServices } from "./container.ts";
 import {
   CsrfRejectedError,
@@ -432,42 +433,38 @@ export const createApp = (
     );
     return c.json({ invitation });
   });
-  // Agent / Runtime Credential（Task 37）。Administrator以上。secretは発行・rotationの応答で一度だけ返す。
-  const credentialsPath = "/api/projects/:projectId/credentials";
-  app.get(credentialsPath, async (c) =>
-    c.json({
-      credentials: await services.listAccessCredentialsUseCase.execute(await actorOf(c), c.req.param("projectId")),
-    }),
-  );
-  app.post(credentialsPath, async (c) => {
-    const actor = await actorOf(c);
-    const input = await readJsonBody(c.req.raw, "Credential");
-    const issued = await services.issueAccessCredentialUseCase.execute(actor, c.req.param("projectId"), input);
-    c.header("Cache-Control", "no-store");
-    return c.json(issued, 201);
-  });
-  app.post(`${credentialsPath}/:credentialId/rotate`, async (c) => {
-    const actor = await actorOf(c);
-    const hasBody = (await c.req.raw.clone().text()).trim() !== "";
-    const input = hasBody ? await readJsonBody(c.req.raw, "Credential") : {};
-    const rotated = await services.rotateAccessCredentialUseCase.execute(
-      actor,
-      c.req.param("projectId"),
-      c.req.param("credentialId"),
-      input,
+  // Agent / Runtime Credential（Task 37）。scope（Workspace / Project）のAdministrator以上。secretは発行・rotationの応答で一度だけ返す。
+  // Workspace Credentialは所属Projectの操作に使えず、Project CredentialはWorkspaceの操作に使えない。
+  const credentialRoutes = (kind: CredentialScope["kind"]) => {
+    const parameter = kind === "workspace" ? "workspaceId" : "projectId";
+    const path = `/api/${kind === "workspace" ? "workspaces" : "projects"}/:${parameter}/credentials`;
+    const scopeOf = (c: Context): CredentialScope => ({ kind, id: c.req.param(parameter) ?? "" });
+    app.get(path, async (c) =>
+      c.json({ credentials: await services.listAccessCredentialsUseCase.execute(await actorOf(c), scopeOf(c)) }),
     );
-    c.header("Cache-Control", "no-store");
-    return c.json(rotated, 201);
-  });
-  app.delete(`${credentialsPath}/:credentialId`, async (c) => {
-    const actor = await actorOf(c);
-    const credential = await services.revokeAccessCredentialUseCase.execute(
-      actor,
-      c.req.param("projectId"),
-      c.req.param("credentialId"),
-    );
-    return c.json({ credential });
-  });
+    app.post(path, async (c) => {
+      const actor = await actorOf(c);
+      const input = await readJsonBody(c.req.raw, "Credential");
+      const issued = await services.issueAccessCredentialUseCase.execute(actor, scopeOf(c), input);
+      c.header("Cache-Control", "no-store");
+      return c.json(issued, 201);
+    });
+    app.post(`${path}/:credentialId/rotate`, async (c) => {
+      const actor = await actorOf(c);
+      const hasBody = (await c.req.raw.clone().text()).trim() !== "";
+      const input = hasBody ? await readJsonBody(c.req.raw, "Credential") : {};
+      const rotated = await services.rotateAccessCredentialUseCase.execute(actor, scopeOf(c), c.req.param("credentialId"), input);
+      c.header("Cache-Control", "no-store");
+      return c.json(rotated, 201);
+    });
+    app.delete(`${path}/:credentialId`, async (c) => {
+      const actor = await actorOf(c);
+      const credential = await services.revokeAccessCredentialUseCase.execute(actor, scopeOf(c), c.req.param("credentialId"));
+      return c.json({ credential });
+    });
+  };
+  credentialRoutes("project");
+  credentialRoutes("workspace");
   app.all("/api/*", (c) => c.json({ error: { code: "NOT_FOUND", message: "Not Found" } }, 404));
 
   app.all("/mcp", async (c) => {

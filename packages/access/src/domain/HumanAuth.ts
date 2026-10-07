@@ -277,6 +277,8 @@ export const humanWorkspacePermissions = {
   "workspace.update": "administrator",
   /** 既存のWorkspaceへのProject作成。作成者はProjectのownerになる。 */
   "project.create": "administrator",
+  /** Workspace scopeのAgent / Runtime Credentialの発行・rotation・取消・一覧。Project Credentialは各ProjectのMembershipで認可する。 */
+  "credential.manage": "administrator",
   "member.manage": "owner",
   "workspace.archive": "owner",
 } as const satisfies Record<string, HumanRole>;

@@ -3,6 +3,7 @@ import type { WorkspaceRole } from "../domain/RoleScope.ts";
 import type { WorkspaceGrant, WorkspaceGrantRepository } from "../domain/WorkspaceGrant.ts";
 import type { AccessDatabase, WorkspaceGrantTable } from "./schema.ts";
 import type { AccessWorkspaceReaders } from "./AccessWorkspaceReaders.ts";
+import { findActiveAgentCredentialElsewhere } from "./SQLiteAccessCredentialRepository.ts";
 
 type WorkspaceGrantOutcome = Awaited<ReturnType<WorkspaceGrantRepository["grant"]>>;
 type WorkspaceRevokeOutcome = Awaited<ReturnType<WorkspaceGrantRepository["revoke"]>>;
@@ -21,6 +22,9 @@ export class SQLiteWorkspaceGrantRepository implements WorkspaceGrantRepository 
   async grant(workspaceId: string, principalId: string, role: WorkspaceRole): Promise<WorkspaceGrantOutcome> {
     return this.database.transaction().execute(async (transaction): Promise<WorkspaceGrantOutcome> => {
       if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
+      if (await findActiveAgentCredentialElsewhere(transaction, { kind: "workspace", id: workspaceId }, principalId, this.clock())) {
+        return { kind: "principal_bound_elsewhere" };
+      }
       const inserted = await transaction
         .insertInto("workspace_grant")
         .values({ workspace_id: workspaceId, principal_id: principalId, role, created_at: this.clock() })

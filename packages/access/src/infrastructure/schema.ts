@@ -96,9 +96,12 @@ export type ProjectInvitationTable = {
 };
 
 /** Agent・Runtime向けCredential（Task 37）。secretは平文を持たずSHA-256だけを保存する。 */
+/** scopeに対応するIDの列だけを持つ（CHECK制約）。 */
 export type AccessCredentialTable = {
   id: string;
-  project_id: string;
+  scope_kind: "workspace" | "project";
+  workspace_id: string | null;
+  project_id: string | null;
   kind: "agent" | "runtime";
   principal_id: string;
   /** Runtime scopeの配列のJSON。agentは`[]`。 */

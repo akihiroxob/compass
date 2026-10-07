@@ -403,9 +403,9 @@ test("Agent / Runtime Credential管理にも権限表を適用する: administra
   // application層でも、入力検証・永続化より先に認可する。
   const actor = (human: TestHuman) => ({ kind: "human", humanUserId: human.humanUserId }) as const;
   await assert.rejects(
-    ctx.services.issueAccessCredentialUseCase.execute(actor(alpha.members.viewer), alpha.project.id, { kind: "invalid" }),
+    ctx.services.issueAccessCredentialUseCase.execute(actor(alpha.members.viewer), { kind: "project", id: alpha.project.id }, { kind: "invalid" }),
     (error) => error instanceof ForbiddenError && error.details.requiredRole === "administrator",
   );
-  await assert.rejects(ctx.services.listAccessCredentialsUseCase.execute(actor(outsider), beta.project.id), NotFoundError);
+  await assert.rejects(ctx.services.listAccessCredentialsUseCase.execute(actor(outsider), { kind: "project", id: beta.project.id }), NotFoundError);
   await ctx.database.destroy();
 });

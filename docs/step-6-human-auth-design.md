@@ -7,8 +7,8 @@ HumanはGoogle OIDCで認証し、CompassのWeb SessionでWeb UIを操作する�
 | 主体 | 資格情報 | 認可 |
 | --- | --- | --- |
 | Human | Web Session Cookie | Project Membership / Workspace Membership（対象scopeごと） |
-| Agent | Agent CredentialのBearer | Project Role Grant |
-| Runtime | Runtime CredentialのBearer | Project・scope |
+| Agent | Agent CredentialのBearer | Credentialのscope（Workspace / Project）のRole Grant |
+| Runtime | Runtime CredentialのBearer | Credentialのscope（Workspace / Project）と一致する操作対象・Runtime scope |
 
 Google依存はinfrastructureのIdentity Providerに閉じ、applicationは検証済みIdentityを受け取る。Human ActorとAgent Principalを型で区別する。
 
@@ -70,6 +70,7 @@ Workspace MembershipはProject Membershipとは別で、相互に継承しない
 | Workspace一覧 | 有効なWorkspace Membershipを持つWorkspaceのみ |
 | Workspace・所属Project一覧参照 | viewer |
 | Member参照（入口未接続） | viewer |
+| Workspace scopeのAgent / Runtime Credential管理 | administrator |
 | Direction変更（Workspace scope化後に接続） | editor |
 | Mission等の更新、既存WorkspaceへのProject作成（作成者がProjectのowner） | administrator |
 | archive、Member追加（所属ProjectのMemberに限る）・Role変更・取消 | owner |
@@ -84,7 +85,11 @@ Membershipはrequestごとに読み、取消・Role変更を次の操作へ反�
 
 形式は`cmp_agent.<id>.<secret>` / `cmp_runtime.<id>.<secret>`。secretは256bit乱数で、DBはSHA-256だけを保持する。発行・rotation時に一度だけtokenを返す。期限切れ・取消・不正値は認証を拒否する。
 
-Runtime scopeは`runtime:event:read` / `runtime:event:ack` / `execution:change:read` / `execution:evidence:write` / `execution:summary:read`。発行Projectとscopeを検査し、Agent Grantとは混同しない。
+Credentialはscope（`{ kind: workspace | project, id }`）を明示して発行し、応答・一覧は`scope`を返す。発行・rotation・取消・一覧はProject Credentialが`/api/projects/:projectId/credentials`（Project Membershipのadministrator以上）、Workspace Credentialが`/api/workspaces/:workspaceId/credentials`（Workspace Membershipのadministrator以上）で、Membershipを相互に継承しない。別scopeのCredential IDは404。archivedのscopeでは発行・rotationを拒否し、取消はできる。
+
+Runtime scopeは`runtime:event:read` / `runtime:event:ack` / `execution:change:read` / `execution:evidence:write` / `execution:summary:read` / `runtime:state:read`。`RuntimeAuthorizationService`はCredentialのscopeと操作対象のscope（`requireScope`はProject、`requireWorkspaceScope`はWorkspace）の一致とRuntime scopeを検査し、WorkspaceとProjectの間で継承しない。Agent Grantとは混同しない。公開済みのRuntime入口はProject scopeだけで、Workspace Runtime Credentialを受け付けるWorkspaceの入口は未接続（S03-04・S08-03）。
+
+Agent CredentialのPrincipalは1つのscopeに束縛する。別scope（別Workspace・別Project、WorkspaceとProjectの違いを含む）のRole Grantまたは有効なAgent Credentialを持つPrincipalへの発行、逆にAgent Credentialに束縛されたPrincipalへの別scopeのProject / Workspace Grantは409 `PRINCIPAL_BOUND_ELSEWHERE`。Workspace Agent CredentialはWorkspace Direction Role（`RoleScopeAuthorizationService`）だけで認可され、所属ProjectのWork・Runtimeには使えない。Workspace Grant・Direction toolのMCP公開入口は未接続のため、Workspace Agent Credentialによる実Agent運転は未検証。
 
 trusted-localではAgent名のBearerも許可するが、`cmp_`形式は常にCredentialとして検証する。remoteではAgent名の自己申告を許可しない。
 
@@ -97,14 +102,14 @@ trusted-localではAgent名のBearerも許可するが、`cmp_`形式は常にCr
 | Project一覧 | Grantのあるactive Projectだけを返す |
 | `get_role_instructions` | 機密を含まない静的文書。認証不要 |
 | Role専用tool | 必要なAgent Grantを検査 |
-| Runtime用tool | Runtime CredentialのProject・scopeを検査 |
+| Runtime用tool | Runtime CredentialのscopeがProject scopeの対象Projectと一致し、必要なRuntime scopeを持つことを検査 |
 
-新規Project GrantはWeb API・CLIとも`manager` / `worker` / `reviewer`とtrusted-local用`runtime`に限る。Direction Roleの指定は400 `VALIDATION_ERROR`（CLIは終了コード1）。Web UIの割当フォームはExecutionの3Roleだけを表示する。取消は旧Roleの保存済みGrantも対象とする。Workspace Grantの管理とWorkspace Credentialはまだ公開入口に接続していない。
+新規Project GrantはWeb API・CLIとも`manager` / `worker` / `reviewer`とtrusted-local用`runtime`に限る。Direction Roleの指定は400 `VALIDATION_ERROR`（CLIは終了コード1）。Web UIの割当フォームはExecutionの3Roleだけを表示する。取消は旧Roleの保存済みGrantも対象とする。Workspace Grantの管理入口は未接続。Workspace Credentialの管理Web APIは接続済みで、Web UIは未接続（S11-03）。
 
 CLIのGrant操作はローカル保守・自動検証用。通常のHuman操作の代替としない。
 
 ## 保存と検証
 
-Human関連tableは`human_user` / `human_identity` / `web_session` / `auth_login_attempt` / `project_membership` / `project_invitation`。Credentialは`access_credential`。ログイン・招待・権限変更の整合性はtransactionで保つ。
+Human関連tableは`human_user` / `human_identity` / `web_session` / `auth_login_attempt` / `project_membership` / `project_invitation`。Credentialは`access_credential`（`scope_kind`と、scopeに対応する`workspace_id`または`project_id`だけを持つCHECK・FK）。旧定義（`project_id`必須）の開発DBは再作成する。ログイン・招待・権限変更の整合性はtransactionで保つ。
 
 [humanAuthHttpIntegration.test.ts](../server/tests/humanAuthHttpIntegration.test.ts) はテスト用OIDC providerと実HTTP serverを使用する。実Google接続の検証とは区別する。既存テストのSession fixtureはテスト内に限定する。

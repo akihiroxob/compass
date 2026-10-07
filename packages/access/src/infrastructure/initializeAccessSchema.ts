@@ -188,13 +188,18 @@ const initializeWorkspaceMembershipSchema = async (database: Kysely<AccessDataba
     .execute();
 };
 
-/** Agent・Runtime向けCredential（Task 37）。既存tableは変更しない。 */
+/**
+ * Agent・Runtime向けCredential（Task 37）。scope（Workspace / Project）を明示し、scopeに対応するIDの列だけを持つ。
+ * 旧定義（`project_id`必須）の開発DBは再作成する（旧Credentialは引き継がない）。
+ */
 const initializeAccessCredentialSchema = async (database: Kysely<AccessDatabase>) => {
   await database.schema
     .createTable("access_credential")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("scope_kind", "text", (column) => column.notNull().check(sql`scope_kind in ('workspace', 'project')`))
+    .addColumn("workspace_id", "text", (column) => column.references("workspace.id").onDelete("cascade"))
+    .addColumn("project_id", "text", (column) => column.references("project.id").onDelete("cascade"))
     .addColumn("kind", "text", (column) => column.notNull().check(sql`kind in ('agent', 'runtime')`))
     .addColumn("principal_id", "text", (column) => column.notNull())
     .addColumn("scopes_json", "text", (column) => column.notNull())
@@ -207,12 +212,23 @@ const initializeAccessCredentialSchema = async (database: Kysely<AccessDatabase>
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addColumn("created_by_human_user_id", "text", (column) => column.notNull().references("human_user.id"))
     .addColumn("rotated_from_id", "text", (column) => column.references("access_credential.id"))
+    .addCheckConstraint(
+      "access_credential_scope_check",
+      sql`(scope_kind = 'workspace' and workspace_id is not null and project_id is null)
+        or (scope_kind = 'project' and project_id is not null and workspace_id is null)`,
+    )
     .execute();
   await database.schema
     .createIndex("access_credential_project_idx")
     .ifNotExists()
     .on("access_credential")
     .column("project_id")
+    .execute();
+  await database.schema
+    .createIndex("access_credential_workspace_idx")
+    .ifNotExists()
+    .on("access_credential")
+    .column("workspace_id")
     .execute();
   await database.schema
     .createIndex("access_credential_principal_idx")

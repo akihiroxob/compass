@@ -1,11 +1,14 @@
+import type { RoleScope } from "./RoleScope.ts";
+
 /**
  * Agent・外部Runtime向けのCompass発行Credential（Task 37）。Human Session（Google OIDC）とは別の認証経路。
  * secretは発行・rotationの応答で一度だけ返し、ここには持たない（保存はSHA-256だけ）。
  *
- * - `agent`: 解決したPrincipalに対し、既存のProject Role Grantで認可する。
+ * - `agent`: 解決したPrincipalに対し、Credentialのscope（Workspace / Project）のRole Grantで認可する。
  * - `runtime`: Role Grantを使わず、Credentialに付けた`scopes`だけで認可する。
  *
- * どちらも発行したProjectに束縛する。同じPrincipalを別ProjectのGrantと共有させない（repositoryが同一transactionで検査する）。
+ * どちらも発行したscope（Workspace または Project）に束縛し、別scopeの操作には使えない。Agent Credentialの
+ * Principalは、別scopeのGrant・有効なAgent Credentialと共有させない（repositoryが同一transactionで検査する）。
  */
 export const credentialKinds = ["agent", "runtime"] as const;
 export type CredentialKind = (typeof credentialKinds)[number];
@@ -28,9 +31,12 @@ export const credentialMaxTtlDays = 365;
 export const credentialDefaultRotationGraceHours = 24;
 export const credentialMaxRotationGraceHours = 7 * 24;
 
+/** Credentialを束縛するscope。Workspace Credentialは所属Projectの操作に転用できない（継承しない）。 */
+export type CredentialScope = RoleScope;
+
 export type AccessCredential = {
   id: string;
-  projectId: string;
+  scope: CredentialScope;
   kind: CredentialKind;
   principalId: string;
   /** `agent`は常に空。 */

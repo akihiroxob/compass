@@ -12,7 +12,8 @@ export type RuntimeScope =
 
 export type Credential = {
   id: string;
-  projectId: string;
+  /** 発行したscope。Workspace CredentialとProject Credentialは互いの操作に使えない。 */
+  scope: { kind: "workspace" | "project"; id: string };
   kind: CredentialKind;
   principalId: string;
   scopes: RuntimeScope[];
