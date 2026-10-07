@@ -18,7 +18,7 @@ Workspace Grantの管理・Directionの公開API/MCP・Workspace Role Contextは
 
 ## ContextとInstruction
 
-`get_strategist_context`は内部のWorkspace Contextから`workspace`・Intent/Outcome・判断材料を返し、移行中はProject参照も付ける。Research要約はrequests/syntheses/conflicts各50件までで、`researchHistory`が総件数と省略の有無を示す。Project Grantを使う現行Contextは所属Projectが1件のWorkspaceだけ対象とし、共有Workspaceでは`CONFLICT`（`reason: workspace_direction_required`）を返す。Workspace Grantを使うDirection Contextは未接続。`get_role_instructions({ role, includeShared })`は現在の`roles/<role>.md`を読み、`includeShared`指定時は`policies/role-policy.md`も返す。静的Instructionは認可の強制手段ではない。
+`get_strategist_context({ workspaceId })`はWorkspace Contextの`workspace`・Intent/Outcome・判断材料を返す。Research要約はrequests/syntheses/conflicts各50件までで、`researchHistory`が総件数と省略の有無を示す。Strategist / Researcher / Evaluator ContextはWorkspace Role Grant（activeRole指定時はそのRole）で認可し、Project Grantからは継承しない。`get_role_instructions({ role, includeShared })`は現在の`roles/<role>.md`を読み、`includeShared`指定時は`policies/role-policy.md`も返す。静的Instructionは認可の強制手段ではない。
 
 `roles/`・`policies/`・`skills/`・`knowledge/`は実行時に配信される構成資産なので、変更はWachaの実装Taskで行う。
 
@@ -26,4 +26,4 @@ Workspace Grantの管理・Directionの公開API/MCP・Workspace Role Contextは
 
 `manager`を含む既存Role名を維持し、Role Definitionは`roles/`、共通Policyは`policies/`へ配置する。RoleはSkillを参照し、Skillに`allowRoles`を持たせない。machine-readableなTool metadataはnamespace付きにする。
 
-1回の実行・操作Contextは1つのactiveRoleに固定し、Serverがscopeに対応するGrantを検査する。Role / Skill ContextはMCPからJIT取得する。Project入口のactiveRoleとRole / Skill Contextは実装済み。Workspace公開入口への接続は上記の後続Taskで行う。
+1回の実行・操作Contextは1つのactiveRoleに固定し、Serverがscopeに対応するGrantを検査する。Role / Skill ContextはMCPからJIT取得する。Project入口のactiveRoleとRole / Skill Context、Workspace DirectionのtoolのactiveRole認可は実装済み。Workspace Role Context（`get_role_context`のWorkspace版）はS07-03で接続する。

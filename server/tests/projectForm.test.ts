@@ -4,6 +4,7 @@ import { emptyFormValues, formValuesFromProject, type Project } from "../src/web
 
 const project: Project = {
   id: "p1",
+  workspaceId: "w1",
   name: "Compass",
   description: null,
   mission: "Mission",

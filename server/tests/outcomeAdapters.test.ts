@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
+import { createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/container.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -20,9 +20,9 @@ const send = (app: App, method: string, path: string, body?: string) =>
   app.request(path, { method, headers: { "Content-Type": "application/json" }, body });
 
 const createProjectAndIntent = async (app: App) => {
-  const project = (await (await send(app, "POST", "/api/projects", JSON.stringify({ name: "Compass", mission: "M" }))).json()) as { project: { id: string } };
-  const intent = (await (await send(app, "POST", `/api/projects/${project.project.id}/intents`, JSON.stringify({ title: "I", desiredState: "S" }))).json()) as { intent: { id: string } };
-  return { projectId: project.project.id, intentId: intent.intent.id };
+  const project = (await (await send(app, "POST", "/api/projects", JSON.stringify({ name: "Compass", mission: "M" }))).json()) as { project: { id: string; workspaceId: string } };
+  const intent = (await (await send(app, "POST", `/api/workspaces/${project.project.workspaceId}/intents`, JSON.stringify({ title: "I", desiredState: "S" }))).json()) as { intent: { id: string } };
+  return { projectId: project.project.id, workspaceId: project.project.workspaceId, intentId: intent.intent.id };
 };
 
 const outcomeInput = {
@@ -52,8 +52,8 @@ const callTool = async (app: App, name: string, args: object, principal?: string
 
 test("Web APIでOutcomeを作成・一覧・詳細・更新・取消でき、Intent応答にはOutcomeが埋め込まれない", async () => {
   const { database, app } = await setup();
-  const { projectId, intentId } = await createProjectAndIntent(app);
-  const base = `/api/projects/${projectId}/intents/${intentId}/outcomes`;
+  const { projectId, workspaceId, intentId } = await createProjectAndIntent(app);
+  const base = `/api/workspaces/${workspaceId}/intents/${intentId}/outcomes`;
 
   const created = await send(app, "POST", base, JSON.stringify(outcomeInput));
   assert.equal(created.status, 201);
@@ -79,7 +79,7 @@ test("Web APIでOutcomeを作成・一覧・詳細・更新・取消でき、Int
   assert.equal(cancelledOutcome.status, "cancelled");
   assert.equal(cancelledOutcome.cancelReason, "Wrong metric");
 
-  const intent = ((await (await app.request(`/api/projects/${projectId}/intents/${intentId}`)).json()) as { intent: object }).intent;
+  const intent = ((await (await app.request(`/api/workspaces/${workspaceId}/intents/${intentId}`)).json()) as { intent: object }).intent;
   assert.deepEqual(Object.keys(intent).sort(), [
     "abandonedReason", "completionDefinition", "createdAt", "desiredState", "id", "status", "title", "updatedAt", "workspaceId",
   ]);
@@ -88,8 +88,8 @@ test("Web APIでOutcomeを作成・一覧・詳細・更新・取消でき、Int
 
 test("Web APIのエラー: 400は配列位置付きのpath、404はID種別、409はstatus/fixedFields", async () => {
   const { database, app } = await setup();
-  const { projectId, intentId } = await createProjectAndIntent(app);
-  const base = `/api/projects/${projectId}/intents/${intentId}/outcomes`;
+  const { projectId, workspaceId, intentId } = await createProjectAndIntent(app);
+  const base = `/api/workspaces/${workspaceId}/intents/${intentId}/outcomes`;
 
   const invalid = await send(app, "POST", base, JSON.stringify({ ...outcomeInput, successCriteria: [{ description: "d", measurement: " " }] }));
   assert.equal(invalid.status, 400);
@@ -122,20 +122,20 @@ test("Web APIのエラー: 400は配列位置付きのpath、404はID種別、40
   const missingOutcome = await app.request(`${base}/nope`);
   assert.equal(missingOutcome.status, 404);
   assert.match(((await missingOutcome.json()) as ErrorBody).error.message, /^Outcome nope/);
-  const missingIntent = await app.request(`/api/projects/${projectId}/intents/nope/outcomes`);
+  const missingIntent = await app.request(`/api/workspaces/${workspaceId}/intents/nope/outcomes`);
   assert.equal(missingIntent.status, 404);
   assert.match(((await missingIntent.json()) as ErrorBody).error.message, /^Intent nope/);
-  const missingProject = await app.request(`/api/projects/nope/intents/${intentId}/outcomes`);
-  assert.equal(missingProject.status, 404);
-  assert.match(((await missingProject.json()) as ErrorBody).error.message, /^Project nope/);
+  const missingWorkspace = await app.request(`/api/workspaces/nope/intents/${intentId}/outcomes`);
+  assert.equal(missingWorkspace.status, 404);
+  assert.match(((await missingWorkspace.json()) as ErrorBody).error.message, /^Workspace nope/);
 
-  // 他Projectの配下から参照するとID種別が区別されて404になる。
-  const other = ((await (await send(app, "POST", "/api/projects", JSON.stringify({ name: "B", mission: "M" }))).json()) as { project: { id: string } }).project.id;
-  const cross = await app.request(`/api/projects/${other}/intents/${intentId}/outcomes/${outcome.id}`);
+  // 他Workspaceの配下から参照するとID種別が区別されて404になる。
+  const other = ((await (await send(app, "POST", "/api/projects", JSON.stringify({ name: "B", mission: "M" }))).json()) as { project: { workspaceId: string } }).project.workspaceId;
+  const cross = await app.request(`/api/workspaces/${other}/intents/${intentId}/outcomes/${outcome.id}`);
   assert.equal(cross.status, 404);
   assert.match(((await cross.json()) as ErrorBody).error.message, /^Intent /);
 
-  await send(app, "POST", `/api/projects/${projectId}/intents/${intentId}/abandon`);
+  await send(app, "POST", `/api/workspaces/${workspaceId}/intents/${intentId}/abandon`);
   const afterAbandon = await send(app, "POST", base, JSON.stringify(outcomeInput));
   assert.equal(afterAbandon.status, 409);
   assert.equal(((await afterAbandon.json()) as ErrorBody).error.status, "abandoned");
@@ -144,17 +144,17 @@ test("Web APIのエラー: 400は配列位置付きのpath、404はID種別、40
 
 test("Intentの放棄はWeb APIからもactiveなOutcomeをcancelledにし、意味変更は409になる", async () => {
   const { database, app } = await setup();
-  const { projectId, intentId } = await createProjectAndIntent(app);
-  const base = `/api/projects/${projectId}/intents/${intentId}/outcomes`;
+  const { projectId, workspaceId, intentId } = await createProjectAndIntent(app);
+  const base = `/api/workspaces/${workspaceId}/intents/${intentId}/outcomes`;
   const outcome = ((await (await send(app, "POST", base, JSON.stringify(outcomeInput))).json()) as OutcomeBody).outcome;
 
-  const locked = await send(app, "PATCH", `/api/projects/${projectId}/intents/${intentId}`, JSON.stringify({ desiredState: "Changed" }));
+  const locked = await send(app, "PATCH", `/api/workspaces/${workspaceId}/intents/${intentId}`, JSON.stringify({ desiredState: "Changed" }));
   assert.equal(locked.status, 409);
   assert.equal(((await locked.json()) as ErrorBody).error.fixedFields, "desiredState");
-  const renamed = await send(app, "PATCH", `/api/projects/${projectId}/intents/${intentId}`, JSON.stringify({ title: "Renamed" }));
+  const renamed = await send(app, "PATCH", `/api/workspaces/${workspaceId}/intents/${intentId}`, JSON.stringify({ title: "Renamed" }));
   assert.equal(renamed.status, 200);
 
-  await send(app, "POST", `/api/projects/${projectId}/intents/${intentId}/abandon`, JSON.stringify({ reason: "Changed course" }));
+  await send(app, "POST", `/api/workspaces/${workspaceId}/intents/${intentId}/abandon`, JSON.stringify({ reason: "Changed course" }));
   const after = ((await (await app.request(`${base}/${outcome.id}`)).json()) as OutcomeBody).outcome;
   assert.equal(after.status, "cancelled");
   assert.equal(after.cancelReason, "Intent abandoned: Changed course");
@@ -164,43 +164,43 @@ test("Intentの放棄はWeb APIからもactiveなOutcomeをcancelledにし、意
 
 test("MCPのOutcome操作はWebと同じ内容・同じ検証結果になる", async () => {
   const { database, app } = await setup();
-  const { projectId, intentId } = await createProjectAndIntent(app);
-  const base = `/api/projects/${projectId}/intents/${intentId}/outcomes`;
+  const { projectId, workspaceId, intentId } = await createProjectAndIntent(app);
+  const base = `/api/workspaces/${workspaceId}/intents/${intentId}/outcomes`;
 
-  await seedLegacyProjectGrant(database, projectId, "strat-1", "strategist");
+  await seedProjectWorkspaceGrant(database, projectId, "strat-1", "strategist");
   const viaWeb = ((await (await send(app, "POST", base, JSON.stringify(outcomeInput))).json()) as OutcomeBody).outcome;
-  const got = await callTool(app, "get_outcome", { projectId, intentId, outcomeId: viaWeb.id });
+  const got = await callTool(app, "get_outcome", { workspaceId, intentId, outcomeId: viaWeb.id });
   assert.equal(got.isError, undefined);
   assert.deepEqual(got.structuredContent.outcome, viaWeb);
 
-  const created = await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "strat-1");
+  const created = await callTool(app, "create_outcome", { workspaceId, intentId, ...outcomeInput }, "strat-1");
   assert.equal(created.isError, undefined);
   const outcomeId = created.structuredContent.outcome.id as string;
   assert.deepEqual(((await (await app.request(`${base}/${outcomeId}`)).json()) as OutcomeBody).outcome, created.structuredContent.outcome);
-  const listed = await callTool(app, "list_outcomes", { projectId, intentId });
+  const listed = await callTool(app, "list_outcomes", { workspaceId, intentId });
   assert.deepEqual(listed.structuredContent.outcomes.map((item: { id: string }) => item.id), [outcomeId, viaWeb.id]);
 
-  const updated = await callTool(app, "update_outcome", { projectId, intentId, outcomeId, title: "Via MCP", hypothesis: null }, "strat-1");
+  const updated = await callTool(app, "update_outcome", { workspaceId, intentId, outcomeId, title: "Via MCP", hypothesis: null }, "strat-1");
   assert.equal(updated.structuredContent.outcome.title, "Via MCP");
   assert.equal(((await (await app.request(`${base}/${outcomeId}`)).json()) as OutcomeBody).outcome.title, "Via MCP");
 
   // 固定項目はMCPでも黙って無視されず、Webと同じCONFLICTになる。
-  const fixed = await callTool(app, "update_outcome", { projectId, intentId, outcomeId, successCriteria: [], description: "x" }, "strat-1");
+  const fixed = await callTool(app, "update_outcome", { workspaceId, intentId, outcomeId, successCriteria: [], description: "x" }, "strat-1");
   assert.equal(fixed.isError, true);
   assert.equal(fixed.structuredContent.error.code, "CONFLICT");
   assert.equal(fixed.structuredContent.error.fixedFields, "description,successCriteria");
 
-  const invalid = await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput, successCriteria: [] }, "strat-1");
+  const invalid = await callTool(app, "create_outcome", { workspaceId, intentId, ...outcomeInput, successCriteria: [] }, "strat-1");
   assert.equal(invalid.isError, true);
   assert.equal(invalid.structuredContent.error.code, "VALIDATION_ERROR");
   assert.equal(invalid.structuredContent.error.issues[0].path, "successCriteria");
-  const noReason = await callTool(app, "cancel_outcome", { projectId, intentId, outcomeId, reason: " " }, "strat-1");
+  const noReason = await callTool(app, "cancel_outcome", { workspaceId, intentId, outcomeId, reason: " " }, "strat-1");
   assert.equal(noReason.structuredContent.error.code, "VALIDATION_ERROR");
 
-  const cancelled = await callTool(app, "cancel_outcome", { projectId, intentId, outcomeId, reason: "Not needed" }, "strat-1");
+  const cancelled = await callTool(app, "cancel_outcome", { workspaceId, intentId, outcomeId, reason: "Not needed" }, "strat-1");
   assert.equal(cancelled.structuredContent.outcome.status, "cancelled");
   assert.equal(((await (await app.request(`${base}/${outcomeId}`)).json()) as OutcomeBody).outcome.status, "cancelled");
-  const missing = await callTool(app, "get_outcome", { projectId, intentId, outcomeId: "nope" });
+  const missing = await callTool(app, "get_outcome", { workspaceId, intentId, outcomeId: "nope" });
   assert.equal(missing.structuredContent.error.code, "NOT_FOUND");
   assert.match(missing.structuredContent.error.message, /^Outcome nope/);
   await database.destroy();

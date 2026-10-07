@@ -106,20 +106,25 @@ const setup = async () => {
   ]) {
     await cli("grant", projectId, principal!, role!);
   }
-  // 新規Project GrantはDirection Roleを拒否する。Workspace Direction・Credentialの公開入口が未接続のため、旧Project Grantを一時DBへ直接置くfixture。
+  // Direction RoleのGrantはWorkspace所有。Workspace Role Grantの付与入口が未接続のため、一時DBへ直接置くfixture。
+  // OrchestratorはS08まで`projectId`でRoleを起動するため、起動されたAgentが`get_project`で所属Workspaceを読めるよう
+  // 同じRoleの旧Project Grant（Project参照・Role Context用）も置く。
+  const workspaceId = project.workspaceId as string;
   const database = new DatabaseSync(join(directory, "compass.db"));
   try {
-    const insert = database.prepare("insert into project_grant (project_id, principal_id, role, created_at) values (?, ?, ?, ?)");
+    const projectGrant = database.prepare("insert into project_grant (project_id, principal_id, role, created_at) values (?, ?, ?, ?)");
+    const workspaceGrant = database.prepare("insert into workspace_grant (workspace_id, principal_id, role, created_at) values (?, ?, ?, ?)");
     for (const [principal, role] of [
       ["strategist-1", "strategist"],
       ["researcher-1", "researcher"],
     ]) {
-      insert.run(projectId, principal!, role!, Date.now());
+      projectGrant.run(projectId, principal!, role!, Date.now());
+      workspaceGrant.run(workspaceId, principal!, role!, Date.now());
     }
   } finally {
     database.close();
   }
-  await mcp("admin", "create_intent", { projectId, title: "Exclusive claims", desiredState: "One owner per Task" });
+  await mcp("admin", "create_intent", { workspaceId, title: "Exclusive claims", desiredState: "One owner per Task" });
 
   const agentLog = join(directory, "agents.jsonl");
   const configPath = join(directory, "orchestrator.json");

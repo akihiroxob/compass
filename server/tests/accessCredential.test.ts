@@ -4,7 +4,7 @@ import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { addTestMembership, createTestHuman, requestAs, type TestHuman, seedLegacyProjectGrant } from "./support/humanSession.ts";
+import { addTestMembership, createTestHuman, requestAs, type TestHuman, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
 
 /**
@@ -80,8 +80,19 @@ const callTool = async (app: App, token: string, name: string, args: object) => 
   return reply.body.result as { isError?: boolean; structuredContent: Json };
 };
 
-const runtimeEvents = (app: App, projectId: string, token: string) =>
-  app.request(`/api/projects/${projectId}/runtime-events`, { headers: { Authorization: `Bearer ${token}` } });
+/**
+ * Project Runtime Credentialの検査に使う、Project scopeのRuntime入口（MCP `list_changes`、`execution:change:read`）。
+ * Runtime eventはWorkspace所有のため使わない。認証失敗はHTTP 401、tool errorはHTTP相当のstatusへ写す。
+ */
+const runtimeProbe = async (app: App, projectId: string, token: string) => {
+  const reply = await mcp(app, "tools/call", { name: "list_changes", arguments: { projectId } }, `Bearer ${token}`);
+  const text = JSON.stringify(reply.body);
+  if (reply.status !== 200) return { status: reply.status, text };
+  const result = reply.body.result as { isError?: boolean; structuredContent: Json };
+  if (result.isError !== true) return { status: 200, text };
+  const code = result.structuredContent.error.code as string;
+  return { status: code === "FORBIDDEN" ? 403 : code === "UNAUTHENTICATED" ? 401 : 500, text };
+};
 
 test("Administrator以上がCredentialを発行でき、secretは一度だけ返りDBにはhashだけが残る", async () => {
   const { database, webApp, project, owner } = await setup();
@@ -157,53 +168,55 @@ test("入力を検証する: 種別・scope・期限", async () => {
 });
 
 test("remote modeのAgent CredentialはPrincipalへ解決し、Project GrantとGrantの有るProjectだけで認可する", async () => {
-  const { database, services, webApp, remoteApp, project, other, owner } = await setup();
-  await seedLegacyProjectGrant(database, project.id, "strategist-a", "strategist");
-  const { token } = await issueToken(webApp, owner, project.id, { kind: "agent", principalId: "strategist-a" });
+  const { services, webApp, remoteApp, project, other, owner } = await setup();
+  await services.grantProjectRoleUseCase.execute(project.id, { principalId: "manager-a", role: "manager" });
+  const { token } = await issueToken(webApp, owner, project.id, { kind: "agent", principalId: "manager-a" });
 
   const listed = await callTool(remoteApp, token, "list_projects", {});
   assert.deepEqual(listed.structuredContent.projects.map((item: Json) => item.id), [project.id]);
   assert.notEqual((await callTool(remoteApp, token, "get_project", { projectId: project.id })).isError, true);
-  assert.notEqual((await callTool(remoteApp, token, "get_strategist_context", { projectId: project.id })).isError, true);
+  assert.notEqual((await callTool(remoteApp, token, "list_stories", { projectId: project.id })).isError, true);
+  // Project CredentialではWorkspace Direction（Workspace scope）を使えない。
+  const direction = await callTool(remoteApp, token, "get_strategist_context", { workspaceId: project.workspaceId });
+  assert.equal(direction.structuredContent.error.code, "FORBIDDEN");
 
   // Grantの無いProject・Grantの無いRoleはFORBIDDEN。
   const foreign = await callTool(remoteApp, token, "get_project", { projectId: other.id });
   assert.equal(foreign.isError, true);
   assert.equal(foreign.structuredContent.error.code, "FORBIDDEN");
-  const noRole = await callTool(remoteApp, token, "get_evaluator_context", { projectId: project.id, outcomeId: "x" });
+  const noRole = await callTool(remoteApp, token, "get_role_context", { projectId: project.id, role: "worker" });
   assert.equal(noRole.structuredContent.error.code, "FORBIDDEN");
 
   // Agent CredentialでRuntime向けの操作はできない（種別違い）。
-  const runtimeTool = await callTool(remoteApp, token, "fetch_runtime_events", { projectId: project.id });
+  const runtimeTool = await callTool(remoteApp, token, "fetch_runtime_events", { workspaceId: project.workspaceId });
   assert.equal(runtimeTool.structuredContent.error.code, "FORBIDDEN");
-  assert.equal((await runtimeEvents(remoteApp, project.id, token)).status, 403);
+  const runtimeApi = await remoteApp.request(`/api/projects/${project.id}/outcomes/o-1/execution-evidence`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ changeCursor: 0 }),
+  });
+  assert.equal(runtimeApi.status, 403);
 
   // Grantを取り消すと次の呼出しから拒否される。
-  await services.revokeProjectRoleUseCase.execute(project.id, { principalId: "strategist-a", role: "strategist" });
+  await services.revokeProjectRoleUseCase.execute(project.id, { principalId: "manager-a", role: "manager" });
   const revokedGrant = await callTool(remoteApp, token, "get_project", { projectId: project.id });
   assert.equal(revokedGrant.structuredContent.error.code, "FORBIDDEN");
 });
 
 test("Runtime Credentialは明示scopeと発行Projectだけで認可し、Agent向けtoolは使えない", async () => {
   const { services, webApp, remoteApp, project, other, owner } = await setup();
-  const intent = await services.createIntentUseCase.execute(project.id, { title: "I", desiredState: "S" });
-  await requestIntentResearch(services, project.id, intent.id);
+  const intent = await services.createIntentUseCase.execute(project.workspaceId, { title: "I", desiredState: "S" });
+  await requestIntentResearch(services, project.workspaceId, intent.id);
   const { token } = await issueToken(webApp, owner, project.id, {
     kind: "runtime",
     principalId: "runtime-a",
     scopes: ["runtime:event:read", "runtime:event:ack", "execution:change:read"],
   });
 
-  const fetched = await runtimeEvents(remoteApp, project.id, token);
-  assert.equal(fetched.status, 200);
-  const { events } = (await fetched.json()) as Json;
-  assert.equal(events[0].type, "research_requested");
-  const ack = await remoteApp.request(`/api/projects/${project.id}/runtime-events/${events[0].id}/ack`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ attemptId: "a-1", outcome: "processed" }),
-  });
-  assert.equal(ack.status, 200);
+  assert.equal((await runtimeProbe(remoteApp, project.id, token)).status, 200);
+  // Runtime eventはWorkspace所有で、Project Runtime Credentialでは取得できない。
+  const workspaceEvents = await remoteApp.request(`/api/workspaces/${project.workspaceId}/runtime-events`, { headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(workspaceEvents.status, 403);
   const changes = await callTool(remoteApp, token, "list_changes", { projectId: project.id });
   assert.notEqual(changes.isError, true, JSON.stringify(changes));
 
@@ -220,7 +233,7 @@ test("Runtime Credentialは明示scopeと発行Projectだけで認可し、Agent
   const deniedState = await callTool(remoteApp, token, "get_orchestration_state", { projectId: project.id });
   assert.equal(deniedState.structuredContent.error.code, "FORBIDDEN");
   assert.equal(deniedState.structuredContent.error.requiredScope, "runtime:state:read");
-  assert.equal((await runtimeEvents(remoteApp, other.id, token)).status, 403);
+  assert.equal((await runtimeProbe(remoteApp, other.id, token)).status, 403);
 
   // Orchestrator向けの現在状態はruntime:state:readのscopeを付けたCredentialだけが読める（発行Projectに限る）。
   const orchestrator = await issueToken(webApp, owner, project.id, {
@@ -246,7 +259,7 @@ test("期限切れ・取消済み・改ざん・未知ID・種別違いのtoken�
   const runtime = await issueToken(webApp, owner, project.id, {
     kind: "runtime",
     principalId: "runtime-a",
-    scopes: ["runtime:event:read"],
+    scopes: ["execution:change:read"],
     expiresInDays: 1,
   });
   const [, id, secret] = runtime.token.split(".");
@@ -258,22 +271,22 @@ test("期限切れ・取消済み・改ざん・未知ID・種別違いのtoken�
     "cmp_runtime.garbage",
   ];
   for (const token of cases) {
-    const response = await runtimeEvents(remoteApp, project.id, token);
+    const response = await runtimeProbe(remoteApp, project.id, token);
     assert.equal(response.status, 401, token);
-    const text = await response.text();
+    const text = response.text;
     assert.equal(text.includes(secret), false);
     const reply = await mcp(remoteApp, "tools/list", {}, `Bearer ${token}`);
     assert.equal(reply.status, 401);
     assert.equal(JSON.stringify(reply.body).includes(secret), false);
   }
-  assert.equal((await runtimeEvents(remoteApp, project.id, runtime.token)).status, 200);
+  assert.equal((await runtimeProbe(remoteApp, project.id, runtime.token)).status, 200);
 
   // 取消は次の呼出しから反映される。
   const revoked = await requestAs(webApp, owner)(`/api/projects/${project.id}/credentials/${runtime.credential.id}`, {
     method: "DELETE",
   });
   assert.equal(revoked.status, 200);
-  assert.equal((await runtimeEvents(remoteApp, project.id, runtime.token)).status, 401);
+  assert.equal((await runtimeProbe(remoteApp, project.id, runtime.token)).status, 401);
   // 取消は冪等。
   const again = await requestAs(webApp, owner)(`/api/projects/${project.id}/credentials/${runtime.credential.id}`, {
     method: "DELETE",
@@ -284,12 +297,12 @@ test("期限切れ・取消済み・改ざん・未知ID・種別違いのtoken�
   const expiring = await issueToken(webApp, owner, project.id, {
     kind: "runtime",
     principalId: "runtime-b",
-    scopes: ["runtime:event:read"],
+    scopes: ["execution:change:read"],
     expiresInDays: 1,
   });
-  assert.equal((await runtimeEvents(remoteApp, project.id, expiring.token)).status, 200);
+  assert.equal((await runtimeProbe(remoteApp, project.id, expiring.token)).status, 200);
   advance(24 * 60 * 60 * 1000);
-  assert.equal((await runtimeEvents(remoteApp, project.id, expiring.token)).status, 401);
+  assert.equal((await runtimeProbe(remoteApp, project.id, expiring.token)).status, 401);
 });
 
 test("rotation中は期限付きで新旧Credentialを併用でき、猶予後は旧Credentialを拒否する", async () => {
@@ -297,7 +310,7 @@ test("rotation中は期限付きで新旧Credentialを併用でき、猶予後�
   const original = await issueToken(webApp, owner, project.id, {
     kind: "runtime",
     principalId: "runtime-a",
-    scopes: ["runtime:event:read"],
+    scopes: ["execution:change:read"],
   });
   const rotate = (credentialId: string, body: object) =>
     requestAs(webApp, owner)(`/api/projects/${project.id}/credentials/${credentialId}/rotate`, {
@@ -313,13 +326,13 @@ test("rotation中は期限付きで新旧Credentialを併用でき、猶予後�
   assert.match(rotated.token, /^cmp_runtime\./);
   assert.equal(rotated.credential.rotatedFromId, original.credential.id);
   assert.equal(rotated.credential.principalId, "runtime-a");
-  assert.deepEqual(rotated.credential.scopes, ["runtime:event:read"]);
+  assert.deepEqual(rotated.credential.scopes, ["execution:change:read"]);
 
-  assert.equal((await runtimeEvents(remoteApp, project.id, original.token)).status, 200);
-  assert.equal((await runtimeEvents(remoteApp, project.id, rotated.token)).status, 200);
+  assert.equal((await runtimeProbe(remoteApp, project.id, original.token)).status, 200);
+  assert.equal((await runtimeProbe(remoteApp, project.id, rotated.token)).status, 200);
   advance(2 * 60 * 60 * 1000);
-  assert.equal((await runtimeEvents(remoteApp, project.id, original.token)).status, 401);
-  assert.equal((await runtimeEvents(remoteApp, project.id, rotated.token)).status, 200);
+  assert.equal((await runtimeProbe(remoteApp, project.id, original.token)).status, 401);
+  assert.equal((await runtimeProbe(remoteApp, project.id, rotated.token)).status, 200);
 
   // 期限切れ・取消済みはrotationできない。
   assert.equal((await rotate(original.credential.id, {})).status, 409);
@@ -328,16 +341,17 @@ test("rotation中は期限付きで新旧Credentialを併用でき、猶予後�
 
 test("remote modeではAgent名だけのBearerをtrusted-localへ降格せず拒否し、trusted-localでは従来どおり受け付ける", async () => {
   const { services, remoteApp, localApp, project } = await setup();
-  await services.grantProjectRoleUseCase.execute(project.id, { principalId: "runtime-a", role: "runtime" });
+  // trusted-localのAgent名は、Project GrantでWorkの入口（list_changes）を使える。
+  await services.grantProjectRoleUseCase.execute(project.id, { principalId: "runtime-a", role: "manager" });
   const remoteMcp = await mcp(remoteApp, "tools/list", {}, "Bearer runtime-a");
   assert.equal(remoteMcp.status, 401);
   assert.equal(remoteMcp.body.error.code, -32001);
-  assert.equal((await runtimeEvents(remoteApp, project.id, "runtime-a")).status, 401);
+  assert.equal((await runtimeProbe(remoteApp, project.id, "runtime-a")).status, 401);
 
   assert.equal((await mcp(localApp, "tools/list", {}, "Bearer runtime-a")).status, 200);
-  assert.equal((await runtimeEvents(localApp, project.id, "runtime-a")).status, 200);
+  assert.equal((await runtimeProbe(localApp, project.id, "runtime-a")).status, 200);
   // trusted-localでもCredential形式のBearerはAgent名として扱わず、検証に失敗すれば拒否する。
-  assert.equal((await runtimeEvents(localApp, project.id, "cmp_runtime.invalid")).status, 401);
+  assert.equal((await runtimeProbe(localApp, project.id, "cmp_runtime.invalid")).status, 401);
 });
 
 test("Agent Credentialは発行Projectに束縛し、別ProjectのGrant・Credentialと同じPrincipalを共有させない", async () => {
@@ -376,8 +390,8 @@ test("archivedのProjectでは発行・rotationを拒否し、取消はできる
   const project = await services.createProjectUseCase.execute({ name: "Alpha", mission: "M" });
   const owner = await createTestHuman(first);
   await addTestMembership(first, project.id, owner, "owner");
-  const kept = await issueToken(webApp, owner, project.id, { kind: "runtime", principalId: "rt", scopes: ["runtime:event:read"] });
-  const toRevoke = await issueToken(webApp, owner, project.id, { kind: "runtime", principalId: "rt2", scopes: ["runtime:event:read"] });
+  const kept = await issueToken(webApp, owner, project.id, { kind: "runtime", principalId: "rt", scopes: ["execution:change:read"] });
+  const toRevoke = await issueToken(webApp, owner, project.id, { kind: "runtime", principalId: "rt2", scopes: ["execution:change:read"] });
   await services.archiveProjectUseCase.execute(project.id, { reason: "done" });
 
   assert.equal((await issue(webApp, owner, project.id, { kind: "agent", principalId: "a" })).status, 409);
@@ -396,7 +410,7 @@ test("archivedのProjectでは発行・rotationを拒否し、取消はできる
   const restarted = createApp(createApplicationServices(second), {
     humanAuth: { mode: "remote", publicOrigin: "https://compass.example" },
   });
-  assert.equal((await runtimeEvents(restarted, project.id, kept.token)).status, 200);
-  assert.equal((await runtimeEvents(restarted, project.id, toRevoke.token)).status, 401);
+  assert.equal((await runtimeProbe(restarted, project.id, kept.token)).status, 200);
+  assert.equal((await runtimeProbe(restarted, project.id, toRevoke.token)).status, 401);
   await second.destroy();
 });

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { researchRequestPath } from "../../paths";
+import { researchRequestPath, workspaceApiPath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import {
   researchRequestKindLabels,
@@ -26,17 +26,17 @@ export const RequestRow = ({ projectId, request: item }: { projectId: string; re
 );
 
 /**
- * ProjectのResearch Request一覧（Human向け読み取り専用）。RequesterはResearcher・Compass application層で、
+ * 所属WorkspaceのResearch Request一覧（Human向け読み取り専用）。RequesterはResearcher・Compass application層で、
  * この画面から作成・登録は行わない。詳細（Result → Finding / Evidence、Synthesis）は個別画面で辿る。
  */
-export const ResearchSection = ({ projectId }: { projectId: string }) => {
+export const ResearchSection = ({ projectId, workspaceId }: { projectId: string; workspaceId: string }) => {
   const [requests, setRequests] = useState<ResearchRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    request<{ requests: ResearchRequest[] }>(`/api/projects/${projectId}/research-requests`)
+    request<{ requests: ResearchRequest[] }>(workspaceApiPath(workspaceId, "/research-requests"))
       .then(({ requests }) => setRequests(requests))
-      .catch((reason: unknown) => setError(loadFailureMessage(classifyError(reason), "Projectが見つかりません。")));
-  }, [projectId]);
+      .catch((reason: unknown) => setError(loadFailureMessage(classifyError(reason), "Workspaceが見つかりません。")));
+  }, [workspaceId]);
   return (
     <section className="detail-section" aria-labelledby="research-heading">
       <h2 id="research-heading">Research</h2>

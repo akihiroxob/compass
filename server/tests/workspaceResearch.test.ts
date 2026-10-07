@@ -71,7 +71,8 @@ test("Research一覧のWorkspace応答から閲覧Projectの詳細リンクを�
     const research = await direction.createResearchRequestUseCase.execute(workspace.id, requestInput(intent.id));
     await direction.registerResearchResultUseCase.execute(workspace.id, research.id, resultInput());
     const app = await createSignedInApp(database, services);
-    const response = await app.request(`/api/projects/${project.id}/research-requests`);
+    // 画面はProject配下のrouteのまま、APIは所属WorkspaceのResearchを読む。
+    const response = await app.request(`/api/workspaces/${project.workspaceId}/research-requests`);
     assert.equal(response.status, 200);
     const { requests } = await response.json() as { requests: ResearchRequest[] };
     assert.equal(requests.length, 1);
@@ -89,7 +90,8 @@ test("Research一覧のWorkspace応答から閲覧Projectの詳細リンクを�
     assert.equal(href, `/projects/${project.id}/research/${research.id}`);
     const match = /^\/projects\/([^/]+)\/research\/([^/]+)$/.exec(href!);
     assert.ok(match);
-    const detailResponse = await app.request(`/api/projects/${match[1]}/research-requests/${match[2]}`);
+    assert.equal(match[1], project.id);
+    const detailResponse = await app.request(`/api/workspaces/${project.workspaceId}/research-requests/${match[2]}`);
     assert.equal(detailResponse.status, 200);
     const { detail } = await detailResponse.json() as { detail: ResearchRequestDetail };
     assert.equal(detail.request.id, research.id);
@@ -219,33 +221,35 @@ test("Researcher and Strategist Context bound history and advertise omitted reco
   } finally { await database.destroy(); }
 });
 
-test("shared Workspace Research and Context remain unavailable from Project Web/API/MCP entry points", async () => {
+test("shared Workspace Research and Context are reachable only through Workspace IDs and Workspace Grants", async () => {
   const { database, workspace, intent, direction, createProject, services } = await setup();
   try {
     const a = await createProject.execute(workspace.id, { name: "A" });
     await createProject.execute(workspace.id, { name: "B" });
     const request = await direction.createResearchRequestUseCase.execute(workspace.id, requestInput(intent.id));
     const app = await createSignedInApp(database, services);
-    for (const path of [`/api/projects/${a.id}/research-requests`, `/api/projects/${a.id}/research-requests/${request.id}`, `/api/projects/${a.id}/intents/${intent.id}/decisions`, `/api/projects/${a.id}/adr-references`]) {
+    // 旧Project配下のDirection経路は無く、Project IDをWorkspace IDとしても扱わない。
+    for (const path of [`/api/projects/${a.id}/research-requests`, `/api/projects/${a.id}/research-requests/${request.id}`, `/api/projects/${a.id}/intents/${intent.id}/decisions`, `/api/projects/${a.id}/adr-references`, `/api/workspaces/${a.id}/research-requests`]) {
       const response = await app.request(path);
-      assert.equal(response.status, 409, path);
+      assert.equal(response.status, 404, path);
       assert.equal(JSON.stringify(await response.json()).includes(request.question), false);
     }
+    assert.equal((await app.request(`/api/workspaces/${workspace.id}/research-requests`)).status, 200);
+    // Project GrantはWorkspace Directionへ継承しない。
     await seedLegacyProjectGrant(database, a.id, "researcher", "researcher");
     await seedLegacyProjectGrant(database, a.id, "strategist", "strategist");
     for (const [name, role, args] of [
-      ["get_researcher_context", "researcher", { projectId: a.id, requestId: request.id }],
-      ["get_strategist_context", "strategist", { projectId: a.id }],
+      ["get_researcher_context", "researcher", { workspaceId: workspace.id, requestId: request.id }],
+      ["get_strategist_context", "strategist", { workspaceId: workspace.id }],
     ] as const) {
       const response = await app.request("/mcp", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${role}`, "X-Compass-Active-Role": role },
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) });
       const data = (await response.text()).split("\n").find(line => line.startsWith("data: "));
       assert.ok(data);
       const result = JSON.parse(data.slice(6)).result;
-      assert.equal(result.structuredContent.error.reason, "workspace_direction_required");
-      assert.equal(JSON.stringify(result).includes(request.id), false);
+      assert.equal(result.structuredContent.error.code, "FORBIDDEN");
+      assert.equal(JSON.stringify(result).includes(request.question), false);
     }
-    assert.equal((await app.request(`/api/workspaces/${workspace.id}/research-requests`)).status, 404);
   } finally { await database.destroy(); }
 });
 

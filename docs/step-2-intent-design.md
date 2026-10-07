@@ -10,13 +10,13 @@ IntentはHumanが現在実現したい状態。Workspaceの継続的な存在理
 
 ## 更新と操作
 
-activeの間だけ部分更新できる。Outcomeを持つIntentはtitleのみ変更でき、desiredState / completionDefinitionを変更できない。archived Workspaceでは書込を拒否する。既存Project入口ではProjectのarchiveも従来どおり拒否する。
+activeの間だけ部分更新できる。Outcomeを持つIntentはtitleのみ変更でき、desiredState / completionDefinitionを変更できない。archived Workspaceでは書込を拒否する（最後のactive ProjectのarchiveでWorkspaceもarchivedになる）。
 
 `intent_complete`も、Intentを更新するtransaction内で所属Workspaceのarchiveを検査する。WorkspaceだけarchivedでProjectがactiveでも`CONFLICT`（`workspaceStatus: archived`）を返し、Intent・Decision・Activityを変更しない。
 
-保存・application use caseはWorkspace単位。Workspace Directionの公開入口は未接続。既存のProject入口は所属Projectが1件のWorkspaceだけ扱い、複数Projectの場合は`CONFLICT`（`reason: workspace_direction_required`）を返す。応答は`workspaceId`を持ち、`projectId`は持たない。
+保存・application use case・公開入口はWorkspace単位。Project IDをWorkspace IDとして受け付けない。応答は`workspaceId`を持ち、`projectId`は持たない。
 
-HumanはProject詳細から作成し、Intent詳細から編集・放棄する。Web APIは`/api/projects/:projectId/intents`とその詳細・更新・`abandon`。変更にはeditor以上のMembershipが必要。remote modeのMCPにはHuman用の作成・更新・放棄toolを公開しない。
+HumanはProject詳細から作成し、Intent詳細から編集・放棄する（画面はProjectの所属Workspaceを解決する）。Web APIは`/api/workspaces/:workspaceId/intents`とその詳細・更新・`abandon`。参照にはWorkspaceのviewer以上、変更にはeditor以上のWorkspace Membershipが必要で、Project Membershipからは継承しない。MCPの`create_intent` / `update_intent` / `abandon_intent`（trusted-localだけ）は`workspaceId`を受け取り、WorkspaceのDirection Role Grantを持つPrincipalとactiveRole指定を拒否する。remote modeのMCPにはHuman用の作成・更新・放棄toolを公開しない。
 
 ## Researchとの接続
 

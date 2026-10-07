@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
+import { createSignedInApp, issueWorkspaceRuntimeToken, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -60,7 +60,7 @@ const send = (app: App, method: string, path: string, body?: unknown) =>
 
 const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role: string) => {
   if (["strategist", "researcher", "evaluator"].includes(role)) {
-    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    await seedProjectWorkspaceGrant(database, projectId, principalId, role);
     return;
   }
   return assert.equal((await send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role })).status, 201);
@@ -79,7 +79,7 @@ const confirmOutcome = async ({ database, services, app }: Kit) => {
     constraints: ["No autonomous execution yet", "Keep the public API"],
     repositories: [{ name: "compass", url: "https://github.com/example/compass" }],
   });
-  const intent = await services.createIntentUseCase.execute(project.id, { title: "Exclusive claims", desiredState: "One owner per Task" });
+  const intent = await services.createIntentUseCase.execute(project.workspaceId, { title: "Exclusive claims", desiredState: "One owner per Task" });
   for (const [principal, role] of [["strat", "strategist"], ["mgr", "manager"], ["wrk", "worker"], ["rt", "runtime"]] as const) {
     await grant(database, app, project.id, principal, role);
   }
@@ -87,7 +87,7 @@ const confirmOutcome = async ({ database, services, app }: Kit) => {
     app,
     "decide_next_outcome",
     {
-      projectId: project.id,
+      workspaceId: project.workspaceId,
       intentId: intent.id,
       judgment: "Claims must be exclusive",
       reason: "Duplicate claims cause rework",
@@ -103,6 +103,10 @@ const confirmOutcome = async ({ database, services, app }: Kit) => {
   return { project, intent, outcome, decisionId: decision.id };
 };
 
+// Runtime eventはWorkspace所有。Workspace Runtime Credential（consumer rt）で取得する。
+const fetchRuntimeEvents = async (kit: Pick<Kit, "database" | "services" | "app">, workspaceId: string) =>
+  callTool(kit.app, "fetch_runtime_events", { workspaceId }, await issueWorkspaceRuntimeToken(kit.database, kit.services, workspaceId, "rt"));
+
 const storiesOf = async (app: App, projectId: string) =>
   (await callTool(app, "list_stories", { projectId }, "mgr")).structuredContent.stories as Record<string, any>[];
 
@@ -111,7 +115,7 @@ test("Outcome確定でRuntimeがoutcome_confirmedを取得でき、Managerがiss
   const { project, intent, outcome, decisionId } = await confirmOutcome(kit);
 
   // Runtime: 確定イベントを取得してManagerを起動する（起動はtest内の呼び出し）。
-  const fetched = await callTool(kit.app, "fetch_runtime_events", { projectId: project.id }, "rt");
+  const fetched = await fetchRuntimeEvents(kit, project.workspaceId);
   const event = (fetched.structuredContent.events as Record<string, any>[]).find((item) => item.type === "outcome_confirmed")!;
   assert.equal(event.outcomeId, outcome.id);
   assert.equal(event.intentId, intent.id);
@@ -172,7 +176,7 @@ test("同じhandoffの再送は、同じrequestIdでも新しいrequestId（time
   assert.equal((await storiesOf(kit.app, project.id)).length, 1);
 
   // 同時に届いた重複handoffも1件に収束する。
-  const other = await confirmOutcomeAgain(kit, project.id);
+  const other = await confirmOutcomeAgain(kit, project.workspaceId);
   const [left, right] = await Promise.all([
     callTool(kit.app, "issue_story", { projectId: project.id, title: "Concurrent", outcomeId: other, requestId: "race-a" }, "mgr"),
     callTool(kit.app, "issue_story", { projectId: project.id, title: "Concurrent", outcomeId: other, requestId: "race-b" }, "mgr"),
@@ -185,9 +189,9 @@ test("同じhandoffの再送は、同じrequestIdでも新しいrequestId（time
 });
 
 /** 同じProjectに2件目のOutcome（別のIntentは作れないため、既存Intent配下）を作る。 */
-const confirmOutcomeAgain = async (kit: Kit, projectId: string): Promise<string> => {
-  const intent = (await kit.services.listIntentsUseCase.execute(projectId))[0]!;
-  const created = await kit.services.createOutcomeUseCase.execute(projectId, intent.id, {
+const confirmOutcomeAgain = async (kit: Kit, workspaceId: string): Promise<string> => {
+  const intent = (await kit.services.listIntentsUseCase.execute(workspaceId))[0]!;
+  const created = await kit.services.createOutcomeUseCase.execute(workspaceId, intent.id, {
     title: "Second",
     description: "d",
     rationale: "r",
@@ -203,7 +207,7 @@ test("StoryのsnapshotはOutcome・Constraintsが後で変わっても変わら�
   const story = (await callTool(kit.app, "issue_story", { ...args, requestId: "req-1" }, "mgr")).structuredContent;
 
   await kit.services.updateProjectUseCase.execute(project.id, { constraints: ["Changed later"] });
-  await kit.services.cancelOutcomeUseCase.execute(project.id, intent.id, outcome.id, { reason: "Wrong metric" });
+  await kit.services.cancelOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id, { reason: "Wrong metric" });
 
   const listed = (await storiesOf(kit.app, project.id))[0]!;
   assert.deepEqual(listed.constraints, ["No autonomous execution yet", "Keep the public API"]);
@@ -278,7 +282,7 @@ test("archivedのProjectではStory・Taskを起票できず、work Claimも取�
 test("Execution層はOutcome・Success Criteriaを変更できず、Direction toolはStory・Taskを変更しない", async () => {
   const kit = await setup();
   const { project, intent, outcome } = await confirmOutcome(kit);
-  const before = await kit.services.getOutcomeUseCase.execute(project.id, intent.id, outcome.id);
+  const before = await kit.services.getOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id);
 
   const story = (await callTool(kit.app, "issue_story", { projectId: project.id, title: "Story", outcomeId: outcome.id, requestId: "s1" }, "mgr")).structuredContent;
   const task = (await callTool(kit.app, "issue_task", { projectId: project.id, storyId: story.id, title: "Task", taskKey: "task", requestId: "t1" }, "mgr")).structuredContent;
@@ -289,13 +293,13 @@ test("Execution層はOutcome・Success Criteriaを変更できず、Direction to
 
   // Execution Roleには、Outcomeを作る・変える・取消すtoolを通せない。
   for (const [name, args] of [
-    ["update_outcome", { projectId: project.id, intentId: intent.id, outcomeId: outcome.id, title: "Hacked" }],
-    ["cancel_outcome", { projectId: project.id, intentId: intent.id, outcomeId: outcome.id, reason: "x" }],
-    ["create_outcome", { projectId: project.id, intentId: intent.id, title: "T", description: "d", rationale: "r", successCriteria: [{ description: "d", measurement: "m" }] }],
+    ["update_outcome", { workspaceId: project.workspaceId, intentId: intent.id, outcomeId: outcome.id, title: "Hacked" }],
+    ["cancel_outcome", { workspaceId: project.workspaceId, intentId: intent.id, outcomeId: outcome.id, reason: "x" }],
+    ["create_outcome", { workspaceId: project.workspaceId, intentId: intent.id, title: "T", description: "d", rationale: "r", successCriteria: [{ description: "d", measurement: "m" }] }],
   ] as const) {
     for (const principal of ["mgr", "wrk"]) assert.equal(errorOf(await callTool(kit.app, name, args, principal)).code, "FORBIDDEN", `${name}/${principal}`);
   }
-  assert.deepEqual(await kit.services.getOutcomeUseCase.execute(project.id, intent.id, outcome.id), before);
+  assert.deepEqual(await kit.services.getOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id), before);
 
   // Strategist（Direction）はExecutionのStory・Taskを変更するtoolを持たず、Executionの操作もできない。
   assert.equal(errorOf(await callTool(kit.app, "cancel_task", { taskId: task.id, reason: "x", requestId: "d1" }, "strat")).code, "FORBIDDEN");
@@ -318,7 +322,7 @@ test("handoff済みのStory・Changeはserver再起動後も残り、再起動�
     const replay = (await callTool(second.app, "issue_story", { projectId: project.id, title: "Story", outcomeId: outcome.id, requestId: "req-after-restart" }, "mgr")).structuredContent;
     assert.equal(replay.id, created.id);
     assert.equal((await storiesOf(second.app, project.id)).length, 1);
-    const events = (await callTool(second.app, "fetch_runtime_events", { projectId: project.id }, "rt")).structuredContent.events as { type: string }[];
+    const events = (await fetchRuntimeEvents(second, project.workspaceId)).structuredContent.events as { type: string }[];
     assert.equal(events.filter((event) => event.type === "outcome_confirmed").length, 1);
     await second.database.destroy();
   } finally {

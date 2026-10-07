@@ -134,7 +134,7 @@ test("CORSはBearerのMCP・Runtime APIだけに許し、Session Cookieで認証
     });
   const human = await preflight("/api/projects/x/grants/manager/a", "DELETE");
   assert.equal(human.headers.get("Access-Control-Allow-Origin"), null);
-  for (const path of ["/mcp", "/api/projects/x/runtime-events", "/api/projects/x/runtime-events/e/ack", "/api/projects/x/outcomes/o/execution-evidence"]) {
+  for (const path of ["/mcp", "/api/workspaces/x/runtime-events", "/api/workspaces/x/runtime-events/e/ack", "/api/projects/x/outcomes/o/execution-evidence"]) {
     const bearer = await preflight(path, "POST");
     assert.equal(bearer.headers.get("Access-Control-Allow-Origin"), "*", path);
     assert.match((bearer.headers.get("Access-Control-Allow-Headers") ?? "").toLowerCase(), /authorization/, path);

@@ -24,7 +24,7 @@ const setup = async (mode: "remote" | "trusted-local") => {
   });
   // Web UIを経由せず、application層で既存のProject・Intent・Grantを用意する。
   const project = await services.createProjectUseCase.execute({ name: "Compass", mission: "Keep direction explicit" });
-  const intent = await services.createIntentUseCase.execute(project.id, { title: "I", desiredState: "S" });
+  const intent = await services.createIntentUseCase.execute(project.workspaceId, { title: "I", desiredState: "S" });
   await services.grantProjectRoleUseCase.execute(project.id, { principalId: "manager-1", role: "manager" });
   // remote modeのAgentはCompass発行のAgent Credentialで認証する（Task 37）。Agent名だけのBearerは401。
   const owner = await createTestHuman(database);
@@ -83,11 +83,11 @@ test("remote modeの匿名MCPはRole文書だけを公開し、Human向けComman
   for (const name of humanCommandTools) await assertRejected(app, name, args[name]);
   await assertRejected(app, "list_projects", {});
   await assertRejected(app, "get_project", { projectId: project.id });
-  await assertRejected(app, "list_intents", { projectId: project.id });
+  await assertRejected(app, "list_intents", { workspaceId: project.workspaceId });
 
   const projects = await services.listProjectsUseCase.execute();
   assert.deepEqual(projects.map((item) => item.name), ["Compass"]);
-  const stored = await services.getIntentUseCase.execute(project.id, intent.id);
+  const stored = await services.getIntentUseCase.execute(project.workspaceId, intent.id);
   assert.equal(stored.title, "I");
   assert.equal(stored.status, "active");
   assert.equal((await services.getProjectUseCase.execute(project.id)).mission, "Keep direction explicit");
@@ -105,8 +105,8 @@ test("remote modeではBearer付きでもHuman向けCommandを登録せず、Rol
   for (const name of humanCommandTools) await assertRejected(app, name, args[name], bearer);
 
   assert.equal((await services.listProjectsUseCase.execute()).length, 1);
-  assert.equal((await services.listIntentsUseCase.execute(project.id)).length, 1);
-  assert.equal((await services.getIntentUseCase.execute(project.id, intent.id)).status, "active");
+  assert.equal((await services.listIntentsUseCase.execute(project.workspaceId)).length, 1);
+  assert.equal((await services.getIntentUseCase.execute(project.workspaceId, intent.id)).status, "active");
 });
 
 test("trusted-local modeのMCPはHuman向けCommandを従来どおり登録する", async () => {

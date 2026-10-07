@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
+import { createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -61,17 +61,17 @@ const createProject = async (app: App, name = "Compass") =>
         principles: ["Agents decide, humans observe"],
         constraints: ["No autonomous execution yet"],
       })
-    ).json()) as { project: { id: string } }
-  ).project.id;
+    ).json()) as { project: { id: string; workspaceId: string } }
+  ).project;
 
-const createIntent = async (app: App, projectId: string) =>
-  ((await (await send(app, "POST", `/api/projects/${projectId}/intents`, { title: "I", desiredState: "S" })).json()) as {
+const createIntent = async (app: App, workspaceId: string) =>
+  ((await (await send(app, "POST", `/api/workspaces/${workspaceId}/intents`, { title: "I", desiredState: "S" })).json()) as {
     intent: { id: string };
   }).intent.id;
 
 const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role = "strategist") => {
   if (["strategist", "researcher", "evaluator"].includes(role)) {
-    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    await seedProjectWorkspaceGrant(database, projectId, principalId, role);
     return;
   }
   return send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role: "strategist" });
@@ -87,24 +87,24 @@ const outcomeInput = {
   ],
 };
 
-const outcomesOf = async (app: App, projectId: string, intentId: string) =>
-  ((await (await app.request(`/api/projects/${projectId}/intents/${intentId}/outcomes`)).json()) as { outcomes: unknown[] })
+const outcomesOf = async (app: App, workspaceId: string, intentId: string) =>
+  ((await (await app.request(`/api/workspaces/${workspaceId}/intents/${intentId}/outcomes`)).json()) as { outcomes: unknown[] })
     .outcomes;
 
 test("StrategistはBearerだけでContextを取得し、create_outcomeで登録でき、Webから同じ内容が見える", async () => {
   const { database, app } = await setup();
-  const projectId = await createProject(app);
-  const intentId = await createIntent(app, projectId);
+  const { id: projectId, workspaceId } = await createProject(app);
+  const intentId = await createIntent(app, workspaceId);
   await grant(database, app, projectId, "strat-1");
 
-  const context = await callTool(app, "get_strategist_context", { projectId }, "strat-1");
+  const context = await callTool(app, "get_strategist_context", { workspaceId }, "strat-1");
   assert.equal(context.isError, undefined);
   const value = context.structuredContent;
   assert.equal(value.principalId, "strat-1");
   assert.equal(value.role, "strategist");
-  assert.equal(value.project.id, projectId);
-  assert.deepEqual(value.project.principles, ["Agents decide, humans observe"]);
-  assert.deepEqual(value.project.constraints, ["No autonomous execution yet"]);
+  assert.equal(value.workspace.id, workspaceId);
+  assert.deepEqual(value.workspace.principles, ["Agents decide, humans observe"]);
+  assert.deepEqual(value.workspace.constraints, ["No autonomous execution yet"]);
   assert.equal(value.activeIntent.id, intentId);
   assert.deepEqual(value.outcomes, []);
   assert.deepEqual(value.unavailable, ["evidence"]);
@@ -113,11 +113,11 @@ test("StrategistはBearerだけでContextを取得し、create_outcomeで登録�
   assert.deepEqual(value.research.syntheses, []);
   assert.deepEqual(value.research.conflicts, []);
 
-  const created = await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "strat-1");
+  const created = await callTool(app, "create_outcome", { workspaceId, intentId, ...outcomeInput }, "strat-1");
   assert.equal(created.isError, undefined);
   const outcome = created.structuredContent.outcome;
   assert.equal(outcome.status, "active");
-  const viaWeb = (await (await app.request(`/api/projects/${projectId}/intents/${intentId}/outcomes/${outcome.id}`)).json()) as {
+  const viaWeb = (await (await app.request(`/api/workspaces/${workspaceId}/intents/${intentId}/outcomes/${outcome.id}`)).json()) as {
     outcome: { rationale: string; successCriteria: unknown[] };
   };
   assert.deepEqual(viaWeb.outcome, outcome);
@@ -125,8 +125,8 @@ test("StrategistはBearerだけでContextを取得し、create_outcomeで登録�
   assert.equal(viaWeb.outcome.successCriteria.length, 2);
 
   // 取消したOutcomeも、次のContextに理由付きで残る。
-  await callTool(app, "cancel_outcome", { projectId, intentId, outcomeId: outcome.id, reason: "Wrong metric" }, "strat-1");
-  const after = await callTool(app, "get_strategist_context", { projectId }, "strat-1");
+  await callTool(app, "cancel_outcome", { workspaceId, intentId, outcomeId: outcome.id, reason: "Wrong metric" }, "strat-1");
+  const after = await callTool(app, "get_strategist_context", { workspaceId }, "strat-1");
   assert.deepEqual(
     after.structuredContent.outcomes.map((item: { id: string; status: string; cancelReason: string }) => [item.id, item.status, item.cancelReason]),
     [[outcome.id, "cancelled", "Wrong metric"]],
@@ -136,9 +136,9 @@ test("StrategistはBearerだけでContextを取得し、create_outcomeで登録�
 
 test("Active Intentが無いProjectのContextはactiveIntent:null・outcomes:[]で、エラーにならない", async () => {
   const { database, app } = await setup();
-  const projectId = await createProject(app);
+  const { id: projectId, workspaceId } = await createProject(app);
   await grant(database, app, projectId, "strat-1");
-  const context = await callTool(app, "get_strategist_context", { projectId }, "strat-1");
+  const context = await callTool(app, "get_strategist_context", { workspaceId }, "strat-1");
   assert.equal(context.isError, undefined);
   assert.equal(context.structuredContent.activeIntent, null);
   assert.deepEqual(context.structuredContent.outcomes, []);
@@ -146,75 +146,75 @@ test("Active Intentが無いProjectのContextはactiveIntent:null・outcomes:[]�
   await database.destroy();
 });
 
-test("get_research_requestはStrategist GrantでSynthesis→Finding→Evidenceを辿れ、Grantなし・別Project・存在しないIDを拒否する", async () => {
+test("get_research_requestはStrategist GrantでSynthesis→Finding→Evidenceを辿れ、Grantなし・別Workspace・存在しないIDを拒否する", async () => {
   const { database, services, app } = await setup();
-  const projectId = await createProject(app);
-  const otherProjectId = await createProject(app, "Other");
-  const intentId = await createIntent(app, projectId);
-  await requestIntentResearch(services, projectId, intentId);
+  const { id: projectId, workspaceId } = await createProject(app);
+  const { id: otherProjectId, workspaceId: otherWorkspaceId } = await createProject(app, "Other");
+  const intentId = await createIntent(app, workspaceId);
+  await requestIntentResearch(services, workspaceId, intentId);
   await grant(database, app, projectId, "strat-1");
 
-  const context = await callTool(app, "get_strategist_context", { projectId }, "strat-1");
+  const context = await callTool(app, "get_strategist_context", { workspaceId }, "strat-1");
   const requestId = context.structuredContent.research.requests[0].id as string;
 
-  const detail = await callTool(app, "get_research_request", { projectId, requestId }, "strat-1");
+  const detail = await callTool(app, "get_research_request", { workspaceId, requestId }, "strat-1");
   assert.equal(detail.isError, undefined);
   assert.equal(detail.structuredContent.request.id, requestId);
   assert.deepEqual(detail.structuredContent.results, []);
   assert.deepEqual(detail.structuredContent.syntheses, []);
 
-  const unauthenticated = await callTool(app, "get_research_request", { projectId, requestId });
+  const unauthenticated = await callTool(app, "get_research_request", { workspaceId, requestId });
   assert.equal(unauthenticated.structuredContent.error.code, "UNAUTHENTICATED");
 
-  const forbidden = await callTool(app, "get_research_request", { projectId, requestId }, "someone-else");
+  const forbidden = await callTool(app, "get_research_request", { workspaceId, requestId }, "someone-else");
   assert.equal(forbidden.structuredContent.error.code, "FORBIDDEN");
 
-  const wrongProject = await callTool(app, "get_research_request", { projectId: otherProjectId, requestId }, "strat-1");
-  assert.equal(wrongProject.structuredContent.error.code, "FORBIDDEN");
+  const wrongWorkspace = await callTool(app, "get_research_request", { workspaceId: otherWorkspaceId, requestId }, "strat-1");
+  assert.equal(wrongWorkspace.structuredContent.error.code, "FORBIDDEN");
 
   await grant(database, app, otherProjectId, "strat-1");
-  const notFound = await callTool(app, "get_research_request", { projectId: otherProjectId, requestId }, "strat-1");
+  const notFound = await callTool(app, "get_research_request", { workspaceId: otherWorkspaceId, requestId }, "strat-1");
   assert.equal(notFound.structuredContent.error.code, "NOT_FOUND");
 
-  const missingId = await callTool(app, "get_research_request", { projectId, requestId: "missing" }, "strat-1");
+  const missingId = await callTool(app, "get_research_request", { workspaceId, requestId: "missing" }, "strat-1");
   assert.equal(missingId.structuredContent.error.code, "NOT_FOUND");
   await database.destroy();
 });
 
 test("Bearerなしは、Strategist要求のtoolをUNAUTHENTICATEDで拒否し、Outcomeを作らない", async () => {
   const { database, app } = await setup();
-  const projectId = await createProject(app);
-  const intentId = await createIntent(app, projectId);
+  const { id: projectId, workspaceId } = await createProject(app);
+  const intentId = await createIntent(app, workspaceId);
   await grant(database, app, projectId, "strat-1");
-  const outcomeId = ((await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "strat-1")).structuredContent.outcome as { id: string }).id;
+  const outcomeId = ((await callTool(app, "create_outcome", { workspaceId, intentId, ...outcomeInput }, "strat-1")).structuredContent.outcome as { id: string }).id;
 
   const calls: [string, object][] = [
-    ["get_strategist_context", { projectId }],
-    ["create_outcome", { projectId, intentId, ...outcomeInput }],
-    ["update_outcome", { projectId, intentId, outcomeId, title: "X" }],
-    ["cancel_outcome", { projectId, intentId, outcomeId, reason: "r" }],
+    ["get_strategist_context", { workspaceId }],
+    ["create_outcome", { workspaceId, intentId, ...outcomeInput }],
+    ["update_outcome", { workspaceId, intentId, outcomeId, title: "X" }],
+    ["cancel_outcome", { workspaceId, intentId, outcomeId, reason: "r" }],
   ];
   for (const [name, args] of calls) {
     const result = await callTool(app, name, args);
     assert.equal(result.isError, true, name);
     assert.equal(result.structuredContent.error.code, "UNAUTHENTICATED", name);
   }
-  assert.equal((await outcomesOf(app, projectId, intentId)).length, 1);
+  assert.equal((await outcomesOf(app, workspaceId, intentId)).length, 1);
   await database.destroy();
 });
 
-test("Grantなし・別Projectだけ・存在しないProjectはすべて同じFORBIDDENで、Projectの存在を漏らさない", async () => {
+test("Grantなし・別Workspaceだけ・存在しないWorkspaceはすべて同じFORBIDDENで、Workspaceの存在を漏らさない", async () => {
   const { database, app } = await setup();
-  const projectId = await createProject(app, "P");
-  const otherId = await createProject(app, "Q");
-  const intentId = await createIntent(app, projectId);
+  const { id: projectId, workspaceId } = await createProject(app, "P");
+  const { id: otherId } = await createProject(app, "Q");
+  const intentId = await createIntent(app, workspaceId);
   await grant(database, app, otherId, "strat-1");
 
   const results = [
-    await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "strat-1"),
-    await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "nobody"),
-    await callTool(app, "get_strategist_context", { projectId: "missing-project" }, "strat-1"),
-    await callTool(app, "create_outcome", { projectId: "missing-project", intentId, ...outcomeInput }, "strat-1"),
+    await callTool(app, "create_outcome", { workspaceId, intentId, ...outcomeInput }, "strat-1"),
+    await callTool(app, "create_outcome", { workspaceId, intentId, ...outcomeInput }, "nobody"),
+    await callTool(app, "get_strategist_context", { workspaceId: "missing-workspace" }, "strat-1"),
+    await callTool(app, "create_outcome", { workspaceId: "missing-workspace", intentId, ...outcomeInput }, "strat-1"),
   ];
   for (const result of results) {
     assert.equal(result.isError, true);
@@ -222,25 +222,25 @@ test("Grantなし・別Projectだけ・存在しないProjectはすべて同じF
     assert.equal(result.structuredContent.error.requiredRole, "strategist");
     assert.doesNotMatch(result.structuredContent.error.message, /not found|was not found/i);
   }
-  assert.equal((await outcomesOf(app, projectId, intentId)).length, 0);
+  assert.equal((await outcomesOf(app, workspaceId, intentId)).length, 0);
   await database.destroy();
 });
 
 test("Grantの取消は再起動なしで次の呼び出しから反映され、作成済みOutcomeは残る", async () => {
-  const { database, app } = await setup();
-  const projectId = await createProject(app);
-  const intentId = await createIntent(app, projectId);
+  const { database, services, app } = await setup();
+  const { id: projectId, workspaceId } = await createProject(app);
+  const intentId = await createIntent(app, workspaceId);
   await grant(database, app, projectId, "strat-1");
-  assert.equal((await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "strat-1")).isError, undefined);
+  assert.equal((await callTool(app, "create_outcome", { workspaceId, intentId, ...outcomeInput }, "strat-1")).isError, undefined);
 
-  await send(app, "DELETE", `/api/projects/${projectId}/grants/strategist/strat-1`);
-  const denied = await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "strat-1");
+  await services.revokeWorkspaceRoleUseCase.execute(workspaceId, { principalId: "strat-1", role: "strategist" });
+  const denied = await callTool(app, "create_outcome", { workspaceId, intentId, ...outcomeInput }, "strat-1");
   assert.equal(denied.structuredContent.error.code, "FORBIDDEN");
-  assert.equal((await callTool(app, "get_strategist_context", { projectId }, "strat-1")).structuredContent.error.code, "FORBIDDEN");
-  assert.equal((await outcomesOf(app, projectId, intentId)).length, 1);
+  assert.equal((await callTool(app, "get_strategist_context", { workspaceId }, "strat-1")).structuredContent.error.code, "FORBIDDEN");
+  assert.equal((await outcomesOf(app, workspaceId, intentId)).length, 1);
 
   await grant(database, app, projectId, "strat-1");
-  assert.equal((await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "strat-1")).isError, undefined);
+  assert.equal((await callTool(app, "create_outcome", { workspaceId, intentId, ...outcomeInput }, "strat-1")).isError, undefined);
   await database.destroy();
 });
 
@@ -259,15 +259,15 @@ test("不正なAuthorizationは401でtoolへ進まず、anonymousへ降格しな
 
 test("request本文・tool入力のrole/principalId・session IDは認証情報として扱わない", async () => {
   const { database, app } = await setup();
-  const projectId = await createProject(app);
-  const intentId = await createIntent(app, projectId);
+  const { id: projectId, workspaceId } = await createProject(app);
+  const intentId = await createIntent(app, workspaceId);
   await grant(database, app, projectId, "strat-1");
 
   // tool入力へ他人のprincipalId・roleを入れても、Bearerのnobodyが評価される。
   const spoofed = await callTool(
     app,
     "create_outcome",
-    { projectId, intentId, ...outcomeInput, role: "strategist", principalId: "strat-1" },
+    { workspaceId, intentId, ...outcomeInput, role: "strategist", principalId: "strat-1" },
     "nobody",
   );
   assert.equal(spoofed.structuredContent.error.code, "FORBIDDEN");
@@ -284,42 +284,42 @@ test("request本文・tool入力のrole/principalId・session IDは認証情報�
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
-      params: { name: "get_strategist_context", arguments: { projectId, principalId: "strat-1", role: "strategist" } },
+      params: { name: "get_strategist_context", arguments: { workspaceId, principalId: "strat-1", role: "strategist" } },
     }),
   });
   const data = await readData(response);
   assert.equal(data.result.structuredContent.error.code, "UNAUTHENTICATED");
-  assert.equal((await outcomesOf(app, projectId, intentId)).length, 0);
+  assert.equal((await outcomesOf(app, workspaceId, intentId)).length, 0);
   await database.destroy();
 });
 
 test("StrategistのGrantを持つPrincipalはProject・Intentの管理toolを拒否され、Bearerなしは従来どおり成功する", async () => {
   const { database, app } = await setup();
-  const projectId = await createProject(app);
-  const intentId = await createIntent(app, projectId);
+  const { id: projectId, workspaceId } = await createProject(app);
+  const intentId = await createIntent(app, workspaceId);
   await grant(database, app, projectId, "strat-1");
-  const otherId = await createProject(app, "Q");
+  const { id: otherId } = await createProject(app, "Q");
 
   const guarded: [string, object][] = [
     ["update_project", { projectId, name: "Renamed" }],
-    ["create_intent", { projectId, title: "T", desiredState: "D" }],
-    ["update_intent", { projectId, intentId, title: "Renamed" }],
-    ["abandon_intent", { projectId, intentId }],
+    ["create_intent", { workspaceId, title: "T", desiredState: "D" }],
+    ["update_intent", { workspaceId, intentId, title: "Renamed" }],
+    ["abandon_intent", { workspaceId, intentId }],
   ];
   for (const [name, args] of guarded) {
     const denied = await callTool(app, name, args, "strat-1");
     assert.equal(denied.isError, true, name);
     assert.equal(denied.structuredContent.error.code, "FORBIDDEN", name);
   }
-  const intent = ((await (await app.request(`/api/projects/${projectId}/intents/${intentId}`)).json()) as { intent: { status: string; title: string } }).intent;
+  const intent = ((await (await app.request(`/api/workspaces/${workspaceId}/intents/${intentId}`)).json()) as { intent: { status: string; title: string } }).intent;
   assert.deepEqual([intent.status, intent.title], ["active", "I"]);
 
-  // 別ProjectのStrategistは、Grantを持たないProjectのIntentを従来どおり操作できる（Grantの範囲はProject scope）。
+  // 別WorkspaceのStrategistは、Grantを持たないWorkspaceのProjectを従来どおり操作できる（Grantの範囲はWorkspace scope）。
   assert.equal((await callTool(app, "update_project", { projectId: otherId, name: "Q2" }, "strat-1")).isError, undefined);
   // Bearerなし・Grantなしの呼び出しは従来どおり。
-  assert.equal((await callTool(app, "update_intent", { projectId, intentId, title: "By operator" })).isError, undefined);
-  assert.equal((await callTool(app, "update_intent", { projectId, intentId, title: "By other" }, "someone")).isError, undefined);
-  assert.equal((await callTool(app, "abandon_intent", { projectId, intentId })).isError, undefined);
+  assert.equal((await callTool(app, "update_intent", { workspaceId, intentId, title: "By operator" })).isError, undefined);
+  assert.equal((await callTool(app, "update_intent", { workspaceId, intentId, title: "By other" }, "someone")).isError, undefined);
+  assert.equal((await callTool(app, "abandon_intent", { workspaceId, intentId })).isError, undefined);
   await database.destroy();
 });
 
@@ -349,9 +349,9 @@ test("initialize・tools/listはBearerなしで成功し、Grant管理toolを公
 
 test("Web APIのOutcome操作はPrincipalなしで従来どおり動く", async () => {
   const { database, app } = await setup();
-  const projectId = await createProject(app);
-  const intentId = await createIntent(app, projectId);
-  const created = await send(app, "POST", `/api/projects/${projectId}/intents/${intentId}/outcomes`, outcomeInput);
+  const { id: projectId, workspaceId } = await createProject(app);
+  const intentId = await createIntent(app, workspaceId);
+  const created = await send(app, "POST", `/api/workspaces/${workspaceId}/intents/${intentId}/outcomes`, outcomeInput);
   assert.equal(created.status, 201);
   await database.destroy();
 });

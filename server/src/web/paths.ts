@@ -1,3 +1,6 @@
+/** Workspace所有のDirection（Intent・Outcome・Research・Decision・ADR参照・Evaluation）のWeb API。画面のrouteはProject配下のまま。 */
+export const workspaceApiPath = (workspaceId: string, suffix = "") => `/api/workspaces/${workspaceId}${suffix}`;
+
 export const intentPath = (projectId: string, intentId?: string, suffix = "") =>
   `/projects/${projectId}/intents${intentId ? `/${intentId}` : ""}${suffix}`;
 

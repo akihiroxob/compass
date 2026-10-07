@@ -31,8 +31,8 @@ export const createApp = (
   const bearerCors = cors({ origin: "*", allowMethods: ["GET", "POST", "OPTIONS"], allowHeaders: ["Authorization", "Content-Type", ACTIVE_ROLE_HEADER] });
   for (const path of [
     "/mcp",
-    "/api/projects/:projectId/runtime-events",
-    "/api/projects/:projectId/runtime-events/*",
+    "/api/workspaces/:workspaceId/runtime-events",
+    "/api/workspaces/:workspaceId/runtime-events/*",
     "/api/projects/:projectId/outcomes/:outcomeId/execution-evidence",
   ]) {
     app.use(path, bearerCors);
@@ -114,52 +114,54 @@ export const createApp = (
     return c.json({ project });
   });
 
-  app.post("/api/projects/:projectId/intents", async (c) => {
+  // Workspace Direction（Intent・Outcome）。Workspace Membershipで認可し、MCPと同じapplication use caseへ委譲する。
+  // Project配下の旧経路はWorkspaceの別名として残さない。
+  app.post("/api/workspaces/:workspaceId/intents", async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Intent");
-    const intent = await human.createIntent.execute(actor, c.req.param("projectId"), input);
+    const intent = await human.createIntent.execute(actor, c.req.param("workspaceId"), input);
     return c.json({ intent }, 201);
   });
-  app.get("/api/projects/:projectId/intents", async (c) =>
-    c.json({ intents: await human.listIntents.execute(await actorOf(c), c.req.param("projectId")) }),
+  app.get("/api/workspaces/:workspaceId/intents", async (c) =>
+    c.json({ intents: await human.listIntents.execute(await actorOf(c), c.req.param("workspaceId")) }),
   );
-  app.get("/api/projects/:projectId/intents/:intentId", async (c) =>
+  app.get("/api/workspaces/:workspaceId/intents/:intentId", async (c) =>
     c.json({
-      intent: await human.getIntent.execute(await actorOf(c), c.req.param("projectId"), c.req.param("intentId")),
+      intent: await human.getIntent.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("intentId")),
     }),
   );
-  app.patch("/api/projects/:projectId/intents/:intentId", async (c) => {
+  app.patch("/api/workspaces/:workspaceId/intents/:intentId", async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Intent");
     const intent = await human.updateIntent.execute(
       actor,
-      c.req.param("projectId"),
+      c.req.param("workspaceId"),
       c.req.param("intentId"),
       input,
     );
     return c.json({ intent });
   });
-  app.post("/api/projects/:projectId/intents/:intentId/abandon", async (c) => {
+  app.post("/api/workspaces/:workspaceId/intents/:intentId/abandon", async (c) => {
     const actor = await actorOf(c);
     // 放棄理由は任意のため、本文なしの要求は理由なしとして扱う。
     const hasBody = (await c.req.raw.clone().text()).trim() !== "";
     const input = hasBody ? await readJsonBody(c.req.raw, "Intent") : {};
     const intent = await human.abandonIntent.execute(
       actor,
-      c.req.param("projectId"),
+      c.req.param("workspaceId"),
       c.req.param("intentId"),
       input,
     );
     return c.json({ intent });
   });
 
-  const outcomesPath = "/api/projects/:projectId/intents/:intentId/outcomes";
+  const outcomesPath = "/api/workspaces/:workspaceId/intents/:intentId/outcomes";
   app.post(outcomesPath, async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Outcome");
     const outcome = await human.createOutcome.execute(
       actor,
-      c.req.param("projectId"),
+      c.req.param("workspaceId"),
       c.req.param("intentId"),
       input,
     );
@@ -167,14 +169,14 @@ export const createApp = (
   });
   app.get(outcomesPath, async (c) =>
     c.json({
-      outcomes: await human.listOutcomes.execute(await actorOf(c), c.req.param("projectId"), c.req.param("intentId")),
+      outcomes: await human.listOutcomes.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("intentId")),
     }),
   );
   app.get(`${outcomesPath}/:outcomeId`, async (c) =>
     c.json({
       outcome: await human.getOutcome.execute(
         await actorOf(c),
-        c.req.param("projectId"),
+        c.req.param("workspaceId"),
         c.req.param("intentId"),
         c.req.param("outcomeId"),
       ),
@@ -185,7 +187,7 @@ export const createApp = (
     const input = await readJsonBody(c.req.raw, "Outcome");
     const outcome = await human.updateOutcome.execute(
       actor,
-      c.req.param("projectId"),
+      c.req.param("workspaceId"),
       c.req.param("intentId"),
       c.req.param("outcomeId"),
       input,
@@ -199,7 +201,7 @@ export const createApp = (
     const input = hasBody ? await readJsonBody(c.req.raw, "Outcome") : {};
     const outcome = await human.cancelOutcome.execute(
       actor,
-      c.req.param("projectId"),
+      c.req.param("workspaceId"),
       c.req.param("intentId"),
       c.req.param("outcomeId"),
       input,
@@ -226,53 +228,53 @@ export const createApp = (
     return c.json({ revoked });
   });
   // Research・Direction Decision・ADR参照はHuman向けの読み取り専用画面（Task 29）。Agent Role Grantではなく
-  // Membership（viewer以上）で認可し、MCPのResearcher/Strategist tool群と同じapplication use caseへ委譲する。
-  app.get("/api/projects/:projectId/research-requests", async (c) => {
+  // Workspace Membership（viewer以上）で認可し、MCPのResearcher/Strategist tool群と同じapplication use caseへ委譲する。
+  app.get("/api/workspaces/:workspaceId/research-requests", async (c) => {
     const actor = await actorOf(c);
     const filter = { originIntentId: c.req.query("originIntentId"), status: c.req.query("status") };
     return c.json({
-      requests: await human.listResearchRequests.execute(actor, c.req.param("projectId"), filter),
+      requests: await human.listResearchRequests.execute(actor, c.req.param("workspaceId"), filter),
     });
   });
-  app.get("/api/projects/:projectId/research-requests/:requestId", async (c) =>
+  app.get("/api/workspaces/:workspaceId/research-requests/:requestId", async (c) =>
     c.json({
       detail: await human.getResearchRequest.execute(
         await actorOf(c),
-        c.req.param("projectId"),
+        c.req.param("workspaceId"),
         c.req.param("requestId"),
       ),
     }),
   );
-  app.get("/api/projects/:projectId/intents/:intentId/decisions", async (c) =>
+  app.get("/api/workspaces/:workspaceId/intents/:intentId/decisions", async (c) =>
     c.json({
       decisions: await human.listDirectionDecisions.execute(
         await actorOf(c),
-        c.req.param("projectId"),
+        c.req.param("workspaceId"),
         c.req.param("intentId"),
       ),
     }),
   );
-  app.get("/api/projects/:projectId/adr-references", async (c) =>
-    c.json({ references: await human.listAdrReferences.execute(await actorOf(c), c.req.param("projectId")) }),
+  app.get("/api/workspaces/:workspaceId/adr-references", async (c) =>
+    c.json({ references: await human.listAdrReferences.execute(await actorOf(c), c.req.param("workspaceId")) }),
   );
-  // 外部Runtime向け。consumerはRuntime Credentialの名前（trusted-localだけBearerのAgent名とruntime Grant）で、発行Projectのイベントだけを扱う。
-  // Session Cookieでは認可しない（Human Membershipと混同しない）。
+  // 外部Runtime向け。Runtime eventはWorkspace所有で、consumerはWorkspace Runtime Credentialの名前。発行Workspaceのイベントだけを扱う。
+  // Project Credential・trusted-localのAgent名では認可しない。Session Cookieでも認可しない（Human Membershipと混同しない）。
   // 認可・cursor・ackの規則は、MCPと同じapplication層のuse caseが持つ。
   const queryNumber = (value: string | undefined) =>
     value === undefined ? undefined : value.trim() === "" ? Number.NaN : Number(value);
-  app.get("/api/projects/:projectId/runtime-events", async (c) =>
+  app.get("/api/workspaces/:workspaceId/runtime-events", async (c) =>
     c.json(
       await operationServicesOf(c).fetchRuntimeEventsUseCase.execute(
         await callerOf(c),
-        c.req.param("projectId"),
+        c.req.param("workspaceId"),
         { afterCursor: queryNumber(c.req.query("afterCursor")), limit: queryNumber(c.req.query("limit")) },
       ),
     ),
   );
-  app.post("/api/projects/:projectId/runtime-events/:eventId/ack", async (c) => {
+  app.post("/api/workspaces/:workspaceId/runtime-events/:eventId/ack", async (c) => {
     const caller = await callerOf(c);
     const input = await readJsonBody(c.req.raw, "Runtime event ack");
-    const result = await operationServicesOf(c).ackRuntimeEventUseCase.execute(caller, c.req.param("projectId"), {
+    const result = await operationServicesOf(c).ackRuntimeEventUseCase.execute(caller, c.req.param("workspaceId"), {
       ...(typeof input === "object" && input !== null ? input : {}),
       eventId: c.req.param("eventId"),
     });
@@ -291,7 +293,7 @@ export const createApp = (
       ),
     );
   });
-  // Human向けの読取。還流済みのExecutionの結果・Evidence参照を返す（還流前は`record: null`）。
+  // Human向けの読取（Project Membership）。還流済みのProjectのExecutionの結果・Evidence参照を返す（還流前は`record: null`）。
   app.get("/api/projects/:projectId/outcomes/:outcomeId/execution-summary", async (c) =>
     c.json({
       record: await human.getExecutionSummary.execute(
@@ -301,11 +303,11 @@ export const createApp = (
       ),
     }),
   );
-  app.get("/api/projects/:projectId/outcomes/:outcomeId/evaluations", async (c) =>
+  app.get("/api/workspaces/:workspaceId/outcomes/:outcomeId/evaluations", async (c) =>
     c.json({
       evaluations: await human.listOutcomeEvaluations.execute(
         await actorOf(c),
-        c.req.param("projectId"),
+        c.req.param("workspaceId"),
         c.req.param("outcomeId"),
       ),
     }),

@@ -13,7 +13,7 @@ import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createApp } from "../src/bootstrap/app.ts";
-import { createTestHuman, humanHeaders, type TestHuman, seedLegacyProjectGrant } from "./support/humanSession.ts";
+import { createTestHuman, humanHeaders, type TestHuman, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { AgentContextService } from "../src/application/agentContext/AgentContextService.ts";
 import { FileAgentAssetRepository } from "../src/infrastructure/agentAssets/FileAgentAssetRepository.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
@@ -77,6 +77,7 @@ const withEnvironment = async (
   run: (environment: {
     path: string;
     seedGrant: (projectId: string, principalId: string) => Promise<void>;
+    revokeGrant: (workspaceId: string, principalId: string) => Promise<void>;
     start: (agentContextService?: AgentContextService, port?: number) => Promise<Running & { stop: () => Promise<void> }>;
     cli: (...args: string[]) => Promise<{ code: number; stdout: string; stderr: string }>;
   }) => Promise<void>,
@@ -89,7 +90,13 @@ const withEnvironment = async (
       path,
       seedGrant: async (projectId, principalId) => {
         const database = createDatabase(path);
-        try { await seedLegacyProjectGrant(database, projectId, principalId, "strategist"); }
+        try { await seedProjectWorkspaceGrant(database, projectId, principalId, "strategist"); }
+        finally { await database.destroy(); }
+      },
+      // Workspace Direction RoleのGrant管理のWeb UI・CLIは未接続（S10-03）。取消はuse caseで行う。
+      revokeGrant: async (workspaceId, principalId) => {
+        const database = createDatabase(path);
+        try { await createApplicationServices(database).revokeWorkspaceRoleUseCase.execute(workspaceId, { principalId, role: "strategist" }); }
         finally { await database.destroy(); }
       },
       start: async (agentContextService, port) => {
@@ -139,10 +146,10 @@ const api = async (baseUrl: string, method: string, path: string, body?: unknown
 };
 
 const createProject = async (baseUrl: string, name = "Compass") =>
-  ((await api(baseUrl, "POST", "/api/projects", { name, mission: "Keep direction explicit" })).body.project as { id: string }).id;
+  (await api(baseUrl, "POST", "/api/projects", { name, mission: "Keep direction explicit" })).body.project as { id: string; workspaceId: string };
 
-const createIntent = async (baseUrl: string, projectId: string) =>
-  ((await api(baseUrl, "POST", `/api/projects/${projectId}/intents`, { title: "I", desiredState: "S" })).body.intent as { id: string }).id;
+const createIntent = async (baseUrl: string, workspaceId: string) =>
+  ((await api(baseUrl, "POST", `/api/workspaces/${workspaceId}/intents`, { title: "I", desiredState: "S" })).body.intent as { id: string }).id;
 
 /** Bearer付き（principal省略でBearerなし）のMCP clientを実HTTPで接続する。 */
 const withAgent = async <T>(baseUrl: string, principal: string | undefined, run: (client: Client) => Promise<T>) => {
@@ -165,14 +172,14 @@ const errorCode = (result: ToolResult) => {
   return result.structuredContent?.error.code as string;
 };
 
-const outcomesOf = async (baseUrl: string, projectId: string, intentId: string) =>
-  (await api(baseUrl, "GET", `/api/projects/${projectId}/intents/${intentId}/outcomes`)).body.outcomes as unknown[];
+const outcomesOf = async (baseUrl: string, workspaceId: string, intentId: string) =>
+  (await api(baseUrl, "GET", `/api/workspaces/${workspaceId}/intents/${intentId}/outcomes`)).body.outcomes as unknown[];
 
 test("空DBから、API（Project・Intent）→ 旧Grant fixture → MCP（Instruction・Context・create_outcome）→ Web参照までHuman操作なしで完了する", { skip: loopbackSkip }, async () => {
   await withEnvironment(async ({ start, seedGrant }) => {
     const server = await start();
-    const projectId = await createProject(server.baseUrl);
-    const intentId = await createIntent(server.baseUrl, projectId);
+    const { id: projectId, workspaceId } = await createProject(server.baseUrl);
+    const intentId = await createIntent(server.baseUrl, workspaceId);
 
     // 未切替Project Direction経路の旧Grant fixture。新規発行は別testで拒否を確認する。
     await seedGrant(projectId, "strat-cli");
@@ -188,22 +195,22 @@ test("空DBから、API（Project・Intent）→ 旧Grant fixture → MCP（Inst
       ]);
 
       // Context: Project・Active Intent・（まだ無い）Outcome。未実装の入力は unavailable で明示される。
-      const context = await call(client, "get_strategist_context", { projectId });
+      const context = await call(client, "get_strategist_context", { workspaceId });
       assert.equal(context.isError, undefined);
       assert.equal(context.structuredContent?.principalId, "strat-cli");
       assert.equal(context.structuredContent?.role, "strategist");
-      assert.equal(context.structuredContent?.project.id, projectId);
+      assert.equal(context.structuredContent?.workspace.id, workspaceId);
       assert.equal(context.structuredContent?.activeIntent.id, intentId);
       assert.deepEqual(context.structuredContent?.outcomes, []);
       assert.deepEqual(context.structuredContent?.research.requests, []);
       assert.deepEqual(context.structuredContent?.unavailable, ["evidence"]);
 
       // create_outcome → Web APIから、rationale・固定された成功条件まで同じ内容で参照できる。
-      const created = await call(client, "create_outcome", { projectId, intentId, ...outcomeInput });
+      const created = await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput });
       assert.equal(created.isError, undefined);
       const outcome = created.structuredContent?.outcome;
       assert.equal(outcome.status, "active");
-      const viaWeb = await api(server.baseUrl, "GET", `/api/projects/${projectId}/intents/${intentId}/outcomes/${outcome.id}`);
+      const viaWeb = await api(server.baseUrl, "GET", `/api/workspaces/${workspaceId}/intents/${intentId}/outcomes/${outcome.id}`);
       assert.equal(viaWeb.status, 200);
       assert.deepEqual(viaWeb.body.outcome, outcome);
       assert.equal(viaWeb.body.outcome.rationale, outcomeInput.rationale);
@@ -213,11 +220,11 @@ test("空DBから、API（Project・Intent）→ 旧Grant fixture → MCP（Inst
       );
 
       // 成功条件は作成後に変えられない（取消して作り直す）。
-      const edited = await call(client, "update_outcome", { projectId, intentId, outcomeId: outcome.id, successCriteria: [] });
+      const edited = await call(client, "update_outcome", { workspaceId, intentId, outcomeId: outcome.id, successCriteria: [] });
       assert.equal(errorCode(edited), "CONFLICT");
 
       // 次のContextには作成済みOutcomeが載る。
-      const after = await call(client, "get_strategist_context", { projectId });
+      const after = await call(client, "get_strategist_context", { workspaceId });
       assert.deepEqual(after.structuredContent?.outcomes.map((item: { id: string }) => item.id), [outcome.id]);
     });
     await server.stop();
@@ -227,8 +234,8 @@ test("空DBから、API（Project・Intent）→ 旧Grant fixture → MCP（Inst
 test("Grantは API・CLI のどちらでも発行でき、MCPにはGrant管理toolが無く、Agentは自分に権限を付けられない", { skip: loopbackSkip }, async () => {
   await withEnvironment(async ({ start, cli }) => {
     const server = await start();
-    const projectId = await createProject(server.baseUrl);
-    const intentId = await createIntent(server.baseUrl, projectId);
+    const { id: projectId, workspaceId } = await createProject(server.baseUrl);
+    const intentId = await createIntent(server.baseUrl, workspaceId);
 
     assert.equal((await api(server.baseUrl, "POST", `/api/projects/${projectId}/grants`, { principalId: "direction", role: "strategist" })).status, 400);
     assert.equal((await cli("grant", projectId, "direction", "strategist")).code, 1);
@@ -243,7 +250,7 @@ test("Grantは API・CLI のどちらでも発行でき、MCPにはGrant管理to
         assert.equal((await call(client, "list_tasks", { projectId })).isError, undefined, principal);
       });
     }
-    assert.equal((await outcomesOf(server.baseUrl, projectId, intentId)).length, 0);
+    assert.equal((await outcomesOf(server.baseUrl, workspaceId, intentId)).length, 0);
 
     // MCPからGrantを発行・取消・一覧するtoolは公開されず、呼んでも権限は増えない。
     await withAgent(server.baseUrl, "self-grant", async (client) => {
@@ -253,7 +260,7 @@ test("Grantは API・CLI のどちらでも発行でき、MCPにはGrant管理to
         .callTool({ name: "grant_project_role", arguments: { projectId, principalId: "self-grant", role: "manager" } })
         .then((result) => result as ToolResult, () => ({ isError: true }) as ToolResult);
       assert.equal(attempt.isError, true);
-      assert.equal(errorCode(await call(client, "create_outcome", { projectId, intentId, ...outcomeInput })), "FORBIDDEN");
+      assert.equal(errorCode(await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput })), "FORBIDDEN");
     });
     const grants = (await api(server.baseUrl, "GET", `/api/projects/${projectId}/grants`)).body.grants as { principalId: string }[];
     assert.ok(!grants.some((grant) => grant.principalId === "self-grant"));
@@ -297,29 +304,29 @@ test("get_role_instructionsの応答はWacha互換（role・includeShared・file
 });
 
 test("権限なし・別Project・Grant取消・Bearerなし・Role不一致・存在しないProjectを拒否し、Outcomeを作らない", { skip: loopbackSkip }, async () => {
-  await withEnvironment(async ({ start, cli, seedGrant }) => {
+  await withEnvironment(async ({ start, cli, seedGrant, revokeGrant }) => {
     const server = await start();
-    const projectId = await createProject(server.baseUrl, "P");
-    const otherId = await createProject(server.baseUrl, "Q");
-    const intentId = await createIntent(server.baseUrl, projectId);
+    const { id: projectId, workspaceId } = await createProject(server.baseUrl, "P");
+    const { id: otherId } = await createProject(server.baseUrl, "Q");
+    const intentId = await createIntent(server.baseUrl, workspaceId);
     await seedGrant(projectId, "strat-p");
     await seedGrant(otherId, "strat-q");
 
     // 権限なし（Grantなし）・別Projectだけのstrategist・存在しないProjectは同じFORBIDDEN。
     await withAgent(server.baseUrl, "nobody", async (client) => {
-      assert.equal(errorCode(await call(client, "create_outcome", { projectId, intentId, ...outcomeInput })), "FORBIDDEN");
-      assert.equal(errorCode(await call(client, "get_strategist_context", { projectId })), "FORBIDDEN");
+      assert.equal(errorCode(await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput })), "FORBIDDEN");
+      assert.equal(errorCode(await call(client, "get_strategist_context", { workspaceId })), "FORBIDDEN");
     });
     await withAgent(server.baseUrl, "strat-q", async (client) => {
-      assert.equal(errorCode(await call(client, "create_outcome", { projectId, intentId, ...outcomeInput })), "FORBIDDEN");
-      assert.equal(errorCode(await call(client, "get_strategist_context", { projectId })), "FORBIDDEN");
-      assert.equal(errorCode(await call(client, "create_outcome", { projectId: "missing", intentId, ...outcomeInput })), "FORBIDDEN");
+      assert.equal(errorCode(await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput })), "FORBIDDEN");
+      assert.equal(errorCode(await call(client, "get_strategist_context", { workspaceId })), "FORBIDDEN");
+      assert.equal(errorCode(await call(client, "create_outcome", { workspaceId: "missing", intentId, ...outcomeInput })), "FORBIDDEN");
     });
 
     // Bearerなしは認証エラー。
     await withAgent(server.baseUrl, undefined, async (client) => {
-      assert.equal(errorCode(await call(client, "create_outcome", { projectId, intentId, ...outcomeInput })), "UNAUTHENTICATED");
-      assert.equal(errorCode(await call(client, "get_strategist_context", { projectId })), "UNAUTHENTICATED");
+      assert.equal(errorCode(await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput })), "UNAUTHENTICATED");
+      assert.equal(errorCode(await call(client, "get_strategist_context", { workspaceId })), "UNAUTHENTICATED");
     });
 
     // Role不一致: Strategistの読み書き経路（Instruction・Grant発行）にstrategist以外のRoleは通らない。
@@ -328,7 +335,7 @@ test("権限なし・別Project・Grant取消・Bearerなし・Role不一致・�
         assert.equal((await call(client, "get_role_instructions", { role, includeShared: true })).isError, true, role);
       }
       // 職務分離: Strategist Grantを持つPrincipalはDirection（Intent）を変更できない。
-      assert.equal(errorCode(await call(client, "update_intent", { projectId, intentId, title: "Renamed" })), "FORBIDDEN");
+      assert.equal(errorCode(await call(client, "update_intent", { workspaceId, intentId, title: "Renamed" })), "FORBIDDEN");
     });
     const workerGrant = await api(server.baseUrl, "POST", `/api/projects/${projectId}/grants`, { principalId: "agent-w", role: "admin" });
     assert.equal(workerGrant.status, 400);
@@ -339,14 +346,14 @@ test("権限なし・別Project・Grant取消・Bearerなし・Role不一致・�
 
     // 取消後は、同じAgentが次の呼び出しから拒否される（サーバー再起動なし）。作成済みOutcomeは残る。
     await withAgent(server.baseUrl, "strat-p", async (client) => {
-      assert.equal((await call(client, "create_outcome", { projectId, intentId, ...outcomeInput })).isError, undefined);
-      assert.deepEqual(JSON.parse((await cli("revoke", projectId, "strat-p", "strategist")).stdout), { revoked: true });
-      assert.equal(errorCode(await call(client, "create_outcome", { projectId, intentId, ...outcomeInput })), "FORBIDDEN");
-      assert.equal(errorCode(await call(client, "get_strategist_context", { projectId })), "FORBIDDEN");
+      assert.equal((await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput })).isError, undefined);
+      await revokeGrant(workspaceId, "strat-p");
+      assert.equal(errorCode(await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput })), "FORBIDDEN");
+      assert.equal(errorCode(await call(client, "get_strategist_context", { workspaceId })), "FORBIDDEN");
     });
 
     // 拒否された呼び出しはOutcomeを増やしていない（許可した1件だけ）。
-    assert.equal((await outcomesOf(server.baseUrl, projectId, intentId)).length, 1);
+    assert.equal((await outcomesOf(server.baseUrl, workspaceId, intentId)).length, 1);
     await server.stop();
   });
 });
@@ -356,8 +363,8 @@ test("Instructionファイルが欠落するとINSTRUCTION_UNAVAILABLEで失敗�
   try {
     await withEnvironment(async ({ start, seedGrant }) => {
       const server = await start(new AgentContextService(new FileAgentAssetRepository(empty)));
-      const projectId = await createProject(server.baseUrl);
-      const intentId = await createIntent(server.baseUrl, projectId);
+      const { id: projectId, workspaceId } = await createProject(server.baseUrl);
+      const intentId = await createIntent(server.baseUrl, workspaceId);
       await seedGrant(projectId, "strat-1");
 
       await withAgent(server.baseUrl, "strat-1", async (client) => {
@@ -368,8 +375,8 @@ test("Instructionファイルが欠落するとINSTRUCTION_UNAVAILABLEで失敗�
           assert.equal(result.structuredContent?.files, undefined);
         }
         // Instructionの欠落はGrant・Contextの経路を壊さない。
-        assert.equal((await call(client, "get_strategist_context", { projectId })).isError, undefined);
-        assert.equal((await call(client, "create_outcome", { projectId, intentId, ...outcomeInput })).isError, undefined);
+        assert.equal((await call(client, "get_strategist_context", { workspaceId })).isError, undefined);
+        assert.equal((await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput })).isError, undefined);
       });
       await server.stop();
     });
@@ -381,11 +388,11 @@ test("Instructionファイルが欠落するとINSTRUCTION_UNAVAILABLEで失敗�
 test("サーバーを再起動（同じDB・同じport）してもGrantとOutcomeは保持され、/api・/mcpが使える", { skip: loopbackSkip }, async () => {
   await withEnvironment(async ({ start, seedGrant }) => {
     const first = await start();
-    const projectId = await createProject(first.baseUrl);
-    const intentId = await createIntent(first.baseUrl, projectId);
+    const { id: projectId, workspaceId } = await createProject(first.baseUrl);
+    const intentId = await createIntent(first.baseUrl, workspaceId);
     await seedGrant(projectId, "strat-1");
     const outcomeId = await withAgent(first.baseUrl, "strat-1", async (client) => {
-      const created = await call(client, "create_outcome", { projectId, intentId, ...outcomeInput });
+      const created = await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput });
       assert.equal(created.isError, undefined);
       return created.structuredContent?.outcome.id as string;
     });
@@ -395,18 +402,14 @@ test("サーバーを再起動（同じDB・同じport）してもGrantとOutcom
     assert.equal(second.port, first.port);
     assert.equal((await api(second.baseUrl, "GET", "/api")).status, 200);
     assert.equal((await api(second.baseUrl, "GET", "/health")).status, 200);
-    assert.deepEqual(
-      ((await api(second.baseUrl, "GET", `/api/projects/${projectId}/grants`)).body.grants as { principalId: string }[]).map((grant) => grant.principalId),
-      ["strat-1"],
-    );
     await withAgent(second.baseUrl, "strat-1", async (client) => {
-      const context = await call(client, "get_strategist_context", { projectId });
+      const context = await call(client, "get_strategist_context", { workspaceId });
       assert.equal(context.isError, undefined);
       assert.deepEqual(context.structuredContent?.outcomes.map((item: { id: string }) => item.id), [outcomeId]);
-      assert.equal((await call(client, "create_outcome", { projectId, intentId, ...outcomeInput, title: "After restart" })).isError, undefined);
+      assert.equal((await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput, title: "After restart" })).isError, undefined);
     });
     await withAgent(second.baseUrl, "nobody", async (client) => {
-      assert.equal(errorCode(await call(client, "get_strategist_context", { projectId })), "FORBIDDEN");
+      assert.equal(errorCode(await call(client, "get_strategist_context", { workspaceId })), "FORBIDDEN");
     });
     await second.stop();
   });

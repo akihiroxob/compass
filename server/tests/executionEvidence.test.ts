@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
+import { createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -56,7 +56,7 @@ const errorOf = (result: ToolResult) => {
 
 const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role: string) => {
   if (["strategist", "researcher", "evaluator"].includes(role)) {
-    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    await seedProjectWorkspaceGrant(database, projectId, principalId, role);
     return;
   }
   return assert.equal(
@@ -76,7 +76,7 @@ const pullRequest = "https://github.com/example/compass/pull/1";
 
 const seedProject = async ({ database, services, app }: Kit, name = "Compass") => {
   const project = await services.createProjectUseCase.execute({ name, mission: "Keep execution guarded" });
-  const intent = await services.createIntentUseCase.execute(project.id, { title: "Guarded claims", desiredState: "One owner per Task" });
+  const intent = await services.createIntentUseCase.execute(project.workspaceId, { title: "Guarded claims", desiredState: "One owner per Task" });
   for (const [principal, role] of [["mgr", "manager"], ["wrk", "worker"], ["rev", "reviewer"], ["rt", "runtime"]] as const) {
     await grant(database, app, project.id, principal, role);
   }
@@ -84,8 +84,8 @@ const seedProject = async ({ database, services, app }: Kit, name = "Compass") =
 };
 
 let outcomeCount = 0;
-const createOutcome = async ({ services }: Kit, projectId: string, intentId: string) =>
-  services.createOutcomeUseCase.execute(projectId, intentId, {
+const createOutcome = async ({ services }: Kit, workspaceId: string, intentId: string) =>
+  services.createOutcomeUseCase.execute(workspaceId, intentId, {
     title: `Outcome ${++outcomeCount}`,
     description: "Claims are exclusive.",
     rationale: "Rework",
@@ -143,7 +143,7 @@ const evidence = (overrides: Record<string, unknown> = {}) => ({
 test("RuntimeがExecutionのChangeを増分取得して還流すると、進行に応じたExecution SummaryとEvidence参照がOutcomeへ相関付いて保存される", async () => {
   const kit = await setup();
   const { project, intent } = await seedProject(kit);
-  const outcome = await createOutcome(kit, project.id, intent.id);
+  const outcome = await createOutcome(kit, project.workspaceId, intent.id);
   const { storyId, taskIds } = await issueStory(kit, project.id, outcome.id, 2);
 
   // 還流前は、要約なし。
@@ -206,7 +206,7 @@ test("RuntimeがExecutionのChangeを増分取得して還流すると、進行�
   assert.deepEqual(await viaApi.json(), { record: fetched.record });
 
   // Execution acceptedでも、Outcomeは変更せず、Success Criterionを充足扱いにしない。
-  const stored = await kit.services.getOutcomeUseCase.execute(project.id, intent.id, outcome.id);
+  const stored = await kit.services.getOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id);
   assert.equal(stored.status, "active");
   assert.deepEqual(stored.successCriteria, outcome.successCriteria);
   assert.equal(JSON.stringify(done).includes("achieved"), false);
@@ -222,13 +222,13 @@ test("accepted / rejected / canceled / incompleteを区別する。Executionの�
   };
 
   // accepted
-  const acceptedOutcome = await createOutcome(kit, project.id, intent.id);
+  const acceptedOutcome = await createOutcome(kit, project.workspaceId, intent.id);
   const acceptedStory = await issueStory(kit, project.id, acceptedOutcome.id);
   await advance(kit.app, acceptedStory.taskIds[0]!, "accepted");
   assert.equal((await stateOf(acceptedOutcome.id)).state, "accepted");
 
   // rejected（未解決の差戻しだけが残る）
-  const rejectedOutcome = await createOutcome(kit, project.id, intent.id);
+  const rejectedOutcome = await createOutcome(kit, project.workspaceId, intent.id);
   const rejectedStory = await issueStory(kit, project.id, rejectedOutcome.id);
   await advance(kit.app, rejectedStory.taskIds[0]!, "in_review");
   await rejectInReview(kit.app, rejectedStory.taskIds[0]!);
@@ -237,16 +237,16 @@ test("accepted / rejected / canceled / incompleteを区別する。Executionの�
   assert.equal(rejected.stories[0].taskCounts.rejected, 1);
 
   // incomplete（Taskが進行中、およびTaskがまだ無いStory）
-  const runningOutcome = await createOutcome(kit, project.id, intent.id);
+  const runningOutcome = await createOutcome(kit, project.workspaceId, intent.id);
   const runningStory = await issueStory(kit, project.id, runningOutcome.id);
   await advance(kit.app, runningStory.taskIds[0]!, "in_review");
   assert.equal((await stateOf(runningOutcome.id)).state, "incomplete");
-  const plannedOutcome = await createOutcome(kit, project.id, intent.id);
+  const plannedOutcome = await createOutcome(kit, project.workspaceId, intent.id);
   await issueStory(kit, project.id, plannedOutcome.id, 0);
   assert.equal((await stateOf(plannedOutcome.id)).state, "incomplete");
 
   // canceled（有効なTaskが残らない）
-  const canceledOutcome = await createOutcome(kit, project.id, intent.id);
+  const canceledOutcome = await createOutcome(kit, project.workspaceId, intent.id);
   const canceledStory = await issueStory(kit, project.id, canceledOutcome.id);
   ok(await callTool(kit.app, "cancel_task", { taskId: canceledStory.taskIds[0], reason: "Out of scope", requestId: "cancel-1" }, "mgr"));
   assert.equal((await stateOf(canceledOutcome.id)).state, "canceled");
@@ -264,7 +264,7 @@ test("同じChange・Evidenceの再送は重複せず、順序逆転した古い
   try {
     let kit = await setup(path);
     const { project, intent } = await seedProject(kit);
-    const outcome = await createOutcome(kit, project.id, intent.id);
+    const outcome = await createOutcome(kit, project.workspaceId, intent.id);
     const { taskIds } = await issueStory(kit, project.id, outcome.id);
 
     const early = await changesOf(kit.app, project.id);
@@ -322,7 +322,7 @@ test("同じChange・Evidenceの再送は重複せず、順序逆転した古い
 test("同時に届いた同じ通知も1件に収束する", async () => {
   const kit = await setup();
   const { project, intent } = await seedProject(kit);
-  const outcome = await createOutcome(kit, project.id, intent.id);
+  const outcome = await createOutcome(kit, project.workspaceId, intent.id);
   await issueStory(kit, project.id, outcome.id);
   const head = (await changesOf(kit.app, project.id)).nextCursor;
   const args = { changeCursor: head, evidence: [evidence()] };
@@ -338,7 +338,7 @@ test("Projectまたぎ・Outcome対応なし・取消済み・archived・不正�
   const kit = await setup();
   const { project, intent } = await seedProject(kit);
   const other = await seedProject(kit, "Other");
-  const outcome = await createOutcome(kit, project.id, intent.id);
+  const outcome = await createOutcome(kit, project.workspaceId, intent.id);
   await issueStory(kit, project.id, outcome.id);
   const head = (await changesOf(kit.app, project.id)).nextCursor;
   const saved = async () => ({
@@ -359,7 +359,7 @@ test("Projectまたぎ・Outcome対応なし・取消済み・archived・不正�
   assert.equal(errorOf(await callTool(kit.app, "get_outcome_execution_summary", { projectId: other.project.id, outcomeId: outcome.id }, "rt")).code, "NOT_FOUND");
 
   // Outcomeに相関付いたStoryが無い（未着手）。存在しないOutcomeとは区別する。
-  const unstarted = await createOutcome(kit, project.id, intent.id);
+  const unstarted = await createOutcome(kit, project.workspaceId, intent.id);
   const noStory = errorOf(await record(kit.app, project.id, unstarted.id, { changeCursor: head }));
   assert.equal(noStory.code, "CONFLICT");
   assert.equal(noStory.reason, "no_correlated_story");
@@ -396,16 +396,17 @@ test("Projectまたぎ・Outcome対応なし・取消済み・archived・不正�
   assert.equal(ok(await record(kit.app, project.id, outcome.id, { changeCursor: head, evidence: many(0, 1) })).recorded.evidenceAdded, 0);
 
   // 取消済みOutcomeとarchived Projectは、新しい還流を受け付けない。
-  const cancelled = await createOutcome(kit, project.id, intent.id);
+  const cancelled = await createOutcome(kit, project.workspaceId, intent.id);
   await issueStory(kit, project.id, cancelled.id);
-  await kit.services.cancelOutcomeUseCase.execute(project.id, intent.id, cancelled.id, { reason: "Wrong metric" });
+  await kit.services.cancelOutcomeUseCase.execute(project.workspaceId, intent.id, cancelled.id, { reason: "Wrong metric" });
   const cancelledError = errorOf(await record(kit.app, project.id, cancelled.id, { changeCursor: 0 }));
   assert.equal(cancelledError.code, "CONFLICT");
   assert.equal(cancelledError.outcomeStatus, "cancelled");
   await kit.services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
   const archived = errorOf(await record(kit.app, project.id, outcome.id, { changeCursor: head }));
   assert.equal(archived.code, "CONFLICT");
-  assert.equal(archived.projectStatus, "archived");
+  // 最後のProjectのarchiveで所属Workspaceもarchivedになり、Workspaceのarchiveを先に検査する。
+  assert.equal(archived.workspaceStatus, "archived");
   assert.equal((await saved()).evidence, 200);
   await kit.database.destroy();
 });
@@ -413,7 +414,7 @@ test("Projectまたぎ・Outcome対応なし・取消済み・archived・不正�
 test("Web APIはRuntimeのBearerとruntime Grantを要求し、MCPと同じapplication層の結果・エラーを返す", async () => {
   const kit = await setup();
   const { project, intent } = await seedProject(kit);
-  const outcome = await createOutcome(kit, project.id, intent.id);
+  const outcome = await createOutcome(kit, project.workspaceId, intent.id);
   await issueStory(kit, project.id, outcome.id);
   const head = (await changesOf(kit.app, project.id)).nextCursor;
   const path = `/api/projects/${project.id}/outcomes/${outcome.id}/execution-evidence`;

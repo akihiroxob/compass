@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
+import { createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -62,13 +62,14 @@ const send = (app: App, method: string, path: string, body?: unknown, headers: R
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-const createProject = async (app: App, name = "Compass") =>
-  ((await (await send(app, "POST", "/api/projects", { name, mission: "Keep execution guarded" })).json()) as { project: { id: string } }).project.id;
+const createProjectWithWorkspace = async (app: App, name = "Compass") =>
+  ((await (await send(app, "POST", "/api/projects", { name, mission: "Keep execution guarded" })).json()) as { project: { id: string; workspaceId: string } }).project;
+const createProject = async (app: App, name = "Compass") => (await createProjectWithWorkspace(app, name)).id;
 
 const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, ...roles: string[]) => {
   for (const role of roles) {
     if (["strategist", "researcher", "evaluator"].includes(role)) {
-      await seedLegacyProjectGrant(database, projectId, principalId, role);
+      await seedProjectWorkspaceGrant(database, projectId, principalId, role);
       continue;
     }
     const response = await send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
@@ -169,15 +170,15 @@ test("同じrequestIdを異なるactiveRoleで再送すると既存結果を返�
 
 test("Direction toolもactiveRoleのRoleだけで認可し、別RoleのContextを読ませない", async () => {
   const { database, app } = await setup();
-  const projectId = await createProject(app);
+  const { id: projectId, workspaceId } = await createProjectWithWorkspace(app);
   await grant(database, app, projectId, "director", "strategist", "researcher");
 
-  const denied = await callTool(app, "get_strategist_context", { projectId }, "director", "researcher");
+  const denied = await callTool(app, "get_strategist_context", { workspaceId }, "director", "researcher");
   assert.equal(errorCode(denied), "FORBIDDEN");
   assert.equal(denied.structuredContent.error.activeRole, "researcher");
   assert.equal(denied.structuredContent.error.requiredRole, "strategist");
-  assert.equal((await callTool(app, "get_strategist_context", { projectId }, "director", "strategist")).isError, undefined);
-  assert.equal((await callTool(app, "get_strategist_context", { projectId }, "director")).isError, undefined);
+  assert.equal((await callTool(app, "get_strategist_context", { workspaceId }, "director", "strategist")).isError, undefined);
+  assert.equal((await callTool(app, "get_strategist_context", { workspaceId }, "director")).isError, undefined);
   await database.destroy();
 });
 
@@ -197,19 +198,21 @@ test("activeRoleでも職務分離は緩めず、Grantの無いactiveRoleでの�
 
 test("activeRole指定時はPrincipalなしの管理操作を拒否し、headerなし匿名の互換は維持する", async () => {
   const { database, app, services } = await setup();
-  const projectId = await createProject(app);
+  const { id: projectId, workspaceId } = await createProjectWithWorkspace(app);
   await grant(database, app, projectId, "manager-only", "manager");
-  const intentInput = { projectId, title: "Intent", desiredState: "done" };
+  const intentInput = { workspaceId, title: "Intent", desiredState: "done" };
 
   // Bearerなし＋activeRoleはGrant検査の対象Principalが無いためUNAUTHENTICATED。Projectは変更されない。
   const anonymousUpdate = await callTool(app, "update_project", { projectId, description: "changed anonymously" }, undefined, "manager");
   assert.equal(errorCode(anonymousUpdate), "UNAUTHENTICATED");
   assert.equal(errorCode(await callTool(app, "create_intent", intentInput, undefined, "manager")), "UNAUTHENTICATED");
   assert.notEqual((await services.getProjectUseCase.execute(projectId)).description, "changed anonymously");
-  assert.deepEqual((await callTool(app, "list_intents", { projectId }, "manager-only", "manager")).structuredContent.intents, []);
+  // Project RoleのactiveRoleはWorkspace Directionの参照・管理に使えない（scopeが違う）。
+  assert.equal(errorCode(await callTool(app, "list_intents", { workspaceId }, "manager-only", "manager")), "FORBIDDEN");
+  assert.equal(errorCode(await callTool(app, "create_intent", intentInput, "manager-only", "manager")), "FORBIDDEN");
+  assert.equal((await callTool(app, "create_intent", intentInput)).isError, undefined);
 
-  // Grant保持者はactiveRole付きで管理操作できる。
-  assert.equal((await callTool(app, "create_intent", intentInput, "manager-only", "manager")).isError, undefined);
+  // Grant保持者はactiveRole付きでProjectの管理操作ができる。
   assert.equal(
     (await callTool(app, "update_project", { projectId, description: "by manager" }, "manager-only", "manager")).isError,
     undefined,
@@ -239,9 +242,9 @@ test("Grant済みProjectの一覧はactiveRoleのGrantがあるProjectだけに�
   await database.destroy();
 });
 
-test("trusted-localでもactiveRole指定時はDirection参照・一覧にそのRoleのProject Grantを要求する", async () => {
+test("trusted-localでもactiveRole指定時はProject参照・Direction一覧にそのRoleのGrantを要求する", async () => {
   const { database, app } = await setup();
-  const workerProject = await createProject(app, "Worker");
+  const { id: workerProject, workspaceId: workerWorkspace } = await createProjectWithWorkspace(app, "Worker");
   const managerProject = await createProject(app, "Manager");
   await grant(database, app, workerProject, "multi", "worker");
   await grant(database, app, managerProject, "multi", "manager");
@@ -249,7 +252,7 @@ test("trusted-localでもactiveRole指定時はDirection参照・一覧にその
   // Grantを全く持たないPrincipalは、activeRole付きではProject本文もDirection参照も得られない。
   for (const [name, args] of [
     ["get_project", { projectId: workerProject }],
-    ["list_intents", { projectId: workerProject }],
+    ["list_intents", { workspaceId: workerWorkspace }],
   ] as const) {
     const denied = await callTool(app, name, args, "ungranted", "worker");
     assert.equal(errorCode(denied), "FORBIDDEN");
@@ -273,15 +276,16 @@ test("Runtime向けAPIもactiveRoleを受け付け、trusted-localのAgent名は
   const { database, app } = await setup();
   const projectId = await createProject(app);
   await grant(database, app, projectId, "runner", "runtime", "worker");
-  const fetchEvents = (activeRole?: string) =>
-    send(app, "GET", `/api/projects/${projectId}/runtime-events`, undefined, agentHeaders("runner", activeRole));
+  // Project scopeのRuntime入口（Execution Evidence）。認可を通ると、存在しないOutcomeはNOT_FOUNDになる。
+  const reflect = (activeRole?: string) =>
+    send(app, "POST", `/api/projects/${projectId}/outcomes/missing/execution-evidence`, { changeCursor: 0 }, agentHeaders("runner", activeRole));
 
-  assert.equal((await fetchEvents()).status, 200);
-  assert.equal((await fetchEvents("runtime")).status, 200);
-  const denied = await fetchEvents("worker");
+  assert.equal((await reflect()).status, 404);
+  assert.equal((await reflect("runtime")).status, 404);
+  const denied = await reflect("worker");
   assert.equal(denied.status, 403);
   assert.equal(((await denied.json()) as { error: { activeRole: string } }).error.activeRole, "worker");
-  assert.equal((await fetchEvents("unknown")).status, 400);
+  assert.equal((await reflect("unknown")).status, 400);
   await database.destroy();
 });
 

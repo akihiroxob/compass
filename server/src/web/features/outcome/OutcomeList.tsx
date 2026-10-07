@@ -5,29 +5,29 @@ import { ErrorState, Loading } from "../../components/StateCard";
 import type { Intent } from "../../intentForm";
 import { outcomeEmptyMessage, outcomeStatusLabels, splitOutcomes, type Outcome } from "../../outcomeForm";
 import type { ProjectOperationAccess } from "../../projectAccess";
-import { outcomePath } from "../../paths";
+import { outcomePath, workspaceApiPath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 
 // ---- Outcome（Step 3）。Evaluation・Execution・Decision・Research・Strategistは未実装のため、達成率や進行状況を表示しない。 ----
 
-/** IntentのOutcome一覧の取得。Project詳細とIntent詳細の両方が使う。 */
-const useOutcomes = (projectId: string, intentId: string) => {
+/** 所属WorkspaceのIntentのOutcome一覧の取得。Project詳細とIntent詳細の両方が使う。 */
+const useOutcomes = (workspaceId: string, intentId: string) => {
   const [state, setState] = useState<{ outcomes: Outcome[] | null; error: string | null }>({ outcomes: null, error: null });
-  useEffect(() => { request<{ outcomes: Outcome[] }>(`/api/projects/${projectId}/intents/${intentId}/outcomes`).then(({ outcomes }) => setState({ outcomes, error: null })).catch((reason: unknown) => setState({ outcomes: null, error: loadFailureMessage(classifyError(reason), "ProjectまたはIntentが見つかりません。") })); }, [projectId, intentId]);
+  useEffect(() => { request<{ outcomes: Outcome[] }>(workspaceApiPath(workspaceId, `/intents/${intentId}/outcomes`)).then(({ outcomes }) => setState({ outcomes, error: null })).catch((reason: unknown) => setState({ outcomes: null, error: loadFailureMessage(classifyError(reason), "WorkspaceまたはIntentが見つかりません。") })); }, [workspaceId, intentId]);
   return state;
 };
 
 const OutcomeLinks = ({ projectId, outcomes }: { projectId: string; outcomes: Outcome[] }) => <ul className="outcome-list">{outcomes.map((outcome) => <li key={outcome.id}><Link to={outcomePath(projectId, outcome.intentId, outcome.id)}><span className={statusBadgeClass(outcome.status === "active" ? "progress" : "muted")}>{outcomeStatusLabels[outcome.status]}</span> {outcome.title}<small>成功条件 {outcome.successCriteria.length}件</small></Link></li>)}</ul>;
 
 /** Project詳細のActive Intent内に表示する、ActiveなOutcomeの一覧。成功条件はOutcome詳細で見る。 */
-export const ActiveOutcomes = ({ projectId, intentId }: { projectId: string; intentId: string }) => {
-  const { outcomes, error } = useOutcomes(projectId, intentId); const { active } = splitOutcomes(outcomes ?? []);
+export const ActiveOutcomes = ({ projectId, workspaceId, intentId }: { projectId: string; workspaceId: string; intentId: string }) => {
+  const { outcomes, error } = useOutcomes(workspaceId, intentId); const { active } = splitOutcomes(outcomes ?? []);
   return <div className="outcome-block"><p className="section-label">Active Outcomes</p>{error ? <p className="unset" role="alert">Outcomeを読み込めませんでした: {error}</p> : outcomes === null ? <p className="unset" role="status">読み込み中...</p> : active.length ? <OutcomeLinks projectId={projectId} outcomes={active} /> : <p className="unset">Active Outcomeはまだありません</p>}</div>;
 };
 
-export const OutcomeSection = ({ projectId, intent, access }: { projectId: string; intent: Intent; access: ProjectOperationAccess | "loading" | "error" }) => {
+export const OutcomeSection = ({ projectId, workspaceId, intent, access }: { projectId: string; workspaceId: string; intent: Intent; access: ProjectOperationAccess | "loading" | "error" }) => {
   const readOnly = access !== "allowed";
-  const { outcomes, error } = useOutcomes(projectId, intent.id); const { active, past } = splitOutcomes(outcomes ?? []);
+  const { outcomes, error } = useOutcomes(workspaceId, intent.id); const { active, past } = splitOutcomes(outcomes ?? []);
   return <section className="detail-section" aria-labelledby="outcome-heading"><h2 id="outcome-heading">Outcome</h2><p className="section-note">Intentへ近づくために達成すべき、観測可能な状態です。Strategist（またはHuman）の判断結果として、成功条件とともに登録します。</p>
     {error ? <ErrorState message={`Outcomeの読み込みに失敗しました: ${error}`} /> : outcomes === null ? <Loading /> : <>
       {active.length ? <OutcomeLinks projectId={projectId} outcomes={active} /> : <p className="unset">{outcomeEmptyMessage(intent.status, access, past.length > 0)}</p>}

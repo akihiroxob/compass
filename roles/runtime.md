@@ -2,16 +2,16 @@
 
 ## Goal
 
-外部 Runtime が、Compass の確定イベント（Runtime event）を取得し、Researcher・Strategist・Manager などの Agent を起動して、処理結果を `ack` で残す。Compass は Agent を起動せず、polling・timeout・retry の間隔・backoff・token 予算も持たない。これらは Runtime の責務である。Runtime は Agent の Role Grant ではなく、Project の Administrator が Web UI から発行した Runtime Credential の scope で認可される。
+外部 Runtime が、Compass の確定イベント（Runtime event）を取得し、Researcher・Strategist・Manager などの Agent を起動して、処理結果を `ack` で残す。Compass は Agent を起動せず、polling・timeout・retry の間隔・backoff・token 予算も持たない。これらは Runtime の責務である。Runtime は Agent の Role Grant ではなく、Administrator が発行した Runtime Credential の scope で認可される。Runtime event は Workspace 所有で Workspace Runtime Credential、Execution の変更・還流・要約と現在状態は Project Runtime Credential を使う。
 
 ## 認証
 
 - `Authorization: Bearer cmp_runtime.<id>.<secret>`（Runtime Credential）を送る。Credential に登録された Runtime 名が consumer になり、consumer ごとに処理結果（ack）が独立して記録される。別 consumer の ack は互いに影響しない
-- Credential は発行した Project だけで有効。入口ごとに scope が必要: `fetch_runtime_events` は `runtime:event:read`、`ack_runtime_event` は `runtime:event:ack`、`list_changes` は `execution:change:read`、`record_execution_evidence` は `execution:evidence:write`、`get_outcome_execution_summary` は `execution:summary:read`、`get_orchestration_state` は `runtime:state:read`。不足・別 Project・Agent Credential は `FORBIDDEN`、Bearer なし・期限切れ・取消済み・不正な token は `UNAUTHENTICATED`。別 Project へ切り替えたり scope を増やそうとしたりせず、報告して停止する
+- Credential は発行した scope（Workspace または Project）だけで有効で、Workspace と Project の間で転用できない。入口ごとに scope が必要: Workspace Runtime Credential の `fetch_runtime_events` は `runtime:event:read`、`ack_runtime_event` は `runtime:event:ack`。Project Runtime Credential の `list_changes` は `execution:change:read`、`record_execution_evidence` は `execution:evidence:write`、`get_outcome_execution_summary` は `execution:summary:read`、`get_orchestration_state` は `runtime:state:read`。不足・別 scope・Agent Credential は `FORBIDDEN`、Bearer なし・期限切れ・取消済み・不正な token は `UNAUTHENTICATED`。別 scope へ切り替えたり scope を増やそうとしたりせず、報告して停止する
 - Runtime Credential では Agent 向け tool（Role Grant で認可するもの）を使えない
 - rotation 中は新旧の token が期限付きで併用できる。新しい token へ切り替え、旧 token の期限前に設定を更新する
 - token をログ・Evidence・Comment に書かない
-- trusted-local mode（明示設定の local 開発用）だけは、従来どおり `Authorization: Bearer <RuntimeName>` と Project の `runtime` Grant でも呼べる。remote mode では Runtime 名だけの Bearer は `401`
+- trusted-local mode（明示設定の local 開発用）だけは、Project の入口を `Authorization: Bearer <RuntimeName>` と Project の `runtime` Grant でも呼べる。Runtime event（Workspace）の入口は Workspace Runtime Credential だけを受け付ける。remote mode では Runtime 名だけの Bearer は `401`
 
 ## 現在状態の取得（Orchestrator）
 
@@ -26,7 +26,7 @@ MCP `get_orchestration_state({ projectId })` は、起動する専門 Role を�
 
 ## イベントの取得
 
-MCP `fetch_runtime_events({ projectId, afterCursor?, limit? })`、または Web API `GET /api/projects/:projectId/runtime-events?afterCursor=&limit=` を使う。応答は `{ events, nextCursor, resumeCursor }`。
+MCP `fetch_runtime_events({ workspaceId, afterCursor?, limit? })`、または Web API `GET /api/workspaces/:workspaceId/runtime-events?afterCursor=&limit=` を使う。応答は `{ events, nextCursor, resumeCursor }`。
 
 - `events` は cursor 昇順で、その consumer にとって未処理のもの（ack が無い、または `retryable_failure`）だけ。`processed` / `terminal_failure` は返らない
 - 取得は状態を変えない。応答が失われても、同じ条件で取得し直せば同じイベントが返り、欠落しない
@@ -40,15 +40,15 @@ MCP `fetch_runtime_events({ projectId, afterCursor?, limit? })`、または Web 
 | `type` | 意味 | Runtime の動き |
 | --- | --- | --- |
 | `research_requested` | Research Request が確定した | `researchRequestId` を渡して Researcher を起動する |
-| `research_completed` | Request が `completed` / `insufficient` / `not_needed` で確定した（`conclusion`） | `projectId`・`intentId` を渡して Strategist を起動する |
-| `outcome_confirmed` | Outcome（固定の Success Criteria を含む）が確定した（`create_outcome` / `decide_next_outcome`） | `projectId`・`intentId`・`outcomeId`・`correlationId` を渡して Manager を起動する。Manager が `issue_story` で Outcome を参照する Story を作る（`roles/manager.md`） |
-| `outcome_evaluated` | Outcome Evaluation が確定した（`record_outcome_evaluation`。結果によらず 1 Evaluation につき 1 件） | `projectId`・`intentId`・`outcomeId`・`evaluationId` を渡して Strategist を起動する。Strategist が Evaluation を根拠に再計画（次の Outcome・追加 Research）か Intent 完了を判断する（`roles/strategist.md`） |
+| `research_completed` | Request が `completed` / `insufficient` / `not_needed` で確定した（`conclusion`） | `workspaceId`・`intentId` を渡して Strategist を起動する |
+| `outcome_confirmed` | Outcome（固定の Success Criteria を含む）が確定した（`create_outcome` / `decide_next_outcome`） | `workspaceId`・`intentId`・`outcomeId`・`correlationId` と、その Workspace の対象 Project の `projectId` を渡して Manager を起動する。Manager が `issue_story` で Outcome を参照する Story を作る（`roles/manager.md`） |
+| `outcome_evaluated` | Outcome Evaluation が確定した（`record_outcome_evaluation`。結果によらず 1 Evaluation につき 1 件） | `workspaceId`・`intentId`・`outcomeId`・`evaluationId` を渡して Strategist を起動する。Strategist が Evaluation を根拠に再計画（次の Outcome・追加 Research）か Intent 完了を判断する（`roles/strategist.md`） |
 
-各イベントは `id`・`version`・`type`・`projectId`・`intentId`（`project_watch` では `null`）・`researchRequestId`・`outcomeId`・`correlationId`・`conclusion`・`occurredAt`・`cursor` を持つ。`researchRequestId` は research 系のイベントだけ、`outcomeId` は `outcome_confirmed` / `outcome_evaluated` だけ、`evaluationId` は `outcome_evaluated` だけが値を持ち、他は `null`。`outcome_confirmed` / `outcome_evaluated` の `correlationId` は `outcome:<outcomeId>` で、Manager の `issue_story` が使う既定の相関 ID と同じ。再試行中のイベントには `retryCount`（`retryable_failure` を記録した回数）と `lastFailureReason` が付く。`version` が未知の値のイベントは処理せず、`terminal_failure` で理由を残す。
+各イベントは `id`・`version`・`type`・`workspaceId`（`projectId` は持たない）・`intentId`（`project_watch` では `null`）・`researchRequestId`・`outcomeId`・`correlationId`・`conclusion`・`occurredAt`・`cursor` を持つ。`researchRequestId` は research 系のイベントだけ、`outcomeId` は `outcome_confirmed` / `outcome_evaluated` だけ、`evaluationId` は `outcome_evaluated` だけが値を持ち、他は `null`。`outcome_confirmed` / `outcome_evaluated` の `correlationId` は `outcome:<outcomeId>` で、Manager の `issue_story` が使う既定の相関 ID と同じ。再試行中のイベントには `retryCount`（`retryable_failure` を記録した回数）と `lastFailureReason` が付く。`version` が未知の値のイベントは処理せず、`terminal_failure` で理由を残す。
 
 ## 処理結果の記録
 
-MCP `ack_runtime_event({ projectId, eventId, attemptId, outcome, reason? })`、または Web API `POST /api/projects/:projectId/runtime-events/:eventId/ack`（本文 `{ attemptId, outcome, reason? }`）を使う。`attemptId` はそのイベントを処理する 1 回の試行ごとに Runtime が生成する値（UUID など）。
+MCP `ack_runtime_event({ workspaceId, eventId, attemptId, outcome, reason? })`、または Web API `POST /api/workspaces/:workspaceId/runtime-events/:eventId/ack`（本文 `{ attemptId, outcome, reason? }`）を使う。`attemptId` はそのイベントを処理する 1 回の試行ごとに Runtime が生成する値（UUID など）。
 
 | `outcome` | 意味 | `reason` | 以後の取得 |
 | --- | --- | --- | --- |
@@ -60,7 +60,7 @@ MCP `ack_runtime_event({ projectId, eventId, attemptId, outcome, reason? })`、�
 - 次の試行（再試行）では新しい `attemptId` を使う。`retryCount` は `attemptId` の異なる `retryable_failure` だけを数える
 - 確定済み（`processed` / `terminal_failure`）のイベントに同じ結果を送り直しても状態は変わらない（`recorded: false`）
 - `processed` / `terminal_failure` 済みのイベントに別の結果を送ると `CONFLICT`。`retryable_failure` からはどの結果へも進める
-- 別 Project のイベントは `NOT_FOUND`。`retryable_failure` を送り続けても上限は Compass にない。再試行の上限と間隔は Runtime が決め、超えたら `terminal_failure` で理由を残す
+- 別 Workspace のイベントは `NOT_FOUND`。`retryable_failure` を送り続けても上限は Compass にない。再試行の上限と間隔は Runtime が決め、超えたら `terminal_failure` で理由を残す
 
 ## Manager 起動後の扱い（`outcome_confirmed`）
 

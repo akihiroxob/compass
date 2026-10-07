@@ -6,10 +6,14 @@ import { Runtime, type Json, type Tokens } from "./support/lv6Runtime.ts";
 // MCPの通信だけを置換し、Runtimeと各Agentの実際の処理をlisten無しで検証する。
 const setup = (t: TestContext, event: Json, timeout = false) => {
   const projectId = "project-A";
+  const workspaceId = "workspace-A";
+  // Runtime event・Direction RoleはWorkspace scope、Manager（Work）はProject scopeのContextを使う。
+  const workspaceTools = new Set(["fetch_runtime_events", "ack_runtime_event", "get_researcher_context", "register_research_result",
+    "register_research_synthesis", "complete_research_request", "get_strategist_context", "decide_next_outcome", "create_direction_decision"]);
   const calls: { tool: string; args: Json }[] = [];
   const credential = (principal: string) => ({ principal, token: `test-${principal}` });
   const tokens: Tokens = {
-    runtime: credential("runtime"), researcher: credential("researcher"), strategist: credential("strategist"),
+    runtime: credential("runtime"), workspaceRuntime: credential("runtime-w"), researcher: credential("researcher"), strategist: credential("strategist"),
     manager: credential("manager"), workers: [], reviewer: credential("reviewer"), evaluator: credential("evaluator"),
   };
   let fetched = false;
@@ -17,7 +21,12 @@ const setup = (t: TestContext, event: Json, timeout = false) => {
   t.mock.method(Client.prototype, "close", async () => {});
   t.mock.method(Client.prototype, "callTool", async ({ name, arguments: args }: { name: string; arguments: Json }) => {
     calls.push({ tool: name, args });
-    assert.equal(args.projectId, projectId, `${name} must use the fetch Project Context`);
+    if (workspaceTools.has(name)) {
+      assert.equal(args.workspaceId, workspaceId, `${name} must use the Workspace of the fetched event`);
+      assert.equal("projectId" in args, false, `${name} must not pass a Project ID`);
+    } else {
+      assert.equal(args.projectId, projectId, `${name} must use the Project of that Workspace`);
+    }
     let content: Json;
     switch (name) {
       case "fetch_runtime_events":
@@ -69,7 +78,7 @@ const setup = (t: TestContext, event: Json, timeout = false) => {
     { baseUrl: () => "http://127.0.0.1:1", now: () => 1_800_000_000_000, calls: [], dropNextResponse: new Set() },
     tokens,
     { resumeCursor: 0, changeCursor: 0, reflected: {} },
-    { projectIds: () => [projectId], managerTimeoutAfterStory: () => timeout },
+    { projectIds: () => [projectId], workspaceIdOf: () => workspaceId, managerTimeoutAfterStory: () => timeout },
   );
   return { runtime, calls };
 };

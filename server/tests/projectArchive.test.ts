@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -75,8 +75,10 @@ const callTool = async (app: App, name: string, args: object, principal?: string
 /** Intent・Outcome・Grantを持つactiveなProjectを作る。 */
 const seed = async (database: ReturnType<typeof createDatabase>, services: Awaited<ReturnType<typeof setup>>["services"]) => {
   const project = await services.createProjectUseCase.execute({ name: "Compass", mission: "Keep direction explicit" });
-  const intent = await services.createIntentUseCase.execute(project.id, { title: "Intent", desiredState: "State" });
-  const outcome = await services.createOutcomeUseCase.execute(project.id, intent.id, outcomeInput);
+  const intent = await services.createIntentUseCase.execute(project.workspaceId, { title: "Intent", desiredState: "State" });
+  const outcome = await services.createOutcomeUseCase.execute(project.workspaceId, intent.id, outcomeInput);
+  // Direction Role（Workspace所有）のGrantと、archiveガードを検証する旧Project Grant fixtureの両方を置く。
+  await seedProjectWorkspaceGrant(database, project.id, "strat-1", "strategist");
   await seedLegacyProjectGrant(database, project.id, "strat-1", "strategist");
   return { project, intent, outcome };
 };
@@ -184,9 +186,9 @@ test("AC-5 archivedのProject更新は409で変更されず、statusでは復帰
 test("AC-6 archivedのIntent作成・更新・放棄は409。存在しないintentIdでも404でなく409", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seed(database, services);
-  const before = (await json(await app.request(`/api/projects/${project.id}/intents/${intent.id}`))).intent;
+  const before = (await json(await app.request(`/api/workspaces/${project.workspaceId}/intents/${intent.id}`))).intent;
   await archive(app, project.id);
-  const base = `/api/projects/${project.id}/intents`;
+  const base = `/api/workspaces/${project.workspaceId}/intents`;
   const attempts: [string, string, unknown][] = [
     ["POST", base, { title: "New", desiredState: "State" }],
     ["PATCH", `${base}/${intent.id}`, { title: "Changed" }],
@@ -197,7 +199,8 @@ test("AC-6 archivedのIntent作成・更新・放棄は409。存在しないinte
   for (const [method, path, body] of attempts) {
     const response = await send(app, method, path, body);
     assert.equal(response.status, 409, `${method} ${path}`);
-    assert.equal((await json(response)).error.projectStatus, "archived");
+    // 最後のProjectのarchiveで所属Workspaceもarchivedになり、DirectionはWorkspaceとして拒否される。
+    assert.equal((await json(response)).error.workspaceStatus, "archived");
   }
   assert.deepEqual((await json(await app.request(`${base}/${intent.id}`))).intent, before);
   assert.equal((await json(await app.request(base))).intents.length, 1);
@@ -208,7 +211,7 @@ test("AC-7 archivedのOutcome作成・更新・取消は固定項目を含めて
   const { database, services, app } = await setup();
   const { project, intent, outcome } = await seed(database, services);
   await archive(app, project.id);
-  const base = `/api/projects/${project.id}/intents/${intent.id}/outcomes`;
+  const base = `/api/workspaces/${project.workspaceId}/intents/${intent.id}/outcomes`;
   const attempts: [string, string, unknown][] = [
     ["POST", base, outcomeInput],
     ["PATCH", `${base}/${outcome.id}`, { title: "Changed" }],
@@ -216,12 +219,13 @@ test("AC-7 archivedのOutcome作成・更新・取消は固定項目を含めて
     ["PATCH", `${base}/missing`, { title: "Changed" }],
     ["POST", `${base}/${outcome.id}/cancel`, { reason: "x" }],
     ["POST", `${base}/missing/cancel`, { reason: "x" }],
-    ["POST", `/api/projects/${project.id}/intents/missing/outcomes`, outcomeInput],
+    ["POST", `/api/workspaces/${project.workspaceId}/intents/missing/outcomes`, outcomeInput],
   ];
   for (const [method, path, body] of attempts) {
     const response = await send(app, method, path, body);
     assert.equal(response.status, 409, `${method} ${path}`);
-    assert.equal((await json(response)).error.projectStatus, "archived");
+    // 最後のProjectのarchiveで所属Workspaceもarchivedになり、DirectionはWorkspaceとして拒否される。
+    assert.equal((await json(response)).error.workspaceStatus, "archived");
   }
   const fetched = (await json(await app.request(`${base}/${outcome.id}`))).outcome;
   assert.deepEqual(fetched, JSON.parse(JSON.stringify(outcome)));
@@ -267,10 +271,10 @@ test("AC-9 archivedでもProject詳細・Intent・Outcome・Grantの参照はarc
   const { database, services, app } = await setup();
   const { project, intent, outcome } = await seed(database, services);
   const paths = [
-    `/api/projects/${project.id}/intents`,
-    `/api/projects/${project.id}/intents/${intent.id}`,
-    `/api/projects/${project.id}/intents/${intent.id}/outcomes`,
-    `/api/projects/${project.id}/intents/${intent.id}/outcomes/${outcome.id}`,
+    `/api/workspaces/${project.workspaceId}/intents`,
+    `/api/workspaces/${project.workspaceId}/intents/${intent.id}`,
+    `/api/workspaces/${project.workspaceId}/intents/${intent.id}/outcomes`,
+    `/api/workspaces/${project.workspaceId}/intents/${intent.id}/outcomes/${outcome.id}`,
     `/api/projects/${project.id}/grants`,
   ];
   const before = await Promise.all(paths.map(async (path) => json(await app.request(path))));
@@ -334,7 +338,7 @@ test("AC-11 Repositoryを直接呼んでも、archivedのProjectには何も書�
 
   assert.deepEqual(await counts(database), before);
   assert.deepEqual(await services.getProjectUseCase.execute(project.id), projectBefore);
-  assert.equal((await services.getIntentUseCase.execute(project.id, intent.id)).title, "Intent");
+  assert.equal((await services.getIntentUseCase.execute(project.workspaceId, intent.id)).title, "Intent");
   await database.destroy();
 });
 
@@ -345,9 +349,9 @@ test("AC-12 archiveは子データを変更しない。activeなIntentはactive�
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
 
   assert.deepEqual(await counts(database), before);
-  assert.deepEqual(await services.getIntentUseCase.execute(project.id, intent.id), intent);
-  assert.deepEqual(await services.getOutcomeUseCase.execute(project.id, intent.id, outcome.id), outcome);
-  assert.equal((await services.getIntentUseCase.execute(project.id, intent.id)).status, "active");
+  assert.deepEqual(await services.getIntentUseCase.execute(project.workspaceId, intent.id), intent);
+  assert.deepEqual(await services.getOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id), outcome);
+  assert.equal((await services.getIntentUseCase.execute(project.workspaceId, intent.id)).status, "active");
   assert.equal((await services.listProjectGrantsUseCase.execute(project.id)).length, 1);
   await database.destroy();
 });
@@ -376,8 +380,8 @@ test("AC-13 archive導入前のDBは、initializeSchemaを2回実行してもエ
   assert.equal(migrated.archiveReason, null);
   assert.equal(migrated.name, project.name);
   assert.deepEqual(await counts(database), before);
-  assert.deepEqual(await services.getIntentUseCase.execute(project.id, intent.id), intent);
-  assert.deepEqual(await services.getOutcomeUseCase.execute(project.id, intent.id, outcome.id), outcome);
+  assert.deepEqual(await services.getIntentUseCase.execute(project.workspaceId, intent.id), intent);
+  assert.deepEqual(await services.getOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id), outcome);
   assert.deepEqual((await services.listProjectsUseCase.execute()).map((item) => item.id), [project.id]);
 
   const archived = await services.archiveProjectUseCase.execute(project.id, { reason: "After migration" });
@@ -396,30 +400,30 @@ test("statusのcheck制約は、active・archived以外の値を保存させな�
 test("AC-14 archivedでも読取のMCP toolは成功し、Project.statusがarchivedになる", async () => {
   const { database, services, app } = await setup();
   const { project, intent, outcome } = await seed(database, services);
-  await requestIntentResearch(services, project.id, intent.id);
+  await requestIntentResearch(services, project.workspaceId, intent.id);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
 
   const got = await callTool(app, "get_project", { projectId: project.id });
   assert.equal(got.isError, undefined);
   assert.equal(got.structuredContent.status, "archived");
   assert.equal(got.structuredContent.archiveReason, "Done");
-  assert.equal((await callTool(app, "list_intents", { projectId: project.id })).structuredContent.intents.length, 1);
-  assert.equal((await callTool(app, "get_intent", { projectId: project.id, intentId: intent.id })).isError, undefined);
-  assert.equal((await callTool(app, "list_outcomes", { projectId: project.id, intentId: intent.id })).structuredContent.outcomes.length, 1);
+  assert.equal((await callTool(app, "list_intents", { workspaceId: project.workspaceId })).structuredContent.intents.length, 1);
+  assert.equal((await callTool(app, "get_intent", { workspaceId: project.workspaceId, intentId: intent.id })).isError, undefined);
+  assert.equal((await callTool(app, "list_outcomes", { workspaceId: project.workspaceId, intentId: intent.id })).structuredContent.outcomes.length, 1);
   assert.equal(
-    (await callTool(app, "get_outcome", { projectId: project.id, intentId: intent.id, outcomeId: outcome.id })).isError,
+    (await callTool(app, "get_outcome", { workspaceId: project.workspaceId, intentId: intent.id, outcomeId: outcome.id })).isError,
     undefined,
   );
-  const context = await callTool(app, "get_strategist_context", { projectId: project.id }, "strat-1");
+  const context = await callTool(app, "get_strategist_context", { workspaceId: project.workspaceId }, "strat-1");
   assert.equal(context.isError, undefined);
-  assert.equal(context.structuredContent.project.status, "archived");
+  assert.equal(context.structuredContent.workspace.status, "archived");
   assert.equal(context.structuredContent.activeIntent.id, intent.id);
   const research = context.structuredContent.research as { requests: { id: string }[] };
   assert.equal(research.requests.length, 1);
   const requestDetail = await callTool(
     app,
     "get_research_request",
-    { projectId: project.id, requestId: research.requests[0]!.id },
+    { workspaceId: project.workspaceId, requestId: research.requests[0]!.id },
     "strat-1",
   );
   assert.equal(requestDetail.isError, undefined);
@@ -427,15 +431,15 @@ test("AC-14 archivedでも読取のMCP toolは成功し、Project.statusがarchi
   await database.destroy();
 });
 
-test("AC-15 archivedの書込MCP toolはisErrorのCONFLICT（projectStatus）。認証・Roleの拒否が先", async () => {
+test("AC-15 archivedの書込MCP toolはisErrorのCONFLICT（projectStatus / workspaceStatus）。認証・Roleの拒否が先", async () => {
   const { database, services, app } = await setup();
   const { project, intent, outcome } = await seed(database, services);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
-  const ids = { projectId: project.id, intentId: intent.id };
+  const ids = { workspaceId: project.workspaceId, intentId: intent.id };
 
   const writes: [string, object, string | undefined][] = [
     ["update_project", { projectId: project.id, name: "Changed" }, undefined],
-    ["create_intent", { projectId: project.id, title: "T", desiredState: "S" }, undefined],
+    ["create_intent", { workspaceId: project.workspaceId, title: "T", desiredState: "S" }, undefined],
     ["update_intent", { ...ids, title: "Changed" }, undefined],
     ["abandon_intent", { ...ids, reason: "x" }, undefined],
     ["create_outcome", { ...ids, ...outcomeInput }, "strat-1"],
@@ -447,7 +451,9 @@ test("AC-15 archivedの書込MCP toolはisErrorのCONFLICT（projectStatus）。
     const result = await callTool(app, name, args, principal);
     assert.equal(result.isError, true, name);
     assert.equal(result.structuredContent.error.code, "CONFLICT", name);
-    assert.equal(result.structuredContent.error.projectStatus, "archived", name);
+    // Project管理はprojectStatus、Workspace Direction（最後のProjectのarchiveでWorkspaceもarchived）はworkspaceStatus。
+    const status = name === "update_project" ? result.structuredContent.error.projectStatus : result.structuredContent.error.workspaceStatus;
+    assert.equal(status, "archived", name);
   }
 
   const unauthenticated = await callTool(app, "create_outcome", { ...ids, ...outcomeInput });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
+import { createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -48,7 +48,7 @@ const callTool = async (app: App, name: string, args: object, principal?: string
 
 const grantRole = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role = "researcher") => {
   if (["strategist", "researcher", "evaluator"].includes(role)) {
-    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    await seedProjectWorkspaceGrant(database, projectId, principalId, role);
     return;
   }
   return send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
@@ -61,15 +61,15 @@ const seedProject = async (services: Services, name = "Compass") => {
     principles: ["Agents decide, humans observe"],
     constraints: ["No autonomous execution yet"],
   });
-  const intent = await services.createIntentUseCase.execute(project.id, {
+  const intent = await services.createIntentUseCase.execute(project.workspaceId, {
     title: "Agents improve software",
     desiredState: "Agents improve the software.",
   });
   return { project, intent };
 };
 
-const createRequest = (services: Services, projectId: string, intentId: string, overrides: object = {}) =>
-  services.createResearchRequestUseCase.execute(projectId, {
+const createRequest = (services: Services, workspaceId: string, intentId: string, overrides: object = {}) =>
+  services.createResearchRequestUseCase.execute(workspaceId, {
     requestKey: "request-1",
     kind: "decision",
     originIntentId: intentId,
@@ -82,8 +82,8 @@ const createRequest = (services: Services, projectId: string, intentId: string, 
 
 const now = Date.now();
 
-const resultArgs = (projectId: string, requestId: string, overrides: object = {}) => ({
-  projectId,
+const resultArgs = (workspaceId: string, requestId: string, overrides: object = {}) => ({
+  workspaceId,
   requestId,
   requestKey: "result-1",
   runRef: "run-001",
@@ -103,8 +103,8 @@ const resultArgs = (projectId: string, requestId: string, overrides: object = {}
   ...overrides,
 });
 
-const synthesisArgs = (projectId: string, requestId: string, findingIds: string[], overrides: object = {}) => ({
-  projectId,
+const synthesisArgs = (workspaceId: string, requestId: string, findingIds: string[], overrides: object = {}) => ({
+  workspaceId,
   requestId,
   requestKey: "synthesis-1",
   runRef: "run-001",
@@ -123,16 +123,16 @@ const errorOf = (result: ToolResult) => {
 test("Researcherは Bearer だけで Context を取得し、Result・Synthesis 登録と確定まで Human の操作なしで進められる", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
-  const request = await createRequest(services, project.id, intent.id);
+  const request = await createRequest(services, project.workspaceId, intent.id);
   await grantRole(database, app, project.id, "researcher-a");
 
-  const context = (await callTool(app, "get_researcher_context", { projectId: project.id, requestId: request.id }, "researcher-a"))
+  const context = (await callTool(app, "get_researcher_context", { workspaceId: project.workspaceId, requestId: request.id }, "researcher-a"))
     .structuredContent;
   assert.equal(context.principalId, "researcher-a");
   assert.equal(context.role, "researcher");
-  assert.equal(context.project.id, project.id);
-  assert.deepEqual(context.project.principles, ["Agents decide, humans observe"]);
-  assert.deepEqual(context.project.constraints, ["No autonomous execution yet"]);
+  assert.equal(context.workspace.id, project.workspaceId);
+  assert.deepEqual(context.workspace.principles, ["Agents decide, humans observe"]);
+  assert.deepEqual(context.workspace.constraints, ["No autonomous execution yet"]);
   assert.equal(context.originIntent.id, intent.id);
   assert.equal(context.request.question, "Which claim strategy avoids duplicate work?");
   assert.equal(context.request.status, "requested");
@@ -144,7 +144,7 @@ test("Researcherは Bearer だけで Context を取得し、Result・Synthesis �
   const registered = await callTool(
     app,
     "register_research_result",
-    { ...resultArgs(project.id, request.id), principalId: "impostor" },
+    { ...resultArgs(project.workspaceId, request.id), principalId: "impostor" },
     "researcher-a",
   );
   assert.equal(registered.isError, undefined);
@@ -157,7 +157,7 @@ test("Researcherは Bearer だけで Context を取得し、Result・Synthesis �
   ]);
 
   const findingIds = result.findings.map((finding: any) => finding.id);
-  const synthesized = await callTool(app, "register_research_synthesis", synthesisArgs(project.id, request.id, findingIds), "researcher-a");
+  const synthesized = await callTool(app, "register_research_synthesis", synthesisArgs(project.workspaceId, request.id, findingIds), "researcher-a");
   assert.equal(synthesized.isError, undefined);
   assert.equal(synthesized.structuredContent.synthesis.principalId, "researcher-a");
   assert.equal(synthesized.structuredContent.synthesis.runRef, "run-001");
@@ -166,14 +166,14 @@ test("Researcherは Bearer だけで Context を取得し、Result・Synthesis �
   const completed = await callTool(
     app,
     "complete_research_request",
-    { projectId: project.id, requestId: request.id, conclusion: "completed" },
+    { workspaceId: project.workspaceId, requestId: request.id, conclusion: "completed" },
     "researcher-a",
   );
   assert.equal(completed.isError, undefined);
   assert.equal(completed.structuredContent.request.status, "completed");
 
   // 再開したRunは、登録済みの結果を Context で確認できる。
-  const after = (await callTool(app, "get_researcher_context", { projectId: project.id, requestId: request.id }, "researcher-a"))
+  const after = (await callTool(app, "get_researcher_context", { workspaceId: project.workspaceId, requestId: request.id }, "researcher-a"))
     .structuredContent;
   assert.equal(after.request.status, "completed");
   assert.deepEqual(after.budget, { total: 100, used: 30, remaining: 70 });
@@ -183,7 +183,7 @@ test("Researcherは Bearer だけで Context を取得し、Result・Synthesis �
 
   // 終了後の追記は拒否される。
   const late = errorOf(
-    await callTool(app, "register_research_result", resultArgs(project.id, request.id, { requestKey: "result-2" }), "researcher-a"),
+    await callTool(app, "register_research_result", resultArgs(project.workspaceId, request.id, { requestKey: "result-2" }), "researcher-a"),
   );
   assert.equal(late.code, "CONFLICT");
   assert.equal(late.status, "completed");
@@ -195,25 +195,25 @@ test("Contextは同じ発端の他RequestのFindingとEvidence参照だけを返
   const { project, intent } = await seedProject(services);
   await grantRole(database, app, project.id, "researcher-a");
 
-  const earlier = await createRequest(services, project.id, intent.id, { requestKey: "earlier" });
-  const earlierResult = (await callTool(app, "register_research_result", resultArgs(project.id, earlier.id), "researcher-a"))
+  const earlier = await createRequest(services, project.workspaceId, intent.id, { requestKey: "earlier" });
+  const earlierResult = (await callTool(app, "register_research_result", resultArgs(project.workspaceId, earlier.id), "researcher-a"))
     .structuredContent.result;
-  const current = await createRequest(services, project.id, intent.id, { requestKey: "current" });
-  const own = (await callTool(app, "register_research_result", resultArgs(project.id, current.id, {
+  const current = await createRequest(services, project.workspaceId, intent.id, { requestKey: "current" });
+  const own = (await callTool(app, "register_research_result", resultArgs(project.workspaceId, current.id, {
     findings: [{ statement: "Own finding", confidence: "low", observedAt: now, evidenceIndexes: [0] }],
   }), "researcher-a")).structuredContent.result;
 
   // 別Intentと別ProjectのFindingは関連しない。
-  await services.abandonIntentUseCase.execute(project.id, intent.id, {});
-  const otherIntent = await services.createIntentUseCase.execute(project.id, { title: "Other", desiredState: "Other state" });
-  const otherIntentRequest = await createRequest(services, project.id, otherIntent.id, { requestKey: "other-intent" });
-  await callTool(app, "register_research_result", resultArgs(project.id, otherIntentRequest.id), "researcher-a");
+  await services.abandonIntentUseCase.execute(project.workspaceId, intent.id, {});
+  const otherIntent = await services.createIntentUseCase.execute(project.workspaceId, { title: "Other", desiredState: "Other state" });
+  const otherIntentRequest = await createRequest(services, project.workspaceId, otherIntent.id, { requestKey: "other-intent" });
+  await callTool(app, "register_research_result", resultArgs(project.workspaceId, otherIntentRequest.id), "researcher-a");
   const otherProject = await seedProject(services, "Other Project");
-  const otherProjectRequest = await createRequest(services, otherProject.project.id, otherProject.intent.id, { requestKey: "other-project" });
+  const otherProjectRequest = await createRequest(services, otherProject.project.workspaceId, otherProject.intent.id, { requestKey: "other-project" });
   await grantRole(database, app, otherProject.project.id, "researcher-a");
-  await callTool(app, "register_research_result", resultArgs(otherProject.project.id, otherProjectRequest.id), "researcher-a");
+  await callTool(app, "register_research_result", resultArgs(otherProject.project.workspaceId, otherProjectRequest.id), "researcher-a");
 
-  const context = (await callTool(app, "get_researcher_context", { projectId: project.id, requestId: current.id }, "researcher-a"))
+  const context = (await callTool(app, "get_researcher_context", { workspaceId: project.workspaceId, requestId: current.id }, "researcher-a"))
     .structuredContent;
   const earlierIds = earlierResult.findings.map((finding: any) => finding.id).sort();
   assert.deepEqual(context.relatedFindings.map((finding: any) => finding.id).sort(), earlierIds);
@@ -233,23 +233,23 @@ test("Requestはcompleted / insufficient / not_neededのいずれかで確定で
   const { project, intent } = await seedProject(services);
   await grantRole(database, app, project.id, "researcher-a");
   const close = (requestId: string, args: object) =>
-    callTool(app, "complete_research_request", { projectId: project.id, requestId, ...args }, "researcher-a");
+    callTool(app, "complete_research_request", { workspaceId: project.workspaceId, requestId, ...args }, "researcher-a");
 
-  const insufficient = await createRequest(services, project.id, intent.id, { requestKey: "a" });
+  const insufficient = await createRequest(services, project.workspaceId, intent.id, { requestKey: "a" });
   assert.equal(errorOf(await close(insufficient.id, { conclusion: "insufficient" })).code, "VALIDATION_ERROR");
   const closedInsufficient = await close(insufficient.id, { conclusion: "insufficient", stopReason: "Budget exhausted" });
   assert.equal(closedInsufficient.structuredContent.request.status, "insufficient");
   assert.equal(closedInsufficient.structuredContent.request.stopReason, "Budget exhausted");
 
-  const notNeeded = await createRequest(services, project.id, intent.id, { requestKey: "b" });
+  const notNeeded = await createRequest(services, project.workspaceId, intent.id, { requestKey: "b" });
   const closedNotNeeded = await close(notNeeded.id, { conclusion: "not_needed", stopReason: "Existing knowledge suffices" });
   assert.equal(closedNotNeeded.structuredContent.request.status, "not_needed");
 
-  const incomplete = await createRequest(services, project.id, intent.id, { requestKey: "c" });
+  const incomplete = await createRequest(services, project.workspaceId, intent.id, { requestKey: "c" });
   assert.equal(errorOf(await close(incomplete.id, { conclusion: "completed" })).code, "CONFLICT");
   // cancelledはResearcherが確定できる状態ではない。
   assert.equal(errorOf(await close(incomplete.id, { conclusion: "cancelled", stopReason: "x" })).code, "VALIDATION_ERROR");
-  assert.equal((await services.getResearchRequestUseCase.execute(project.id, incomplete.id)).request.status, "requested");
+  assert.equal((await services.getResearchRequestUseCase.execute(project.workspaceId, incomplete.id)).request.status, "requested");
   await database.destroy();
 });
 
@@ -257,30 +257,31 @@ test("同じrequestKeyの再送は重複せず、内容を変えた再利用はC
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
   await grantRole(database, app, project.id, "researcher-a");
-  const request = await createRequest(services, project.id, intent.id);
-  const first = await callTool(app, "register_research_result", resultArgs(project.id, request.id), "researcher-a");
-  const replay = await callTool(app, "register_research_result", resultArgs(project.id, request.id), "researcher-a");
+  const request = await createRequest(services, project.workspaceId, intent.id);
+  const first = await callTool(app, "register_research_result", resultArgs(project.workspaceId, request.id), "researcher-a");
+  const replay = await callTool(app, "register_research_result", resultArgs(project.workspaceId, request.id), "researcher-a");
   assert.equal(replay.structuredContent.result.id, first.structuredContent.result.id);
   const changed = errorOf(
-    await callTool(app, "register_research_result", resultArgs(project.id, request.id, { summary: "Different" }), "researcher-a"),
+    await callTool(app, "register_research_result", resultArgs(project.workspaceId, request.id, { summary: "Different" }), "researcher-a"),
   );
   assert.equal(changed.code, "CONFLICT");
-  const detail = await services.getResearchRequestUseCase.execute(project.id, request.id);
+  const detail = await services.getResearchRequestUseCase.execute(project.workspaceId, request.id);
   assert.equal(detail.results.length, 1);
   assert.equal(detail.request.budgetUsed, 30);
   await database.destroy();
 });
 
-test("archivedのProjectへResultを登録できない", async () => {
+test("archivedのProject（所属Workspaceもarchived）へResultを登録できない", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
   await grantRole(database, app, project.id, "researcher-a");
-  const request = await createRequest(services, project.id, intent.id);
+  const request = await createRequest(services, project.workspaceId, intent.id);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Archived for test" });
-  const rejected = errorOf(await callTool(app, "register_research_result", resultArgs(project.id, request.id), "researcher-a"));
+  const rejected = errorOf(await callTool(app, "register_research_result", resultArgs(project.workspaceId, request.id), "researcher-a"));
   assert.equal(rejected.code, "CONFLICT");
-  assert.equal(rejected.projectStatus, "archived");
-  assert.equal((await services.getResearchRequestUseCase.execute(project.id, request.id)).results.length, 0);
+  // 最後のProjectのarchiveで所属Workspaceもarchivedになる。
+  assert.equal(rejected.workspaceStatus, "archived");
+  assert.equal((await services.getResearchRequestUseCase.execute(project.workspaceId, request.id)).results.length, 0);
   await database.destroy();
 });
 
@@ -288,13 +289,13 @@ test("list_research_requestsはProjectのRequestを状態で絞って返す", as
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
   await grantRole(database, app, project.id, "researcher-a");
-  const initial = await requestIntentResearch(services, project.id, intent.id);
-  const open = await createRequest(services, project.id, intent.id, { requestKey: "open" });
-  const closed = await createRequest(services, project.id, intent.id, { requestKey: "closed" });
-  await callTool(app, "complete_research_request", { projectId: project.id, requestId: closed.id, conclusion: "not_needed", stopReason: "Known" }, "researcher-a");
-  const listed = await callTool(app, "list_research_requests", { projectId: project.id, status: "requested" }, "researcher-a");
+  const initial = await requestIntentResearch(services, project.workspaceId, intent.id);
+  const open = await createRequest(services, project.workspaceId, intent.id, { requestKey: "open" });
+  const closed = await createRequest(services, project.workspaceId, intent.id, { requestKey: "closed" });
+  await callTool(app, "complete_research_request", { workspaceId: project.workspaceId, requestId: closed.id, conclusion: "not_needed", stopReason: "Known" }, "researcher-a");
+  const listed = await callTool(app, "list_research_requests", { workspaceId: project.workspaceId, status: "requested" }, "researcher-a");
   assert.deepEqual(listed.structuredContent.requests.map((item: any) => item.id), [open.id, initial!.id]);
-  const all = await callTool(app, "list_research_requests", { projectId: project.id }, "researcher-a");
+  const all = await callTool(app, "list_research_requests", { workspaceId: project.workspaceId }, "researcher-a");
   assert.equal(all.structuredContent.requests.length, 3);
   await database.destroy();
 });
@@ -303,17 +304,17 @@ test("Researcher toolはBearerなし・Grantなし・別Project・取消済み�
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
   const other = await seedProject(services, "Other");
-  const request = await createRequest(services, project.id, intent.id);
-  const otherRequest = await createRequest(services, other.project.id, other.intent.id);
-  const calls = (projectId: string, requestId: string): [string, object][] => [
-    ["get_researcher_context", { projectId, requestId }],
-    ["list_research_requests", { projectId }],
-    ["register_research_result", resultArgs(projectId, requestId)],
-    ["register_research_synthesis", synthesisArgs(projectId, requestId, ["x"])],
-    ["complete_research_request", { projectId, requestId, conclusion: "not_needed", stopReason: "x" }],
+  const request = await createRequest(services, project.workspaceId, intent.id);
+  const otherRequest = await createRequest(services, other.project.workspaceId, other.intent.id);
+  const calls = (workspaceId: string, requestId: string): [string, object][] => [
+    ["get_researcher_context", { workspaceId, requestId }],
+    ["list_research_requests", { workspaceId }],
+    ["register_research_result", resultArgs(workspaceId, requestId)],
+    ["register_research_synthesis", synthesisArgs(workspaceId, requestId, ["x"])],
+    ["complete_research_request", { workspaceId, requestId, conclusion: "not_needed", stopReason: "x" }],
   ];
 
-  for (const [name, args] of calls(project.id, request.id)) {
+  for (const [name, args] of calls(project.workspaceId, request.id)) {
     assert.equal(errorOf(await callTool(app, name, args)).code, "UNAUTHENTICATED", `${name} without Bearer`);
     assert.equal(errorOf(await callTool(app, name, args, "nobody")).code, "FORBIDDEN", `${name} without Grant`);
     // Role・principalの自己申告は認可に使われない。
@@ -326,24 +327,24 @@ test("Researcher toolはBearerなし・Grantなし・別Project・取消済み�
 
   // Strategist Grantだけでは使えない。
   await grantRole(database, app, project.id, "strat-1", "strategist");
-  for (const [name, args] of calls(project.id, request.id)) {
+  for (const [name, args] of calls(project.workspaceId, request.id)) {
     assert.equal(errorOf(await callTool(app, name, args, "strat-1")).code, "FORBIDDEN", `${name} as strategist`);
   }
 
-  // 別ProjectのGrantでは使えず、GrantのあるProjectからでもProject外のRequestは見えない。
+  // 別WorkspaceのGrantでは使えず、GrantのあるWorkspaceからでもWorkspace外のRequestは見えない。
   await grantRole(database, app, other.project.id, "researcher-b");
-  for (const [name, args] of calls(project.id, request.id)) {
+  for (const [name, args] of calls(project.workspaceId, request.id)) {
     assert.equal(errorOf(await callTool(app, name, args, "researcher-b")).code, "FORBIDDEN", `${name} other project`);
   }
-  for (const [name, args] of calls(other.project.id, request.id).filter(([name]) => name !== "list_research_requests")) {
+  for (const [name, args] of calls(other.project.workspaceId, request.id).filter(([name]) => name !== "list_research_requests")) {
     assert.equal(errorOf(await callTool(app, name, args, "researcher-b")).code, "NOT_FOUND", `${name} foreign request`);
   }
 
   // 取消後は次の呼び出しから拒否する。
   await grantRole(database, app, project.id, "researcher-a");
-  assert.equal((await callTool(app, "get_researcher_context", { projectId: project.id, requestId: request.id }, "researcher-a")).isError, undefined);
-  assert.equal((await send(app, "DELETE", `/api/projects/${project.id}/grants/researcher/researcher-a`)).status, 200);
-  for (const [name, args] of calls(project.id, request.id)) {
+  assert.equal((await callTool(app, "get_researcher_context", { workspaceId: project.workspaceId, requestId: request.id }, "researcher-a")).isError, undefined);
+  assert.equal(await services.revokeWorkspaceRoleUseCase.execute(project.workspaceId, { principalId: "researcher-a", role: "researcher" }), true);
+  for (const [name, args] of calls(project.workspaceId, request.id)) {
     assert.equal(errorOf(await callTool(app, name, args, "researcher-a")).code, "FORBIDDEN", `${name} revoked`);
   }
 
@@ -366,7 +367,7 @@ test("Researcherは Outcome・Project基盤設定・Intent を変更できない
   };
 
   await rejected("create_outcome", {
-    projectId: project.id,
+    workspaceId: project.workspaceId,
     intentId: intent.id,
     title: "T",
     description: "D",
@@ -374,11 +375,11 @@ test("Researcherは Outcome・Project基盤設定・Intent を変更できない
     successCriteria: [{ description: "d", measurement: "m" }],
   });
   await rejected("update_project", { projectId: project.id, mission: "Loosen everything", constraints: [] });
-  await rejected("create_intent", { projectId: project.id, title: "New", desiredState: "New" });
-  await rejected("update_intent", { projectId: project.id, intentId: intent.id, title: "Changed" });
-  await rejected("abandon_intent", { projectId: project.id, intentId: intent.id });
+  await rejected("create_intent", { workspaceId: project.workspaceId, title: "New", desiredState: "New" });
+  await rejected("update_intent", { workspaceId: project.workspaceId, intentId: intent.id, title: "Changed" });
+  await rejected("abandon_intent", { workspaceId: project.workspaceId, intentId: intent.id });
   await rejected("create_direction_decision", {
-    projectId: project.id,
+    workspaceId: project.workspaceId,
     intentId: intent.id,
     type: "additional_research",
     judgment: "J",
@@ -388,7 +389,7 @@ test("Researcherは Outcome・Project基盤設定・Intent を変更できない
     runRef: "run-1",
   });
   await rejected("decide_next_outcome", {
-    projectId: project.id,
+    workspaceId: project.workspaceId,
     intentId: intent.id,
     judgment: "J",
     reason: "R",
@@ -405,8 +406,8 @@ test("Researcherは Outcome・Project基盤設定・Intent を変更できない
   const unchanged = await services.getProjectUseCase.execute(project.id);
   assert.equal(unchanged.mission, "Keep direction explicit");
   assert.deepEqual(unchanged.constraints, ["No autonomous execution yet"]);
-  assert.equal((await services.getIntentUseCase.execute(project.id, intent.id)).status, "active");
-  assert.equal((await services.listOutcomesUseCase.execute(project.id, intent.id)).length, 0);
+  assert.equal((await services.getIntentUseCase.execute(project.workspaceId, intent.id)).status, "active");
+  assert.equal((await services.listOutcomesUseCase.execute(project.workspaceId, intent.id)).length, 0);
 
   // Researcher用のtoolに、Outcome作成・Request作成/取消は無い（Direction Decisionはtoolとして存在するがFORBIDDENで拒否済み）。
   const tools = new Set(((await rpc(app, "tools/list", {})).result.tools as { name: string }[]).map((tool) => tool.name));

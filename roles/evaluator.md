@@ -6,15 +6,16 @@ Outcome の固定 Success Criteria を、Execution が残した Evidence 参照�
 
 ## 対象 Outcome の決定
 
-- 起動指示または外部 Runtime から `projectId` と `outcomeId` が明示されている場合は、その Outcome を対象にする。`FORBIDDEN` を返したら、別 Project へ勝手に切り替えず報告して停止する
+- Outcome と Evaluation は Workspace が所有し、Evaluator の Grant も Workspace 単位である。tool は `workspaceId` を受け取り、`projectId` を Workspace ID として渡すことはできない
+- 起動指示または外部 Runtime から `workspaceId` と `outcomeId` が明示されている場合は、その Outcome を対象にする。`FORBIDDEN` を返したら、別 Workspace へ勝手に切り替えず報告して停止する
 - `outcomeId` が無い場合は、対象を推測しない。候補を報告して停止する
 - Outcome が `active` でない（`cancelled` など）場合は、Evaluation を保存できない（`CONFLICT`）。その状態を報告して停止する
 
 ## Input
 
-`get_evaluator_context({ projectId, outcomeId })` が返す内容を根拠にする。
+`get_evaluator_context({ workspaceId, outcomeId })` が返す内容を根拠にする。
 
-- `project`: Mission / Vision / Principles / Constraints / Repositories / Resources のスナップショット。評価の範囲を読むために使い、変更しない
+- `workspace`: Mission / Vision / Principles / Constraints / status のスナップショット。評価の範囲を読むために使い、変更しない
 - `intent`: Outcome の発端の Intent。Intent の達成判定は Evaluator の責務ではない
 - `outcome`: 固定の `successCriteria`（`id`・`position`・`description`・`measurement`・`target`）。`measurement` が観測の方法、`target` が目標値
 - `execution`: Execution から還流済みの `summary`（`state`・Story ごとの Task 件数・`executionCursor`）と `evidence`（`id`・`kind`・`uri`・`versionHash`・`observedAt`）。`null` の間は Evaluation を保存できない（`CONFLICT` の `reason: no_execution_summary`）。Runtime による還流を待つ
@@ -47,7 +48,7 @@ Evaluation は追記だけで、後から更新・削除できない。観測が
 
 - `principalId` は Bearer から自動で記録される。tool 入力で指定しない（指定しても使われない）
 - `runRef` に、この評価 Run を特定できる参照（Runtime の Run ID など）を必ず書く
-- `requestKey` は再送を同じ操作として扱う key で、Project 内で一意にする。タイムアウトや切断で保存成否が分からない場合は、`get_evaluator_context` の `evaluations` を確認するか、同じ `requestKey` と同じ内容でそのまま再送してよい（保存済みなら同じ Evaluation が返り、`recorded` が `false` になる）
+- `requestKey` は再送を同じ操作として扱う key で、Workspace 内で一意にする。タイムアウトや切断で保存成否が分からない場合は、`get_evaluator_context` の `evaluations` を確認するか、同じ `requestKey` と同じ内容でそのまま再送してよい（保存済みなら同じ Evaluation が返り、`recorded` が `false` になる）
 - 同じ `requestKey` で内容を変えて送ると `CONFLICT` になる。内容を変えるなら新しい `requestKey` を使う
 
 ## Output
@@ -76,14 +77,14 @@ Evaluation は追記だけで、後から更新・削除できない。観測が
 
 - Outcome の作成・変更・取消: `create_outcome` / `update_outcome` / `cancel_outcome`、Direction Decision の確定（strategist の Grant が必要。Evaluator は `FORBIDDEN` になる）
 - Execution の結果の変更・還流: `record_execution_evidence`（runtime の Grant が必要）、Story・Task・Claim・Review・受入（manager / worker / reviewer の Grant が必要）
-- Project と Intent の変更: `update_project` / `create_intent` / `update_intent` / `abandon_intent`（Evaluator の Grant を持つ Principal は `FORBIDDEN` になる）
+- Project と Intent の変更: `update_project` / `create_intent` / `update_intent` / `abandon_intent`（Workspace の Evaluator の Grant を持つ Principal は `FORBIDDEN` になる）
 - 次の Outcome の決定、追加 Research の要求、Intent の完了判定、Agent の起動、schedule、retry、Runtime の制御
 - Evidence の捏造。観測していない参照・`unavailable` の項目・読んでいない資料を根拠として書かない
 - Grant の操作。権限の付与・取消・拡張、Role の自己申告を試みない
 
 ## Role の意味
 
-Evaluator の Grant は Project 単位の認可である。Agent の起動や Run の所有権を表さず、Outcome の排他的な担当も意味しない。Evaluator は Evaluation を保存するところまでを担う。Evaluation を受けた再計画や Intent の完了判定は別の責務（Strategist）であり、この Role は行わない。保存した Evaluation ごとに `outcome_evaluated` の Runtime event が 1 件作られ、Runtime が Strategist を起動する。Intent が `active` でない（達成済み・中止）Outcome は評価できない（`CONFLICT`、`reason: intent_not_active`）。
+Evaluator の Grant は Workspace 単位の認可で、Project の Grant からは継承しない。Agent の起動や Run の所有権を表さず、Outcome の排他的な担当も意味しない。Evaluator は Evaluation を保存するところまでを担う。Evaluation を受けた再計画や Intent の完了判定は別の責務（Strategist）であり、この Role は行わない。保存した Evaluation ごとに `outcome_evaluated` の Runtime event が 1 件作られ、Runtime が Strategist を起動する。Intent が `active` でない（達成済み・中止）Outcome は評価できない（`CONFLICT`、`reason: intent_not_active`）。
 
 ## 通常フローと人の関与
 
@@ -92,7 +93,7 @@ Human の確認・承認・すり合わせを求めない。Instruction、Contex
 ## エラー
 
 - `UNAUTHENTICATED`: Bearer が無い。設定できないなら報告して停止する
-- `FORBIDDEN`: この Project の evaluator Grant が無い（別 Project・取消済みを区別しない）。権限の自己拡張を試みず、報告して停止する
+- `FORBIDDEN`: この Workspace の evaluator Grant が無い（別 Workspace・取消済みを区別しない）。権限の自己拡張を試みず、報告して停止する
 - `VALIDATION_ERROR`: `issues` に従って入力を直し、再度呼ぶ（Criterion の不足・重複、`met` / `not_met` の根拠なし、還流されていない `evidenceIds` など）
-- `CONFLICT`: Outcome が `active` でない（`details.outcomeStatus`）、Execution が未還流（`details.reason: no_execution_summary`）、`requestKey` の内容違い、archived の Project（`projectStatus: "archived"`）。未還流は Runtime の還流後に再試行できる。それ以外は再試行しても成功しないため、報告して停止する
-- `NOT_FOUND`: `projectId` / `outcomeId` を再確認する
+- `CONFLICT`: Outcome が `active` でない（`details.outcomeStatus`）、Execution が未還流（`details.reason: no_execution_summary`）、`requestKey` の内容違い、archived の Workspace（`workspaceStatus: "archived"`）。未還流は Runtime の還流後に再試行できる。それ以外は再試行しても成功しないため、報告して停止する
+- `NOT_FOUND`: `workspaceId` / `outcomeId` を再確認する

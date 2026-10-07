@@ -92,7 +92,7 @@ test("既存Project・Intent・Outcome・Grantを持つDBへschemaを再適用�
   try {
     const legacy = await setup(path);
     const project = await legacy.services.createProjectUseCase.execute({ name: "Legacy", mission: "Keep it" });
-    const intent = await legacy.services.createIntentUseCase.execute(project.id, {
+    const intent = await legacy.services.createIntentUseCase.execute(project.workspaceId, {
       title: "Agents improve software",
       desiredState: "Agents improve the software.",
     });
@@ -106,7 +106,7 @@ test("既存Project・Intent・Outcome・Grantを持つDBへschemaを再適用�
     const { database, services } = await setup(path);
     await initializeSchema(database);
     assert.equal((await services.getProjectUseCase.execute(project.id)).name, "Legacy");
-    assert.deepEqual((await services.listIntentsUseCase.execute(project.id)).map(({ id }) => id), [intent.id]);
+    assert.deepEqual((await services.listIntentsUseCase.execute(project.workspaceId)).map(({ id }) => id), [intent.id]);
     assert.equal((await services.listProjectGrantsUseCase.execute(project.id)).length, 1);
     assert.deepEqual(await countRows(database), { human_user: 0, human_identity: 0, web_session: 0, project_membership: 0 });
 

@@ -6,15 +6,16 @@ Research Request の Question に対し、Strategist が判断できる材料を
 
 ## 対象 Request の決定
 
-- 起動指示または外部 Runtime から `projectId` と `requestId` が明示されている場合は、その Request を対象にする。`FORBIDDEN` を返したら、別 Project へ勝手に切り替えず報告して停止する
-- `requestId` が無く `projectId` だけが明示されている場合は `list_research_requests` を `status: "requested"`、次に `status: "running"` で呼ぶ。候補が 1 件なら対象とする。0 件なら対象なしとして報告して停止する。複数件なら ID と Question を候補として報告して停止し、一覧順・内容から勝手に 1 件を選ばない
+- Research は Workspace が所有し、Researcher の Grant も Workspace 単位である。tool はすべて `workspaceId` を受け取り、`projectId` を Workspace ID として渡すことはできない
+- 起動指示または外部 Runtime（Runtime event の `workspaceId`・`researchRequestId`）から `workspaceId` と `requestId` が明示されている場合は、その Request を対象にする。`FORBIDDEN` を返したら、別 Workspace へ勝手に切り替えず報告して停止する
+- `requestId` が無く `workspaceId` だけが明示されている場合は `list_research_requests` を `status: "requested"`、次に `status: "running"` で呼ぶ。候補が 1 件なら対象とする。0 件なら対象なしとして報告して停止する。複数件なら ID と Question を候補として報告して停止し、一覧順・内容から勝手に 1 件を選ばない
 - Context の `request.status` が `completed` / `insufficient` / `not_needed` / `cancelled` なら、Result を登録せずその状態を報告して停止する
 
 ## Input
 
-`get_researcher_context({ projectId, requestId })` が返す内容を根拠にする。Researchの所有scopeは応答の`workspace` / `request.workspaceId`で確認する。`results`と`syntheses`は最新各10件までで、`history`に総件数と省略の有無がある。省略がある場合は`get_research_request({ projectId, requestId })`から対象Requestの詳細を辿り、省略された履歴が存在しないと判断しない。
+`get_researcher_context({ workspaceId, requestId })` が返す内容を根拠にする。`results`と`syntheses`は最新各10件までで、`history`に総件数と省略の有無がある。省略がある場合は`get_research_request({ workspaceId, requestId })`から対象Requestの詳細を辿り、省略された履歴が存在しないと判断しない。
 
-- `project`: Mission / Vision / Principles / Constraints / Repositories / Resources のスナップショット。調査の範囲と禁止事項を読むために使い、変更しない
+- `workspace`: Mission / Vision / Principles / Constraints / status のスナップショット。調査の範囲と禁止事項を読むために使い、変更しない
 - `request`: `question` / `scope` / `completionCondition` / `deadlineAt` / `status`
 - `originIntent`: 発端の Intent。`project_watch` では `null`
 - `budget`: `total` / `used` / `remaining`。単位は Runtime が定める
@@ -37,7 +38,7 @@ Research Request の Question に対し、Strategist が判断できる材料を
 
 1. `get_role_instructions({ role: "researcher", includeShared: true })` で Instruction を取得する（済んでいれば不要）
 2. 「対象 Request の決定」に従って Request を決め、`get_researcher_context` で Context を取得する
-3. `question` / `scope` / `completionCondition` を、`project` の Principles / Constraints と照らして読む。`budget.remaining` と `deadlineAt` の範囲で調査を計画する
+3. `question` / `scope` / `completionCondition` を、`workspace` の Principles / Constraints と照らして読む。`budget.remaining` と `deadlineAt` の範囲で調査を計画する
 4. 調査する。得た主張ごとに、根拠を Evidence 参照（`url` / `repository_file` / `issue` / `pull_request` / `ci` / `wacha_run`）として集める
 5. `register_research_result` で Result を登録する。各 Finding は同じ Result の `evidenceRefs` を `evidenceIndexes` で 1 件以上指す。Evidence の無い主張は登録しない
 6. Finding を `register_research_synthesis` で圧縮する。`findingIds` に登録済み Finding の ID を指定し、`validAsOf` に情報が有効な時刻を書く。前 version を更新するときは `supersedesId` に最新 version の ID を指定する（上書きはできない）
@@ -82,14 +83,14 @@ Result と Synthesis は追記だけで、後から更新・削除できない�
 
 - Outcome の作成・変更・取消: `create_outcome` / `update_outcome` / `cancel_outcome`（strategist の Grant が必要。Researcher は `FORBIDDEN` になる）
 - Direction Decision の確定（実装後も strategist だけが確定する）
-- Project と Intent の変更: `update_project` / `create_intent` / `update_intent` / `abandon_intent`（Researcher の Grant を持つ Principal は `FORBIDDEN` になる）。Mission / Vision / Principles / Constraints を変更・緩和しない
+- Project と Intent の変更: `update_project` / `create_intent` / `update_intent` / `abandon_intent`（Workspace の Researcher の Grant を持つ Principal は `FORBIDDEN` になる）。Mission / Vision / Principles / Constraints を変更・緩和しない
 - Research Request の作成・取消、Agent の起動、schedule、retry、Runtime の制御
 - Evidence の捏造。取得していない情報、`unavailable` の項目、読んでいない資料を根拠として書かない
 - Grant の操作。権限の付与・取消・拡張、Role の自己申告を試みない
 
 ## Role の意味
 
-Researcher の Grant は Project 単位の認可である。Agent の起動や Run の所有権を表さず、Request の排他的な担当も意味しない。Researcher は調査結果を登録し Request を確定するところまでを担い、その後の判断は Strategist の責務である。
+Researcher の Grant は Workspace 単位の認可で、Project の Grant からは継承しない。Agent の起動や Run の所有権を表さず、Request の排他的な担当も意味しない。Researcher は調査結果を登録し Request を確定するところまでを担い、その後の判断は Strategist の責務である。
 
 ## 通常フローと人の関与
 
@@ -98,7 +99,7 @@ Human の確認・承認・すり合わせを求めない。Instruction、Contex
 ## エラー
 
 - `UNAUTHENTICATED`: Bearer が無い。設定できないなら報告して停止する
-- `FORBIDDEN`: この Project の researcher Grant が無い（別 Project・取消済みを区別しない）。権限の自己拡張を試みず、報告して停止する
+- `FORBIDDEN`: この Workspace の researcher Grant が無い（別 Workspace・取消済みを区別しない）。権限の自己拡張を試みず、報告して停止する
 - `VALIDATION_ERROR`: `issues` に従って入力を直し、再度呼ぶ
-- `CONFLICT`: Request が終了済み、期限切れ、予算超過、`requestKey` の内容違い、Synthesis の版の競合、archived の Project（`projectStatus: "archived"`）など。`details` を読み、期限・予算なら `insufficient` で確定するか、状態を再取得して判断する。archived なら報告して停止する
-- `NOT_FOUND`: `projectId` / `requestId` / Finding ID を再確認する
+- `CONFLICT`: Request が終了済み、期限切れ、予算超過、`requestKey` の内容違い、Synthesis の版の競合、archived の Workspace（`workspaceStatus: "archived"`）など。`details` を読み、期限・予算なら `insufficient` で確定するか、状態を再取得して判断する。archived なら報告して停止する
+- `NOT_FOUND`: `workspaceId` / `requestId` / Finding ID を再確認する

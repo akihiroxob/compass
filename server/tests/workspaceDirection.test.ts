@@ -16,7 +16,7 @@ import { asDirectionDatabase } from "../src/bootstrap/database/contextDatabase.t
 import { directionWorkspaceReaders, projectRepositoryReferenceFinder } from "../src/infrastructure/repository/contextAdapters.ts";
 
 
-import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant, seedWorkspaceGrant } from "./support/humanSession.ts";
 
 const intentInput = { title: "Direction", desiredState: "Shared direction" };
 const outcomeInput = { title: "Result", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }] };
@@ -76,7 +76,7 @@ test("new schema has Workspace ownership columns, composite FK and Workspace act
   } finally { await database.destroy(); }
 });
 
-test("multiple Projects share one Workspace Intent; old Project Direction entry points reject shared ownership", async () => {
+test("multiple Projects share one Workspace Intent; Direction use cases never interpret a Project ID as a Workspace ID", async () => {
   const { database, services, workspace, direction } = await setup();
   try {
     const createProject = new CreateWorkspaceProjectUseCase(new SQLiteProjectRepository(asOrganizationDatabase(database), projectRepositoryReferenceFinder));
@@ -84,10 +84,10 @@ test("multiple Projects share one Workspace Intent; old Project Direction entry 
     const b = await createProject.execute(workspace.id, { name: "B" });
     const intent = await direction.createIntentUseCase.execute(workspace.id, intentInput);
     for (const project of [a, b]) {
-      await assert.rejects(services.listIntentsUseCase.execute(project.id), { code: "CONFLICT", details: { reason: "workspace_direction_required" } });
-      await assert.rejects(services.createOutcomeUseCase.execute(project.id, intent.id, outcomeInput), { code: "CONFLICT" });
+      await assert.rejects(services.listIntentsUseCase.execute(project.id), { code: "NOT_FOUND" });
+      await assert.rejects(services.createOutcomeUseCase.execute(project.id, intent.id, outcomeInput), { code: "NOT_FOUND" });
     }
-    await assert.rejects(services.listIntentsUseCase.execute(workspace.id), { code: "NOT_FOUND" });
+    assert.deepEqual(await services.listIntentsUseCase.execute(workspace.id), [intent]);
     await assert.rejects(direction.listIntentsUseCase.execute(a.id), { code: "NOT_FOUND" });
     assert.equal((await direction.listIntentsUseCase.execute(workspace.id)).length, 1);
     const outcome = await direction.createOutcomeUseCase.execute(workspace.id, intent.id, outcomeInput);
@@ -169,34 +169,43 @@ test("Workspace Direction and criteria persist after reopening and repeat schema
   }
 });
 
-test("Web/API/MCP keep Project authorization and do not expose shared Workspace Direction", async () => {
+test("Web/API/MCP expose shared Workspace Direction only through Workspace IDs and Workspace authorization", async () => {
   const { database, services, workspace, direction } = await setup();
   try {
     const createProject = new CreateWorkspaceProjectUseCase(new SQLiteProjectRepository(asOrganizationDatabase(database), projectRepositoryReferenceFinder));
     const a = await createProject.execute(workspace.id, { name: "A" });
-    const b = await createProject.execute(workspace.id, { name: "B" });
+    await createProject.execute(workspace.id, { name: "B" });
     const intent = await direction.createIntentUseCase.execute(workspace.id, intentInput);
     await direction.createOutcomeUseCase.execute(workspace.id, intent.id, outcomeInput);
     const app = await createSignedInApp(database, services);
-    const response = await app.request(`/api/projects/${a.id}/intents`);
-    assert.equal(response.status, 409);
-    const body = await response.json() as { error: { code: string; reason: string } };
-    assert.equal(body.error.reason, "workspace_direction_required");
-    await seedLegacyProjectGrant(database, a.id, "strategist", "strategist");
-    const call = async (projectId: string) => {
+    // 旧Project配下のDirection経路は無い。Workspace経路でWorkspace Membershipにより読める。
+    assert.equal((await app.request(`/api/projects/${a.id}/intents`)).status, 404);
+    const listed = await app.request(`/api/workspaces/${workspace.id}/intents`);
+    assert.equal(listed.status, 200);
+    assert.deepEqual(((await listed.json()) as { intents: { id: string }[] }).intents.map((item) => item.id), [intent.id]);
+    assert.equal((await app.request(`/api/workspaces/${a.id}/intents`)).status, 404);
+
+    await seedWorkspaceGrant(database, workspace.id, "strategist", "strategist");
+    await seedLegacyProjectGrant(database, a.id, "project-strategist", "strategist");
+    const call = async (principal: string, args: object) => {
       const result = await app.request("/mcp", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: "Bearer strategist", "X-Compass-Active-Role": "strategist" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "get_strategist_context", arguments: { projectId } } }),
+        headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${principal}`, "X-Compass-Active-Role": "strategist" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "get_strategist_context", arguments: args } }),
       });
       const data = (await result.text()).split("\n").find(line => line.startsWith("data: "));
       assert.ok(data);
       return JSON.parse(data.slice(6)).result;
     };
-    const shared = await call(a.id);
-    assert.equal(shared.isError, true);
-    assert.equal(shared.structuredContent.error.reason, "workspace_direction_required");
-    assert.equal((await call(b.id)).structuredContent.error.code, "FORBIDDEN", "Grantの無いProjectの認可を先に拒否する");
-    assert.equal(JSON.stringify(shared).includes(intent.id), false);
+    const context = await call("strategist", { workspaceId: workspace.id });
+    assert.equal(context.isError, undefined);
+    assert.equal(context.structuredContent.activeIntent.id, intent.id);
+    // projectIdは入力に無く、Project IDをworkspaceIdに渡してもWorkspaceとして扱わない。
+    assert.equal((await call("strategist", { projectId: a.id })).isError, true);
+    assert.equal((await call("strategist", { workspaceId: a.id })).structuredContent.error.code, "FORBIDDEN");
+    // Project GrantからWorkspace Directionは継承しない。
+    const projectOnly = await call("project-strategist", { workspaceId: workspace.id });
+    assert.equal(projectOnly.structuredContent.error.code, "FORBIDDEN");
+    assert.equal(JSON.stringify(projectOnly).includes(intent.id), false);
   } finally { await database.destroy(); }
 });

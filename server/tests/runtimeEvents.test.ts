@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
+import { createSignedInApp, issueWorkspaceRuntimeCredential, seedWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { runtimeEventVersion } from "@compass/direction";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -31,37 +31,46 @@ const setup = async (path = ":memory:") => {
 type Context = Awaited<ReturnType<typeof setup>>;
 type Services = Context["services"];
 
-const bearer = (principal: string | undefined): Record<string, string> =>
-  principal === undefined ? {} : { Authorization: `Bearer ${principal}` };
+/**
+ * Runtime eventはWorkspace所有で、Workspace Runtime Credentialで認可する。testはconsumer名で書き、Bearerには
+ * `grantRuntime`で発行したそのconsumerのtoken（同じWorkspace向けを優先し、無ければ最後に発行したもの）を使う。発行していない名前はそのままBearerに置く。
+ */
+const runtimeCredentials = new Map<string, { workspaceId: string; credentialId: string; token: string }[]>();
+const credentialOf = (principal: string, workspaceId?: string) => {
+  const issued = runtimeCredentials.get(principal) ?? [];
+  return [...issued].reverse().find((item) => item.workspaceId === workspaceId) ?? issued[issued.length - 1];
+};
+
+const bearer = (principal: string | undefined, workspaceId?: string): Record<string, string> =>
+  principal === undefined ? {} : { Authorization: `Bearer ${credentialOf(principal, workspaceId)?.token ?? principal}` };
 
 const api = (app: App, method: string, path: string, principal?: string, body?: unknown) =>
   app.request(path, {
     method,
-    headers: { "Content-Type": "application/json", ...bearer(principal) },
+    headers: { "Content-Type": "application/json", ...bearer(principal, /^\/api\/workspaces\/([^/]+)\//.exec(path)?.[1]) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-const fetchEvents = async (app: App, projectId: string, principal: string, query = "") => {
-  const response = await api(app, "GET", `/api/projects/${projectId}/runtime-events${query}`, principal);
+const fetchEvents = async (app: App, workspaceId: string, principal: string, query = "") => {
+  const response = await api(app, "GET", `/api/workspaces/${workspaceId}/runtime-events${query}`, principal);
   assert.equal(response.status, 200);
   return (await response.json()) as { events: Array<Record<string, any>>; nextCursor: number; resumeCursor: number };
 };
 
 let ackSequence = 0;
 /** 試行ごとに新しいattemptIdを付ける。応答消失後の再送を試すときは、bodyに同じattemptIdを明示する。 */
-const ack = (app: App, projectId: string, eventId: string, principal: string, body: object) =>
-  api(app, "POST", `/api/projects/${projectId}/runtime-events/${eventId}/ack`, principal, {
+const ack = (app: App, workspaceId: string, eventId: string, principal: string, body: object) =>
+  api(app, "POST", `/api/workspaces/${workspaceId}/runtime-events/${eventId}/ack`, principal, {
     attemptId: `attempt-${++ackSequence}`,
     ...body,
   });
 
-const grantRuntime = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role = "runtime") => {
-  if (["strategist", "researcher", "evaluator"].includes(role)) {
-    await seedLegacyProjectGrant(database, projectId, principalId, role);
-    return;
-  }
-  const response = await api(app, "POST", `/api/projects/${projectId}/grants`, undefined, { principalId, role });
-  assert.ok(response.status === 200 || response.status === 201);
+const grantRuntime = async (
+  { database, services }: Pick<Context, "database" | "services">, workspaceId: string, principalId: string, role = "runtime",
+) => {
+  if (role !== "runtime") return seedWorkspaceGrant(database, workspaceId, principalId, role);
+  const issued = await issueWorkspaceRuntimeCredential(database, services, workspaceId, principalId);
+  runtimeCredentials.set(principalId, [...(runtimeCredentials.get(principalId) ?? []), { workspaceId, ...issued }]);
 };
 
 const rpc = async (app: App, method: string, params: object, principal?: string) => {
@@ -81,16 +90,16 @@ const rpc = async (app: App, method: string, params: object, principal?: string)
 };
 
 const callTool = async (app: App, name: string, args: object, principal?: string): Promise<ToolResult> =>
-  (await rpc(app, "tools/call", { name, arguments: args }, principal)).result;
+  (await rpc(app, "tools/call", { name, arguments: args }, principal === undefined ? undefined : credentialOf(principal)?.token ?? principal)).result;
 
 const seed = async (services: Services, name = "Compass") => {
   const project = await services.createProjectUseCase.execute({ name, mission: "Keep direction explicit" });
-  const intent = await services.createIntentUseCase.execute(project.id, {
+  const intent = await services.createIntentUseCase.execute(project.workspaceId, {
     title: `Agents improve ${name}`,
     desiredState: "Agents improve the software.",
   });
   // Intent作成はRequestを作らない。Strategistが追加Researchを判断した後と同じく、Request 1件とresearch_requestedを用意する。
-  const request = await services.createResearchRequestUseCase.execute(project.id, {
+  const request = await services.createResearchRequestUseCase.execute(project.workspaceId, {
     requestKey: "research-1",
     kind: "decision",
     originIntentId: intent.id,
@@ -102,8 +111,8 @@ const seed = async (services: Services, name = "Compass") => {
   return { project, intent, request };
 };
 
-const closeRequest = (services: Services, projectId: string, requestId: string) =>
-  services.completeResearchRequestUseCase.execute(projectId, requestId, {
+const closeRequest = (services: Services, workspaceId: string, requestId: string) =>
+  services.completeResearchRequestUseCase.execute(workspaceId, requestId, {
     conclusion: "not_needed",
     stopReason: "Existing knowledge is enough",
   });
@@ -118,9 +127,9 @@ const errorCode = async (response: Response) => ((await response.json()) as { er
 test("未処理のresearch_requestedをcursor付きで取得しackすると、再取得で返らず、cursorから差分を再開できる", async () => {
   const { database, services, app } = await setup();
   const { project, intent, request } = await seed(services);
-  await grantRuntime(database, app, project.id, "runtime-a");
+  await grantRuntime({ database, services }, project.workspaceId, "runtime-a");
 
-  const first = await fetchEvents(app, project.id, "runtime-a");
+  const first = await fetchEvents(app, project.workspaceId, "runtime-a");
   assert.equal(first.events.length, 1);
   const requested = first.events[0]!;
   assert.equal(requested.type, "research_requested");
@@ -132,7 +141,7 @@ test("未処理のresearch_requestedをcursor付きで取得しackすると、�
   assert.deepEqual([requested.retryCount, requested.lastFailureReason], [0, null]);
   assert.equal(first.nextCursor, requested.cursor);
 
-  const acked = await ack(app, project.id, requested.id, "runtime-a", { outcome: "processed" });
+  const acked = await ack(app, project.workspaceId, requested.id, "runtime-a", { outcome: "processed" });
   assert.equal(acked.status, 200);
   const body = (await acked.json()) as { delivery: Record<string, any>; recorded: boolean };
   assert.equal(body.recorded, true);
@@ -151,20 +160,20 @@ test("未処理のresearch_requestedをcursor付きで取得しackすると、�
   );
 
   // ack済みは未処理として返さない。空のときはafterCursorをそのまま返し、再開位置は確定済みの末尾まで進む。
-  assert.deepEqual(await fetchEvents(app, project.id, "runtime-a"), {
+  assert.deepEqual(await fetchEvents(app, project.workspaceId, "runtime-a"), {
     events: [],
     nextCursor: 0,
     resumeCursor: requested.cursor,
   });
-  assert.deepEqual(await fetchEvents(app, project.id, "runtime-a", `?afterCursor=${requested.cursor}`), {
+  assert.deepEqual(await fetchEvents(app, project.workspaceId, "runtime-a", `?afterCursor=${requested.cursor}`), {
     events: [],
     nextCursor: requested.cursor,
     resumeCursor: requested.cursor,
   });
 
   // Requestの確定で増えた差分だけが、前回のnextCursorから続けて返る。
-  await closeRequest(services, project.id, request.id);
-  const next = await fetchEvents(app, project.id, "runtime-a", `?afterCursor=${first.nextCursor}`);
+  await closeRequest(services, project.workspaceId, request.id);
+  const next = await fetchEvents(app, project.workspaceId, "runtime-a", `?afterCursor=${first.nextCursor}`);
   assert.deepEqual(next.events.map(({ type }) => type), ["research_completed"]);
   const completed = next.events[0]!;
   // research_completedからStrategistを起動するのに必要な項目が揃い、Researcher起動時と同じcorrelationIdを持つ。
@@ -181,18 +190,18 @@ test("未処理のresearch_requestedをcursor付きで取得しackすると、�
 test("limitで区切って取得でき、nextCursorで欠落・重複なく続けられる", async () => {
   const { database, services, app } = await setup();
   const { project, request } = await seed(services);
-  await closeRequest(services, project.id, request.id);
-  await grantRuntime(database, app, project.id, "runtime-a");
+  await closeRequest(services, project.workspaceId, request.id);
+  await grantRuntime({ database, services }, project.workspaceId, "runtime-a");
 
-  const page1 = await fetchEvents(app, project.id, "runtime-a", "?limit=1");
+  const page1 = await fetchEvents(app, project.workspaceId, "runtime-a", "?limit=1");
   assert.deepEqual(page1.events.map(({ type }) => type), ["research_requested"]);
-  const page2 = await fetchEvents(app, project.id, "runtime-a", `?limit=1&afterCursor=${page1.nextCursor}`);
+  const page2 = await fetchEvents(app, project.workspaceId, "runtime-a", `?limit=1&afterCursor=${page1.nextCursor}`);
   assert.deepEqual(page2.events.map(({ type }) => type), ["research_completed"]);
-  const page3 = await fetchEvents(app, project.id, "runtime-a", `?limit=1&afterCursor=${page2.nextCursor}`);
+  const page3 = await fetchEvents(app, project.workspaceId, "runtime-a", `?limit=1&afterCursor=${page2.nextCursor}`);
   assert.deepEqual(page3.events, []);
 
   // 未ackのイベントは、afterCursorを戻せば（Runtimeが再起動してcursorを失った場合など）そのまま返る。
-  assert.deepEqual((await fetchEvents(app, project.id, "runtime-a")).events.map(({ id }) => id), [
+  assert.deepEqual((await fetchEvents(app, project.workspaceId, "runtime-a")).events.map(({ id }) => id), [
     page1.events[0]!.id,
     page2.events[0]!.id,
   ]);
@@ -202,24 +211,24 @@ test("limitで区切って取得でき、nextCursorで欠落・重複なく続�
 test("応答が失われても、取得は状態を変えずに同じイベントを返し、ackの再送は冪等になる", async () => {
   const { database, services, app } = await setup();
   const { project } = await seed(services);
-  await grantRuntime(database, app, project.id, "runtime-a");
+  await grantRuntime({ database, services }, project.workspaceId, "runtime-a");
   const eventsBefore = await rowCount(database, "runtime_event");
 
-  const lost = await fetchEvents(app, project.id, "runtime-a");
-  const again = await fetchEvents(app, project.id, "runtime-a");
+  const lost = await fetchEvents(app, project.workspaceId, "runtime-a");
+  const again = await fetchEvents(app, project.workspaceId, "runtime-a");
   assert.deepEqual(again, lost);
   assert.equal(await rowCount(database, "runtime_event_delivery"), 0);
 
   const eventId = lost.events[0]!.id;
-  const first = (await (await ack(app, project.id, eventId, "runtime-a", { outcome: "processed" })).json()) as any;
-  const resend = (await (await ack(app, project.id, eventId, "runtime-a", { outcome: "processed" })).json()) as any;
+  const first = (await (await ack(app, project.workspaceId, eventId, "runtime-a", { outcome: "processed" })).json()) as any;
+  const resend = (await (await ack(app, project.workspaceId, eventId, "runtime-a", { outcome: "processed" })).json()) as any;
   assert.equal(first.recorded, true);
   assert.equal(resend.recorded, false);
   assert.deepEqual(resend.delivery, first.delivery);
   assert.equal(await rowCount(database, "runtime_event_delivery"), 1);
 
   // 確定済みの結果は別の結果へ変えられない。
-  const conflict = await ack(app, project.id, eventId, "runtime-a", { outcome: "terminal_failure", reason: "changed my mind" });
+  const conflict = await ack(app, project.workspaceId, eventId, "runtime-a", { outcome: "terminal_failure", reason: "changed my mind" });
   assert.equal(conflict.status, 409);
   const conflictBody = (await conflict.json()) as { error: Record<string, string> };
   assert.equal(conflictBody.error.code, "CONFLICT");
@@ -232,35 +241,35 @@ test("retryable_failureは返り続けて回数と理由を伴い、processedま
   const { database, services, app } = await setup();
   const first = await seed(services, "One");
   const second = await seed(services, "Two");
-  await grantRuntime(database, app, first.project.id, "runtime-a");
-  await grantRuntime(database, app, second.project.id, "runtime-a");
+  await grantRuntime({ database, services }, first.project.workspaceId, "runtime-a");
+  await grantRuntime({ database, services }, second.project.workspaceId, "runtime-a");
 
-  const eventId = (await fetchEvents(app, first.project.id, "runtime-a")).events[0]!.id;
-  const retry = (reason: string) => ack(app, first.project.id, eventId, "runtime-a", { outcome: "retryable_failure", reason });
+  const eventId = (await fetchEvents(app, first.project.workspaceId, "runtime-a")).events[0]!.id;
+  const retry = (reason: string) => ack(app, first.project.workspaceId, eventId, "runtime-a", { outcome: "retryable_failure", reason });
 
   assert.equal((await retry("Researcher launch timed out")).status, 200);
-  let pending = (await fetchEvents(app, first.project.id, "runtime-a")).events;
+  let pending = (await fetchEvents(app, first.project.workspaceId, "runtime-a")).events;
   assert.deepEqual(pending.map(({ id }) => id), [eventId]);
   assert.deepEqual([pending[0]!.retryCount, pending[0]!.lastFailureReason], [1, "Researcher launch timed out"]);
 
   assert.equal((await retry("Still unavailable")).status, 200);
-  pending = (await fetchEvents(app, first.project.id, "runtime-a")).events;
+  pending = (await fetchEvents(app, first.project.workspaceId, "runtime-a")).events;
   assert.deepEqual([pending[0]!.retryCount, pending[0]!.lastFailureReason], [2, "Still unavailable"]);
 
   // 再試行が成功した。履歴（回数）は残るが、以後は返らない。
-  const done = (await (await ack(app, first.project.id, eventId, "runtime-a", { outcome: "processed" })).json()) as any;
+  const done = (await (await ack(app, first.project.workspaceId, eventId, "runtime-a", { outcome: "processed" })).json()) as any;
   assert.deepEqual([done.delivery.outcome, done.delivery.retryCount, done.delivery.lastFailureReason], ["processed", 2, "Still unavailable"]);
-  assert.deepEqual((await fetchEvents(app, first.project.id, "runtime-a")).events, []);
+  assert.deepEqual((await fetchEvents(app, first.project.workspaceId, "runtime-a")).events, []);
 
   // 終端失敗は理由を残して返らなくなる。retryable_failureからterminal_failureへも進める。
-  const secondEventId = (await fetchEvents(app, second.project.id, "runtime-a")).events[0]!.id;
-  await ack(app, second.project.id, secondEventId, "runtime-a", { outcome: "retryable_failure", reason: "first try" });
-  const terminal = await ack(app, second.project.id, secondEventId, "runtime-a", {
+  const secondEventId = (await fetchEvents(app, second.project.workspaceId, "runtime-a")).events[0]!.id;
+  await ack(app, second.project.workspaceId, secondEventId, "runtime-a", { outcome: "retryable_failure", reason: "first try" });
+  const terminal = await ack(app, second.project.workspaceId, secondEventId, "runtime-a", {
     outcome: "terminal_failure",
     reason: "Unsupported event version",
   });
   assert.equal(terminal.status, 200);
-  assert.deepEqual((await fetchEvents(app, second.project.id, "runtime-a")).events, []);
+  assert.deepEqual((await fetchEvents(app, second.project.workspaceId, "runtime-a")).events, []);
   const stored = await database
     .selectFrom("runtime_event_delivery")
     .select(["outcome", "retry_count", "last_failure_reason"])
@@ -269,7 +278,7 @@ test("retryable_failureは返り続けて回数と理由を伴い、processedま
   assert.deepEqual(stored, { outcome: "terminal_failure", retry_count: 1, last_failure_reason: "Unsupported event version" });
 
   // 確定済みのterminal_failureは、processedへ変えられない。
-  const overwrite = await ack(app, second.project.id, secondEventId, "runtime-a", { outcome: "processed" });
+  const overwrite = await ack(app, second.project.workspaceId, secondEventId, "runtime-a", { outcome: "processed" });
   assert.equal(overwrite.status, 409);
   await database.destroy();
 });
@@ -277,20 +286,20 @@ test("retryable_failureは返り続けて回数と理由を伴い、processedま
 test("consumerごとにackが独立し、別consumerのackは影響しない", async () => {
   const { database, services, app } = await setup();
   const { project } = await seed(services);
-  await grantRuntime(database, app, project.id, "runtime-a");
-  await grantRuntime(database, app, project.id, "runtime-b");
+  await grantRuntime({ database, services }, project.workspaceId, "runtime-a");
+  await grantRuntime({ database, services }, project.workspaceId, "runtime-b");
 
-  const eventA = (await fetchEvents(app, project.id, "runtime-a")).events[0]!;
-  const eventB = (await fetchEvents(app, project.id, "runtime-b")).events[0]!;
+  const eventA = (await fetchEvents(app, project.workspaceId, "runtime-a")).events[0]!;
+  const eventB = (await fetchEvents(app, project.workspaceId, "runtime-b")).events[0]!;
   assert.equal(eventA.id, eventB.id);
 
-  await ack(app, project.id, eventA.id, "runtime-a", { outcome: "processed" });
-  assert.deepEqual((await fetchEvents(app, project.id, "runtime-a")).events, []);
-  assert.deepEqual((await fetchEvents(app, project.id, "runtime-b")).events.map(({ id }) => id), [eventA.id]);
+  await ack(app, project.workspaceId, eventA.id, "runtime-a", { outcome: "processed" });
+  assert.deepEqual((await fetchEvents(app, project.workspaceId, "runtime-a")).events, []);
+  assert.deepEqual((await fetchEvents(app, project.workspaceId, "runtime-b")).events.map(({ id }) => id), [eventA.id]);
 
   // runtime-bの失敗・確定はruntime-aの記録を変えない。
-  await ack(app, project.id, eventB.id, "runtime-b", { outcome: "terminal_failure", reason: "not for me" });
-  assert.deepEqual((await fetchEvents(app, project.id, "runtime-b")).events, []);
+  await ack(app, project.workspaceId, eventB.id, "runtime-b", { outcome: "terminal_failure", reason: "not for me" });
+  assert.deepEqual((await fetchEvents(app, project.workspaceId, "runtime-b")).events, []);
   const rows = await database
     .selectFrom("runtime_event_delivery")
     .select(["consumer_id", "outcome"])
@@ -303,52 +312,52 @@ test("consumerごとにackが独立し、別consumerのackは影響しない", a
   await database.destroy();
 });
 
-test("別Projectのイベントは取得もackもできず、Grantは対象Projectだけに効く", async () => {
+test("別Workspaceのイベントは取得もackもできず、Credentialは発行Workspaceだけに効く", async () => {
   const { database, services, app } = await setup();
   const one = await seed(services, "One");
   const two = await seed(services, "Two");
-  await grantRuntime(database, app, one.project.id, "runtime-a");
-  await grantRuntime(database, app, two.project.id, "runtime-b");
+  await grantRuntime({ database, services }, one.project.workspaceId, "runtime-a");
+  await grantRuntime({ database, services }, two.project.workspaceId, "runtime-b");
 
-  const eventOne = (await fetchEvents(app, one.project.id, "runtime-a")).events[0]!;
-  const eventTwo = (await fetchEvents(app, two.project.id, "runtime-b")).events[0]!;
+  const eventOne = (await fetchEvents(app, one.project.workspaceId, "runtime-a")).events[0]!;
+  const eventTwo = (await fetchEvents(app, two.project.workspaceId, "runtime-b")).events[0]!;
   assert.equal(eventOne.workspaceId, one.project.workspaceId);
   assert.equal(eventTwo.workspaceId, two.project.workspaceId);
 
-  // runtime-aはProject Twoの取得・ackにGrantが無い。
-  const foreignFetch = await api(app, "GET", `/api/projects/${two.project.id}/runtime-events`, "runtime-a");
+  // runtime-aのCredentialはWorkspace Twoの取得・ackに使えない。
+  const foreignFetch = await api(app, "GET", `/api/workspaces/${two.project.workspaceId}/runtime-events`, "runtime-a");
   assert.equal(foreignFetch.status, 403);
   assert.equal(await errorCode(foreignFetch), "FORBIDDEN");
-  const foreignAck = await ack(app, two.project.id, eventTwo.id, "runtime-a", { outcome: "processed" });
+  const foreignAck = await ack(app, two.project.workspaceId, eventTwo.id, "runtime-a", { outcome: "processed" });
   assert.equal(foreignAck.status, 403);
 
-  // 自分のProjectのpathへ別Projectのeventを指定してもNOT_FOUNDで、ackは保存されない。
-  const crossAck = await ack(app, one.project.id, eventTwo.id, "runtime-a", { outcome: "processed" });
+  // 自分のWorkspaceのpathへ別Workspaceのeventを指定してもNOT_FOUNDで、ackは保存されない。
+  const crossAck = await ack(app, one.project.workspaceId, eventTwo.id, "runtime-a", { outcome: "processed" });
   assert.equal(crossAck.status, 404);
   assert.equal(await errorCode(crossAck), "NOT_FOUND");
   assert.equal(await rowCount(database, "runtime_event_delivery"), 0);
-  assert.deepEqual((await fetchEvents(app, two.project.id, "runtime-b")).events.map(({ id }) => id), [eventTwo.id]);
+  assert.deepEqual((await fetchEvents(app, two.project.workspaceId, "runtime-b")).events.map(({ id }) => id), [eventTwo.id]);
 
-  // 存在しないProjectはGrantが無いのでFORBIDDEN。存在の有無を漏らさない。
-  const missing = await api(app, "GET", "/api/projects/missing/runtime-events", "runtime-a");
+  // 存在しないWorkspaceはCredentialのscope外なのでFORBIDDEN。存在の有無を漏らさない。
+  const missing = await api(app, "GET", "/api/workspaces/missing/runtime-events", "runtime-a");
   assert.equal(missing.status, 403);
-  assert.equal(await errorCode(await ack(app, one.project.id, "missing", "runtime-a", { outcome: "processed" })), "NOT_FOUND");
+  assert.equal(await errorCode(await ack(app, one.project.workspaceId, "missing", "runtime-a", { outcome: "processed" })), "NOT_FOUND");
   await database.destroy();
 });
 
-test("Bearerなし・形式不正・Grantなし・別Role・取消済みを拒否し、取消は次の呼出しから反映される", async () => {
+test("Bearerなし・形式不正・Credentialなし（Agent名・Direction Role）・取消済みを拒否し、取消は次の呼出しから反映される", async () => {
   const { database, services, app } = await setup();
   const { project } = await seed(services);
-  await grantRuntime(database, app, project.id, "researcher-a", "researcher");
-  await grantRuntime(database, app, project.id, "strategist-a", "strategist");
-  await grantRuntime(database, app, project.id, "runtime-a");
-  const eventId = (await fetchEvents(app, project.id, "runtime-a")).events[0]!.id;
-  const path = `/api/projects/${project.id}/runtime-events`;
+  await grantRuntime({ database, services }, project.workspaceId, "researcher-a", "researcher");
+  await grantRuntime({ database, services }, project.workspaceId, "strategist-a", "strategist");
+  await grantRuntime({ database, services }, project.workspaceId, "runtime-a");
+  const eventId = (await fetchEvents(app, project.workspaceId, "runtime-a")).events[0]!.id;
+  const path = `/api/workspaces/${project.workspaceId}/runtime-events`;
 
   const anonymous = await api(app, "GET", path);
   assert.equal(anonymous.status, 401);
   assert.equal(await errorCode(anonymous), "UNAUTHENTICATED");
-  assert.equal((await ack(app, project.id, eventId, undefined as never, { outcome: "processed" })).status, 401);
+  assert.equal((await ack(app, project.workspaceId, eventId, undefined as never, { outcome: "processed" })).status, 401);
   const malformed = await app.request(path, { headers: { Authorization: "Basic abc" } });
   assert.equal(malformed.status, 401);
   assert.equal(await errorCode(malformed), "UNAUTHENTICATED");
@@ -357,14 +366,15 @@ test("Bearerなし・形式不正・Grantなし・別Role・取消済みを拒�
     const response = await api(app, "GET", path, principal);
     assert.equal(response.status, 403, principal);
     assert.equal(await errorCode(response), "FORBIDDEN");
-    assert.equal((await ack(app, project.id, eventId, principal, { outcome: "processed" })).status, 403, principal);
+    assert.equal((await ack(app, project.workspaceId, eventId, principal, { outcome: "processed" })).status, 403, principal);
   }
   assert.equal(await rowCount(database, "runtime_event_delivery"), 0);
 
-  const revoked = await api(app, "DELETE", `/api/projects/${project.id}/grants/runtime/runtime-a`);
+  // Workspace Runtime Credentialの取消は次の呼出しから反映され、取消済みtokenはUNAUTHENTICATEDになる。
+  const revoked = await api(app, "DELETE", `/api/workspaces/${project.workspaceId}/credentials/${credentialOf("runtime-a", project.workspaceId)!.credentialId}`);
   assert.equal(revoked.status, 200);
-  assert.equal((await api(app, "GET", path, "runtime-a")).status, 403);
-  assert.equal((await ack(app, project.id, eventId, "runtime-a", { outcome: "processed" })).status, 403);
+  assert.equal((await api(app, "GET", path, "runtime-a")).status, 401);
+  assert.equal((await ack(app, project.workspaceId, eventId, "runtime-a", { outcome: "processed" })).status, 401);
   assert.equal(await rowCount(database, "runtime_event_delivery"), 0);
   await database.destroy();
 });
@@ -372,8 +382,8 @@ test("Bearerなし・形式不正・Grantなし・別Role・取消済みを拒�
 test("ackとcursor入力の不正はVALIDATION_ERRORで、何も保存しない", async () => {
   const { database, services, app } = await setup();
   const { project } = await seed(services);
-  await grantRuntime(database, app, project.id, "runtime-a");
-  const eventId = (await fetchEvents(app, project.id, "runtime-a")).events[0]!.id;
+  await grantRuntime({ database, services }, project.workspaceId, "runtime-a");
+  const eventId = (await fetchEvents(app, project.workspaceId, "runtime-a")).events[0]!.id;
 
   const invalidAcks: Array<[object, string]> = [
     [{}, "outcome"],
@@ -386,22 +396,22 @@ test("ackとcursor入力の不正はVALIDATION_ERRORで、何も保存しない"
     [{ attemptId: "   ", outcome: "processed" }, "attemptId"],
   ];
   for (const [body, path] of invalidAcks) {
-    const response = await ack(app, project.id, eventId, "runtime-a", body);
+    const response = await ack(app, project.workspaceId, eventId, "runtime-a", body);
     assert.equal(response.status, 400, JSON.stringify(body));
     const error = ((await response.json()) as { error: { code: string; issues: Array<{ path: string }> } }).error;
     assert.equal(error.code, "VALIDATION_ERROR");
     assert.deepEqual(error.issues.map((issue) => issue.path), [path]);
   }
-  const notJson = await app.request(`/api/projects/${project.id}/runtime-events/${eventId}/ack`, {
+  const notJson = await app.request(`/api/workspaces/${project.workspaceId}/runtime-events/${eventId}/ack`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: "Bearer runtime-a" },
+    headers: { "Content-Type": "application/json", ...bearer("runtime-a", project.workspaceId) },
     body: "{",
   });
   assert.equal(notJson.status, 400);
   assert.equal(await rowCount(database, "runtime_event_delivery"), 0);
 
   for (const query of ["?afterCursor=-1", "?afterCursor=abc", "?afterCursor=", "?afterCursor=1.5", "?limit=0", "?limit=501", "?limit="]) {
-    const response = await api(app, "GET", `/api/projects/${project.id}/runtime-events${query}`, "runtime-a");
+    const response = await api(app, "GET", `/api/workspaces/${project.workspaceId}/runtime-events${query}`, "runtime-a");
     assert.equal(response.status, 400, query);
     assert.equal(await errorCode(response), "VALIDATION_ERROR");
   }
@@ -413,40 +423,40 @@ test("retryable_failureの同じattemptIdの再送は1回の試行に収束し�
   const path = join(directory, "test.db");
   const first = await setup(path);
   const { project } = await seed(first.services);
-  await grantRuntime(first.database, first.app, project.id, "runtime-a");
-  await grantRuntime(first.database, first.app, project.id, "runtime-b");
-  const eventId = (await fetchEvents(first.app, project.id, "runtime-a")).events[0]!.id;
+  await grantRuntime(first, project.workspaceId, "runtime-a");
+  await grantRuntime(first, project.workspaceId, "runtime-b");
+  const eventId = (await fetchEvents(first.app, project.workspaceId, "runtime-a")).events[0]!.id;
   const attempt = { attemptId: "try-1", outcome: "retryable_failure", reason: "timeout" };
 
-  const recorded = (await (await ack(first.app, project.id, eventId, "runtime-a", attempt)).json()) as any;
+  const recorded = (await (await ack(first.app, project.workspaceId, eventId, "runtime-a", attempt)).json()) as any;
   assert.deepEqual([recorded.recorded, recorded.delivery.retryCount], [true, 1]);
   // 1回目の応答だけが失われ、Runtimeが同じackを再送した。回数は増えず、初回の結果が返る。
-  const resent = (await (await ack(first.app, project.id, eventId, "runtime-a", attempt)).json()) as any;
+  const resent = (await (await ack(first.app, project.workspaceId, eventId, "runtime-a", attempt)).json()) as any;
   assert.equal(resent.recorded, false);
   assert.deepEqual(resent.delivery, recorded.delivery);
-  assert.equal((await fetchEvents(first.app, project.id, "runtime-a")).events[0]!.retryCount, 1);
+  assert.equal((await fetchEvents(first.app, project.workspaceId, "runtime-a")).events[0]!.retryCount, 1);
 
   // 同じattemptIdを別の入力で使うとCONFLICTで、何も変えない。
   for (const body of [
     { ...attempt, reason: "another reason" },
     { ...attempt, outcome: "processed", reason: undefined },
   ]) {
-    const conflict = await ack(first.app, project.id, eventId, "runtime-a", body);
+    const conflict = await ack(first.app, project.workspaceId, eventId, "runtime-a", body);
     assert.equal(conflict.status, 409, JSON.stringify(body));
     assert.equal(await errorCode(conflict), "CONFLICT");
   }
   // attemptIdはconsumerごと。別consumerが同じattemptIdを使っても、自分の試行として記録される。
-  const other = (await (await ack(first.app, project.id, eventId, "runtime-b", attempt)).json()) as any;
+  const other = (await (await ack(first.app, project.workspaceId, eventId, "runtime-b", attempt)).json()) as any;
   assert.deepEqual([other.recorded, other.delivery.consumerId, other.delivery.retryCount], [true, "runtime-b", 1]);
   await first.database.destroy();
 
   // 再起動後も受付記録が残り、同じackの再送は数えない。同じ理由でも新しいattemptIdは別の試行として数える。
   const restarted = await setup(path);
-  const afterRestart = (await (await ack(restarted.app, project.id, eventId, "runtime-a", attempt)).json()) as any;
+  const afterRestart = (await (await ack(restarted.app, project.workspaceId, eventId, "runtime-a", attempt)).json()) as any;
   assert.deepEqual([afterRestart.recorded, afterRestart.delivery.retryCount], [false, 1]);
-  const secondAttempt = (await (await ack(restarted.app, project.id, eventId, "runtime-a", { ...attempt, attemptId: "try-2" })).json()) as any;
+  const secondAttempt = (await (await ack(restarted.app, project.workspaceId, eventId, "runtime-a", { ...attempt, attemptId: "try-2" })).json()) as any;
   assert.deepEqual([secondAttempt.recorded, secondAttempt.delivery.retryCount], [true, 2]);
-  assert.equal((await fetchEvents(restarted.app, project.id, "runtime-a")).events[0]!.retryCount, 2);
+  assert.equal((await fetchEvents(restarted.app, project.workspaceId, "runtime-a")).events[0]!.retryCount, 2);
   await restarted.database.destroy();
 });
 
@@ -455,18 +465,18 @@ test("resumeCursorは未ack・retryable_failureのイベントを追い越さず
   const path = join(directory, "test.db");
   const first = await setup(path);
   const { project, request } = await seed(first.services);
-  await closeRequest(first.services, project.id, request.id);
-  await grantRuntime(first.database, first.app, project.id, "runtime-a");
+  await closeRequest(first.services, project.workspaceId, request.id);
+  await grantRuntime(first, project.workspaceId, "runtime-a");
 
-  const fetched = await fetchEvents(first.app, project.id, "runtime-a");
+  const fetched = await fetchEvents(first.app, project.workspaceId, "runtime-a");
   const [requested, completed] = fetched.events;
   assert.ok(requested && completed);
   // 何もackしていなければ、再開位置は最初のイベントの手前。
   assert.equal(fetched.resumeCursor, requested.cursor - 1);
 
   // 後のイベントだけ確定した。nextCursorは未ackの1件目を追い越すが、resumeCursorは追い越さない。
-  await ack(first.app, project.id, completed.id, "runtime-a", { outcome: "processed" });
-  const partial = await fetchEvents(first.app, project.id, "runtime-a");
+  await ack(first.app, project.workspaceId, completed.id, "runtime-a", { outcome: "processed" });
+  const partial = await fetchEvents(first.app, project.workspaceId, "runtime-a");
   assert.deepEqual(partial.events.map(({ id }) => id), [requested.id]);
   assert.equal(fetched.nextCursor, completed.cursor);
   assert.equal(partial.resumeCursor, requested.cursor - 1);
@@ -474,20 +484,20 @@ test("resumeCursorは未ack・retryable_failureのイベントを追い越さず
 
   // RuntimeはresumeCursorを永続化して再起動し、そこから再開する。未ackのイベントが返る。
   const restarted = await setup(path);
-  const resumed = await fetchEvents(restarted.app, project.id, "runtime-a", `?afterCursor=${partial.resumeCursor}`);
+  const resumed = await fetchEvents(restarted.app, project.workspaceId, "runtime-a", `?afterCursor=${partial.resumeCursor}`);
   assert.deepEqual(resumed.events.map(({ id }) => id), [requested.id]);
 
   // retryable_failureも未確定のため、再開位置は動かない。
-  await ack(restarted.app, project.id, requested.id, "runtime-a", { outcome: "retryable_failure", reason: "busy" });
-  const retrying = await fetchEvents(restarted.app, project.id, "runtime-a", `?afterCursor=${partial.resumeCursor}`);
+  await ack(restarted.app, project.workspaceId, requested.id, "runtime-a", { outcome: "retryable_failure", reason: "busy" });
+  const retrying = await fetchEvents(restarted.app, project.workspaceId, "runtime-a", `?afterCursor=${partial.resumeCursor}`);
   assert.deepEqual(retrying.events.map(({ id, retryCount }) => [id, retryCount]), [[requested.id, 1]]);
   assert.equal(retrying.resumeCursor, requested.cursor - 1);
   await restarted.database.destroy();
 
   // すべて確定すると、再開位置はProjectの最新イベントまで進む。
   const third = await setup(path);
-  await ack(third.app, project.id, requested.id, "runtime-a", { outcome: "processed" });
-  const settled = await fetchEvents(third.app, project.id, "runtime-a", `?afterCursor=${partial.resumeCursor}`);
+  await ack(third.app, project.workspaceId, requested.id, "runtime-a", { outcome: "processed" });
+  const settled = await fetchEvents(third.app, project.workspaceId, "runtime-a", `?afterCursor=${partial.resumeCursor}`);
   assert.deepEqual([settled.events, settled.resumeCursor], [[], completed.cursor]);
   await third.database.destroy();
 });
@@ -497,33 +507,33 @@ test("server再起動後もackとcursorの状態が残り、イベントの欠�
   const path = join(directory, "test.db");
   const first = await setup(path);
   const { project, request } = await seed(first.services);
-  await grantRuntime(first.database, first.app, project.id, "runtime-a");
-  await grantRuntime(first.database, first.app, project.id, "runtime-b");
+  await grantRuntime(first, project.workspaceId, "runtime-a");
+  await grantRuntime(first, project.workspaceId, "runtime-b");
 
-  const requested = (await fetchEvents(first.app, project.id, "runtime-a")).events[0]!;
-  await ack(first.app, project.id, requested.id, "runtime-a", { outcome: "processed" });
-  await closeRequest(first.services, project.id, request.id);
-  const retried = (await fetchEvents(first.app, project.id, "runtime-a")).events[0]!;
-  await ack(first.app, project.id, retried.id, "runtime-a", { outcome: "retryable_failure", reason: "before restart" });
+  const requested = (await fetchEvents(first.app, project.workspaceId, "runtime-a")).events[0]!;
+  await ack(first.app, project.workspaceId, requested.id, "runtime-a", { outcome: "processed" });
+  await closeRequest(first.services, project.workspaceId, request.id);
+  const retried = (await fetchEvents(first.app, project.workspaceId, "runtime-a")).events[0]!;
+  await ack(first.app, project.workspaceId, retried.id, "runtime-a", { outcome: "retryable_failure", reason: "before restart" });
   await first.database.destroy();
 
   const restarted = await setup(path);
   await initializeSchema(restarted.database);
-  const afterRestart = await fetchEvents(restarted.app, project.id, "runtime-a");
+  const afterRestart = await fetchEvents(restarted.app, project.workspaceId, "runtime-a");
   assert.deepEqual(afterRestart.events.map(({ id }) => id), [retried.id]);
   assert.deepEqual([afterRestart.events[0]!.retryCount, afterRestart.events[0]!.lastFailureReason], [1, "before restart"]);
   // 別consumerは何もackしていないため、両方のイベントを同じ順序・cursorで取得できる。
-  assert.deepEqual((await fetchEvents(restarted.app, project.id, "runtime-b")).events.map(({ cursor }) => cursor), [
+  assert.deepEqual((await fetchEvents(restarted.app, project.workspaceId, "runtime-b")).events.map(({ cursor }) => cursor), [
     requested.cursor,
     retried.cursor,
   ]);
-  await ack(restarted.app, project.id, retried.id, "runtime-a", { outcome: "processed" });
+  await ack(restarted.app, project.workspaceId, retried.id, "runtime-a", { outcome: "processed" });
   assert.equal(await rowCount(restarted.database, "runtime_event"), 2);
   assert.equal(await rowCount(restarted.database, "runtime_event_delivery"), 2);
   await restarted.database.destroy();
 
   const third = await setup(path);
-  assert.deepEqual(await fetchEvents(third.app, project.id, "runtime-a"), {
+  assert.deepEqual(await fetchEvents(third.app, project.workspaceId, "runtime-a"), {
     events: [],
     nextCursor: 0,
     resumeCursor: retried.cursor,
@@ -534,13 +544,13 @@ test("server再起動後もackとcursorの状態が残り、イベントの欠�
 test("archivedのProjectでもackを記録でき、Direction・Runtime eventの内容は変わらない", async () => {
   const { database, services, app } = await setup();
   const { project } = await seed(services);
-  await grantRuntime(database, app, project.id, "runtime-a");
-  const [event] = (await fetchEvents(app, project.id, "runtime-a")).events;
+  await grantRuntime({ database, services }, project.workspaceId, "runtime-a");
+  const [event] = (await fetchEvents(app, project.workspaceId, "runtime-a")).events;
   const eventRowsBefore = await database.selectFrom("runtime_event").selectAll().execute();
 
   const archived = await api(app, "POST", `/api/projects/${project.id}/archive`, undefined, { reason: "done" });
   assert.equal(archived.status, 200);
-  assert.equal((await ack(app, project.id, event!.id, "runtime-a", { outcome: "processed" })).status, 200);
+  assert.equal((await ack(app, project.workspaceId, event!.id, "runtime-a", { outcome: "processed" })).status, 200);
   assert.deepEqual(await database.selectFrom("runtime_event").selectAll().execute(), eventRowsBefore);
   await database.destroy();
 });
@@ -548,34 +558,34 @@ test("archivedのProjectでもackを記録でき、Direction・Runtime eventの�
 test("MCPのfetch_runtime_events / ack_runtime_eventも同じuse caseを通る", async () => {
   const { database, services, app } = await setup();
   const { project, request } = await seed(services);
-  await grantRuntime(database, app, project.id, "runtime-a");
-  await grantRuntime(database, app, project.id, "researcher-a", "researcher");
+  await grantRuntime({ database, services }, project.workspaceId, "runtime-a");
+  await grantRuntime({ database, services }, project.workspaceId, "researcher-a", "researcher");
 
   const tools = (await rpc(app, "tools/list", {})).result.tools.map(({ name }: { name: string }) => name);
   assert.ok(tools.includes("fetch_runtime_events") && tools.includes("ack_runtime_event"));
 
-  const fetched = (await callTool(app, "fetch_runtime_events", { projectId: project.id }, "runtime-a")).structuredContent;
+  const fetched = (await callTool(app, "fetch_runtime_events", { workspaceId: project.workspaceId }, "runtime-a")).structuredContent;
   assert.equal(fetched.events.length, 1);
   const event = fetched.events[0];
   assert.equal(event.type, "research_requested");
   assert.equal(event.researchRequestId, request.id);
   // 同じconsumerは、Web APIで取得した内容と同じ。
-  assert.deepEqual(fetched, await fetchEvents(app, project.id, "runtime-a"));
+  assert.deepEqual(fetched, await fetchEvents(app, project.workspaceId, "runtime-a"));
 
-  const rejected = await callTool(app, "ack_runtime_event", { projectId: project.id, eventId: event.id, attemptId: "m-0", outcome: "processed" });
+  const rejected = await callTool(app, "ack_runtime_event", { workspaceId: project.workspaceId, eventId: event.id, attemptId: "m-0", outcome: "processed" });
   assert.equal(rejected.isError, true);
   assert.equal(rejected.structuredContent.error.code, "UNAUTHENTICATED");
-  const wrongRole = await callTool(app, "fetch_runtime_events", { projectId: project.id }, "researcher-a");
+  const wrongRole = await callTool(app, "fetch_runtime_events", { workspaceId: project.workspaceId }, "researcher-a");
   assert.equal(wrongRole.structuredContent.error.code, "FORBIDDEN");
   const invalid = await callTool(
     app,
     "ack_runtime_event",
-    { projectId: project.id, eventId: event.id, attemptId: "m-1", outcome: "retryable_failure" },
+    { workspaceId: project.workspaceId, eventId: event.id, attemptId: "m-1", outcome: "retryable_failure" },
     "runtime-a",
   );
   assert.equal(invalid.structuredContent.error.code, "VALIDATION_ERROR");
 
-  const processed = { projectId: project.id, eventId: event.id, attemptId: "m-2", outcome: "processed" };
+  const processed = { workspaceId: project.workspaceId, eventId: event.id, attemptId: "m-2", outcome: "processed" };
   const acked = (await callTool(app, "ack_runtime_event", processed, "runtime-a")).structuredContent;
   assert.equal(acked.recorded, true);
   const resent = (await callTool(app, "ack_runtime_event", processed, "runtime-a")).structuredContent;
@@ -584,17 +594,17 @@ test("MCPのfetch_runtime_events / ack_runtime_eventも同じuse caseを通る",
   const conflict = await callTool(
     app,
     "ack_runtime_event",
-    { projectId: project.id, eventId: event.id, attemptId: "m-3", outcome: "terminal_failure", reason: "x" },
+    { workspaceId: project.workspaceId, eventId: event.id, attemptId: "m-3", outcome: "terminal_failure", reason: "x" },
     "runtime-a",
   );
   assert.equal(conflict.structuredContent.error.code, "CONFLICT");
-  assert.deepEqual((await callTool(app, "fetch_runtime_events", { projectId: project.id }, "runtime-a")).structuredContent.events, []);
+  assert.deepEqual((await callTool(app, "fetch_runtime_events", { workspaceId: project.workspaceId }, "runtime-a")).structuredContent.events, []);
 
   // Web APIでackした結果もMCPの取得に反映される（同じ永続化）。
-  await closeRequest(services, project.id, request.id);
-  const completed = (await fetchEvents(app, project.id, "runtime-a")).events[0]!;
-  await ack(app, project.id, completed.id, "runtime-a", { outcome: "processed" });
-  assert.deepEqual((await callTool(app, "fetch_runtime_events", { projectId: project.id }, "runtime-a")).structuredContent.events, []);
+  await closeRequest(services, project.workspaceId, request.id);
+  const completed = (await fetchEvents(app, project.workspaceId, "runtime-a")).events[0]!;
+  await ack(app, project.workspaceId, completed.id, "runtime-a", { outcome: "processed" });
+  assert.deepEqual((await callTool(app, "fetch_runtime_events", { workspaceId: project.workspaceId }, "runtime-a")).structuredContent.events, []);
   await database.destroy();
 });
 

@@ -9,7 +9,7 @@ import { SQLiteProjectRepository, SQLiteWorkspaceRepository, CreateWorkspaceUseC
 import { asActivityDatabase, asDirectionDatabase, asOrganizationDatabase, asWorkDatabase } from "../src/bootstrap/database/contextDatabase.ts";
 import { activityProjectReader, directionChangeActivityObserver, projectChangeActivityObserver, projectRepositoryReferenceFinder, workChangeActivityObserver } from "../src/infrastructure/repository/contextAdapters.ts";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -86,6 +86,7 @@ const record = (app: App, principal: string | undefined, input: object, activeRo
 test("Agentはsummary必須・本文任意・成果物参照付きのActivityを記録し、一覧はsummaryとrefsだけ、本文はget_activityで取得する", async () => {
   const { app, database } = await setup();
   const project = await createProject(app);
+  // Project Activityの記録（record_activity）は未切替のProject入口。Workspace scopeの記録はS07-02で接続する。
   await seedLegacyProjectGrant(database, project.id, "researcher-a", "researcher");
   await grant(app, project.id, "worker-a", "worker");
 
@@ -364,18 +365,18 @@ test("Workの重要な状態変更は同じtransactionでcanonical Activityに�
 test("Directionの重要な状態変更は同じtransactionで操作者付きのcanonical Activityになり、再送・文言編集では増えない", async () => {
   const { app, database } = await setup();
   const project = await createProject(app);
-  await seedLegacyProjectGrant(database, project.id, "strategist-a", "strategist");
+  await seedProjectWorkspaceGrant(database, project.id, "strategist-a", "strategist");
   await grant(app, project.id, "worker-a", "worker");
 
   // Human（Web UI）の操作は認証済みHumanをoperatorとして記録する。
-  const intentResponse = await send(app, "POST", `/api/projects/${project.id}/intents`, { title: "認証を整える", desiredState: "Humanがsign inできる" });
+  const intentResponse = await send(app, "POST", `/api/workspaces/${project.workspaceId}/intents`, { title: "認証を整える", desiredState: "Humanがsign inできる" });
   assert.equal(intentResponse.status, 201);
   const intent = ((await intentResponse.json()) as { intent: { id: string } }).intent;
-  assert.equal((await send(app, "PATCH", `/api/projects/${project.id}/intents/${intent.id}`, { title: "認証を整備する" })).status, 200);
+  assert.equal((await send(app, "PATCH", `/api/workspaces/${project.workspaceId}/intents/${intent.id}`, { title: "認証を整備する" })).status, 200);
 
   // Agent（MCP）の操作は認可したPrincipalとRoleで記録する。requestKeyの再送では増えない。
   const decideInput = {
-    projectId: project.id,
+    workspaceId: project.workspaceId,
     intentId: intent.id,
     judgment: "OIDCから着手する",
     reason: "既存IdPを使える",
@@ -389,12 +390,12 @@ test("Directionの重要な状態変更は同じtransactionで操作者付きの
     await callTool(
       app,
       "cancel_outcome",
-      { projectId: project.id, intentId: intent.id, outcomeId: decided.outcome.id, reason: "範囲を見直す" },
+      { workspaceId: project.workspaceId, intentId: intent.id, outcomeId: decided.outcome.id, reason: "範囲を見直す" },
       "strategist-a",
     ),
   );
 
-  assert.equal((await send(app, "POST", `/api/projects/${project.id}/intents/${intent.id}/abandon`, { reason: "方針を変える" })).status, 200);
+  assert.equal((await send(app, "POST", `/api/workspaces/${project.workspaceId}/intents/${intent.id}/abandon`, { reason: "方針を変える" })).status, 200);
 
   // Projectの公開入口にはWorkspace Activityを流さない。Workspace読取の公開はGrant整備後のTask。
   const projectPage = ok(await callTool(app, "list_activities", { projectId: project.id, afterCursor: 0 }, "worker-a"));
@@ -429,7 +430,7 @@ test("Directionの重要な状態変更は同じtransactionで操作者付きの
 
   // Activityを保存できなければDirectionの状態変更も確定しない（同一transaction）。
   await sql`drop table activity`.execute(database);
-  const failed = await send(app, "POST", `/api/projects/${project.id}/intents`, { title: "残らない", desiredState: "S" });
+  const failed = await send(app, "POST", `/api/workspaces/${project.workspaceId}/intents`, { title: "残らない", desiredState: "S" });
   assert.equal(failed.status, 500);
   const intents = (await sql<{ title: string }>`select title from intent where workspace_id = ${project.workspaceId}`.execute(database)).rows;
   assert.deepEqual(intents.map(({ title }) => title), ["認証を整備する"]);

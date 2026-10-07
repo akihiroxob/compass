@@ -1,4 +1,4 @@
-import { seedLegacyProjectGrant } from "./support/humanSession.ts";
+import { addTestWorkspaceMembership, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -331,9 +331,16 @@ test(
       );
 
       // --- Role別操作（application層の権限表。UI非表示ではなくserverが拒否する）
+      // Direction（Intent等）はWorkspace Membershipで認可し、Project Membershipから継承しない。Workspace member管理の
+      // Web経路は未接続（S10-03）のため、招待済みHumanのWorkspace Membershipはfixtureで置く。
+      const workspaceId = (await editor.api("GET", `/api/projects/${projectId}`)).json().project.workspaceId as string;
+      for (const [email, role] of [["editor@example.com", "editor"], ["viewer@example.com", "viewer"]] as const) {
+        const { id } = await server.database.selectFrom("human_user").select("id").where("email", "=", email).executeTakeFirstOrThrow();
+        await addTestWorkspaceMembership(server.database, workspaceId, { humanUserId: id }, role);
+      }
       assert.deepEqual((await editor.api("GET", "/api/projects")).json().projects.map((project: { id: string }) => project.id), [projectId]);
       assert.equal((await editor.api("GET", `/api/projects/${projectId}`)).json().myRole, "editor");
-      const intent = await editor.api("POST", `/api/projects/${projectId}/intents`, { title: "Ship auth", desiredState: "Humans sign in" });
+      const intent = await editor.api("POST", `/api/workspaces/${workspaceId}/intents`, { title: "Ship auth", desiredState: "Humans sign in" });
       assert.equal(intent.status, 201);
       assert.equal((await editor.api("PATCH", `/api/projects/${projectId}`, { mission: "Hijacked" })).status, 403);
       assert.equal((await editor.api("POST", `/api/projects/${projectId}/invitations`, { email: "x@example.com", role: "owner" })).status, 403);
@@ -345,7 +352,7 @@ test(
         [ownerEmail, "owner"],
         ["viewer@example.com", "viewer"],
       ]);
-      const viewerIntent = await viewer.api("POST", `/api/projects/${projectId}/intents`, { title: "No", desiredState: "No" });
+      const viewerIntent = await viewer.api("POST", `/api/workspaces/${workspaceId}/intents`, { title: "No", desiredState: "No" });
       assert.equal(viewerIntent.status, 403);
       assert.equal(viewerIntent.json().error.requiredRole, "editor");
       const ownerMembership = members.find((member) => member.human.email === ownerEmail)!.membership.id;
@@ -422,7 +429,7 @@ test(
       const editorAgain = browser();
       await loginWithGoogle(editorAgain, fixture, { subject: "editor-sub", email: "editor@example.com" });
       secrets.push(editorAgain.session()!);
-      assert.equal((await editorAgain.api("GET", `/api/projects/${projectId}/intents`)).json().intents.length, 1);
+      assert.equal((await editorAgain.api("GET", `/api/workspaces/${workspaceId}/intents`)).json().intents.length, 1);
       assert.equal(await count(server.database, "human_user"), 3, "owner・editor・viewer以外のHumanを作らない");
 
       // --- /mcp: 匿名はRole文書だけ、Human向けCommandは未知tool、Agent名だけのBearerは401
@@ -494,7 +501,7 @@ test(
       await initializeSchema(legacy);
       const legacyServices = createApplicationServices(legacy);
       const project = await legacyServices.createProjectUseCase.execute({ name: "Legacy", mission: "Existed before auth" });
-      await legacyServices.createIntentUseCase.execute(project.id, { title: "Legacy intent", desiredState: "Kept" });
+      await legacyServices.createIntentUseCase.execute(project.workspaceId, { title: "Legacy intent", desiredState: "Kept" });
       await seedLegacyProjectGrant(legacy, project.id, "strategist-1", "strategist");
       const archived = await legacyServices.createProjectUseCase.execute({ name: "Archived", mission: "Read only" });
       await legacyServices.archiveProjectUseCase.execute(archived.id, { reason: "done" });
@@ -510,7 +517,7 @@ test(
         assert.deepEqual((await active).json().projects.map((item: { name: string }) => item.name), ["Legacy"]);
         assert.deepEqual((await owner.api("GET", "/api/projects?status=archived")).json().projects.map((item: { name: string }) => item.name), ["Archived"]);
         assert.equal((await owner.api("GET", `/api/projects/${project.id}`)).json().myRole, "owner");
-        assert.equal((await owner.api("GET", `/api/projects/${project.id}/intents`)).json().intents[0].title, "Legacy intent");
+        assert.equal((await owner.api("GET", `/api/workspaces/${project.workspaceId}/intents`)).json().intents[0].title, "Legacy intent");
         assert.deepEqual((await owner.api("GET", `/api/projects/${project.id}/grants`)).json().grants.map((grant: { principalId: string }) => grant.principalId), ["strategist-1"]);
         const orphans = await server.database
           .selectFrom("project")

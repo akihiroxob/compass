@@ -165,33 +165,36 @@ test("Evaluation, event and canonical Activity roll back together; archived Work
 
 import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 
-test("Project Web/API/MCP entries authorize before rejecting shared Workspace Evaluation and Runtime access", async () => {
-  const { database, services, a, b, outcome } = await setup();
+test("Execution Summary stays Project-scoped while Evaluation and Runtime events require Workspace authorization", async () => {
+  const { database, services, workspace, a, b, outcome } = await setup();
   try {
     const app = await createSignedInApp(database, services);
     for (const role of ["runtime", "evaluator"] as const) {
       await seedLegacyProjectGrant(database, a.id, role, role);
     }
-    const call = async (name: string, projectId: string, role: string) => {
+    const call = async (name: string, args: object, role: string) => {
       const response = await app.request("/mcp", {
         method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${role}`, "X-Compass-Active-Role": role },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { projectId, outcomeId: outcome.id } } }),
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
       });
       const line = (await response.text()).split("\n").find(item => item.startsWith("data: "));
       assert.ok(line);
-      return JSON.parse(line.slice(6)).result.structuredContent;
+      return JSON.parse(line.slice(6)).result as { isError?: boolean; structuredContent: Record<string, any> };
     };
-    for (const [name, role] of [["fetch_runtime_events", "runtime"], ["get_outcome_execution_summary", "runtime"], ["get_evaluator_context", "evaluator"]]) {
-      const denied = await call(name!, b.id, role!);
-      assert.equal(denied.error.code, "FORBIDDEN");
-      const shared = await call(name!, a.id, role!);
-      assert.equal(shared.error.reason, "workspace_direction_required");
-      assert.equal(JSON.stringify(shared).includes(outcome.id), false);
+    // Execution SummaryはProject固有の記録。Project Grantで、そのProjectの分だけ読める。
+    assert.equal((await call("get_outcome_execution_summary", { projectId: b.id, outcomeId: outcome.id }, "runtime")).structuredContent.error.code, "FORBIDDEN");
+    assert.equal((await call("get_outcome_execution_summary", { projectId: a.id, outcomeId: outcome.id }, "runtime")).isError, undefined);
+    // Evaluation・Runtime eventはWorkspace所有。Project Grant・trusted-localのAgent名からは継承しない。
+    for (const [name, role] of [["fetch_runtime_events", "runtime"], ["get_evaluator_context", "evaluator"]] as const) {
+      const denied = await call(name, { workspaceId: workspace.id, outcomeId: outcome.id }, role);
+      assert.equal(denied.structuredContent.error.code, "FORBIDDEN", name);
+      assert.equal(JSON.stringify(denied).includes(outcome.title), false);
+      assert.equal((await call(name, { projectId: a.id, outcomeId: outcome.id }, role)).isError, true, `${name} has no projectId input`);
     }
-    for (const suffix of [`outcomes/${outcome.id}/execution-summary`, `outcomes/${outcome.id}/evaluations`]) {
-      assert.equal((await app.request(`/api/projects/${a.id}/${suffix}`)).status, 409);
-    }
-    assert.equal((await app.request(`/api/projects/${b.id}/runtime-events`, { headers: { Authorization: "Bearer runtime" } })).status, 403);
-    assert.equal((await app.request(`/api/projects/${a.id}/runtime-events`, { headers: { Authorization: "Bearer runtime" } })).status, 409);
+    assert.equal((await app.request(`/api/projects/${a.id}/outcomes/${outcome.id}/execution-summary`)).status, 200);
+    assert.equal((await app.request(`/api/projects/${a.id}/outcomes/${outcome.id}/evaluations`)).status, 404);
+    assert.equal((await app.request(`/api/workspaces/${workspace.id}/outcomes/${outcome.id}/evaluations`)).status, 200);
+    assert.equal((await app.request(`/api/projects/${a.id}/runtime-events`, { headers: { Authorization: "Bearer runtime" } })).status, 404);
+    assert.equal((await app.request(`/api/workspaces/${workspace.id}/runtime-events`, { headers: { Authorization: "Bearer runtime" } })).status, 403);
   } finally { await database.destroy(); }
 });

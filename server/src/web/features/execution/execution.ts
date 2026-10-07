@@ -65,8 +65,9 @@ export const executionPath = (projectId: string, outcomeId?: string) =>
 export const taskDetailApiPath = (projectId: string, taskId: string) => `/api/projects/${projectId}/tasks/${taskId}`;
 export const changesPath = (projectId: string, beforeCursor: number | null = null, limit = 20) =>
   `/api/projects/${projectId}/changes?limit=${limit}${beforeCursor === null ? "" : `&beforeCursor=${beforeCursor}`}`;
-export const evaluationsPath = (projectId: string, outcomeId: string) =>
-  `/api/projects/${projectId}/outcomes/${outcomeId}/evaluations`;
+/** EvaluationはWorkspace所有のOutcomeに属する。Execution SummaryはProject固有の記録のためProject配下。 */
+export const evaluationsPath = (workspaceId: string, outcomeId: string) =>
+  `/api/workspaces/${workspaceId}/outcomes/${outcomeId}/evaluations`;
 export const executionSummaryPath = (projectId: string, outcomeId: string) =>
   `/api/projects/${projectId}/outcomes/${outcomeId}/execution-summary`;
 

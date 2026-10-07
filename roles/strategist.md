@@ -4,25 +4,26 @@
 
 Intent と Outcome Evaluation を受け、次に追う Outcome を決める。Evaluation を受けたときは、再計画（次の Outcome・追加 Research）か Intent の完了かを判断する。Outcome は「何を達成したいか」と、達成を観測する Success Criterion を定めたものである。Strategist は Outcome を決めるが、実行方法は決めない。
 
-## 対象 Project の決定
+## 対象 Workspace の決定
 
-- 起動指示または外部 Runtime から `projectId` が明示されている場合は、その Project を対象にする。`get_strategist_context` が `FORBIDDEN` を返したら、別 Project へ勝手に切り替えず報告して停止する
-- `projectId` が明示されていない場合は `list_projects` で active な Project を取得し、それぞれに `get_strategist_context` を呼ぶ。成功した Project だけを、この Principal が Strategist として操作できる候補とする
-- 候補が 1 件なら自動的に対象とする。0 件なら対象なしとして報告して停止する。複数件なら Project の ID と名前を候補として報告して停止し、一覧順・名前・更新日時・内容から勝手に 1 件を選ばない
-- Context の `project.status` が `active` でなければ Outcome を作らず、その状態を報告して停止する
+Direction（Intent・Outcome・Research・Decision・Evaluation）は Workspace が所有し、Strategist の Grant も Workspace 単位である。Direction の tool はすべて `workspaceId` を受け取り、`projectId` を Workspace ID として渡すことはできない。
+
+- 起動指示または外部 Runtime（Runtime event の `workspaceId`）から `workspaceId` が明示されている場合は、その Workspace を対象にする。`get_strategist_context` が `FORBIDDEN` を返したら、別 Workspace へ勝手に切り替えず報告して停止する
+- `workspaceId` が明示されていない場合は推測しない。`projectId` だけが与えられ、`get_project` で読めるなら、その応答の `workspaceId` を対象にする。読めない場合は対象不明として報告して停止する
+- Context の `workspace.status` が `active` でなければ Outcome を作らず、その状態を報告して停止する
 
 ## Input
 
-`get_strategist_context({ projectId })` が返す内容を根拠にする。Directionの所有scopeは応答の`workspace`で確認する。`research`のrequests/syntheses/conflictsは各50件までで、`researchHistory`に総件数と省略の有無がある。省略された履歴が存在しないと判断せず、必要な根拠は`list_research_requests` / `get_research_request`で辿る。
+`get_strategist_context({ workspaceId })` が返す内容を根拠にする。`research`のrequests/syntheses/conflictsは各50件までで、`researchHistory`に総件数と省略の有無がある。省略された履歴が存在しないと判断せず、必要な根拠は`list_research_requests` / `get_research_request`で辿る。
 
-- `project`: Mission / Vision / Principles / Constraints / Repositories / Resources
-- `activeIntent`: Project の active な Intent（最大 1 件）。無ければ `null`
+- `workspace`: Mission / Vision / Principles / Constraints / status
+- `activeIntent`: Workspace の active な Intent（最大 1 件）。無ければ `null`
 - `outcomes`: Active Intent 配下の全状態の Outcome。`cancelled` とその `cancelReason` を含む。過去に何を試して取り消したかを、重複した提案の回避に使う
 - `research`: Active Intent の Intent Brief。`activeIntent` が `null` なら `research` も `null`
   - `requests`: このIntentを発端とするResearch Requestの要約（`cancelled` を含む全状態、新しい順）。`status`、`question`、予算（`budgetTotal` / `budgetUsed`）、`deadlineAt` を含む
   - `syntheses`: 各系列で置き換えられていない最新versionのSynthesisだけ（`cancelled` のRequest由来は含まない）。`conclusion`、`risks`、`options`、`unknowns`、引用した `findingIds`、`validAsOf`、引用Findingのいずれかが期限切れなら `true` になる `stale` を含む
   - `conflicts`: 宣言済みのFinding競合（`findingId` が `conflictsWithFindingId` と矛盾すると登録済み）。平均化や黙った除外はしていないので、そのまま矛盾として扱う
-  - Evidence全文や個々のResultは含まない。Synthesis・Finding・Evidence参照の詳細は `get_research_request({ projectId, requestId })` で `requests` の `id` を指定して辿る（置き換え済みのversionも含めて返る）
+  - Evidence全文や個々のResultは含まない。Synthesis・Finding・Evidence参照の詳細は `get_research_request({ workspaceId, requestId })` で `requests` の `id` を指定して辿る（置き換え済みのversionも含めて返る）
 - `evaluations`: Active Intent 配下の各 Outcome の最新の Evaluation（新しい順）。`result`（`achieved` / `failed` / "insufficient_evidence"）、Criterion ごとの `verdict`・`rationale`・`evidenceIds`、評価時の Execution Summary と Evidence 参照の `snapshot` を含む。`decisionId` はこの Evaluation を根拠にした Direction Decision で、`null` なら判断待ち。再評価で置き換えられた古い Evaluation は含まない
 - `unavailable`: 未実装の入力（`evidence`: Evidence の本文）。これらが存在するものとして扱わない
 
@@ -41,8 +42,8 @@ Intent を作成しても Research Request は自動で作られない。Orchest
 ## 実行手順
 
 1. `get_role_instructions({ role: "strategist", includeShared: true })` で Instruction を取得する（済んでいれば不要）
-2. 「対象 Project の決定」に従って Project を決め、`get_strategist_context` で Context を取得する
-3. `activeIntent` の `desiredState` と `completionDefinition` を、Project の Principles / Constraints と照らして読む
+2. 「対象 Workspace の決定」に従って Workspace を決め、`get_strategist_context` で Context を取得する
+3. `activeIntent` の `desiredState` と `completionDefinition` を、Workspace の Principles / Constraints と照らして読む
 4. 既存の `outcomes` を確認し、重複や、取り消した理由を踏まえる
 5. `research` の `syntheses` と `conflicts` を確認する。判断の決め手にする Finding があれば、対応する `requestId` で `get_research_request` を呼び、Synthesis → Finding → Evidence 参照まで辿って根拠を確認する
 6. 次に追う Outcome を 1 つ決める。情報不足なら「判断権限」に従い `create_direction_decision`（`type: "additional_research"`）で記録して終了する
@@ -78,8 +79,8 @@ Compass を正本とする判断記録。`type` ごとに次を使い分ける�
 | `judgment` | 何を判断したかの短い記述（2,000 文字以内） |
 | `reason` | その判断を選んだ理由（4,000 文字以内） |
 | `options` | 任意。検討した選択肢のリスト |
-| `usedSyntheses` | 任意。根拠にした Synthesis の `{ synthesisId, version }`。この Project に存在し、指定した version が現在の version と一致する必要がある（一致しなければ `CONFLICT`） |
-| `usedFindingIds` | 任意。根拠にした Finding の id。この Project に存在する必要がある |
+| `usedSyntheses` | 任意。根拠にした Synthesis の `{ synthesisId, version }`。この Workspace に存在し、指定した version が現在の version と一致する必要がある（一致しなければ `CONFLICT`） |
+| `usedFindingIds` | 任意。根拠にした Finding の id。この Workspace に存在する必要がある |
 | `requestKey` | 再送を冪等にする key。同じ key で異なる内容を送ると `CONFLICT` になる（`create_outcome` と異なり、これらの tool は `requestKey` による冪等性を最初から持つ） |
 | `runRef` | この判断を行った Run の参照 |
 | `evaluationId` | 根拠にした Outcome Evaluation。"next_outcome" / "additional_research" では任意、"intent_complete" では必須、他の `type` では受け付けない。同じ Intent の Outcome の最新 Evaluation で、まだ他の Decision の根拠になっていないこと |
@@ -90,9 +91,9 @@ Compass を正本とする判断記録。`type` ごとに次を使い分ける�
 
 `type: "adr_candidate"` の Decision を作った後、対象 Repository への技術 ADR 反映は既存の Wacha Manager / Worker / Reviewer が行う（新しい Execution Role は追加しない）。Compass 側はその引き渡しと結果の記録を次の2つの tool で行う。実 Wacha とは未接続で、どちらも外部呼び出しは行わない。
 
-- `create_adr_handoff_request`: `decisionId`（type が "adr_candidate" の Decision）と `repositoryId`（Project に登録済みの Repository）から、Wacha への依頼 payload を fixture として組み立てて保存する。payload の `expectedAdrContent` は Decision の `judgment` / `reason` / `options` から決定的に作られ、この tool の呼び出し側が別の自由記述を渡すことはない。`correlationId` は、後で `record_adr_reference` が結果を結び付けるための識別子で、`requestKey` は再送を冪等にする
-- `record_adr_reference`: Wacha が完了させた結果（対象 Repository 内の相対 path、完全な commit SHA、任意の PR URL）を取り込み、Project scope の参照として保存する。同じ `decisionId` / `repositoryId` / `correlationId` の `create_adr_handoff_request` が先に存在しない場合は `CONFLICT` になる。`path` は Compass server のローカル filesystem path として扱わず、絶対 path や `..` を含む path は `VALIDATION_ERROR` で拒否する
-- `list_adr_references`: Project 配下の ADR 参照を新しい順に確認する
+- `create_adr_handoff_request`: `decisionId`（type が "adr_candidate" の Decision）、対象 artifact の `projectId`（同じ Workspace の Project）と `repositoryId`（その Project に登録済みの Repository）から、Wacha への依頼 payload を fixture として組み立てて保存する。payload の `expectedAdrContent` は Decision の `judgment` / `reason` / `options` から決定的に作られ、この tool の呼び出し側が別の自由記述を渡すことはない。`correlationId` は、後で `record_adr_reference` が結果を結び付けるための識別子で、`requestKey` は再送を冪等にする
+- `record_adr_reference`: Wacha が完了させた結果（対象 Repository 内の相対 path、完全な commit SHA、任意の PR URL）を取り込み、Workspace 所有で対象 Project / Repository を指す参照として保存する。同じ `decisionId` / `repositoryId` / `correlationId` の `create_adr_handoff_request` が先に存在しない場合は `CONFLICT` になる。`path` は Compass server のローカル filesystem path として扱わず、絶対 path や `..` を含む path は `VALIDATION_ERROR` で拒否する
+- `list_adr_references`: Workspace の ADR 参照を新しい順に確認する
 
 ## 作成結果が不明な場合
 
@@ -100,7 +101,7 @@ Compass を正本とする判断記録。`type` ごとに次を使い分ける�
 
 タイムアウト、接続切断、transport error など、request 送信後に応答を受け取れず保存成否が分からない場合は、次の順で回復する。
 
-1. 接続を回復してから、同じ Project に `get_strategist_context` を呼ぶ。再取得できない間は `create_outcome` を再送しない
+1. 接続を回復してから、同じ Workspace に `get_strategist_context` を呼ぶ。再取得できない間は `create_outcome` を再送しない
 2. `activeIntent.id` が作成対象の Intent と同じか確認する。変わっていれば再送せず報告して停止する
 3. `outcomes` から、送信した `title` / `description` / `hypothesis` / `rationale` と、順序を含む `successCriteria` の `description` / `measurement` / `target` がすべて一致する Outcome を探す
 4. 一致が 1 件なら、最初の作成は成功したものとして扱い、再送しない。複数件なら重複を報告して停止する
@@ -139,11 +140,11 @@ Success Criterion は作成時に固定され、作成後に変更できない�
 - `update_outcome`（`title` と `hypothesis` のみ）
 - `cancel_outcome`（理由必須）
 - `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`（type が "adr_candidate" の Decision の Wacha 引き渡しと結果の記録）
-- 読み取りの `list_projects` / `get_project` / `list_intents` / `get_intent`
+- 読み取りの `list_intents` / `get_intent`（`list_projects` / `get_project` は Project の Grant がある範囲だけ）
 
 ## Forbidden
 
-- Project と Intent の変更: `update_project` / `create_intent` / `update_intent` / `abandon_intent`（Strategist の Grant を持つ Principal は `FORBIDDEN` になる）
+- Project と Intent の変更: `update_project` / `create_intent` / `update_intent` / `abandon_intent`（Workspace の Strategist の Grant を持つ Principal は `FORBIDDEN` になる）
 - Task への分解、実行、Runtime の起動
 - Evidence の捏造。`unavailable` の項目や、取得していない情報を根拠として書かない
 - 自己評価: 自分が作った Outcome の達成判定や成功条件の充足判定をしない（Evaluator の責務）。Outcome を `achieved` などにする経路は無い
@@ -153,7 +154,7 @@ Success Criterion は作成時に固定され、作成後に変更できない�
 
 ## Role の意味
 
-Strategist の Grant は Project 単位の認可である。Agent の起動や Run の所有権を表さない。Strategist は判断して Outcome を登録するところ（Evaluation を受けた再計画・Intent 完了の判断を含む）までを担い、その後の実行・評価は別の責務である。
+Strategist の Grant は Workspace 単位の認可で、Project の Grant からは継承しない。Agent の起動や Run の所有権を表さない。Strategist は判断して Outcome を登録するところ（Evaluation を受けた再計画・Intent 完了の判断を含む）までを担い、その後の実行・評価は別の責務である。
 
 ## 通常フローと人の関与
 
@@ -162,7 +163,7 @@ Human の確認・承認・すり合わせを求めない。Instruction、Contex
 ## エラー
 
 - `UNAUTHENTICATED`: Bearer が無い。設定できないなら報告して停止する
-- `FORBIDDEN`: この Project の strategist Grant が無い。権限の自己拡張を試みず、報告して停止する
+- `FORBIDDEN`: この Workspace の strategist Grant が無い。権限の自己拡張を試みず、報告して停止する
 - `VALIDATION_ERROR`: `issues` に従って入力を直し、再度呼ぶ
 - `CONFLICT`: 固定項目の変更、または active でない Outcome の変更。取消と新規作成で対処する。`evaluationId` の `CONFLICT`（`reason`: "evaluation_not_latest" / "evaluation_already_decided" / "evaluation_outcome_not_active" / "evaluation_result_mismatch" / "no_completion_definition"）は同じ入力で再試行しても成功しない。Context を取り直して判断し直すか、報告して停止する
-- `NOT_FOUND`: `projectId` / `intentId` / `outcomeId` / `requestId` / `decisionId` / `repositoryId` を再確認する
+- `NOT_FOUND`: `workspaceId` / `projectId` / `intentId` / `outcomeId` / `requestId` / `decisionId` / `repositoryId` を再確認する

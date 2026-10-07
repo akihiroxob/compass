@@ -3,10 +3,10 @@ import test from "node:test";
 import { createApp } from "../src/bootstrap/app.ts";
 import { ForbiddenError, NotFoundError } from "@compass/shared";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { humanProjectPermissions, humanRoles, type HumanRole } from "@compass/access";
+import { humanProjectPermissions, humanRoles, humanWorkspacePermissions, type HumanRole } from "@compass/access";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { addTestMembership, createTestHuman, humanHeaders, requestAs, testSessionCookie, type TestHuman } from "./support/humanSession.ts";
+import { addTestMembership, addTestWorkspaceMembership, createTestHuman, humanHeaders, requestAs, testSessionCookie, type TestHuman } from "./support/humanSession.ts";
 
 /**
  * Task 42: 既存のHuman向けWeb APIへSession・Project Membership認可を適用する
@@ -37,17 +37,19 @@ const seedProject = async (ctx: Setup, name = "Compass") => {
   const owner = await createTestHuman(ctx.database);
   const created = await send(ctx, owner, "POST", "/api/projects", { name, mission: "Keep direction explicit" });
   assert.equal(created.status, 201);
-  const project = (await json(created)).project as { id: string };
+  const project = (await json(created)).project as { id: string; workspaceId: string };
   const members = { owner } as Record<HumanRole, TestHuman>;
   for (const role of ["administrator", "editor", "viewer"] as const) {
     members[role] = await createTestHuman(ctx.database);
     await addTestMembership(ctx.database, project.id, members[role], role);
+    // Direction（Intent・Outcome等）はWorkspace所有で、Workspace Membershipで認可する（Project Membershipから継承しない）。
+    await addTestWorkspaceMembership(ctx.database, project.workspaceId, members[role], role);
   }
-  const intent = (await json(await send(ctx, owner, "POST", `/api/projects/${project.id}/intents`, { title: "I", desiredState: "S" })))
+  const intent = (await json(await send(ctx, owner, "POST", `/api/workspaces/${project.workspaceId}/intents`, { title: "I", desiredState: "S" })))
     .intent as { id: string };
   const outcome = (
     await json(
-      await send(ctx, owner, "POST", `/api/projects/${project.id}/intents/${intent.id}/outcomes`, {
+      await send(ctx, owner, "POST", `/api/workspaces/${project.workspaceId}/intents/${intent.id}/outcomes`, {
         title: "O",
         description: "D",
         rationale: "R",
@@ -96,19 +98,20 @@ test("各Roleは権限表で許可されたCommandだけが成功し、不足は
   const ctx = await setup();
   const { project, intent, outcome, members } = await seedProject(ctx);
   const base = `/api/projects/${project.id}`;
-  const outcomePath = `${base}/intents/${intent.id}/outcomes/${outcome.id}`;
+  const workspaceBase = `/api/workspaces/${project.workspaceId}`;
+  const outcomePath = `${workspaceBase}/intents/${intent.id}/outcomes/${outcome.id}`;
   // [説明, method, path, body, 最低Role]。成功で状態が変わるCommandは、最低Roleで最後に実行する。
   const reads: [string, string][] = [
     ["project", base],
-    ["intents", `${base}/intents`],
-    ["intent", `${base}/intents/${intent.id}`],
-    ["outcomes", `${base}/intents/${intent.id}/outcomes`],
+    ["intents", `${workspaceBase}/intents`],
+    ["intent", `${workspaceBase}/intents/${intent.id}`],
+    ["outcomes", `${workspaceBase}/intents/${intent.id}/outcomes`],
     ["outcome", outcomePath],
     ["grants", `${base}/grants`],
     ["members", `${base}/members`],
-    ["research", `${base}/research-requests`],
-    ["decisions", `${base}/intents/${intent.id}/decisions`],
-    ["adr", `${base}/adr-references`],
+    ["research", `${workspaceBase}/research-requests`],
+    ["decisions", `${workspaceBase}/intents/${intent.id}/decisions`],
+    ["adr", `${workspaceBase}/adr-references`],
     ["execution summary", `${base}/outcomes/${outcome.id}/execution-summary`],
   ];
   for (const role of humanRoles) {
@@ -118,7 +121,7 @@ test("各Roleは権限表で許可されたCommandだけが成功し、不足は
   }
 
   const commands: { label: string; method: string; path: string; body?: unknown; minimum: HumanRole; ok: number }[] = [
-    { label: "update intent", method: "PATCH", path: `${base}/intents/${intent.id}`, body: { title: "I2" }, minimum: "editor", ok: 200 },
+    { label: "update intent", method: "PATCH", path: `${workspaceBase}/intents/${intent.id}`, body: { title: "I2" }, minimum: "editor", ok: 200 },
     { label: "update outcome", method: "PATCH", path: outcomePath, body: { title: "O2" }, minimum: "editor", ok: 200 },
     { label: "update project", method: "PATCH", path: base, body: { description: "changed" }, minimum: "administrator", ok: 200 },
     { label: "grant", method: "POST", path: `${base}/grants`, body: { principalId: "agent-1", role: "manager" }, minimum: "administrator", ok: 201 },
@@ -171,18 +174,18 @@ test("未所属・存在しないProject・別Projectの子ID・取消済みMemb
   assert.equal(missing.code, "NOT_FOUND");
   assert.equal(hidden.message.replace(beta.project.id, "<id>"), missing.message.replace("missing", "<id>"));
   await notFound(outsider, "PATCH", `/api/projects/${beta.project.id}`, { name: "" });
-  await notFound(outsider, "POST", `/api/projects/${beta.project.id}/intents`, { title: "x", desiredState: "S" });
-  await notFound(outsider, "GET", `/api/projects/${beta.project.id}/intents/${beta.intent.id}`);
+  await notFound(outsider, "POST", `/api/workspaces/${beta.project.workspaceId}/intents`, { title: "x", desiredState: "S" });
+  await notFound(outsider, "GET", `/api/workspaces/${beta.project.workspaceId}/intents/${beta.intent.id}`);
   await notFound(outsider, "GET", `/api/projects/${beta.project.id}/members`);
   await notFound(outsider, "POST", `/api/projects/${beta.project.id}/invitations`, { email: "x@example.com", role: "owner" });
   // 自分のProjectのURLに別Projectの子IDを混ぜても参照・変更できない（既存use caseの404）。
-  await notFound(outsider, "GET", `/api/projects/${alpha.project.id}/intents/${beta.intent.id}`);
-  await notFound(outsider, "PATCH", `/api/projects/${alpha.project.id}/intents/${beta.intent.id}/outcomes/${beta.outcome.id}`, { title: "x" });
+  await notFound(outsider, "GET", `/api/workspaces/${alpha.project.workspaceId}/intents/${beta.intent.id}`);
+  await notFound(outsider, "PATCH", `/api/workspaces/${alpha.project.workspaceId}/intents/${beta.intent.id}/outcomes/${beta.outcome.id}`, { title: "x" });
   const betaMembers = (await json(await send(ctx, beta.members.owner, "GET", `/api/projects/${beta.project.id}/members`))).members as {
     membership: { id: string };
   }[];
   await notFound(outsider, "PATCH", `/api/projects/${alpha.project.id}/members/${betaMembers[0]!.membership.id}`, { role: "viewer" });
-  assert.equal((await json(await send(ctx, beta.members.viewer, "GET", `/api/projects/${beta.project.id}/intents/${beta.intent.id}`))).intent.title, "I");
+  assert.equal((await json(await send(ctx, beta.members.viewer, "GET", `/api/workspaces/${beta.project.workspaceId}/intents/${beta.intent.id}`))).intent.title, "I");
 
   // 取消済みMembershipは次のrequestから404（Sessionは失効させない）。
   const viewerMembership = (
@@ -198,7 +201,7 @@ test("未所属・存在しないProject・別Projectの子ID・取消済みMemb
 test("Session無し・未知・Bearerだけの呼出しは401、CSRF・Origin不一致の変更は403で、何も保存しない", async () => {
   const ctx = await setup();
   const { project, members } = await seedProject(ctx);
-  const paths = ["/api/projects", `/api/projects/${project.id}`, `/api/projects/${project.id}/intents`, `/api/projects/${project.id}/members`];
+  const paths = ["/api/projects", `/api/projects/${project.id}`, `/api/workspaces/${project.workspaceId}/intents`, `/api/projects/${project.id}/members`];
   for (const path of paths) {
     assert.equal((await ctx.app.request(path)).status, 401, path);
     assert.equal((await ctx.app.request(path, { headers: { Cookie: `${testSessionCookie}=unknown` } })).status, 401, path);
@@ -208,7 +211,7 @@ test("Session無し・未知・Bearerだけの呼出しは401、CSRF・Origin不
     assert.equal((await json(bearer)).error.code, "UNAUTHENTICATED");
   }
   const post = (headers: Headers) =>
-    ctx.app.request(`/api/projects/${project.id}/intents`, {
+    ctx.app.request(`/api/workspaces/${project.workspaceId}/intents`, {
       method: "POST",
       headers,
       body: JSON.stringify({ title: "x", desiredState: "S" }),
@@ -225,7 +228,7 @@ test("Session無し・未知・Bearerだけの呼出しは401、CSRF・Origin不
     body: JSON.stringify({ name: "Anonymous", mission: "m" }),
   });
   assert.equal(anonymousCreate.status, 401);
-  assert.equal((await json(await send(ctx, members.owner, "GET", `/api/projects/${project.id}/intents`))).intents.length, 1);
+  assert.equal((await json(await send(ctx, members.owner, "GET", `/api/workspaces/${project.workspaceId}/intents`))).intents.length, 1);
   assert.equal((await ctx.database.selectFrom("project").select("id").execute()).length, 1);
   await ctx.database.destroy();
 });
@@ -295,20 +298,22 @@ test("招待はownerだけが発行・一覧・取消でき、tokenは発行応�
   await ctx.database.destroy();
 });
 
-test("Runtime向けAPIはSession Cookieでは認可せずBearer + runtime Grantだけを受け付け、MCPはMembershipを適用しない", async () => {
+test("Runtime向けAPIはSession Cookieでは認可せずBearer + Workspace Runtime Credentialだけを受け付け、MCPはMembershipを適用しない", async () => {
   const ctx = await setup();
   const { project, members } = await seedProject(ctx);
+  const eventsPath = `/api/workspaces/${project.workspaceId}/runtime-events`;
   // ownerのSessionがあっても、Bearer無しのRuntime APIはUNAUTHENTICATED。
-  const bySession = await requestAs(ctx.app, members.owner)(`/api/projects/${project.id}/runtime-events`);
+  const bySession = await requestAs(ctx.app, members.owner)(eventsPath);
   assert.equal(bySession.status, 401);
-  // Human MembershipはAgent Grantではない（Human IDをBearerにしてもGrantが無ければFORBIDDEN）。
-  const byHumanId = await ctx.app.request(`/api/projects/${project.id}/runtime-events`, {
-    headers: { Authorization: `Bearer ${members.owner.humanUserId}` },
-  });
+  // Human MembershipはAgent Grantではない（Human IDをBearerにしてもCredentialが無ければFORBIDDEN）。
+  const byHumanId = await ctx.app.request(eventsPath, { headers: { Authorization: `Bearer ${members.owner.humanUserId}` } });
   assert.equal(byHumanId.status, 403);
-  // administratorがWeb APIで発行したruntime GrantのBearerで取得できる（Agent Grantの既存境界）。
-  assert.equal((await send(ctx, members.administrator, "POST", `/api/projects/${project.id}/grants`, { principalId: "runtime-1", role: "runtime" })).status, 201);
-  const byRuntime = await ctx.app.request(`/api/projects/${project.id}/runtime-events`, { headers: { Authorization: "Bearer runtime-1" } });
+  // administratorがWeb APIで発行したWorkspace Runtime Credentialで取得できる。
+  const issued = await send(ctx, members.administrator, "POST", `/api/workspaces/${project.workspaceId}/credentials`, {
+    kind: "runtime", principalId: "runtime-1", scopes: ["runtime:event:read"],
+  });
+  assert.equal(issued.status, 201);
+  const byRuntime = await ctx.app.request(eventsPath, { headers: { Authorization: `Bearer ${(await json(issued)).token}` } });
   assert.equal(byRuntime.status, 200);
   await ctx.database.destroy();
 });
@@ -318,14 +323,14 @@ test("application層: Human向けuse caseはMembership認可を委譲先より�
   const { project, members } = await seedProject(ctx);
   const actor = (human: TestHuman) => ({ kind: "human", humanUserId: human.humanUserId }) as const;
   await assert.rejects(
-    ctx.services.human.createIntent.execute(actor(members.viewer), project.id, { title: "x", desiredState: "S" }),
-    (error) => error instanceof ForbiddenError && error.details.requiredRole === humanProjectPermissions["direction.write"],
+    ctx.services.human.createIntent.execute(actor(members.viewer), project.workspaceId, { title: "x", desiredState: "S" }),
+    (error) => error instanceof ForbiddenError && error.details.requiredRole === humanWorkspacePermissions["direction.write"],
   );
   // 入力が不正でも、未所属なら入力検証より先にNOT_FOUND。
   const outsider = await createTestHuman(ctx.database);
   await assert.rejects(ctx.services.human.updateProject.execute(actor(outsider), project.id, { name: "" }), NotFoundError);
   await assert.rejects(ctx.services.human.getProject.execute(actor(outsider), "missing"), NotFoundError);
-  assert.equal((await ctx.services.listIntentsUseCase.execute(project.id)).length, 1);
+  assert.equal((await ctx.services.listIntentsUseCase.execute(project.workspaceId)).length, 1);
   assert.equal((await ctx.services.human.getProject.execute(actor(members.editor), project.id)).myRole, "editor");
   await ctx.database.destroy();
 });

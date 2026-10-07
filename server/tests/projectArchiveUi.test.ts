@@ -110,7 +110,7 @@ test("archived Projectへの保存はproject_archivedとして分類され、Int
 
   for (const run of [
     () => request(`/api/projects/${project.id}`, patch("Changed"), fetchImpl),
-    () => request(`/api/projects/${project.id}/intents`, intentInit, fetchImpl),
+    () => request(`/api/workspaces/${project.workspaceId}/intents`, intentInit, fetchImpl),
     () => request(`/api/projects/${project.id}/grants`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ principalId: "agent", role: "manager" }) }, fetchImpl),
   ]) {
     assert.equal(classifyError(await rejection(run)).kind, "project_archived");

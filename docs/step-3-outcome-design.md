@@ -15,7 +15,7 @@ Workspace / IntentのID、title、description、任意のhypothesis、rationale�
 
 OutcomeとIntentのWorkspace一致をRepositoryとDBの複合FKで強制する。成功条件は`outcome_id`で同じOutcomeへ結び付ける。
 
-保存・application use caseはWorkspace単位。Workspace Directionの公開入口は未接続。既存Project入口は所属Workspaceを明示解決し、所属Projectが1件の場合だけ操作・参照できる。複数Project（archivedを含む）のWorkspaceは`CONFLICT`（`reason: workspace_direction_required`）で拒否する。応答は`workspaceId`を返し、`projectId`は持たない。Project archive時の拒否は従来どおり。
+保存・application use case・公開入口はWorkspace単位。Web APIは`/api/workspaces/:workspaceId/intents/:intentId/outcomes…`（Workspace Membership）、MCP toolは`workspaceId`（Workspace Strategist Grant）を受け取り、Project IDをWorkspace IDとして受け付けない。応答は`workspaceId`を返し、`projectId`は持たない。最後のactive ProjectのarchiveでWorkspaceもarchivedになり、書込は`CONFLICT`（`workspaceStatus: archived`）になる。
 
 ## 操作と評価
 

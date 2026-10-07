@@ -167,7 +167,7 @@ test("Workspace Agent CredentialはWorkspace Direction Roleだけを認証し、
     // 所属ProjectのWork toolとRuntime入口には使えない。
     const tasks = await callTool(remoteApp, token, "list_tasks", { projectId: project.id });
     assert.equal(tasks.structuredContent.error.code, "FORBIDDEN");
-    const events = await remoteApp.request(`/api/projects/${project.id}/runtime-events`, { headers: { Authorization: `Bearer ${token}` } });
+    const events = await remoteApp.request(`/api/workspaces/${workspace.id}/runtime-events`, { headers: { Authorization: `Bearer ${token}` } });
     assert.equal(events.status, 403);
     await assert.rejects(services.runtimeAuthorizationService.requireWorkspaceScope(caller, workspace.id, "runtime:state:read"), code("FORBIDDEN"));
   } finally {
@@ -209,12 +209,12 @@ test("Runtime Credentialは発行scopeと操作scopeが一致し、必要なscop
     await assert.rejects(runtime.requireWorkspaceScope("orchestrator-w", workspace.id, "runtime:state:read"), code("FORBIDDEN"));
     await assert.rejects(runtime.requireWorkspaceScope(null, workspace.id, "runtime:state:read"), code("UNAUTHENTICATED"));
 
-    // 公開済みのProject Runtime入口は、Project Runtime Credentialだけを受け付ける。
+    // Workspace所有のRuntime event入口は、Workspace Runtime Credentialだけを受け付ける（Project Credentialから継承しない）。
     const headers = (token: string) => ({ headers: { Authorization: `Bearer ${token}` } });
-    assert.equal((await remoteApp.request(`/api/projects/${project.id}/runtime-events`, headers(projectRuntime.token))).status, 200);
-    const denied = await remoteApp.request(`/api/projects/${project.id}/runtime-events`, headers(workspaceRuntime.token));
+    assert.equal((await remoteApp.request(`/api/workspaces/${workspace.id}/runtime-events`, headers(workspaceRuntime.token))).status, 200);
+    const denied = await remoteApp.request(`/api/workspaces/${workspace.id}/runtime-events`, headers(projectRuntime.token));
     assert.equal(denied.status, 403);
-    assert.equal(JSON.stringify(await denied.json()).includes(workspaceRuntime.token.split(".")[2]), false);
+    assert.equal(JSON.stringify(await denied.json()).includes(projectRuntime.token.split(".")[2]), false);
     const state = await callTool(remoteApp, workspaceRuntime.token, "get_orchestration_state", { projectId: project.id });
     assert.equal(state.structuredContent.error.code, "FORBIDDEN");
   } finally {

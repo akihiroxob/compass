@@ -29,13 +29,16 @@ const call = async (name: string, args: Record<string, unknown>) => {
   return result.structuredContent!;
 };
 
+// DirectionはWorkspace所有。OrchestratorはProjectを渡すため、Direction RoleはProjectの所属Workspaceを明示的に読む。
+const workspaceId = role === "manager" ? undefined : ((await call("get_project", { projectId })).workspaceId as string);
+
 if (role === "strategist") {
-  const context = await call("get_strategist_context", { projectId });
+  const context = await call("get_strategist_context", { workspaceId });
   const intentId = context.activeIntent.id as string;
   if (context.research.requests.length === 0) {
     // 情報不足と判断して追加Researchを依頼する。
     await call("create_direction_decision", {
-      projectId,
+      workspaceId,
       intentId,
       type: "additional_research",
       judgment: "Learn first",
@@ -46,7 +49,7 @@ if (role === "strategist") {
     });
   } else {
     await call("create_outcome", {
-      projectId,
+      workspaceId,
       intentId,
       title: "First outcome",
       description: "D",
@@ -55,7 +58,7 @@ if (role === "strategist") {
     });
   }
 } else if (role === "researcher") {
-  await call("complete_research_request", { projectId, requestId: subjectId, conclusion: "not_needed", stopReason: "Known" });
+  await call("complete_research_request", { workspaceId, requestId: subjectId, conclusion: "not_needed", stopReason: "Known" });
 } else if (role === "manager") {
   const story = await call("issue_story", { projectId, title: "Story", outcomeId: subjectId, requestId: `story:${subjectId}` });
   await call("issue_task", { projectId, storyId: story.id, title: "Task", taskKey: "task", requestId: `task:${subjectId}` });

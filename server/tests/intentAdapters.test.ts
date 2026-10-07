@@ -21,7 +21,8 @@ const send = (app: App, method: string, path: string, body?: string) =>
 
 const createProject = async (app: App, name = "Compass") => {
   const response = await send(app, "POST", "/api/projects", JSON.stringify({ name, mission: "Mission" }));
-  return ((await response.json()) as { project: { id: string } }).project.id;
+  const { project } = (await response.json()) as { project: { id: string; workspaceId: string } };
+  return { projectId: project.id, workspaceId: project.workspaceId };
 };
 
 const intentInput = { title: "Improve software", desiredState: "Agents improve it", completionDefinition: "Shipped" };
@@ -39,9 +40,9 @@ const callTool = async (app: App, name: string, args: object) => {
 
 test("Web APIでIntentを作成・一覧・詳細・更新・放棄でき、Project応答にはIntentが埋め込まれない", async () => {
   const { database, app } = await setup();
-  const projectId = await createProject(app);
+  const { projectId, workspaceId } = await createProject(app);
 
-  const created = await send(app, "POST", `/api/projects/${projectId}/intents`, JSON.stringify(intentInput));
+  const created = await send(app, "POST", `/api/workspaces/${workspaceId}/intents`, JSON.stringify(intentInput));
   assert.equal(created.status, 201);
   const { intent } = (await created.json()) as IntentBody;
   assert.equal(intent.status, "active");
@@ -49,18 +50,18 @@ test("Web APIでIntentを作成・一覧・詳細・更新・放棄でき、Proj
   assert.equal(intent.workspaceId, projectDetail.project.workspaceId);
   assert.equal("projectId" in intent, false);
 
-  const listed = (await (await app.request(`/api/projects/${projectId}/intents`)).json()) as { intents: unknown[] };
+  const listed = (await (await app.request(`/api/workspaces/${workspaceId}/intents`)).json()) as { intents: unknown[] };
   assert.deepEqual(listed.intents, [intent]);
-  const got = (await (await app.request(`/api/projects/${projectId}/intents/${intent.id}`)).json()) as IntentBody;
+  const got = (await (await app.request(`/api/workspaces/${workspaceId}/intents/${intent.id}`)).json()) as IntentBody;
   assert.deepEqual(got.intent, intent);
 
-  const patched = await send(app, "PATCH", `/api/projects/${projectId}/intents/${intent.id}`, JSON.stringify({ completionDefinition: "" }));
+  const patched = await send(app, "PATCH", `/api/workspaces/${workspaceId}/intents/${intent.id}`, JSON.stringify({ completionDefinition: "" }));
   assert.equal(patched.status, 200);
   const patchedIntent = ((await patched.json()) as IntentBody).intent;
   assert.equal(patchedIntent.completionDefinition, null);
   assert.equal(patchedIntent.title, intentInput.title);
 
-  const abandoned = await send(app, "POST", `/api/projects/${projectId}/intents/${intent.id}/abandon`, JSON.stringify({ reason: "Changed" }));
+  const abandoned = await send(app, "POST", `/api/workspaces/${workspaceId}/intents/${intent.id}/abandon`, JSON.stringify({ reason: "Changed" }));
   assert.equal(abandoned.status, 200);
   const abandonedIntent = ((await abandoned.json()) as IntentBody).intent;
   assert.equal(abandonedIntent.status, "abandoned");
@@ -76,14 +77,14 @@ test("Web APIでIntentを作成・一覧・詳細・更新・放棄でき、Proj
 
 test("放棄は本文なしでも理由なしとして受け付け、壊れたJSONは400にする", async () => {
   const { database, app } = await setup();
-  const projectId = await createProject(app);
-  const created = (await (await send(app, "POST", `/api/projects/${projectId}/intents`, JSON.stringify(intentInput))).json()) as IntentBody;
+  const { projectId, workspaceId } = await createProject(app);
+  const created = (await (await send(app, "POST", `/api/workspaces/${workspaceId}/intents`, JSON.stringify(intentInput))).json()) as IntentBody;
 
-  const malformed = await send(app, "POST", `/api/projects/${projectId}/intents/${created.intent.id}/abandon`, "{not json");
+  const malformed = await send(app, "POST", `/api/workspaces/${workspaceId}/intents/${created.intent.id}/abandon`, "{not json");
   assert.equal(malformed.status, 400);
   assert.equal(((await malformed.json()) as ErrorBody).error.message, "Intent input is invalid");
 
-  const abandoned = await send(app, "POST", `/api/projects/${projectId}/intents/${created.intent.id}/abandon`);
+  const abandoned = await send(app, "POST", `/api/workspaces/${workspaceId}/intents/${created.intent.id}/abandon`);
   assert.equal(abandoned.status, 200);
   const intent = ((await abandoned.json()) as IntentBody).intent;
   assert.equal(intent.status, "abandoned");
@@ -93,8 +94,8 @@ test("放棄は本文なしでも理由なしとして受け付け、壊れたJS
 
 test("Web APIは不正入力を400、Project/Intentなしを区別した404、Active重複と非Activeへの変更を409で返す", async () => {
   const { database, app } = await setup();
-  const projectId = await createProject(app);
-  const path = `/api/projects/${projectId}/intents`;
+  const { projectId, workspaceId } = await createProject(app);
+  const path = `/api/workspaces/${workspaceId}/intents`;
 
   for (const body of ["{not json", "", "null", "[]", "{}", JSON.stringify({ title: " ", desiredState: "x" })]) {
     const response = await send(app, "POST", path, body);
@@ -106,10 +107,10 @@ test("Web APIは不正入力を400、Project/Intentなしを区別した404、Ac
   }
   assert.deepEqual(((await (await app.request(path)).json()) as { intents: unknown[] }).intents, []);
 
-  const noProject = await send(app, "POST", "/api/projects/missing/intents", JSON.stringify(intentInput));
+  const noProject = await send(app, "POST", "/api/workspaces/missing/intents", JSON.stringify(intentInput));
   assert.equal(noProject.status, 404);
-  assert.match(((await noProject.json()) as ErrorBody).error.message, /^Project missing/);
-  assert.equal((await app.request("/api/projects/missing/intents")).status, 404);
+  assert.match(((await noProject.json()) as ErrorBody).error.message, /^Workspace missing/);
+  assert.equal((await app.request("/api/workspaces/missing/intents")).status, 404);
 
   const first = ((await (await send(app, "POST", path, JSON.stringify(intentInput))).json()) as IntentBody).intent;
   const noIntent = await app.request(`${path}/missing`);
@@ -138,13 +139,13 @@ test("Web APIは不正入力を400、Project/Intentなしを区別した404、Ac
   await database.destroy();
 });
 
-test("別ProjectのURLでIntentを参照・更新・放棄すると404で、内容は露出せず変更もされない", async () => {
+test("別WorkspaceのURLでIntentを参照・更新・放棄すると404で、内容は露出せず変更もされない", async () => {
   const { database, app } = await setup();
-  const projectA = await createProject(app, "A");
-  const projectB = await createProject(app, "B");
-  const { intent } = (await (await send(app, "POST", `/api/projects/${projectA}/intents`, JSON.stringify(intentInput))).json()) as IntentBody;
+  const { workspaceId: workspaceA } = await createProject(app, "A");
+  const { workspaceId: workspaceB } = await createProject(app, "B");
+  const { intent } = (await (await send(app, "POST", `/api/workspaces/${workspaceA}/intents`, JSON.stringify(intentInput))).json()) as IntentBody;
 
-  const viaB = `/api/projects/${projectB}/intents/${intent.id}`;
+  const viaB = `/api/workspaces/${workspaceB}/intents/${intent.id}`;
   for (const response of [
     await app.request(viaB),
     await send(app, "PATCH", viaB, JSON.stringify({ title: "Hijacked" })),
@@ -153,14 +154,14 @@ test("別ProjectのURLでIntentを参照・更新・放棄すると404で、内�
     assert.equal(response.status, 404);
     assert.doesNotMatch(await response.text(), new RegExp(intentInput.title));
   }
-  const still = (await (await app.request(`/api/projects/${projectA}/intents/${intent.id}`)).json()) as IntentBody;
+  const still = (await (await app.request(`/api/workspaces/${workspaceA}/intents/${intent.id}`)).json()) as IntentBody;
   assert.deepEqual(still.intent, intent);
   await database.destroy();
 });
 
 test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規則・エラーを使う", async () => {
   const { database, app } = await setup();
-  const projectId = await createProject(app);
+  const { projectId, workspaceId } = await createProject(app);
 
   const toolsResponse = await app.request("/mcp", {
     method: "POST",
@@ -189,54 +190,54 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
     ],
   );
 
-  const created = await callTool(app, "create_intent", { projectId, ...intentInput });
+  const created = await callTool(app, "create_intent", { workspaceId, ...intentInput });
   assert.equal(created.isError, undefined);
   const intentId = created.structuredContent.id as string;
   assert.equal(created.structuredContent.status, "active");
 
-  const viaApi = (await (await app.request(`/api/projects/${projectId}/intents/${intentId}`)).json()) as IntentBody;
+  const viaApi = (await (await app.request(`/api/workspaces/${workspaceId}/intents/${intentId}`)).json()) as IntentBody;
   assert.deepEqual(viaApi.intent, created.structuredContent);
 
   // WebでPATCHした内容はMCPで見え、MCPの更新はWebに反映される。
-  await send(app, "PATCH", `/api/projects/${projectId}/intents/${intentId}`, JSON.stringify({ title: "Edited on Web" }));
-  assert.equal((await callTool(app, "get_intent", { projectId, intentId })).structuredContent.title, "Edited on Web");
-  const mcpUpdated = await callTool(app, "update_intent", { projectId, intentId, desiredState: "Edited via MCP", completionDefinition: null });
+  await send(app, "PATCH", `/api/workspaces/${workspaceId}/intents/${intentId}`, JSON.stringify({ title: "Edited on Web" }));
+  assert.equal((await callTool(app, "get_intent", { workspaceId, intentId })).structuredContent.title, "Edited on Web");
+  const mcpUpdated = await callTool(app, "update_intent", { workspaceId, intentId, desiredState: "Edited via MCP", completionDefinition: null });
   assert.equal(mcpUpdated.isError, undefined);
-  const afterMcp = ((await (await app.request(`/api/projects/${projectId}/intents/${intentId}`)).json()) as IntentBody).intent;
+  const afterMcp = ((await (await app.request(`/api/workspaces/${workspaceId}/intents/${intentId}`)).json()) as IntentBody).intent;
   assert.equal(afterMcp.desiredState, "Edited via MCP");
   assert.equal(afterMcp.completionDefinition, null);
   assert.equal(afterMcp.title, "Edited on Web");
-  assert.deepEqual((await callTool(app, "list_intents", { projectId })).structuredContent.intents, [afterMcp]);
+  assert.deepEqual((await callTool(app, "list_intents", { workspaceId })).structuredContent.intents, [afterMcp]);
 
-  const invalid = await callTool(app, "create_intent", { projectId, title: " ", desiredState: "x".repeat(2_001) });
+  const invalid = await callTool(app, "create_intent", { workspaceId, title: " ", desiredState: "x".repeat(2_001) });
   assert.equal(invalid.isError, true);
   assert.equal(invalid.structuredContent.error.code, "VALIDATION_ERROR");
   assert.deepEqual(
     invalid.structuredContent.error.issues.map((issue: { path: string }) => issue.path),
     ["title", "desiredState"],
   );
-  assert.equal((await callTool(app, "update_intent", { projectId, intentId })).structuredContent.error.code, "VALIDATION_ERROR");
+  assert.equal((await callTool(app, "update_intent", { workspaceId, intentId })).structuredContent.error.code, "VALIDATION_ERROR");
 
-  const duplicate = await callTool(app, "create_intent", { projectId, title: "Second", desiredState: "Second" });
+  const duplicate = await callTool(app, "create_intent", { workspaceId, title: "Second", desiredState: "Second" });
   assert.equal(duplicate.isError, true);
   assert.equal(duplicate.structuredContent.error.code, "CONFLICT");
   assert.equal(duplicate.structuredContent.error.activeIntentId, intentId);
 
-  const otherProject = await createProject(app, "Other");
-  const crossProject = await callTool(app, "get_intent", { projectId: otherProject, intentId });
+  const { workspaceId: otherWorkspace } = await createProject(app, "Other");
+  const crossProject = await callTool(app, "get_intent", { workspaceId: otherWorkspace, intentId });
   assert.equal(crossProject.isError, true);
   assert.equal(crossProject.structuredContent.error.code, "NOT_FOUND");
   assert.match(crossProject.structuredContent.error.message, /^Intent /);
-  const missingProject = await callTool(app, "list_intents", { projectId: "missing" });
-  assert.match(missingProject.structuredContent.error.message, /^Project missing/);
+  const missingProject = await callTool(app, "list_intents", { workspaceId: "missing" });
+  assert.match(missingProject.structuredContent.error.message, /^Workspace missing/);
 
-  const abandoned = await callTool(app, "abandon_intent", { projectId, intentId, reason: "Done here" });
+  const abandoned = await callTool(app, "abandon_intent", { workspaceId, intentId, reason: "Done here" });
   assert.equal(abandoned.structuredContent.status, "abandoned");
   assert.equal(abandoned.structuredContent.abandonedReason, "Done here");
-  const editAfter = await callTool(app, "update_intent", { projectId, intentId, title: "x" });
+  const editAfter = await callTool(app, "update_intent", { workspaceId, intentId, title: "x" });
   assert.equal(editAfter.structuredContent.error.code, "CONFLICT");
   assert.equal(editAfter.structuredContent.error.status, "abandoned");
-  const viaApiAfter = ((await (await app.request(`/api/projects/${projectId}/intents/${intentId}`)).json()) as IntentBody).intent;
+  const viaApiAfter = ((await (await app.request(`/api/workspaces/${workspaceId}/intents/${intentId}`)).json()) as IntentBody).intent;
   assert.equal(viaApiAfter.status, "abandoned");
   await database.destroy();
 });
