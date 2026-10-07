@@ -16,7 +16,7 @@ import { asDirectionDatabase } from "../src/bootstrap/database/contextDatabase.t
 import { directionWorkspaceReaders, projectRepositoryReferenceFinder } from "../src/infrastructure/repository/contextAdapters.ts";
 
 
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 
 const intentInput = { title: "Direction", desiredState: "Shared direction" };
 const outcomeInput = { title: "Result", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }] };
@@ -182,7 +182,7 @@ test("Web/API/MCP keep Project authorization and do not expose shared Workspace 
     assert.equal(response.status, 409);
     const body = await response.json() as { error: { code: string; reason: string } };
     assert.equal(body.error.reason, "workspace_direction_required");
-    await services.grantProjectRoleUseCase.execute(a.id, { principalId: "strategist", role: "strategist" });
+    await seedLegacyProjectGrant(database, a.id, "strategist", "strategist");
     const call = async (projectId: string) => {
       const result = await app.request("/mcp", {
         method: "POST",

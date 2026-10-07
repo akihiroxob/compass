@@ -1,3 +1,4 @@
+import { seedLegacyProjectGrant } from "./support/humanSession.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
@@ -52,10 +53,10 @@ const setup = async (clock: () => number = () => start) => {
 type Services = Awaited<ReturnType<typeof setup>>["services"];
 
 /** ProjectとIntentを作り、Strategist Grantを付与する。Intent作成でInitial Requestが自動で1件作られる。 */
-const seed = async (services: Services, principalId = "strat-1") => {
+const seed = async (database: ReturnType<typeof createDatabase>, services: Services, principalId = "strat-1") => {
   const project = await services.createProjectUseCase.execute(projectInput);
   const intent = await services.createIntentUseCase.execute(project.id, intentInput);
-  await services.grantProjectRoleUseCase.execute(project.id, { principalId, role: "strategist" });
+  await seedLegacyProjectGrant(database, project.id, principalId, "strategist");
   return { project, intent };
 };
 
@@ -63,8 +64,8 @@ const briefOf = async (services: Services, projectId: string, principalId = "str
   (await services.getStrategistContextUseCase.execute(principalId, projectId)).research!;
 
 test("cancelledのRequestはrequestsに残るが、syntheses（圧縮結果）からは除かれる", async () => {
-  const { services } = await setup();
-  const { project, intent } = await seed(services);
+  const { database, services } = await setup();
+  const { project, intent } = await seed(database, services);
   const cancelled = await services.createResearchRequestUseCase.execute(
     project.id,
     requestInput(intent.id, { requestKey: "req-cancel" }),
@@ -87,8 +88,8 @@ test("cancelledのRequestはrequestsに残るが、syntheses（圧縮結果）�
 });
 
 test("supersedesIdで置き換えたSynthesisは古いversionを除き、最新versionだけを返す", async () => {
-  const { services } = await setup();
-  const { project, intent } = await seed(services);
+  const { database, services } = await setup();
+  const { project, intent } = await seed(database, services);
   const request = await services.createResearchRequestUseCase.execute(
     project.id,
     requestInput(intent.id, { requestKey: "req-1" }),
@@ -122,8 +123,8 @@ test("supersedesIdで置き換えたSynthesisは古いversionを除き、最新v
 });
 
 test("宣言済みのFinding競合は平均化・除外せず、conflictsにそのまま残る", async () => {
-  const { services } = await setup();
-  const { project, intent } = await seed(services);
+  const { database, services } = await setup();
+  const { project, intent } = await seed(database, services);
   const request = await services.createResearchRequestUseCase.execute(
     project.id,
     requestInput(intent.id, { requestKey: "req-1" }),
@@ -162,8 +163,8 @@ test("宣言済みのFinding競合は平均化・除外せず、conflictsにそ�
 });
 
 test("後から登録されたFindingが最新Synthesis未引用のまま競合を宣言しても、conflictsから消えない", async () => {
-  const { services } = await setup();
-  const { project, intent } = await seed(services);
+  const { database, services } = await setup();
+  const { project, intent } = await seed(database, services);
   const request = await services.createResearchRequestUseCase.execute(
     project.id,
     requestInput(intent.id, { requestKey: "req-1" }),
@@ -205,8 +206,8 @@ test("後から登録されたFindingが最新Synthesis未引用のまま競合�
 });
 
 test("引用Findingが期限切れならstale:trueを返し、除外はしない", async () => {
-  const { services } = await setup();
-  const { project, intent } = await seed(services);
+  const { database, services } = await setup();
+  const { project, intent } = await seed(database, services);
   const request = await services.createResearchRequestUseCase.execute(
     project.id,
     requestInput(intent.id, { requestKey: "req-1" }),
@@ -251,9 +252,9 @@ test("引用Findingが期限切れならstale:trueを返し、除外はしない
 });
 
 test("別ProjectのRequest・Synthesisは、同名Intent IDであってもIntent Briefへ含まれない", async () => {
-  const { services } = await setup();
-  const { project } = await seed(services, "strat-1");
-  const { project: otherProject, intent: otherIntent } = await seed(services, "strat-2");
+  const { database, services } = await setup();
+  const { project } = await seed(database, services, "strat-1");
+  const { project: otherProject, intent: otherIntent } = await seed(database, services, "strat-2");
   const otherRequest = await services.createResearchRequestUseCase.execute(
     otherProject.id,
     requestInput(otherIntent.id, { requestKey: "other-req" }),

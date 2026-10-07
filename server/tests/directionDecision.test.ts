@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -49,8 +49,13 @@ const errorOf = (result: ToolResult) => {
   return result.structuredContent.error as { code: string; message: string } & Record<string, string>;
 };
 
-const grant = (app: App, projectId: string, principalId: string, role: string) =>
-  send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
+const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role: string) => {
+  if (["strategist", "researcher", "evaluator"].includes(role)) {
+    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    return;
+  }
+  return send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
+};
 
 const seedProject = async (services: Services) => {
   const project = await services.createProjectUseCase.execute({
@@ -70,8 +75,8 @@ const seedProject = async (services: Services) => {
 const now = Date.now();
 
 /** ResearcherがResult・Synthesisを登録し、Decisionが参照できるsynthesis/finding idを用意する。 */
-const seedSynthesis = async (app: App, projectId: string, intentId: string) => {
-  await grant(app, projectId, "researcher-a", "researcher");
+const seedSynthesis = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, intentId: string) => {
+  await grant(database, app, projectId, "researcher-a", "researcher");
   const context = await callTool(app, "get_strategist_context", { projectId }, "strat-1");
   const requestId = context.structuredContent.research.requests[0].id as string;
 
@@ -133,8 +138,8 @@ const decisionArgs = (projectId: string, intentId: string, overrides: object = {
 test("StrategistはSynthesis/Findingを根拠にDirection Decisionを記録でき、再送は同じDecisionを返し、内容が違えばCONFLICTになる", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
-  const { synthesisId, findingId } = await seedSynthesis(app, project.id, intent.id);
+  await grant(database, app, project.id, "strat-1", "strategist");
+  const { synthesisId, findingId } = await seedSynthesis(database, app, project.id, intent.id);
 
   const created = await callTool(
     app,
@@ -186,8 +191,8 @@ test("StrategistはSynthesis/Findingを根拠にDirection Decisionを記録で�
 test("存在しないSynthesis/Findingや古いversionの参照はVALIDATION_ERROR・CONFLICTで拒否され、Decisionは作られない", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
-  const { synthesisId } = await seedSynthesis(app, project.id, intent.id);
+  await grant(database, app, project.id, "strat-1", "strategist");
+  const { synthesisId } = await seedSynthesis(database, app, project.id, intent.id);
 
   const unknownFinding = await callTool(
     app,
@@ -216,7 +221,7 @@ test("存在しないSynthesis/Findingや古いversionの参照はVALIDATION_ERR
 test("放棄済みIntentへのDecisionはCONFLICTで拒否され、policy_proposalはProjectの方針を変更しない", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
+  await grant(database, app, project.id, "strat-1", "strategist");
 
   await services.abandonIntentUseCase.execute(project.id, intent.id, { reason: "Superseded" });
   const abandoned = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id), "strat-1");
@@ -246,8 +251,8 @@ test("放棄済みIntentへのDecisionはCONFLICTで拒否され、policy_propos
 test("decide_next_outcomeはDecisionとOutcomeを1回のtransactionで保存し、originDecisionIdで結び付く。再送は冪等でOutcomeを重複させない", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
-  const { synthesisId, findingId } = await seedSynthesis(app, project.id, intent.id);
+  await grant(database, app, project.id, "strat-1", "strategist");
+  const { synthesisId, findingId } = await seedSynthesis(database, app, project.id, intent.id);
 
   const outcomeInput = {
     title: "No duplicate claims",
@@ -340,7 +345,7 @@ test("decide_next_outcomeはDecisionとOutcomeを1回のtransactionで保存し�
 test("create_direction_decision・decide_next_outcomeはStrategist Grant必須で、ResearcherやBearerなしは拒否される", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
-  await grant(app, project.id, "researcher-a", "researcher");
+  await grant(database, app, project.id, "researcher-a", "researcher");
 
   const anonymousDecision = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id));
   assert.equal(errorOf(anonymousDecision).code, "UNAUTHENTICATED");

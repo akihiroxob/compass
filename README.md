@@ -68,7 +68,7 @@ archived Projectは参照専用です。復帰・物理削除は提供してい�
 
 ## Agentの接続
 
-Project詳細でAgent名に必要なRole Grantを付け、同じAgent名のAgent Credentialを発行します。発行直後に一度だけ表示されるtokenをMCP clientへ渡します。
+Project詳細でAgent名にManager・Worker・ReviewerのRole Grantを付け、同じAgent名のAgent Credentialを発行します。発行直後に一度だけ表示されるtokenをMCP clientへ渡します。
 
 ```bash
 export COMPASS_AGENT_TOKEN="cmp_agent.<id>.<secret>"
@@ -76,7 +76,7 @@ export COMPASS_AGENT_TOKEN="cmp_agent.<id>.<secret>"
 
 MCP endpointは`http://localhost:51800/mcp`、認証headerは`Authorization: Bearer <token>`です。`COMPASS_AGENT_TOKEN`はclient側の環境変数で、serverは読みません。tokenを設定ファイルへ直書きせず、clientが環境変数から読み込むよう設定してください。
 
-現在のRoleは`strategist` / `researcher` / `manager` / `worker` / `reviewer` / `evaluator`。`get_role_instructions({ role, includeShared: true })`でInstructionを取得できます。Grant発行だけではAgentは起動しません。
+現在のRoleは`strategist` / `researcher` / `manager` / `worker` / `reviewer` / `evaluator`。`get_role_instructions({ role, includeShared: true })`でInstructionを取得できます。Grant発行だけではAgentは起動しません。新規Project GrantはManager・Worker・Reviewerと、trusted-localのOrchestrator用`runtime`（CLI・Web API）だけを許可し、Direction Roleは400 `VALIDATION_ERROR`で拒否します。DirectionのWorkspace Grantは内部applicationまで実装済みで、管理UI・Credential・公開入口は未接続です。新規DBでのAgent Direction運転はその接続後に利用できます。保存済みの旧Project Direction Grantは参照・取消できますが、WorkのTask・Story・Comment・Change Log参照には使えません。
 
 Intent/Outcome/Research/Decision/Evaluation/Runtime eventの保存と応答はWorkspace所有（`workspaceId`）です。WorkspaceのDirection公開入口はまだ接続していないため、既存のProject画面・API・MCPは所属Projectが1件のWorkspaceだけ利用できます。複数Project（archivedも含む）のWorkspaceではDirection操作・集約Contextが`CONFLICT`（`reason: workspace_direction_required`）になります。Project IDをWorkspace IDとして渡すことはできません。ADR依頼/参照もWorkspace所有で、対象artifactのProject/Repository参照を保持します。Execution Summary/Evidenceは`workspaceId`と発生元`projectId`を返し、Outcome・Projectごとに還流状態を保持します。Runtime eventはversion 2で`workspaceId`を返し、`projectId`は持ちません。配送結果にも`workspaceId`を含めます。認可付きWorkspace入口・Target・全Target評価は後続Taskです。旧Project scopeのDirection schemaは変換せず、開発DBを再作成して起動します。テストは`COMPASS_DB_PATH=:memory: npm test`でローカルDBから隔離できます。
 

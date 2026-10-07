@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp } from "../src/bootstrap/app.ts";
-import { addTestMembership, createSignedInApp, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
+import { addTestMembership, createSignedInApp, createTestHuman, requestAs, type TestHuman, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -44,10 +44,14 @@ const next = (label: string) => `${label}-${++counter}`;
 
 /** Outcome由来のStory（Task 2件: 差戻し済み・Claim中）と、Outcome無しの手動Story（Task 1件）を作る。 */
 const seed = async (kit: Kit, name = "Compass") => {
-  const { services, app } = kit;
+  const { database, services, app } = kit;
   const project = await services.createProjectUseCase.execute({ name, mission: "Keep execution visible" });
   const intent = await services.createIntentUseCase.execute(project.id, { title: "Visible", desiredState: "Humans can follow Execution" });
   for (const [principalId, role] of [["mgr", "manager"], ["wrk", "worker"], ["rev", "reviewer"], ["ev", "evaluator"], ["str", "strategist"]] as const) {
+    if (role === "evaluator" || role === "strategist") {
+      await seedLegacyProjectGrant(database, project.id, principalId, role);
+      continue;
+    }
     assert.equal((await app.request(`/api/projects/${project.id}/grants`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ principalId, role }) })).status, 201);
   }
   const outcome = await services.createOutcomeUseCase.execute(project.id, intent.id, {

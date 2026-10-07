@@ -1,3 +1,4 @@
+import { seedLegacyProjectGrant } from "./support/humanSession.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -494,7 +495,7 @@ test(
       const legacyServices = createApplicationServices(legacy);
       const project = await legacyServices.createProjectUseCase.execute({ name: "Legacy", mission: "Existed before auth" });
       await legacyServices.createIntentUseCase.execute(project.id, { title: "Legacy intent", desiredState: "Kept" });
-      await legacyServices.grantProjectRoleUseCase.execute(project.id, { principalId: "strategist-1", role: "strategist" });
+      await seedLegacyProjectGrant(legacy, project.id, "strategist-1", "strategist");
       const archived = await legacyServices.createProjectUseCase.execute({ name: "Archived", mission: "Read only" });
       await legacyServices.archiveProjectUseCase.execute(archived.id, { reason: "done" });
       await legacy.destroy();

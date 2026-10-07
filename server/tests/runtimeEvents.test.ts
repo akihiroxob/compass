@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { runtimeEventVersion } from "@compass/direction";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -55,7 +55,11 @@ const ack = (app: App, projectId: string, eventId: string, principal: string, bo
     ...body,
   });
 
-const grantRuntime = async (app: App, projectId: string, principalId: string, role = "runtime") => {
+const grantRuntime = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role = "runtime") => {
+  if (["strategist", "researcher", "evaluator"].includes(role)) {
+    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    return;
+  }
   const response = await api(app, "POST", `/api/projects/${projectId}/grants`, undefined, { principalId, role });
   assert.ok(response.status === 200 || response.status === 201);
 };
@@ -114,7 +118,7 @@ const errorCode = async (response: Response) => ((await response.json()) as { er
 test("未処理のresearch_requestedをcursor付きで取得しackすると、再取得で返らず、cursorから差分を再開できる", async () => {
   const { database, services, app } = await setup();
   const { project, intent, request } = await seed(services);
-  await grantRuntime(app, project.id, "runtime-a");
+  await grantRuntime(database, app, project.id, "runtime-a");
 
   const first = await fetchEvents(app, project.id, "runtime-a");
   assert.equal(first.events.length, 1);
@@ -178,7 +182,7 @@ test("limitで区切って取得でき、nextCursorで欠落・重複なく続�
   const { database, services, app } = await setup();
   const { project, request } = await seed(services);
   await closeRequest(services, project.id, request.id);
-  await grantRuntime(app, project.id, "runtime-a");
+  await grantRuntime(database, app, project.id, "runtime-a");
 
   const page1 = await fetchEvents(app, project.id, "runtime-a", "?limit=1");
   assert.deepEqual(page1.events.map(({ type }) => type), ["research_requested"]);
@@ -198,7 +202,7 @@ test("limitで区切って取得でき、nextCursorで欠落・重複なく続�
 test("応答が失われても、取得は状態を変えずに同じイベントを返し、ackの再送は冪等になる", async () => {
   const { database, services, app } = await setup();
   const { project } = await seed(services);
-  await grantRuntime(app, project.id, "runtime-a");
+  await grantRuntime(database, app, project.id, "runtime-a");
   const eventsBefore = await rowCount(database, "runtime_event");
 
   const lost = await fetchEvents(app, project.id, "runtime-a");
@@ -228,8 +232,8 @@ test("retryable_failureは返り続けて回数と理由を伴い、processedま
   const { database, services, app } = await setup();
   const first = await seed(services, "One");
   const second = await seed(services, "Two");
-  await grantRuntime(app, first.project.id, "runtime-a");
-  await grantRuntime(app, second.project.id, "runtime-a");
+  await grantRuntime(database, app, first.project.id, "runtime-a");
+  await grantRuntime(database, app, second.project.id, "runtime-a");
 
   const eventId = (await fetchEvents(app, first.project.id, "runtime-a")).events[0]!.id;
   const retry = (reason: string) => ack(app, first.project.id, eventId, "runtime-a", { outcome: "retryable_failure", reason });
@@ -273,8 +277,8 @@ test("retryable_failureは返り続けて回数と理由を伴い、processedま
 test("consumerごとにackが独立し、別consumerのackは影響しない", async () => {
   const { database, services, app } = await setup();
   const { project } = await seed(services);
-  await grantRuntime(app, project.id, "runtime-a");
-  await grantRuntime(app, project.id, "runtime-b");
+  await grantRuntime(database, app, project.id, "runtime-a");
+  await grantRuntime(database, app, project.id, "runtime-b");
 
   const eventA = (await fetchEvents(app, project.id, "runtime-a")).events[0]!;
   const eventB = (await fetchEvents(app, project.id, "runtime-b")).events[0]!;
@@ -303,8 +307,8 @@ test("別Projectのイベントは取得もackもできず、Grantは対象Proje
   const { database, services, app } = await setup();
   const one = await seed(services, "One");
   const two = await seed(services, "Two");
-  await grantRuntime(app, one.project.id, "runtime-a");
-  await grantRuntime(app, two.project.id, "runtime-b");
+  await grantRuntime(database, app, one.project.id, "runtime-a");
+  await grantRuntime(database, app, two.project.id, "runtime-b");
 
   const eventOne = (await fetchEvents(app, one.project.id, "runtime-a")).events[0]!;
   const eventTwo = (await fetchEvents(app, two.project.id, "runtime-b")).events[0]!;
@@ -335,9 +339,9 @@ test("別Projectのイベントは取得もackもできず、Grantは対象Proje
 test("Bearerなし・形式不正・Grantなし・別Role・取消済みを拒否し、取消は次の呼出しから反映される", async () => {
   const { database, services, app } = await setup();
   const { project } = await seed(services);
-  await grantRuntime(app, project.id, "researcher-a", "researcher");
-  await grantRuntime(app, project.id, "strategist-a", "strategist");
-  await grantRuntime(app, project.id, "runtime-a");
+  await grantRuntime(database, app, project.id, "researcher-a", "researcher");
+  await grantRuntime(database, app, project.id, "strategist-a", "strategist");
+  await grantRuntime(database, app, project.id, "runtime-a");
   const eventId = (await fetchEvents(app, project.id, "runtime-a")).events[0]!.id;
   const path = `/api/projects/${project.id}/runtime-events`;
 
@@ -368,7 +372,7 @@ test("Bearerなし・形式不正・Grantなし・別Role・取消済みを拒�
 test("ackとcursor入力の不正はVALIDATION_ERRORで、何も保存しない", async () => {
   const { database, services, app } = await setup();
   const { project } = await seed(services);
-  await grantRuntime(app, project.id, "runtime-a");
+  await grantRuntime(database, app, project.id, "runtime-a");
   const eventId = (await fetchEvents(app, project.id, "runtime-a")).events[0]!.id;
 
   const invalidAcks: Array<[object, string]> = [
@@ -409,8 +413,8 @@ test("retryable_failureの同じattemptIdの再送は1回の試行に収束し�
   const path = join(directory, "test.db");
   const first = await setup(path);
   const { project } = await seed(first.services);
-  await grantRuntime(first.app, project.id, "runtime-a");
-  await grantRuntime(first.app, project.id, "runtime-b");
+  await grantRuntime(first.database, first.app, project.id, "runtime-a");
+  await grantRuntime(first.database, first.app, project.id, "runtime-b");
   const eventId = (await fetchEvents(first.app, project.id, "runtime-a")).events[0]!.id;
   const attempt = { attemptId: "try-1", outcome: "retryable_failure", reason: "timeout" };
 
@@ -452,7 +456,7 @@ test("resumeCursorは未ack・retryable_failureのイベントを追い越さず
   const first = await setup(path);
   const { project, request } = await seed(first.services);
   await closeRequest(first.services, project.id, request.id);
-  await grantRuntime(first.app, project.id, "runtime-a");
+  await grantRuntime(first.database, first.app, project.id, "runtime-a");
 
   const fetched = await fetchEvents(first.app, project.id, "runtime-a");
   const [requested, completed] = fetched.events;
@@ -493,8 +497,8 @@ test("server再起動後もackとcursorの状態が残り、イベントの欠�
   const path = join(directory, "test.db");
   const first = await setup(path);
   const { project, request } = await seed(first.services);
-  await grantRuntime(first.app, project.id, "runtime-a");
-  await grantRuntime(first.app, project.id, "runtime-b");
+  await grantRuntime(first.database, first.app, project.id, "runtime-a");
+  await grantRuntime(first.database, first.app, project.id, "runtime-b");
 
   const requested = (await fetchEvents(first.app, project.id, "runtime-a")).events[0]!;
   await ack(first.app, project.id, requested.id, "runtime-a", { outcome: "processed" });
@@ -530,7 +534,7 @@ test("server再起動後もackとcursorの状態が残り、イベントの欠�
 test("archivedのProjectでもackを記録でき、Direction・Runtime eventの内容は変わらない", async () => {
   const { database, services, app } = await setup();
   const { project } = await seed(services);
-  await grantRuntime(app, project.id, "runtime-a");
+  await grantRuntime(database, app, project.id, "runtime-a");
   const [event] = (await fetchEvents(app, project.id, "runtime-a")).events;
   const eventRowsBefore = await database.selectFrom("runtime_event").selectAll().execute();
 
@@ -544,8 +548,8 @@ test("archivedのProjectでもackを記録でき、Direction・Runtime eventの�
 test("MCPのfetch_runtime_events / ack_runtime_eventも同じuse caseを通る", async () => {
   const { database, services, app } = await setup();
   const { project, request } = await seed(services);
-  await grantRuntime(app, project.id, "runtime-a");
-  await grantRuntime(app, project.id, "researcher-a", "researcher");
+  await grantRuntime(database, app, project.id, "runtime-a");
+  await grantRuntime(database, app, project.id, "researcher-a", "researcher");
 
   const tools = (await rpc(app, "tools/list", {})).result.tools.map(({ name }: { name: string }) => name);
   assert.ok(tools.includes("fetch_runtime_events") && tools.includes("ack_runtime_event"));

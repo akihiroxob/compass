@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -48,8 +48,13 @@ const errorOf = (result: ToolResult) => {
   return result.structuredContent.error as { code: string; message: string } & Record<string, string>;
 };
 
-const grant = (app: App, projectId: string, principalId: string, role: string) =>
-  send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
+const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role: string) => {
+  if (["strategist", "researcher", "evaluator"].includes(role)) {
+    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    return;
+  }
+  return send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
+};
 
 const seedProject = async (services: Services) => {
   const project = await services.createProjectUseCase.execute({
@@ -103,7 +108,7 @@ const handoffArgs = (
 test("adr_candidate DecisionとRepositoryから依頼payloadを生成でき、再送は冪等で内容が違えばCONFLICTになる", async () => {
   const { database, services, app } = await setup();
   const { project, intent, repositoryId } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
+  await grant(database, app, project.id, "strat-1", "strategist");
   const decisionId = await seedAdrCandidateDecision(app, project.id, intent.id);
 
   const created = await callTool(app, "create_adr_handoff_request", handoffArgs(project.id, decisionId, repositoryId), "strat-1");
@@ -141,7 +146,7 @@ test("adr_candidate DecisionとRepositoryから依頼payloadを生成でき、�
 test("存在しないDecision・adr_candidateでないDecision・未登録Repositoryへの依頼は拒否される", async () => {
   const { database, services, app } = await setup();
   const { project, intent, repositoryId } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
+  await grant(database, app, project.id, "strat-1", "strategist");
 
   const missingDecision = await callTool(
     app,
@@ -195,7 +200,7 @@ test("存在しないDecision・adr_candidateでないDecision・未登録Reposi
 test("record_adr_referenceは対応するhandoff requestが必須で、絶対path・path traversal・短縮SHA・不正URLをVALIDATION_ERRORで拒否する", async () => {
   const { database, services, app } = await setup();
   const { project, intent, repositoryId } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
+  await grant(database, app, project.id, "strat-1", "strategist");
   const decisionId = await seedAdrCandidateDecision(app, project.id, intent.id);
 
   const referenceArgs = (overrides: object = {}) => ({
@@ -278,7 +283,7 @@ test("record_adr_referenceは対応するhandoff requestが必須で、絶対pat
 test("update_projectでADR Handoff Request/Referenceが参照するRepositoryを外そうとするとCONFLICTになり、他の変更も含めて何も更新しない", async () => {
   const { database, services, app } = await setup();
   const { project, intent, repositoryId } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
+  await grant(database, app, project.id, "strat-1", "strategist");
   const decisionId = await seedAdrCandidateDecision(app, project.id, intent.id);
   await callTool(app, "create_adr_handoff_request", handoffArgs(project.id, decisionId, repositoryId), "strat-1");
 
@@ -304,8 +309,8 @@ test("update_projectでADR Handoff Request/Referenceが参照するRepositoryを
 test("create_adr_handoff_request・record_adr_referenceはStrategist Grant必須で、ResearcherやBearerなしは拒否される", async () => {
   const { database, services, app } = await setup();
   const { project, intent, repositoryId } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
-  await grant(app, project.id, "researcher-a", "researcher");
+  await grant(database, app, project.id, "strat-1", "strategist");
+  await grant(database, app, project.id, "researcher-a", "researcher");
   const decisionId = await seedAdrCandidateDecision(app, project.id, intent.id);
 
   const anonymousHandoff = await callTool(app, "create_adr_handoff_request", handoffArgs(project.id, decisionId, repositoryId));

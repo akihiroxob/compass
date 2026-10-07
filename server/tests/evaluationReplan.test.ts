@@ -7,7 +7,7 @@ import { sql } from "kysely";
 import { SQLiteWorkspaceRepository } from "@compass/organization";
 import { asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -57,8 +57,12 @@ const errorOf = (result: ToolResult) => {
   return result.structuredContent.error as { code: string; message: string } & Record<string, any>;
 };
 
-const grant = async (app: App, projectId: string, principalId: string, role: string) =>
-  assert.equal(
+const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role: string) => {
+  if (["strategist", "researcher", "evaluator"].includes(role)) {
+    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    return;
+  }
+  return assert.equal(
     (
       await app.request(`/api/projects/${projectId}/grants`, {
         method: "POST",
@@ -68,6 +72,7 @@ const grant = async (app: App, projectId: string, principalId: string, role: str
     ).status,
     201,
   );
+};
 
 const grants: readonly (readonly [string, string])[] = [
   ["mgr", "manager"],
@@ -81,14 +86,14 @@ const grants: readonly (readonly [string, string])[] = [
 let counter = 0;
 const next = (label: string) => `${label}-${++counter}`;
 
-const seedProject = async ({ services, app }: Kit, completionDefinition: string | null = "Every Task has exactly one owner") => {
+const seedProject = async ({ database, services, app }: Kit, completionDefinition: string | null = "Every Task has exactly one owner") => {
   const project = await services.createProjectUseCase.execute({ name: next("Compass"), mission: "Keep execution guarded" });
   const intent = await services.createIntentUseCase.execute(project.id, {
     title: "Guarded claims",
     desiredState: "One owner per Task",
     completionDefinition,
   });
-  for (const [principal, role] of grants) await grant(app, project.id, principal, role);
+  for (const [principal, role] of grants) await grant(database, app, project.id, principal, role);
   return { project, intent };
 };
 
@@ -113,7 +118,7 @@ const executeAndReflect = async ({ app }: Kit, projectId: string, outcomeId: str
   ok(await callTool(app, "reviewed_task", { taskId: task.id, claimId: review.claimId, requestId: next("reviewed") }, "rev"));
   const acceptance = ok(await callTool(app, "claim_acceptance", { taskId: task.id, requestId: next("accept-claim") }, "mgr"));
   ok(await callTool(app, "accept_task", { taskId: task.id, claimId: acceptance.claimId, requestId: next("accept") }, "mgr"));
-  const changes = ok(await callTool(app, "list_changes", { projectId, afterCursor: 0 }, "rt")) as { nextCursor: number };
+  const changes = ok(await callTool(app, "list_changes", { projectId, afterCursor: 0 }, "mgr")) as { nextCursor: number };
   const reflected = ok(
     await callTool(
       app,

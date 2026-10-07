@@ -144,7 +144,7 @@ test("PrincipalのGrantとClaim handleだけでTaskを進められ、認可エ�
 test("manager・worker・reviewerが統一MCPだけでStoryを完了まで進め、Change Logを増分取得できる", async () => {
   const { database, app } = await setup();
   const projectId = await createProject(app);
-  for (const [principal, role] of [["mgr", "manager"], ["wrk", "worker"], ["rev", "reviewer"], ["rt", "runtime"]] as const) {
+  for (const [principal, role] of [["mgr", "manager"], ["wrk", "worker"], ["rev", "reviewer"], ["rt", "worker"]] as const) {
     assert.equal((await grant(app, projectId, principal, role)).status, 201);
   }
 

@@ -154,3 +154,15 @@ export const createSignedInApp = async (
   }) as App["request"];
   return Object.assign(app, { request: signedIn, human });
 };
+
+/** 未切替のProject Direction経路を検証する旧Grant fixture（Runtimeとの組合せも置ける）。新規発行APIの検証には使わない。 */
+export const seedLegacyProjectGrant = async (
+  database: Kysely<Database>, projectId: string, principalId: string, role: string,
+) => {
+  if (!["strategist", "researcher", "evaluator", "runtime"].includes(role)) {
+    throw new Error(`Not a legacy Project role: ${role}`);
+  }
+  await database.insertInto("project_grant").values({
+    project_id: projectId, principal_id: principalId, role, created_at: Date.now(),
+  }).onConflict((conflict) => conflict.columns(["project_id", "principal_id", "role"]).doNothing()).execute();
+};

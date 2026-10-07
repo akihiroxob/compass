@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -54,8 +54,12 @@ const errorOf = (result: ToolResult) => {
   return result.structuredContent.error as { code: string; message: string } & Record<string, any>;
 };
 
-const grant = async (app: App, projectId: string, principalId: string, role: string) =>
-  assert.equal(
+const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role: string) => {
+  if (["strategist", "researcher", "evaluator"].includes(role)) {
+    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    return;
+  }
+  return assert.equal(
     (
       await app.request(`/api/projects/${projectId}/grants`, {
         method: "POST",
@@ -65,15 +69,16 @@ const grant = async (app: App, projectId: string, principalId: string, role: str
     ).status,
     201,
   );
+};
 
 const sha = (character: string) => character.repeat(40);
 const pullRequest = "https://github.com/example/compass/pull/1";
 
-const seedProject = async ({ services, app }: Kit, name = "Compass") => {
+const seedProject = async ({ database, services, app }: Kit, name = "Compass") => {
   const project = await services.createProjectUseCase.execute({ name, mission: "Keep execution guarded" });
   const intent = await services.createIntentUseCase.execute(project.id, { title: "Guarded claims", desiredState: "One owner per Task" });
   for (const [principal, role] of [["mgr", "manager"], ["wrk", "worker"], ["rev", "reviewer"], ["rt", "runtime"]] as const) {
-    await grant(app, project.id, principal, role);
+    await grant(database, app, project.id, principal, role);
   }
   return { project, intent };
 };
@@ -121,7 +126,7 @@ const rejectInReview = async (app: App, taskId: string) => {
 };
 
 const changesOf = async (app: App, projectId: string, afterCursor = 0) =>
-  ok(await callTool(app, "list_changes", { projectId, afterCursor }, "rt")) as { changes: Record<string, any>[]; nextCursor: number };
+  ok(await callTool(app, "list_changes", { projectId, afterCursor }, "mgr")) as { changes: Record<string, any>[]; nextCursor: number };
 
 /** `principal`にnullを渡すとBearerなしで呼ぶ。 */
 const record = (app: App, projectId: string, outcomeId: string, args: object, principal: string | null = "rt") =>
@@ -247,7 +252,7 @@ test("accepted / rejected / canceled / incompleteを区別する。Executionの�
   assert.equal((await stateOf(canceledOutcome.id)).state, "canceled");
 
   // 還流はExecutionを変更しない（Task・Storyの状態が変わらない）。
-  const tasks = ok(await callTool(kit.app, "list_tasks", { projectId: project.id }, "rt")).tasks as { id: string; status: string }[];
+  const tasks = ok(await callTool(kit.app, "list_tasks", { projectId: project.id }, "mgr")).tasks as { id: string; status: string }[];
   assert.equal(tasks.find((task) => task.id === rejectedStory.taskIds[0])?.status, "rejected");
   assert.equal(tasks.find((task) => task.id === acceptedStory.taskIds[0])?.status, "accepted");
   await kit.database.destroy();
@@ -344,7 +349,7 @@ test("Projectまたぎ・Outcome対応なし・取消済み・archived・不正�
   // 認証・認可: Bearerなし、runtime以外、別ProjectのGrantだけ。Outcomeの有無を漏らさない。
   assert.equal(errorOf(await record(kit.app, project.id, outcome.id, { changeCursor: head }, null)).code, "UNAUTHENTICATED");
   assert.equal(errorOf(await record(kit.app, project.id, outcome.id, { changeCursor: head }, "wrk")).code, "FORBIDDEN");
-  await grant(kit.app, other.project.id, "rt-other", "runtime");
+  await grant(kit.database, kit.app, other.project.id, "rt-other", "runtime");
   assert.equal(errorOf(await record(kit.app, project.id, outcome.id, { changeCursor: head }, "rt-other")).code, "FORBIDDEN");
   assert.equal(errorOf(await record(kit.app, project.id, "missing", { changeCursor: head }, "rt-other")).code, "FORBIDDEN");
 

@@ -152,7 +152,8 @@ export class TaskCoordinationService {
 
   /** 認可に使うRole。activeRoleがあれば、それを持つ場合だけそのRoleに絞る。 */
   private async grantedRoles(store: WorkStore, projectId: string, principalId: string): Promise<string[]> {
-    const roles = await store.grants.listRoles(projectId, principalId);
+    const roles = (await store.grants.listRoles(projectId, principalId))
+      .filter((role) => Object.values(WorkRole).some((candidate) => candidate === role));
     return this.activeRole === null ? roles : roles.filter((role) => role === this.activeRole);
   }
 

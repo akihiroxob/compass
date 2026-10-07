@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -101,11 +102,22 @@ const setup = async () => {
   const projectId = project.id as string;
   for (const [principal, role] of [
     ["orchestrator-1", "runtime"],
-    ["strategist-1", "strategist"],
-    ["researcher-1", "researcher"],
     ["manager-1", "manager"],
   ]) {
     await cli("grant", projectId, principal!, role!);
+  }
+  // 新規Project GrantはDirection Roleを拒否する。Workspace Direction・Credentialの公開入口が未接続のため、旧Project Grantを一時DBへ直接置くfixture。
+  const database = new DatabaseSync(join(directory, "compass.db"));
+  try {
+    const insert = database.prepare("insert into project_grant (project_id, principal_id, role, created_at) values (?, ?, ?, ?)");
+    for (const [principal, role] of [
+      ["strategist-1", "strategist"],
+      ["researcher-1", "researcher"],
+    ]) {
+      insert.run(projectId, principal!, role!, Date.now());
+    }
+  } finally {
+    database.close();
   }
   await mcp("admin", "create_intent", { projectId, title: "Exclusive claims", desiredState: "One owner per Task" });
 

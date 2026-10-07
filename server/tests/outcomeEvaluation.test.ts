@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -54,8 +54,12 @@ const errorOf = (result: ToolResult) => {
   return result.structuredContent.error as { code: string; message: string } & Record<string, any>;
 };
 
-const grant = async (app: App, projectId: string, principalId: string, role: string) =>
-  assert.equal(
+const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role: string) => {
+  if (["strategist", "researcher", "evaluator"].includes(role)) {
+    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    return;
+  }
+  return assert.equal(
     (
       await app.request(`/api/projects/${projectId}/grants`, {
         method: "POST",
@@ -65,6 +69,7 @@ const grant = async (app: App, projectId: string, principalId: string, role: str
     ).status,
     201,
   );
+};
 
 const sha = (character: string) => character.repeat(40);
 const pullRequest = "https://github.com/example/compass/pull/1";
@@ -79,10 +84,10 @@ const grants: readonly (readonly [string, string])[] = [
   ["res", "researcher"],
 ];
 
-const seedProject = async ({ services, app }: Kit, name = "Compass") => {
+const seedProject = async ({ database, services, app }: Kit, name = "Compass") => {
   const project = await services.createProjectUseCase.execute({ name, mission: "Keep execution guarded" });
   const intent = await services.createIntentUseCase.execute(project.id, { title: "Guarded claims", desiredState: "One owner per Task" });
-  for (const [principal, role] of grants) await grant(app, project.id, principal, role);
+  for (const [principal, role] of grants) await grant(database, app, project.id, principal, role);
   return { project, intent };
 };
 
@@ -116,7 +121,7 @@ const executeToAccepted = async (kit: Kit, projectId: string, outcomeId: string)
 };
 
 const reflect = async (app: App, projectId: string, outcomeId: string, evidenceItems: object[] = []) => {
-  const changes = ok(await callTool(app, "list_changes", { projectId, afterCursor: 0 }, "rt")) as { nextCursor: number };
+  const changes = ok(await callTool(app, "list_changes", { projectId, afterCursor: 0 }, "mgr")) as { nextCursor: number };
   return ok(await callTool(app, "record_execution_evidence", { projectId, outcomeId, changeCursor: changes.nextCursor, evidence: evidenceItems }, "rt"));
 };
 
@@ -358,7 +363,7 @@ test("Evaluator以外のRole・別Project・取消済みGrant・Bearerなしは�
   assert.equal(errorOf(await getContext(kit.app, project.id, outcome.id, null)).code, "UNAUTHENTICATED");
 
   // 別ProjectのGrantでは確定できず、別ProjectのOutcomeは存在を漏らさずNOT_FOUNDになる。
-  await grant(kit.app, other.project.id, "ev-other", "evaluator");
+  await grant(kit.database, kit.app, other.project.id, "ev-other", "evaluator");
   assert.equal(errorOf(await evaluate(kit.app, project.id, outcome.id, request, "ev-other")).code, "FORBIDDEN");
   assert.equal(errorOf(await evaluate(kit.app, other.project.id, outcome.id, request, "ev-other")).code, "NOT_FOUND");
   assert.equal(errorOf(await getContext(kit.app, other.project.id, outcome.id, "ev-other")).code, "NOT_FOUND");
@@ -410,7 +415,8 @@ test("Evaluatorは評価できる状態のOutcomeだけを扱う: Execution Summ
 test("Evaluatorは Outcome定義・Execution結果・Project / Intent・Grantを変更できない", async () => {
   const kit = await setup();
   const { project, intent, outcome, evidenceIds } = await seedEvaluable(kit);
-  const storyBefore = ok(await callTool(kit.app, "list_stories", { projectId: project.id }, "ev"));
+  assert.equal(errorOf(await callTool(kit.app, "list_stories", { projectId: project.id }, "ev")).code, "FORBIDDEN");
+  const storyBefore = ok(await callTool(kit.app, "list_stories", { projectId: project.id }, "mgr"));
 
   const attempts: [string, object][] = [
     ["create_outcome", { projectId: project.id, intentId: intent.id, title: "x", description: "x", rationale: "x", successCriteria: [{ description: "x", measurement: "x" }] }],
@@ -430,7 +436,7 @@ test("Evaluatorは Outcome定義・Execution結果・Project / Intent・Grantを
     assert.equal(result.isError, true, `${name} must be rejected for an evaluator`);
     assert.ok(["FORBIDDEN", "UNAUTHENTICATED"].includes(errorOf(result).code), `${name}: ${JSON.stringify(result.structuredContent)}`);
   }
-  assert.deepEqual(ok(await callTool(kit.app, "list_stories", { projectId: project.id }, "ev")), storyBefore);
+  assert.deepEqual(ok(await callTool(kit.app, "list_stories", { projectId: project.id }, "mgr")), storyBefore);
 
   ok(await evaluate(kit.app, project.id, outcome.id, { requestKey: "eval-1", runRef: "run", criteria: judgments(outcome, ["met", "met"], evidenceIds) }));
   const stored = ok(await callTool(kit.app, "get_outcome", { projectId: project.id, intentId: intent.id, outcomeId: outcome.id }));

@@ -15,7 +15,7 @@ import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts"
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
 import { projectRepositoryReferenceFinder } from "../src/infrastructure/repository/contextAdapters.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 
 const requestInput = (intentId: string) => ({ requestKey: "research", kind: "decision", originIntentId: intentId, question: "Question", scope: "Scope", completionCondition: "Evidence", budgetTotal: 10 });
 
@@ -231,8 +231,8 @@ test("shared Workspace Research and Context remain unavailable from Project Web/
       assert.equal(response.status, 409, path);
       assert.equal(JSON.stringify(await response.json()).includes(request.question), false);
     }
-    await services.grantProjectRoleUseCase.execute(a.id, { principalId: "researcher", role: "researcher" });
-    await services.grantProjectRoleUseCase.execute(a.id, { principalId: "strategist", role: "strategist" });
+    await seedLegacyProjectGrant(database, a.id, "researcher", "researcher");
+    await seedLegacyProjectGrant(database, a.id, "strategist", "strategist");
     for (const [name, role, args] of [
       ["get_researcher_context", "researcher", { projectId: a.id, requestId: request.id }],
       ["get_strategist_context", "strategist", { projectId: a.id }],

@@ -1,3 +1,4 @@
+import { seedLegacyProjectGrant } from "./support/humanSession.ts";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -95,7 +96,7 @@ test("既存Project・Intent・Outcome・Grantを持つDBへschemaを再適用�
       title: "Agents improve software",
       desiredState: "Agents improve the software.",
     });
-    await legacy.services.grantProjectRoleUseCase.execute(project.id, { principalId: "strat-1", role: "strategist" });
+    await seedLegacyProjectGrant(legacy.database, project.id, "strat-1", "strategist");
     // 認証導入前のDBを模して、Human関連tableを削除してから再初期化する。
     for (const table of ["project_invitation", "project_membership", "auth_login_attempt", "web_session", "human_identity", "human_user"]) {
       await legacy.database.schema.dropTable(table).execute();

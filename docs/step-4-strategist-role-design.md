@@ -2,7 +2,7 @@
 
 ## 認証とRole Grant
 
-remote modeではAgent CredentialでPrincipalを認証する。公開入口のRole GrantはProject・Principal・Roleの組で保持し、発行してもAgentは起動しない。内部applicationのWorkspace Grantは下記で説明する。現在のRole名は`strategist` / `researcher` / `manager` / `worker` / `reviewer` / `evaluator`と、trusted-local用の`runtime`。
+remote modeではAgent CredentialでPrincipalを認証する。公開入口のRole GrantはProject・Principal・Roleの組で保持し、発行してもAgentは起動しない。内部applicationのWorkspace Grantは下記で説明する。新規Project Grantは`manager` / `worker` / `reviewer`と`runtime`だけを受け付ける。`strategist` / `researcher` / `evaluator`はWorkspace Roleのため、新規Project Grantには指定できない（400 `VALIDATION_ERROR`）。`runtime`はtrusted-localでOrchestratorが名前Bearerを使うための開発用Grantで、Role-scope認可の対象外（remote modeはRuntime Credentialのscope）。scopeの扱いはS08-03で決める。旧Roleの保存済みGrantは一覧・取消の対象として残す。
 
 HumanはProject詳細のWeb UIからGrantを管理する。一覧はviewer以上、発行・取消はadministrator以上。Human MembershipとAgent Grantを相互代用しない。archived ProjectではGrant変更を拒否する。
 
@@ -14,7 +14,7 @@ Workspace Agent Role Grantは`workspace_grant`へ保存し、`GrantWorkspaceRole
 
 `RoleScopeAuthorizationService`は`{ kind: workspace | project, id }`と必要Roleを受け、WorkspaceはDirectionの3Role、Projectは`manager` / `worker` / `reviewer`だけを認可する。操作ContextのactiveRole指定時は必要Roleとの一致も検査し、他RoleのGrantを合算しない。serverの`forActiveRole`もこのserviceを同じRoleに固定する。`runtime`はこのAgent Role-scope認可の対象外で、Credential scopeとして後続Taskで接続する。
 
-Workspace Grantの管理・Directionの公開API/MCP・Workspace Role Context・Workspace Credentialは未接続（S06-03・S03-04・S07）。既存のProject Direction入口は専用Workspaceだけに限定したadapterとProject Grantを引き続き使い、既存のProject Grant入力はDirection Roleも受け付ける。これらは明示scope認可の対象外で、公開入口切替時に除去する（S03-04）。新しいscope認可では同じProjectにDirection Roleの旧GrantがあってもProject scopeで拒否する。`server/tests/workspaceGrant.test.ts`で新規DB・file DB再初期化・archive・FK・全Roleのscope/activeRole境界・Work権限の非継承を確認する。実HTTP・実AgentでのWorkspace運転は未接続・未検証。
+Workspace Grantの管理・Directionの公開API/MCP・Workspace Role Context・Workspace Credentialは未接続（S06-03・S03-04・S07）。既存のProject Direction入口は専用Workspaceだけに限定したadapterとProject Grantを引き続き使い、新規Project Grant入力はExecutionの3Roleと`runtime`に限る。Project Direction adapterは保存済みの旧Grantだけで動作し、公開入口切替時に除去する（S03-04）。新規DBのAgent Direction運転はWorkspace Credential・公開入口が接続されるまで未対応。HumanのDirection操作はMembershipを使う。新しいscope認可では同じProjectにDirection Roleの旧GrantがあってもProject scopeで拒否する。Workの`TaskCoordinationService`も参照・更新の共通認可をExecution Roleに限定する。Direction/Runtimeの旧GrantだけでTask・Story・Comment・Change Logを参照できず、Direction activeRoleでは同じPrincipalのExecution Grantも使えない。Runtime Credentialによる明示scopeのChange Log参照は別の認可経路である。`server/tests/workspaceGrant.test.ts`で新規DB・file DB再初期化・archive・FK・全Roleのscope/activeRole境界・Work権限の非継承を確認する。実HTTP・実AgentでのWorkspace運転は未接続・未検証。
 
 ## ContextとInstruction
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/container.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -167,7 +167,7 @@ test("MCPのOutcome操作はWebと同じ内容・同じ検証結果になる", a
   const { projectId, intentId } = await createProjectAndIntent(app);
   const base = `/api/projects/${projectId}/intents/${intentId}/outcomes`;
 
-  await send(app, "POST", `/api/projects/${projectId}/grants`, JSON.stringify({ principalId: "strat-1", role: "strategist" }));
+  await seedLegacyProjectGrant(database, projectId, "strat-1", "strategist");
   const viaWeb = ((await (await send(app, "POST", base, JSON.stringify(outcomeInput))).json()) as OutcomeBody).outcome;
   const got = await callTool(app, "get_outcome", { projectId, intentId, outcomeId: viaWeb.id });
   assert.equal(got.isError, undefined);

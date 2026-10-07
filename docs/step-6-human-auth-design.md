@@ -99,6 +99,8 @@ trusted-localではAgent名のBearerも許可するが、`cmp_`形式は常にCr
 | Role専用tool | 必要なAgent Grantを検査 |
 | Runtime用tool | Runtime CredentialのProject・scopeを検査 |
 
+新規Project GrantはWeb API・CLIとも`manager` / `worker` / `reviewer`とtrusted-local用`runtime`に限る。Direction Roleの指定は400 `VALIDATION_ERROR`（CLIは終了コード1）。Web UIの割当フォームはExecutionの3Roleだけを表示する。取消は旧Roleの保存済みGrantも対象とする。Workspace Grantの管理とWorkspace Credentialはまだ公開入口に接続していない。
+
 CLIのGrant操作はローカル保守・自動検証用。通常のHuman操作の代替としない。
 
 ## 保存と検証

@@ -9,7 +9,7 @@ import { SQLiteProjectRepository, SQLiteWorkspaceRepository, CreateWorkspaceUseC
 import { asActivityDatabase, asDirectionDatabase, asOrganizationDatabase, asWorkDatabase } from "../src/bootstrap/database/contextDatabase.ts";
 import { activityProjectReader, directionChangeActivityObserver, projectChangeActivityObserver, projectRepositoryReferenceFinder, workChangeActivityObserver } from "../src/infrastructure/repository/contextAdapters.ts";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -86,7 +86,7 @@ const record = (app: App, principal: string | undefined, input: object, activeRo
 test("Agentはsummary必須・本文任意・成果物参照付きのActivityを記録し、一覧はsummaryとrefsだけ、本文はget_activityで取得する", async () => {
   const { app, database } = await setup();
   const project = await createProject(app);
-  await grant(app, project.id, "researcher-a", "researcher");
+  await seedLegacyProjectGrant(database, project.id, "researcher-a", "researcher");
   await grant(app, project.id, "worker-a", "worker");
 
   const recorded = ok(
@@ -364,7 +364,7 @@ test("Workの重要な状態変更は同じtransactionでcanonical Activityに�
 test("Directionの重要な状態変更は同じtransactionで操作者付きのcanonical Activityになり、再送・文言編集では増えない", async () => {
   const { app, database } = await setup();
   const project = await createProject(app);
-  await grant(app, project.id, "strategist-a", "strategist");
+  await seedLegacyProjectGrant(database, project.id, "strategist-a", "strategist");
   await grant(app, project.id, "worker-a", "worker");
 
   // Human（Web UI）の操作は認証済みHumanをoperatorとして記録する。
@@ -594,7 +594,6 @@ test("新規DBのActivityは同じschemaで再起動後もscope/ID/cursorを保�
     await rm(directory, { recursive: true, force: true });
   }
 });
-
 
 test("変更transaction内で所属が失われた場合は通知時に検出し、業務変更と所属変更を巻き戻す", async () => {
   const { app, database } = await setup();

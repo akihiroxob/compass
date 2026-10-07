@@ -121,8 +121,8 @@ test("各Roleは権限表で許可されたCommandだけが成功し、不足は
     { label: "update intent", method: "PATCH", path: `${base}/intents/${intent.id}`, body: { title: "I2" }, minimum: "editor", ok: 200 },
     { label: "update outcome", method: "PATCH", path: outcomePath, body: { title: "O2" }, minimum: "editor", ok: 200 },
     { label: "update project", method: "PATCH", path: base, body: { description: "changed" }, minimum: "administrator", ok: 200 },
-    { label: "grant", method: "POST", path: `${base}/grants`, body: { principalId: "agent-1", role: "strategist" }, minimum: "administrator", ok: 201 },
-    { label: "revoke grant", method: "DELETE", path: `${base}/grants/strategist/agent-1`, minimum: "administrator", ok: 200 },
+    { label: "grant", method: "POST", path: `${base}/grants`, body: { principalId: "agent-1", role: "manager" }, minimum: "administrator", ok: 201 },
+    { label: "revoke grant", method: "DELETE", path: `${base}/grants/manager/agent-1`, minimum: "administrator", ok: 200 },
     { label: "list invitations", method: "GET", path: `${base}/invitations`, minimum: "owner", ok: 200 },
     { label: "invite", method: "POST", path: `${base}/invitations`, body: { email: "new@example.com", role: "viewer" }, minimum: "owner", ok: 201 },
   ];

@@ -10,7 +10,7 @@ import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createApp } from "../src/bootstrap/app.ts";
-import { createTestHuman, humanHeaders, type TestHuman } from "./support/humanSession.ts";
+import { createTestHuman, humanHeaders, type TestHuman, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -52,7 +52,7 @@ const loopbackDenial = await new Promise<string | undefined>((resolve) => {
 });
 const loopbackSkip = loopbackDenial ? `127.0.0.1へのlistenが拒否された（${loopbackDenial}）。sandbox外で実行すること` : false;
 
-const withEnvironment = async (run: (start: () => Promise<Running & { stop: () => Promise<void> }>) => Promise<void>) => {
+const withEnvironment = async (run: (start: () => Promise<Running & { database: ReturnType<typeof createDatabase>; stop: () => Promise<void> }>) => Promise<void>) => {
   const directory = await mkdtemp(join(tmpdir(), "compass-research-decision-"));
   const path = join(directory, "integration.db");
   const stops: (() => Promise<void>)[] = [];
@@ -67,7 +67,7 @@ const withEnvironment = async (run: (start: () => Promise<Running & { stop: () =
         await database.destroy();
       };
       stops.push(stop);
-      return { ...running, stop };
+      return { ...running, database, stop };
     });
   } finally {
     for (const stop of stops) await stop().catch(() => undefined);
@@ -107,8 +107,7 @@ const errorCode = (result: ToolResult) => {
   return result.structuredContent?.error.code as string;
 };
 
-const grant = (baseUrl: string, projectId: string, principalId: string, role: string) =>
-  api(baseUrl, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
+const grant = seedLegacyProjectGrant;
 
 const createProject = async (baseUrl: string, name: string) =>
   (
@@ -161,8 +160,8 @@ test(
       const repositoryId = project.repositories[0]!.id;
       const intent = await createIntent(server.baseUrl, project.id, "Ship the claim strategy");
 
-      assert.equal((await grant(server.baseUrl, project.id, "researcher-1", "researcher")).status, 201);
-      assert.equal((await grant(server.baseUrl, project.id, "strat-1", "strategist")).status, 201);
+      await grant(server.database, project.id, "researcher-1", "researcher");
+      await grant(server.database, project.id, "strat-1", "strategist");
 
       // Researchの要否はStrategistが判断する。ここでは追加ResearchとしてRequestを作る。
       const initial = await initialRequestOf(server.baseUrl, project.id, intent.id);
@@ -319,9 +318,9 @@ test(
       const server = await start();
       const project = await createProject(server.baseUrl, "P");
       const other = await createProject(server.baseUrl, "Q");
-      await grant(server.baseUrl, project.id, "researcher-1", "researcher");
-      await grant(server.baseUrl, project.id, "strat-1", "strategist");
-      await grant(server.baseUrl, other.id, "researcher-q", "researcher");
+      await grant(server.database, project.id, "researcher-1", "researcher");
+      await grant(server.database, project.id, "strat-1", "strategist");
+      await grant(server.database, other.id, "researcher-q", "researcher");
 
       // 1件目: Result・Synthesisを伴うcompleted。
       const intentA = await createIntent(server.baseUrl, project.id, "A");

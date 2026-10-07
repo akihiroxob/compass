@@ -1,7 +1,7 @@
 import type { ProjectGrantRepository, GrantResult } from "../domain/ProjectGrantRepository.ts";
 import { ProjectArchivedError } from "@compass/organization";
 import type { ProjectStateReader } from "./port/ProjectStateReader.ts";
-import { parseProjectGrantInput } from "./projectGrantSchema.ts";
+import { parseNewProjectGrantInput } from "./projectGrantSchema.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
 
 export class GrantProjectRoleUseCase {
@@ -12,7 +12,7 @@ export class GrantProjectRoleUseCase {
 
   /** 入力検証はProjectの存在確認より先。再発行は`created: false`で副作用なし。 */
   async execute(projectId: string, input: unknown): Promise<GrantResult> {
-    const { principalId, role } = parseProjectGrantInput(input);
+    const { principalId, role } = parseNewProjectGrantInput(input);
     if (!(await this.projects.exists(projectId))) {
       throw new NotFoundError(`Project ${projectId} was not found`);
     }

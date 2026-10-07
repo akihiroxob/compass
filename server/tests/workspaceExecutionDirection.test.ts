@@ -163,14 +163,14 @@ test("Evaluation, event and canonical Activity roll back together; archived Work
   } finally { await database.destroy(); }
 });
 
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 
 test("Project Web/API/MCP entries authorize before rejecting shared Workspace Evaluation and Runtime access", async () => {
   const { database, services, a, b, outcome } = await setup();
   try {
     const app = await createSignedInApp(database, services);
     for (const role of ["runtime", "evaluator"] as const) {
-      await services.grantProjectRoleUseCase.execute(a.id, { principalId: role, role });
+      await seedLegacyProjectGrant(database, a.id, role, role);
     }
     const call = async (name: string, projectId: string, role: string) => {
       const response = await app.request("/mcp", {

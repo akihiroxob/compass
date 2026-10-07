@@ -42,13 +42,13 @@ test("Web APIでGrantを発行（201）・再発行（200）・一覧・取消�
   const { database, app } = await setup();
   const projectId = await createProject(app);
 
-  const created = await send(app, "POST", grantsPath(projectId), { principalId: "strat-1", role: "strategist" });
+  const created = await send(app, "POST", grantsPath(projectId), { principalId: "strat-1", role: "manager" });
   assert.equal(created.status, 201);
   const first = (await created.json()) as GrantBody;
   assert.equal(first.created, true);
   assert.deepEqual(Object.keys(first.grant).sort(), ["createdAt", "principalId", "projectId", "role"]);
 
-  const again = await send(app, "POST", grantsPath(projectId), { principalId: "strat-1", role: "strategist" });
+  const again = await send(app, "POST", grantsPath(projectId), { principalId: "strat-1", role: "manager" });
   assert.equal(again.status, 200);
   const second = (await again.json()) as GrantBody;
   assert.equal(second.created, false);
@@ -57,12 +57,12 @@ test("Web APIでGrantを発行（201）・再発行（200）・一覧・取消�
   const listed = (await (await app.request(grantsPath(projectId))).json()) as { grants: unknown[] };
   assert.deepEqual(listed.grants, [first.grant]);
 
-  const revoked = await send(app, "DELETE", `${grantsPath(projectId)}/strategist/strat-1`);
+  const revoked = await send(app, "DELETE", `${grantsPath(projectId)}/manager/strat-1`);
   assert.equal(revoked.status, 200);
   assert.deepEqual(await revoked.json(), { revoked: true });
   assert.deepEqual(await (await app.request(grantsPath(projectId))).json(), { grants: [] });
 
-  const revokedAgain = await send(app, "DELETE", `${grantsPath(projectId)}/strategist/strat-1`);
+  const revokedAgain = await send(app, "DELETE", `${grantsPath(projectId)}/manager/strat-1`);
   assert.equal(revokedAgain.status, 200);
   assert.deepEqual(await revokedAgain.json(), { revoked: false });
   await database.destroy();
@@ -73,9 +73,9 @@ test("取消は別ProjectのGrantに影響せず、URLエンコードされたpr
   const projectP = await createProject(app, "P");
   const projectQ = await createProject(app, "Q");
   for (const projectId of [projectP, projectQ]) {
-    await send(app, "POST", grantsPath(projectId), { principalId: "team/agent 1", role: "strategist" });
+    await send(app, "POST", grantsPath(projectId), { principalId: "team/agent 1", role: "manager" });
   }
-  const revoked = await send(app, "DELETE", `${grantsPath(projectP)}/strategist/${encodeURIComponent("team/agent 1")}`);
+  const revoked = await send(app, "DELETE", `${grantsPath(projectP)}/manager/${encodeURIComponent("team/agent 1")}`);
   assert.deepEqual(await revoked.json(), { revoked: true });
   assert.deepEqual(await (await app.request(grantsPath(projectP))).json(), { grants: [] });
   const remaining = (await (await app.request(grantsPath(projectQ))).json()) as { grants: { principalId: string }[] };
@@ -88,9 +88,9 @@ test("存在しないProjectは発行・一覧・取消とも404、不正な入�
   const projectId = await createProject(app);
 
   for (const response of [
-    await send(app, "POST", grantsPath("missing"), { principalId: "a", role: "strategist" }),
+    await send(app, "POST", grantsPath("missing"), { principalId: "a", role: "manager" }),
     await app.request(grantsPath("missing")),
-    await send(app, "DELETE", `${grantsPath("missing")}/strategist/a`),
+    await send(app, "DELETE", `${grantsPath("missing")}/manager/a`),
   ]) {
     assert.equal(response.status, 404);
     const body = (await response.json()) as ErrorBody;
@@ -99,9 +99,9 @@ test("存在しないProjectは発行・一覧・取消とも404、不正な入�
   }
 
   const invalid: [unknown, string][] = [
-    [{ principalId: "   ", role: "strategist" }, "principalId"],
-    [{ principalId: "x".repeat(101), role: "strategist" }, "principalId"],
-    [{ principalId: "bad\u0007", role: "strategist" }, "principalId"],
+    [{ principalId: "   ", role: "manager" }, "principalId"],
+    [{ principalId: "x".repeat(101), role: "manager" }, "principalId"],
+    [{ principalId: "bad\u0007", role: "manager" }, "principalId"],
     [{ principalId: "a", role: "" }, "role"],
     [{ principalId: "a", role: "admin" }, "role"],
     [{ principalId: "a", role: "Strategist" }, "role"],
@@ -132,7 +132,7 @@ test("CORSはBearerのMCP・Runtime APIだけに許し、Session Cookieで認証
       method: "OPTIONS",
       headers: { Origin: "http://evil.example", "Access-Control-Request-Method": method, "Access-Control-Request-Headers": "authorization,content-type" },
     });
-  const human = await preflight("/api/projects/x/grants/strategist/a", "DELETE");
+  const human = await preflight("/api/projects/x/grants/manager/a", "DELETE");
   assert.equal(human.headers.get("Access-Control-Allow-Origin"), null);
   for (const path of ["/mcp", "/api/projects/x/runtime-events", "/api/projects/x/runtime-events/e/ack", "/api/projects/x/outcomes/o/execution-evidence"]) {
     const bearer = await preflight(path, "POST");
@@ -149,23 +149,23 @@ test("runCli: grant / grants / revoke がAPIと同じ形のJSONと終了コー�
   const { database, services } = await setup();
   const project = await services.createProjectUseCase.execute({ name: "Compass", mission: "Mission" });
 
-  const granted = await runCli(["grant", project.id, "strat-1", "strategist"], services);
+  const granted = await runCli(["grant", project.id, "strat-1", "manager"], services);
   assert.equal(granted.exitCode, 0);
   const grantedBody = JSON.parse(granted.stdout) as GrantBody;
   assert.equal(grantedBody.created, true);
   assert.equal(grantedBody.grant.principalId, "strat-1");
 
-  const repeated = JSON.parse((await runCli(["grant", project.id, "strat-1", "strategist"], services)).stdout) as GrantBody;
+  const repeated = JSON.parse((await runCli(["grant", project.id, "strat-1", "manager"], services)).stdout) as GrantBody;
   assert.equal(repeated.created, false);
 
   const listed = await runCli(["grants", project.id], services);
   assert.equal(listed.exitCode, 0);
   assert.deepEqual(JSON.parse(listed.stdout), { grants: [grantedBody.grant] });
 
-  const revoked = await runCli(["revoke", project.id, "strat-1", "strategist"], services);
+  const revoked = await runCli(["revoke", project.id, "strat-1", "manager"], services);
   assert.equal(revoked.exitCode, 0);
   assert.deepEqual(JSON.parse(revoked.stdout), { revoked: true });
-  const revokedAgain = await runCli(["revoke", project.id, "strat-1", "strategist"], services);
+  const revokedAgain = await runCli(["revoke", project.id, "strat-1", "manager"], services);
   assert.equal(revokedAgain.exitCode, 0);
   assert.deepEqual(JSON.parse(revokedAgain.stdout), { revoked: false });
   assert.deepEqual(JSON.parse((await runCli(["grants", project.id], services)).stdout), { grants: [] });
@@ -183,7 +183,7 @@ test("runCli: 引数不足・未知のコマンドは終了コード2、未知�
     assert.match(result.stderr, /Usage:/);
   }
 
-  const missing = await runCli(["grant", "missing", "strat-1", "strategist"], services);
+  const missing = await runCli(["grant", "missing", "strat-1", "manager"], services);
   assert.equal(missing.exitCode, 1);
   assert.equal(missing.stdout, "");
   const missingBody = JSON.parse(missing.stderr) as ErrorBody;
@@ -195,7 +195,7 @@ test("runCli: 引数不足・未知のコマンドは終了コード2、未知�
   const invalidBody = JSON.parse(invalid.stderr) as ErrorBody;
   assert.equal(invalidBody.error.code, "VALIDATION_ERROR");
   assert.deepEqual(invalidBody.error.issues?.map((issue) => issue.path), ["role"]);
-  assert.equal((await runCli(["grant", project.id, "  ", "strategist"], services)).exitCode, 1);
+  assert.equal((await runCli(["grant", project.id, "  ", "manager"], services)).exitCode, 1);
   await database.destroy();
 });
 
@@ -219,7 +219,7 @@ test("npm run cliの実体はサーバー無しで空DBに対し、Project作成
     }
   };
 
-  const granted = await run("grant", project.id, "strat-1", "strategist");
+  const granted = await run("grant", project.id, "strat-1", "manager");
   assert.equal(granted.code, 0);
   assert.equal((JSON.parse(granted.stdout) as GrantBody).created, true);
   // 別プロセス（=再起動後）でも同じGrantが読める。
@@ -229,7 +229,25 @@ test("npm run cliの実体はサーバー無しで空DBに対し、Project作成
   const missing = await run("grants", "missing");
   assert.equal(missing.code, 1);
   assert.equal((JSON.parse(missing.stderr) as ErrorBody).error.code, "NOT_FOUND");
-  assert.deepEqual(JSON.parse((await run("revoke", project.id, "strat-1", "strategist")).stdout), { revoked: true });
+  assert.deepEqual(JSON.parse((await run("revoke", project.id, "strat-1", "manager")).stdout), { revoked: true });
   assert.deepEqual(JSON.parse((await run("grants", project.id)).stdout), { grants: [] });
   await rm(directory, { recursive: true, force: true });
+});
+
+test("Web APIとCLIはProjectの新規Direction Grantを拒否する", async () => {
+  const { database, services, app } = await setup();
+  try {
+    const projectId = await createProject(app);
+    for (const role of ["strategist", "researcher", "evaluator"]) {
+      const response = await send(app, "POST", grantsPath(projectId), { principalId: "agent", role });
+      assert.equal(response.status, 400);
+      const body = await response.json() as ErrorBody;
+      assert.equal(body.error.code, "VALIDATION_ERROR");
+      assert.deepEqual(body.error.issues?.map((issue) => issue.path), ["role"]);
+      const cli = await runCli(["grant", projectId, "agent", role], services);
+      assert.equal(cli.exitCode, 1);
+      assert.equal((JSON.parse(cli.stderr) as ErrorBody).error.code, "VALIDATION_ERROR");
+    }
+    assert.deepEqual(await services.listProjectGrantsUseCase.execute(projectId), []);
+  } finally { await database.destroy(); }
 });

@@ -1,3 +1,4 @@
+import { seedLegacyProjectGrant } from "./support/humanSession.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -235,7 +236,7 @@ test(
     const originalLog = console.log;
     console.log = () => undefined; // request logを抑える（秘密の非露出はTask 44で検証済み）
     try {
-      // --- Human（Google OIDC Session）がWeb API経由で初期設定する。以降、Humanの途中承認・CLI・DB操作は無い
+      // --- Human（Google OIDC Session）がWeb API経由で初期設定する。以降、Humanの途中承認は無い（未切替Directionの旧Grantだけfixtureで設定）
       const owner = createBrowser(() => server.baseUrl);
       await owner.login(fixture, "owner-sub", ownerEmail);
       const { project } = await owner.api("POST", "/api/projects", {
@@ -247,7 +248,11 @@ test(
       const projectId = project.id as string;
       const tokens = {} as Tokens;
       const issueAgent = async (principal: string, role: string) => {
-        await owner.api("POST", `/api/projects/${projectId}/grants`, { principalId: principal, role });
+        if (["strategist", "researcher", "evaluator"].includes(role)) {
+          await seedLegacyProjectGrant(server.database, projectId, principal, role);
+        } else {
+          await owner.api("POST", `/api/projects/${projectId}/grants`, { principalId: principal, role });
+        }
         return { principal, token: (await owner.api("POST", `/api/projects/${projectId}/credentials`, { kind: "agent", principalId: principal })).token as string };
       };
       for (const [key, [principal, role]] of Object.entries(agentPrincipals)) {

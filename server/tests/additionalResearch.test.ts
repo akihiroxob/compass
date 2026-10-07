@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { sql } from "kysely";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -59,7 +59,11 @@ const errorOf = (result: ToolResult) => {
   return result.structuredContent.error as { code: string; message: string } & Record<string, any>;
 };
 
-const grant = async (app: App, projectId: string, principalId: string, role: string) => {
+const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role: string) => {
+  if (["strategist", "researcher", "evaluator"].includes(role)) {
+    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    return;
+  }
   const response = await send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
   assert.ok(response.status === 200 || response.status === 201);
 };
@@ -108,16 +112,16 @@ const fetchEvents = async (app: App, projectId: string) =>
     Record<string, any>
   >;
 
-const seedActors = async (app: App, projectId: string) => {
-  await grant(app, projectId, "strat-1", "strategist");
-  await grant(app, projectId, "runtime-a", "runtime");
+const seedActors = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string) => {
+  await grant(database, app, projectId, "strat-1", "strategist");
+  await grant(database, app, projectId, "runtime-a", "runtime");
 };
 
 test("additional_researchはDecision・Request・research_requestedイベントを一貫した相関IDで保存し、Runtimeが取得できる", async () => {
   const context = await setup();
-  const { app, services } = context;
+  const { database, app, services } = context;
   const { project, intent } = await seed(services);
-  await seedActors(app, project.id);
+  await seedActors(database, app, project.id);
   const before = await counts(context);
   assert.deepEqual(before, { decisions: 0, requests: 0, events: 0 }); // Intent作成はRequestを作らない。
 
@@ -160,9 +164,9 @@ test("additional_researchはDecision・Request・research_requestedイベント�
 
 test("同じrequestKeyの再送はDecision・Request・イベントを重複作成せず、異なるpayloadはCONFLICTになる", async () => {
   const context = await setup();
-  const { app, services } = context;
+  const { database, app, services } = context;
   const { project, intent } = await seed(services);
-  await seedActors(app, project.id);
+  await seedActors(database, app, project.id);
 
   const first = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id), "strat-1");
   const after = await counts(context);
@@ -190,9 +194,9 @@ test("同じrequestKeyの再送はDecision・Request・イベントを重複作�
 test("期限が過ぎた後でも、同じ入力の再送は作成済みのDecisionとRequestを返す。新規の過去期限は拒否する", async () => {
   let now = start;
   const context = await setup(() => now);
-  const { app, services } = context;
+  const { database, app, services } = context;
   const { project, intent } = await seed(services);
-  await seedActors(app, project.id);
+  await seedActors(database, app, project.id);
 
   const args = decisionArgs(project.id, intent.id, { research: { ...plan, deadlineAt: start + 1_000 } });
   const first = await callTool(app, "create_direction_decision", args, "strat-1");
@@ -219,9 +223,9 @@ test("期限が過ぎた後でも、同じ入力の再送は作成済みのDecis
 
 test("research入力はadditional_researchだけが必須で、不正な予算・期限・空の計画はDecisionもRequestも作らない", async () => {
   const context = await setup();
-  const { app, services } = context;
+  const { database, app, services } = context;
   const { project, intent } = await seed(services);
-  await seedActors(app, project.id);
+  await seedActors(database, app, project.id);
   const before = await counts(context);
 
   const invalid: Array<[string, object]> = [
@@ -275,12 +279,12 @@ test("research入力はadditional_researchだけが必須で、不正な予算�
 
 test("archived Project・非Active Intent・別Project参照・Researcher / Runtime Grantによる確定を拒否する", async () => {
   const context = await setup();
-  const { app, services } = context;
+  const { database, app, services } = context;
   const { project, intent } = await seed(services);
   const other = await seed(services, "Other");
-  await seedActors(app, project.id);
-  await grant(app, project.id, "researcher-a", "researcher");
-  await grant(app, other.project.id, "strat-other", "strategist");
+  await seedActors(database, app, project.id);
+  await grant(database, app, project.id, "researcher-a", "researcher");
+  await grant(database, app, other.project.id, "strat-other", "strategist");
 
   // ResearcherやRuntimeはDirectionを決められない。別ProjectのStrategist Grantも使えない。
   for (const principal of ["researcher-a", "runtime-a", "strat-other"]) {
@@ -340,7 +344,7 @@ test("Decision・Request・イベントのいずれかの保存に失敗する�
     const context = await setup();
     const { app, services, database } = context;
     const { project, intent } = await seed(services);
-    await seedActors(app, project.id);
+    await seedActors(database, app, project.id);
     const before = await counts(context);
 
     // 追加Researchの保存経路だけを失敗させるため、seed後にtriggerを置く。
@@ -362,10 +366,10 @@ test("Decision・Request・イベントのいずれかの保存に失敗する�
 
 test("追加Requestの終了でresearch_completedが同じ相関IDで出て、Strategist Contextから追加Requestを追跡できる", async () => {
   const context = await setup();
-  const { app, services } = context;
+  const { database, app, services } = context;
   const { project, intent } = await seed(services);
-  await seedActors(app, project.id);
-  await grant(app, project.id, "researcher-a", "researcher");
+  await seedActors(database, app, project.id);
+  await grant(database, app, project.id, "researcher-a", "researcher");
 
   const created = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id), "strat-1");
   const { decision, researchRequest } = created.structuredContent;

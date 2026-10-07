@@ -4,7 +4,7 @@ import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { addTestMembership, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
+import { addTestMembership, createTestHuman, requestAs, type TestHuman, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
 
 /**
@@ -157,8 +157,8 @@ test("入力を検証する: 種別・scope・期限", async () => {
 });
 
 test("remote modeのAgent CredentialはPrincipalへ解決し、Project GrantとGrantの有るProjectだけで認可する", async () => {
-  const { services, webApp, remoteApp, project, other, owner } = await setup();
-  await services.grantProjectRoleUseCase.execute(project.id, { principalId: "strategist-a", role: "strategist" });
+  const { database, services, webApp, remoteApp, project, other, owner } = await setup();
+  await seedLegacyProjectGrant(database, project.id, "strategist-a", "strategist");
   const { token } = await issueToken(webApp, owner, project.id, { kind: "agent", principalId: "strategist-a" });
 
   const listed = await callTool(remoteApp, token, "list_projects", {});

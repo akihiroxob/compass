@@ -1,3 +1,4 @@
+import { seedLegacyProjectGrant } from "./support/humanSession.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -119,7 +120,7 @@ test("Runtimeはoutcome_confirmedをconsumer単位でack・再取得でき、別
   const { project, intent } = await seedIntent(kit);
   const other = await seedIntent(kit);
   for (const projectId of [project.id, other.project.id]) {
-    await kit.services.grantProjectRoleUseCase.execute(projectId, { principalId: "rt", role: ProjectRole.RUNTIME });
+    await seedLegacyProjectGrant(kit.database, projectId, "rt", ProjectRole.RUNTIME);
   }
   const outcome = await kit.services.createOutcomeUseCase.execute(project.id, intent.id, outcomeInput);
   await kit.services.createOutcomeUseCase.execute(other.project.id, other.intent.id, outcomeInput);
@@ -147,7 +148,7 @@ test("新規Workspace event schemaは再初期化でもevent・sequence・ack・
     const request = await requestIntentResearch(first.services, project.id, intent.id);
     const [event] = await eventsOf(first, project.id);
     assert.ok(event);
-    await first.services.grantProjectRoleUseCase.execute(project.id, { principalId: "rt", role: ProjectRole.RUNTIME });
+    await seedLegacyProjectGrant(first.database, project.id, "rt", ProjectRole.RUNTIME);
     await first.services.ackRuntimeEventUseCase.execute("rt", project.id, { eventId: event.id, attemptId: "a-1", outcome: "retryable_failure", reason: "busy" });
     await first.database.destroy();
 

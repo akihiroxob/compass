@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -69,8 +69,13 @@ const createIntent = async (app: App, projectId: string) =>
     intent: { id: string };
   }).intent.id;
 
-const grant = (app: App, projectId: string, principalId: string) =>
-  send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role: "strategist" });
+const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role = "strategist") => {
+  if (["strategist", "researcher", "evaluator"].includes(role)) {
+    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    return;
+  }
+  return send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role: "strategist" });
+};
 
 const outcomeInput = {
   title: "No duplicate claims",
@@ -90,7 +95,7 @@ test("StrategistはBearerだけでContextを取得し、create_outcomeで登録�
   const { database, app } = await setup();
   const projectId = await createProject(app);
   const intentId = await createIntent(app, projectId);
-  await grant(app, projectId, "strat-1");
+  await grant(database, app, projectId, "strat-1");
 
   const context = await callTool(app, "get_strategist_context", { projectId }, "strat-1");
   assert.equal(context.isError, undefined);
@@ -132,7 +137,7 @@ test("StrategistはBearerだけでContextを取得し、create_outcomeで登録�
 test("Active Intentが無いProjectのContextはactiveIntent:null・outcomes:[]で、エラーにならない", async () => {
   const { database, app } = await setup();
   const projectId = await createProject(app);
-  await grant(app, projectId, "strat-1");
+  await grant(database, app, projectId, "strat-1");
   const context = await callTool(app, "get_strategist_context", { projectId }, "strat-1");
   assert.equal(context.isError, undefined);
   assert.equal(context.structuredContent.activeIntent, null);
@@ -147,7 +152,7 @@ test("get_research_requestはStrategist GrantでSynthesis→Finding→Evidence�
   const otherProjectId = await createProject(app, "Other");
   const intentId = await createIntent(app, projectId);
   await requestIntentResearch(services, projectId, intentId);
-  await grant(app, projectId, "strat-1");
+  await grant(database, app, projectId, "strat-1");
 
   const context = await callTool(app, "get_strategist_context", { projectId }, "strat-1");
   const requestId = context.structuredContent.research.requests[0].id as string;
@@ -167,7 +172,7 @@ test("get_research_requestはStrategist GrantでSynthesis→Finding→Evidence�
   const wrongProject = await callTool(app, "get_research_request", { projectId: otherProjectId, requestId }, "strat-1");
   assert.equal(wrongProject.structuredContent.error.code, "FORBIDDEN");
 
-  await grant(app, otherProjectId, "strat-1");
+  await grant(database, app, otherProjectId, "strat-1");
   const notFound = await callTool(app, "get_research_request", { projectId: otherProjectId, requestId }, "strat-1");
   assert.equal(notFound.structuredContent.error.code, "NOT_FOUND");
 
@@ -180,7 +185,7 @@ test("Bearerなしは、Strategist要求のtoolをUNAUTHENTICATEDで拒否し、
   const { database, app } = await setup();
   const projectId = await createProject(app);
   const intentId = await createIntent(app, projectId);
-  await grant(app, projectId, "strat-1");
+  await grant(database, app, projectId, "strat-1");
   const outcomeId = ((await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "strat-1")).structuredContent.outcome as { id: string }).id;
 
   const calls: [string, object][] = [
@@ -203,7 +208,7 @@ test("Grantなし・別Projectだけ・存在しないProjectはすべて同じF
   const projectId = await createProject(app, "P");
   const otherId = await createProject(app, "Q");
   const intentId = await createIntent(app, projectId);
-  await grant(app, otherId, "strat-1");
+  await grant(database, app, otherId, "strat-1");
 
   const results = [
     await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "strat-1"),
@@ -225,7 +230,7 @@ test("Grantの取消は再起動なしで次の呼び出しから反映され、
   const { database, app } = await setup();
   const projectId = await createProject(app);
   const intentId = await createIntent(app, projectId);
-  await grant(app, projectId, "strat-1");
+  await grant(database, app, projectId, "strat-1");
   assert.equal((await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "strat-1")).isError, undefined);
 
   await send(app, "DELETE", `/api/projects/${projectId}/grants/strategist/strat-1`);
@@ -234,7 +239,7 @@ test("Grantの取消は再起動なしで次の呼び出しから反映され、
   assert.equal((await callTool(app, "get_strategist_context", { projectId }, "strat-1")).structuredContent.error.code, "FORBIDDEN");
   assert.equal((await outcomesOf(app, projectId, intentId)).length, 1);
 
-  await grant(app, projectId, "strat-1");
+  await grant(database, app, projectId, "strat-1");
   assert.equal((await callTool(app, "create_outcome", { projectId, intentId, ...outcomeInput }, "strat-1")).isError, undefined);
   await database.destroy();
 });
@@ -256,7 +261,7 @@ test("request本文・tool入力のrole/principalId・session IDは認証情報�
   const { database, app } = await setup();
   const projectId = await createProject(app);
   const intentId = await createIntent(app, projectId);
-  await grant(app, projectId, "strat-1");
+  await grant(database, app, projectId, "strat-1");
 
   // tool入力へ他人のprincipalId・roleを入れても、Bearerのnobodyが評価される。
   const spoofed = await callTool(
@@ -292,7 +297,7 @@ test("StrategistのGrantを持つPrincipalはProject・Intentの管理toolを拒
   const { database, app } = await setup();
   const projectId = await createProject(app);
   const intentId = await createIntent(app, projectId);
-  await grant(app, projectId, "strat-1");
+  await grant(database, app, projectId, "strat-1");
   const otherId = await createProject(app, "Q");
 
   const guarded: [string, object][] = [

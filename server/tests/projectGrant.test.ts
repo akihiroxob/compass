@@ -27,14 +27,14 @@ test("Grantは発行でき、一覧に出て、再発行は重複せずcreatedAt
   const { database, services } = await setup();
   const project = await createProject(services);
 
-  const first = await services.grantProjectRoleUseCase.execute(project.id, { principalId: "strat-1", role: "strategist" });
+  const first = await services.grantProjectRoleUseCase.execute(project.id, { principalId: "strat-1", role: "manager" });
   assert.equal(first.created, true);
   assert.equal(first.grant.projectId, project.id);
   assert.equal(first.grant.principalId, "strat-1");
-  assert.equal(first.grant.role, "strategist");
+  assert.equal(first.grant.role, "manager");
 
   await new Promise((resolve) => setTimeout(resolve, 5));
-  const second = await services.grantProjectRoleUseCase.execute(project.id, { principalId: "strat-1", role: "strategist" });
+  const second = await services.grantProjectRoleUseCase.execute(project.id, { principalId: "strat-1", role: "manager" });
   assert.equal(second.created, false);
   assert.deepEqual(second.grant, first.grant);
 
@@ -45,9 +45,9 @@ test("Grantは発行でき、一覧に出て、再発行は重複せずcreatedAt
 test("principalIdはtrimされ、大文字小文字を区別し、一覧はprincipalIdの昇順", async () => {
   const { database, services } = await setup();
   const project = await createProject(services);
-  await services.grantProjectRoleUseCase.execute(project.id, { principalId: "  b-agent ", role: "strategist" });
-  await services.grantProjectRoleUseCase.execute(project.id, { principalId: "B-agent", role: "strategist" });
-  await services.grantProjectRoleUseCase.execute(project.id, { principalId: "a-agent", role: "strategist" });
+  await services.grantProjectRoleUseCase.execute(project.id, { principalId: "  b-agent ", role: "manager" });
+  await services.grantProjectRoleUseCase.execute(project.id, { principalId: "B-agent", role: "manager" });
+  await services.grantProjectRoleUseCase.execute(project.id, { principalId: "a-agent", role: "manager" });
   const principals = (await services.listProjectGrantsUseCase.execute(project.id)).map((grant) => grant.principalId);
   assert.deepEqual(principals, ["B-agent", "a-agent", "b-agent"]);
   await database.destroy();
@@ -57,7 +57,7 @@ test("取消するとGrantが消え、再取消はrevoked:falseで、別Project�
   const { database, services } = await setup();
   const projectP = await createProject(services, "P");
   const projectQ = await createProject(services, "Q");
-  const input = { principalId: "strat-1", role: "strategist" };
+  const input = { principalId: "strat-1", role: "manager" };
   await services.grantProjectRoleUseCase.execute(projectP.id, input);
   await services.grantProjectRoleUseCase.execute(projectQ.id, input);
 
@@ -71,7 +71,7 @@ test("取消するとGrantが消え、再取消はrevoked:falseで、別Project�
 test("存在しないProjectはNOT_FOUND、空・空白・101文字・制御文字のprincipalIdと不正roleはVALIDATION_ERROR", async () => {
   const { database, services } = await setup();
   const project = await createProject(services);
-  const valid = { principalId: "strat-1", role: "strategist" };
+  const valid = { principalId: "strat-1", role: "manager" };
 
   for (const run of [
     () => services.grantProjectRoleUseCase.execute("missing", valid),
@@ -116,7 +116,7 @@ test("DBを閉じて同じfileで再起動してもGrantが保持され、initia
   const path = join(directory, "test.db");
   const first = await setup(path);
   const project = await createProject(first.services);
-  const { grant } = await first.services.grantProjectRoleUseCase.execute(project.id, { principalId: "strat-1", role: "strategist" });
+  const { grant } = await first.services.grantProjectRoleUseCase.execute(project.id, { principalId: "strat-1", role: "manager" });
   await first.database.destroy();
 
   const second = await setup(path);
@@ -135,8 +135,21 @@ test("roleにDB check制約はなく、Projectと同じ外部キーで管理さ�
     ["project_id", "principal_id", "role", "created_at"],
   );
   await assert.rejects(
-    database.insertInto("project_grant").values({ project_id: "missing", principal_id: "a", role: "strategist", created_at: 1 }).execute(),
+    database.insertInto("project_grant").values({ project_id: "missing", principal_id: "a", role: "manager", created_at: 1 }).execute(),
     /FOREIGN KEY/,
   );
   await database.destroy();
+});
+
+test("新規Project GrantはWorkspace Direction Roleを拒否し、旧Grantの取消は可能。trusted-local用のruntimeは発行できる", async () => {
+  const { database, services } = await setup();
+  const project = await createProject(services);
+  try {
+    assert.equal((await services.grantProjectRoleUseCase.execute(project.id, { principalId: "orchestrator", role: "runtime" })).created, true);
+    for (const role of ["strategist", "researcher", "evaluator"]) {
+      await assert.rejects(services.grantProjectRoleUseCase.execute(project.id, { principalId: "agent", role }), codeOf("VALIDATION_ERROR"));
+      await database.insertInto("project_grant").values({ project_id: project.id, principal_id: "agent", role, created_at: 1 }).execute();
+      assert.equal(await services.revokeProjectRoleUseCase.execute(project.id, { principalId: "agent", role }), true);
+    }
+  } finally { await database.destroy(); }
 });

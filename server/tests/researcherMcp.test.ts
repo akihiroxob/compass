@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -46,8 +46,13 @@ const rpc = async (app: App, method: string, params: object, principal?: string)
 const callTool = async (app: App, name: string, args: object, principal?: string): Promise<ToolResult> =>
   (await rpc(app, "tools/call", { name, arguments: args }, principal)).result;
 
-const grantRole = (app: App, projectId: string, principalId: string, role = "researcher") =>
-  send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
+const grantRole = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role = "researcher") => {
+  if (["strategist", "researcher", "evaluator"].includes(role)) {
+    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    return;
+  }
+  return send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
+};
 
 const seedProject = async (services: Services, name = "Compass") => {
   const project = await services.createProjectUseCase.execute({
@@ -119,7 +124,7 @@ test("Researcherは Bearer だけで Context を取得し、Result・Synthesis �
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
   const request = await createRequest(services, project.id, intent.id);
-  assert.equal((await grantRole(app, project.id, "researcher-a")).status, 201);
+  await grantRole(database, app, project.id, "researcher-a");
 
   const context = (await callTool(app, "get_researcher_context", { projectId: project.id, requestId: request.id }, "researcher-a"))
     .structuredContent;
@@ -188,7 +193,7 @@ test("Researcherは Bearer だけで Context を取得し、Result・Synthesis �
 test("Contextは同じ発端の他RequestのFindingとEvidence参照だけを返し、自身・別Intent・別Projectのものを含めない", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
-  await grantRole(app, project.id, "researcher-a");
+  await grantRole(database, app, project.id, "researcher-a");
 
   const earlier = await createRequest(services, project.id, intent.id, { requestKey: "earlier" });
   const earlierResult = (await callTool(app, "register_research_result", resultArgs(project.id, earlier.id), "researcher-a"))
@@ -205,7 +210,7 @@ test("Contextは同じ発端の他RequestのFindingとEvidence参照だけを返
   await callTool(app, "register_research_result", resultArgs(project.id, otherIntentRequest.id), "researcher-a");
   const otherProject = await seedProject(services, "Other Project");
   const otherProjectRequest = await createRequest(services, otherProject.project.id, otherProject.intent.id, { requestKey: "other-project" });
-  await grantRole(app, otherProject.project.id, "researcher-a");
+  await grantRole(database, app, otherProject.project.id, "researcher-a");
   await callTool(app, "register_research_result", resultArgs(otherProject.project.id, otherProjectRequest.id), "researcher-a");
 
   const context = (await callTool(app, "get_researcher_context", { projectId: project.id, requestId: current.id }, "researcher-a"))
@@ -226,7 +231,7 @@ test("Contextは同じ発端の他RequestのFindingとEvidence参照だけを返
 test("Requestはcompleted / insufficient / not_neededのいずれかで確定でき、停止理由と必須条件を検証する", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
-  await grantRole(app, project.id, "researcher-a");
+  await grantRole(database, app, project.id, "researcher-a");
   const close = (requestId: string, args: object) =>
     callTool(app, "complete_research_request", { projectId: project.id, requestId, ...args }, "researcher-a");
 
@@ -251,7 +256,7 @@ test("Requestはcompleted / insufficient / not_neededのいずれかで確定で
 test("同じrequestKeyの再送は重複せず、内容を変えた再利用はCONFLICTになる", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
-  await grantRole(app, project.id, "researcher-a");
+  await grantRole(database, app, project.id, "researcher-a");
   const request = await createRequest(services, project.id, intent.id);
   const first = await callTool(app, "register_research_result", resultArgs(project.id, request.id), "researcher-a");
   const replay = await callTool(app, "register_research_result", resultArgs(project.id, request.id), "researcher-a");
@@ -269,7 +274,7 @@ test("同じrequestKeyの再送は重複せず、内容を変えた再利用はC
 test("archivedのProjectへResultを登録できない", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
-  await grantRole(app, project.id, "researcher-a");
+  await grantRole(database, app, project.id, "researcher-a");
   const request = await createRequest(services, project.id, intent.id);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Archived for test" });
   const rejected = errorOf(await callTool(app, "register_research_result", resultArgs(project.id, request.id), "researcher-a"));
@@ -282,7 +287,7 @@ test("archivedのProjectへResultを登録できない", async () => {
 test("list_research_requestsはProjectのRequestを状態で絞って返す", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
-  await grantRole(app, project.id, "researcher-a");
+  await grantRole(database, app, project.id, "researcher-a");
   const initial = await requestIntentResearch(services, project.id, intent.id);
   const open = await createRequest(services, project.id, intent.id, { requestKey: "open" });
   const closed = await createRequest(services, project.id, intent.id, { requestKey: "closed" });
@@ -320,13 +325,13 @@ test("Researcher toolはBearerなし・Grantなし・別Project・取消済み�
   }
 
   // Strategist Grantだけでは使えない。
-  await grantRole(app, project.id, "strat-1", "strategist");
+  await grantRole(database, app, project.id, "strat-1", "strategist");
   for (const [name, args] of calls(project.id, request.id)) {
     assert.equal(errorOf(await callTool(app, name, args, "strat-1")).code, "FORBIDDEN", `${name} as strategist`);
   }
 
   // 別ProjectのGrantでは使えず、GrantのあるProjectからでもProject外のRequestは見えない。
-  await grantRole(app, other.project.id, "researcher-b");
+  await grantRole(database, app, other.project.id, "researcher-b");
   for (const [name, args] of calls(project.id, request.id)) {
     assert.equal(errorOf(await callTool(app, name, args, "researcher-b")).code, "FORBIDDEN", `${name} other project`);
   }
@@ -335,7 +340,7 @@ test("Researcher toolはBearerなし・Grantなし・別Project・取消済み�
   }
 
   // 取消後は次の呼び出しから拒否する。
-  await grantRole(app, project.id, "researcher-a");
+  await grantRole(database, app, project.id, "researcher-a");
   assert.equal((await callTool(app, "get_researcher_context", { projectId: project.id, requestId: request.id }, "researcher-a")).isError, undefined);
   assert.equal((await send(app, "DELETE", `/api/projects/${project.id}/grants/researcher/researcher-a`)).status, 200);
   for (const [name, args] of calls(project.id, request.id)) {
@@ -354,7 +359,7 @@ test("Researcher toolはBearerなし・Grantなし・別Project・取消済み�
 test("Researcherは Outcome・Project基盤設定・Intent を変更できない", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
-  await grantRole(app, project.id, "researcher-a");
+  await grantRole(database, app, project.id, "researcher-a");
   const rejected = async (name: string, args: object) => {
     const error = errorOf(await callTool(app, name, args, "researcher-a"));
     assert.equal(error.code, "FORBIDDEN", name);

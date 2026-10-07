@@ -79,7 +79,7 @@ test("明示scope認可は全Roleのscope・activeRole一致を要求し、Grant
     for (const role of workspaceRoles) {
       await s.grantWorkspaceRoleUseCase.execute(ws.id, { principalId: "multi", role });
       // 切替前のProject Grantに同じRoleが存在しても明示Project scopeでは拒否する。
-      await s.grantProjectRoleUseCase.execute(ps.id, { principalId: "multi", role });
+      await database.insertInto("project_grant").values({ project_id: ps.id, principal_id: "multi", role, created_at: 1 }).execute();
       assert.equal(await s.roleScopeAuthorizationService.requireRole("multi", ws, role), "multi");
       await assert.rejects(s.roleScopeAuthorizationService.requireRole("multi", ps, role), code("FORBIDDEN"));
       await assert.rejects(s.roleScopeAuthorizationService.requireRole("multi", { kind: "workspace", id: q.workspaceId }, role), code("FORBIDDEN"));
@@ -133,4 +133,30 @@ test("新規file DBのWorkspace Grantは同じschemaの再初期化後も保持�
       assert.equal(await second.services.forActiveRole("evaluator").roleScopeAuthorizationService.requireRole("agent", { kind: "workspace", id: ws.id }, "evaluator"), "agent");
     } finally { await second.database.destroy(); }
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("Project Grant新規発行と実Work入口はDirection Roleを拒否する", async () => {
+  const { database, services: s } = await setup();
+  try {
+    const p = await s.createProjectUseCase.execute({ name: "P", mission: "P" });
+    await s.grantProjectRoleUseCase.execute(p.id, { principalId: "multi", role: "manager" });
+    const task = await s.taskCoordinationService.issueTask("multi", { projectId: p.id, title: "Task" }, "scope-task");
+    for (const role of workspaceRoles) {
+      await s.grantWorkspaceRoleUseCase.execute(p.workspaceId, { principalId: "multi", role });
+      await assert.rejects(s.grantProjectRoleUseCase.execute(p.id, { principalId: "multi", role }), code("VALIDATION_ERROR"));
+      // 未切替のProject Direction経路の既存Grantをfixtureとして置いてもWorkに転用できない。
+      await database.insertInto("project_grant").values({ project_id: p.id, principal_id: "legacy", role, created_at: 1 }).execute();
+      await database.insertInto("project_grant").values({ project_id: p.id, principal_id: "multi", role, created_at: 1 }).execute();
+      for (const [service, principal] of [[s.taskCoordinationService, "legacy"], [s.forActiveRole(role).taskCoordinationService, "multi"]] as const) {
+        await assert.rejects(service.listTasks(principal, p.id), code("FORBIDDEN"));
+        await assert.rejects(service.listStories(principal, p.id), code("FORBIDDEN"));
+        await assert.rejects(service.listTaskComments(principal, task.id), code("FORBIDDEN"));
+        await assert.rejects(service.listChanges(principal, p.id), code("FORBIDDEN"));
+      }
+    }
+    for (const role of executionRoles) {
+      await s.grantProjectRoleUseCase.execute(p.id, { principalId: "multi", role });
+      assert.equal((await s.forActiveRole(role).taskCoordinationService.listTasks("multi", p.id)).tasks.length, 1);
+    }
+  } finally { await database.destroy(); }
 });

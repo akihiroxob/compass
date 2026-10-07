@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -58,8 +58,13 @@ const send = (app: App, method: string, path: string, body?: unknown) =>
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-const grant = async (app: App, projectId: string, principalId: string, role: string) =>
-  assert.equal((await send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role })).status, 201);
+const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role: string) => {
+  if (["strategist", "researcher", "evaluator"].includes(role)) {
+    await seedLegacyProjectGrant(database, projectId, principalId, role);
+    return;
+  }
+  return assert.equal((await send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role })).status, 201);
+};
 
 const successCriteria = [
   { description: "duplicate_claim_count = 0", measurement: "Count duplicate claims", target: "= 0" },
@@ -67,7 +72,7 @@ const successCriteria = [
 ];
 
 /** ProjectにManager・Strategist・Runtime・Workerを割り当て、Strategistの判断でOutcome（origin Decision付き）を確定させる。 */
-const confirmOutcome = async ({ services, app }: Kit) => {
+const confirmOutcome = async ({ database, services, app }: Kit) => {
   const project = await services.createProjectUseCase.execute({
     name: "Compass",
     mission: "Keep execution guarded",
@@ -76,7 +81,7 @@ const confirmOutcome = async ({ services, app }: Kit) => {
   });
   const intent = await services.createIntentUseCase.execute(project.id, { title: "Exclusive claims", desiredState: "One owner per Task" });
   for (const [principal, role] of [["strat", "strategist"], ["mgr", "manager"], ["wrk", "worker"], ["rt", "runtime"]] as const) {
-    await grant(app, project.id, principal, role);
+    await grant(database, app, project.id, principal, role);
   }
   const decided = await callTool(
     app,
@@ -138,7 +143,7 @@ test("Outcome確定でRuntimeがoutcome_confirmedを取得でき、Managerがiss
   // ManagerがStory配下にTaskを作ると、Change Logから相関ID・Outcomeを辿れる。
   const task = await callTool(kit.app, "issue_task", { projectId: project.id, storyId: story.id, title: "Guard claims", taskKey: "guard-claims", requestId: "handoff-task-1" }, "mgr");
   assert.equal(task.isError, undefined);
-  const changes = (await callTool(kit.app, "list_changes", { projectId: project.id }, "rt")).structuredContent.changes as Record<string, any>[];
+  const changes = (await callTool(kit.app, "list_changes", { projectId: project.id }, "mgr")).structuredContent.changes as Record<string, any>[];
   assert.deepEqual(changes.map((change) => change.type), ["STORY_CREATED", "TASK_CREATED"]);
   assert.deepEqual(changes[0]!.payload, { actorRole: "manager", status: "todo", correlationId: `outcome:${outcome.id}`, outcomeId: outcome.id, originDecisionId: decisionId });
   assert.equal(changes[1]!.payload.correlationId, `outcome:${outcome.id}`);
@@ -158,7 +163,7 @@ test("同じhandoffの再送は、同じrequestIdでも新しいrequestId（time
   assert.equal(newRequest.id, first.id);
   assert.deepEqual(newRequest, first);
   assert.equal((await storiesOf(kit.app, project.id)).length, 1);
-  const created = (await callTool(kit.app, "list_changes", { projectId: project.id }, "rt")).structuredContent.changes.filter((change: { type: string }) => change.type === "STORY_CREATED");
+  const created = (await callTool(kit.app, "list_changes", { projectId: project.id }, "mgr")).structuredContent.changes.filter((change: { type: string }) => change.type === "STORY_CREATED");
   assert.equal(created.length, 1);
 
   // 同じ相関IDに別の内容は衝突。requestIdを別の内容に使い回しても衝突。
@@ -219,7 +224,7 @@ test("Project対応なし・認証失敗・入力不正・権限不足を区別�
   const kit = await setup();
   const { project, outcome } = await confirmOutcome(kit);
   const other = await kit.services.createProjectUseCase.execute({ name: "Other", mission: "m" });
-  await grant(kit.app, other.id, "mgr", "manager");
+  await grant(kit.database, kit.app, other.id, "mgr", "manager");
   const args = { projectId: project.id, title: "Story", outcomeId: outcome.id };
 
   // 認証失敗（Bearerなし）はUNAUTHENTICATED。
@@ -355,7 +360,7 @@ test("handoff StoryのTaskはtaskKeyで収束し、応答消失後に新しいre
   assert.deepEqual(newRequest, first);
   const listed = await tasksOf(kit.app, project.id, story.id);
   assert.deepEqual(listed.map((task) => [task.id, task.taskKey]), [[first.id, "criterion-1-guard"]]);
-  const created = (await callTool(kit.app, "list_changes", { projectId: project.id }, "rt")).structuredContent.changes.filter((change: { type: string }) => change.type === "TASK_CREATED");
+  const created = (await callTool(kit.app, "list_changes", { projectId: project.id }, "mgr")).structuredContent.changes.filter((change: { type: string }) => change.type === "TASK_CREATED");
   assert.equal(created.length, 1);
   assert.equal(created[0].payload.taskKey, "criterion-1-guard");
 
@@ -385,7 +390,7 @@ test("server再起動後に新しいManagerが別のrequestIdでhandoffをやり
   try {
     const first = await setup(path);
     const { project, outcome } = await confirmOutcome(first);
-    await grant(first.app, project.id, "mgr-2", "manager");
+    await grant(first.database, first.app, project.id, "mgr-2", "manager");
     const story = (await callTool(first.app, "issue_story", { projectId: project.id, title: "Story", outcomeId: outcome.id, requestId: "run1-story" }, "mgr")).structuredContent;
     // 1件目のTaskまで作ったところでManager・serverが落ちた想定。
     const task = (await callTool(first.app, "issue_task", { projectId: project.id, storyId: story.id, title: "Guard claims", taskKey: "guard", requestId: "run1-task-guard" }, "mgr")).structuredContent;
@@ -432,7 +437,7 @@ test("task_key導入前のDBは再初期化で列と一意制約が追加され�
   try {
     const first = await setup(path);
     const project = await first.services.createProjectUseCase.execute({ name: "Legacy", mission: "m" });
-    await grant(first.app, project.id, "mgr", "manager");
+    await grant(first.database, first.app, project.id, "mgr", "manager");
     const legacy = (await callTool(first.app, "issue_task", { projectId: project.id, title: "Legacy", requestId: "l1" }, "mgr")).structuredContent;
     // 旧DDLを再現する。
     await sql`drop index task_story_key_idx`.execute(first.database);
