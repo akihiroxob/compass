@@ -21,7 +21,7 @@ export class ApiError extends Error {
 const networkErrorMessage = "サーバーに接続できませんでした。通信状況を確認して、もう一度お試しください。";
 const serverUnavailableMessage = "サーバーで問題が発生しました。時間をおいて、もう一度お試しください。";
 
-type FetchLike = (path: string, init?: RequestInit) => Promise<Response>;
+export type FetchLike = (path: string, init?: RequestInit) => Promise<Response>;
 
 const readJson = async (response: Response): Promise<unknown> => {
   try {

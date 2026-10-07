@@ -177,7 +177,7 @@ test("strategist.mdは必須の節を持ち、記載したtool名がすべてtoo
   const content = (await getInstructions(app, { role: "strategist" })).structuredContent.files[0].content as string;
   for (const section of [
     "Goal",
-    "対象 Project の決定",
+    "対象 Workspace の決定",
     "Input",
     "判断権限",
     "実行手順",
@@ -193,8 +193,12 @@ test("strategist.mdは必須の節を持ち、記載したtool名がすべてtoo
     assert.ok(content.includes(phrase), phrase);
   }
   for (const phrase of [
-    "候補が 1 件なら自動的に対象とする",
-    "一覧順・名前・更新日時・内容から勝手に 1 件を選ばない",
+    // 対象Workspaceは明示されたものだけを使い、推測しない。Project IDはWorkspace IDとして渡さない。
+    "`projectId` を Workspace ID として渡すことはできない",
+    "`workspaceId` が明示されていない場合は推測しない",
+    "`get_project` で読めるなら、その応答の `workspaceId` を対象にする",
+    "読めない場合は対象不明として報告して停止する",
+    "別 Workspace へ勝手に切り替えず報告して停止する",
     "再取得できない間は `create_outcome` を再送しない",
     "同じ入力の `create_outcome` を 1 回だけ再送する",
     "`requestId` による冪等性をまだ提供しない",
@@ -208,7 +212,7 @@ test("strategist.mdは必須の節を持ち、記載したtool名がすべてtoo
   assert.ok(mentioned.includes("create_outcome"));
   for (const name of mentioned) assert.ok(toolNames.has(name), `${name} は tools/list に無い`);
   // 明示的に使う手順のtoolは、Instruction上でも許可されている。
-  for (const name of ["get_role_instructions", "get_strategist_context", "create_outcome", "cancel_outcome"]) {
+  for (const name of ["get_role_instructions", "get_project", "get_strategist_context", "create_outcome", "cancel_outcome"]) {
     assert.ok(mentioned.includes(name), name);
   }
   await database.destroy();
