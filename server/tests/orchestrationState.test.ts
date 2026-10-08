@@ -124,7 +124,8 @@ test("get_orchestration_stateは状態とIDだけを返し、Story・Taskの有�
   const outcome = await services.createOutcomeUseCase.execute(project.workspaceId, intent.id, outcomeInput);
   const confirmed = await state();
   assert.deepEqual(confirmed.outcomes, [
-    { id: outcome.id, status: "active", updatedAt: outcome.updatedAt, work: null, execution: null, latestEvaluation: null },
+    { id: outcome.id, status: "active", updatedAt: outcome.updatedAt, work: null, execution: null,
+      evaluability: { status: "no_targets", unfinishedTargets: [] }, latestEvaluation: null },
   ]);
   await services.setOutcomeTargetProjectUseCase.execute(project.workspaceId, outcome.id, project.id);
   const story = ok(

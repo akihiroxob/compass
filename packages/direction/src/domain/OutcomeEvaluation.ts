@@ -1,4 +1,5 @@
 import type { ExecutionEvidenceKind, ExecutionState, ExecutionStoryResult } from "./OutcomeExecution.ts";
+import type { OutcomeTargetExecution } from "./OutcomeEvaluability.ts";
 
 /** Success Criterion 1件の観測結果。証拠が無いものを`met` / `not_met`と推測せず、`insufficient_evidence`で残す。 */
 export const criterionVerdicts = ["met", "not_met", "insufficient_evidence"] as const;
@@ -42,12 +43,12 @@ export type EvaluationEvidenceSnapshot = {
   observedAt: number;
 };
 
-/** 評価に使った入力の、評価時点の写し。後からExecutionが進んでも、何を根拠に評価したかを辿れる。 */
-export type EvaluationSnapshot = {
-  outcome: { title: string; description: string; hypothesis: string | null; status: string };
+/** 評価時点の、Target 1件のExecution Summaryと、そのProjectが還流したEvidence参照。 */
+export type EvaluationTargetSnapshot = {
+  projectId: string;
+  /** 評価時点のProjectの状態。archivedでも、archive前に還流済みのExecutionは評価の入力に含める。 */
+  projectStatus: "active" | "archived";
   execution: {
-    workspaceId: string;
-    projectId: string;
     correlationId: string;
     state: ExecutionState;
     stories: readonly ExecutionStoryResult[];
@@ -55,6 +56,36 @@ export type EvaluationSnapshot = {
     observedCursor: number;
   };
   evidence: EvaluationEvidenceSnapshot[];
+};
+
+/**
+ * 評価可能な（全Targetが還流済みの）Targetを、評価時点のsnapshotへ写す。評価の保存時に、同じ写しで現在の状態との一致も検査する。
+ */
+export const snapshotEvaluationTargets = (targets: readonly OutcomeTargetExecution[]): EvaluationTargetSnapshot[] =>
+  targets.map(({ projectId, projectStatus, execution }) => {
+    if (!execution) throw new Error(`Target Project ${projectId} has not reflected its Execution`);
+    const { summary, evidence } = execution;
+    return {
+      projectId,
+      projectStatus,
+      execution: {
+        correlationId: summary.correlationId,
+        state: summary.state,
+        stories: summary.stories,
+        executionCursor: summary.executionCursor,
+        observedCursor: summary.observedCursor,
+      },
+      evidence: evidence.map(({ id, kind, uri, versionHash, observedAt }) => ({ id, kind, uri, versionHash, observedAt })),
+    };
+  });
+
+/**
+ * 評価に使った入力の、評価時点の写し。後からExecutionが進んでも、何を根拠に評価したかを辿れる。
+ * `targets`は評価時点の全Target（設定順）で、Project別のSummary・Evidenceを合算しない。
+ */
+export type EvaluationSnapshot = {
+  outcome: { title: string; description: string; hypothesis: string | null; status: string };
+  targets: EvaluationTargetSnapshot[];
 };
 
 /** Outcomeごとに追記する評価。作成後は変更しない（再評価は新しい行で、最新の評価が現在の結果）。 */

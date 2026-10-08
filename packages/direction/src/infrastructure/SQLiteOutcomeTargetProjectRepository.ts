@@ -1,14 +1,14 @@
-import type { Kysely, Selectable, Transaction } from "kysely";
+import type { Kysely, Transaction } from "kysely";
 import { sql } from "kysely";
 import type {
   AddOutcomeTargetProjectResult,
-  OutcomeTargetProject,
   OutcomeTargetProjectRepository,
   OutcomeTargetProjectView,
   RemoveOutcomeTargetProjectResult,
 } from "../domain/OutcomeTargetProject.ts";
 import type { OutcomeStatus } from "../domain/Outcome.ts";
-import type { DirectionDatabase, OutcomeTargetProjectTable } from "./schema.ts";
+import type { DirectionDatabase } from "./schema.ts";
+import { readOutcomeTargetViews, toTarget, toTargetViews } from "./outcomeTargetExecutionRecord.ts";
 import type { DirectionProjectReaders } from "./directionProjectReaders.ts";
 import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
 
@@ -17,12 +17,6 @@ type Rejection =
   | { kind: "outcome_not_active"; status: OutcomeStatus }
   | { kind: "project_not_found" }
   | { kind: "workspace_archived" };
-
-const toTarget = (row: Selectable<OutcomeTargetProjectTable>): OutcomeTargetProject => ({
-  outcomeId: row.outcome_id,
-  projectId: row.project_id,
-  createdAt: row.created_at,
-});
 
 /**
  * ProjectがOutcomeのTargetか。WorkがStoryを保存するtransactionで、解除との競合を防ぐため同じ接続・transactionで呼ぶ（serverが配線する）。
@@ -82,14 +76,7 @@ export class SQLiteOutcomeTargetProjectRepository implements OutcomeTargetProjec
   async listByOutcome(workspaceId: string, outcomeId: string): Promise<OutcomeTargetProjectView[] | null> {
     return this.database.transaction().execute(async (transaction) => {
       if (!(await this.findOutcomeStatus(transaction, workspaceId, outcomeId))) return null;
-      const rows = await transaction
-        .selectFrom("outcome_target_project")
-        .selectAll()
-        .where("outcome_id", "=", outcomeId)
-        .orderBy("created_at")
-        .orderBy(sql`rowid`)
-        .execute();
-      return this.toViews(transaction, rows);
+      return readOutcomeTargetViews(transaction, this.projects, outcomeId);
     });
   }
 
@@ -104,17 +91,8 @@ export class SQLiteOutcomeTargetProjectRepository implements OutcomeTargetProjec
         .orderBy("outcome_target_project.created_at")
         .orderBy(sql`outcome_target_project.rowid`)
         .execute();
-      return this.toViews(transaction, rows);
+      return toTargetViews(transaction, this.projects, rows);
     });
-  }
-
-  /** Projectの現在の状態（Organizationが所有）を、Targetごとに読まず1回で添える。 */
-  private async toViews(
-    transaction: Transaction<DirectionDatabase>,
-    rows: Selectable<OutcomeTargetProjectTable>[],
-  ): Promise<OutcomeTargetProjectView[]> {
-    const archived = await this.projects(transaction).findArchivedIds([...new Set(rows.map((row) => row.project_id))]);
-    return rows.map((row) => ({ ...toTarget(row), projectStatus: archived.has(row.project_id) ? "archived" : "active" }));
   }
 
   /** Workspaceがactiveで、OutcomeがWorkspace内のactiveなもので、ProjectがOutcomeと同じWorkspaceにあるか。 */

@@ -24,15 +24,28 @@ const research = (id: string, status: string): OrchestrationResearchRequest => (
   updatedAt: 1,
 });
 
-const outcome = (id: string, overrides: Partial<OrchestrationOutcome> = {}): OrchestrationOutcome => ({
-  id,
-  status: "active",
-  updatedAt: 1,
-  work: { state: "incomplete", storyCount: 1, taskCount: 1 },
-  execution: null,
-  latestEvaluation: null,
-  ...overrides,
-});
+const evaluable = { status: "evaluable", unfinishedTargets: [] };
+
+/** 既定は単一Target（このProject）。評価可能性はこのProjectの還流状況から決まる。 */
+const outcome = (id: string, overrides: Partial<OrchestrationOutcome> = {}): OrchestrationOutcome => {
+  const execution = overrides.execution ?? null;
+  return {
+    id,
+    status: "active",
+    updatedAt: 1,
+    work: { state: "incomplete", storyCount: 1, taskCount: 1 },
+    execution,
+    evaluability:
+      execution && execution.state !== "incomplete"
+        ? evaluable
+        : {
+            status: "awaiting_execution",
+            unfinishedTargets: [{ projectId, projectStatus: "active", reason: execution ? "incomplete" : "not_reflected" }],
+          },
+    latestEvaluation: null,
+    ...overrides,
+  };
+};
 
 const roles = (state: OrchestrationState) => planDispatches(state).map(({ role, subject }) => `${role}:${subject.kind}:${subject.id}`);
 
@@ -93,6 +106,22 @@ test("還流済みで未評価のExecutionはEvaluatorへ、判断待ちのEvalu
   // Executionが進めば再評価する（判断待ちのEvaluationとは別の起動）。
   const advanced = { ...evaluated, execution: { state: "accepted", executionCursor: 12 } };
   assert.deepEqual(roles(stateOf({ outcomes: [advanced] })).sort(), ["evaluator:outcome:o-1", "strategist:evaluation:e-1"]);
+});
+
+test("一部のTarget Projectの完了だけではEvaluatorを起動しない", () => {
+  const execution = { state: "accepted", executionCursor: 10 };
+  const awaiting = outcome("o-1", {
+    execution,
+    evaluability: { status: "awaiting_execution", unfinishedTargets: [{ projectId: "p-2", projectStatus: "active", reason: "incomplete" }] },
+  });
+  assert.deepEqual(roles(stateOf({ outcomes: [awaiting] })), []);
+  const replan = outcome("o-1", {
+    execution,
+    evaluability: { status: "replan_required", unfinishedTargets: [{ projectId: "p-2", projectStatus: "archived", reason: "not_reflected" }] },
+  });
+  assert.deepEqual(roles(stateOf({ outcomes: [replan] })), []);
+  // 全Targetが終われば、このProjectの還流cursorで評価する。
+  assert.deepEqual(roles(stateOf({ outcomes: [outcome("o-1", { execution, evaluability: evaluable })] })), ["evaluator:outcome:o-1"]);
 });
 
 test("判断済みのEvaluationのOutcomeは進行中とみなさず、次の判断が無ければIntentをStrategistへ戻す", () => {

@@ -14,7 +14,7 @@ Project 横断で Compass Server の現在状態を読み、次に起動すべ�
 | 未終了（`requested` / `running`）の Research Request | `researcher` | Research Request |
 | 最新 Evaluation が Direction Decision の根拠になっていない | `strategist` | Evaluation |
 | Story、または Task の無い Outcome（未分解） | `manager` | Outcome |
-| 還流済みの Execution が `incomplete` 以外で、その `executionCursor` で未評価 | `evaluator` | Outcome |
+| 全 Target Project から還流し `incomplete` が無く（`evaluability.status` が `evaluable`）、この Project の還流済み `executionCursor` で未評価。一部の Project の完了だけでは起動しない | `evaluator` | Outcome |
 | 上記の無い Active Intent（進行中の Outcome・未終了の Research・判断待ちの Evaluation が無い。作成直後を含む） | `strategist` | Intent |
 
 最新 Evaluation が判断済みの Outcome は進行中とみなしません。取消済み・archived Project は対象外です。Intent 作成時に Research Request は自動で作られず、Research の要否は起動された Strategist が判断します。

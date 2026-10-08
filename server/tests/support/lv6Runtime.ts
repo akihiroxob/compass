@@ -321,11 +321,11 @@ const runAcceptor = async (connection: Connection, tokens: Tokens, faults: Fault
     return done;
   });
 
-/** Evaluator: 各Success Criterionのmeasurementが求める種類のEvidence参照が還流済みならmet、無ければinsufficient_evidence。 */
+/** Evaluator: 各Success Criterionのmeasurementが求める種類のEvidence参照がいずれかのTargetから還流済みならmet、無ければinsufficient_evidence。 */
 const runEvaluator = async (connection: Connection, tokens: Tokens, workspaceId: string, outcomeId: string, requestKey: string) =>
   withMcp(connection, tokens.evaluator.principal, tokens.evaluator.token, async (call) => {
     const context = await call("get_evaluator_context", { workspaceId, outcomeId });
-    const evidence = (context.execution?.evidence ?? []) as Json[];
+    const evidence = (context.targets as Json[]).flatMap((target) => (target.execution?.evidence ?? []) as Json[]);
     const kindFor = (measurement: string) => (/pull request/i.test(measurement) ? "pull_request" : /\bCI\b/.test(measurement) ? "ci" : null);
     const criteria = (context.outcome.successCriteria as Json[]).map((criterion) => {
       const kind = kindFor(criterion.measurement);

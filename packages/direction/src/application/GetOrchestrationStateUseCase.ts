@@ -1,4 +1,7 @@
 import type { ExecutionState } from "../domain/OutcomeExecution.ts";
+import { assessOutcomeEvaluability, type OutcomeEvaluability } from "../domain/OutcomeEvaluability.ts";
+import type { OutcomeTargetProjectRepository } from "../domain/OutcomeTargetProject.ts";
+import { readOutcomeTargetExecutions } from "./OutcomeTargetProjectUseCases.ts";
 import type { OutcomeStatus } from "../domain/Outcome.ts";
 import type { IntentStatus } from "../domain/Intent.ts";
 import type { ProjectStatus } from "@compass/organization";
@@ -30,9 +33,14 @@ export type OrchestrationOutcome = {
   updatedAt: number;
   /** Work（Story / Task）の現在の結果。相関付いたStoryが無ければnull。 */
   work: { state: ExecutionSummaryState; storyCount: number; taskCount: number } | null;
-  /** Directionへ還流済みのExecution要約。未還流はnull。 */
+  /** このProjectからDirectionへ還流済みのExecution要約。未還流はnull。 */
   execution: { state: ExecutionState; executionCursor: number } | null;
-  /** 最新のEvaluationと、それを根拠にしたDirection Decision（未判断はnull）。 */
+  /** 全Targetから見た評価可能性（Project ID・状態・理由だけ）。`evaluable`のときだけEvaluatorを起動する。 */
+  evaluability: OutcomeEvaluability;
+  /**
+   * 最新のEvaluationと、それを根拠にしたDirection Decision（未判断はnull）。`executionCursor`はEvaluationのsnapshotにある
+   * このProjectのExecution cursor（このProjectを含まない評価なら0）。
+   */
   latestEvaluation: { id: string; executionCursor: number; decisionId: string | null; createdAt: number } | null;
 };
 
@@ -81,6 +89,7 @@ export class GetOrchestrationStateUseCase<TCaller> {
     private readonly researchRepository: Pick<ResearchRepository, "findRequests" | "findRequestDetail" | "findIntentResearchSummary" | "findRelatedFindings">,
     private readonly directionDecisionRepository: Pick<DirectionDecisionRepository, "findByIntent">,
     private readonly outcomeEvaluationRepository: OutcomeEvaluationRepository,
+    private readonly targetRepository: Pick<OutcomeTargetProjectRepository, "listByOutcome">,
     private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
     private readonly executionSummary: ExecutionSummaryPort,
     private readonly clock: () => number = Date.now,
@@ -117,6 +126,7 @@ export class GetOrchestrationStateUseCase<TCaller> {
     for (const outcome of await this.outcomeRepository.findByIntent(projectId, activeIntent.id)) {
       const work = await this.executionSummary.getOutcomeExecutionSummary(projectId, outcome.id);
       const execution = await this.outcomeExecutionRepository.find(project.workspaceId, projectId, outcome.id);
+      const targetExecutions = await readOutcomeTargetExecutions(this.targetRepository, this.outcomeExecutionRepository, project.workspaceId, outcome.id);
       const evaluation = latestEvaluations.get(outcome.id);
       outcomes.push({
         id: outcome.id,
@@ -135,10 +145,12 @@ export class GetOrchestrationStateUseCase<TCaller> {
         execution: execution
           ? { state: execution.summary.state, executionCursor: execution.summary.executionCursor }
           : null,
+        evaluability: assessOutcomeEvaluability(targetExecutions?.targets ?? []),
         latestEvaluation: evaluation
           ? {
               id: evaluation.id,
-              executionCursor: evaluation.snapshot.execution.executionCursor,
+              executionCursor:
+                evaluation.snapshot.targets.find((target) => target.projectId === projectId)?.execution.executionCursor ?? 0,
               decisionId: decidedBy.get(evaluation.id) ?? null,
               createdAt: evaluation.createdAt,
             }

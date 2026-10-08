@@ -17,6 +17,8 @@ export type OrchestrationOutcome = {
   updatedAt: number;
   work: { state: string; storyCount: number; taskCount: number } | null;
   execution: { state: string; executionCursor: number } | null;
+  /** 全Target Projectから見た評価可能性。`evaluable`以外ではEvaluatorを起動しない。 */
+  evaluability: { status: string; unfinishedTargets: { projectId: string; projectStatus: string; reason: string }[] };
   latestEvaluation: { id: string; executionCursor: number; decisionId: string | null; createdAt: number } | null;
 };
 

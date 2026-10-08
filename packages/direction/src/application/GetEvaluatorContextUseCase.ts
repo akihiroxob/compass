@@ -1,14 +1,16 @@
 import type { Intent } from "../domain/Intent.ts";
 import type { Outcome } from "../domain/Outcome.ts";
 import type { OutcomeEvaluation } from "../domain/OutcomeEvaluation.ts";
-import type { OutcomeExecutionRecord } from "../domain/OutcomeExecution.ts";
+import { assessOutcomeEvaluability, type OutcomeEvaluability, type OutcomeTargetExecution } from "../domain/OutcomeEvaluability.ts";
+import type { OutcomeTargetProjectRepository } from "../domain/OutcomeTargetProject.ts";
 import type { Workspace } from "@compass/organization";
 import type { IntentRepository } from "../domain/IntentRepository.ts";
 import type { OutcomeEvaluationRepository } from "../domain/OutcomeEvaluationRepository.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
 import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
-import { ConflictError, NotFoundError } from "@compass/shared";
+import { NotFoundError } from "@compass/shared";
+import { readOutcomeTargetExecutions } from "./OutcomeTargetProjectUseCases.ts";
 import { DirectionAgentRole } from "./port/DirectionAuthorizationPort.ts";
 
 /** Evaluatorが存在を仮定・捏造してはならない入力。Evidenceは参照だけで、本文は保存していない。 */
@@ -22,15 +24,20 @@ export type EvaluatorContext = {
   intent: Intent | null;
   /** 固定のSuccess Criteria（`id`・`position`・`description`・`measurement`・`target`）を含む。Evaluatorは変更できない。 */
   outcome: Outcome;
-  /** Executionから還流済みの結果とEvidence参照。まだ還流されていなければnull（この間は評価を確定できない）。 */
-  execution: OutcomeExecutionRecord | null;
+  /**
+   * 全Target（設定順、`projectStatus`付き）と、各Targetから還流済みのSummary・Evidence参照（未還流はnull）。
+   * Project別のまま並べ、合算しない。Target解除前に還流された記録は評価の入力ではないため含めない。
+   */
+  targets: OutcomeTargetExecution[];
+  /** 全Targetから見た評価可能性。`evaluable`以外ではEvaluationを保存できない。 */
+  evaluability: OutcomeEvaluability;
   /** このOutcomeの過去の評価（新しい順）。再評価するときの比較に使う。 */
   evaluations: readonly OutcomeEvaluation[];
   unavailable: readonly string[];
 };
 
 /**
- * Evaluatorが評価するために必要な入力（固定Success Criteria・Execution Summary・Evidence参照・過去の評価）を1回で返す。
+ * Evaluatorが評価するために必要な入力（固定Success Criteria・全TargetのExecution Summary・Evidence参照・評価可能性・過去の評価）を1回で返す。
  * 読取だけで、Outcome・Executionを変更しない。Evidence本文は含まないため、参照先の観測はEvaluator自身が行う。
  */
 export class GetEvaluatorContextUseCase {
@@ -38,7 +45,8 @@ export class GetEvaluatorContextUseCase {
     private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly intentRepository: IntentRepository,
     private readonly outcomeRepository: OutcomeRepository,
-    private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
+    private readonly targetRepository: Pick<OutcomeTargetProjectRepository, "listByOutcome">,
+    private readonly outcomeExecutionRepository: Pick<OutcomeExecutionRepository, "findByOutcome">,
     private readonly outcomeEvaluationRepository: OutcomeEvaluationRepository,
   ) {}
 
@@ -48,21 +56,18 @@ export class GetEvaluatorContextUseCase {
     if (!workspace) throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     // 別WorkspaceのOutcome IDも同じNOT_FOUND。
     const outcome = await this.outcomeRepository.findByIdInWorkspace(workspaceId, outcomeId);
-    if (!outcome) throw new NotFoundError(`Outcome ${outcomeId} was not found in Workspace ${workspaceId}`);
+    const read = await readOutcomeTargetExecutions(this.targetRepository, this.outcomeExecutionRepository, workspaceId, outcomeId);
+    if (!outcome || !read) throw new NotFoundError(`Outcome ${outcomeId} was not found in Workspace ${workspaceId}`);
     return {
       principalId,
       role: DirectionAgentRole.EVALUATOR,
       workspace,
       intent: await this.intentRepository.findById(workspaceId, outcome.intentId),
       outcome,
-      execution: await this.soleExecution(workspaceId, outcomeId),
+      targets: read.targets,
+      evaluability: assessOutcomeEvaluability(read.targets),
       evaluations: await this.outcomeEvaluationRepository.findByOutcome(workspaceId, outcomeId),
       unavailable: unavailableEvaluatorInputs,
     };
-  }
-  private async soleExecution(workspaceId: string, outcomeId: string): Promise<OutcomeExecutionRecord | null> {
-    const records = await this.outcomeExecutionRepository.findByOutcome(workspaceId, outcomeId);
-    if (records.length > 1) throw new ConflictError("Multiple Project evaluation requires the Target evaluation contract", { reason: "multi_project_evaluation_required" });
-    return records[0] ?? null;
   }
 }

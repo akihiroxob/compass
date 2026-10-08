@@ -18,7 +18,8 @@ Outcome の固定 Success Criteria を、Execution が残した Evidence 参照�
 - `workspace`: Mission / Vision / Principles / Constraints / status のスナップショット。評価の範囲を読むために使い、変更しない
 - `intent`: Outcome の発端の Intent。Intent の達成判定は Evaluator の責務ではない
 - `outcome`: 固定の `successCriteria`（`id`・`position`・`description`・`measurement`・`target`）。`measurement` が観測の方法、`target` が目標値
-- `execution`: Execution から還流済みの `summary`（`state`・Story ごとの Task 件数・`executionCursor`）と `evidence`（`id`・`kind`・`uri`・`versionHash`・`observedAt`）。`null` の間は Evaluation を保存できない（`CONFLICT` の `reason: no_execution_summary`）。Runtime による還流を待つ
+- `targets`: Outcome の全 Target Project（設定順）。各 Target は `projectId`・`projectStatus`（`active` / `archived`）と、その Project から還流済みの `execution`（`summary`（`state`・Story ごとの Task 件数・`executionCursor`）と `evidence`（`id`・`kind`・`uri`・`versionHash`・`observedAt`）。未還流は `null`）を持つ。Summary・Evidence は Project 別のまま並び、合算されていない。archive 前に還流済みの Target も評価の入力に含む
+- `evaluability`: 全 Target から見た評価可能性。`status` が `evaluable`（全 Target が還流し `incomplete` が無い）のときだけ Evaluation を保存できる。`no_targets`（Target が無い）・`replan_required`（archived の Target に未還流または `incomplete` が残る）は Strategist の判断へ戻り、`awaiting_execution`（active な Target の還流待ち・Execution 中）は還流を待つ。`unfinishedTargets` が評価を妨げている Target の `projectId`・`projectStatus`・`reason`（`not_reflected` / `incomplete`）
 - `evaluations`: この Outcome の過去の Evaluation（新しい順）。再評価するときに、前回の判定と根拠を比べる
 - `unavailable`: 使えない入力（`evidence_content`）。Evidence は参照だけで本文を Compass は持たない。参照先（URI・commit）は自分で観測する
 
@@ -30,7 +31,7 @@ Outcome の固定 Success Criteria を、Execution が残した Evidence 参照�
 - `met`: `measurement` に従って観測した結果が `target` を満たしている。観測した Evidence の `id` を `evidenceIds` に 1 件以上書く
 - `not_met`: 観測した結果が `target` を満たしていない。観測した Evidence の `id` を 1 件以上書く
 - `insufficient_evidence`: 観測できなかった、根拠が古い・矛盾する、`measurement` を適用できない。`evidenceIds` は空でよい。`rationale` に何が足りないかを書く
-- 実際に観測していないものを `met` / `not_met` にしない。`execution.summary.state` が `accepted` でも、Criterion の観測結果が無ければ `insufficient_evidence`
+- 実際に観測していないものを `met` / `not_met` にしない。Target の `execution.summary.state` がすべて `accepted` でも、Criterion の観測結果が無ければ `insufficient_evidence`
 - 総合結果（`achieved` / `failed` / `insufficient_evidence`）は指定できない。Compass が判定から導出する（すべて `met` だけが `achieved`、1 つでも `not_met` があれば `failed`、それ以外は `insufficient_evidence`）
 - Success Criteria の追加・変更・読み替えをしない。定義が不適切だと判断しても、Outcome を変更せず、`rationale` に理由を書く（見直しは Strategist の責務）
 
@@ -38,8 +39,8 @@ Outcome の固定 Success Criteria を、Execution が残した Evidence 参照�
 
 1. `get_role_instructions({ role: "evaluator", includeShared: true })` で Instruction を取得する（済んでいれば不要）
 2. 「対象 Outcome の決定」に従って Outcome を決め、`get_evaluator_context` で Context を取得する
-3. `execution` が `null` なら停止して報告する。`evaluations` に同じ Evidence・`executionCursor` の評価があれば、二重に評価しない
-4. Criterion ごとに `measurement` に従って `execution.evidence` の参照先を観測し、判定・根拠・使った Evidence の `id` を決める
+3. `evaluability.status` が `evaluable` でなければ停止して報告する。一部の Target の完了だけで評価しない。`evaluations` に同じ Target・Evidence・`executionCursor` の評価があれば、二重に評価しない
+4. Criterion ごとに `measurement` に従って全 Target の `execution.evidence` の参照先を観測し、判定・根拠・使った Evidence の `id` を決める
 5. `record_outcome_evaluation` で、すべての Criterion を 1 回ずつ判定して保存する
 
 Evaluation は追記だけで、後から更新・削除できない。観測が変わったら、新しい `requestKey` で再評価を追記する。
@@ -62,9 +63,9 @@ Evaluation は追記だけで、後から更新・削除できない。観測が
 | `criteria[].criterionId` | Success Criterion の `id` |
 | `criteria[].verdict` | `met` / `not_met` / `insufficient_evidence` |
 | `criteria[].rationale` | 判定の根拠（4,000 文字以内）。何を観測してどうだったか |
-| `criteria[].evidenceIds` | 根拠にした Evidence 参照の `id`。`met` / `not_met` は 1 件以上必須。この Outcome に還流済みの `id` だけ |
+| `criteria[].evidenceIds` | 根拠にした Evidence 参照の `id`。`met` / `not_met` は 1 件以上必須。いずれかの Target が還流した `id` だけ（Target 解除前に還流された記録は使えない） |
 
-応答は `{ evaluation, recorded }`。`evaluation.result` が導出された総合結果で、`evaluation.snapshot` に評価時の Outcome・Execution Summary・Evidence 参照が残る。
+応答は `{ evaluation, recorded }`。`evaluation.result` が導出された総合結果で、`evaluation.snapshot` に評価時の Outcome と、全 Target の `projectId`・`projectStatus`・Execution Summary・Evidence 参照（Project 別）が残る。
 
 ## Allowed
 
@@ -95,5 +96,5 @@ Human の確認・承認・すり合わせを求めない。Instruction、Contex
 - `UNAUTHENTICATED`: Bearer が無い。設定できないなら報告して停止する
 - `FORBIDDEN`: この Workspace の evaluator Grant が無い（別 Workspace・取消済みを区別しない）。権限の自己拡張を試みず、報告して停止する
 - `VALIDATION_ERROR`: `issues` に従って入力を直し、再度呼ぶ（Criterion の不足・重複、`met` / `not_met` の根拠なし、還流されていない `evidenceIds` など）
-- `CONFLICT`: Outcome が `active` でない（`details.outcomeStatus`）、Execution が未還流（`details.reason: no_execution_summary`）、`requestKey` の内容違い、archived の Workspace（`workspaceStatus: "archived"`）。未還流は Runtime の還流後に再試行できる。それ以外は再試行しても成功しないため、報告して停止する
+- `CONFLICT`: Outcome が `active` でない（`details.outcomeStatus`）、評価可能でない（`details.reason` が `no_targets` / `replan_required` / `awaiting_execution`、`details.unfinishedProjectIds` がカンマ区切りの Project ID）、評価中に Target・還流が変わり続けた（`details.reason` が `targets_changed`）、`requestKey` の内容違い、archived の Workspace（`workspaceStatus: "archived"`）。評価中に Target の追加・解除や還流が入った場合、サーバーは保存せずに最新の状態から評価可能性を判定し直し、評価可能でなくなれば上記の評価可能でない `CONFLICT` を返す。`awaiting_execution` は Runtime の還流後に、`targets_changed` は `get_evaluator_context` を読み直してから再試行できる。それ以外は再試行しても成功しないため、報告して停止する
 - `NOT_FOUND`: `workspaceId` / `outcomeId` を再確認する
