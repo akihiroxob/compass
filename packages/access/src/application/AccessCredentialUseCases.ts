@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { AccessCredential, CredentialKind } from "../domain/AccessCredential.ts";
+import type { AccessCredential, CredentialKind, CredentialScope } from "../domain/AccessCredential.ts";
 import type { HumanActor } from "../domain/HumanAuth.ts";
 import type { AccessCredentialRepository, NewCredentialSecret } from "../domain/AccessCredentialRepository.ts";
 import { parseIssueCredentialInput, parseRotateCredentialInput } from "./credentialSchema.ts";
 import { ConflictError, NotFoundError, UnauthenticatedError } from "@compass/shared";
-import { ProjectArchivedError } from "@compass/direction";
+import { ProjectArchivedError, WorkspaceArchivedError } from "@compass/organization";
 import type { HumanProjectAuthorizationService } from "./HumanProjectAuthorizationService.ts";
+import type { HumanWorkspaceAuthorizationService } from "./HumanWorkspaceAuthorizationService.ts";
 import type { AgentCredentialCaller, RuntimeCredentialCaller } from "./RuntimeAuthorizationService.ts";
 import { generateSecretToken, hashSecretToken, secretEquals } from "./secretToken.ts";
 
@@ -40,22 +41,41 @@ const newSecret = (kind: CredentialKind, createdByHumanUserId: string, now: numb
 /** 発行・rotationの応答。`token`はこの応答だけで返し、以後は再表示しない。 */
 export type IssuedCredential = { credential: AccessCredential; token: string };
 
-/** Project Administrator以上がWeb UIから発行する。AgentやRuntime自身は発行できない（MCPに公開しない）。 */
+/**
+ * Credential管理のHuman認可。scopeのMembership（Workspace / Project）のAdministrator以上だけで、
+ * Workspace MembershipからProject Credentialの管理権限を継承しない（逆も同じ）。
+ */
+export class CredentialScopeAuthorization {
+  constructor(
+    private readonly projects: HumanProjectAuthorizationService,
+    private readonly workspaces: HumanWorkspaceAuthorizationService,
+  ) {}
+
+  async authorize(actor: HumanActor, scope: CredentialScope): Promise<void> {
+    if (scope.kind === "workspace") await this.workspaces.authorize(actor, scope.id, "credential.manage");
+    else await this.projects.authorize(actor, scope.id, "credential.manage");
+  }
+}
+
+const scopeArchivedError = (scope: CredentialScope) =>
+  scope.kind === "workspace" ? new WorkspaceArchivedError(scope.id) : new ProjectArchivedError(scope.id);
+
+/** scopeのAdministrator以上がWeb UIから発行する。AgentやRuntime自身は発行できない（MCPに公開しない）。 */
 export class IssueAccessCredentialUseCase {
   constructor(
-    private readonly authorization: HumanProjectAuthorizationService,
+    private readonly authorization: CredentialScopeAuthorization,
     private readonly credentialRepository: AccessCredentialRepository,
     private readonly clock: () => number = Date.now,
   ) {}
 
-  async execute(actor: HumanActor, projectId: string, input: unknown): Promise<IssuedCredential> {
-    await this.authorization.authorize(actor, projectId, "credential.manage");
+  async execute(actor: HumanActor, scope: CredentialScope, input: unknown): Promise<IssuedCredential> {
+    await this.authorization.authorize(actor, scope);
     const { kind, principalId, scopes, expiresInDays } = parseIssueCredentialInput(input);
     const { record, token } = newSecret(kind, actor.humanUserId, this.clock(), expiresInDays);
-    const result = await this.credentialRepository.issue({ ...record, projectId, kind, principalId, scopes });
-    if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
+    const result = await this.credentialRepository.issue({ ...record, scope, kind, principalId, scopes });
+    if (result.kind === "scope_archived") throw scopeArchivedError(scope);
     if (result.kind === "principal_bound_elsewhere") {
-      throw new ConflictError(`Principal ${principalId} already has a Role Grant or an Agent Credential in another Project`, {
+      throw new ConflictError(`Principal ${principalId} already has a Role Grant or an Agent Credential in another Workspace or Project`, {
         conflict: "PRINCIPAL_BOUND_ELSEWHERE",
       });
     }
@@ -69,27 +89,27 @@ export class IssueAccessCredentialUseCase {
  */
 export class RotateAccessCredentialUseCase {
   constructor(
-    private readonly authorization: HumanProjectAuthorizationService,
+    private readonly authorization: CredentialScopeAuthorization,
     private readonly credentialRepository: AccessCredentialRepository,
     private readonly clock: () => number = Date.now,
   ) {}
 
   async execute(
     actor: HumanActor,
-    projectId: string,
+    scope: CredentialScope,
     credentialId: string,
     input: unknown,
   ): Promise<IssuedCredential & { previous: AccessCredential }> {
-    await this.authorization.authorize(actor, projectId, "credential.manage");
+    await this.authorization.authorize(actor, scope);
     const { expiresInDays, graceHours } = parseRotateCredentialInput(input);
     // kindは作成後に変わらないため、新Credentialのprefix・tokenの種別を先に確定する。
-    const current = await this.credentialRepository.findInProject(projectId, credentialId);
+    const current = await this.credentialRepository.findInScope(scope, credentialId);
     if (!current) throw new NotFoundError(`Credential ${credentialId} was not found`);
     const now = this.clock();
     const { record, token } = newSecret(current.kind, actor.humanUserId, now, expiresInDays);
-    const result = await this.credentialRepository.rotate(projectId, credentialId, record, now + graceHours * hourMilliseconds);
+    const result = await this.credentialRepository.rotate(scope, credentialId, record, now + graceHours * hourMilliseconds);
     if (result.kind === "not_found") throw new NotFoundError(`Credential ${credentialId} was not found`);
-    if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
+    if (result.kind === "scope_archived") throw scopeArchivedError(scope);
     if (result.kind === "not_active") {
       throw new ConflictError("A revoked or expired Credential cannot be rotated; issue a new one", {
         conflict: "CREDENTIAL_NOT_ACTIVE",
@@ -99,17 +119,17 @@ export class RotateAccessCredentialUseCase {
   }
 }
 
-/** 取消は次の呼出しから反映される（認証は毎回DBを読む）。冪等で、archivedのProjectでも行える。 */
+/** 取消は次の呼出しから反映される（認証は毎回DBを読む）。冪等で、archivedのscopeでも行える。 */
 export class RevokeAccessCredentialUseCase {
   constructor(
-    private readonly authorization: HumanProjectAuthorizationService,
+    private readonly authorization: CredentialScopeAuthorization,
     private readonly credentialRepository: AccessCredentialRepository,
     private readonly clock: () => number = Date.now,
   ) {}
 
-  async execute(actor: HumanActor, projectId: string, credentialId: string): Promise<AccessCredential> {
-    await this.authorization.authorize(actor, projectId, "credential.manage");
-    const credential = await this.credentialRepository.revoke(projectId, credentialId, actor.humanUserId, this.clock());
+  async execute(actor: HumanActor, scope: CredentialScope, credentialId: string): Promise<AccessCredential> {
+    await this.authorization.authorize(actor, scope);
+    const credential = await this.credentialRepository.revoke(scope, credentialId, actor.humanUserId, this.clock());
     if (!credential) throw new NotFoundError(`Credential ${credentialId} was not found`);
     return credential;
   }
@@ -118,13 +138,13 @@ export class RevokeAccessCredentialUseCase {
 /** 一覧はsecret・hashを含まない。 */
 export class ListAccessCredentialsUseCase {
   constructor(
-    private readonly authorization: HumanProjectAuthorizationService,
+    private readonly authorization: CredentialScopeAuthorization,
     private readonly credentialRepository: AccessCredentialRepository,
   ) {}
 
-  async execute(actor: HumanActor, projectId: string): Promise<AccessCredential[]> {
-    await this.authorization.authorize(actor, projectId, "credential.manage");
-    return this.credentialRepository.listByProject(projectId);
+  async execute(actor: HumanActor, scope: CredentialScope): Promise<AccessCredential[]> {
+    await this.authorization.authorize(actor, scope);
+    return this.credentialRepository.listByScope(scope);
   }
 }
 
@@ -151,7 +171,7 @@ export class AuthenticateAccessCredentialUseCase {
       throw invalid();
     }
     await this.credentialRepository.recordUse(credential.id, now);
-    const base = { credentialId: credential.id, projectId: credential.projectId, principalId: credential.principalId };
+    const base = { credentialId: credential.id, scope: credential.scope, principalId: credential.principalId };
     return credential.kind === "agent" ? { kind: "agent", ...base } : { kind: "runtime", ...base, scopes: credential.scopes };
   }
 }

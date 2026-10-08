@@ -159,13 +159,47 @@ const initializeHumanAuthSchema = async (database: Kysely<AccessDatabase>): Prom
     on project_invitation (project_id, email) where status = 'pending'`.execute(database);
 };
 
-/** Agent・Runtime向けCredential（Task 37）。既存tableは変更しない。 */
+/** Workspace Membership。`create ... if not exists`だけで既存tableには触れない。既存Projectからの初期memberは別途補完する。 */
+const initializeWorkspaceMembershipSchema = async (database: Kysely<AccessDatabase>): Promise<void> => {
+  const humanUserId = (column: ColumnDefinitionBuilder) => column.references("human_user.id");
+  await database.schema
+    .createTable("workspace_membership")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("workspace_id", "text", (column) => column.notNull().references("workspace.id").onDelete("cascade"))
+    .addColumn("human_user_id", "text", (column) => humanUserId(column).notNull())
+    .addColumn("role", "text", (column) =>
+      column.notNull().check(sql`role in ('owner', 'administrator', 'editor', 'viewer')`),
+    )
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addColumn("updated_at", "integer", (column) => column.notNull())
+    .addColumn("created_by_human_user_id", "text", humanUserId)
+    .addColumn("revoked_at", "integer")
+    .addColumn("revoked_by_human_user_id", "text", humanUserId)
+    .execute();
+  // 有効なMembershipは(Workspace, Human)につき1件。取消後の再追加は新しい行にする。
+  await sql`create unique index if not exists workspace_membership_active_idx
+    on workspace_membership (workspace_id, human_user_id) where revoked_at is null`.execute(database);
+  await database.schema
+    .createIndex("workspace_membership_human_idx")
+    .ifNotExists()
+    .on("workspace_membership")
+    .column("human_user_id")
+    .execute();
+};
+
+/**
+ * Agent・Runtime向けCredential（Task 37）。scope（Workspace / Project）を明示し、scopeに対応するIDの列だけを持つ。
+ * 旧定義（`project_id`必須）の開発DBは再作成する（旧Credentialは引き継がない）。
+ */
 const initializeAccessCredentialSchema = async (database: Kysely<AccessDatabase>) => {
   await database.schema
     .createTable("access_credential")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("scope_kind", "text", (column) => column.notNull().check(sql`scope_kind in ('workspace', 'project')`))
+    .addColumn("workspace_id", "text", (column) => column.references("workspace.id").onDelete("cascade"))
+    .addColumn("project_id", "text", (column) => column.references("project.id").onDelete("cascade"))
     .addColumn("kind", "text", (column) => column.notNull().check(sql`kind in ('agent', 'runtime')`))
     .addColumn("principal_id", "text", (column) => column.notNull())
     .addColumn("scopes_json", "text", (column) => column.notNull())
@@ -178,12 +212,23 @@ const initializeAccessCredentialSchema = async (database: Kysely<AccessDatabase>
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addColumn("created_by_human_user_id", "text", (column) => column.notNull().references("human_user.id"))
     .addColumn("rotated_from_id", "text", (column) => column.references("access_credential.id"))
+    .addCheckConstraint(
+      "access_credential_scope_check",
+      sql`(scope_kind = 'workspace' and workspace_id is not null and project_id is null)
+        or (scope_kind = 'project' and project_id is not null and workspace_id is null)`,
+    )
     .execute();
   await database.schema
     .createIndex("access_credential_project_idx")
     .ifNotExists()
     .on("access_credential")
     .column("project_id")
+    .execute();
+  await database.schema
+    .createIndex("access_credential_workspace_idx")
+    .ifNotExists()
+    .on("access_credential")
+    .column("workspace_id")
     .execute();
   await database.schema
     .createIndex("access_credential_principal_idx")
@@ -195,10 +240,19 @@ const initializeAccessCredentialSchema = async (database: Kysely<AccessDatabase>
 
 /**
  * Accessのtable。すべて`create ... if not exists`なので既存DBへ再適用できる。
- * `project.id`へのFKを持つため、Directionのschemaの後に適用する。
+ * `project.id`・`workspace.id`へのFKを持つため、Organizationのschemaの後に適用する。
  */
 export const initializeAccessSchema = async (database: Kysely<AccessDatabase>): Promise<void> => {
   await initializeProjectGrantSchema(database);
+  await database.schema.createTable("workspace_grant").ifNotExists()
+    .addColumn("workspace_id", "text", (column) => column.notNull().references("workspace.id").onDelete("cascade"))
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("role", "text", (column) => column.notNull().check(sql`role in ('strategist', 'researcher', 'evaluator')`))
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("workspace_grant_pk", ["workspace_id", "principal_id", "role"]).execute();
+  await database.schema.createIndex("workspace_grant_principal_idx").ifNotExists()
+    .on("workspace_grant").columns(["principal_id", "workspace_id"]).execute();
   await initializeHumanAuthSchema(database);
+  await initializeWorkspaceMembershipSchema(database);
   await initializeAccessCredentialSchema(database);
 };

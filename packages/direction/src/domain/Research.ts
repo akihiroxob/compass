@@ -32,7 +32,7 @@ export type EvidenceKind = (typeof evidenceKinds)[number];
 /** 予算の単位はRuntimeが定める。Compassは総量と使用量の整合だけを保証する。 */
 export type ResearchRequest = {
   readonly id: string;
-  readonly projectId: string;
+  readonly workspaceId: string;
   readonly kind: ResearchRequestKind;
   readonly originIntentId: string | null;
   readonly originOutcomeId: string | null;
@@ -53,19 +53,21 @@ export type ResearchRequest = {
 
 export type EvidenceReference = {
   readonly id: string;
-  readonly projectId: string;
+  readonly workspaceId: string;
   readonly resultId: string;
   readonly position: number;
   readonly kind: EvidenceKind;
   readonly uri: string;
   readonly retrievedAt: number;
   readonly versionHash: string | null;
+  /** 同じWorkspaceに属するProject Resource。本文は保持せずuri/revisionで正本を辿る。 */
+  readonly resourceId: string | null;
 };
 
 /** 原子的な発見。作成後は変更しない。Evidenceは同じResultの参照から選ぶ。 */
 export type ResearchFinding = {
   readonly id: string;
-  readonly projectId: string;
+  readonly workspaceId: string;
   readonly requestId: string;
   readonly resultId: string;
   readonly position: number;
@@ -83,7 +85,7 @@ export type ResearchFinding = {
 
 export type ResearchResult = {
   readonly id: string;
-  readonly projectId: string;
+  readonly workspaceId: string;
   readonly requestId: string;
   /** Request内の登録順（1始まり）。 */
   readonly sequence: number;
@@ -102,7 +104,7 @@ export type ResearchResult = {
 /** 上書きせず、`supersedesId`で前versionを指す新しい行として追加する。 */
 export type ResearchSynthesis = {
   readonly id: string;
-  readonly projectId: string;
+  readonly workspaceId: string;
   readonly requestId: string;
   readonly version: number;
   readonly supersedesId: string | null;
@@ -117,7 +119,7 @@ export type ResearchSynthesis = {
   readonly createdAt: number;
 };
 
-/** Requestと、Project・発端Intentから辿れる来歴（Result → Finding / Evidence、Synthesis）をまとめた読取モデル。 */
+/** Requestと、Workspace・発端Intentから辿れる来歴（Result → Finding / Evidence、Synthesis）をまとめた読取モデル。 */
 export type ResearchRequestDetail = {
   readonly request: ResearchRequest;
   readonly results: readonly ResearchResult[];

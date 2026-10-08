@@ -105,6 +105,23 @@ export type ProjectMembership = {
   readonly revokedByHumanUserId: string | null;
 };
 
+/**
+ * Workspace内のHuman Role（Roleの値・順序はProject Membershipと同じ）。Workspaceの閲覧・Direction管理・Project作成・
+ * member管理に使い、ProjectのMembershipとは別に保持する。Workspace memberであってもProjectのWorkは操作できない。
+ */
+export type WorkspaceMembership = {
+  readonly id: string;
+  readonly workspaceId: string;
+  readonly humanUserId: string;
+  readonly role: HumanRole;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  /** 付与したHuman。作成者・既存Project Membershipからの移行・orphan補完はnull。 */
+  readonly createdByHumanUserId: string | null;
+  readonly revokedAt: number | null;
+  readonly revokedByHumanUserId: string | null;
+};
+
 /** 招待の既定期限と指定可能範囲（時間）。 */
 export const invitationDefaultTtlHours = 7 * 24;
 export const invitationMinTtlHours = 1;
@@ -245,6 +262,28 @@ export const humanProjectPermissions = {
 } as const satisfies Record<string, HumanRole>;
 
 export type HumanProjectOperation = keyof typeof humanProjectPermissions;
+
+/**
+ * Human向けWorkspace操作の権限表（操作 → 最低Role。compass-workspace-architecture-codex-handoff-v2.md「14.1 Human」）。
+ * application層の`HumanWorkspaceAuthorizationService`だけがこの表で検査する。Project Work（Story / Task等）の操作は含めず、
+ * それらは引き続きProject Membership（`humanProjectPermissions`）で認可する。Workspace作成は認証済みであればよい。
+ */
+export const humanWorkspacePermissions = {
+  /** Workspace（Mission / Vision / Principles / Constraints・status）の参照。archivedでも参照できる。 */
+  "workspace.read": "viewer",
+  "member.read": "viewer",
+  /** Workspace scopeのDirection（Intent・Outcome等）の変更。入口の接続はDirectionのWorkspace scope化（Story 03）以降。 */
+  "direction.write": "editor",
+  "workspace.update": "administrator",
+  /** 既存のWorkspaceへのProject作成。作成者はProjectのownerになる。 */
+  "project.create": "administrator",
+  /** Workspace scopeのAgent / Runtime Credentialの発行・rotation・取消・一覧。Project Credentialは各ProjectのMembershipで認可する。 */
+  "credential.manage": "administrator",
+  "member.manage": "owner",
+  "workspace.archive": "owner",
+} as const satisfies Record<string, HumanRole>;
+
+export type HumanWorkspaceOperation = keyof typeof humanWorkspacePermissions;
 
 /**
  * Human operatorがExecutionへ介入したときのChange Log・Commentの`principalId`。Agent Principalと区別できるよう`human:`を付ける。

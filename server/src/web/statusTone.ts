@@ -1,4 +1,4 @@
-// 状態badgeの意味（Task 04）。色は`styles.css`の`--tone-*`で定義し、各画面は状態をこのtoneへ対応付けるだけにする。
+// 状態badgeの意味（Task 04）。色は`styles/_tokens.scss`の`--tone-*`で定義し、各画面は状態をこのtoneへ対応付けるだけにする。
 // 色だけに頼らず、badgeには必ず状態のラベル文字を併記する。
 
 /**

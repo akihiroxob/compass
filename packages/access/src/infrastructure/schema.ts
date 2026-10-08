@@ -1,4 +1,4 @@
-/** Accessが所有するtable。Projectの行（Direction）はFKで参照するだけで、Accessは読み書きしない。 */
+/** Accessが所有するtable。Project・Workspaceの行（Organization）はFKで参照するだけで、Accessは読み書きしない。 */
 export type ProjectGrantTable = {
   project_id: string;
   principal_id: string;
@@ -66,6 +66,19 @@ export type ProjectMembershipTable = {
   revoked_by_human_user_id: string | null;
 };
 
+/** Workspace（Organization）単位のHuman Membership。Project Membershipとは別tableで、相互に継承しない。 */
+export type WorkspaceMembershipTable = {
+  id: string;
+  workspace_id: string;
+  human_user_id: string;
+  role: "owner" | "administrator" | "editor" | "viewer";
+  created_at: number;
+  updated_at: number;
+  created_by_human_user_id: string | null;
+  revoked_at: number | null;
+  revoked_by_human_user_id: string | null;
+};
+
 export type ProjectInvitationTable = {
   id: string;
   project_id: string;
@@ -83,9 +96,12 @@ export type ProjectInvitationTable = {
 };
 
 /** Agent・Runtime向けCredential（Task 37）。secretは平文を持たずSHA-256だけを保存する。 */
+/** scopeに対応するIDの列だけを持つ（CHECK制約）。 */
 export type AccessCredentialTable = {
   id: string;
-  project_id: string;
+  scope_kind: "workspace" | "project";
+  workspace_id: string | null;
+  project_id: string | null;
   kind: "agent" | "runtime";
   principal_id: string;
   /** Runtime scopeの配列のJSON。agentは`[]`。 */
@@ -101,7 +117,16 @@ export type AccessCredentialTable = {
   rotated_from_id: string | null;
 };
 
+/** Workspace DirectionのRole Grant。ProjectのGrantとは独立する。 */
+export type WorkspaceGrantTable = {
+  workspace_id: string;
+  principal_id: string;
+  role: string;
+  created_at: number;
+};
+
 export type AccessDatabase = {
+  workspace_grant: WorkspaceGrantTable;
   project_grant: ProjectGrantTable;
   human_user: HumanUserTable;
   human_identity: HumanIdentityTable;
@@ -109,5 +134,6 @@ export type AccessDatabase = {
   auth_login_attempt: AuthLoginAttemptTable;
   project_membership: ProjectMembershipTable;
   project_invitation: ProjectInvitationTable;
+  workspace_membership: WorkspaceMembershipTable;
   access_credential: AccessCredentialTable;
 };

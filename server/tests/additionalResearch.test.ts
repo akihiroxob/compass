@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { sql } from "kysely";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, issueWorkspaceRuntimeToken, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -59,14 +59,18 @@ const errorOf = (result: ToolResult) => {
   return result.structuredContent.error as { code: string; message: string } & Record<string, any>;
 };
 
-const grant = async (app: App, projectId: string, principalId: string, role: string) => {
+const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role: string) => {
+  if (["strategist", "researcher", "evaluator"].includes(role)) {
+    await seedProjectWorkspaceGrant(database, projectId, principalId, role);
+    return;
+  }
   const response = await send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
   assert.ok(response.status === 200 || response.status === 201);
 };
 
 const seed = async (services: Services, name = "Compass") => {
   const project = await services.createProjectUseCase.execute({ name, mission: "Keep direction explicit" });
-  const intent = await services.createIntentUseCase.execute(project.id, {
+  const intent = await services.createIntentUseCase.execute(project.workspaceId, {
     title: `Agents improve ${name}`,
     desiredState: "Agents improve the software.",
   });
@@ -80,8 +84,8 @@ const plan = {
   budgetTotal: 50,
 };
 
-const decisionArgs = (projectId: string, intentId: string, overrides: object = {}) => ({
-  projectId,
+const decisionArgs = (workspaceId: string, intentId: string, overrides: object = {}) => ({
+  workspaceId,
   intentId,
   type: "additional_research",
   judgment: "Evidence is insufficient to choose an Outcome",
@@ -103,25 +107,30 @@ const counts = async ({ database }: Context) => {
   };
 };
 
-const fetchEvents = async (app: App, projectId: string) =>
-  (await callTool(app, "fetch_runtime_events", { projectId }, "runtime-a")).structuredContent.events as Array<
+// Runtime eventはWorkspace所有。consumer runtime-aのWorkspace Runtime Credentialで取得する。
+const runtimeTokens = new Map<string, string>();
+const fetchEvents = async (app: App, workspaceId: string) =>
+  (await callTool(app, "fetch_runtime_events", { workspaceId }, runtimeTokens.get(workspaceId))).structuredContent.events as Array<
     Record<string, any>
   >;
 
-const seedActors = async (app: App, projectId: string) => {
-  await grant(app, projectId, "strat-1", "strategist");
-  await grant(app, projectId, "runtime-a", "runtime");
+const seedActors = async (
+  { database, app, services }: Pick<Context, "database" | "app" | "services">,
+  project: { id: string; workspaceId: string },
+) => {
+  await grant(database, app, project.id, "strat-1", "strategist");
+  runtimeTokens.set(project.workspaceId, await issueWorkspaceRuntimeToken(database, services, project.workspaceId, "runtime-a"));
 };
 
 test("additional_researchはDecision・Request・research_requestedイベントを一貫した相関IDで保存し、Runtimeが取得できる", async () => {
   const context = await setup();
-  const { app, services } = context;
+  const { database, app, services } = context;
   const { project, intent } = await seed(services);
-  await seedActors(app, project.id);
+  await seedActors({ database, app, services }, project);
   const before = await counts(context);
   assert.deepEqual(before, { decisions: 0, requests: 0, events: 0 }); // Intent作成はRequestを作らない。
 
-  const created = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id), "strat-1");
+  const created = await callTool(app, "create_direction_decision", decisionArgs(project.workspaceId, intent.id), "strat-1");
   assert.equal(created.isError, undefined);
   const { decision, researchRequest } = created.structuredContent;
 
@@ -142,32 +151,32 @@ test("additional_researchはDecision・Request・research_requestedイベント�
   assert.deepEqual(await counts(context), { decisions: 1, requests: 1, events: 1 });
 
   // RuntimeはTask 31の入口から、追加Researchのイベントを取得できる。
-  const events = await fetchEvents(app, project.id);
+  const events = await fetchEvents(app, project.workspaceId);
   assert.equal(events.length, 1);
   const event = events[0]!;
   assert.equal(event.type, "research_requested");
-  assert.equal(event.projectId, project.id);
+  assert.equal(event.workspaceId, project.workspaceId);
   assert.equal(event.intentId, intent.id);
   assert.equal(event.researchRequestId, researchRequest.id);
   assert.equal(event.correlationId, `decision:${decision.id}`);
   assert.equal(event.conclusion, null);
 
   // Web APIのRequest詳細からも、相関IDで決めたDecisionへ遡れる。
-  const detail = await (await send(app, "GET", `/api/projects/${project.id}/research-requests/${researchRequest.id}`)).json();
+  const detail = await (await send(app, "GET", `/api/workspaces/${project.workspaceId}/research-requests/${researchRequest.id}`)).json();
   assert.equal(detail.detail.request.correlationId, `decision:${decision.id}`);
   await context.database.destroy();
 });
 
 test("同じrequestKeyの再送はDecision・Request・イベントを重複作成せず、異なるpayloadはCONFLICTになる", async () => {
   const context = await setup();
-  const { app, services } = context;
+  const { database, app, services } = context;
   const { project, intent } = await seed(services);
-  await seedActors(app, project.id);
+  await seedActors({ database, app, services }, project);
 
-  const first = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id), "strat-1");
+  const first = await callTool(app, "create_direction_decision", decisionArgs(project.workspaceId, intent.id), "strat-1");
   const after = await counts(context);
 
-  const replayed = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id), "strat-1");
+  const replayed = await callTool(app, "create_direction_decision", decisionArgs(project.workspaceId, intent.id), "strat-1");
   assert.equal(replayed.isError, undefined);
   assert.equal(replayed.structuredContent.decision.id, first.structuredContent.decision.id);
   assert.equal(replayed.structuredContent.researchRequest.id, first.structuredContent.researchRequest.id);
@@ -179,7 +188,7 @@ test("同じrequestKeyの再送はDecision・Request・イベントを重複作�
     { research: { ...plan, question: "A different question?" } },
     { reason: "A different reason" },
   ]) {
-    const conflicting = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id, changed), "strat-1");
+    const conflicting = await callTool(app, "create_direction_decision", decisionArgs(project.workspaceId, intent.id, changed), "strat-1");
     assert.equal(errorOf(conflicting).code, "CONFLICT");
     assert.equal(errorOf(conflicting).requestKey, "additional-1");
   }
@@ -190,11 +199,11 @@ test("同じrequestKeyの再送はDecision・Request・イベントを重複作�
 test("期限が過ぎた後でも、同じ入力の再送は作成済みのDecisionとRequestを返す。新規の過去期限は拒否する", async () => {
   let now = start;
   const context = await setup(() => now);
-  const { app, services } = context;
+  const { database, app, services } = context;
   const { project, intent } = await seed(services);
-  await seedActors(app, project.id);
+  await seedActors({ database, app, services }, project);
 
-  const args = decisionArgs(project.id, intent.id, { research: { ...plan, deadlineAt: start + 1_000 } });
+  const args = decisionArgs(project.workspaceId, intent.id, { research: { ...plan, deadlineAt: start + 1_000 } });
   const first = await callTool(app, "create_direction_decision", args, "strat-1");
   assert.equal(first.structuredContent.researchRequest.deadlineAt, start + 1_000);
   const created = await counts(context);
@@ -207,7 +216,7 @@ test("期限が過ぎた後でも、同じ入力の再送は作成済みのDecis
   const past = await callTool(
     app,
     "create_direction_decision",
-    decisionArgs(project.id, intent.id, { research: { ...plan, deadlineAt: now }, requestKey: "additional-past" }),
+    decisionArgs(project.workspaceId, intent.id, { research: { ...plan, deadlineAt: now }, requestKey: "additional-past" }),
     "strat-1",
   );
   const error = errorOf(past);
@@ -219,9 +228,9 @@ test("期限が過ぎた後でも、同じ入力の再送は作成済みのDecis
 
 test("research入力はadditional_researchだけが必須で、不正な予算・期限・空の計画はDecisionもRequestも作らない", async () => {
   const context = await setup();
-  const { app, services } = context;
+  const { database, app, services } = context;
   const { project, intent } = await seed(services);
-  await seedActors(app, project.id);
+  await seedActors({ database, app, services }, project);
   const before = await counts(context);
 
   const invalid: Array<[string, object]> = [
@@ -241,7 +250,7 @@ test("research入力はadditional_researchだけが必須で、不正な予算�
     const result = await callTool(
       app,
       "create_direction_decision",
-      decisionArgs(project.id, intent.id, { ...overrides, requestKey: `invalid-${label}` }),
+      decisionArgs(project.workspaceId, intent.id, { ...overrides, requestKey: `invalid-${label}` }),
       "strat-1",
     );
     // 型が合わない入力（小数・文字列）はMCP SDKのschemaが先に拒否する。それ以外はapplication層のVALIDATION_ERROR。
@@ -250,8 +259,8 @@ test("research入力はadditional_researchだけが必須で、不正な予算�
 
     // 入口に依らず、application層自身が全ての不正入力を拒否する。
     await assert.rejects(
-      services.createDirectionDecisionUseCase.execute(project.id, "strat-1", {
-        ...decisionArgs(project.id, intent.id, { ...overrides, requestKey: `invalid-${label}` }),
+      services.createDirectionDecisionUseCase.execute(project.workspaceId, "strat-1", {
+        ...decisionArgs(project.workspaceId, intent.id, { ...overrides, requestKey: `invalid-${label}` }),
         projectId: undefined,
       }),
       (error: Error) => error.name === "ValidationError",
@@ -264,7 +273,7 @@ test("research入力はadditional_researchだけが必須で、不正な予算�
   const complete = await callTool(
     app,
     "create_direction_decision",
-    decisionArgs(project.id, intent.id, { type: "intent_abandon", research: undefined, requestKey: "complete-1" }),
+    decisionArgs(project.workspaceId, intent.id, { type: "intent_abandon", research: undefined, requestKey: "complete-1" }),
     "strat-1",
   );
   assert.equal(complete.isError, undefined);
@@ -275,33 +284,33 @@ test("research入力はadditional_researchだけが必須で、不正な予算�
 
 test("archived Project・非Active Intent・別Project参照・Researcher / Runtime Grantによる確定を拒否する", async () => {
   const context = await setup();
-  const { app, services } = context;
+  const { database, app, services } = context;
   const { project, intent } = await seed(services);
   const other = await seed(services, "Other");
-  await seedActors(app, project.id);
-  await grant(app, project.id, "researcher-a", "researcher");
-  await grant(app, other.project.id, "strat-other", "strategist");
+  await seedActors({ database, app, services }, project);
+  await grant(database, app, project.id, "researcher-a", "researcher");
+  await grant(database, app, other.project.id, "strat-other", "strategist");
 
-  // ResearcherやRuntimeはDirectionを決められない。別ProjectのStrategist Grantも使えない。
+  // ResearcherやRuntimeはDirectionを決められない。別WorkspaceのStrategist Grantも使えない。
   for (const principal of ["researcher-a", "runtime-a", "strat-other"]) {
-    const denied = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id), principal);
+    const denied = await callTool(app, "create_direction_decision", decisionArgs(project.workspaceId, intent.id), principal);
     assert.equal(errorOf(denied).code, "FORBIDDEN", principal);
   }
-  const anonymous = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id));
+  const anonymous = await callTool(app, "create_direction_decision", decisionArgs(project.workspaceId, intent.id));
   assert.equal(errorOf(anonymous).code, "UNAUTHENTICATED");
 
-  // 別ProjectのIntent・Synthesis参照は、application層で拒否する。
+  // 別WorkspaceのIntent・Synthesis参照は、application層で拒否する。
   const foreignIntent = await callTool(
     app,
     "create_direction_decision",
-    decisionArgs(project.id, other.intent.id, { requestKey: "foreign-intent" }),
+    decisionArgs(project.workspaceId, other.intent.id, { requestKey: "foreign-intent" }),
     "strat-1",
   );
   assert.equal(errorOf(foreignIntent).code, "NOT_FOUND");
   const foreignSynthesis = await callTool(
     app,
     "create_direction_decision",
-    decisionArgs(project.id, intent.id, {
+    decisionArgs(project.workspaceId, intent.id, {
       usedSyntheses: [{ synthesisId: "synthesis-in-another-project", version: 1 }],
       requestKey: "foreign-synthesis",
     }),
@@ -312,25 +321,25 @@ test("archived Project・非Active Intent・別Project参照・Researcher / Runt
   assert.equal((await counts(context)).requests, 0);
 
   // 非Active Intent。
-  await services.abandonIntentUseCase.execute(project.id, intent.id, { reason: "Superseded" });
+  await services.abandonIntentUseCase.execute(project.workspaceId, intent.id, { reason: "Superseded" });
   const eventsBefore = await counts(context);
-  const abandoned = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id), "strat-1");
+  const abandoned = await callTool(app, "create_direction_decision", decisionArgs(project.workspaceId, intent.id), "strat-1");
   assert.equal(errorOf(abandoned).code, "CONFLICT");
   assert.equal(errorOf(abandoned).status, "abandoned");
   assert.deepEqual(await counts(context), eventsBefore);
 
-  // archived Project（再送の判定より先に拒否される）。
-  const active = await services.createIntentUseCase.execute(project.id, { title: "Next", desiredState: "Next state" });
+  // archived Project（最後のProjectのため所属Workspaceもarchived。再送の判定より先に拒否される）。
+  const active = await services.createIntentUseCase.execute(project.workspaceId, { title: "Next", desiredState: "Next state" });
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
   const archivedBefore = await counts(context);
   const archived = await callTool(
     app,
     "create_direction_decision",
-    decisionArgs(project.id, active.id, { requestKey: "after-archive" }),
+    decisionArgs(project.workspaceId, active.id, { requestKey: "after-archive" }),
     "strat-1",
   );
   assert.equal(errorOf(archived).code, "CONFLICT");
-  assert.equal(errorOf(archived).projectStatus, "archived");
+  assert.equal(errorOf(archived).workspaceStatus, "archived");
   assert.deepEqual(await counts(context), archivedBefore);
   await context.database.destroy();
 });
@@ -340,58 +349,58 @@ test("Decision・Request・イベントのいずれかの保存に失敗する�
     const context = await setup();
     const { app, services, database } = context;
     const { project, intent } = await seed(services);
-    await seedActors(app, project.id);
+    await seedActors({ database, app, services }, project);
     const before = await counts(context);
 
     // 追加Researchの保存経路だけを失敗させるため、seed後にtriggerを置く。
     await sql`create trigger fail_${sql.raw(table)} before insert on ${sql.table(table as "runtime_event")}
       begin select raise(abort, 'simulated failure'); end`.execute(database);
-    const failed = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id), "strat-1");
+    const failed = await callTool(app, "create_direction_decision", decisionArgs(project.workspaceId, intent.id), "strat-1");
     assert.equal(failed.isError, true, `${table}の失敗が成功として扱われた`);
     assert.deepEqual(await counts(context), before, `${table}の失敗で部分保存が残った`);
 
     // 失敗は一時的でも、同じrequestKeyの再送は通常どおり成功し、1件ずつになる。
     await sql`drop trigger ${sql.id(`fail_${table}`)}`.execute(database);
-    const retried = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id), "strat-1");
+    const retried = await callTool(app, "create_direction_decision", decisionArgs(project.workspaceId, intent.id), "strat-1");
     assert.equal(retried.isError, undefined);
     assert.deepEqual(await counts(context), { decisions: 1, requests: 1, events: 1 });
-    assert.equal((await fetchEvents(app, project.id)).length, 1);
+    assert.equal((await fetchEvents(app, project.workspaceId)).length, 1);
     await database.destroy();
   }
 });
 
 test("追加Requestの終了でresearch_completedが同じ相関IDで出て、Strategist Contextから追加Requestを追跡できる", async () => {
   const context = await setup();
-  const { app, services } = context;
+  const { database, app, services } = context;
   const { project, intent } = await seed(services);
-  await seedActors(app, project.id);
-  await grant(app, project.id, "researcher-a", "researcher");
+  await seedActors({ database, app, services }, project);
+  await grant(database, app, project.id, "researcher-a", "researcher");
 
-  const created = await callTool(app, "create_direction_decision", decisionArgs(project.id, intent.id), "strat-1");
+  const created = await callTool(app, "create_direction_decision", decisionArgs(project.workspaceId, intent.id), "strat-1");
   const { decision, researchRequest } = created.structuredContent;
 
   // ResearcherはRuntimeに起動され、追加Requestを自分の調査対象として取得できる。
   const researcherContext = await callTool(
     app,
     "get_researcher_context",
-    { projectId: project.id, requestId: researchRequest.id },
+    { workspaceId: project.workspaceId, requestId: researchRequest.id },
     "researcher-a",
   );
   assert.equal(researcherContext.isError, undefined);
   assert.equal(researcherContext.structuredContent.request.question, plan.question);
-  const closed = await services.completeResearchRequestUseCase.execute(project.id, researchRequest.id, {
+  const closed = await services.completeResearchRequestUseCase.execute(project.workspaceId, researchRequest.id, {
     conclusion: "insufficient",
     stopReason: "No public evidence found",
   });
   assert.equal(closed.status, "insufficient");
 
-  const events = await fetchEvents(app, project.id);
+  const events = await fetchEvents(app, project.workspaceId);
   const completed = events.find((event) => event.type === "research_completed" && event.researchRequestId === researchRequest.id);
   assert.ok(completed);
   assert.equal(completed.correlationId, `decision:${decision.id}`);
   assert.equal(completed.conclusion, "insufficient");
 
-  const strategistContext = await callTool(app, "get_strategist_context", { projectId: project.id }, "strat-1");
+  const strategistContext = await callTool(app, "get_strategist_context", { workspaceId: project.workspaceId }, "strat-1");
   const ids = strategistContext.structuredContent.research.requests.map((item: { id: string }) => item.id);
   assert.ok(ids.includes(researchRequest.id));
   await context.database.destroy();

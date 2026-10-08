@@ -4,7 +4,7 @@ import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { splitIntents, type Intent } from "../../intentForm";
 import { splitOutcomes, type Outcome } from "../../outcomeForm";
-import { intentPath, outcomePath } from "../../paths";
+import { intentPath, outcomePath, workspaceApiPath } from "../../paths";
 import { statusBadgeClass, type StatusTone } from "../../statusTone";
 import { credentialSectionId, credentialStatus, credentialsPath, type Credential } from "../credential";
 import {
@@ -63,11 +63,11 @@ type OverviewData = {
 const toOverviewOutcome = (outcome: Outcome): OverviewOutcome => ({ id: outcome.id, intentId: outcome.intentId, title: outcome.title });
 
 /** Active Outcome 1件の閉ループの現在地。取得に失敗したOutcomeは`stage: null`にし、件数に含めない。 */
-const loadProgress = (projectId: string, outcome: Outcome): Promise<LoadedProgress> =>
+const loadProgress = (projectId: string, workspaceId: string, outcome: Outcome): Promise<LoadedProgress> =>
   Promise.all([
     request<ExecutionOverview>(executionPath(projectId, outcome.id)),
     request<{ record: OutcomeExecutionRecord | null }>(executionSummaryPath(projectId, outcome.id)),
-    request<{ evaluations: OutcomeEvaluation[] }>(evaluationsPath(projectId, outcome.id)),
+    request<{ evaluations: OutcomeEvaluation[] }>(evaluationsPath(workspaceId, outcome.id)),
   ])
     .then(([overview, { record }, { evaluations }]) => ({
       outcome: toOverviewOutcome(outcome),
@@ -76,18 +76,19 @@ const loadProgress = (projectId: string, outcome: Outcome): Promise<LoadedProgre
     }))
     .catch(() => ({ outcome: toOverviewOutcome(outcome), stage: null, tasks: [] }));
 
-const loadOverview = async (projectId: string, showCredentials: boolean): Promise<OverviewData> => {
+/** Intent・Outcomeは所属WorkspaceのDirection。WorkspaceのDirectionを閲覧できない（`workspaceId`がnull）場合は読まない。 */
+const loadOverview = async (projectId: string, workspaceId: string | null, showCredentials: boolean): Promise<OverviewData> => {
   const [{ intents }, { tasks }, { grants }, credentials] = await Promise.all([
-    request<{ intents: Intent[] }>(`/api/projects/${projectId}/intents`),
+    workspaceId === null ? Promise.resolve({ intents: [] as Intent[] }) : request<{ intents: Intent[] }>(workspaceApiPath(workspaceId, "/intents")),
     request<ExecutionOverview>(executionPath(projectId)),
     request<{ grants: Grant[] }>(grantsPath(projectId)),
     showCredentials ? request<{ credentials: Credential[] }>(credentialsPath(projectId)).then((body) => body.credentials) : Promise.resolve(null),
   ]);
   const { active: activeIntent } = splitIntents(intents);
-  const outcomes = activeIntent
-    ? splitOutcomes((await request<{ outcomes: Outcome[] }>(`/api/projects/${projectId}/intents/${activeIntent.id}/outcomes`)).outcomes).active
+  const outcomes = activeIntent && workspaceId !== null
+    ? splitOutcomes((await request<{ outcomes: Outcome[] }>(workspaceApiPath(workspaceId, `/intents/${activeIntent.id}/outcomes`))).outcomes).active
     : [];
-  const progress = await Promise.all(outcomes.map((outcome) => loadProgress(projectId, outcome)));
+  const progress = workspaceId === null ? [] : await Promise.all(outcomes.map((outcome) => loadProgress(projectId, workspaceId, outcome)));
   return { activeIntent, outcomes, progress, tasks, grants, credentials, fetchedAt: Date.now() };
 };
 
@@ -170,7 +171,7 @@ const WaitingItemRow = ({ projectId, item }: { projectId: string; item: WaitingI
  * Project詳細の概要（Task 03）。現在地と、権限に応じた次の行動をまとめる。導線の表示だけを権限で切り替え、拒否は常にserverが行う。
  * archivedでは次の行動を出さない。Role割当・Credential・Claimから、Agentが動作中であるとは表示しない。
  */
-export const ProjectOverview = ({ projectId, archived, permissions }: { projectId: string; archived: boolean; permissions: OverviewPermissions }) => {
+export const ProjectOverview = ({ projectId, workspaceId, archived, permissions }: { projectId: string; workspaceId: string | null; archived: boolean; permissions: OverviewPermissions }) => {
   const [data, setData] = useState<OverviewData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -180,11 +181,11 @@ export const ProjectOverview = ({ projectId, archived, permissions }: { projectI
   const load = useCallback((isCurrent: () => boolean = () => true) => {
     setPending(true);
     setError(null);
-    return loadOverview(projectId, credentialManage)
+    return loadOverview(projectId, workspaceId, credentialManage)
       .then((loaded) => { if (isCurrent()) { setData(loaded); setNow(loaded.fetchedAt); } })
       .catch((reason: unknown) => { if (isCurrent()) setError(loadFailureMessage(classifyError(reason), "Projectが見つかりません。")); })
       .finally(() => { if (isCurrent()) setPending(false); });
-  }, [projectId, credentialManage]);
+  }, [projectId, workspaceId, credentialManage]);
   useEffect(() => {
     let current = true;
     setData(null);

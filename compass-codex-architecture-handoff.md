@@ -6,6 +6,8 @@
 
 この文書は、Codex が統合作業を行う際の設計上の正本として使うことを目的とする。
 
+Workspace と Project の境界は [ADR 0001](docs/adr/0001-workspace-project-boundary.md) で確定した。本書の Direction / Access / Activity / Orchestrator の scope は同 ADR に従う。
+
 重要な原則は以下。
 
 - DDD で業務上の境界を表現する。
@@ -35,6 +37,7 @@ compass/
 ├─ policies/
 │
 ├─ packages/
+│  ├─ organization/
 │  ├─ direction/
 │  ├─ work/
 │  ├─ activity/
@@ -131,7 +134,7 @@ server/
 
 ## 3.1 責務
 
-`orchestrator` は Project 横断で COMPASS の現在状態を確認し、
+`orchestrator` は Workspace 単位で COMPASS の現在状態を確認し、
 
 > 次にどの専門 Role を実行すべきか
 
@@ -142,16 +145,19 @@ Orchestrator 自身が専門的な知的作業を抱え込まない。
 概念例：
 
 ```text
-全 Project の現在状態を確認
+Workspace の現在状態を確認
         │
-        ├─ 未処理 Intent
-        │      └─ strategist
+        ├─ 未処理 Intent / Target Project のない Outcome / 未完了の archived Target がある Outcome
+        │      └─ strategist(workspace)
         │
         ├─ 調査が必要
-        │      └─ researcher
+        │      └─ researcher(workspace)
         │
-        ├─ 未分解 Outcome
-        │      └─ manager
+        ├─ Target Project に Outcome の Story がない
+        │      └─ manager(project)
+        │
+        ├─ 全 Target Project の Execution が評価可能
+        │      └─ evaluator(workspace)
         │
         └─ その他
                └─ 適切な専門 Role
@@ -170,8 +176,8 @@ Orchestrator 自身が専門的な知的作業を抱え込まない。
 research_required 状態
 → researcher を起動
 
-未分解 Outcome が存在
-→ manager を起動
+Target Project に Outcome の Story が存在しない
+→ その Project の manager を起動
 ```
 
 以下のような知的判断は専門 Role に委譲する。
@@ -182,6 +188,9 @@ Intent をどの Outcome に具体化するか
 
 何をどう調査するか
 → researcher
+
+Outcome をどの Project が担当するか
+→ strategist
 
 Outcome をどの Story / Task に分解するか
 → manager
@@ -255,24 +264,26 @@ LLM / Agent を起動する
 
 `packages/direction` は、
 
-> 何を、なぜ実現したいのか
+> Workspace が何を、なぜ実現したいのか
 
-を扱う。
+を扱う。Direction の scope は Workspace とする。
 
 現時点では Direction 全体を1つの Bounded Context とする。
 
 主な概念：
 
 ```text
-Project
-  ├─ Mission
-  ├─ Goal
-  ├─ Resources
-  └─ Intent
+Workspace                       (Organization)
+  ├─ Mission / Vision / Principles / Constraints
+  ├─ Projects
+  └─ Intent                     (Direction)
        └─ Outcome
+            └─ Target Project
 ```
 
-Project / Intent / Outcome を最初から別 Bounded Context にしない。
+Workspace / Project / ProjectResource は `packages/organization` が所有する。Direction は Intent / Outcome / 成功条件 / OutcomeTargetProject / Research / Direction Decision / Evaluation / Execution Summary・Evidence / Runtime Event を所有する。Intent / Outcome を最初から別 Bounded Context にしない。
+
+Workspace は Mission / Vision を共有し、複数 Project を通じて成果を実現する戦略単位。Project は1つの Workspace に属する実行・システムの境界。Workspace を GitHub Organization と、Project を Repository と同一視しない。
 
 ## 5.2 Outcome の所有
 
@@ -288,6 +299,8 @@ Outcome
 
 Work は Outcome の Entity を複製せず、`outcomeId` を参照する。
 
+Outcome は Workspace level の状態であり、複数 Project にまたがれる。どの Project が担当するかは Strategist が `OutcomeTargetProject` として明示する。Target Project の manager が、その Project の Story を作る。Story 作成時は Project と Outcome の Workspace が一致し、Project が Target であることを強制する。
+
 ```text
 Direction                Work
 
@@ -298,7 +311,7 @@ Outcome ─── outcomeId ─→ Story
 
 ## 5.3 Project Resource
 
-Repository / Docs が正本となる Project 成果物は対象 Project 側に置く。COMPASS が所有する Project 別レコードは COMPASS 内に保持できる（§9）。
+Project と ProjectResource は `packages/organization` が所有する。Repository / Docs が正本となる Project 成果物は対象 Project 側に置く。COMPASS が所有する Project 別レコードは COMPASS 内に保持できる（§9）。
 
 COMPASS の Project は「どこを見るべきか」を Resource として保持する。
 
@@ -374,11 +387,11 @@ Work は「仕事の状態」を管理する。
 
 ## 6.3 manager
 
-Wacha の `manager` Role は、COMPASS 統合後も同じ名前で扱う。
+Wacha の `manager` Role は、COMPASS 統合後も同じ名前で扱う。manager は Project scope の Role であり、Workspace 全体の planner にしない。
 
 責務：
 
-- Outcome を Story / Task に分解する
+- 自 Project が Target である Outcome を Story / Task に分解する
 - Story / Task を管理する
 - 最終 Acceptance を担当する
 - 要件観点から Reject する
@@ -393,7 +406,7 @@ Activity は Direction / Work / Orchestrator / Ralph 等、複数領域から利
 
 また、
 
-> Agent や人間が後から Project の経緯を復元する
+> Agent や人間が後から Workspace / Project の経緯を復元する
 
 という独自の責務を持つため、最初から `packages/activity` として境界を切る。
 
@@ -412,7 +425,7 @@ Activity はアプリケーションの raw log ではない。
 
 ```text
 Activity
-= Project / System 上で何が起き、
+= System / Workspace / Project 上で何が起き、
   何が分かり、
   何が決まったかを、
   後から人間や Agent が理解するための履歴
@@ -426,8 +439,9 @@ Activity
 Activity {
   id
 
-  scope       // project | system
-  projectId?  // scope=project の場合必須
+  scope       // system | workspace | project
+  workspaceId? // scope=workspace / project の場合必須
+  projectId?  // scope=project の場合必須。それ以外は持たない
 
   type
 
@@ -443,6 +457,8 @@ Activity {
   cursor
 }
 ```
+
+Direction の canonical Activity は Workspace Activity、Work の canonical Activity は Project Activity とする。scope と ID の組合せが合わない記録は拒否する。
 
 `runId` は持たせない。
 
@@ -513,7 +529,7 @@ Project 固有成果物の本文を Activity に複製しない。
 
 Activity は以下が重要。
 
-- Project 単位取得
+- Workspace / Project 単位取得
 - 時系列取得
 - Role / Principal での絞り込み
 - cursor による差分取得
@@ -711,14 +727,11 @@ Ralph の Worker / Reviewer は当面、別 Principal・別 Credential で運用
 
 ## 10.3 Role
 
-初期 Role 候補：
+Role と scope：
 
 ```text
-strategist
-researcher
-manager
-worker
-reviewer
+Workspace: strategist / researcher / evaluator
+Project:   manager / worker / reviewer
 ```
 
 Role は Agent 実行主体の名前として使わない。
@@ -733,7 +746,7 @@ roles/worker.md
 
 ## 10.4 Active Role
 
-1 Principal は同一 Project で複数 Role Grant を持てる。
+1 Principal は同一 scope（Workspace または Project）で複数 Role Grant を持てる。
 
 ただし、1回の Agent 実行・操作 Context では `activeRole` を1つに固定する。
 
@@ -754,12 +767,12 @@ Server は、
 ```text
 principalId
 +
-projectId
+scope（workspaceId または projectId）
 +
 activeRole
 ```
 
-について Role Grant を検証する。
+について Role Grant を検証する。Role と scope の組合せが §10.3 と異なる場合は拒否する。Workspace の Grant / Membership から Project の権限を継承しない。
 
 これにより、
 
@@ -789,8 +802,10 @@ packages/access/
 ```text
 Principal
 Role
-RoleGrant
-Project scoped authorization
+WorkspaceMembership / ProjectMembership
+WorkspaceRoleGrant / ProjectRoleGrant
+scope 付き Credential（workspace | project）
+Workspace / Project scoped authorization
 Authorization decision
 ```
 
@@ -997,11 +1012,13 @@ Wacha の `role-policy.md` は COMPASS 用に一般化して移行する。
 概念：
 
 ```text
-get_role_context({
-  projectId,
-  role
-})
+Workspace Role 向け（strategist / researcher / evaluator）
+  scope: workspace
+Project Role 向け（manager / worker / reviewer）
+  scope: project
 ```
+
+API は scope を明示し、曖昧な optional parameter の組合せにしない。
 
 返すもの：
 
@@ -1012,11 +1029,10 @@ Role Definition
 +
 利用可能 Skill の metadata
 +
-Project 基本情報
+Workspace: Mission / Vision / Principles / Constraints、Project 要約
+Project:   Project 基本情報、Project Resources、Workspace 要約、関連 Outcome
 +
-Project Resources
-+
-最近の Activity summary
+同じ scope の最近の Activity summary
 ```
 
 返さないもの：
@@ -1087,10 +1103,12 @@ Activity に Agent Run ID は保存しない。
 少なくとも以下：
 
 ```text
+Workspace
 Project
 ProjectResource
 Intent
 Outcome
+OutcomeTargetProject
 
 Story
 Task
@@ -1098,7 +1116,7 @@ Claim
 Review / Acceptance state
 
 Principal
-RoleGrant
+Membership / RoleGrant（Workspace / Project）
 
 Change Log
 Activity
@@ -1203,13 +1221,14 @@ Interface 層から Domain を直接操作せず Application Use Case を通す�
 現時点：
 
 ```text
+Organization
 Direction
 Work
 Activity
 Access
 ```
 
-を主要境界とする。
+を主要境界とする。Organization は Workspace / Project / ProjectResource を所有する。
 
 以下のようにはまだ分けない。
 
@@ -1332,6 +1351,9 @@ compass/
 │  └─ role-policy.md
 │
 ├─ packages/
+│  ├─ organization/
+│  │  └─ src/
+│  │
 │  ├─ direction/
 │  │  └─ src/
 │  │     ├─ domain/
@@ -1413,9 +1435,11 @@ role-policy.md
 
 `manager` Role の名前を維持する。
 
+Wacha の開発チーム調整のモデルは `packages/work`・`manager`・Ralph へ統合した。standalone Wacha は COMPASS の製品・ランタイムの構成要素ではない。repository root の `.mcp.json` の Wacha MCP は COMPASS 自身の開発を管理する開発ツールであり、製品の依存関係ではない。
+
 ## Shirube
 
-Project / Intent / Outcome 等の上流概念を `packages/direction` へ統合する。
+Intent / Outcome 等の上流概念を `packages/direction` へ、Project を `packages/organization` へ統合する。
 
 Orchestrator 相当の実行処理はトップレベル `orchestrator/` へ整理する。
 
@@ -1456,7 +1480,7 @@ Worker / Reviewer の instruction を Ralph 内へ複製しない。
 25. `shared` を便利箱にしない。
 26. 空のアーキテクチャ用ディレクトリを先回りして作らない。
 27. 不要な抽象化・Repository・Serviceを作らない。
-28. 既存挙動を維持しながら段階的に移行する。
+28. 責務と業務規則の整合を検証しながら段階的に実装する。リリース前のCompass開発DBはDROP・file削除で再作成してよく、旧DB・旧クライアント互換は必須にしない（[ADR 0001](docs/adr/0001-workspace-project-boundary.md)）。
 
 ---
 
@@ -1518,15 +1542,17 @@ Worker / Reviewer の instruction を Ralph 内へ複製しない。
 - Wacha / Shirube / agent-foundation の COMPASS モノレポ統合
 - apps/ を使わず独立実行システムをトップレベルへ置く
 - Web / API / MCP を1つの server として提供する
-- Direction / Work / Activity / Access を主要境界とする
+- Organization / Direction / Work / Activity / Access を主要境界とする
 - Outcome を Direction が所有する
 - Role と Principal を分離する
 - activeRole を1実行1つに固定する
 - Role / Skill / Knowledge を Git 管理して MCP 配信する
 - Skill から allowRoles を削除する
 - Project 別情報の保存先を内容と所有責務で分ける
-- Activity を Project の外部記憶として DB 保存する
+- Activity を system / Workspace / Project scope の意味的履歴として DB 保存する
 ```
+
+Workspace と Project の境界（Direction / Work の scope、OutcomeTargetProject、Role / Activity の scope）は [ADR 0001](docs/adr/0001-workspace-project-boundary.md) として作成済み。
 
 ---
 
@@ -1564,8 +1590,8 @@ Worker / Reviewer の instruction を Ralph 内へ複製しない。
           ┌────────────────┼─────────────────┐
           │                │                 │
       Direction           Work            Activity
-          │                │                 │
-      Intent/Outcome   Story/Task        Project Memory
+   (Workspace scope)  (Project scope)        │
+      Intent/Outcome   Story/Task    Workspace/Project Memory
           │                │                 │
           └──────────┬─────┴─────────────────┘
                      │
@@ -1576,9 +1602,10 @@ Worker / Reviewer の instruction を Ralph 内へ複製しない。
         │                         │
   orchestrator                  ralph
         │                         │
-  strategist                 worker
-  researcher                 reviewer
-  manager
+  strategist(workspace)      worker(project)
+  researcher(workspace)      reviewer(project)
+  evaluator(workspace)
+  manager(project)
 ```
 
 Agent の実行時 Context：

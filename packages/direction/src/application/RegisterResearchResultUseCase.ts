@@ -1,5 +1,5 @@
 import type { ResearchResult } from "../domain/Research.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import { parseRegisterResearchResultInput } from "./researchSchema.ts";
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
@@ -8,17 +8,17 @@ import { throwCommonResearchRejection } from "./researchRejection.ts";
 /** 調査結果（Result・Finding・Evidence参照）を未終了のRequestへ追記する。Principalとrunの来歴は入力から保存する。 */
 export class RegisterResearchResultUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly researchRepository: ResearchRepository,
   ) {}
 
-  async execute(projectId: string, requestId: string, input: unknown): Promise<ResearchResult> {
+  async execute(workspaceId: string, requestId: string, input: unknown): Promise<ResearchResult> {
     const parsed = parseRegisterResearchResultInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
-      throw new NotFoundError(`Project ${projectId} was not found`);
+    if (!(await this.workspaceReader.findById(workspaceId))) {
+      throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     }
-    const result = await this.researchRepository.registerResult(projectId, requestId, parsed);
-    throwCommonResearchRejection(result, projectId, requestId);
+    const result = await this.researchRepository.registerResult(workspaceId, requestId, parsed);
+    throwCommonResearchRejection(result, workspaceId, requestId);
     switch (result.kind) {
       case "registered":
         return result.result;
@@ -36,7 +36,7 @@ export class RegisterResearchResultUseCase {
         );
       case "invalid_reference":
         throw new ValidationError("Research Result input is invalid", [
-          { path: "findings.conflictsWithFindingIds", message: `unknown finding: ${result.ids.join(", ")}` },
+          { path: result.reference === "resource" ? "evidenceRefs.resourceId" : "findings.conflictsWithFindingIds", message: `unknown ${result.reference}: ${result.ids.join(", ")}` },
         ]);
       default:
         throw new Error(`Unexpected result: ${result.kind}`);

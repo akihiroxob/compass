@@ -1,4 +1,4 @@
-import type { Transaction } from "kysely";
+import type { Kysely, Transaction } from "kysely";
 import { runtimeEventVersion, type RuntimeEventType } from "../domain/RuntimeEvent.ts";
 import { outcomeCorrelationId } from "../outcomeCorrelation.ts";
 import type { ResearchConclusion } from "../domain/Research.ts";
@@ -9,10 +9,10 @@ import type { DirectionDatabase } from "./schema.ts";
  * 同じRequest・同じ種類のイベントは1件に収束し、重複して呼んでも新しい行を作らない。
  */
 export const recordRuntimeEvent = async (
-  transaction: Transaction<DirectionDatabase>,
+  transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
   event: {
     type: RuntimeEventType;
-    projectId: string;
+    workspaceId: string;
     intentId: string | null;
     researchRequestId: string;
     correlationId: string;
@@ -26,7 +26,7 @@ export const recordRuntimeEvent = async (
       id: crypto.randomUUID(),
       event_version: runtimeEventVersion,
       event_type: event.type,
-      project_id: event.projectId,
+      workspace_id: event.workspaceId,
       intent_id: event.intentId,
       research_request_id: event.researchRequestId,
       correlation_id: event.correlationId,
@@ -42,8 +42,8 @@ export const recordRuntimeEvent = async (
  * RuntimeがManagerを起動して`issue_story`へ渡す相関IDと一致させる。同じOutcomeのイベントは1件に収束する。
  */
 export const recordOutcomeConfirmedEvent = async (
-  transaction: Transaction<DirectionDatabase>,
-  outcome: { projectId: string; intentId: string; outcomeId: string; occurredAt: number },
+  transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
+  outcome: { workspaceId: string; intentId: string; outcomeId: string; occurredAt: number },
 ): Promise<void> => {
   await transaction
     .insertInto("runtime_event")
@@ -51,7 +51,7 @@ export const recordOutcomeConfirmedEvent = async (
       id: crypto.randomUUID(),
       event_version: runtimeEventVersion,
       event_type: "outcome_confirmed",
-      project_id: outcome.projectId,
+      workspace_id: outcome.workspaceId,
       intent_id: outcome.intentId,
       research_request_id: null,
       outcome_id: outcome.outcomeId,
@@ -69,8 +69,8 @@ export const recordOutcomeConfirmedEvent = async (
  * 再送（同じrequestKey）では呼ばれない。相関IDはOutcomeの`outcome:{outcomeId}`で、確定からExecution・評価までを1本で辿れる。
  */
 export const recordOutcomeEvaluatedEvent = async (
-  transaction: Transaction<DirectionDatabase>,
-  evaluation: { projectId: string; intentId: string; outcomeId: string; evaluationId: string; occurredAt: number },
+  transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
+  evaluation: { workspaceId: string; intentId: string; outcomeId: string; evaluationId: string; occurredAt: number },
 ): Promise<void> => {
   await transaction
     .insertInto("runtime_event")
@@ -78,7 +78,7 @@ export const recordOutcomeEvaluatedEvent = async (
       id: crypto.randomUUID(),
       event_version: runtimeEventVersion,
       event_type: "outcome_evaluated",
-      project_id: evaluation.projectId,
+      workspace_id: evaluation.workspaceId,
       intent_id: evaluation.intentId,
       research_request_id: null,
       outcome_id: evaluation.outcomeId,

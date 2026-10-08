@@ -43,7 +43,7 @@ export class SQLiteProjectGrantRepository implements ProjectGrantRepository {
   async grant(projectId: string, principalId: string, role: ProjectRole): Promise<GrantOutcome> {
     return this.database.transaction().execute(async (transaction): Promise<GrantOutcome> => {
       if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
-      if (await findActiveAgentCredentialElsewhere(transaction, projectId, principalId, this.clock())) {
+      if (await findActiveAgentCredentialElsewhere(transaction, { kind: "project", id: projectId }, principalId, this.clock())) {
         return { kind: "principal_bound_elsewhere" };
       }
       const inserted = await transaction

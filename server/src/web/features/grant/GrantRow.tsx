@@ -1,6 +1,6 @@
 import { describeActionFailure, request } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
-import { grantRoleLabels, revokeGrantPath, revokeInit, type Grant } from "./grants";
+import { grantRoleLabels, revokeGrantPath, revokeInit, revokeRecoveryNote, type Grant } from "./grants";
 
 type GrantRowProps = { projectId: string; grant: Grant; onRevoked: () => void; readOnly?: boolean };
 
@@ -36,7 +36,7 @@ export const GrantRow = ({ projectId, grant, onRevoked, readOnly = false }: Gran
         <ReasonPanel
           action={revoke}
           title={`${grant.principalId} の${label}割当を取り消しますか？`}
-          description={`取り消すと、このAgentは次のMCP呼び出しから${revokeConsequence[grant.role]}。作成済みの内容は変更されません。再度割り当てて元に戻せます。`}
+          description={`取り消すと、このAgentは次のMCP呼び出しから${revokeConsequence[grant.role]}。作成済みの内容は変更されません。${revokeRecoveryNote(grant.role)}`}
           confirmLabel="取り消す"
           pendingLabel="取消中..."
         />

@@ -2,7 +2,7 @@ export type IntentStatus = "active" | "achieved" | "abandoned";
 
 export type Intent = {
   id: string;
-  projectId: string;
+  workspaceId: string;
   title: string;
   desiredState: string;
   completionDefinition: string | null;
@@ -37,7 +37,7 @@ export const intentStatusLabels: Record<IntentStatus, string> = {
   abandoned: "Abandoned",
 };
 
-/** Projectにつきactiveは最大1件。それ以外（過去のIntent）は新しい順のまま返す。 */
+/** Workspaceにつきactiveは最大1件。それ以外（過去のIntent）は新しい順のまま返す。 */
 export const splitIntents = (intents: Intent[]): { active: Intent | null; past: Intent[] } => ({
   active: intents.find((intent) => intent.status === "active") ?? null,
   past: intents.filter((intent) => intent.status !== "active"),

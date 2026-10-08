@@ -1,3 +1,4 @@
+import { seedWorkspaceGrant } from "./support/humanSession.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -159,11 +160,60 @@ const createBrowser = (baseUrl: () => string) => {
   };
 };
 
-const countRows = async (database: Kysely<Database>, table: keyof Database, where?: [string, string]) => {
-  let query = database.selectFrom(table as "story").select((eb) => eb.fn.countAll<number>().as("n"));
-  if (where) query = query.where(where[0] as "project_id", "=", where[1]);
-  return Number((await query.executeTakeFirstOrThrow()).n);
+const countWorkRows = async (database: Kysely<Database>, table: "story" | "task", projectId: string) => {
+  const row = await database.selectFrom(table).select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("project_id", "=", projectId).executeTakeFirstOrThrow();
+  return Number(row.n);
 };
+
+const countDirectionRows = async (
+  database: Kysely<Database>,
+  table: "outcome" | "outcome_evaluation" | "direction_decision" | "research_request",
+  workspaceId: string,
+) => {
+  const row = await database.selectFrom(table).select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("workspace_id", "=", workspaceId).executeTakeFirstOrThrow();
+  return Number(row.n);
+};
+
+const closedLoopCounts = async (database: Kysely<Database>, project: { id: string; workspaceId: string }) => ({
+  stories: await countWorkRows(database, "story", project.id),
+  tasks: await countWorkRows(database, "task", project.id),
+  outcomes: await countDirectionRows(database, "outcome", project.workspaceId),
+  evaluations: await countDirectionRows(database, "outcome_evaluation", project.workspaceId),
+  decisions: await countDirectionRows(database, "direction_decision", project.workspaceId),
+  researchRequests: await countDirectionRows(database, "research_request", project.workspaceId),
+});
+
+test("閉ループのDB集計は新規schemaでDirectionをWorkspace、WorkをProjectとして観測する", async () => {
+  const database = createDatabase(":memory:");
+  try {
+    await initializeSchema(database);
+    const scope = { id: "project-A", workspaceId: "workspace-A" };
+    assert.deepEqual(await closedLoopCounts(database, scope), {
+      stories: 0, tasks: 0, outcomes: 0, evaluations: 0, decisions: 0, researchRequests: 0,
+    });
+    const services = createApplicationServices(database);
+    const workspace = await services.human.createWorkspace.execute({ name: "Workspace", mission: "Mission" });
+    const direction = services.workspaceDirection;
+    const intent = await direction.createIntentUseCase.execute(workspace.id, { title: "Intent", desiredState: "Result" });
+    await direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
+      title: "Outcome", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
+    });
+    await direction.createResearchRequestUseCase.execute(workspace.id, {
+      requestKey: "research", kind: "decision", originIntentId: intent.id, question: "Question", scope: "Scope", completionCondition: "Evidence", budgetTotal: 1,
+    });
+    await direction.createDirectionDecisionUseCase.execute(workspace.id, "strategist", {
+      requestKey: "decision", runRef: "run", type: "adr_candidate", intentId: intent.id, judgment: "Document", reason: "Evidence",
+    });
+    assert.deepEqual(await closedLoopCounts(database, { id: scope.id, workspaceId: workspace.id }), {
+      stories: 0, tasks: 0, outcomes: 1, evaluations: 0, decisions: 1, researchRequests: 1,
+    });
+    assert.deepEqual(await closedLoopCounts(database, scope), {
+      stories: 0, tasks: 0, outcomes: 0, evaluations: 0, decisions: 0, researchRequests: 0,
+    });
+  } finally { await database.destroy(); }
+});
 
 const agentPrincipals = {
   researcher: ["researcher-1", "researcher"],
@@ -186,7 +236,7 @@ test(
     const originalLog = console.log;
     console.log = () => undefined; // request logを抑える（秘密の非露出はTask 44で検証済み）
     try {
-      // --- Human（Google OIDC Session）がWeb API経由で初期設定する。以降、Humanの途中承認・CLI・DB操作は無い
+      // --- Human（Google OIDC Session）がWeb API経由で初期設定する。以降、Humanの途中承認は無い（未切替Directionの旧Grantだけfixtureで設定）
       const owner = createBrowser(() => server.baseUrl);
       await owner.login(fixture, "owner-sub", ownerEmail);
       const { project } = await owner.api("POST", "/api/projects", {
@@ -196,10 +246,16 @@ test(
         repositories: [{ name: "compass", url: "https://github.com/example/compass" }],
       });
       const projectId = project.id as string;
+      const workspaceId = project.workspaceId as string;
       const tokens = {} as Tokens;
+      // Direction Role（strategist / researcher / evaluator）はWorkspace scopeのGrant・Credential、Work RoleはProject scope。
+      // Workspace Role GrantのWeb経路は未接続（S10-03）のため、Grantだけfixtureで置き、Credentialは同じWeb APIで発行する。
       const issueAgent = async (principal: string, role: string) => {
-        await owner.api("POST", `/api/projects/${projectId}/grants`, { principalId: principal, role });
-        return { principal, token: (await owner.api("POST", `/api/projects/${projectId}/credentials`, { kind: "agent", principalId: principal })).token as string };
+        const direction = ["strategist", "researcher", "evaluator"].includes(role);
+        if (direction) await seedWorkspaceGrant(server.database, workspaceId, principal, role);
+        else await owner.api("POST", `/api/projects/${projectId}/grants`, { principalId: principal, role });
+        const scopePath = direction ? `/api/workspaces/${workspaceId}` : `/api/projects/${projectId}`;
+        return { principal, token: (await owner.api("POST", `${scopePath}/credentials`, { kind: "agent", principalId: principal })).token as string };
       };
       for (const [key, [principal, role]] of Object.entries(agentPrincipals)) {
         (tokens as Record<string, unknown>)[key] = await issueAgent(principal, role);
@@ -209,11 +265,17 @@ test(
       const runtimeCredential = await owner.api("POST", `/api/projects/${projectId}/credentials`, {
         kind: "runtime",
         principalId: "runtime-1",
-        scopes: ["runtime:event:read", "runtime:event:ack", "execution:change:read", "execution:evidence:write", "execution:summary:read"],
+        scopes: ["execution:change:read", "execution:evidence:write", "execution:summary:read"],
       });
       tokens.runtime = { principal: "runtime-1", token: runtimeCredential.token };
+      const workspaceRuntimeCredential = await owner.api("POST", `/api/workspaces/${workspaceId}/credentials`, {
+        kind: "runtime",
+        principalId: "runtime-w",
+        scopes: ["runtime:event:read", "runtime:event:ack"],
+      });
+      tokens.workspaceRuntime = { principal: "runtime-w", token: workspaceRuntimeCredential.token };
 
-      const { intent } = await owner.api("POST", `/api/projects/${projectId}/intents`, {
+      const { intent } = await owner.api("POST", `/api/workspaces/${workspaceId}/intents`, {
         title: "Exclusive claims",
         desiredState: "No Task is worked on twice",
         completionDefinition: "An achieved Outcome verifies exclusive claims automatically",
@@ -226,7 +288,7 @@ test(
       // （Strategistの起動はOrchestratorの責務で、このfixtureでは起動済みの判断結果だけを与える）。
       const initialResearch = await withMcp(connection, "strategist-1", tokens.strategist.token, (call) =>
         call("create_direction_decision", {
-          projectId,
+          workspaceId,
           intentId: intent.id,
           type: "additional_research",
           judgment: "Learn what causes duplicate claims before choosing an Outcome",
@@ -242,6 +304,7 @@ test(
       let hung = false;
       const faults: Faults = {
         projectIds: () => [projectId],
+        workspaceIdOf: () => workspaceId,
         // 最初のOutcome: Managerがissue_story後にtimeout → retryable_failure → 再起動で同じStoryへ収束
         managerTimeoutAfterStory: (event) => event.outcomeId && ++outcomeConfirmedSeen === 1,
         // 2つ目のOutcome: Manager完了後・ack前にRuntimeとserverが停止する → 再起動後に再配送
@@ -274,13 +337,13 @@ test(
       await runtime.runUntilIdle();
 
       // ================= 完走の確認（統一MCP・Web APIで再取得する） =================
-      const intentAfter = (await owner.api("GET", `/api/projects/${projectId}/intents/${intent.id}`)).intent;
+      const intentAfter = (await owner.api("GET", `/api/workspaces/${workspaceId}/intents/${intent.id}`)).intent;
       assert.equal(intentAfter.status, "achieved");
 
-      const strategistContext = await withMcp(connection, "strategist-1", tokens.strategist.token, (call) => call("get_strategist_context", { projectId }));
+      const strategistContext = await withMcp(connection, "strategist-1", tokens.strategist.token, (call) => call("get_strategist_context", { workspaceId }));
       assert.equal(strategistContext.activeIntent, null);
 
-      const outcomes = (await owner.api("GET", `/api/projects/${projectId}/intents/${intent.id}/outcomes`)).outcomes as Json[];
+      const outcomes = (await owner.api("GET", `/api/workspaces/${workspaceId}/intents/${intent.id}/outcomes`)).outcomes as Json[];
       assert.deepEqual(outcomes.map((outcome) => outcome.title).sort(), [outcomePlans.first.title, outcomePlans.observable.title].sort());
       const first = outcomes.find((outcome) => outcome.title === outcomePlans.first.title)!;
       const second = outcomes.find((outcome) => outcome.title === outcomePlans.observable.title)!;
@@ -323,14 +386,14 @@ test(
         assert.deepEqual(record.evidence.map((item: Json) => item.kind).sort(), ["ci", "pull_request"]);
       }
       const evaluationsOf = async (outcomeId: string) =>
-        (await withMcp(connection, "evaluator-1", tokens.evaluator.token, (call) => call("get_evaluator_context", { projectId, outcomeId }))).evaluations as Json[];
+        (await withMcp(connection, "evaluator-1", tokens.evaluator.token, (call) => call("get_evaluator_context", { workspaceId, outcomeId }))).evaluations as Json[];
       const firstEvaluations = await evaluationsOf(first.id);
       const secondEvaluations = await evaluationsOf(second.id);
       assert.deepEqual(firstEvaluations.map((evaluation) => evaluation.result), ["insufficient_evidence", "insufficient_evidence"]);
       assert.deepEqual(secondEvaluations.map((evaluation) => evaluation.result), ["achieved", "insufficient_evidence"]);
 
       // Direction Decision: 追加Research（Intent起点） → 最初のOutcome → 追加Research（最新Evaluation） → 次のOutcome → Intent完了（最新Evaluation）
-      const decisions = (await owner.api("GET", `/api/projects/${projectId}/intents/${intent.id}/decisions`)).decisions as Json[];
+      const decisions = (await owner.api("GET", `/api/workspaces/${workspaceId}/intents/${intent.id}/decisions`)).decisions as Json[];
       const byType = (type: string) => decisions.filter((decision) => decision.type === type);
       assert.equal(byType("next_outcome").length, 2);
       assert.equal(byType("additional_research").length, 2);
@@ -342,11 +405,11 @@ test(
       assert.equal(decisions.length, 5);
 
       // --- 相関ID: Research（decision:<id>）→ Outcome（outcome:<id>）→ Story / Change → Evaluation → 判断を辿れる
-      const events = await withMcp(connection, "runtime-1", tokens.runtime.token, (call) => call("fetch_runtime_events", { projectId, afterCursor: 0 }));
+      const events = await withMcp(connection, "runtime-w", tokens.workspaceRuntime.token, (call) => call("fetch_runtime_events", { workspaceId, afterCursor: 0 }));
       assert.deepEqual(events.events, [], "every event is finally acknowledged for this consumer");
       const allEvents = crashedRuntime.fetchedEvents.concat(runtime.fetchedEvents);
       // 初回（Intent起点）と再計画（Evaluation起点）のResearch Requestは、どちらもIntentに紐づき、起点のDecisionの相関IDで区別できる
-      const research = (await owner.api("GET", `/api/projects/${projectId}/research-requests?originIntentId=${intent.id}`)).requests as Json[];
+      const research = (await owner.api("GET", `/api/workspaces/${workspaceId}/research-requests?originIntentId=${intent.id}`)).requests as Json[];
       assert.deepEqual(research.map((request) => request.correlationId).sort(), byType("additional_research").map((decision) => `decision:${decision.id}`).sort());
       assert.ok(research.every((request) => request.status === "completed"));
       for (const outcome of [first, second]) {
@@ -359,11 +422,11 @@ test(
       }
 
       // ================= 障害系の確認 =================
-      const eventRows = await server.database.selectFrom("runtime_event").selectAll().where("project_id", "=", projectId).orderBy("sequence").execute();
+      const eventRows = await server.database.selectFrom("runtime_event").selectAll().where("workspace_id", "=", project.workspaceId as string).orderBy("sequence").execute();
       const deliveries = await server.database.selectFrom("runtime_event_delivery").selectAll().execute();
       // イベント欠落なし: 全イベントがこのconsumerでprocessedに確定し、Runtimeが少なくとも1回は取得した
       assert.equal(deliveries.length, eventRows.length);
-      assert.ok(deliveries.every((delivery) => delivery.consumer_id === "runtime-1" && delivery.outcome === "processed"), JSON.stringify(deliveries));
+      assert.ok(deliveries.every((delivery) => delivery.consumer_id === "runtime-w" && delivery.outcome === "processed"), JSON.stringify(deliveries));
       const fetchedIds = new Set(allEvents.map((event) => event.id));
       assert.ok(eventRows.every((row) => fetchedIds.has(row.id)));
       assert.deepEqual(
@@ -395,18 +458,16 @@ test(
       assert.ok(!crashedRuntime.acks.some((ack) => ack.eventId === secondConfirmed.id), "the crashed Runtime did not ack");
 
       // 二重Story・二重Outcome・二重Evaluation・二重Decisionがない（DBを観測）
-      assert.equal(await countRows(server.database, "story", ["project_id", projectId]), 2);
-      assert.equal(await countRows(server.database, "task", ["project_id", projectId]), 2);
-      assert.equal(await countRows(server.database, "outcome", ["project_id", projectId]), 2);
-      assert.equal(await countRows(server.database, "outcome_evaluation", ["project_id", projectId]), 4);
-      assert.equal(await countRows(server.database, "direction_decision", ["project_id", projectId]), 5);
-      assert.equal(await countRows(server.database, "research_request", ["project_id", projectId]), 2);
+      const observationScope = { id: projectId, workspaceId: project.workspaceId as string };
+      assert.deepEqual(await closedLoopCounts(server.database, observationScope), {
+        stories: 2, tasks: 2, outcomes: 2, evaluations: 4, decisions: 5, researchRequests: 2,
+      });
 
       // 順序逆転: 古いEvaluationを根拠にした判断・古いchangeCursorの還流は状態を変えない
       await withMcp(connection, "strategist-1", tokens.strategist.token, async (call) => {
         await assert.rejects(
           call("create_direction_decision", {
-            projectId,
+            workspaceId,
             intentId: intent.id,
             type: "additional_research",
             evaluationId: secondEvaluations[1]!.id,
@@ -424,7 +485,7 @@ test(
       );
       assert.equal(stale.recorded.staleInput, true);
       assert.equal(stale.summary.state, "accepted");
-      assert.equal(await countRows(server.database, "direction_decision", ["project_id", projectId]), 5);
+      assert.equal((await closedLoopCounts(server.database, observationScope)).decisions, 5);
 
       // HumanはWeb UIと同じAPIで結果を確認できる（同一server・同一port）
       const executionSummary = await owner.api("GET", `/api/projects/${projectId}/outcomes/${second.id}/execution-summary`);

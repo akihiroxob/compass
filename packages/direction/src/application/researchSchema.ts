@@ -85,6 +85,7 @@ const evidenceReferenceSchema = z
     kind: z.enum(evidenceKinds),
     uri: trimmedText("uri", 2_000),
     retrievedAt: epochMillis,
+    resourceId: trimmedText("resourceId", 200).nullish().transform(value => value ?? null),
     versionHash: trimmedText("versionHash", 200).nullish().transform((value) => value ?? null),
   })
   .superRefine((input, context) => {

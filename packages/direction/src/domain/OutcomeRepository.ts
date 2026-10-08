@@ -1,6 +1,6 @@
 import type { IntentStatus } from "./Intent.ts";
 import type { Outcome, OutcomeStatus } from "./Outcome.ts";
-import type { ProjectArchivedResult } from "./ProjectRepository.ts";
+import type { WorkspaceArchivedResult } from "./WorkspaceArchivedResult.ts";
 
 /** 検証済みの入力。検証規則（zod schema）はapplication層が持ち、parseの戻り値がこの型を満たすことを型検査で保証する。 */
 export type CreateOutcomeInput = {
@@ -21,7 +21,7 @@ export type CreateOutcomeResult =
   | { kind: "created"; outcome: Outcome }
   | { kind: "intent_not_found" }
   | { kind: "intent_not_active"; status: IntentStatus }
-  | ProjectArchivedResult;
+  | WorkspaceArchivedResult;
 
 /** 更新・取消の結果。Intentが無い場合と、Outcomeが無い場合と、activeでない場合を区別する。 */
 export type ChangeOutcomeResult =
@@ -29,7 +29,7 @@ export type ChangeOutcomeResult =
   | { kind: "intent_not_found" }
   | { kind: "outcome_not_found" }
   | { kind: "not_active"; status: OutcomeStatus }
-  | ProjectArchivedResult;
+  | WorkspaceArchivedResult;
 
 /**
  * 成功条件はOutcomeの一部として作成・取得する。作成後に固定されるため、
@@ -37,22 +37,22 @@ export type ChangeOutcomeResult =
  */
 export interface OutcomeRepository {
   /** Outcomeと全Success Criterionを1 transactionで保存する。activeなIntent配下にだけ作成できる。 */
-  create(projectId: string, intentId: string, input: CreateOutcomeInput): Promise<CreateOutcomeResult>;
-  /** 指定したProject・Intent配下のOutcomeを新しい順で、成功条件をposition順に含めて返す。 */
-  findByIntent(projectId: string, intentId: string): Promise<Outcome[]>;
-  /** 他ProjectまたはIntent配下のOutcome IDはnullとして扱う。 */
-  findById(projectId: string, intentId: string, outcomeId: string): Promise<Outcome | null>;
-  /** Intentを指定せず、Project内のOutcomeをIDで取得する。他ProjectのOutcome IDはnull（Execution向けの参照ポートが使う）。 */
-  findByIdInProject(projectId: string, outcomeId: string): Promise<Outcome | null>;
+  create(workspaceId: string, intentId: string, input: CreateOutcomeInput): Promise<CreateOutcomeResult>;
+  /** 指定したWorkspace・Intent配下のOutcomeを新しい順で、成功条件をposition順に含めて返す。 */
+  findByIntent(workspaceId: string, intentId: string): Promise<Outcome[]>;
+  /** 他WorkspaceまたはIntent配下のOutcome IDはnullとして扱う。 */
+  findById(workspaceId: string, intentId: string, outcomeId: string): Promise<Outcome | null>;
+  /** Intentを指定せず、Workspace内のOutcomeをIDで取得する。他WorkspaceのOutcome IDはnull（Execution向けの参照ポートが使う）。 */
+  findByIdInWorkspace(workspaceId: string, outcomeId: string): Promise<Outcome | null>;
   /** activeなOutcomeのtitle・hypothesisだけを更新する。 */
   update(
-    projectId: string,
+    workspaceId: string,
     intentId: string,
     outcomeId: string,
     changes: UpdateOutcomeInput,
   ): Promise<ChangeOutcomeResult>;
   cancel(
-    projectId: string,
+    workspaceId: string,
     intentId: string,
     outcomeId: string,
     reason: string,

@@ -8,7 +8,7 @@ export class ApiError extends Error {
     readonly issues: ApiIssue[] = [],
     /** 409 CONFLICTで、既にActiveなIntentがある場合のID。 */
     readonly activeIntentId: string | null = null,
-    /** 409 CONFLICTで、Projectがarchivedのために拒否された場合は`archived`。Intent / Outcomeの状態とは別の項目。 */
+    /** 409 CONFLICTで、Project・Workspaceがarchivedのために拒否された場合は`archived`。Intent / Outcomeの状態とは別の項目。 */
     readonly projectStatus: string | null = null,
     /** 409 CONFLICTの種類（例 `LAST_OWNER`・`INVITATION_PENDING`）。 */
     readonly conflict: string | null = null,
@@ -21,7 +21,7 @@ export class ApiError extends Error {
 const networkErrorMessage = "サーバーに接続できませんでした。通信状況を確認して、もう一度お試しください。";
 const serverUnavailableMessage = "サーバーで問題が発生しました。時間をおいて、もう一度お試しください。";
 
-type FetchLike = (path: string, init?: RequestInit) => Promise<Response>;
+export type FetchLike = (path: string, init?: RequestInit) => Promise<Response>;
 
 const readJson = async (response: Response): Promise<unknown> => {
   try {
@@ -51,7 +51,7 @@ export const toApiError = (status: number, body: unknown): ApiError => {
     typeof error.message === "string" ? error.message : `Request failed (${status})`,
     readIssues(error.issues),
     typeof error.activeIntentId === "string" ? error.activeIntentId : null,
-    typeof error.projectStatus === "string" ? error.projectStatus : null,
+    typeof error.projectStatus === "string" ? error.projectStatus : typeof error.workspaceStatus === "string" ? error.workspaceStatus : null,
     typeof error.conflict === "string" ? error.conflict : null,
   );
 };

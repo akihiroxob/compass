@@ -6,16 +6,16 @@ import type { ApplicationServices } from "../../src/bootstrap/createApplicationS
  */
 export const requestIntentResearch = (
   services: Pick<ApplicationServices, "createResearchRequestUseCase">,
-  projectId: string,
+  workspaceId: string,
   intentId: string,
   requestKey = "intent-research",
 ) =>
-  services.createResearchRequestUseCase.execute(projectId, {
+  services.createResearchRequestUseCase.execute(workspaceId, {
     requestKey,
     kind: "decision",
     originIntentId: intentId,
     question: "What do we need to know to decide the first Outcome?",
-    scope: "The Intent and the Project's Mission, Principles and Constraints.",
+    scope: "The Intent and the Workspace's Mission, Principles and Constraints.",
     completionCondition: "The Strategist can decide the first Outcome or additional Research.",
     budgetTotal: 100,
   });

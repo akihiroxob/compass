@@ -8,28 +8,29 @@ import type {
 } from "../domain/OutcomeRepository.ts";
 import type { CreateOutcomeInput, UpdateOutcomeInput } from "../domain/OutcomeRepository.ts";
 import type { DirectionDatabase, OutcomeTable } from "./schema.ts";
-import { isProjectArchived } from "./isProjectArchived.ts";
+import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
 import { insertOutcomeRow, loadOutcomes } from "./outcomeRecord.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 export class SQLiteOutcomeRepository implements OutcomeRepository {
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
+    private readonly workspaces: DirectionWorkspaceReaders,
     private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
 
   async create(
-    projectId: string,
+    workspaceId: string,
     intentId: string,
     input: CreateOutcomeInput,
   ): Promise<CreateOutcomeResult> {
     return this.database.transaction().execute(async (transaction): Promise<CreateOutcomeResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
       const intent = await transaction
         .selectFrom("intent")
         .select("status")
         .where("id", "=", intentId)
-        .where("project_id", "=", projectId)
+        .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
@@ -37,7 +38,7 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
       const now = Date.now();
       const outcome = await insertOutcomeRow(
         transaction,
-        projectId,
+        workspaceId,
         intentId,
         crypto.randomUUID(),
         null,
@@ -49,11 +50,11 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     });
   }
 
-  async findByIntent(projectId: string, intentId: string): Promise<Outcome[]> {
+  async findByIntent(workspaceId: string, intentId: string): Promise<Outcome[]> {
     const rows = await this.database
       .selectFrom("outcome")
       .selectAll()
-      .where("project_id", "=", projectId)
+      .where("workspace_id", "=", workspaceId)
       .where("intent_id", "=", intentId)
       .orderBy("created_at", "desc")
       .orderBy(sql`rowid`, "desc")
@@ -61,25 +62,25 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     return loadOutcomes(this.database, rows);
   }
 
-  async findById(projectId: string, intentId: string, outcomeId: string): Promise<Outcome | null> {
+  async findById(workspaceId: string, intentId: string, outcomeId: string): Promise<Outcome | null> {
     const row = await this.database
       .selectFrom("outcome")
       .selectAll()
       .where("id", "=", outcomeId)
       .where("intent_id", "=", intentId)
-      .where("project_id", "=", projectId)
+      .where("workspace_id", "=", workspaceId)
       .executeTakeFirst();
     if (!row) return null;
     const [outcome] = await loadOutcomes(this.database, [row]);
     return outcome ?? null;
   }
 
-  async findByIdInProject(projectId: string, outcomeId: string): Promise<Outcome | null> {
+  async findByIdInWorkspace(workspaceId: string, outcomeId: string): Promise<Outcome | null> {
     const row = await this.database
       .selectFrom("outcome")
       .selectAll()
       .where("id", "=", outcomeId)
-      .where("project_id", "=", projectId)
+      .where("workspace_id", "=", workspaceId)
       .executeTakeFirst();
     if (!row) return null;
     const [outcome] = await loadOutcomes(this.database, [row]);
@@ -87,33 +88,33 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
   }
 
   async update(
-    projectId: string,
+    workspaceId: string,
     intentId: string,
     outcomeId: string,
     changes: UpdateOutcomeInput,
   ): Promise<ChangeOutcomeResult> {
     // undefinedの項目はKyselyがSETから除外するため、未指定の列は変更されない。
-    return this.changeActive(projectId, intentId, outcomeId, {
+    return this.changeActive(workspaceId, intentId, outcomeId, {
       title: changes.title,
       hypothesis: changes.hypothesis,
     });
   }
 
   async cancel(
-    projectId: string,
+    workspaceId: string,
     intentId: string,
     outcomeId: string,
     reason: string,
   ): Promise<ChangeOutcomeResult> {
-    return this.changeActive(projectId, intentId, outcomeId, {
+    return this.changeActive(workspaceId, intentId, outcomeId, {
       status: "cancelled",
       cancel_reason: reason,
     });
   }
 
-  /** Project・Intent配下のactiveなOutcomeだけを、状態確認と同一transactionで更新する。 */
+  /** Workspace・Intent配下のactiveなOutcomeだけを、状態確認と同一transactionで更新する。 */
   private async changeActive(
-    projectId: string,
+    workspaceId: string,
     intentId: string,
     outcomeId: string,
     changes: Partial<
@@ -121,12 +122,12 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     >,
   ): Promise<ChangeOutcomeResult> {
     return this.database.transaction().execute(async (transaction): Promise<ChangeOutcomeResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
       const intent = await transaction
         .selectFrom("intent")
         .select("id")
         .where("id", "=", intentId)
-        .where("project_id", "=", projectId)
+        .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
 
@@ -148,7 +149,7 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
       if (changes.status === "cancelled") {
         await notifyDirectionChange(this.changeObserver, transaction, {
           type: "outcome_cancelled",
-          projectId,
+          workspaceId,
           recordId: row.id,
           title: row.title,
           refs: [

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { directionDecisionTypeLabels, type DirectionDecision } from "../../directionDecisionForm";
+import { workspaceApiPath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import {
   evaluationResultLabels,
@@ -98,16 +99,16 @@ const EvaluationCard = ({ evaluation, decisions }: { evaluation: OutcomeEvaluati
  * Outcome詳細の閉ループ表示（Human向け読取専用、Task 45）。Execution（Story・Task）・還流したSummary / Evidence・
  * Evaluation・それを根拠にしたDirection Decisionを、それぞれ所有側のWeb APIから読む。ここからは何も変更しない。
  */
-export const OutcomeLoopSection = ({ projectId, intentId, outcomeId }: { projectId: string; intentId: string; outcomeId: string }) => {
-  const key = `${projectId}/${intentId}/${outcomeId}`;
+export const OutcomeLoopSection = ({ projectId, workspaceId, intentId, outcomeId }: { projectId: string; workspaceId: string; intentId: string; outcomeId: string }) => {
+  const key = `${projectId}/${workspaceId}/${intentId}/${outcomeId}`;
   const [state, setState] = useState<{ key: string; data: LoopData | null; error: string | null } | null>(null);
   useEffect(() => {
     let current = true;
     Promise.all([
       request<ExecutionOverview>(executionPath(projectId, outcomeId)),
       request<{ record: OutcomeExecutionRecord | null }>(executionSummaryPath(projectId, outcomeId)),
-      request<{ evaluations: OutcomeEvaluation[] }>(evaluationsPath(projectId, outcomeId)),
-      request<{ decisions: DirectionDecision[] }>(`/api/projects/${projectId}/intents/${intentId}/decisions`),
+      request<{ evaluations: OutcomeEvaluation[] }>(evaluationsPath(workspaceId, outcomeId)),
+      request<{ decisions: DirectionDecision[] }>(workspaceApiPath(workspaceId, `/intents/${intentId}/decisions`)),
     ])
       .then(([overview, { record }, { evaluations }, { decisions }]) => {
         if (current) setState({ key, data: { overview, record, evaluations, decisions }, error: null });

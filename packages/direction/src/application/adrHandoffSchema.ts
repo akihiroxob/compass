@@ -34,6 +34,7 @@ const httpUrl = (label: string) =>
     });
 
 export const createAdrHandoffRequestSchema = z.object({
+  projectId: idText,
   decisionId: idText,
   repositoryId: idText,
   correlationId,
@@ -43,6 +44,7 @@ export const createAdrHandoffRequestSchema = z.object({
 export type CreateAdrHandoffRequestInput = z.infer<typeof createAdrHandoffRequestSchema>;
 
 export const recordAdrReferenceSchema = z.object({
+  projectId: idText,
   decisionId: idText,
   repositoryId: idText,
   path: repositoryRelativePath,

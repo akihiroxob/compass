@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApp } from "../src/bootstrap/app.ts";
-import { addTestMembership, createSignedInApp, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
+import { addTestMembership, addTestWorkspaceMembership, createSignedInApp, createTestHuman, requestAs, type TestHuman, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -44,13 +44,17 @@ const next = (label: string) => `${label}-${++counter}`;
 
 /** Outcome由来のStory（Task 2件: 差戻し済み・Claim中）と、Outcome無しの手動Story（Task 1件）を作る。 */
 const seed = async (kit: Kit, name = "Compass") => {
-  const { services, app } = kit;
+  const { database, services, app } = kit;
   const project = await services.createProjectUseCase.execute({ name, mission: "Keep execution visible" });
-  const intent = await services.createIntentUseCase.execute(project.id, { title: "Visible", desiredState: "Humans can follow Execution" });
+  const intent = await services.createIntentUseCase.execute(project.workspaceId, { title: "Visible", desiredState: "Humans can follow Execution" });
   for (const [principalId, role] of [["mgr", "manager"], ["wrk", "worker"], ["rev", "reviewer"], ["ev", "evaluator"], ["str", "strategist"]] as const) {
+    if (role === "evaluator" || role === "strategist") {
+      await seedProjectWorkspaceGrant(database, project.id, principalId, role);
+      continue;
+    }
     assert.equal((await app.request(`/api/projects/${project.id}/grants`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ principalId, role }) })).status, 201);
   }
-  const outcome = await services.createOutcomeUseCase.execute(project.id, intent.id, {
+  const outcome = await services.createOutcomeUseCase.execute(project.workspaceId, intent.id, {
     title: "Outcome", description: "Visible", rationale: "Because",
     successCriteria: [{ description: "c1", measurement: "m1", target: null }],
   });
@@ -159,11 +163,11 @@ test("最近の変更は新しい順にcursorで古い変更を辿れ、不正�
   }
 });
 
-test("OutcomeのEvaluation履歴を返し、別ProjectのOutcomeは404", async () => {
+test("OutcomeのEvaluation履歴をWorkspaceから返し、別WorkspaceのOutcomeは404", async () => {
   const kit = await setup();
   const alpha = await seed(kit, "Alpha");
   const beta = await seed(kit, "Beta");
-  const base = `/api/projects/${alpha.project.id}/outcomes`;
+  const base = `/api/workspaces/${alpha.project.workspaceId}/outcomes`;
   assert.deepEqual((await json(await kit.app.request(`${base}/${alpha.outcome.id}/evaluations`))).evaluations, []);
   assert.equal((await kit.app.request(`${base}/${beta.outcome.id}/evaluations`)).status, 404);
 });
@@ -172,17 +176,19 @@ test("未所属は404、viewer以上は参照可、archived Projectも参照だ�
   const kit = await setup();
   const seeded = await seed(kit);
   const projectId = seeded.project.id;
+  // Evaluation履歴はWorkspace所有（Workspace Membership）。Execution閲覧はProject Membership。
   const paths = [
     `/api/projects/${projectId}/execution`,
     `/api/projects/${projectId}/tasks/${seeded.rejected.id}`,
     `/api/projects/${projectId}/changes`,
-    `/api/projects/${projectId}/outcomes/${seeded.outcome.id}/evaluations`,
+    `/api/workspaces/${seeded.project.workspaceId}/outcomes/${seeded.outcome.id}/evaluations`,
   ];
   const outsider = await createTestHuman(kit.database);
   const members: Record<string, TestHuman> = {};
   for (const role of ["administrator", "editor", "viewer"] as const) {
     members[role] = await createTestHuman(kit.database);
     await addTestMembership(kit.database, projectId, members[role]!, role);
+    await addTestWorkspaceMembership(kit.database, seeded.project.workspaceId, members[role]!, role);
   }
   for (const path of paths) {
     assert.equal((await requestAs(kit.plain, outsider)(path)).status, 404, path);

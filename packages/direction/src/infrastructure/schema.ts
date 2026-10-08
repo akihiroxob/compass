@@ -1,40 +1,8 @@
 import type { Generated } from "kysely";
 
-export type ProjectTable = {
-  id: string;
-  name: string;
-  description: string | null;
-  mission: string;
-  vision: string | null;
-  created_at: number;
-  updated_at: number;
-  status: "active" | "archived";
-  archived_at: number | null;
-  archive_reason: string | null;
-};
-
-type OrderedTextTable = {
-  id: string;
-  project_id: string;
-  value: string;
-  sort_order: number;
-};
-
-export type ProjectRepositoryLinkTable = {
-  id: string;
-  project_id: string;
-  name: string;
-  url: string;
-  sort_order: number;
-};
-
-export type ProjectResourceTable = ProjectRepositoryLinkTable & {
-  kind: string | null;
-};
-
 export type IntentTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   title: string;
   desired_state: string;
   completion_definition: string | null;
@@ -46,7 +14,7 @@ export type IntentTable = {
 
 export type OutcomeTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   intent_id: string;
   title: string;
   description: string;
@@ -73,7 +41,7 @@ export type SuccessCriterionTable = {
 /** `unknowns` / `options` / `risks`は不変な文字列配列のJSON。要素単位では検索しない。 */
 export type ResearchRequestTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   request_key: string;
   input_hash: string;
   kind: "project_watch" | "decision";
@@ -94,7 +62,7 @@ export type ResearchRequestTable = {
 
 export type ResearchResultTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   request_id: string;
   sequence: number;
   request_key: string;
@@ -111,18 +79,19 @@ export type ResearchResultTable = {
 
 export type ResearchEvidenceRefTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   result_id: string;
   position: number;
   kind: "url" | "repository_file" | "issue" | "pull_request" | "ci" | "wacha_run";
   uri: string;
   retrieved_at: number;
   version_hash: string | null;
+  resource_id: string | null;
 };
 
 export type ResearchFindingTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   request_id: string;
   result_id: string;
   position: number;
@@ -148,7 +117,7 @@ export type ResearchFindingConflictTable = {
 
 export type ResearchSynthesisTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   request_id: string;
   request_key: string;
   input_hash: string;
@@ -173,7 +142,7 @@ export type ResearchSynthesisFindingTable = {
 /** Compassを正本とするDirection Decision。作成後は変更しない（追記のみ）。 */
 export type DirectionDecisionTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   intent_id: string;
   /** next_outcomeのときだけ設定される。outcome.idへのFK。 */
   outcome_id: string | null;
@@ -215,6 +184,7 @@ export type DirectionDecisionFindingTable = {
 /** `adr_candidate` DecisionからWachaへ渡す依頼のfixture。作成後は変更しない。`payload`はJSON snapshot。 */
 export type AdrHandoffRequestTable = {
   id: string;
+  workspace_id: string;
   project_id: string;
   decision_id: string;
   repository_id: string;
@@ -229,6 +199,7 @@ export type AdrHandoffRequestTable = {
 /** Wachaが完了させたADR作成結果の参照。本文は複製せず、path / commit SHA / PR URLだけを保持する。 */
 export type AdrReferenceTable = {
   id: string;
+  workspace_id: string;
   project_id: string;
   decision_id: string;
   repository_id: string;
@@ -248,7 +219,7 @@ export type RuntimeEventTable = {
   id: string;
   event_version: number;
   event_type: "research_requested" | "research_completed" | "outcome_confirmed" | "outcome_evaluated";
-  project_id: string;
+  workspace_id: string;
   intent_id: string | null;
   /** research系イベントの発端Request。`outcome_confirmed`ではnull。 */
   research_request_id: string | null;
@@ -265,7 +236,7 @@ export type RuntimeEventTable = {
 export type RuntimeEventDeliveryTable = {
   consumer_id: string;
   event_sequence: number;
-  project_id: string;
+  workspace_id: string;
   outcome: "processed" | "retryable_failure" | "terminal_failure";
   retry_count: number;
   last_failure_reason: string | null;
@@ -277,17 +248,18 @@ export type RuntimeEventAckAttemptTable = {
   consumer_id: string;
   event_sequence: number;
   attempt_id: string;
-  project_id: string;
+  workspace_id: string;
   input_json: string;
   result_json: string;
   created_at: number;
 };
 
 /**
- * Executionの結果の要約（Direction所有）。Outcomeごとに1行。`stories`はJSON。Execution側のtableは参照せず、
+ * Executionの結果の要約（Direction所有）。Outcome・Projectごとに1行。`stories`はJSON。Execution側のtableは参照せず、
  * ポート経由で受け取った値だけを保存する。`execution_cursor`が進むときだけ上書きする。
  */
 export type OutcomeExecutionSummaryTable = {
+  workspace_id: string;
   project_id: string;
   outcome_id: string;
   correlation_id: string;
@@ -302,6 +274,7 @@ export type OutcomeExecutionSummaryTable = {
 /** ExecutionがOutcomeへ残したEvidenceへの参照（本文は持たない）。作成後は変更しない。 */
 export type OutcomeExecutionEvidenceTable = {
   id: string;
+  workspace_id: string;
   project_id: string;
   outcome_id: string;
   kind: "commit" | "pull_request" | "repository_file" | "ci" | "issue" | "url";
@@ -315,11 +288,11 @@ export type OutcomeExecutionEvidenceTable = {
 
 /**
  * Outcomeの評価（Direction所有）。追記だけで更新しない。`criteria` / `snapshot`はJSON。Execution側のtableへのFKは持たず、
- * 評価時のExecution Summary・Evidence参照を`snapshot`へ写す。`(project_id, request_key)`で再送を1件に収束させる。
+ * 評価時のExecution Summary・Evidence参照を`snapshot`へ写す。`(workspace_id, request_key)`で再送を1件に収束させる。
  */
 export type OutcomeEvaluationTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   outcome_id: string;
   intent_id: string;
   result: "achieved" | "failed" | "insufficient_evidence";
@@ -332,13 +305,12 @@ export type OutcomeEvaluationTable = {
   created_at: number;
 };
 
-/** Directionが所有するtable。単一SQLite fileの一部で、serverが他Contextのtableと合成する。 */
+/**
+ * Directionが所有するtable。単一SQLite fileの一部で、serverが他Contextのtableと合成する。
+ * Workspace所有の`workspace_id`、artifactとExecutionの発生元の`project_id`のFK先はOrganizationが所有する。
+ * DirectionはWorkspace/Projectの状態をserverが渡すreaderで読む。
+ */
 export type DirectionDatabase = {
-  project: ProjectTable;
-  project_principle: OrderedTextTable;
-  project_constraint: OrderedTextTable;
-  project_repository_link: ProjectRepositoryLinkTable;
-  project_resource: ProjectResourceTable;
   intent: IntentTable;
   outcome: OutcomeTable;
   success_criterion: SuccessCriterionTable;

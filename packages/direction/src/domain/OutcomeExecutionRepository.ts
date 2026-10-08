@@ -4,7 +4,8 @@ import type {
   ExecutionStoryResult,
   OutcomeExecutionRecord,
 } from "./OutcomeExecution.ts";
-import type { ProjectArchivedResult } from "./ProjectRepository.ts";
+import type { WorkspaceArchivedResult } from "./WorkspaceArchivedResult.ts";
+import type { ProjectArchivedResult } from "./ProjectArchivedResult.ts";
 
 export type RecordOutcomeExecutionInput = {
   outcomeId: string;
@@ -36,7 +37,8 @@ export type RecordOutcomeExecutionResult =
       evidenceAdded: number;
     }
   | { kind: "evidence_limit_exceeded"; limit: number }
-  | ProjectArchivedResult;
+  | ProjectArchivedResult
+  | WorkspaceArchivedResult;
 
 /**
  * Direction側のOutcomeへ、Executionの結果の要約とEvidence参照を相関付けて保存する。
@@ -44,10 +46,11 @@ export type RecordOutcomeExecutionResult =
  */
 export interface OutcomeExecutionRepository {
   /**
-   * 1 transactionで、要約を「Execution cursorが進むときだけ」上書きし、Evidenceを`(Outcome, kind, uri, versionHash)`で
+   * 1 transactionで、要約を「Execution cursorが進むときだけ」上書きし、Evidenceを`(Outcome, Project, kind, uri, versionHash)`で
    * 重複なく追記する。同じ入力の再送は何も増やさない。
    */
-  record(projectId: string, input: RecordOutcomeExecutionInput): Promise<RecordOutcomeExecutionResult>;
+  record(workspaceId: string, projectId: string, input: RecordOutcomeExecutionInput): Promise<RecordOutcomeExecutionResult>;
   /** まだ還流されていないOutcomeはnull。 */
-  find(projectId: string, outcomeId: string): Promise<OutcomeExecutionRecord | null>;
+  find(workspaceId: string, projectId: string, outcomeId: string): Promise<OutcomeExecutionRecord | null>;
+  findByOutcome(workspaceId: string, outcomeId: string): Promise<OutcomeExecutionRecord[]>;
 }

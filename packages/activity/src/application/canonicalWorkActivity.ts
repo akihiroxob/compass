@@ -8,6 +8,7 @@ import type { ActivityStore } from "./port/ActivityStore.ts";
  */
 export type WorkChangeFact = {
   cursor: number;
+  workspaceId: string;
   projectId: string;
   type: string;
   principalId: string;
@@ -60,6 +61,7 @@ export const recordCanonicalWorkActivity = async (
   await store.append({
     id: newId(),
     scope: ActivityScope.PROJECT,
+    workspaceId: change.workspaceId,
     projectId: change.projectId,
     type: definition.type,
     principalId: change.principalId,

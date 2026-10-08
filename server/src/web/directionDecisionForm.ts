@@ -42,7 +42,7 @@ export type IntentResearchSummary = {
 
 export type DirectionDecision = {
   id: string;
-  projectId: string;
+  workspaceId: string;
   intentId: string;
   outcomeId: string | null;
   /** 根拠にしたOutcome Evaluation（Task 36）。Evaluationを根拠にしない判断は`null`。 */
@@ -56,6 +56,7 @@ export type DirectionDecision = {
   principalId: string;
   runRef: string;
   intentBriefSnapshot: IntentResearchSummary;
+  requestKey: string;
   createdAt: number;
 };
 

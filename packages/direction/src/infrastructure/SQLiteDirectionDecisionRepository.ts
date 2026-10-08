@@ -18,7 +18,7 @@ import {
   validateResearchReferences,
 } from "./directionDecisionRecord.ts";
 import { inputHash } from "@compass/shared";
-import { isProjectArchived } from "./isProjectArchived.ts";
+import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 import { insertOutcomeRow, loadOutcomes } from "./outcomeRecord.ts";
 import { findResearchRequestByKey, insertResearchRequest, toRequest } from "./researchRequestRecord.ts";
@@ -27,24 +27,25 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
   /** `clock`は追加Researchの期限判定の時刻源。テストで固定できるよう注入する。 */
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
+    private readonly workspaces: DirectionWorkspaceReaders,
     private readonly clock: () => number = Date.now,
     private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
 
   async create(
-    projectId: string,
+    workspaceId: string,
     intentBriefSnapshot: IntentResearchSummary,
     input: CreateDirectionDecisionInput & { principalId: string },
   ): Promise<CreateDirectionDecisionResult> {
     return this.database.transaction().execute(async (transaction): Promise<CreateDirectionDecisionResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived", workspaceId };
 
       const hash = inputHash(input);
-      const existing = await findDecisionByRequestKey(transaction, projectId, input.requestKey);
+      const existing = await findDecisionByRequestKey(transaction, workspaceId, input.requestKey);
       if (existing) {
         if (existing.input_hash !== hash) return { kind: "key_conflict", requestKey: input.requestKey };
         const [decision] = await loadDecisions(transaction, [existing]);
-        const request = await findResearchRequestByKey(transaction, projectId, additionalResearchRequestKey(existing.id));
+        const request = await findResearchRequestByKey(transaction, workspaceId, additionalResearchRequestKey(existing.id));
         return { kind: "replayed", decision: decision!, researchRequest: request ? toRequest(request) : null };
       }
 
@@ -58,7 +59,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         .selectFrom("intent")
         .select(["status", "completion_definition"])
         .where("id", "=", input.intentId)
-        .where("project_id", "=", projectId)
+        .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
@@ -69,7 +70,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
 
       const referenceCheck = await validateResearchReferences(
         transaction,
-        projectId,
+        workspaceId,
         input.usedSyntheses,
         input.usedFindingIds,
       );
@@ -77,7 +78,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
       if (input.evaluationId !== undefined) {
         const evaluationCheck = await validateEvaluationReference(
           transaction,
-          projectId,
+          workspaceId,
           input.intentId,
           input.evaluationId,
           input.type,
@@ -88,7 +89,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
       const decisionId = crypto.randomUUID();
       const decision = await insertDirectionDecisionRow(
         transaction,
-        projectId,
+        workspaceId,
         decisionId,
         input.type,
         null,
@@ -104,7 +105,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
           .updateTable("intent")
           .set({ status: "achieved", updated_at: now })
           .where("id", "=", input.intentId)
-          .where("project_id", "=", projectId)
+          .where("workspace_id", "=", workspaceId)
           .execute();
       }
       if (!input.research) return { kind: "created", decision, researchRequest: null };
@@ -114,7 +115,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
       // 再送時の取得と、相関ID（イベントにも引き継がれる）によるDecisionへの遡りに使う。
       const researchRequest = await insertResearchRequest(
         transaction,
-        projectId,
+        workspaceId,
         {
           requestKey: additionalResearchRequestKey(decisionId),
           kind: "decision",
@@ -131,15 +132,16 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
   }
 
   async decideNextOutcome(
-    projectId: string,
+    workspaceId: string,
     intentBriefSnapshot: IntentResearchSummary,
     input: DecideNextOutcomeInput & { principalId: string },
   ): Promise<DecideNextOutcomeResult> {
     return this.database.transaction().execute(async (transaction): Promise<DecideNextOutcomeResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+      // Outcome・成功条件・Decision・通知を保存するtransaction内で所有Workspaceの状態を検査する。
+      if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived", workspaceId };
 
       const hash = inputHash(input);
-      const existing = await findDecisionByRequestKey(transaction, projectId, input.requestKey);
+      const existing = await findDecisionByRequestKey(transaction, workspaceId, input.requestKey);
       if (existing) {
         if (existing.input_hash !== hash) return { kind: "key_conflict", requestKey: input.requestKey };
         const [decision] = await loadDecisions(transaction, [existing]);
@@ -156,14 +158,14 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         .selectFrom("intent")
         .select("status")
         .where("id", "=", input.intentId)
-        .where("project_id", "=", projectId)
+        .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
 
       const referenceCheck = await validateResearchReferences(
         transaction,
-        projectId,
+        workspaceId,
         input.usedSyntheses,
         input.usedFindingIds,
       );
@@ -171,7 +173,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
       if (input.evaluationId !== undefined) {
         const evaluationCheck = await validateEvaluationReference(
           transaction,
-          projectId,
+          workspaceId,
           input.intentId,
           input.evaluationId,
           "next_outcome",
@@ -185,7 +187,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
       // Outcomeを先に作る（direction_decision.outcome_idがoutcome.idを参照するFKの前提）。
       const outcome = await insertOutcomeRow(
         transaction,
-        projectId,
+        workspaceId,
         input.intentId,
         outcomeId,
         decisionId,
@@ -195,7 +197,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
       );
       const decision = await insertDirectionDecisionRow(
         transaction,
-        projectId,
+        workspaceId,
         decisionId,
         "next_outcome",
         outcomeId,
@@ -213,7 +215,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
   private notifyRecorded(transaction: Transaction<DirectionDatabase>, decision: DirectionDecision) {
     return notifyDirectionChange(this.changeObserver, transaction, {
       type: "decision_recorded",
-      projectId: decision.projectId,
+      workspaceId: decision.workspaceId,
       recordId: decision.id,
       title: decision.judgment,
       refs: [
@@ -228,11 +230,11 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
     });
   }
 
-  async findByIntent(projectId: string, intentId: string) {
+  async findByIntent(workspaceId: string, intentId: string) {
     const rows = await this.database
       .selectFrom("direction_decision")
       .selectAll()
-      .where("project_id", "=", projectId)
+      .where("workspace_id", "=", workspaceId)
       .where("intent_id", "=", intentId)
       .orderBy("created_at", "desc")
       .orderBy(sql`rowid`, "desc")

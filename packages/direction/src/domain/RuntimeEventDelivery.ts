@@ -13,6 +13,7 @@ export type RuntimeEventAckOutcome = (typeof runtimeEventAckOutcomes)[number];
 export const isSettledAckOutcome = (outcome: RuntimeEventAckOutcome): boolean => outcome !== "retryable_failure";
 
 export type RuntimeEventDelivery = {
+  readonly workspaceId: string;
   readonly consumerId: string;
   readonly eventId: string;
   readonly cursor: number;

@@ -1,9 +1,8 @@
 import type { AckRuntimeEventResult } from "../domain/RuntimeEventDelivery.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import type { RuntimeEventRepository } from "../domain/RuntimeEventRepository.ts";
 import { parseRuntimeEventAckInput } from "./runtimeEventSchema.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
-import type { DirectionRuntimeAuthorizationPort } from "./port/DirectionAuthorizationPort.ts";
 
 /**
  * consumerがイベントの処理結果を記録する。`processed` / `terminal_failure`は以後そのconsumerへ再配信せず、
@@ -11,22 +10,20 @@ import type { DirectionRuntimeAuthorizationPort } from "./port/DirectionAuthoriz
  * 1回の試行へ収束させ、同じイベントで同じ`attemptId`を別の入力に使うとCONFLICT。確定済みの結果と同じ結果の再送は状態を変えず、異なる結果はCONFLICT。
  * archivedのProjectでも記録できる（Runtimeの取りこぼしを残さないため。Direction・Executionの状態は変えない）。
  */
-export class AckRuntimeEventUseCase<TCaller> {
+export class AckRuntimeEventUseCase {
   constructor(
-    private readonly authorization: DirectionRuntimeAuthorizationPort<TCaller>,
-    private readonly projectRepository: ProjectRepository,
+    private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly runtimeEventRepository: RuntimeEventRepository,
     private readonly clock: () => number,
   ) {}
 
-  async execute(caller: TCaller, projectId: string, input: unknown): Promise<AckRuntimeEventResult> {
-    const consumerId = await this.authorization.requireScope(caller, projectId, "runtime:event:ack");
+  async execute(consumerId: string, workspaceId: string, input: unknown): Promise<AckRuntimeEventResult> {
     const { eventId, attemptId, outcome, reason } = parseRuntimeEventAckInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
-      throw new NotFoundError(`Project ${projectId} was not found`);
+    if (!(await this.workspaceReader.findById(workspaceId))) {
+      throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     }
     const record = await this.runtimeEventRepository.recordAck({
-      projectId,
+      workspaceId,
       consumerId,
       attemptId,
       eventId,
@@ -35,7 +32,7 @@ export class AckRuntimeEventUseCase<TCaller> {
       at: this.clock(),
     });
     if (record.kind === "event_not_found") {
-      throw new NotFoundError(`Runtime event ${eventId} was not found in Project ${projectId}`);
+      throw new NotFoundError(`Runtime event ${eventId} was not found in Workspace ${workspaceId}`);
     }
     if (record.kind === "idempotency_conflict") {
       throw new ConflictError(`attemptId ${attemptId} was already used for event ${eventId} with a different result`, {

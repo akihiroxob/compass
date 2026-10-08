@@ -18,6 +18,7 @@ import type {
 } from "../domain/HumanAccountRepository.ts";
 import type { AccessDatabase } from "./schema.ts";
 import type { AccessProjectReaders } from "./AccessProjectReaders.ts";
+import type { AccessWorkspaceReaders } from "./AccessWorkspaceReaders.ts";
 import { toHumanIdentity, toHumanUser, toWebSession } from "./humanAuthRecord.ts";
 
 /** OIDCの`name`が無ければemailのlocal partを表示名にする。 */
@@ -28,6 +29,7 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
   constructor(
     private readonly database: Kysely<AccessDatabase>,
     private readonly projects: AccessProjectReaders,
+    private readonly workspaces: AccessWorkspaceReaders,
     private readonly clock: () => number = Date.now,
   ) {}
 
@@ -170,6 +172,8 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
         .executeTakeFirstOrThrow();
       const adoptedProjectIds =
         human.platform_role === "owner" ? await this.adoptOrphanProjects(transaction, humanUserId, now) : [];
+      const adoptedWorkspaceIds =
+        human.platform_role === "owner" ? await this.adoptOrphanWorkspaces(transaction, humanUserId, now) : [];
 
       if (command.previousSessionTokenHash !== null) {
         await this.revokeByHash(transaction, command.previousSessionTokenHash, "superseded", now);
@@ -203,6 +207,7 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
         bootstrapped: decision.kind === "bootstrap",
         invitation: invitationOutcome,
         adoptedProjectIds,
+        adoptedWorkspaceIds,
       };
     });
   }
@@ -321,6 +326,62 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
         .values({
           id: crypto.randomUUID(),
           project_id: projectId,
+          human_user_id: humanUserId,
+          role: "owner",
+          created_at: now,
+          updated_at: now,
+          created_by_human_user_id: null,
+          revoked_at: null,
+          revoked_by_human_user_id: null,
+        })
+        .execute();
+    }
+    return orphans;
+  }
+
+  /**
+   * 有効なowner Membershipを持たないWorkspace（owner不在Projectの移行Workspace・Actorなしで作られたWorkspace）へ、
+   * platform ownerのowner Membershipを補完する。Project側の補完と同じ規則で、冪等。
+   */
+  private async adoptOrphanWorkspaces(
+    transaction: Transaction<AccessDatabase>,
+    humanUserId: string,
+    now: number,
+  ): Promise<string[]> {
+    const workspaceIds = await this.workspaces(transaction).listIdsInCreationOrder();
+    const owned = new Set(
+      (
+        await transaction
+          .selectFrom("workspace_membership")
+          .select("workspace_id")
+          .where("role", "=", "owner")
+          .where("revoked_at", "is", null)
+          .execute()
+      ).map((row) => row.workspace_id),
+    );
+    const orphans = workspaceIds.filter((workspaceId) => !owned.has(workspaceId));
+
+    for (const workspaceId of orphans) {
+      const existing = await transaction
+        .selectFrom("workspace_membership")
+        .select("id")
+        .where("workspace_id", "=", workspaceId)
+        .where("human_user_id", "=", humanUserId)
+        .where("revoked_at", "is", null)
+        .executeTakeFirst();
+      if (existing) {
+        await transaction
+          .updateTable("workspace_membership")
+          .set({ role: "owner", updated_at: now })
+          .where("id", "=", existing.id)
+          .execute();
+        continue;
+      }
+      await transaction
+        .insertInto("workspace_membership")
+        .values({
+          id: crypto.randomUUID(),
+          workspace_id: workspaceId,
           human_user_id: humanUserId,
           role: "owner",
           created_at: now,

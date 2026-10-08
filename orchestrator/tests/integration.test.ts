@@ -5,6 +5,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -101,13 +102,29 @@ const setup = async () => {
   const projectId = project.id as string;
   for (const [principal, role] of [
     ["orchestrator-1", "runtime"],
-    ["strategist-1", "strategist"],
-    ["researcher-1", "researcher"],
     ["manager-1", "manager"],
   ]) {
     await cli("grant", projectId, principal!, role!);
   }
-  await mcp("admin", "create_intent", { projectId, title: "Exclusive claims", desiredState: "One owner per Task" });
+  // Direction RoleのGrantはWorkspace所有。Workspace Role Grantの付与入口が未接続のため、一時DBへ直接置くfixture。
+  // OrchestratorはS08まで`projectId`でRoleを起動するため、起動されたAgentが`get_project`で所属Workspaceを読めるよう
+  // 同じRoleの旧Project Grant（Project参照・Role Context用）も置く。
+  const workspaceId = project.workspaceId as string;
+  const database = new DatabaseSync(join(directory, "compass.db"));
+  try {
+    const projectGrant = database.prepare("insert into project_grant (project_id, principal_id, role, created_at) values (?, ?, ?, ?)");
+    const workspaceGrant = database.prepare("insert into workspace_grant (workspace_id, principal_id, role, created_at) values (?, ?, ?, ?)");
+    for (const [principal, role] of [
+      ["strategist-1", "strategist"],
+      ["researcher-1", "researcher"],
+    ]) {
+      projectGrant.run(projectId, principal!, role!, Date.now());
+      workspaceGrant.run(workspaceId, principal!, role!, Date.now());
+    }
+  } finally {
+    database.close();
+  }
+  await mcp("admin", "create_intent", { workspaceId, title: "Exclusive claims", desiredState: "One owner per Task" });
 
   const agentLog = join(directory, "agents.jsonl");
   const configPath = join(directory, "orchestrator.json");

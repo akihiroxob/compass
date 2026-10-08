@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { register } from "tsx/esm/api";
 import type { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/container.ts";
@@ -19,14 +21,28 @@ import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 
 type App = ReturnType<typeof createApp>;
+type FetchLike = (path: string, init?: RequestInit) => Promise<Response>;
+type WorkspaceDirectionState = { access: string; workspaceId: string | null };
+
+/** Web用tsconfig（拡張子なしのimport）のmoduleを読み込み、Project画面と同じ判定でWorkspaceのDirectionの状態を取得する。 */
+const loadProjectWorkspaceDirection = async (projectId: string, fetchImpl: FetchLike): Promise<WorkspaceDirectionState> => {
+  const web = register({ namespace: "project-archive-ui", tsconfig: fileURLToPath(new URL("../src/web/tsconfig.json", import.meta.url)) });
+  try {
+    const module = await web.import("../src/web/useWorkspaceDirection.ts", import.meta.url) as {
+      loadProjectWorkspaceDirection: (projectId: string, fetchImpl: FetchLike) => Promise<WorkspaceDirectionState>;
+    };
+    return await module.loadProjectWorkspaceDirection(projectId, fetchImpl);
+  } finally { await web.unregister(); }
+};
 
 const setup = async () => {
   const database = createDatabase(":memory:");
   await initializeSchema(database);
-  const app = await createSignedInApp(database, createApplicationServices(database));
+  const services = createApplicationServices(database);
+  const app = await createSignedInApp(database, services);
   // フロントのrequest adapterを、実際のWeb API（同一のapplication層）へ向ける。
   const fetchImpl = (path: string, init?: RequestInit) => Promise.resolve(app.request(path, init));
-  return { database, app, fetchImpl };
+  return { database, services, app, fetchImpl };
 };
 
 const createProject = async (app: App, name: string) => {
@@ -110,8 +126,8 @@ test("archived Projectへの保存はproject_archivedとして分類され、Int
 
   for (const run of [
     () => request(`/api/projects/${project.id}`, patch("Changed"), fetchImpl),
-    () => request(`/api/projects/${project.id}/intents`, intentInit, fetchImpl),
-    () => request(`/api/projects/${project.id}/grants`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ principalId: "agent", role: "strategist" }) }, fetchImpl),
+    () => request(`/api/workspaces/${project.workspaceId}/intents`, intentInit, fetchImpl),
+    () => request(`/api/projects/${project.id}/grants`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ principalId: "agent", role: "manager" }) }, fetchImpl),
   ]) {
     assert.equal(classifyError(await rejection(run)).kind, "project_archived");
   }
@@ -135,5 +151,31 @@ test("一覧: 通常はactiveのみ、?status=archivedでarchivedのみ（理由
   assert.deepEqual(archivedList.projects.map((project) => project.id), [toArchive.id]);
   assert.equal(archivedList.projects[0]?.archiveReason, "終了");
   assert.equal(typeof archivedList.projects[0]?.archivedAt, "number");
+  await database.destroy();
+});
+
+test("archive後の再取得: 単独ProjectのarchiveでWorkspaceもarchivedとなり、Directionの変更導線を閉じる", async () => {
+  const { database, app, fetchImpl } = await setup();
+  const project = await createProject(app, "Compass");
+  assert.deepEqual(await loadProjectWorkspaceDirection(project.id, fetchImpl), { access: "allowed", workspaceId: project.workspaceId });
+
+  await request(archiveProjectPath(project.id), archiveInit("終了"), fetchImpl);
+  assert.deepEqual(await loadProjectWorkspaceDirection(project.id, fetchImpl), { access: "archived", workspaceId: project.workspaceId });
+  await database.destroy();
+});
+
+test("archive後の再取得: 他のactive Projectが残るWorkspaceは、Project archived後もWorkspace Membershipに従いDirectionを変更できる", async () => {
+  const { database, services, app, fetchImpl } = await setup();
+  const project = await createProject(app, "Compass");
+  await services.human.createWorkspaceProject.execute({ kind: "human", humanUserId: app.human.humanUserId }, project.workspaceId, { name: "Sibling" });
+
+  await request(archiveProjectPath(project.id), archiveInit("終了"), fetchImpl);
+  const detail = await request<{ project: Project }>(`/api/projects/${project.id}`, undefined, fetchImpl);
+  assert.equal(detail.project.status, "archived");
+  // Project.statusだけで一律に禁止しない。判定はWorkspaceのstatusとWorkspace Membershipで行う。
+  assert.deepEqual(await loadProjectWorkspaceDirection(project.id, fetchImpl), { access: "allowed", workspaceId: project.workspaceId });
+  const intentInit: RequestInit = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "T", desiredState: "S" }) };
+  const created = await request<{ intent: { workspaceId: string } }>(`/api/workspaces/${project.workspaceId}/intents`, intentInit, fetchImpl);
+  assert.equal(created.intent.workspaceId, project.workspaceId);
   await database.destroy();
 });

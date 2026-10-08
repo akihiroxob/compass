@@ -46,6 +46,8 @@ export type EvaluationEvidenceSnapshot = {
 export type EvaluationSnapshot = {
   outcome: { title: string; description: string; hypothesis: string | null; status: string };
   execution: {
+    workspaceId: string;
+    projectId: string;
     correlationId: string;
     state: ExecutionState;
     stories: readonly ExecutionStoryResult[];
@@ -58,7 +60,7 @@ export type EvaluationSnapshot = {
 /** Outcomeごとに追記する評価。作成後は変更しない（再評価は新しい行で、最新の評価が現在の結果）。 */
 export type OutcomeEvaluation = {
   id: string;
-  projectId: string;
+  workspaceId: string;
   outcomeId: string;
   intentId: string;
   result: EvaluationResult;

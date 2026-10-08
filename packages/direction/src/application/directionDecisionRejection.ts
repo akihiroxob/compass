@@ -1,9 +1,9 @@
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
-import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
+import { WorkspaceArchivedError } from "@compass/organization";
 
 /** Decision作成で共通の拒否結果。`created` / `replayed`はそれぞれのuse caseが扱う。 */
 type CommonDecisionRejection =
-  | { kind: "project_archived" }
+  | { kind: "workspace_archived"; workspaceId: string }
   | { kind: "key_conflict"; requestKey: string }
   | { kind: "deadline_in_past"; deadlineAt: number }
   | { kind: "intent_not_found" }
@@ -19,13 +19,13 @@ type CommonDecisionRejection =
 /** 共通の拒否結果をアプリケーション層のエラーへ変換する。該当しない結果（created/replayed）は何もしない。 */
 export const throwDirectionDecisionRejection = (
   result: { kind: string },
-  projectId: string,
+  workspaceId: string,
   intentId: string,
 ): void => {
   const rejection = result as CommonDecisionRejection;
-  if (rejection.kind === "project_archived") throw new ProjectArchivedError(projectId);
+  if (rejection.kind === "workspace_archived") throw new WorkspaceArchivedError(rejection.workspaceId);
   if (rejection.kind === "intent_not_found") {
-    throw new NotFoundError(`Intent ${intentId} was not found in Project ${projectId}`);
+    throw new NotFoundError(`Intent ${intentId} was not found in Workspace ${workspaceId}`);
   }
   if (rejection.kind === "intent_not_active") {
     throw new ConflictError(

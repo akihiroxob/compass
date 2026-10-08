@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test, { beforeEach } from "node:test";
 import BetterSqlite3 from "better-sqlite3";
 import { Kysely, sql, SqliteDialect } from "kysely";
-import { ProjectArchivedError } from "@compass/direction";
+import { ProjectArchivedError } from "@compass/organization";
 import { CoordinationError } from "../src/application/error/CoordinationError.ts";
 import type { DirectionReferenceLookupPort } from "../src/application/port/DirectionReferenceLookupPort.ts";
 import { TaskCoordinationService } from "../src/application/TaskCoordinationService.ts";

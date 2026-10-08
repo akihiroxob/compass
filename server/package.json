@@ -13,6 +13,7 @@
     "@compass/access": "0.1.0",
     "@compass/activity": "0.1.0",
     "@compass/direction": "0.1.0",
+    "@compass/organization": "0.1.0",
     "@compass/shared": "0.1.0",
     "@compass/work": "0.1.0",
     "@hono/node-server": "^1.19.12",
@@ -31,6 +32,7 @@
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "sass": "^1.105.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vite": "^7.1.0"

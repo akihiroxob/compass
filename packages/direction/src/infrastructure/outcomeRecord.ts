@@ -2,7 +2,6 @@ import type { Kysely, Selectable, Transaction } from "kysely";
 import { Outcome, type SuccessCriterion } from "../domain/Outcome.ts";
 import type { CreateOutcomeInput } from "../domain/OutcomeRepository.ts";
 import type { DirectionDatabase, OutcomeTable, SuccessCriterionTable } from "./schema.ts";
-import { recordOutcomeConfirmedEvent } from "./runtimeEventRecord.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 type Executor = Kysely<DirectionDatabase> | Transaction<DirectionDatabase>;
@@ -36,7 +35,7 @@ export const loadOutcomes = async (
     (row) =>
       new Outcome({
         id: row.id,
-        projectId: row.project_id,
+        workspaceId: row.workspace_id,
         intentId: row.intent_id,
         title: row.title,
         description: row.description,
@@ -55,12 +54,12 @@ export const loadOutcomes = async (
 /**
  * OutcomeとSuccess Criterionを1 transactionで挿入する。`id`・`originDecisionId`は呼び出し側が決める
  * （decideNextOutcomeはDecision行を作る前にOutcomeのIDを確定させ、Decision.outcomeIdのFKに使う）。
- * 存在・状態の確認は呼び出し側が行う。あわせて`outcome_confirmed`イベントを同じtransactionで保存するため、
- * Outcomeとイベントの一方だけが残ることはない（create_outcome・decide_next_outcomeの両方がここを通る）。
+ * 存在・状態の確認は呼び出し側が行う。Workspace通知を同じtransactionで送る。
+ * serverがcanonical ActivityとWorkspace Runtime eventへ投影し、通知先の失敗時はOutcome・成功条件も巻き戻る。
  */
 export const insertOutcomeRow = async (
   transaction: Transaction<DirectionDatabase>,
-  projectId: string,
+  workspaceId: string,
   intentId: string,
   id: string,
   originDecisionId: string | null,
@@ -72,7 +71,7 @@ export const insertOutcomeRow = async (
     .insertInto("outcome")
     .values({
       id,
-      project_id: projectId,
+      workspace_id: workspaceId,
       intent_id: intentId,
       title: input.title,
       description: input.description,
@@ -100,10 +99,9 @@ export const insertOutcomeRow = async (
       })),
     )
     .execute();
-  await recordOutcomeConfirmedEvent(transaction, { projectId, intentId, outcomeId: row.id, occurredAt: now });
   await notifyDirectionChange(observer, transaction, {
     type: "outcome_confirmed",
-    projectId,
+    workspaceId,
     recordId: row.id,
     title: row.title,
     refs: [

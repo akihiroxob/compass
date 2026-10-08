@@ -1,12 +1,13 @@
 /**
- * Activity: Project / System上で何が起き、何が分かり、何が決まったかを、後から人間やAgentが理解するための履歴。
+ * Activity: Workspace / Project / System上で何が起き、何が分かり、何が決まったかを、後から人間やAgentが理解するための履歴。
  * raw log（Operational Log）や正確な状態変更（Change Log）とは別の概念で、workflow checkpointにも使わない。
  * Agentの実行単位（runId）は持たない。訂正は過去のActivityを書き換えず、`correctsActivityId`を持つActivityを追記する。
  */
 
 export const ActivityScope = {
   PROJECT: "project",
-  /** Agent System共通の履歴。`projectId`を持たない。 */
+  WORKSPACE: "workspace",
+  /** Agent System共通の履歴。`workspaceId`・`projectId`を持たない。 */
   SYSTEM: "system",
 } as const;
 
@@ -40,7 +41,9 @@ export type Activity = {
   /** 全体で単調増加する取得位置。差分取得・ページングに使い、workflow checkpointには使わない。 */
   readonly cursor: number;
   readonly scope: ActivityScope;
-  /** `scope=project`では必須、`scope=system`ではnull。 */
+  /** workspace/projectでは必須、systemではnull。Projectの所属Workspaceを表す。 */
+  readonly workspaceId: string | null;
+  /** projectでは必須、workspace/systemではnull。 */
   readonly projectId: string | null;
   /** 例: `research.summary`・`decision.recorded`・`task.completed`。完全な列挙は定めない。 */
   readonly type: string;

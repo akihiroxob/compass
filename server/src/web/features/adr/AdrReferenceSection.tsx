@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import type { AdrReference } from "../../adrReferenceForm";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { workspaceApiPath } from "../../paths";
 
 const ReferenceRow = ({ reference }: { reference: AdrReference }) => (
   <li>
@@ -24,17 +25,17 @@ const ReferenceRow = ({ reference }: { reference: AdrReference }) => (
 );
 
 /**
- * ProjectのADR参照一覧（Human向け読み取り専用）。実Wachaとは未接続で、Repository ADRの正本はRepository側にある。
+ * 所属WorkspaceのADR参照一覧（Human向け読み取り専用）。対象artifactのProjectが別のProjectの参照も含む。実Wachaとは未接続で、Repository ADRの正本はRepository側にある。
  * ここではWachaが完了させた結果（path・commit SHA・PR URL）の参照だけを表示する。
  */
-export const AdrReferenceSection = ({ projectId }: { projectId: string }) => {
+export const AdrReferenceSection = ({ workspaceId }: { workspaceId: string }) => {
   const [references, setReferences] = useState<AdrReference[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    request<{ references: AdrReference[] }>(`/api/projects/${projectId}/adr-references`)
+    request<{ references: AdrReference[] }>(workspaceApiPath(workspaceId, "/adr-references"))
       .then(({ references }) => setReferences(references))
-      .catch((reason: unknown) => setError(loadFailureMessage(classifyError(reason), "Projectが見つかりません。")));
-  }, [projectId]);
+      .catch((reason: unknown) => setError(loadFailureMessage(classifyError(reason), "Workspaceが見つかりません。")));
+  }, [workspaceId]);
   return (
     <section className="detail-section" aria-labelledby="adr-heading">
       <h2 id="adr-heading">ADR参照</h2>

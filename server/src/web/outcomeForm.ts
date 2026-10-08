@@ -14,7 +14,7 @@ export type SuccessCriterion = {
 
 export type Outcome = {
   id: string;
-  projectId: string;
+  workspaceId: string;
   intentId: string;
   title: string;
   description: string;
@@ -23,6 +23,7 @@ export type Outcome = {
   status: OutcomeStatus;
   cancelReason: string | null;
   successCriteria: SuccessCriterion[];
+  originDecisionId: string | null;
   createdAt: number;
   updatedAt: number;
 };

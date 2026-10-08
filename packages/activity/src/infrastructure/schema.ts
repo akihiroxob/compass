@@ -8,6 +8,7 @@ export type ActivityTable = {
   cursor: Generated<number>;
   id: string;
   scope: string;
+  workspace_id: string | null;
   project_id: string | null;
   type: string;
   principal_id: string;

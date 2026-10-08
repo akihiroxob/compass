@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -48,8 +48,13 @@ const errorOf = (result: ToolResult) => {
   return result.structuredContent.error as { code: string; message: string } & Record<string, string>;
 };
 
-const grant = (app: App, projectId: string, principalId: string, role: string) =>
-  send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
+const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role: string) => {
+  if (["strategist", "researcher", "evaluator"].includes(role)) {
+    await seedProjectWorkspaceGrant(database, projectId, principalId, role);
+    return;
+  }
+  return send(app, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
+};
 
 const seedProject = async (services: Services) => {
   const project = await services.createProjectUseCase.execute({
@@ -58,7 +63,7 @@ const seedProject = async (services: Services) => {
     constraints: ["No autonomous execution yet", "Human owns Mission changes"],
     repositories: [{ name: "compass", url: "https://github.com/example/compass" }],
   });
-  const intent = await services.createIntentUseCase.execute(project.id, {
+  const intent = await services.createIntentUseCase.execute(project.workspaceId, {
     title: "Agents improve software",
     desiredState: "Agents improve the software.",
   });
@@ -66,12 +71,12 @@ const seedProject = async (services: Services) => {
 };
 
 /** adr_candidateのDirection Decisionを1件作る（create_adr_handoff_requestが依頼できる状態を用意する）。 */
-const seedAdrCandidateDecision = async (app: App, projectId: string, intentId: string) => {
+const seedAdrCandidateDecision = async (app: App, workspaceId: string, intentId: string) => {
   const decision = await callTool(
     app,
     "create_direction_decision",
     {
-      projectId,
+      workspaceId,
       intentId,
       type: "adr_candidate",
       judgment: "Adopt lease-based claiming",
@@ -86,12 +91,14 @@ const seedAdrCandidateDecision = async (app: App, projectId: string, intentId: s
   return decision.structuredContent.decision.id as string;
 };
 
+/** ADR依頼はWorkspace所有で、対象artifactのProject（projectId）を明示する。 */
 const handoffArgs = (
-  projectId: string,
+  { id: projectId, workspaceId }: { id: string; workspaceId: string },
   decisionId: string,
   repositoryId: string,
   overrides: object = {},
 ) => ({
+  workspaceId,
   projectId,
   decisionId,
   repositoryId,
@@ -103,10 +110,10 @@ const handoffArgs = (
 test("adr_candidate DecisionとRepositoryから依頼payloadを生成でき、再送は冪等で内容が違えばCONFLICTになる", async () => {
   const { database, services, app } = await setup();
   const { project, intent, repositoryId } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
-  const decisionId = await seedAdrCandidateDecision(app, project.id, intent.id);
+  await grant(database, app, project.id, "strat-1", "strategist");
+  const decisionId = await seedAdrCandidateDecision(app, project.workspaceId, intent.id);
 
-  const created = await callTool(app, "create_adr_handoff_request", handoffArgs(project.id, decisionId, repositoryId), "strat-1");
+  const created = await callTool(app, "create_adr_handoff_request", handoffArgs(project, decisionId, repositoryId), "strat-1");
   assert.equal(created.isError, undefined, JSON.stringify(created));
   const request = created.structuredContent.request;
   assert.equal(request.decisionId, decisionId);
@@ -123,14 +130,14 @@ test("adr_candidate DecisionとRepositoryから依頼payloadを生成でき、�
   assert.ok(request.payload.expectedAdrContent.includes("Do nothing"));
 
   // 同じrequestKeyの再送は新しい行を作らず既存の行を返す（transport再送の冪等性）。
-  const replayed = await callTool(app, "create_adr_handoff_request", handoffArgs(project.id, decisionId, repositoryId), "strat-1");
+  const replayed = await callTool(app, "create_adr_handoff_request", handoffArgs(project, decisionId, repositoryId), "strat-1");
   assert.equal(replayed.structuredContent.request.id, request.id);
 
   // 同じrequestKeyで異なる内容（別correlationId）の再利用はCONFLICT。重複した依頼は作られない。
   const conflicting = await callTool(
     app,
     "create_adr_handoff_request",
-    handoffArgs(project.id, decisionId, repositoryId, { correlationId: "different-thread" }),
+    handoffArgs(project, decisionId, repositoryId, { correlationId: "different-thread" }),
     "strat-1",
   );
   assert.equal(errorOf(conflicting).code, "CONFLICT");
@@ -141,12 +148,12 @@ test("adr_candidate DecisionとRepositoryから依頼payloadを生成でき、�
 test("存在しないDecision・adr_candidateでないDecision・未登録Repositoryへの依頼は拒否される", async () => {
   const { database, services, app } = await setup();
   const { project, intent, repositoryId } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
+  await grant(database, app, project.id, "strat-1", "strategist");
 
   const missingDecision = await callTool(
     app,
     "create_adr_handoff_request",
-    handoffArgs(project.id, "missing-decision", repositoryId, { requestKey: "h-missing-decision" }),
+    handoffArgs(project, "missing-decision", repositoryId, { requestKey: "h-missing-decision" }),
     "strat-1",
   );
   assert.equal(errorOf(missingDecision).code, "NOT_FOUND");
@@ -155,7 +162,7 @@ test("存在しないDecision・adr_candidateでないDecision・未登録Reposi
     app,
     "create_direction_decision",
     {
-      projectId: project.id,
+      workspaceId: project.workspaceId,
       intentId: intent.id,
       type: "additional_research",
       judgment: "Need more evidence",
@@ -175,17 +182,17 @@ test("存在しないDecision・adr_candidateでないDecision・未登録Reposi
   const wrongType = await callTool(
     app,
     "create_adr_handoff_request",
-    handoffArgs(project.id, nonAdrDecisionId, repositoryId, { requestKey: "h-wrong-type" }),
+    handoffArgs(project, nonAdrDecisionId, repositoryId, { requestKey: "h-wrong-type" }),
     "strat-1",
   );
   assert.equal(errorOf(wrongType).code, "CONFLICT");
   assert.equal(errorOf(wrongType).type, "additional_research");
 
-  const decisionId = await seedAdrCandidateDecision(app, project.id, intent.id);
+  const decisionId = await seedAdrCandidateDecision(app, project.workspaceId, intent.id);
   const missingRepository = await callTool(
     app,
     "create_adr_handoff_request",
-    handoffArgs(project.id, decisionId, "missing-repository", { requestKey: "h-missing-repo" }),
+    handoffArgs(project, decisionId, "missing-repository", { requestKey: "h-missing-repo" }),
     "strat-1",
   );
   assert.equal(errorOf(missingRepository).code, "NOT_FOUND");
@@ -195,10 +202,11 @@ test("存在しないDecision・adr_candidateでないDecision・未登録Reposi
 test("record_adr_referenceは対応するhandoff requestが必須で、絶対path・path traversal・短縮SHA・不正URLをVALIDATION_ERRORで拒否する", async () => {
   const { database, services, app } = await setup();
   const { project, intent, repositoryId } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
-  const decisionId = await seedAdrCandidateDecision(app, project.id, intent.id);
+  await grant(database, app, project.id, "strat-1", "strategist");
+  const decisionId = await seedAdrCandidateDecision(app, project.workspaceId, intent.id);
 
   const referenceArgs = (overrides: object = {}) => ({
+    workspaceId: project.workspaceId,
     projectId: project.id,
     decisionId,
     repositoryId,
@@ -213,7 +221,7 @@ test("record_adr_referenceは対応するhandoff requestが必須で、絶対pat
   const orphanReference = await callTool(app, "record_adr_reference", referenceArgs(), "strat-1");
   assert.equal(errorOf(orphanReference).code, "CONFLICT");
 
-  await callTool(app, "create_adr_handoff_request", handoffArgs(project.id, decisionId, repositoryId), "strat-1");
+  await callTool(app, "create_adr_handoff_request", handoffArgs(project, decisionId, repositoryId), "strat-1");
 
   // 異なるcorrelationIdの参照は、対応する依頼が見つからず拒否される。
   const mismatchedCorrelation = await callTool(
@@ -269,7 +277,7 @@ test("record_adr_referenceは対応するhandoff requestが必須で、絶対pat
   assert.equal(errorOf(conflicting).code, "CONFLICT");
 
   // Project scopeでの参照（Human向け画面・監査用途）。
-  const listed = await callTool(app, "list_adr_references", { projectId: project.id });
+  const listed = await callTool(app, "list_adr_references", { workspaceId: project.workspaceId });
   assert.equal(listed.structuredContent.references.length, 1);
   assert.equal(listed.structuredContent.references[0].id, reference.id);
   await database.destroy();
@@ -278,9 +286,9 @@ test("record_adr_referenceは対応するhandoff requestが必須で、絶対pat
 test("update_projectでADR Handoff Request/Referenceが参照するRepositoryを外そうとするとCONFLICTになり、他の変更も含めて何も更新しない", async () => {
   const { database, services, app } = await setup();
   const { project, intent, repositoryId } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
-  const decisionId = await seedAdrCandidateDecision(app, project.id, intent.id);
-  await callTool(app, "create_adr_handoff_request", handoffArgs(project.id, decisionId, repositoryId), "strat-1");
+  await grant(database, app, project.id, "strat-1", "strategist");
+  const decisionId = await seedAdrCandidateDecision(app, project.workspaceId, intent.id);
+  await callTool(app, "create_adr_handoff_request", handoffArgs(project, decisionId, repositoryId), "strat-1");
 
   // update_projectの1 transactionでname変更とRepository削除をまとめて送るが、
   // Repository削除がADR Handoff Requestに参照されているため拒否され、name変更も巻き込まれて失われない。
@@ -304,21 +312,22 @@ test("update_projectでADR Handoff Request/Referenceが参照するRepositoryを
 test("create_adr_handoff_request・record_adr_referenceはStrategist Grant必須で、ResearcherやBearerなしは拒否される", async () => {
   const { database, services, app } = await setup();
   const { project, intent, repositoryId } = await seedProject(services);
-  await grant(app, project.id, "strat-1", "strategist");
-  await grant(app, project.id, "researcher-a", "researcher");
-  const decisionId = await seedAdrCandidateDecision(app, project.id, intent.id);
+  await grant(database, app, project.id, "strat-1", "strategist");
+  await grant(database, app, project.id, "researcher-a", "researcher");
+  const decisionId = await seedAdrCandidateDecision(app, project.workspaceId, intent.id);
 
-  const anonymousHandoff = await callTool(app, "create_adr_handoff_request", handoffArgs(project.id, decisionId, repositoryId));
+  const anonymousHandoff = await callTool(app, "create_adr_handoff_request", handoffArgs(project, decisionId, repositoryId));
   assert.equal(errorOf(anonymousHandoff).code, "UNAUTHENTICATED");
   const researcherHandoff = await callTool(
     app,
     "create_adr_handoff_request",
-    handoffArgs(project.id, decisionId, repositoryId),
+    handoffArgs(project, decisionId, repositoryId),
     "researcher-a",
   );
   assert.equal(errorOf(researcherHandoff).code, "FORBIDDEN");
 
   const referenceArgs = {
+    workspaceId: project.workspaceId,
     projectId: project.id,
     decisionId,
     repositoryId,

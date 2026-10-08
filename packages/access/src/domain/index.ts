@@ -8,3 +8,6 @@ export * from "./ProjectGrant.ts";
 export * from "./ProjectGrantRepository.ts";
 export * from "./ProjectMembershipRepository.ts";
 export * from "./ProjectRole.ts";
+export * from "./WorkspaceMembershipRepository.ts";
+export * from "./RoleScope.ts";
+export * from "./WorkspaceGrant.ts";

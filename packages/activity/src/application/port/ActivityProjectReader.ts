@@ -1,5 +1,6 @@
-/** Activityが参照するProject（Directionが所有）の状態。Activityはprojectのtableを直接読まない。 */
+/** Activityが参照するProject（Organizationが所有）の状態。Activityはprojectのtableを直接読まない。 */
 export type ActivityProjectState = {
+  workspaceId: string;
   archived: boolean;
   /** 登録済みのRepository・ResourceのID。`project_resource`参照の検証に使う。 */
   resourceIds: string[];

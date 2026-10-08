@@ -4,6 +4,7 @@ export * from "./application/port/ActivityStore.ts";
 export * from "./application/activitySchema.ts";
 export * from "./application/ActivityUseCases.ts";
 export * from "./application/canonicalDirectionActivity.ts";
+export * from "./application/canonicalProjectActivity.ts";
 export * from "./application/canonicalWorkActivity.ts";
 export * from "./infrastructure/initializeActivitySchema.ts";
 export * from "./infrastructure/KyselyActivityStore.ts";

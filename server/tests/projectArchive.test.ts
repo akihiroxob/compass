@@ -5,16 +5,22 @@ import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedLegacyProjectGrant, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { SQLiteIntentRepository, SQLiteOutcomeRepository, SQLiteProjectRepository } from "@compass/direction";
+import { SQLiteIntentRepository, SQLiteOutcomeRepository } from "@compass/direction";
+import { SQLiteProjectRepository } from "@compass/organization";
 import { SQLiteProjectGrantRepository } from "@compass/access";
 import { cliUsage, runCli } from "../src/cli/runCli.ts";
-import { asAccessDatabase, asDirectionDatabase } from "../src/bootstrap/database/contextDatabase.ts";
-import { accessProjectReaders } from "../src/infrastructure/repository/contextAdapters.ts";
+import { asAccessDatabase, asDirectionDatabase, asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import {
+  accessProjectReaders,
+  directionProjectReaders,
+  directionWorkspaceReaders,
+  projectRepositoryReferenceFinder,
+} from "../src/infrastructure/repository/contextAdapters.ts";
 
 type App = ReturnType<typeof createApp>;
 type Body = Record<string, any>;
@@ -67,11 +73,13 @@ const callTool = async (app: App, name: string, args: object, principal?: string
 };
 
 /** Intent・Outcome・Grantを持つactiveなProjectを作る。 */
-const seed = async (services: Awaited<ReturnType<typeof setup>>["services"]) => {
+const seed = async (database: ReturnType<typeof createDatabase>, services: Awaited<ReturnType<typeof setup>>["services"]) => {
   const project = await services.createProjectUseCase.execute({ name: "Compass", mission: "Keep direction explicit" });
-  const intent = await services.createIntentUseCase.execute(project.id, { title: "Intent", desiredState: "State" });
-  const outcome = await services.createOutcomeUseCase.execute(project.id, intent.id, outcomeInput);
-  await services.grantProjectRoleUseCase.execute(project.id, { principalId: "strat-1", role: "strategist" });
+  const intent = await services.createIntentUseCase.execute(project.workspaceId, { title: "Intent", desiredState: "State" });
+  const outcome = await services.createOutcomeUseCase.execute(project.workspaceId, intent.id, outcomeInput);
+  // Direction Role（Workspace所有）のGrantと、archiveガードを検証する旧Project Grant fixtureの両方を置く。
+  await seedProjectWorkspaceGrant(database, project.id, "strat-1", "strategist");
+  await seedLegacyProjectGrant(database, project.id, "strat-1", "strategist");
   return { project, intent, outcome };
 };
 
@@ -88,7 +96,7 @@ test("AC-1 archiveはstatus・理由・日時を保存し、updatedAt=archivedAt
   const directory = await mkdtemp(join(tmpdir(), "compass-archive-"));
   const path = join(directory, "test.db");
   const first = await setup(path);
-  const { project } = await seed(first.services);
+  const { project } = await seed(first.database, first.services);
   assert.equal(project.status, "active");
   assert.equal(project.archivedAt, null);
   assert.equal(project.archiveReason, null);
@@ -112,7 +120,7 @@ test("AC-1 archiveはstatus・理由・日時を保存し、updatedAt=archivedAt
 
 test("AC-2 理由なし・空白のみ・本文なしは400（path reason）でactiveのまま", async () => {
   const { database, services, app } = await setup();
-  const { project } = await seed(services);
+  const { project } = await seed(database, services);
   for (const body of [{}, { reason: "" }, { reason: "   " }, { reason: "x".repeat(2_001) }, undefined]) {
     // archive()の既定引数はundefinedを置き換えるため、本文なしはsendを直接呼ぶ。
     const response = await send(app, "POST", `/api/projects/${project.id}/archive`, body);
@@ -132,7 +140,7 @@ test("AC-2 理由なし・空白のみ・本文なしは400（path reason）でa
 
 test("AC-3 再archiveは409（projectStatus）で、理由・日時を上書きしない", async () => {
   const { database, services, app } = await setup();
-  const { project } = await seed(services);
+  const { project } = await seed(database, services);
   const first = (await json(await archive(app, project.id, { reason: "First" }))).project;
   const again = await archive(app, project.id, { reason: "Second" });
   assert.equal(again.status, 409);
@@ -156,7 +164,7 @@ test("AC-4 存在しないIDのarchiveは404。Web APIではMembership認可が�
 
 test("AC-5 archivedのProject更新は409で変更されず、statusでは復帰できない", async () => {
   const { database, services, app } = await setup();
-  const { project } = await seed(services);
+  const { project } = await seed(database, services);
   // active中は、statusだけのPATCHは更新項目なしの400。statusは他の未知の項目と同じく無視される。
   const ignored = await send(app, "PATCH", `/api/projects/${project.id}`, { status: "archived" });
   assert.equal(ignored.status, 400);
@@ -177,10 +185,10 @@ test("AC-5 archivedのProject更新は409で変更されず、statusでは復帰
 
 test("AC-6 archivedのIntent作成・更新・放棄は409。存在しないintentIdでも404でなく409", async () => {
   const { database, services, app } = await setup();
-  const { project, intent } = await seed(services);
-  const before = (await json(await app.request(`/api/projects/${project.id}/intents/${intent.id}`))).intent;
+  const { project, intent } = await seed(database, services);
+  const before = (await json(await app.request(`/api/workspaces/${project.workspaceId}/intents/${intent.id}`))).intent;
   await archive(app, project.id);
-  const base = `/api/projects/${project.id}/intents`;
+  const base = `/api/workspaces/${project.workspaceId}/intents`;
   const attempts: [string, string, unknown][] = [
     ["POST", base, { title: "New", desiredState: "State" }],
     ["PATCH", `${base}/${intent.id}`, { title: "Changed" }],
@@ -191,7 +199,8 @@ test("AC-6 archivedのIntent作成・更新・放棄は409。存在しないinte
   for (const [method, path, body] of attempts) {
     const response = await send(app, method, path, body);
     assert.equal(response.status, 409, `${method} ${path}`);
-    assert.equal((await json(response)).error.projectStatus, "archived");
+    // 最後のProjectのarchiveで所属Workspaceもarchivedになり、DirectionはWorkspaceとして拒否される。
+    assert.equal((await json(response)).error.workspaceStatus, "archived");
   }
   assert.deepEqual((await json(await app.request(`${base}/${intent.id}`))).intent, before);
   assert.equal((await json(await app.request(base))).intents.length, 1);
@@ -200,9 +209,9 @@ test("AC-6 archivedのIntent作成・更新・放棄は409。存在しないinte
 
 test("AC-7 archivedのOutcome作成・更新・取消は固定項目を含めて409で、Outcomeは変わらない", async () => {
   const { database, services, app } = await setup();
-  const { project, intent, outcome } = await seed(services);
+  const { project, intent, outcome } = await seed(database, services);
   await archive(app, project.id);
-  const base = `/api/projects/${project.id}/intents/${intent.id}/outcomes`;
+  const base = `/api/workspaces/${project.workspaceId}/intents/${intent.id}/outcomes`;
   const attempts: [string, string, unknown][] = [
     ["POST", base, outcomeInput],
     ["PATCH", `${base}/${outcome.id}`, { title: "Changed" }],
@@ -210,12 +219,13 @@ test("AC-7 archivedのOutcome作成・更新・取消は固定項目を含めて
     ["PATCH", `${base}/missing`, { title: "Changed" }],
     ["POST", `${base}/${outcome.id}/cancel`, { reason: "x" }],
     ["POST", `${base}/missing/cancel`, { reason: "x" }],
-    ["POST", `/api/projects/${project.id}/intents/missing/outcomes`, outcomeInput],
+    ["POST", `/api/workspaces/${project.workspaceId}/intents/missing/outcomes`, outcomeInput],
   ];
   for (const [method, path, body] of attempts) {
     const response = await send(app, method, path, body);
     assert.equal(response.status, 409, `${method} ${path}`);
-    assert.equal((await json(response)).error.projectStatus, "archived");
+    // 最後のProjectのarchiveで所属Workspaceもarchivedになり、DirectionはWorkspaceとして拒否される。
+    assert.equal((await json(response)).error.workspaceStatus, "archived");
   }
   const fetched = (await json(await app.request(`${base}/${outcome.id}`))).outcome;
   assert.deepEqual(fetched, JSON.parse(JSON.stringify(outcome)));
@@ -225,24 +235,24 @@ test("AC-7 archivedのOutcome作成・更新・取消は固定項目を含めて
 
 test("AC-8 archivedのGrant発行・取消はWeb APIとCLIで409。grants一覧は成功する", async () => {
   const { database, services, app } = await setup();
-  const { project } = await seed(services);
+  const { project } = await seed(database, services);
   await archive(app, project.id);
   const grants = `/api/projects/${project.id}/grants`;
 
-  const issued = await send(app, "POST", grants, { principalId: "strat-2", role: "strategist" });
+  const issued = await send(app, "POST", grants, { principalId: "strat-2", role: "manager" });
   assert.equal(issued.status, 409);
   assert.equal((await json(issued)).error.projectStatus, "archived");
   const revoked = await send(app, "DELETE", `${grants}/strategist/strat-1`);
   assert.equal(revoked.status, 409);
   // 既存Grantの再発行も、副作用がなくても書込として拒否する。
-  assert.equal((await send(app, "POST", grants, { principalId: "strat-1", role: "strategist" })).status, 409);
-  // Web UIでsectionを追加したEvaluator・Runtimeも同じく拒否する。
-  for (const role of ["evaluator", "runtime"]) {
-    assert.equal((await send(app, "POST", grants, { principalId: `${role}-1`, role })).status, 409);
-    assert.equal((await send(app, "DELETE", `${grants}/${role}/${role}-1`)).status, 409);
-  }
+  assert.equal((await send(app, "POST", grants, { principalId: "strat-1", role: "manager" })).status, 409);
+  assert.equal((await send(app, "POST", grants, { principalId: "runtime-1", role: "runtime" })).status, 409);
+  assert.equal((await send(app, "DELETE", `${grants}/runtime/runtime-1`)).status, 409);
+  // 新規Role-scope不一致は入力エラー。旧Roleの取消はarchiveガードを適用する。
+  assert.equal((await send(app, "POST", grants, { principalId: "evaluator-1", role: "evaluator" })).status, 400);
+  assert.equal((await send(app, "DELETE", `${grants}/evaluator/evaluator-1`)).status, 409);
 
-  const cliGrant = await runCli(["grant", project.id, "strat-2", "strategist"], services);
+  const cliGrant = await runCli(["grant", project.id, "strat-2", "manager"], services);
   assert.equal(cliGrant.exitCode, 1);
   assert.equal(JSON.parse(cliGrant.stderr).error.code, "CONFLICT");
   const cliRevoke = await runCli(["revoke", project.id, "strat-1", "strategist"], services);
@@ -259,12 +269,12 @@ test("AC-8 archivedのGrant発行・取消はWeb APIとCLIで409。grants一覧�
 
 test("AC-9 archivedでもProject詳細・Intent・Outcome・Grantの参照はarchive前と同じ内容で成功する", async () => {
   const { database, services, app } = await setup();
-  const { project, intent, outcome } = await seed(services);
+  const { project, intent, outcome } = await seed(database, services);
   const paths = [
-    `/api/projects/${project.id}/intents`,
-    `/api/projects/${project.id}/intents/${intent.id}`,
-    `/api/projects/${project.id}/intents/${intent.id}/outcomes`,
-    `/api/projects/${project.id}/intents/${intent.id}/outcomes/${outcome.id}`,
+    `/api/workspaces/${project.workspaceId}/intents`,
+    `/api/workspaces/${project.workspaceId}/intents/${intent.id}`,
+    `/api/workspaces/${project.workspaceId}/intents/${intent.id}/outcomes`,
+    `/api/workspaces/${project.workspaceId}/intents/${intent.id}/outcomes/${outcome.id}`,
     `/api/projects/${project.id}/grants`,
   ];
   const before = await Promise.all(paths.map(async (path) => json(await app.request(path))));
@@ -305,43 +315,43 @@ test("AC-10 一覧はactiveのみ、?status=archivedでarchivedのみ（新し�
 
 test("AC-11 Repositoryを直接呼んでも、archivedのProjectには何も書かず'project_archived'を返す", async () => {
   const { database, services } = await setup();
-  const { project, intent, outcome } = await seed(services);
+  const { project, intent, outcome } = await seed(database, services);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
   const before = await counts(database);
   const projectBefore = await services.getProjectUseCase.execute(project.id);
 
-  const projects = new SQLiteProjectRepository(asDirectionDatabase(database));
-  const intents = new SQLiteIntentRepository(asDirectionDatabase(database));
-  const outcomes = new SQLiteOutcomeRepository(asDirectionDatabase(database));
+  const projects = new SQLiteProjectRepository(asOrganizationDatabase(database), projectRepositoryReferenceFinder);
+  const intents = new SQLiteIntentRepository(asDirectionDatabase(database), directionWorkspaceReaders);
+  const outcomes = new SQLiteOutcomeRepository(asDirectionDatabase(database), directionWorkspaceReaders);
   const grants = new SQLiteProjectGrantRepository(asAccessDatabase(database), accessProjectReaders);
   const archived = { kind: "project_archived" };
   assert.deepEqual(await projects.update(project.id, { name: "Changed" }), archived);
-  assert.deepEqual(await intents.create(project.id, { title: "T", desiredState: "S", completionDefinition: null }), archived);
-  assert.deepEqual(await intents.update(project.id, intent.id, { title: "Changed" }), archived);
-  assert.deepEqual(await intents.abandon(project.id, intent.id, "x"), archived);
-  assert.deepEqual(await outcomes.create(project.id, intent.id, { ...outcomeInput, hypothesis: null, successCriteria: [{ description: "d", measurement: "m", target: null }] }), archived);
-  assert.deepEqual(await outcomes.update(project.id, intent.id, outcome.id, { title: "Changed" }), archived);
-  assert.deepEqual(await outcomes.cancel(project.id, intent.id, outcome.id, "x"), archived);
+  assert.deepEqual(await intents.create(project.workspaceId, { title: "T", desiredState: "S", completionDefinition: null }), { kind: "workspace_archived" });
+  assert.deepEqual(await intents.update(project.workspaceId, intent.id, { title: "Changed" }), { kind: "workspace_archived" });
+  assert.deepEqual(await intents.abandon(project.workspaceId, intent.id, "x"), { kind: "workspace_archived" });
+  assert.deepEqual(await outcomes.create(project.workspaceId, intent.id, { ...outcomeInput, hypothesis: null, successCriteria: [{ description: "d", measurement: "m", target: null }] }), { kind: "workspace_archived" });
+  assert.deepEqual(await outcomes.update(project.workspaceId, intent.id, outcome.id, { title: "Changed" }), { kind: "workspace_archived" });
+  assert.deepEqual(await outcomes.cancel(project.workspaceId, intent.id, outcome.id, "x"), { kind: "workspace_archived" });
   assert.deepEqual(await grants.grant(project.id, "strat-2", "strategist"), archived);
   assert.deepEqual(await grants.revoke(project.id, "strat-1", "strategist"), archived);
   assert.deepEqual(await projects.archive(project.id, "again"), { kind: "already_archived" });
 
   assert.deepEqual(await counts(database), before);
   assert.deepEqual(await services.getProjectUseCase.execute(project.id), projectBefore);
-  assert.equal((await services.getIntentUseCase.execute(project.id, intent.id)).title, "Intent");
+  assert.equal((await services.getIntentUseCase.execute(project.workspaceId, intent.id)).title, "Intent");
   await database.destroy();
 });
 
 test("AC-12 archiveは子データを変更しない。activeなIntentはactiveのまま、Outcomeも取消されない", async () => {
   const { database, services } = await setup();
-  const { project, intent, outcome } = await seed(services);
+  const { project, intent, outcome } = await seed(database, services);
   const before = await counts(database);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
 
   assert.deepEqual(await counts(database), before);
-  assert.deepEqual(await services.getIntentUseCase.execute(project.id, intent.id), intent);
-  assert.deepEqual(await services.getOutcomeUseCase.execute(project.id, intent.id, outcome.id), outcome);
-  assert.equal((await services.getIntentUseCase.execute(project.id, intent.id)).status, "active");
+  assert.deepEqual(await services.getIntentUseCase.execute(project.workspaceId, intent.id), intent);
+  assert.deepEqual(await services.getOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id), outcome);
+  assert.equal((await services.getIntentUseCase.execute(project.workspaceId, intent.id)).status, "active");
   assert.equal((await services.listProjectGrantsUseCase.execute(project.id)).length, 1);
   await database.destroy();
 });
@@ -350,7 +360,7 @@ test("AC-13 archive導入前のDBは、initializeSchemaを2回実行してもエ
   const directory = await mkdtemp(join(tmpdir(), "compass-archive-migration-"));
   const path = join(directory, "test.db");
   const legacy = await setup(path);
-  const { project, intent, outcome } = await seed(legacy.services);
+  const { project, intent, outcome } = await seed(legacy.database, legacy.services);
   // archive導入前のproject tableへ戻す。
   for (const column of ["status", "archived_at", "archive_reason"]) {
     await sql.raw(`alter table project drop column ${column}`).execute(legacy.database);
@@ -370,8 +380,8 @@ test("AC-13 archive導入前のDBは、initializeSchemaを2回実行してもエ
   assert.equal(migrated.archiveReason, null);
   assert.equal(migrated.name, project.name);
   assert.deepEqual(await counts(database), before);
-  assert.deepEqual(await services.getIntentUseCase.execute(project.id, intent.id), intent);
-  assert.deepEqual(await services.getOutcomeUseCase.execute(project.id, intent.id, outcome.id), outcome);
+  assert.deepEqual(await services.getIntentUseCase.execute(project.workspaceId, intent.id), intent);
+  assert.deepEqual(await services.getOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id), outcome);
   assert.deepEqual((await services.listProjectsUseCase.execute()).map((item) => item.id), [project.id]);
 
   const archived = await services.archiveProjectUseCase.execute(project.id, { reason: "After migration" });
@@ -382,38 +392,38 @@ test("AC-13 archive導入前のDBは、initializeSchemaを2回実行してもエ
 
 test("statusのcheck制約は、active・archived以外の値を保存させない", async () => {
   const { database, services } = await setup();
-  const { project } = await seed(services);
+  const { project } = await seed(database, services);
   await assert.rejects(() => sql`update project set status = 'paused' where id = ${project.id}`.execute(database));
   await database.destroy();
 });
 
 test("AC-14 archivedでも読取のMCP toolは成功し、Project.statusがarchivedになる", async () => {
   const { database, services, app } = await setup();
-  const { project, intent, outcome } = await seed(services);
-  await requestIntentResearch(services, project.id, intent.id);
+  const { project, intent, outcome } = await seed(database, services);
+  await requestIntentResearch(services, project.workspaceId, intent.id);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
 
   const got = await callTool(app, "get_project", { projectId: project.id });
   assert.equal(got.isError, undefined);
   assert.equal(got.structuredContent.status, "archived");
   assert.equal(got.structuredContent.archiveReason, "Done");
-  assert.equal((await callTool(app, "list_intents", { projectId: project.id })).structuredContent.intents.length, 1);
-  assert.equal((await callTool(app, "get_intent", { projectId: project.id, intentId: intent.id })).isError, undefined);
-  assert.equal((await callTool(app, "list_outcomes", { projectId: project.id, intentId: intent.id })).structuredContent.outcomes.length, 1);
+  assert.equal((await callTool(app, "list_intents", { workspaceId: project.workspaceId })).structuredContent.intents.length, 1);
+  assert.equal((await callTool(app, "get_intent", { workspaceId: project.workspaceId, intentId: intent.id })).isError, undefined);
+  assert.equal((await callTool(app, "list_outcomes", { workspaceId: project.workspaceId, intentId: intent.id })).structuredContent.outcomes.length, 1);
   assert.equal(
-    (await callTool(app, "get_outcome", { projectId: project.id, intentId: intent.id, outcomeId: outcome.id })).isError,
+    (await callTool(app, "get_outcome", { workspaceId: project.workspaceId, intentId: intent.id, outcomeId: outcome.id })).isError,
     undefined,
   );
-  const context = await callTool(app, "get_strategist_context", { projectId: project.id }, "strat-1");
+  const context = await callTool(app, "get_strategist_context", { workspaceId: project.workspaceId }, "strat-1");
   assert.equal(context.isError, undefined);
-  assert.equal(context.structuredContent.project.status, "archived");
+  assert.equal(context.structuredContent.workspace.status, "archived");
   assert.equal(context.structuredContent.activeIntent.id, intent.id);
   const research = context.structuredContent.research as { requests: { id: string }[] };
   assert.equal(research.requests.length, 1);
   const requestDetail = await callTool(
     app,
     "get_research_request",
-    { projectId: project.id, requestId: research.requests[0]!.id },
+    { workspaceId: project.workspaceId, requestId: research.requests[0]!.id },
     "strat-1",
   );
   assert.equal(requestDetail.isError, undefined);
@@ -421,15 +431,15 @@ test("AC-14 archivedでも読取のMCP toolは成功し、Project.statusがarchi
   await database.destroy();
 });
 
-test("AC-15 archivedの書込MCP toolはisErrorのCONFLICT（projectStatus）。認証・Roleの拒否が先", async () => {
+test("AC-15 archivedの書込MCP toolはisErrorのCONFLICT（projectStatus / workspaceStatus）。認証・Roleの拒否が先", async () => {
   const { database, services, app } = await setup();
-  const { project, intent, outcome } = await seed(services);
+  const { project, intent, outcome } = await seed(database, services);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
-  const ids = { projectId: project.id, intentId: intent.id };
+  const ids = { workspaceId: project.workspaceId, intentId: intent.id };
 
   const writes: [string, object, string | undefined][] = [
     ["update_project", { projectId: project.id, name: "Changed" }, undefined],
-    ["create_intent", { projectId: project.id, title: "T", desiredState: "S" }, undefined],
+    ["create_intent", { workspaceId: project.workspaceId, title: "T", desiredState: "S" }, undefined],
     ["update_intent", { ...ids, title: "Changed" }, undefined],
     ["abandon_intent", { ...ids, reason: "x" }, undefined],
     ["create_outcome", { ...ids, ...outcomeInput }, "strat-1"],
@@ -441,7 +451,9 @@ test("AC-15 archivedの書込MCP toolはisErrorのCONFLICT（projectStatus）。
     const result = await callTool(app, name, args, principal);
     assert.equal(result.isError, true, name);
     assert.equal(result.structuredContent.error.code, "CONFLICT", name);
-    assert.equal(result.structuredContent.error.projectStatus, "archived", name);
+    // Project管理はprojectStatus、Workspace Direction（最後のProjectのarchiveでWorkspaceもarchived）はworkspaceStatus。
+    const status = name === "update_project" ? result.structuredContent.error.projectStatus : result.structuredContent.error.workspaceStatus;
+    assert.equal(status, "archived", name);
   }
 
   const unauthenticated = await callTool(app, "create_outcome", { ...ids, ...outcomeInput });
@@ -457,7 +469,7 @@ test("AC-15 archivedの書込MCP toolはisErrorのCONFLICT（projectStatus）。
 
 test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projectsはactiveのみで引数を持たない", async () => {
   const { database, services, app } = await setup();
-  const { project } = await seed(services);
+  const { project } = await seed(database, services);
   const archivedProject = await services.createProjectUseCase.execute({ name: "Old", mission: "m" });
   await services.archiveProjectUseCase.execute(archivedProject.id, { reason: "Done" });
 
@@ -490,7 +502,7 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
   await database.destroy();
 });
 
-test("AC-17 CLIにarchive・deleteのコマンドは無く、cliUsageは変わらない", async () => {
+test("AC-17 CLIにarchive・deleteのコマンドは無く、Grantの発行・取消Roleを案内する", async () => {
   const { database, services } = await setup();
   assert.equal(
     cliUsage,
@@ -499,10 +511,11 @@ test("AC-17 CLIにarchive・deleteのコマンドは無く、cliUsageは変わ�
       "  npm run cli -- grant  <projectId> <AgentName> <role>",
       "  npm run cli -- revoke <projectId> <AgentName> <role>",
       "  npm run cli -- grants <projectId>",
-      "roles: strategist, researcher, manager, worker, reviewer, evaluator, runtime",
+      "grant roles: manager, worker, reviewer, runtime",
+      "revoke roles: strategist, researcher, manager, worker, reviewer, evaluator, runtime",
     ].join("\n"),
   );
-  const { project } = await seed(services);
+  const { project } = await seed(database, services);
   for (const command of ["archive", "delete", "unarchive", "restore"]) {
     const result = await runCli([command, project.id, "reason"], services);
     assert.equal(result.exitCode, 2, command);
@@ -512,13 +525,13 @@ test("AC-17 CLIにarchive・deleteのコマンドは無く、cliUsageは変わ�
   await database.destroy();
 });
 
-test("AC-18 Project応答は既存項目を保ち、status・archivedAt・archiveReasonが追加されるだけ", async () => {
+test("AC-18 Project応答は既存項目を保ち、所属workspaceId・status・archivedAt・archiveReasonが追加されるだけ", async () => {
   const { database, app } = await setup();
   const created = await send(app, "POST", "/api/projects", { name: "Compass", mission: "m", status: "archived", archiveReason: "x" });
   assert.equal(created.status, 201);
   const project = (await json(created)).project;
   assert.deepEqual(Object.keys(project), [
-    "id", "name", "description", "mission", "vision", "principles", "constraints", "repositories", "resources",
+    "id", "workspaceId", "name", "description", "mission", "vision", "principles", "constraints", "repositories", "resources",
     "createdAt", "updatedAt", "status", "archivedAt", "archiveReason",
   ]);
   assert.equal(project.status, "active");
@@ -535,7 +548,7 @@ test("AC-18 Project応答は既存項目を保ち、status・archivedAt・archiv
 
 test("AC-19 Project削除・復帰用のpathは未定義のAPIと同じ404で、Projectは変わらない", async () => {
   const { database, services, app } = await setup();
-  const { project } = await seed(services);
+  const { project } = await seed(database, services);
   const archived = (await json(await archive(app, project.id))).project;
   const attempts: [string, string][] = [
     ["DELETE", `/api/projects/${project.id}`],

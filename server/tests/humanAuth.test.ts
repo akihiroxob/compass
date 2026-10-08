@@ -1,3 +1,4 @@
+import { seedLegacyProjectGrant } from "./support/humanSession.ts";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -91,11 +92,11 @@ test("既存Project・Intent・Outcome・Grantを持つDBへschemaを再適用�
   try {
     const legacy = await setup(path);
     const project = await legacy.services.createProjectUseCase.execute({ name: "Legacy", mission: "Keep it" });
-    const intent = await legacy.services.createIntentUseCase.execute(project.id, {
+    const intent = await legacy.services.createIntentUseCase.execute(project.workspaceId, {
       title: "Agents improve software",
       desiredState: "Agents improve the software.",
     });
-    await legacy.services.grantProjectRoleUseCase.execute(project.id, { principalId: "strat-1", role: "strategist" });
+    await seedLegacyProjectGrant(legacy.database, project.id, "strat-1", "strategist");
     // 認証導入前のDBを模して、Human関連tableを削除してから再初期化する。
     for (const table of ["project_invitation", "project_membership", "auth_login_attempt", "web_session", "human_identity", "human_user"]) {
       await legacy.database.schema.dropTable(table).execute();
@@ -105,7 +106,7 @@ test("既存Project・Intent・Outcome・Grantを持つDBへschemaを再適用�
     const { database, services } = await setup(path);
     await initializeSchema(database);
     assert.equal((await services.getProjectUseCase.execute(project.id)).name, "Legacy");
-    assert.deepEqual((await services.listIntentsUseCase.execute(project.id)).map(({ id }) => id), [intent.id]);
+    assert.deepEqual((await services.listIntentsUseCase.execute(project.workspaceId)).map(({ id }) => id), [intent.id]);
     assert.equal((await services.listProjectGrantsUseCase.execute(project.id)).length, 1);
     assert.deepEqual(await countRows(database), { human_user: 0, human_identity: 0, web_session: 0, project_membership: 0 });
 

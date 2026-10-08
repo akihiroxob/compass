@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ApiError, classifyError, describeActionFailure, request, withNotFoundMessage } from "../src/web/api.ts";
 import {
+  canGrantProjectRole,
   grantInit,
   grantNotice,
   grantsPath,
   revokeGrantPath,
   revokeInit,
+  revokeRecoveryNote,
 } from "../src/web/features/grant/grants.ts";
 
 const jsonResponse = (status: number, body: unknown) =>
@@ -43,7 +45,7 @@ test("新規発行と割当済みの再発行を区別して通知し、roleご�
   assert.match(grantNotice(true, "res-1", "researcher"), /res-1.*Researcher.*割り当てました/);
 });
 
-test("Execution（Manager・Worker・Reviewer）・Evaluator・RuntimeのRoleもWeb APIと同じ本文で発行・取消できる", () => {
+test("Grantのrequest・旧Roleの取消pathはRole識別子を保持する", () => {
   for (const [role, label] of [["manager", "Manager"], ["worker", "Worker"], ["reviewer", "Reviewer"], ["evaluator", "Evaluator"], ["runtime", "Runtime"]] as const) {
     assert.deepEqual(JSON.parse(String(grantInit("agent-1", role).body)), { principalId: "agent-1", role });
     assert.equal(revokeGrantPath("p1", { role, principalId: "agent-1" }), `/api/projects/p1/grants/${role}/agent-1`);
@@ -72,4 +74,18 @@ test("存在しないProject・通信障害は区別した文言になる", asyn
 
   const validation = await failureOf(400, { error: { code: "VALIDATION_ERROR", message: "x", issues: [{ path: "role", message: "role must be one of: strategist" }] } });
   assert.equal(describeActionFailure(validation, "Projectが見つかりません。"), "Role: role must be one of: strategist");
+});
+
+test("Projectで新規割当できるRoleはExecutionの3Roleだけ", () => {
+  for (const role of ["manager", "worker", "reviewer"] as const) assert.equal(canGrantProjectRole(role), true);
+  for (const role of ["strategist", "researcher", "evaluator", "runtime"] as const) assert.equal(canGrantProjectRole(role), false);
+});
+
+test("取消確認の復元説明は、Projectから再割当できるExecution Roleだけが元に戻せると伝える", () => {
+  for (const role of ["manager", "worker", "reviewer"] as const) assert.equal(revokeRecoveryNote(role), "再度割り当てて元に戻せます。");
+  for (const role of ["strategist", "researcher", "evaluator", "runtime"] as const) {
+    const note = revokeRecoveryNote(role);
+    assert.doesNotMatch(note, /元に戻せます/);
+    assert.match(note, /Projectからは再度割り当てできません/);
+  }
 });

@@ -3,6 +3,8 @@ export type LinkInput = { id?: string; name: string; url: string; kind: string }
 
 export type Project = {
   id: string;
+  /** 所属Workspace。Mission等の戦略値とDirection（Intent・Outcome等）はWorkspaceが所有する。 */
+  workspaceId: string;
   name: string;
   description: string | null;
   mission: string;

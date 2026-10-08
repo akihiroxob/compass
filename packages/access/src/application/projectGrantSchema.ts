@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { projectRoles } from "../domain/ProjectRole.ts";
+import { executionRoles } from "../domain/RoleScope.ts";
+import { ProjectRole, projectRoles } from "../domain/ProjectRole.ts";
 import { parseWith } from "@compass/shared";
 
 const controlCharacter = /\p{Cc}/u;
@@ -23,6 +24,11 @@ export const projectGrantSchema = z.object({
 
 export type ProjectGrantInput = z.infer<typeof projectGrantSchema>;
 
-/** 発行の本文、取消のpath（role・principalId）で共通に使う。 */
+/** 取消は保存済みの旧Role識別子も受け付ける。 */
 export const parseProjectGrantInput = (input: unknown): ProjectGrantInput =>
   parseWith(projectGrantSchema, input, "Grant");
+
+/** 新規発行はProject Execution Roleと、trusted-local開発用の`runtime`だけを許可する。Workspace Roleは拒否する。 */
+const newProjectGrantRoles = [...executionRoles, ProjectRole.RUNTIME] as const;
+export const parseNewProjectGrantInput = (input: unknown): ProjectGrantInput =>
+  parseWith(projectGrantSchema.extend({ role: z.enum(newProjectGrantRoles) }), input, "Grant");

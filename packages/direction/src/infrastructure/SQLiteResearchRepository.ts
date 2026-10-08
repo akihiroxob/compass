@@ -34,10 +34,9 @@ import type {
   ResearchSynthesisTable,
 } from "./schema.ts";
 import { inputHash } from "@compass/shared";
-import { isProjectArchived } from "./isProjectArchived.ts";
+import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
 import { insertResearchRequest, toRequest } from "./researchRequestRecord.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
-import { recordRuntimeEvent } from "./runtimeEventRecord.ts";
 
 type Executor = Kysely<DirectionDatabase> | Transaction<DirectionDatabase>;
 
@@ -47,13 +46,14 @@ const byRowid = sql`rowid`;
 
 const toEvidence = (row: Selectable<ResearchEvidenceRefTable>): EvidenceReference => ({
   id: row.id,
-  projectId: row.project_id,
+  workspaceId: row.workspace_id,
   resultId: row.result_id,
   position: row.position,
   kind: row.kind,
   uri: row.uri,
   retrievedAt: row.retrieved_at,
   versionHash: row.version_hash,
+  resourceId: row.resource_id,
 });
 
 /** ResultのrowにEvidence参照とFindingを位置順で結び付ける。 */
@@ -98,7 +98,7 @@ const loadResults = async (
   const findings = findingRows.map(
     (row): ResearchFinding => ({
       id: row.id,
-      projectId: row.project_id,
+      workspaceId: row.workspace_id,
       requestId: row.request_id,
       resultId: row.result_id,
       position: row.position,
@@ -117,7 +117,7 @@ const loadResults = async (
   );
   return rows.map((row) => ({
     id: row.id,
-    projectId: row.project_id,
+    workspaceId: row.workspace_id,
     requestId: row.request_id,
     sequence: row.sequence,
     summary: row.summary,
@@ -150,7 +150,7 @@ const loadSyntheses = async (
     .execute();
   return rows.map((row) => ({
     id: row.id,
-    projectId: row.project_id,
+    workspaceId: row.workspace_id,
     requestId: row.request_id,
     version: row.version,
     supersedesId: row.supersedes_id,
@@ -189,25 +189,25 @@ const loadDetail = async (
   };
 };
 
-/** 別ProjectのRequest IDは存在しないものとして扱う。 */
-const findRequestRow = (database: Executor, projectId: string, requestId: string) =>
+/** 別WorkspaceのRequest IDは存在しないものとして扱う。 */
+const findRequestRow = (database: Executor, workspaceId: string, requestId: string) =>
   database
     .selectFrom("research_request")
     .selectAll()
     .where("id", "=", requestId)
-    .where("project_id", "=", projectId)
+    .where("workspace_id", "=", workspaceId)
     .executeTakeFirst();
 
 const findExistingIds = async (
   database: Executor,
-  projectId: string,
+  workspaceId: string,
   ids: readonly string[],
 ): Promise<Set<string>> => {
   if (ids.length === 0) return new Set();
   const rows = await database
     .selectFrom("research_finding")
     .select("id")
-    .where("project_id", "=", projectId)
+    .where("workspace_id", "=", workspaceId)
     .where("id", "in", [...ids])
     .execute();
   return new Set(rows.map((row) => row.id));
@@ -217,24 +217,25 @@ export class SQLiteResearchRepository implements ResearchRepository {
   /** `clock`は期限判定の時刻源。テストで固定できるよう注入する。 */
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
+    private readonly workspaces: DirectionWorkspaceReaders,
     private readonly clock: () => number = Date.now,
     private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
 
   async createRequest(
-    projectId: string,
+    workspaceId: string,
     input: CreateResearchRequestInput,
   ): Promise<CreateResearchRequestResult> {
     return this.database
       .transaction()
       .execute(async (transaction): Promise<CreateResearchRequestResult> => {
-        if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
+        if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
 
         const hash = inputHash(input);
         const existing = await transaction
           .selectFrom("research_request")
           .selectAll()
-          .where("project_id", "=", projectId)
+          .where("workspace_id", "=", workspaceId)
           .where("request_key", "=", input.requestKey)
           .executeTakeFirst();
         if (existing) {
@@ -254,7 +255,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
             .selectFrom("intent")
             .select("status")
             .where("id", "=", input.originIntentId)
-            .where("project_id", "=", projectId)
+            .where("workspace_id", "=", workspaceId)
             .executeTakeFirst();
           if (!intent) return { kind: "intent_not_found" };
           if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
@@ -263,7 +264,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
               .selectFrom("outcome")
               .select("id")
               .where("id", "=", input.originOutcomeId)
-              .where("project_id", "=", projectId)
+              .where("workspace_id", "=", workspaceId)
               .where("intent_id", "=", input.originIntentId)
               .executeTakeFirst();
             if (!outcome) return { kind: "outcome_not_found" };
@@ -272,29 +273,29 @@ export class SQLiteResearchRepository implements ResearchRepository {
 
         return {
           kind: "created",
-          request: await insertResearchRequest(transaction, projectId, input, now, this.changeObserver),
+          request: await insertResearchRequest(transaction, workspaceId, input, now, this.changeObserver),
         };
       });
   }
 
-  async findRequests(projectId: string, query: ResearchRequestQuery = {}): Promise<ResearchRequest[]> {
-    let statement = this.database.selectFrom("research_request").selectAll().where("project_id", "=", projectId);
+  async findRequests(workspaceId: string, query: ResearchRequestQuery = {}): Promise<ResearchRequest[]> {
+    let statement = this.database.selectFrom("research_request").selectAll().where("workspace_id", "=", workspaceId);
     if (query.originIntentId !== undefined) statement = statement.where("origin_intent_id", "=", query.originIntentId);
     if (query.status !== undefined) statement = statement.where("status", "=", query.status);
     const rows = await statement.orderBy("created_at", "desc").orderBy(byRowid, "desc").execute();
     return rows.map(toRequest);
   }
 
-  async findRequestDetail(projectId: string, requestId: string): Promise<ResearchRequestDetail | null> {
-    const row = await findRequestRow(this.database, projectId, requestId);
+  async findRequestDetail(workspaceId: string, requestId: string): Promise<ResearchRequestDetail | null> {
+    const row = await findRequestRow(this.database, workspaceId, requestId);
     return row ? loadDetail(this.database, row) : null;
   }
 
-  async findIntentResearchSummary(projectId: string, intentId: string): Promise<IntentResearchSummary> {
+  async findIntentResearchSummary(workspaceId: string, intentId: string): Promise<IntentResearchSummary> {
     const requestRows = await this.database
       .selectFrom("research_request")
       .selectAll()
-      .where("project_id", "=", projectId)
+      .where("workspace_id", "=", workspaceId)
       .where("origin_intent_id", "=", intentId)
       .orderBy("created_at", "desc")
       .orderBy(byRowid, "desc")
@@ -392,14 +393,14 @@ export class SQLiteResearchRepository implements ResearchRepository {
     return { requests, syntheses, conflicts };
   }
 
-  async findRelatedFindings(projectId: string, requestId: string, limit: number): Promise<RelatedResearchFindings> {
-    const request = await findRequestRow(this.database, projectId, requestId);
+  async findRelatedFindings(workspaceId: string, requestId: string, limit: number): Promise<RelatedResearchFindings> {
+    const request = await findRequestRow(this.database, workspaceId, requestId);
     if (!request) return { findings: [], evidenceRefs: [] };
     let statement = this.database
       .selectFrom("research_finding")
       .innerJoin("research_request", "research_request.id", "research_finding.request_id")
       .select(["research_finding.id as id", "research_finding.result_id as result_id"])
-      .where("research_finding.project_id", "=", projectId)
+      .where("research_finding.workspace_id", "=", workspaceId)
       .where("research_finding.request_id", "!=", requestId)
       .where("research_request.kind", "=", request.kind);
     statement =
@@ -430,15 +431,15 @@ export class SQLiteResearchRepository implements ResearchRepository {
   }
 
   async registerResult(
-    projectId: string,
+    workspaceId: string,
     requestId: string,
     input: RegisterResearchResultInput,
   ): Promise<RegisterResearchResultResult> {
     return this.database
       .transaction()
       .execute(async (transaction): Promise<RegisterResearchResultResult> => {
-        if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
-        const request = await findRequestRow(transaction, projectId, requestId);
+        if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
+        const request = await findRequestRow(transaction, workspaceId, requestId);
         if (!request) return { kind: "request_not_found" };
 
         const hash = inputHash(input);
@@ -464,8 +465,15 @@ export class SQLiteResearchRepository implements ResearchRepository {
           return { kind: "budget_exceeded", budgetTotal: request.budget_total, budgetUsed };
         }
 
+        const resourceIds = [...new Set(input.evidenceRefs.flatMap(ref => ref.resourceId ? [ref.resourceId] : []))];
+        const missingResources: string[] = [];
+        for (const resourceId of resourceIds) {
+          if (!await this.workspaces(transaction).resourceBelongsToWorkspace(workspaceId, resourceId)) missingResources.push(resourceId);
+        }
+        if (missingResources.length > 0) return { kind: "invalid_reference", reference: "resource", ids: missingResources };
+
         const conflictIds = [...new Set(input.findings.flatMap((finding) => finding.conflictsWithFindingIds))];
-        const known = await findExistingIds(transaction, projectId, conflictIds);
+        const known = await findExistingIds(transaction, workspaceId, conflictIds);
         const missing = conflictIds.filter((id) => !known.has(id));
         if (missing.length > 0) return { kind: "invalid_reference", reference: "finding", ids: missing };
 
@@ -478,7 +486,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
           .insertInto("research_result")
           .values({
             id: crypto.randomUUID(),
-            project_id: projectId,
+            workspace_id: workspaceId,
             request_id: requestId,
             sequence: (last?.sequence ?? 0) + 1,
             request_key: input.requestKey,
@@ -502,13 +510,14 @@ export class SQLiteResearchRepository implements ResearchRepository {
             .values(
               input.evidenceRefs.map((evidence, position) => ({
                 id: evidenceIds[position]!,
-                project_id: projectId,
+                workspace_id: workspaceId,
                 result_id: resultRow.id,
                 position,
                 kind: evidence.kind,
                 uri: evidence.uri,
                 retrieved_at: evidence.retrievedAt,
                 version_hash: evidence.versionHash,
+                resource_id: evidence.resourceId,
               })),
             )
             .execute();
@@ -519,7 +528,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
             .insertInto("research_finding")
             .values({
               id: findingId,
-              project_id: projectId,
+              workspace_id: workspaceId,
               request_id: requestId,
               result_id: resultRow.id,
               position,
@@ -566,15 +575,15 @@ export class SQLiteResearchRepository implements ResearchRepository {
   }
 
   async registerSynthesis(
-    projectId: string,
+    workspaceId: string,
     requestId: string,
     input: RegisterResearchSynthesisInput,
   ): Promise<RegisterResearchSynthesisResult> {
     return this.database
       .transaction()
       .execute(async (transaction): Promise<RegisterResearchSynthesisResult> => {
-        if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
-        const request = await findRequestRow(transaction, projectId, requestId);
+        if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
+        const request = await findRequestRow(transaction, workspaceId, requestId);
         if (!request) return { kind: "request_not_found" };
 
         const hash = inputHash(input);
@@ -596,7 +605,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
           return { kind: "deadline_passed", deadlineAt: request.deadline_at };
         }
 
-        const known = await findExistingIds(transaction, projectId, input.findingIds);
+        const known = await findExistingIds(transaction, workspaceId, input.findingIds);
         const missing = input.findingIds.filter((id) => !known.has(id));
         if (missing.length > 0) return { kind: "invalid_reference", reference: "finding", ids: missing };
 
@@ -606,7 +615,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
             .selectFrom("research_synthesis")
             .select("version")
             .where("id", "=", input.supersedesId)
-            .where("project_id", "=", projectId)
+            .where("workspace_id", "=", workspaceId)
             .executeTakeFirst();
           if (!previous) return { kind: "invalid_reference", reference: "supersedes", ids: [input.supersedesId] };
           const successor = await transaction
@@ -624,7 +633,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
           .insertInto("research_synthesis")
           .values({
             id: crypto.randomUUID(),
-            project_id: projectId,
+            workspace_id: workspaceId,
             request_id: requestId,
             request_key: input.requestKey,
             input_hash: hash,
@@ -664,11 +673,11 @@ export class SQLiteResearchRepository implements ResearchRepository {
   }
 
   async complete(
-    projectId: string,
+    workspaceId: string,
     requestId: string,
     input: CompleteResearchRequestInput,
   ): Promise<CloseResearchRequestResult> {
-    return this.close(projectId, requestId, input.conclusion, input.stopReason, async (transaction) => {
+    return this.close(workspaceId, requestId, input.conclusion, input.stopReason, async (transaction) => {
       if (input.conclusion !== "completed") return null;
       for (const [table, missing] of [
         ["research_result", "result"],
@@ -685,21 +694,21 @@ export class SQLiteResearchRepository implements ResearchRepository {
     });
   }
 
-  async cancel(projectId: string, requestId: string, reason: string): Promise<CloseResearchRequestResult> {
-    return this.close(projectId, requestId, "cancelled", reason, async () => null);
+  async cancel(workspaceId: string, requestId: string, reason: string): Promise<CloseResearchRequestResult> {
+    return this.close(workspaceId, requestId, "cancelled", reason, async () => null);
   }
 
   /** 未終了のRequestだけを、状態確認と同一transactionで終了状態へ進める。 */
   private async close(
-    projectId: string,
+    workspaceId: string,
     requestId: string,
     status: "completed" | "insufficient" | "not_needed" | "cancelled",
     stopReason: string | null,
     findMissing: (transaction: Transaction<DirectionDatabase>) => Promise<"result" | "synthesis" | null>,
   ): Promise<CloseResearchRequestResult> {
     return this.database.transaction().execute(async (transaction): Promise<CloseResearchRequestResult> => {
-      if (await isProjectArchived(transaction, projectId)) return { kind: "project_archived" };
-      const request = await findRequestRow(transaction, projectId, requestId);
+      if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
+      const request = await findRequestRow(transaction, workspaceId, requestId);
       if (!request) return { kind: "request_not_found" };
       if (isClosedResearchStatus(request.status)) return { kind: "not_open", status: request.status };
       const missing = await findMissing(transaction);
@@ -712,29 +721,9 @@ export class SQLiteResearchRepository implements ResearchRepository {
         .where("id", "=", requestId)
         .returningAll()
         .executeTakeFirstOrThrow();
-      // Strategistを起動できる確定結果だけをイベントにする。取消は起動条件ではない。
-      // 発端Intentがactiveでなくなっていれば、次の判断へ進める対象がないためイベントを作らない。
-      if (status !== "cancelled" && row.origin_intent_id !== null) {
-        const intent = await transaction
-          .selectFrom("intent")
-          .select("status")
-          .where("id", "=", row.origin_intent_id)
-          .executeTakeFirst();
-        if (intent?.status === "active") {
-          await recordRuntimeEvent(transaction, {
-            type: "research_completed",
-            projectId,
-            intentId: row.origin_intent_id,
-            researchRequestId: row.id,
-            correlationId: row.correlation_id,
-            conclusion: status,
-            occurredAt: now,
-          });
-        }
-      }
       await notifyDirectionChange(this.changeObserver, transaction, {
         type: "research_closed",
-        projectId,
+        workspaceId,
         recordId: row.id,
         title: row.question,
         refs: [

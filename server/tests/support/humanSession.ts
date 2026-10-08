@@ -131,9 +131,54 @@ export const adoptOrphanProjects = async (database: Kysely<Database>, human: Pic
   for (const { id } of orphans) await addTestMembership(database, id, human, "owner");
 };
 
+/** 有効なWorkspace Membershipを直接作る（use caseで作られたowner不在のWorkspaceをテストで使うため）。 */
+export const addTestWorkspaceMembership = async (
+  database: Kysely<Database>,
+  workspaceId: string,
+  human: Pick<TestHuman, "humanUserId">,
+  role: HumanRole = "owner",
+  now = Date.now(),
+) => {
+  const id = randomUUID();
+  await database
+    .insertInto("workspace_membership")
+    .values({
+      id,
+      workspace_id: workspaceId,
+      human_user_id: human.humanUserId,
+      role,
+      created_at: now,
+      updated_at: now,
+      created_by_human_user_id: null,
+      revoked_at: null,
+      revoked_by_human_user_id: null,
+    })
+    .execute();
+  return id;
+};
+
+/** 有効なowner Membershipを持たないWorkspaceへ、指定Humanのowner Membershipを補う（`adoptOrphanProjects`のWorkspace版）。 */
+export const adoptOrphanWorkspaces = async (database: Kysely<Database>, human: Pick<TestHuman, "humanUserId">) => {
+  const orphans = await database
+    .selectFrom("workspace")
+    .select("id")
+    .where(({ not, exists, selectFrom }) =>
+      not(
+        exists(
+          selectFrom("workspace_membership")
+            .select("workspace_membership.id")
+            .whereRef("workspace_membership.workspace_id", "=", "workspace.id")
+            .where("workspace_membership.revoked_at", "is", null),
+        ),
+      ),
+    )
+    .execute();
+  for (const { id } of orphans) await addTestWorkspaceMembership(database, id, human, "owner");
+};
+
 /**
  * 既存の匿名Web APIテストをSession付きへ移すためのapp。Humanを1人作り、`app.request`へSession Cookie・CSRFを付け、
- * 各requestの前にowner不在のProjectをそのHumanのowner Membershipにする（platform ownerのorphan補完に相当）。
+ * 各requestの前にowner不在のProject・WorkspaceをそのHumanのowner Membershipにする（platform ownerのorphan補完に相当）。
  */
 export const createSignedInApp = async (
   database: Kysely<Database>,
@@ -146,7 +191,10 @@ export const createSignedInApp = async (
   // 並行requestでも同じProjectへ二重に補完しないよう、補完だけを直列にする。
   let adoption = Promise.resolve();
   const signedIn = (async (input: string | Request | URL, init?: RequestInit, ...rest: unknown[]) => {
-    adoption = adoption.then(() => adoptOrphanProjects(database, human));
+    adoption = adoption.then(async () => {
+      await adoptOrphanProjects(database, human);
+      await adoptOrphanWorkspaces(database, human);
+    });
     await adoption;
     const call = original as (...args: unknown[]) => Response | Promise<Response>;
     if (typeof input !== "string") return call(input, init, ...rest);
@@ -154,3 +202,61 @@ export const createSignedInApp = async (
   }) as App["request"];
   return Object.assign(app, { request: signedIn, human });
 };
+
+/** 未切替のProject Direction経路を検証する旧Grant fixture（Runtimeとの組合せも置ける）。新規発行APIの検証には使わない。 */
+export const seedLegacyProjectGrant = async (
+  database: Kysely<Database>, projectId: string, principalId: string, role: string,
+) => {
+  if (!["strategist", "researcher", "evaluator", "runtime"].includes(role)) {
+    throw new Error(`Not a legacy Project role: ${role}`);
+  }
+  await database.insertInto("project_grant").values({
+    project_id: projectId, principal_id: principalId, role, created_at: Date.now(),
+  }).onConflict((conflict) => conflict.columns(["project_id", "principal_id", "role"]).doNothing()).execute();
+};
+
+/** ProjectがWorkspaceへ所属する前提のfixture。Projectの所属WorkspaceにDirection Role（strategist / researcher / evaluator）のGrantを置く。 */
+export const seedProjectWorkspaceGrant = async (
+  database: Kysely<Database>, projectId: string, principalId: string, role: string,
+) => {
+  const { workspace_id } = await database.selectFrom("project").select("workspace_id").where("id", "=", projectId).executeTakeFirstOrThrow();
+  if (workspace_id === null) throw new Error(`Project ${projectId} has no Workspace`);
+  await seedWorkspaceGrant(database, workspace_id, principalId, role);
+};
+
+/** WorkspaceへDirection Role（strategist / researcher / evaluator）のGrantを置く。 */
+export const seedWorkspaceGrant = async (
+  database: Kysely<Database>, workspaceId: string, principalId: string, role: string,
+) => {
+  if (!["strategist", "researcher", "evaluator"].includes(role)) throw new Error(`Not a Workspace Direction role: ${role}`);
+  await database.insertInto("workspace_grant").values({
+    workspace_id: workspaceId, principal_id: principalId, role, created_at: Date.now(),
+  }).onConflict((conflict) => conflict.columns(["workspace_id", "principal_id", "role"]).doNothing()).execute();
+};
+
+type CredentialIssuer = {
+  issueAccessCredentialUseCase: {
+    execute(actor: { kind: "human"; humanUserId: string }, scope: { kind: "workspace" | "project"; id: string }, input: unknown): Promise<{ credential: { id: string }; token: string }>;
+  };
+};
+
+/**
+ * Workspace Runtime Credential（既定は`runtime:event:read`・`runtime:event:ack`）を発行する。Runtime eventはWorkspace所有で、
+ * trusted-localのAgent名やProject Credentialでは読めないため、本番と同じuse caseで発行する。発行用のowner Membershipは
+ * 発行後に取り消し、`createSignedInApp`のorphan補完（Workspace owner不在の補完）を妨げない。
+ */
+export const issueWorkspaceRuntimeCredential = async (
+  database: Kysely<Database>, services: CredentialIssuer, workspaceId: string, principalId: string,
+  scopes: readonly string[] = ["runtime:event:read", "runtime:event:ack"],
+) => {
+  const issuer = await createTestHuman(database);
+  const membershipId = await addTestWorkspaceMembership(database, workspaceId, issuer, "owner");
+  const { credential, token } = await services.issueAccessCredentialUseCase.execute(
+    { kind: "human", humanUserId: issuer.humanUserId }, { kind: "workspace", id: workspaceId }, { kind: "runtime", principalId, scopes },
+  );
+  await database.updateTable("workspace_membership").set({ revoked_at: Date.now() }).where("id", "=", membershipId).execute();
+  return { credentialId: credential.id, token };
+};
+
+export const issueWorkspaceRuntimeToken = async (...args: Parameters<typeof issueWorkspaceRuntimeCredential>) =>
+  (await issueWorkspaceRuntimeCredential(...args)).token;

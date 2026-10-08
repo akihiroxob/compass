@@ -4,6 +4,7 @@ import type { DirectionDatabase, AdrHandoffRequestTable, AdrReferenceTable } fro
 
 export const toRequest = (row: Selectable<AdrHandoffRequestTable>): AdrHandoffRequest => ({
   id: row.id,
+  workspaceId: row.workspace_id,
   projectId: row.project_id,
   decisionId: row.decision_id,
   repositoryId: row.repository_id,
@@ -16,6 +17,7 @@ export const toRequest = (row: Selectable<AdrHandoffRequestTable>): AdrHandoffRe
 
 export const toReference = (row: Selectable<AdrReferenceTable>): AdrReference => ({
   id: row.id,
+  workspaceId: row.workspace_id,
   projectId: row.project_id,
   decisionId: row.decision_id,
   repositoryId: row.repository_id,
@@ -37,17 +39,17 @@ export type AdrCandidateDecision = {
   options: string[];
 };
 
-/** decisionIdが同じProjectの行を指す場合だけ、adr_candidate判定に必要な列を返す。 */
+/** decisionIdが同じWorkspaceの行を指す場合だけ、adr_candidate判定に必要な列を返す。 */
 export const findDecisionForHandoff = async (
   transaction: Transaction<DirectionDatabase>,
-  projectId: string,
+  workspaceId: string,
   decisionId: string,
 ): Promise<AdrCandidateDecision | null> => {
   const row = await transaction
     .selectFrom("direction_decision")
     .select(["id", "intent_id", "type", "judgment", "reason", "options"])
     .where("id", "=", decisionId)
-    .where("project_id", "=", projectId)
+    .where("workspace_id", "=", workspaceId)
     .executeTakeFirst();
   if (!row) return null;
   return {
@@ -58,24 +60,6 @@ export const findDecisionForHandoff = async (
     reason: row.reason,
     options: JSON.parse(row.options) as string[],
   };
-};
-
-export const findRepositoryForHandoff = (transaction: Transaction<DirectionDatabase>, projectId: string, repositoryId: string) =>
-  transaction
-    .selectFrom("project_repository_link")
-    .select(["id", "name", "url"])
-    .where("id", "=", repositoryId)
-    .where("project_id", "=", projectId)
-    .executeTakeFirst();
-
-export const findProjectConstraints = async (transaction: Transaction<DirectionDatabase>, projectId: string): Promise<string[]> => {
-  const rows = await transaction
-    .selectFrom("project_constraint")
-    .select("value")
-    .where("project_id", "=", projectId)
-    .orderBy("sort_order")
-    .execute();
-  return rows.map((row) => row.value);
 };
 
 const decisionEvidence = async (transaction: Transaction<DirectionDatabase>, decisionId: string) => {
@@ -114,9 +98,13 @@ export const buildAdrHandoffPayload = async (
   decision: AdrCandidateDecision,
   repository: { id: string; name: string; url: string },
   constraints: string[],
+  workspaceId: string,
+  projectId: string,
 ): Promise<AdrHandoffRequestPayload> => {
   const { usedSyntheses, usedFindingIds } = await decisionEvidence(transaction, decision.id);
   return {
+    workspaceId,
+    projectId,
     decisionId: decision.id,
     intentId: decision.intentId,
     usedSyntheses,
@@ -129,11 +117,11 @@ export const buildAdrHandoffPayload = async (
   };
 };
 
-export const findAdrHandoffRequestByKey = (transaction: Transaction<DirectionDatabase>, projectId: string, requestKey: string) =>
+export const findAdrHandoffRequestByKey = (transaction: Transaction<DirectionDatabase>, workspaceId: string, requestKey: string) =>
   transaction
     .selectFrom("adr_handoff_request")
     .selectAll()
-    .where("project_id", "=", projectId)
+    .where("workspace_id", "=", workspaceId)
     .where("request_key", "=", requestKey)
     .executeTakeFirst();
 
@@ -151,10 +139,10 @@ export const findAdrHandoffRequestForReference = (
     .where("correlation_id", "=", correlationId)
     .executeTakeFirst();
 
-export const findAdrReferenceByKey = (transaction: Transaction<DirectionDatabase>, projectId: string, requestKey: string) =>
+export const findAdrReferenceByKey = (transaction: Transaction<DirectionDatabase>, workspaceId: string, requestKey: string) =>
   transaction
     .selectFrom("adr_reference")
     .selectAll()
-    .where("project_id", "=", projectId)
+    .where("workspace_id", "=", workspaceId)
     .where("request_key", "=", requestKey)
     .executeTakeFirst();

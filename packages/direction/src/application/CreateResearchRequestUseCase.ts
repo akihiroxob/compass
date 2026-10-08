@@ -1,9 +1,9 @@
 import type { ResearchRequest } from "../domain/Research.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import { parseCreateResearchRequestInput } from "./researchSchema.ts";
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
-import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
+import { WorkspaceArchivedError } from "@compass/organization";
 
 /**
  * Intentを発端にResearch Requestを登録する。同じrequestKeyの再送は既存のRequestを返し、重複を作らない。
@@ -11,24 +11,24 @@ import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
  */
 export class CreateResearchRequestUseCase {
   constructor(
-    private readonly projectRepository: ProjectRepository,
+    private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly researchRepository: ResearchRepository,
   ) {}
 
-  async execute(projectId: string, input: unknown): Promise<ResearchRequest> {
+  async execute(workspaceId: string, input: unknown): Promise<ResearchRequest> {
     const parsed = parseCreateResearchRequestInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
-      throw new NotFoundError(`Project ${projectId} was not found`);
+    if (!(await this.workspaceReader.findById(workspaceId))) {
+      throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     }
-    const result = await this.researchRepository.createRequest(projectId, parsed);
+    const result = await this.researchRepository.createRequest(workspaceId, parsed);
     switch (result.kind) {
       case "created":
       case "replayed":
         return result.request;
-      case "project_archived":
-        throw new ProjectArchivedError(projectId);
+      case "workspace_archived":
+        throw new WorkspaceArchivedError(workspaceId);
       case "intent_not_found":
-        throw new NotFoundError(`Intent ${parsed.originIntentId} was not found in Project ${projectId}`);
+        throw new NotFoundError(`Intent ${parsed.originIntentId} was not found in Workspace ${workspaceId}`);
       case "outcome_not_found":
         throw new NotFoundError(
           `Outcome ${parsed.originOutcomeId} was not found in Intent ${parsed.originIntentId}`,

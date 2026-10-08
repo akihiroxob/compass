@@ -1,14 +1,14 @@
 import type { ExecutionState } from "../domain/OutcomeExecution.ts";
 import type { OutcomeStatus } from "../domain/Outcome.ts";
 import type { IntentStatus } from "../domain/Intent.ts";
-import type { ProjectStatus } from "../domain/Project.ts";
+import type { ProjectStatus } from "@compass/organization";
 import type { ResearchRequestKind, ResearchRequestStatus } from "../domain/Research.ts";
-import type { IntentRepository } from "../domain/IntentRepository.ts";
+import type { ProjectIntentReader } from "./port/ProjectDirectionReaders.ts";
 import type { DirectionDecisionRepository } from "../domain/DirectionDecisionRepository.ts";
 import type { OutcomeEvaluationRepository } from "../domain/OutcomeEvaluationRepository.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
-import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { ProjectOutcomeReader } from "./port/ProjectDirectionReaders.ts";
+import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import { isClosedResearchStatus } from "../domain/Research.ts";
 import { NotFoundError } from "@compass/shared";
@@ -75,11 +75,11 @@ const toResearchRequest = (request: {
 export class GetOrchestrationStateUseCase<TCaller> {
   constructor(
     private readonly authorization: DirectionRuntimeAuthorizationPort<TCaller>,
-    private readonly projectRepository: ProjectRepository,
-    private readonly intentRepository: IntentRepository,
-    private readonly outcomeRepository: OutcomeRepository,
-    private readonly researchRepository: ResearchRepository,
-    private readonly directionDecisionRepository: DirectionDecisionRepository,
+    private readonly projectReader: DirectionProjectReader,
+    private readonly intentRepository: ProjectIntentReader,
+    private readonly outcomeRepository: ProjectOutcomeReader,
+    private readonly researchRepository: Pick<ResearchRepository, "findRequests" | "findRequestDetail" | "findIntentResearchSummary" | "findRelatedFindings">,
+    private readonly directionDecisionRepository: Pick<DirectionDecisionRepository, "findByIntent">,
     private readonly outcomeEvaluationRepository: OutcomeEvaluationRepository,
     private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
     private readonly executionSummary: ExecutionSummaryPort,
@@ -89,7 +89,7 @@ export class GetOrchestrationStateUseCase<TCaller> {
   async execute(caller: TCaller, projectId: string): Promise<OrchestrationState> {
     // 認可はProjectの存在確認より先。scopeの無い呼出しへProjectの存在有無を漏らさない。
     await this.authorization.requireScope(caller, projectId, "runtime:state:read");
-    const project = await this.projectRepository.findById(projectId);
+    const project = await this.projectReader.findDetailById(projectId);
     if (!project) throw new NotFoundError(`Project ${projectId} was not found`);
 
     const requests = await this.researchRepository.findRequests(projectId);
@@ -108,7 +108,7 @@ export class GetOrchestrationStateUseCase<TCaller> {
       decisions.filter((decision) => decision.evaluationId !== null).map((decision) => [decision.evaluationId, decision.id]),
     );
     const latestEvaluations = new Map(
-      (await this.outcomeEvaluationRepository.findLatestByIntent(projectId, activeIntent.id)).map((evaluation) => [
+      (await this.outcomeEvaluationRepository.findLatestByIntent(project.workspaceId, activeIntent.id)).map((evaluation) => [
         evaluation.outcomeId,
         evaluation,
       ]),
@@ -116,7 +116,7 @@ export class GetOrchestrationStateUseCase<TCaller> {
     const outcomes: OrchestrationOutcome[] = [];
     for (const outcome of await this.outcomeRepository.findByIntent(projectId, activeIntent.id)) {
       const work = await this.executionSummary.getOutcomeExecutionSummary(projectId, outcome.id);
-      const execution = await this.outcomeExecutionRepository.find(projectId, outcome.id);
+      const execution = await this.outcomeExecutionRepository.find(project.workspaceId, projectId, outcome.id);
       const evaluation = latestEvaluations.get(outcome.id);
       outcomes.push({
         id: outcome.id,

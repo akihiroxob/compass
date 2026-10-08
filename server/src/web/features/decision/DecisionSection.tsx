@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { directionDecisionTypeLabels, type DirectionDecision } from "../../directionDecisionForm";
-import { outcomePath } from "../../paths";
+import { outcomePath, workspaceApiPath } from "../../paths";
 
 const DecisionCard = ({ projectId, decision }: { projectId: string; decision: DirectionDecision }) => (
   <article className="intent-card">
@@ -35,16 +35,16 @@ const DecisionCard = ({ projectId, decision }: { projectId: string; decision: Di
  * IntentのDirection Decision一覧（Human向け読み取り専用）。Strategist判断の来歴と、使用したSynthesis/Findingの
  * 参照を表示する。判断の作成はMCPからのみ行い、この画面からは作成・変更できない。
  */
-export const DecisionSection = ({ projectId, intentId }: { projectId: string; intentId: string }) => {
+export const DecisionSection = ({ projectId, workspaceId, intentId }: { projectId: string; workspaceId: string; intentId: string }) => {
   const [decisions, setDecisions] = useState<DirectionDecision[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    request<{ decisions: DirectionDecision[] }>(`/api/projects/${projectId}/intents/${intentId}/decisions`)
+    request<{ decisions: DirectionDecision[] }>(workspaceApiPath(workspaceId, `/intents/${intentId}/decisions`))
       .then(({ decisions }) => setDecisions(decisions))
       .catch((reason: unknown) =>
-        setError(loadFailureMessage(classifyError(reason), "ProjectまたはIntentが見つかりません。")),
+        setError(loadFailureMessage(classifyError(reason), "WorkspaceまたはIntentが見つかりません。")),
       );
-  }, [projectId, intentId]);
+  }, [workspaceId, intentId]);
   return (
     <section className="detail-section" aria-labelledby="decision-heading">
       <h2 id="decision-heading">Direction Decision</h2>

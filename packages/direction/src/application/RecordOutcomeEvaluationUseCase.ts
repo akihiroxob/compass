@@ -10,11 +10,10 @@ import type {
 } from "../domain/OutcomeEvaluationRepository.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
-import type { ProjectRepository } from "../domain/ProjectRepository.ts";
+import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import { parseRecordOutcomeEvaluationInput } from "./outcomeEvaluationSchema.ts";
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
-import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
-import { DirectionAgentRole, type DirectionRoleAuthorizationPort, type Principal } from "./port/DirectionAuthorizationPort.ts";
+import { WorkspaceArchivedError } from "@compass/organization";
 
 export type RecordOutcomeEvaluationResult = {
   evaluation: OutcomeEvaluation;
@@ -31,8 +30,7 @@ export type RecordOutcomeEvaluationResult = {
  */
 export class RecordOutcomeEvaluationUseCase {
   constructor(
-    private readonly authorization: DirectionRoleAuthorizationPort,
-    private readonly projectRepository: ProjectRepository,
+    private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly outcomeRepository: OutcomeRepository,
     private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
     private readonly outcomeEvaluationRepository: OutcomeEvaluationRepository,
@@ -40,19 +38,18 @@ export class RecordOutcomeEvaluationUseCase {
   ) {}
 
   async execute(
-    principal: Principal,
-    projectId: string,
+    workspaceId: string,
+    principalId: string,
     outcomeId: string,
     input: unknown,
   ): Promise<RecordOutcomeEvaluationResult> {
-    // 認可はProjectの存在確認より先。Grantを持たないPrincipalへProjectやOutcomeの存在有無を漏らさない。
-    const principalId = await this.authorization.requireRole(principal, projectId, DirectionAgentRole.EVALUATOR);
+    // 公開入口で認可済みの主体・scopeを受け取る。
     const parsed = parseRecordOutcomeEvaluationInput(input);
-    if (!(await this.projectRepository.exists(projectId))) {
-      throw new NotFoundError(`Project ${projectId} was not found`);
+    if (!(await this.workspaceReader.findById(workspaceId))) {
+      throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     }
-    const outcome = await this.outcomeRepository.findByIdInProject(projectId, outcomeId);
-    if (!outcome) throw new NotFoundError(`Outcome ${outcomeId} was not found in Project ${projectId}`);
+    const outcome = await this.outcomeRepository.findByIdInWorkspace(workspaceId, outcomeId);
+    if (!outcome) throw new NotFoundError(`Outcome ${outcomeId} was not found in Workspace ${workspaceId}`);
 
     const request: OutcomeEvaluationRequest = {
       outcomeId,
@@ -62,7 +59,7 @@ export class RecordOutcomeEvaluationUseCase {
       principalId,
     };
     // 再送は状態の検査より先に確認する。評価後にOutcomeやExecutionが変わっても、応答を失った再送は同じ評価を返す。
-    const replay = await this.outcomeEvaluationRepository.findReplay(projectId, request);
+    const replay = await this.outcomeEvaluationRepository.findReplay(workspaceId, request);
     if (replay.kind === "replayed") return { evaluation: replay.evaluation, recorded: false };
     if (replay.kind === "key_conflict") throw this.keyConflict(replay.requestKey);
 
@@ -71,7 +68,9 @@ export class RecordOutcomeEvaluationUseCase {
         outcomeStatus: outcome.status,
       });
     }
-    const execution = await this.outcomeExecutionRepository.find(projectId, outcomeId);
+    const records = await this.outcomeExecutionRepository.findByOutcome(workspaceId, outcomeId);
+    if (records.length > 1) throw new ConflictError("Multiple Project evaluation requires the Target evaluation contract", { reason: "multi_project_evaluation_required" });
+    const execution = records[0] ?? null;
     if (execution === null) {
       throw new ConflictError(`Execution has not been reflected into Outcome ${outcomeId} yet`, {
         reason: "no_execution_summary",
@@ -87,6 +86,8 @@ export class RecordOutcomeEvaluationUseCase {
         status: outcome.status,
       },
       execution: {
+        workspaceId,
+        projectId: execution.summary.projectId,
         correlationId: execution.summary.correlationId,
         state: execution.summary.state,
         stories: execution.summary.stories,
@@ -102,7 +103,7 @@ export class RecordOutcomeEvaluationUseCase {
       })),
     };
 
-    const saved = await this.outcomeEvaluationRepository.record(projectId, {
+    const saved = await this.outcomeEvaluationRepository.record(workspaceId, {
       request,
       intentId: outcome.intentId,
       result: deriveEvaluationResult(criteria.map((criterion) => criterion.verdict)),
@@ -110,7 +111,7 @@ export class RecordOutcomeEvaluationUseCase {
       snapshot,
       at: this.clock(),
     });
-    if (saved.kind === "project_archived") throw new ProjectArchivedError(projectId);
+    if (saved.kind === "workspace_archived") throw new WorkspaceArchivedError(workspaceId);
     if (saved.kind === "key_conflict") throw this.keyConflict(saved.requestKey);
     if (saved.kind === "intent_not_active") {
       throw new ConflictError(`Intent ${outcome.intentId} is ${saved.status}; only an Outcome of an active Intent is evaluated`, {

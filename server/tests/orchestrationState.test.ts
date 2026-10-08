@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -51,8 +51,12 @@ const errorCode = (result: ToolResult) => {
   return result.structuredContent.error.code as string;
 };
 
-const grant = async (app: App, projectId: string, principalId: string, role: string) =>
-  assert.equal(
+const grant = async (database: ReturnType<typeof createDatabase>, app: App, projectId: string, principalId: string, role: string) => {
+  if (["strategist", "researcher", "evaluator"].includes(role)) {
+    await seedProjectWorkspaceGrant(database, projectId, principalId, role);
+    return;
+  }
+  return assert.equal(
     (
       await app.request(`/api/projects/${projectId}/grants`, {
         method: "POST",
@@ -62,6 +66,7 @@ const grant = async (app: App, projectId: string, principalId: string, role: str
     ).status,
     201,
   );
+};
 
 const outcomeInput = {
   title: "No duplicate claims",
@@ -73,8 +78,8 @@ const outcomeInput = {
 test("get_orchestration_stateは状態とIDだけを返し、Story・Taskの有無とResearchの未終了を区別する", async () => {
   const { database, services, app } = await setup();
   const project = await services.createProjectUseCase.execute({ name: "Compass", mission: "Keep direction explicit" });
-  await grant(app, project.id, "orchestrator", "runtime");
-  await grant(app, project.id, "mgr", "manager");
+  await grant(database, app, project.id, "orchestrator", "runtime");
+  await grant(database, app, project.id, "mgr", "manager");
   const state = async () => ok(await rpc(app, "get_orchestration_state", { projectId: project.id }, "orchestrator", "runtime"));
 
   assert.deepEqual(await state(), {
@@ -87,7 +92,7 @@ test("get_orchestration_stateは状態とIDだけを返し、Story・Taskの有�
   });
 
   // Intent作成直後: Research Requestは無い（Researchの要否はStrategistが判断する）。
-  const intent = await services.createIntentUseCase.execute(project.id, { title: "Exclusive claims", desiredState: "One owner per Task" });
+  const intent = await services.createIntentUseCase.execute(project.workspaceId, { title: "Exclusive claims", desiredState: "One owner per Task" });
   const created = await state();
   assert.deepEqual(created.activeIntent, { id: intent.id, status: "active", updatedAt: intent.updatedAt });
   assert.deepEqual(created.outcomes, []);
@@ -95,7 +100,7 @@ test("get_orchestration_stateは状態とIDだけを返し、Story・Taskの有�
   assert.equal(JSON.stringify(created).includes("One owner per Task"), false, "Intentの本文を含めない");
 
   // Researchを依頼すると、未終了のRequestとして現れる。終了すると未終了から外れ、Intentの履歴に残る。
-  const request = await requestIntentResearch(services, project.id, intent.id);
+  const request = await requestIntentResearch(services, project.workspaceId, intent.id);
   const requested = await state();
   const requestFact = {
     id: request.id,
@@ -107,7 +112,7 @@ test("get_orchestration_stateは状態とIDだけを返し、Story・Taskの有�
   };
   assert.deepEqual(requested.openResearchRequests, [requestFact]);
   assert.deepEqual(requested.intentResearchRequests, [requestFact]);
-  const closed = await services.completeResearchRequestUseCase.execute(project.id, request.id, {
+  const closed = await services.completeResearchRequestUseCase.execute(project.workspaceId, request.id, {
     conclusion: "not_needed",
     stopReason: "Known",
   });
@@ -116,7 +121,7 @@ test("get_orchestration_stateは状態とIDだけを返し、Story・Taskの有�
   assert.deepEqual(afterClose.intentResearchRequests, [{ ...requestFact, status: "not_needed", updatedAt: closed.updatedAt }]);
 
   // Outcome確定直後はStoryが無い（未分解）。StoryとTaskを作るとWorkの件数に現れる。
-  const outcome = await services.createOutcomeUseCase.execute(project.id, intent.id, outcomeInput);
+  const outcome = await services.createOutcomeUseCase.execute(project.workspaceId, intent.id, outcomeInput);
   const confirmed = await state();
   assert.deepEqual(confirmed.outcomes, [
     { id: outcome.id, status: "active", updatedAt: outcome.updatedAt, work: null, execution: null, latestEvaluation: null },
@@ -138,8 +143,8 @@ test("get_orchestration_stateはruntime:state:readの認可を要求し、Agent 
   const { database, services, app } = await setup();
   const project = await services.createProjectUseCase.execute({ name: "Compass", mission: "m" });
   const other = await services.createProjectUseCase.execute({ name: "Other", mission: "m" });
-  await grant(app, project.id, "orchestrator", "runtime");
-  await grant(app, project.id, "strat", "strategist");
+  await grant(database, app, project.id, "orchestrator", "runtime");
+  await grant(database, app, project.id, "strat", "strategist");
 
   assert.equal(errorCode(await rpc(app, "get_orchestration_state", { projectId: project.id })), "UNAUTHENTICATED");
   assert.equal(errorCode(await rpc(app, "get_orchestration_state", { projectId: project.id }, "strat")), "FORBIDDEN");

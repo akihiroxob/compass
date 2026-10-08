@@ -6,7 +6,7 @@ import { ErrorState, Loading } from "../../components/StateCard";
 import { useHashTarget } from "../../useHashTarget";
 import { credentialStatus, credentialsPath, type Credential } from "../credential";
 import { GrantRow } from "./GrantRow";
-import { agentRoleAnchorId, agentRoles, grantInit, grantNotice, grantRoleLabels, grantsPath, type AgentRole, type Grant, type GrantResponse } from "./grants";
+import { agentRoleAnchorId, agentRoles, canGrantProjectRole, grantInit, grantNotice, grantRoleLabels, grantsPath, type AgentRole, type Grant, type GrantResponse } from "./grants";
 
 // ---- Project Role Grant（Step 4でStrategist、Task 29でResearcher、Task 33でManager・Worker・Reviewerを統合、Task 03で1つの一覧へ）。Agentの稼働状況・Run・自動起動は扱わないため表示しない。 ----
 
@@ -90,7 +90,8 @@ const RoleRow = ({ projectId, role, grants, credentials, now, readOnly, reload }
             {grants.map((grant) => <GrantRow key={grant.principalId} projectId={projectId} grant={grant} readOnly={readOnly} onRevoked={() => void reload()} />)}
           </ul>
         )}
-        {!readOnly && <GrantForm projectId={projectId} role={role} onGranted={reload} />}
+        {!canGrantProjectRole(role) && <p className="section-note">WorkspaceのRoleです。Projectからの新規割当はできません。</p>}
+        {!readOnly && canGrantProjectRole(role) && <GrantForm projectId={projectId} role={role} onGranted={reload} />}
       </details>
     </li>
   );

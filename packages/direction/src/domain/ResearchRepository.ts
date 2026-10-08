@@ -9,7 +9,7 @@ import type {
   ResearchResult,
   ResearchSynthesis,
 } from "./Research.ts";
-import type { ProjectArchivedResult } from "./ProjectRepository.ts";
+import type { WorkspaceArchivedResult } from "./WorkspaceArchivedResult.ts";
 import type { EvidenceKind, ResearchConclusion, ResearchConfidence, ResearchRequestKind } from "./Research.ts";
 
 /** 検証済みの入力。検証規則（zod schema）はapplication層が持ち、parseの戻り値がこの型を満たすことを型検査で保証する。 */
@@ -29,7 +29,7 @@ export type CreateResearchRequestInput = {
 export type RegisterResearchResultInput = {
   summary: string;
   budgetUsed: number;
-  evidenceRefs: { kind: EvidenceKind; uri: string; retrievedAt: number; versionHash: string | null }[];
+  evidenceRefs: { kind: EvidenceKind; uri: string; retrievedAt: number; versionHash: string | null; resourceId: string | null }[];
   findings: {
     statement: string;
     confidence: ResearchConfidence;
@@ -76,21 +76,21 @@ export type CreateResearchRequestResult =
   | { kind: "outcome_not_found" }
   | { kind: "deadline_in_past"; deadlineAt: number }
   | ResearchKeyConflictResult
-  | ProjectArchivedResult;
+  | WorkspaceArchivedResult;
 
 /** Request配下の書込が共通で返す拒否。 */
 type ResearchRequestWriteRejection =
   | { kind: "request_not_found" }
   | { kind: "not_open"; status: ResearchRequestStatus }
   | ResearchKeyConflictResult
-  | ProjectArchivedResult;
+  | WorkspaceArchivedResult;
 
 export type RegisterResearchResultResult =
   | { kind: "registered"; result: ResearchResult }
   | { kind: "replayed"; result: ResearchResult }
   | { kind: "deadline_passed"; deadlineAt: number }
   | { kind: "budget_exceeded"; budgetTotal: number; budgetUsed: number }
-  | { kind: "invalid_reference"; reference: "finding"; ids: string[] }
+  | { kind: "invalid_reference"; reference: "finding" | "resource"; ids: string[] }
   | ResearchRequestWriteRejection;
 
 export type RegisterResearchSynthesisResult =
@@ -105,14 +105,14 @@ export type RegisterResearchSynthesisResult =
 export type CloseResearchRequestResult =
   | { kind: "closed"; request: ResearchRequest }
   | { kind: "incomplete"; missing: "result" | "synthesis" }
-  | Extract<ResearchRequestWriteRejection, { kind: "request_not_found" | "not_open" | "project_archived" }>;
+  | Extract<ResearchRequestWriteRejection, { kind: "request_not_found" | "not_open" | "workspace_archived" }>;
 
 export type ResearchRequestQuery = {
   originIntentId?: string;
   status?: ResearchRequestStatus;
 };
 
-/** Researcherが再利用できる、同じProjectの他Requestが残したFindingと、それが引用するEvidence参照。 */
+/** Researcherが再利用できる、同じWorkspaceの他Requestが残したFindingと、それが引用するEvidence参照。 */
 export type RelatedResearchFindings = {
   findings: ResearchFinding[];
   evidenceRefs: EvidenceReference[];
@@ -120,43 +120,43 @@ export type RelatedResearchFindings = {
 
 /**
  * Research集約の永続化。Result・Finding・Evidence参照・Synthesisは追記だけで、更新・削除するメソッドは持たない。
- * 書込はすべてProjectのarchived確認と同一transactionで行い、別ProjectのIDは存在しないものとして扱う。
+ * 書込はすべてWorkspaceのarchived確認と同一transactionで行い、別WorkspaceのIDは存在しないものとして扱う。
  */
 export interface ResearchRepository {
   /** 同じrequestKeyの再送は新しい行を作らず既存のRequestを返す。 */
-  createRequest(projectId: string, input: CreateResearchRequestInput): Promise<CreateResearchRequestResult>;
+  createRequest(workspaceId: string, input: CreateResearchRequestInput): Promise<CreateResearchRequestResult>;
   /** 新しい順。発端Intentや状態で絞れる。 */
-  findRequests(projectId: string, query?: ResearchRequestQuery): Promise<ResearchRequest[]>;
-  /** 他ProjectのRequest IDはnull。Result・Finding・Evidence・Synthesisを登録順で含める。 */
-  findRequestDetail(projectId: string, requestId: string): Promise<ResearchRequestDetail | null>;
+  findRequests(workspaceId: string, query?: ResearchRequestQuery): Promise<ResearchRequest[]>;
+  /** 他WorkspaceのRequest IDはnull。Result・Finding・Evidence・Synthesisを登録順で含める。 */
+  findRequestDetail(workspaceId: string, requestId: string): Promise<ResearchRequestDetail | null>;
   /**
    * 指定Intentを発端とするDecision RequestからIntent Brief（Strategist Context向け圧縮結果）を組み立てる。
    * `requests`は全状態を新しい順、`syntheses`はcancelledのRequestを除いた各系列の最新versionだけを返す。
-   * 存在しないIntentや、この Project 配下に Request が無い Intent には空の結果を返す（エラーにしない）。
+   * 存在しないIntentや、この Workspace 配下に Request が無い Intent には空の結果を返す（エラーにしない）。
    */
-  findIntentResearchSummary(projectId: string, intentId: string): Promise<IntentResearchSummary>;
+  findIntentResearchSummary(workspaceId: string, intentId: string): Promise<IntentResearchSummary>;
   /**
-   * 対象Requestと同じ発端Intent（project_watchは発端なし同士）を持つ、同じProjectの他RequestのFindingを新しい順に最大`limit`件返す。
-   * 対象Request自身のFindingは含めない（`findRequestDetail`で取得できる）。別Projectのものは返さない。
+   * 対象Requestと同じ発端Intent（project_watchは発端なし同士）を持つ、同じWorkspaceの他RequestのFindingを新しい順に最大`limit`件返す。
+   * 対象Request自身のFindingは含めない（`findRequestDetail`で取得できる）。別Workspaceのものは返さない。
    */
-  findRelatedFindings(projectId: string, requestId: string, limit: number): Promise<RelatedResearchFindings>;
+  findRelatedFindings(workspaceId: string, requestId: string, limit: number): Promise<RelatedResearchFindings>;
   /** 初回の登録で`requested`から`running`へ進み、使用予算を加算する。期限・予算を超える登録は拒否する。 */
   registerResult(
-    projectId: string,
+    workspaceId: string,
     requestId: string,
     input: RegisterResearchResultInput,
   ): Promise<RegisterResearchResultResult>;
-  /** 前versionを`supersedesId`で指す場合は同一Project内の最新versionだけを置き換えられる。 */
+  /** 前versionを`supersedesId`で指す場合は同一Workspace内の最新versionだけを置き換えられる。 */
   registerSynthesis(
-    projectId: string,
+    workspaceId: string,
     requestId: string,
     input: RegisterResearchSynthesisInput,
   ): Promise<RegisterResearchSynthesisResult>;
   /** completed / insufficient / not_neededのいずれかで終了する。終了済みのRequestは変更しない。 */
   complete(
-    projectId: string,
+    workspaceId: string,
     requestId: string,
     input: CompleteResearchRequestInput,
   ): Promise<CloseResearchRequestResult>;
-  cancel(projectId: string, requestId: string, reason: string): Promise<CloseResearchRequestResult>;
+  cancel(workspaceId: string, requestId: string, reason: string): Promise<CloseResearchRequestResult>;
 }

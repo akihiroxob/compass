@@ -1,5 +1,5 @@
 import { humanOperatorPrincipalId, type HumanActor, type HumanProjectOperation, type HumanRole } from "../domain/HumanAuth.ts";
-import type { GetProjectUseCase, ListProjectsUseCase, Project, ProjectStatus } from "@compass/direction";
+import type { GetProjectUseCase, ListProjectsUseCase, ProjectDetail, ProjectStatus } from "@compass/organization";
 import type { ProjectMembershipRepository } from "../domain/ProjectMembershipRepository.ts";
 import type { HumanProjectAuthorizationService } from "./HumanProjectAuthorizationService.ts";
 
@@ -49,7 +49,7 @@ export class ListHumanProjectsUseCase {
     private readonly membershipRepository: ProjectMembershipRepository,
   ) {}
 
-  async execute(actor: HumanActor, status: ProjectStatus = "active"): Promise<Project[]> {
+  async execute(actor: HumanActor, status: ProjectStatus = "active"): Promise<ProjectDetail[]> {
     const projectIds = new Set(await this.membershipRepository.listActiveProjectIds(actor.humanUserId));
     const projects = await this.listProjectsUseCase.execute(status);
     return projects.filter((project) => projectIds.has(project.id));
@@ -63,7 +63,7 @@ export class GetHumanProjectUseCase {
     private readonly getProjectUseCase: GetProjectUseCase,
   ) {}
 
-  async execute(actor: HumanActor, projectId: string): Promise<{ project: Project; myRole: HumanRole }> {
+  async execute(actor: HumanActor, projectId: string): Promise<{ project: ProjectDetail; myRole: HumanRole }> {
     const membership = await this.authorization.authorize(actor, projectId, "project.read");
     return { project: await this.getProjectUseCase.execute(projectId), myRole: membership.role };
   }

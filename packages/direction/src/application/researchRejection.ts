@@ -1,23 +1,23 @@
 import { ConflictError, NotFoundError } from "@compass/shared";
-import { ProjectArchivedError } from "./error/ProjectArchivedError.ts";
+import { WorkspaceArchivedError } from "@compass/organization";
 
 /** Request配下の書込で共通の拒否結果。それ以外の結果は各use caseが扱う。 */
 type CommonRejection =
   | { kind: "request_not_found" }
   | { kind: "not_open"; status: string }
   | { kind: "key_conflict"; requestKey: string }
-  | { kind: "project_archived" };
+  | { kind: "workspace_archived" };
 
 /** 共通の拒否結果をアプリケーション層のエラーへ変換する。該当しない結果は何もしない。 */
 export const throwCommonResearchRejection = (
   result: { kind: string },
-  projectId: string,
+  workspaceId: string,
   requestId: string,
 ): void => {
   const rejection = result as CommonRejection;
-  if (rejection.kind === "project_archived") throw new ProjectArchivedError(projectId);
+  if (rejection.kind === "workspace_archived") throw new WorkspaceArchivedError(workspaceId);
   if (rejection.kind === "request_not_found") {
-    throw new NotFoundError(`Research Request ${requestId} was not found in Project ${projectId}`);
+    throw new NotFoundError(`Research Request ${requestId} was not found in Workspace ${workspaceId}`);
   }
   if (rejection.kind === "not_open") {
     throw new ConflictError(

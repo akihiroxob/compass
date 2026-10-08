@@ -3,7 +3,7 @@ import { ConflictError, inputHash, NotFoundError, ValidationError } from "@compa
 import { ActivityScope, toActivitySummary, type Activity, type ActivitySummary } from "../domain/Activity.ts";
 import { parseActivityQuery, parseRecordActivityInput, type ActivityQueryInput } from "./activitySchema.ts";
 import type { ActivityAuthorizationPort, ActivityProjectReader } from "./port/ActivityProjectReader.ts";
-import type { ActivityStore } from "./port/ActivityStore.ts";
+import type { ActivityStore, ActivityUnitOfWork } from "./port/ActivityStore.ts";
 
 type Clock = () => number;
 
@@ -21,8 +21,7 @@ const activityNotFound = (activityId: string) => new NotFoundError(`Activity ${a
 export class RecordActivityUseCase {
   constructor(
     private readonly authorization: ActivityAuthorizationPort,
-    private readonly projects: ActivityProjectReader,
-    private readonly store: ActivityStore,
+    private readonly unitOfWork: ActivityUnitOfWork,
     private readonly clock: Clock = Date.now,
     private readonly newId: () => string = randomUUID,
   ) {}
@@ -41,46 +40,52 @@ export class RecordActivityUseCase {
     // 参照Resourceが外れても、通信断後の再送で同じActivityを返せるようにする。
     const hash = inputHash({ ...content, role: actor.role });
     const dedupeKey = `recorded:${actor.principalId}:${requestId}`;
-    const saved = await this.store.findByDedupeKey(dedupeKey);
-    if (saved) return { activity: this.replayed(saved, hash, requestId), created: false };
+    return this.unitOfWork.execute(async (store, projects) => {
+      const saved = await store.findByDedupeKey(dedupeKey);
+      if (saved) return { activity: this.replayed(saved, hash, requestId), created: false };
 
-    const project = await this.projects.find(content.projectId);
-    if (!project) throw projectNotFound(content.projectId);
-    if (project.archived) {
-      throw new ConflictError(`Project ${content.projectId} is archived and can no longer be changed`, { projectStatus: "archived" });
-    }
-    const unknownResources = content.refs.flatMap((ref, index) =>
-      ref.kind === "project_resource" && !project.resourceIds.includes(ref.resourceId)
-        ? [{ path: `refs.${index}.resourceId`, message: `Project Resource ${ref.resourceId} is not registered in this Project` }]
-        : [],
-    );
-    if (unknownResources.length) throw new ValidationError("Activity input is invalid", unknownResources);
-    if (content.correctsActivityId !== undefined) {
-      const corrected = await this.store.find(content.correctsActivityId);
-      if (!corrected || corrected.projectId !== content.projectId) {
-        throw new NotFoundError(`Activity ${content.correctsActivityId} was not found in this Project`);
+      const project = await projects.find(content.projectId);
+      if (!project) throw projectNotFound(content.projectId);
+      if (project.archived) {
+        throw new ConflictError(`Project ${content.projectId} is archived and can no longer be changed`, { projectStatus: "archived" });
       }
-    }
+      const unknownResources = content.refs.flatMap((ref, index) =>
+        ref.kind === "project_resource" && !project.resourceIds.includes(ref.resourceId)
+          ? [{ path: `refs.${index}.resourceId`, message: `Project Resource ${ref.resourceId} is not registered in this Project` }]
+          : [],
+      );
+      if (unknownResources.length) throw new ValidationError("Activity input is invalid", unknownResources);
+      if (content.correctsActivityId !== undefined) {
+        const corrected = await store.find(content.correctsActivityId);
+        if (
+          !corrected || corrected.scope !== ActivityScope.PROJECT ||
+          corrected.projectId !== content.projectId || corrected.workspaceId !== project.workspaceId
+        ) {
+          throw new NotFoundError(`Activity ${content.correctsActivityId} was not found in this Project`);
+        }
+      }
 
-    const now = this.clock();
-    const { activity, created, inputHash: savedHash } = await this.store.append({
-      id: this.newId(),
-      scope: ActivityScope.PROJECT,
-      projectId: content.projectId,
-      type: content.type,
-      principalId: actor.principalId,
-      role: actor.role,
-      summary: content.summary,
-      body: content.body,
-      refs: content.refs,
-      correctsActivityId: content.correctsActivityId ?? null,
-      source: "recorded",
-      occurredAt: content.occurredAt ?? now,
-      recordedAt: now,
-      dedupeKey,
-      inputHash: hash,
+      const now = this.clock();
+      const { activity, created, inputHash: savedHash } = await store.append({
+        id: this.newId(),
+        scope: ActivityScope.PROJECT,
+        workspaceId: project.workspaceId,
+        projectId: content.projectId,
+        type: content.type,
+        principalId: actor.principalId,
+        role: actor.role,
+        summary: content.summary,
+        body: content.body,
+        refs: content.refs,
+        correctsActivityId: content.correctsActivityId ?? null,
+        source: "recorded",
+        occurredAt: content.occurredAt ?? now,
+        recordedAt: now,
+        dedupeKey,
+        inputHash: hash,
+      });
+      return { activity: created ? activity : this.replayed({ activity, inputHash: savedHash }, hash, requestId), created };
     });
-    return { activity: created ? activity : this.replayed({ activity, inputHash: savedHash }, hash, requestId), created };
   }
 
   /** 同じ`requestId`の保存済みActivity。別の内容での再利用は`CONFLICT`。 */
@@ -131,7 +136,7 @@ export class GetActivityUseCase {
   async execute(projectId: string, activityId: string): Promise<ActivityDetail> {
     if (!(await this.projects.find(projectId))) throw projectNotFound(projectId);
     const activity = await this.store.find(activityId);
-    if (!activity || activity.projectId !== projectId) throw activityNotFound(activityId);
+    if (!activity || activity.scope !== ActivityScope.PROJECT || activity.projectId !== projectId) throw activityNotFound(activityId);
     const corrections = await this.store.listCorrections(activityId);
     return { activity, corrections: corrections.map(toActivitySummary) };
   }

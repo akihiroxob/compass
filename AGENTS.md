@@ -7,13 +7,14 @@
 - 現行文書の入口は `docs/README.md`。確定した設計と現在の実装状況を区別する。
 - 現行文書へ過去の案・作業履歴を残さない。過去情報はGit履歴で参照する。未確定事項は `docs/planning/` へ分離し、確定要件として扱わない。
 - 今回の反映はドキュメントとWachaへのStory・Task登録のみ。コード・DB・設定・実行時に配信するRole文書の変更は登録済みTaskで実施する。移行計画と登録状況は `docs/architecture-migration-plan.md` を参照し、Task登録と実装完了を混同しない。
+- リリース前のCompass開発DBは破棄・再作成してよい。schema変更時のDROP・DBファイル削除を許可し、旧DBからのデータ移行・既存ID保全・旧Credentialの継続・旧クライアント互換を必須にしない。新規DBでの正しい構造・永続化・認可・業務規則を検証する。開発用Wachaのデータは別管理とする。
 
 ## 構成と責務
 
 - Compassは方向管理とWachaの実行管理を統合するモノレポ・製品とする。
 - `server/`・`orchestrator/`・`ralph/` は独立して実行・build・deployできるシステム。ServerのWeb UI・API・MCPは同じ起動コマンド・同じサーバーで提供する。
-- 主要Bounded Contextは `packages/direction`・`work`・`activity`・`access`。`apps/`を使わず、空の構造を先に作らない。
-- Project / Intent / OutcomeはDirection、Story / Task / Claim / Review / AcceptanceはWorkが所有する。WorkはOutcomeを参照し、Entityを複製しない。
+- 主要Bounded Contextは `packages/direction`・`work`・`activity`・`access`。Workspace移行で`packages/organization`を加える。`apps/`を使わず、空の構造を先に作らない。
+- Workspaceは戦略、Projectは実行の境界とする（`docs/adr/0001-workspace-project-boundary.md`）。Workspace / ProjectはOrganization、Intent / OutcomeはWorkspace scopeのDirection、Story / Task / Claim / Review / AcceptanceはProject scopeのWorkが所有する。WorkはOutcomeを参照し、Entityを複製しない。Workspaceは移行Taskで段階的に実装し、現況は `docs/implementation-status.md` を参照する。
 - Orchestratorは現在状態から専門Roleを起動し、知的判断をRoleへ委譲する。RalphはWorker / Reviewerの実行ループを担う。
 - Activityは意味のある履歴であり、workflow checkpointにしない。Operational Log / Change Log / Activityを区別する。
 - Project別の情報は内容と所有責務で保存先を決める。Compassが所有する判断・評価等のレコードは内部に保持できる。Repository / Docsが正本の成果物は参照を保持し、本文を二重管理しない。KnowledgeはAgent System共通知識だけを置く。

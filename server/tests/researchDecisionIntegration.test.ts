@@ -10,7 +10,7 @@ import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createApp } from "../src/bootstrap/app.ts";
-import { createTestHuman, humanHeaders, type TestHuman } from "./support/humanSession.ts";
+import { createTestHuman, humanHeaders, type TestHuman, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -52,7 +52,7 @@ const loopbackDenial = await new Promise<string | undefined>((resolve) => {
 });
 const loopbackSkip = loopbackDenial ? `127.0.0.1へのlistenが拒否された（${loopbackDenial}）。sandbox外で実行すること` : false;
 
-const withEnvironment = async (run: (start: () => Promise<Running & { stop: () => Promise<void> }>) => Promise<void>) => {
+const withEnvironment = async (run: (start: () => Promise<Running & { database: ReturnType<typeof createDatabase>; stop: () => Promise<void> }>) => Promise<void>) => {
   const directory = await mkdtemp(join(tmpdir(), "compass-research-decision-"));
   const path = join(directory, "integration.db");
   const stops: (() => Promise<void>)[] = [];
@@ -67,7 +67,7 @@ const withEnvironment = async (run: (start: () => Promise<Running & { stop: () =
         await database.destroy();
       };
       stops.push(stop);
-      return { ...running, stop };
+      return { ...running, database, stop };
     });
   } finally {
     for (const stop of stops) await stop().catch(() => undefined);
@@ -107,8 +107,7 @@ const errorCode = (result: ToolResult) => {
   return result.structuredContent?.error.code as string;
 };
 
-const grant = (baseUrl: string, projectId: string, principalId: string, role: string) =>
-  api(baseUrl, "POST", `/api/projects/${projectId}/grants`, { principalId, role });
+const grant = seedProjectWorkspaceGrant;
 
 const createProject = async (baseUrl: string, name: string) =>
   (
@@ -118,20 +117,20 @@ const createProject = async (baseUrl: string, name: string) =>
       constraints: ["No autonomous execution yet", "Human owns Mission changes"],
       repositories: [{ name: "compass", url: "https://example.invalid/compass" }],
     })
-  ).body.project as { id: string; repositories: { id: string }[] };
+  ).body.project as { id: string; workspaceId: string; repositories: { id: string }[] };
 
-const createIntent = async (baseUrl: string, projectId: string, title: string) =>
-  (await api(baseUrl, "POST", `/api/projects/${projectId}/intents`, { title, desiredState: "S" })).body.intent as { id: string };
+const createIntent = async (baseUrl: string, workspaceId: string, title: string) =>
+  (await api(baseUrl, "POST", `/api/workspaces/${workspaceId}/intents`, { title, desiredState: "S" })).body.intent as { id: string };
 
 /**
  * Intent作成はResearch Requestを作らない。Strategist（strat-1）が情報不足と判断し、additional_researchのDecisionでRequestを作る。
  */
-const initialRequestOf = async (baseUrl: string, projectId: string, intentId: string) => {
-  const { body } = await api(baseUrl, "GET", `/api/projects/${projectId}/research-requests?originIntentId=${intentId}`);
+const initialRequestOf = async (baseUrl: string, workspaceId: string, intentId: string) => {
+  const { body } = await api(baseUrl, "GET", `/api/workspaces/${workspaceId}/research-requests?originIntentId=${intentId}`);
   assert.deepEqual(body.requests, []);
   const decided = await withAgent(baseUrl, "strat-1", (client) =>
     call(client, "create_direction_decision", {
-      projectId,
+      workspaceId,
       intentId,
       type: "additional_research",
       judgment: "Evidence is insufficient to choose the first Outcome",
@@ -159,23 +158,23 @@ test(
       const server = await start();
       const project = await createProject(server.baseUrl, "Compass");
       const repositoryId = project.repositories[0]!.id;
-      const intent = await createIntent(server.baseUrl, project.id, "Ship the claim strategy");
+      const intent = await createIntent(server.baseUrl, project.workspaceId, "Ship the claim strategy");
 
-      assert.equal((await grant(server.baseUrl, project.id, "researcher-1", "researcher")).status, 201);
-      assert.equal((await grant(server.baseUrl, project.id, "strat-1", "strategist")).status, 201);
+      await grant(server.database, project.id, "researcher-1", "researcher");
+      await grant(server.database, project.id, "strat-1", "strategist");
 
       // Researchの要否はStrategistが判断する。ここでは追加ResearchとしてRequestを作る。
-      const initial = await initialRequestOf(server.baseUrl, project.id, intent.id);
+      const initial = await initialRequestOf(server.baseUrl, project.workspaceId, intent.id);
       assert.equal(initial.status, "requested");
 
       const now = Date.now();
       const { findingId, synthesisId } = await withAgent(server.baseUrl, "researcher-1", async (client) => {
-        const context = await call(client, "get_researcher_context", { projectId: project.id, requestId: initial.id });
+        const context = await call(client, "get_researcher_context", { workspaceId: project.workspaceId, requestId: initial.id });
         assert.equal(context.isError, undefined);
         assert.equal(context.structuredContent?.request.status, "requested");
 
         const result = await call(client, "register_research_result", {
-          projectId: project.id,
+          workspaceId: project.workspaceId,
           requestId: initial.id,
           requestKey: "result-1",
           runRef: "run-001",
@@ -189,7 +188,7 @@ test(
         const registeredFindingId = result.structuredContent?.result.findings[0].id as string;
 
         const synthesis = await call(client, "register_research_synthesis", {
-          projectId: project.id,
+          workspaceId: project.workspaceId,
           requestId: initial.id,
           requestKey: "synthesis-1",
           runRef: "run-001",
@@ -199,18 +198,18 @@ test(
         });
         assert.equal(synthesis.isError, undefined, JSON.stringify(synthesis));
 
-        const completed = await call(client, "complete_research_request", { projectId: project.id, requestId: initial.id, conclusion: "completed" });
+        const completed = await call(client, "complete_research_request", { workspaceId: project.workspaceId, requestId: initial.id, conclusion: "completed" });
         assert.equal(completed.isError, undefined, JSON.stringify(completed));
         assert.equal(completed.structuredContent?.request.status, "completed");
 
         // Researcherは方針を決められない（職務分離）。
-        assert.equal(errorCode(await call(client, "create_outcome", { projectId: project.id, intentId: intent.id, title: "x", description: "x", rationale: "x", successCriteria: [{ description: "x", measurement: "x" }] })), "FORBIDDEN");
+        assert.equal(errorCode(await call(client, "create_outcome", { workspaceId: project.workspaceId, intentId: intent.id, title: "x", description: "x", rationale: "x", successCriteria: [{ description: "x", measurement: "x" }] })), "FORBIDDEN");
 
         return { findingId: registeredFindingId, synthesisId: synthesis.structuredContent?.synthesis.id as string };
       });
 
       // completedはWeb APIから状態・Result・Synthesisの来歴として参照できる。
-      const detail = (await api(server.baseUrl, "GET", `/api/projects/${project.id}/research-requests/${initial.id}`)).body.detail;
+      const detail = (await api(server.baseUrl, "GET", `/api/workspaces/${project.workspaceId}/research-requests/${initial.id}`)).body.detail;
       assert.equal(detail.request.status, "completed");
       assert.equal(detail.results.length, 1);
       assert.equal(detail.syntheses.length, 1);
@@ -218,11 +217,11 @@ test(
       const { outcomeId, decisionId } = await withAgent(server.baseUrl, "strat-1", async (client) => {
         // Strategistは登録できない（職務分離）。
         assert.equal(
-          errorCode(await call(client, "register_research_result", { projectId: project.id, requestId: initial.id, requestKey: "x", runRef: "x", summary: "x" })),
+          errorCode(await call(client, "register_research_result", { workspaceId: project.workspaceId, requestId: initial.id, requestKey: "x", runRef: "x", summary: "x" })),
           "FORBIDDEN",
         );
 
-        const context = await call(client, "get_strategist_context", { projectId: project.id });
+        const context = await call(client, "get_strategist_context", { workspaceId: project.workspaceId });
         assert.equal(context.isError, undefined);
         assert.equal(context.structuredContent?.research.syntheses.length, 1);
         const synthesis = context.structuredContent?.research.syntheses[0];
@@ -231,7 +230,7 @@ test(
         assert.deepEqual(synthesis.findingIds, [findingId]);
 
         const decided = await call(client, "decide_next_outcome", {
-          projectId: project.id,
+          workspaceId: project.workspaceId,
           intentId: intent.id,
           judgment: "Adopt lease-based claiming",
           reason: "Synthesis shows leases avoid stuck claims without a heartbeat service.",
@@ -254,7 +253,7 @@ test(
 
         // ADR Candidate → Wacha handoff fixture → 完了結果の参照、まで一続きで検証する。
         const adrDecision = await call(client, "create_direction_decision", {
-          projectId: project.id,
+          workspaceId: project.workspaceId,
           intentId: intent.id,
           type: "adr_candidate",
           judgment: "Adopt lease-based claiming",
@@ -269,6 +268,7 @@ test(
         const adrDecisionId = adrDecision.structuredContent?.decision.id as string;
 
         const handoff = await call(client, "create_adr_handoff_request", {
+          workspaceId: project.workspaceId,
           projectId: project.id,
           decisionId: adrDecisionId,
           repositoryId,
@@ -280,6 +280,7 @@ test(
 
         // Wachaが完了させた結果（fixture）をCompassへ記録する。実Wacha・GitHub APIは未接続。
         const reference = await call(client, "record_adr_reference", {
+          workspaceId: project.workspaceId,
           projectId: project.id,
           decisionId: adrDecisionId,
           repositoryId,
@@ -295,16 +296,16 @@ test(
       });
 
       // Human向けWeb APIから、Decision（additional_research・next_outcome・adr_candidate）とADR参照を辿れる。
-      const decisions = (await api(server.baseUrl, "GET", `/api/projects/${project.id}/intents/${intent.id}/decisions`)).body.decisions as { type: string; outcomeId: string | null }[];
+      const decisions = (await api(server.baseUrl, "GET", `/api/workspaces/${project.workspaceId}/intents/${intent.id}/decisions`)).body.decisions as { type: string; outcomeId: string | null }[];
       assert.deepEqual(decisions.map((decision) => decision.type).sort(), ["additional_research", "adr_candidate", "next_outcome"]);
       assert.equal(decisions.find((decision) => decision.type === "next_outcome")?.outcomeId, outcomeId);
 
-      const references = (await api(server.baseUrl, "GET", `/api/projects/${project.id}/adr-references`)).body.references as { decisionId: string; path: string; commitSha: string }[];
+      const references = (await api(server.baseUrl, "GET", `/api/workspaces/${project.workspaceId}/adr-references`)).body.references as { decisionId: string; path: string; commitSha: string }[];
       assert.equal(references.length, 1);
       assert.equal(references[0]!.decisionId, decisionId);
       assert.equal(references[0]!.path, "docs/adr/0001-lease-based-claiming.md");
 
-      const outcomeViaWeb = (await api(server.baseUrl, "GET", `/api/projects/${project.id}/intents/${intent.id}/outcomes/${outcomeId}`)).body.outcome;
+      const outcomeViaWeb = (await api(server.baseUrl, "GET", `/api/workspaces/${project.workspaceId}/intents/${intent.id}/outcomes/${outcomeId}`)).body.outcome;
       assert.equal(outcomeViaWeb.status, "active");
       await server.stop();
     });
@@ -319,17 +320,17 @@ test(
       const server = await start();
       const project = await createProject(server.baseUrl, "P");
       const other = await createProject(server.baseUrl, "Q");
-      await grant(server.baseUrl, project.id, "researcher-1", "researcher");
-      await grant(server.baseUrl, project.id, "strat-1", "strategist");
-      await grant(server.baseUrl, other.id, "researcher-q", "researcher");
+      await grant(server.database, project.id, "researcher-1", "researcher");
+      await grant(server.database, project.id, "strat-1", "strategist");
+      await grant(server.database, other.id, "researcher-q", "researcher");
 
       // 1件目: Result・Synthesisを伴うcompleted。
-      const intentA = await createIntent(server.baseUrl, project.id, "A");
-      const requestA = await initialRequestOf(server.baseUrl, project.id, intentA.id);
+      const intentA = await createIntent(server.baseUrl, project.workspaceId, "A");
+      const requestA = await initialRequestOf(server.baseUrl, project.workspaceId, intentA.id);
       await withAgent(server.baseUrl, "researcher-1", async (client) => {
         const now = Date.now();
         const result = await call(client, "register_research_result", {
-          projectId: project.id,
+          workspaceId: project.workspaceId,
           requestId: requestA.id,
           requestKey: "result-a",
           runRef: "run-a",
@@ -338,36 +339,36 @@ test(
           findings: [{ statement: "f", confidence: "high", observedAt: now, evidenceIndexes: [0] }],
         });
         const findingId = result.structuredContent?.result.findings[0].id as string;
-        await call(client, "register_research_synthesis", { projectId: project.id, requestId: requestA.id, requestKey: "synthesis-a", runRef: "run-a", conclusion: "c", findingIds: [findingId], validAsOf: now });
-        assert.equal((await call(client, "complete_research_request", { projectId: project.id, requestId: requestA.id, conclusion: "completed" })).structuredContent?.request.status, "completed");
+        await call(client, "register_research_synthesis", { workspaceId: project.workspaceId, requestId: requestA.id, requestKey: "synthesis-a", runRef: "run-a", conclusion: "c", findingIds: [findingId], validAsOf: now });
+        assert.equal((await call(client, "complete_research_request", { workspaceId: project.workspaceId, requestId: requestA.id, conclusion: "completed" })).structuredContent?.request.status, "completed");
       });
 
       // 2件目: 既存知識だけで判断でき、Resultなしでnot_needed。
-      await api(server.baseUrl, "POST", `/api/projects/${project.id}/intents/${intentA.id}/abandon`, { reason: "done" });
-      const intentB = await createIntent(server.baseUrl, project.id, "B");
-      const requestB = await initialRequestOf(server.baseUrl, project.id, intentB.id);
+      await api(server.baseUrl, "POST", `/api/workspaces/${project.workspaceId}/intents/${intentA.id}/abandon`, { reason: "done" });
+      const intentB = await createIntent(server.baseUrl, project.workspaceId, "B");
+      const requestB = await initialRequestOf(server.baseUrl, project.workspaceId, intentB.id);
       await withAgent(server.baseUrl, "researcher-1", async (client) => {
-        const closed = await call(client, "complete_research_request", { projectId: project.id, requestId: requestB.id, conclusion: "not_needed", stopReason: "Existing knowledge is sufficient" });
+        const closed = await call(client, "complete_research_request", { workspaceId: project.workspaceId, requestId: requestB.id, conclusion: "not_needed", stopReason: "Existing knowledge is sufficient" });
         assert.equal(closed.structuredContent?.request.status, "not_needed");
       });
 
       // 3件目: 証拠を集め切れず、予算を使い切ったためinsufficient。
-      await api(server.baseUrl, "POST", `/api/projects/${project.id}/intents/${intentB.id}/abandon`, { reason: "done" });
-      const intentC = await createIntent(server.baseUrl, project.id, "C");
-      const requestC = await initialRequestOf(server.baseUrl, project.id, intentC.id);
+      await api(server.baseUrl, "POST", `/api/workspaces/${project.workspaceId}/intents/${intentB.id}/abandon`, { reason: "done" });
+      const intentC = await createIntent(server.baseUrl, project.workspaceId, "C");
+      const requestC = await initialRequestOf(server.baseUrl, project.workspaceId, intentC.id);
       await withAgent(server.baseUrl, "researcher-1", async (client) => {
-        const closed = await call(client, "complete_research_request", { projectId: project.id, requestId: requestC.id, conclusion: "insufficient", stopReason: "Budget exhausted before conclusive evidence" });
+        const closed = await call(client, "complete_research_request", { workspaceId: project.workspaceId, requestId: requestC.id, conclusion: "insufficient", stopReason: "Budget exhausted before conclusive evidence" });
         assert.equal(closed.structuredContent?.request.status, "insufficient");
       });
 
       // 4件目: 通信結果不明（RuntimeがまだResearcherの応答を確定できていない）。CompassはRequestを
       // requested/runningのまま保持するだけで、"通信結果不明"という別状態は持たない（Runtimeの解釈に委ねる）。
-      await api(server.baseUrl, "POST", `/api/projects/${project.id}/intents/${intentC.id}/abandon`, { reason: "done" });
-      const intentD = await createIntent(server.baseUrl, project.id, "D");
-      const requestD = await initialRequestOf(server.baseUrl, project.id, intentD.id);
+      await api(server.baseUrl, "POST", `/api/workspaces/${project.workspaceId}/intents/${intentC.id}/abandon`, { reason: "done" });
+      const intentD = await createIntent(server.baseUrl, project.workspaceId, "D");
+      const requestD = await initialRequestOf(server.baseUrl, project.workspaceId, intentD.id);
       assert.equal(requestD.status, "requested");
 
-      const statuses = (await api(server.baseUrl, "GET", `/api/projects/${project.id}/research-requests`)).body.requests as { id: string; status: string; stopReason: string | null }[];
+      const statuses = (await api(server.baseUrl, "GET", `/api/workspaces/${project.workspaceId}/research-requests`)).body.requests as { id: string; status: string; stopReason: string | null }[];
       assert.deepEqual(
         statuses.map((request) => request.status).sort(),
         ["completed", "insufficient", "not_needed", "requested"],
@@ -375,18 +376,18 @@ test(
       assert.equal(statuses.find((request) => request.id === requestB.id)?.stopReason, "Existing knowledge is sufficient");
       assert.equal(statuses.find((request) => request.id === requestC.id)?.stopReason, "Budget exhausted before conclusive evidence");
 
-      // 別ProjectのResearcher Grantでは、このProjectのRequestに触れない（FORBIDDEN、Projectの存在は漏らさない）。
+      // 別WorkspaceのResearcher Grantでは、このWorkspaceのRequestに触れない（FORBIDDEN、Workspaceの存在は漏らさない）。
       await withAgent(server.baseUrl, "researcher-q", async (client) => {
-        assert.equal(errorCode(await call(client, "get_researcher_context", { projectId: project.id, requestId: requestA.id })), "FORBIDDEN");
-        assert.equal(errorCode(await call(client, "list_research_requests", { projectId: project.id })), "FORBIDDEN");
+        assert.equal(errorCode(await call(client, "get_researcher_context", { workspaceId: project.workspaceId, requestId: requestA.id })), "FORBIDDEN");
+        assert.equal(errorCode(await call(client, "list_research_requests", { workspaceId: project.workspaceId })), "FORBIDDEN");
       });
 
-      // Human向けWeb APIの読み取りはAgent Role GrantではなくSession + Membershipで認可する（Task 42）。
+      // Human向けWeb APIの読み取りはAgent Role GrantではなくSession + Workspace Membershipで認可する（Task 42）。
       // Session無しは401、Session（viewer以上）があればAuthorizationヘッダーなしで参照できる。
       for (const path of ["research-requests", "adr-references"]) {
-        const anonymous = await fetch(`${server.baseUrl}/api/projects/${project.id}/${path}`, { headers: closeConnection });
+        const anonymous = await fetch(`${server.baseUrl}/api/workspaces/${project.workspaceId}/${path}`, { headers: closeConnection });
         assert.equal(anonymous.status, 401, path);
-        assert.equal((await api(server.baseUrl, "GET", `/api/projects/${project.id}/${path}`)).status, 200, path);
+        assert.equal((await api(server.baseUrl, "GET", `/api/workspaces/${project.workspaceId}/${path}`)).status, 200, path);
       }
 
       await server.stop();

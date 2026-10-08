@@ -11,7 +11,7 @@ export type ResearchRequestStatus =
 
 export type ResearchRequest = {
   id: string;
-  projectId: string;
+  workspaceId: string;
   kind: ResearchRequestKind;
   originIntentId: string | null;
   originOutcomeId: string | null;
@@ -24,20 +24,29 @@ export type ResearchRequest = {
   status: ResearchRequestStatus;
   stopReason: string | null;
   correlationId: string;
+  requestKey: string;
   createdAt: number;
   updatedAt: number;
 };
 
 export type EvidenceReference = {
   id: string;
+  workspaceId: string;
+  resultId: string;
+  position: number;
   kind: string;
   uri: string;
   retrievedAt: number;
   versionHash: string | null;
+  resourceId: string | null;
 };
 
 export type ResearchFinding = {
   id: string;
+  workspaceId: string;
+  requestId: string;
+  resultId: string;
+  position: number;
   statement: string;
   confidence: "low" | "medium" | "high";
   observedAt: number;
@@ -51,6 +60,8 @@ export type ResearchFinding = {
 
 export type ResearchResult = {
   id: string;
+  workspaceId: string;
+  requestId: string;
   sequence: number;
   summary: string;
   unknowns: string[];
@@ -66,6 +77,7 @@ export type ResearchResult = {
 
 export type ResearchSynthesis = {
   id: string;
+  workspaceId: string;
   requestId: string;
   version: number;
   supersedesId: string | null;
