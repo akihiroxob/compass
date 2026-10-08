@@ -8,6 +8,8 @@ import type { OutcomeProjectWorkSummary, OutcomeWorkSummaryPort } from "./port/E
 import type { IntentRepository } from "../domain/IntentRepository.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
 import type { OutcomeStatus } from "../domain/Outcome.ts";
+import type { OutcomeExecutionRecord } from "../domain/OutcomeExecution.ts";
+import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
 import { ProjectArchivedError, WorkspaceArchivedError } from "@compass/organization";
 
@@ -148,5 +150,48 @@ export class ListOutcomeTargetWorkUseCase {
         .filter((target) => target.outcomeId === outcome.id)
         .map((target) => ({ ...target, work: works.get(key(target.outcomeId, target.projectId)) ?? null })),
     }));
+  }
+}
+
+/** Target 1件と、そのProjectからOutcomeへ還流済みのExecution Summary・Evidence参照。未還流なら`execution`はnull。 */
+export type OutcomeTargetExecution = OutcomeTargetProjectView & { execution: OutcomeExecutionRecord | null };
+
+/**
+ * OutcomeへのExecutionの還流をTarget Projectごとに集約した読取モデル。Summary・EvidenceはProject別のまま並べ、
+ * 別ProjectのEvidenceや受入状況を合算しない。`nonTargetExecutions`はTarget解除前に還流された記録で、
+ * 参照は保持するがTargetの集約には含めない。Evidence本文・Story / Task本文は含まない。
+ */
+export type OutcomeTargetExecutions = {
+  outcomeId: string;
+  outcomeStatus: OutcomeStatus;
+  targets: OutcomeTargetExecution[];
+  nonTargetExecutions: OutcomeExecutionRecord[];
+};
+
+/** OutcomeのTarget別のExecution Summary・Evidence（Workspaceの参照権限で読む）。archivedのProject・Outcomeも参照できる。 */
+export class ListOutcomeTargetExecutionsUseCase {
+  constructor(
+    private readonly workspaceReader: DirectionWorkspaceReader,
+    private readonly outcomeRepository: Pick<OutcomeRepository, "findByIdInWorkspace">,
+    private readonly targetRepository: Pick<OutcomeTargetProjectRepository, "listByOutcome">,
+    private readonly executionRepository: Pick<OutcomeExecutionRepository, "findByOutcome">,
+  ) {}
+
+  /** Targetは設定順、`nonTargetExecutions`はProject ID順。 */
+  async execute(workspaceId: string, outcomeId: string): Promise<OutcomeTargetExecutions> {
+    await requireWorkspace(this.workspaceReader, workspaceId);
+    const outcome = await this.outcomeRepository.findByIdInWorkspace(workspaceId, outcomeId);
+    const targets = await this.targetRepository.listByOutcome(workspaceId, outcomeId);
+    if (!outcome || !targets) throw new NotFoundError(`Outcome ${outcomeId} was not found in Workspace ${workspaceId}`);
+    const records = new Map(
+      (await this.executionRepository.findByOutcome(workspaceId, outcomeId)).map((record) => [record.summary.projectId, record]),
+    );
+    const targetProjectIds = new Set(targets.map((target) => target.projectId));
+    return {
+      outcomeId,
+      outcomeStatus: outcome.status,
+      targets: targets.map((target) => ({ ...target, execution: records.get(target.projectId) ?? null })),
+      nonTargetExecutions: [...records.values()].filter((record) => !targetProjectIds.has(record.summary.projectId)),
+    };
   }
 }

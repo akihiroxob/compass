@@ -635,6 +635,23 @@ export const createMcpServer = (
       ),
   );
   server.registerTool(
+    "list_outcome_target_executions",
+    {
+      title: "List Outcome Target Executions",
+      description:
+        "Read the Execution results reflected into an Outcome, per Target Project: targets lists the Target Projects in the order " +
+        "they were set, each with the Project's current status and execution = { summary, evidence } reflected from that Project by " +
+        "record_execution_evidence (null until the Project's first reflection). Summaries and Evidence references are kept per Project " +
+        "and never merged; a Target's accepted state does not mean the Outcome is achieved. nonTargetExecutions lists records reflected " +
+        "before their Project was removed from the Targets. Evidence content and Story / Task contents are not included.",
+      inputSchema: { workspaceId: z.string().min(1), outcomeId: z.string().min(1) },
+    },
+    ({ workspaceId, outcomeId }) =>
+      execute(() =>
+        asWorkspaceReader(workspaceId, () => services.listOutcomeTargetExecutionsUseCase.execute(workspaceId, outcomeId)),
+      ),
+  );
+  server.registerTool(
     "list_outcome_target_work",
     {
       title: "List Outcome Target Work",
@@ -942,7 +959,8 @@ export const createMcpServer = (
         "(recorded.evidenceAdded 0), a stale changeCursor (out-of-order delivery) never rolls the state back (recorded.staleInput true), " +
         "and a changeCursor ahead of the Execution change log is rejected with VALIDATION_ERROR. The Outcome belongs to the Project's Workspace " +
         "and the result is kept per Project (workspaceId and projectId); an Outcome of another Workspace fails with NOT_FOUND; " +
-        "an Outcome without a correlated Story yet, a cancelled Outcome or an archived Project fails with CONFLICT. " +
+        "an Outcome without a correlated Story yet, a Project that is not a current Target Project of the Outcome (reason not_target_project), " +
+        "a cancelled Outcome, an archived Project or more than 200 Evidence references from the Project fails with CONFLICT. " +
         "Accepted Execution does not mean a Success Criterion is met: that is decided by the Evaluation. " +
         "Requires a Runtime Credential (Authorization: Bearer cmp_runtime...) of the Project with the execution:evidence:write scope; in trusted-local mode " +
         "Bearer <RuntimeName> with a runtime Grant is also accepted (UNAUTHENTICATED / FORBIDDEN otherwise).",

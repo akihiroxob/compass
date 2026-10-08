@@ -24,7 +24,7 @@ export type RecordExecutionEvidenceResult = {
 
 /**
  * 外部RuntimeがExecutionのChange（`list_changes`）を増分取得したあと、そのOutcomeの結果とEvidence参照を
- * Directionへ還流する。結果（accepted / rejected / canceled / incomplete）はRuntimeの申告ではなく、
+ * Directionへ還流する。還流はOutcomeの現在のTarget Projectだけが行え、Project別に保存する。結果（accepted / rejected / canceled / incomplete）はRuntimeの申告ではなく、
  * `ExecutionSummaryPort`でExecutionの現在の状態から導出する。Runtimeが渡すのはEvidenceの参照
  * （URI・commit SHA・観測時刻）と、読んだところまでのChange cursorだけで、Evidence本文は受け取らない。
  * 導出は毎回現在の状態から行うため、通知の重複・順序逆転・再起動後の再送でも同じ最終状態に収束する。
@@ -98,8 +98,13 @@ export class RecordExecutionEvidenceUseCase {
     });
     if (result.kind === "workspace_archived") throw new WorkspaceArchivedError(workspaceId);
     if (result.kind === "project_archived") throw new ProjectArchivedError(projectId);
+    if (result.kind === "not_target_project") {
+      throw new ConflictError(`Project ${projectId} is not a Target Project of Outcome ${outcomeId}`, {
+        reason: "not_target_project",
+      });
+    }
     if (result.kind === "evidence_limit_exceeded") {
-      throw new ConflictError(`Outcome ${outcomeId} already has too many Evidence references (limit ${result.limit})`, {
+      throw new ConflictError(`Outcome ${outcomeId} already has too many Evidence references from Project ${projectId} (limit ${result.limit})`, {
         reason: "evidence_limit_exceeded",
       });
     }

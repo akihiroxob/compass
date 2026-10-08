@@ -322,6 +322,16 @@ export const createApp = (
       ),
     }),
   );
+  // OutcomeへのTarget別のExecution Summary・Evidence参照（Workspace member）。Project別に分け、本文は含まない。
+  app.get("/api/workspaces/:workspaceId/outcomes/:outcomeId/target-executions", async (c) =>
+    c.json(
+      await human.listOutcomeTargetExecutions.execute(
+        await actorOf(c),
+        c.req.param("workspaceId"),
+        c.req.param("outcomeId"),
+      ),
+    ),
+  );
   // OutcomeごとのTarget別Work要約（Workspace member）。Story / Task本文はProjectのExecution閲覧から読む。
   app.get("/api/workspaces/:workspaceId/intents/:intentId/outcome-target-work", async (c) =>
     c.json({

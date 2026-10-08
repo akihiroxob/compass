@@ -49,6 +49,8 @@ const setup = async (path = ":memory:") => {
   const outcome = await direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
     title: "Outcome", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
   });
+  // 還流はOutcomeのTarget Projectだけが行える。
+  for (const project of [a, b]) await direction.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, project.id);
   const repository = new SQLiteOutcomeExecutionRepository(asDirectionDatabase(database), directionProjectReaders, directionWorkspaceReaders);
   const input: RecordOutcomeExecutionInput = {
     outcomeId: outcome.id, correlationId: `outcome:${outcome.id}`, state: "accepted", stories: [], executionCursor: 10,
