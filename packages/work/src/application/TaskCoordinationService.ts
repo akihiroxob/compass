@@ -1520,6 +1520,55 @@ export class TaskCoordinationService {
     );
   }
 
+  private async getProjectExecutionContext(projectId: string) {
+    const project = await this.directionReferences.getProjectExecutionContext(projectId);
+    if (!project) throw new NotFoundError(`Project ${projectId} was not found`);
+    return project;
+  }
+
+  /**
+   * Projectの所属WorkspaceでOutcomeを読み、このProjectがTargetであることを検査する。
+   * 別WorkspaceのOutcomeは存在しないOutcomeと区別しない。Target外は`CONFLICT`（`not_target_project`）。
+   */
+  private async getTargetOutcome(projectId: string, workspaceId: string, outcomeId: string) {
+    const outcome = await this.directionReferences.getOutcomeSnapshot(workspaceId, outcomeId);
+    if (!outcome) throw new NotFoundError(`Outcome ${outcomeId} was not found in the Workspace of Project ${projectId}`);
+    if (!outcome.targetProjectIds.includes(projectId)) {
+      throw new ConflictError(`Project ${projectId} is not a Target Project of Outcome ${outcomeId}`, {
+        reason: "not_target_project",
+      });
+    }
+    return outcome;
+  }
+
+  /**
+   * ManagerがOutcome handoffの計画に読むContext。Project manager Grantだけで、このProjectをTargetとするOutcomeの本文・
+   * 固定Success Criteria・所属WorkspaceのConstraints・ProjectのRepositoryを返す。Workspace Direction Grantは要求も継承もしない。
+   * Target外・別WorkspaceのOutcomeは返さない。取消済みOutcomeも状態を確認できるよう返す（Storyは作れない）。
+   */
+  async getOutcomeHandoffContext(principalId: string, projectId: string, outcomeId: string) {
+    await this.requireRole(this.store, projectId, principalId, WorkRole.MANAGER);
+    const project = await this.getProjectExecutionContext(projectId);
+    const outcome = await this.getTargetOutcome(projectId, project.workspaceId, outcomeId);
+    return {
+      projectId,
+      workspaceId: project.workspaceId,
+      correlationId: outcomeCorrelationId(outcome.outcomeId),
+      outcome: {
+        id: outcome.outcomeId,
+        intentId: outcome.intentId,
+        title: outcome.title,
+        description: outcome.description,
+        hypothesis: outcome.hypothesis,
+        status: outcome.status,
+        originDecisionId: outcome.originDecisionId,
+        successCriteria: outcome.successCriteria,
+      },
+      constraints: project.constraints,
+      repositories: project.repositories,
+    };
+  }
+
   /**
    * DirectionのOutcomeを参照するStoryの参照・snapshotを、transactionの前に解決する。SQLiteの接続はtransaction中は
    * 1本を占有するため、Directionの読取はここ（transactionの外）で行う。認可（manager Grant）を先に検査し、
@@ -1545,20 +1594,13 @@ export class TaskCoordinationService {
       if (existing) return null;
     }
 
-    const project = await this.directionReferences.getProjectExecutionContext(input.projectId);
-    if (!project) throw new NotFoundError(`Project ${input.projectId} was not found`);
+    const project = await this.getProjectExecutionContext(input.projectId);
     let outcome: OutcomeReferenceSnapshot | null = null;
     if (outcomeId !== null) {
-      outcome = await this.directionReferences.getOutcomeSnapshot(project.workspaceId, outcomeId);
-      if (!outcome) throw new NotFoundError(`Outcome ${outcomeId} was not found in the Workspace of Project ${input.projectId}`);
+      outcome = await this.getTargetOutcome(project.projectId, project.workspaceId, outcomeId);
       if (outcome.status !== "active") {
         throw new ConflictError(`Outcome ${outcomeId} is ${outcome.status}; Stories can only be created for an active Outcome`, {
           status: outcome.status,
-        });
-      }
-      if (!outcome.targetProjectIds.includes(input.projectId)) {
-        throw new ConflictError(`Project ${input.projectId} is not a Target Project of Outcome ${outcomeId}`, {
-          reason: "not_target_project",
         });
       }
     }

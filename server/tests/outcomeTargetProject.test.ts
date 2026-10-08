@@ -176,13 +176,14 @@ test("Targets survive a restart on the same schema", async () => {
   }
 });
 
-const callTool = async (app: App, name: string, args: object, principal?: string) => {
+const callTool = async (app: App, name: string, args: object, principal?: string, activeRole?: string) => {
   const response = await app.request("/mcp", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json, text/event-stream",
       ...(principal === undefined ? {} : { Authorization: `Bearer ${principal}` }),
+      ...(activeRole === undefined ? {} : { "X-Compass-Active-Role": activeRole }),
     },
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
   });
@@ -350,5 +351,83 @@ test("Story handoff: one Outcome yields a Story per Target Project; non-Target a
     }
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Manager handoff: a Project manager Grant alone (activeRole=manager) reads the Outcome through the Project and hands it off to Target A / B", async () => {
+  const { database, services, workspace, intent, outcome, a, b, c, foreign } = await setup();
+  try {
+    const app = await createSignedInApp(database, services);
+    for (const [project, principal] of [[a, "manager-a"], [b, "manager-b"], [c, "manager-c"], [foreign, "manager-f"]] as const) {
+      await seedProjectGrant(database, project.id, principal, "manager");
+    }
+    await seedProjectGrant(database, a.id, "worker-a", "worker");
+    await services.updateProjectUseCase.execute(a.id, { repositories: [{ name: "app", url: "https://example.com/app.git" }] });
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, a.id);
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, b.id);
+    const asManager = (name: string, args: object, principal: string) => callTool(app, name, args, principal, "manager");
+
+    // Workspace Direction Grantは継承しない。Workspace scopeの`get_outcome`はProject manager Grantでは読めないまま。
+    const workspaceRead = await asManager("get_outcome", { workspaceId: workspace.id, intentId: intent.id, outcomeId: outcome.id }, "manager-a");
+    assert.equal(workspaceRead.structuredContent.error.code, "FORBIDDEN");
+
+    for (const [project, principal] of [[a, "manager-a"], [b, "manager-b"]] as const) {
+      // Roleの手順: handoff Contextで本文・成功条件・Constraints・Repositoryを読み、再開に備えて既存Storyを確認してから起票する。
+      const context = (await asManager("get_outcome_handoff_context", { projectId: project.id, outcomeId: outcome.id }, principal)).structuredContent;
+      assert.equal(context.error, undefined);
+      assert.equal(context.projectId, project.id);
+      assert.equal(context.workspaceId, workspace.id);
+      assert.equal(context.correlationId, `outcome:${outcome.id}`);
+      assert.deepEqual(
+        [context.outcome.id, context.outcome.intentId, context.outcome.title, context.outcome.description, context.outcome.status],
+        [outcome.id, intent.id, outcomeInput.title, outcomeInput.description, "active"],
+      );
+      assert.deepEqual(context.outcome.successCriteria.map((criterion: { description: string }) => criterion.description), ["Done"]);
+      assert.deepEqual(context.constraints, ["Keep the public API"]);
+      assert.deepEqual(
+        (await asManager("list_stories", { projectId: project.id }, principal)).structuredContent.stories.filter(
+          (story: { correlationId: string | null }) => story.correlationId === context.correlationId,
+        ),
+        [],
+      );
+      const story = (
+        await asManager(
+          "issue_story",
+          {
+            projectId: project.id,
+            title: context.outcome.title,
+            description: context.outcome.description,
+            outcomeId: context.outcome.id,
+            ...(context.repositories.length > 0 ? { repositoryId: context.repositories[0].id } : {}),
+            requestId: `handoff-${principal}`,
+          },
+          principal,
+        )
+      ).structuredContent;
+      assert.equal(story.error, undefined);
+      assert.equal(story.projectId, project.id);
+      assert.equal(story.correlationId, context.correlationId);
+      assert.deepEqual(story.successCriteria.map((criterion: { id: string }) => criterion.id), context.outcome.successCriteria.map((criterion: { id: string }) => criterion.id));
+      const task = await asManager("issue_task", { projectId: project.id, storyId: story.id, title: "Deliver", taskKey: "criterion-1", requestId: `task-${principal}` }, principal);
+      assert.equal(task.structuredContent.storyId, story.id);
+    }
+    assert.equal((await asManager("get_outcome_handoff_context", { projectId: a.id, outcomeId: outcome.id }, "manager-a")).structuredContent.repositories.length, 1);
+
+    // Target外は`not_target_project`、別WorkspaceのProjectからはOutcomeが見えない。Manager以外・他ProjectのGrantは拒否する。
+    const notTarget = (await asManager("get_outcome_handoff_context", { projectId: c.id, outcomeId: outcome.id }, "manager-c")).structuredContent.error;
+    assert.deepEqual([notTarget.code, notTarget.reason], ["CONFLICT", "not_target_project"]);
+    assert.equal((await asManager("get_outcome_handoff_context", { projectId: foreign.id, outcomeId: outcome.id }, "manager-f")).structuredContent.error.code, "NOT_FOUND");
+    assert.equal((await asManager("get_outcome_handoff_context", { projectId: a.id, outcomeId: outcome.id }, "manager-b")).structuredContent.error.code, "FORBIDDEN");
+    assert.equal((await callTool(app, "get_outcome_handoff_context", { projectId: a.id, outcomeId: outcome.id }, "worker-a", "worker")).structuredContent.error.code, "FORBIDDEN");
+    assert.equal((await callTool(app, "get_outcome_handoff_context", { projectId: a.id, outcomeId: outcome.id })).structuredContent.error.code, "UNAUTHENTICATED");
+
+    // 取消済みOutcomeは状態を確認できるが、新しいStoryは作れない。
+    await services.cancelOutcomeUseCase.execute(workspace.id, intent.id, outcome.id, { reason: "Replan" });
+    const cancelled = (await asManager("get_outcome_handoff_context", { projectId: a.id, outcomeId: outcome.id }, "manager-a")).structuredContent;
+    assert.equal(cancelled.outcome.status, "cancelled");
+    const rejected = await asManager("issue_story", { projectId: a.id, title: "Again", outcomeId: outcome.id, correlationId: "again", requestId: "again" }, "manager-a");
+    assert.equal(rejected.structuredContent.error.code, "CONFLICT");
+  } finally {
+    await database.destroy();
   }
 });

@@ -31,6 +31,10 @@ export class DirectionReferenceLookupService {
     const targets = (await this.targetRepository.listByOutcome(workspaceId, outcomeId)) ?? [];
     return {
       outcomeId: outcome.id,
+      intentId: outcome.intentId,
+      title: outcome.title,
+      description: outcome.description,
+      hypothesis: outcome.hypothesis,
       originDecisionId: outcome.originDecisionId,
       status: outcome.status,
       successCriteria: outcome.successCriteria.map((criterion) => ({

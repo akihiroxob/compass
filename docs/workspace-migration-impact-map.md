@@ -164,7 +164,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `packages/direction/src/application/*UseCase.ts`（大半が`projectRepository`を使う）、`*Rejection.ts` | Project存在・archive検査、`requireRole(principal, projectId, role)` | Workspace存在・archive検査、Workspace scopeの認可 | S03-01〜04 |
 | `application/port/DirectionAuthorizationPort.ts` | `requireRole` / `requireScope`が`projectId` | `workspaceId`へ。実装はAccessの`WorkspaceRoleGrant`・Workspace Credential | S03-04、S06-02 |
 | `application/port/ExecutionSummaryPort.ts`、Workの`ExecutionSummaryService.ts` | `getOutcomeExecutionSummary(projectId, outcomeId)` | 形は維持し、Target Projectごとに呼ぶ | S05-01 |
-| `application/DirectionReferenceLookupService.ts`、Workの`port/DirectionReferenceLookupPort.ts` | `getProjectExecutionContext(projectId)`（所属Workspace・WorkspaceのConstraints・ProjectのRepository）と`getOutcomeSnapshot(workspaceId, outcomeId)`（`targetProjectIds`付き） | 実装済み。Outcome（Workspace）・Target・Project所属Workspaceの一致を`issue_story`で検査する | S04-03 |
+| `application/DirectionReferenceLookupService.ts`、Workの`port/DirectionReferenceLookupPort.ts` | `getProjectExecutionContext(projectId)`（所属Workspace・WorkspaceのConstraints・ProjectのRepository）と`getOutcomeSnapshot(workspaceId, outcomeId)`（`targetProjectIds`付き） | 実装済み。Outcome（Workspace）・Target・Project所属Workspaceの一致を`issue_story`・`get_outcome_handoff_context`で検査する | S04-03 |
 | `GetOrchestrationStateUseCase.ts`（`OrchestrationState.project`） | 1 Projectの状態 | Workspace単位の集約（Outcomes・Targets・Project別Work summary） | S08-01 |
 | `GetStrategistContextUseCase.ts`・`GetResearcherContextUseCase.ts`・`GetEvaluatorContextUseCase.ts` | `project`全体と`projectId`で集約 | Workspace Context（Mission等・Project要約・Target）。StrategistのProject要約・Targetは実装済み（S04-02） | S03-02、S04-02、S05-02、S07-03 |
 | `outcomeCorrelation.ts`（`outcome:{outcomeId}`） | Project非依存 | 変更なし | — |
@@ -197,7 +197,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `set_outcome_target` / `unset_outcome_target` / `list_outcome_targets` | `workspaceId`・`outcomeId`・`projectId` | 設定・解除はWorkspace strategist Grant、一覧はWorkspaceの参照権限（S04-01で実装済み） | S04-01 |
 | `get_role_context` | `projectId`・`role` | Workspace Role向けとProject Role向けを分ける | S07-03、S07-04 |
 | `get_role_instructions` / `list_skills` / `get_skill_context` | Project非依存 | 変更なし | — |
-| Work tools（`list_stories`〜`reject_task`、`registerExecutionTools.ts`） | `projectId` | 変更なし。`issue_story`のOutcome参照検査だけS04-03 | S04-03 |
+| Work tools（`list_stories`〜`reject_task`、`registerExecutionTools.ts`） | `projectId` | 変更なし。`issue_story`のOutcome参照検査と、Manager向けProject scopeの`get_outcome_handoff_context`追加だけS04-03 | S04-03 |
 | `record_activity` / `list_activities` / `get_activity` | `projectId` | workspace scopeの記録・取得を追加 | S07-01、S07-02 |
 
 `X-Compass-Active-Role`の解決（`server/src/auth/resolvePrincipal.ts`）は`projectRoles`だけを受け付ける。Workspace Roleを加えるときにscopeとの組合せ検証をS06-02・S06-04で行う。

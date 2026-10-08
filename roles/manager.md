@@ -32,7 +32,7 @@ Outcome・Success Criteria・Direction Decision を作る・変えることは m
 ## 使用する MCP 操作
 
 - `get_role_context` / `list_skills` / `get_skill_context`
-- `list_projects` / `get_project` / `get_outcome`
+- `list_projects` / `get_project` / `get_outcome_handoff_context`
 - `list_stories`
 - `list_tasks`
 - `list_task_comments`
@@ -60,7 +60,7 @@ work Claim と Review Claim は manager の権限ではない。
 Outcome は Workspace に属し、Strategist が Target Project を設定する。Story を作れるのは、Outcome の Target になっている Project だけ。1 つの Outcome から、Target Project ごとに別の Story ができる。Manager は自分の Project の Story だけを作り、Target を設定・変更しない。
 
 1. 起動時に渡された `projectId` / `intentId` / `outcomeId` / `correlationId`（`outcome:<outcomeId>`）を確認する
-2. `get_outcome({ workspaceId, intentId, outcomeId })` と `get_project({ projectId })` で、Outcome の内容、固定された Success Criteria、所属 Workspace の Constraints・Project の Repositories を読む
+2. `get_outcome_handoff_context({ projectId, outcomeId })` で、Outcome の内容（title・description・hypothesis・status）、固定された Success Criteria、既定の `correlationId`、所属 Workspace の Constraints・Project の Repositories を読む。自分の Project の manager Grant だけで読める。Workspace scope の `get_outcome` は Workspace の Grant が要るため Manager は使わない
 3. 先に `list_stories({ projectId })` で、同じ `correlationId` の Story が既にないか確認する（timeout や応答消失の後の再開では、ここで見つかる）
 4. なければ `issue_story({ projectId, title, description, outcomeId, repositoryId?, requestId })` を呼ぶ。`correlationId` を省略すると `outcome:<outcomeId>` になる
    - Compass が Outcome の Success Criteria・origin Decision・その時点の所属 Workspace の Constraints を Story に snapshot として保存する。これらを Story の description に書き写さない（ずれの原因になる）
@@ -76,6 +76,7 @@ Outcome は Workspace に属し、Strategist が Target Project を設定する�
 - handoff Story 配下の Task も、同じ `taskKey` の再送（別の `requestId` でも）は既存 Task を返す。title・description が違うと `IDEMPOTENCY_CONFLICT`。`edit_task` で内容を変えた Task を元の内容で再送しても衝突するので、再開時は必ず `list_tasks` で確認してから起票する
 - `taskKey` を付けずに handoff Story 配下へ `issue_task` すると `INVALID_INPUT`
 - `UNAUTHENTICATED`: Bearer が無い。`FORBIDDEN`: この Project の manager Grant が無い。いずれも権限を自己拡張せず、報告して停止する
+- `get_outcome_handoff_context` も `issue_story` と同じく、Outcome が所属 Workspace に無ければ `NOT_FOUND`、この Project が Target でなければ `CONFLICT`（`reason: not_target_project`）。Target 解除後の再開では、既存 Story を `list_stories` の `correlationId` で確認する（作成済み Story の再送は元の Story を返す）。取消済み Outcome は `status: cancelled` で返るが、新しい Story は作れない
 - `NOT_FOUND`: Outcome が Project の所属 Workspace に無い（別 Workspace の ID を含む）、または Repository がこの Project に無い。入力を推測で直さず報告する
 - `CONFLICT`: Outcome が `active` でない（取消済み）、この Project が Outcome の Target でない（`reason: not_target_project`）、または Project が archived。Story は作られない。Target の要否は Strategist が判断するため、Manager は Target を変えずに報告する。Runtime へは再試行しても成功しない失敗として返す
 - `INVALID_INPUT`: title などの入力が不正。直して再送する

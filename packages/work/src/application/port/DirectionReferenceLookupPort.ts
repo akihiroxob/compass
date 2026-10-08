@@ -10,6 +10,11 @@ export type SuccessCriterionSnapshot = {
 /** Story作成時にDirectionから1回だけ取得する、Workspace所有のOutcomeの参照とsnapshot。Execution側で更新・再取得しない。 */
 export type OutcomeReferenceSnapshot = {
   outcomeId: string;
+  intentId: string;
+  /** Managerが計画に読む本文。Storyへはsnapshotせず、Storyのtitle・descriptionはManagerが書く。 */
+  title: string;
+  description: string;
+  hypothesis: string | null;
   /** 判断したDirection Decision。Decisionを経由しないOutcomeはnull。 */
   originDecisionId: string | null;
   /** `active`以外のOutcomeからはStoryを作らないため、呼び出し側が検査に使う。 */
@@ -35,7 +40,7 @@ export type ProjectExecutionContext = {
 
 /**
  * Execution → Directionの読取専用ポート。ExecutionはDirectionのRepository・tableを直接使わず、
- * `issue_story`でOutcome・Repositoryを参照するときだけこのポートを通す。書込メソッドは意図的に持たない。
+ * Outcome handoff（`get_outcome_handoff_context`・`issue_story`）でOutcome・Repositoryを参照するときだけこのポートを通す。書込メソッドは意図的に持たない。
  * Outcomeは所属Workspaceで読み、別WorkspaceのID・存在しないIDはnull（存在を区別して漏らさない）。
  */
 export interface DirectionReferenceLookupPort {

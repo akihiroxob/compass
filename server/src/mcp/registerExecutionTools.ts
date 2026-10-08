@@ -51,6 +51,21 @@ export const registerExecutionTools = (server: McpServer, services: OperationSer
     ({ projectId, status }) => asPrincipal((principalId) => coordination.listStories(principalId, projectId, status)),
   );
   server.registerTool(
+    "get_outcome_handoff_context",
+    {
+      title: "Get Outcome Handoff Context",
+      description:
+        "Read what a Manager needs to plan the handoff of an Outcome to this Project: the Outcome (title, description, hypothesis, " +
+        "status, origin Decision, fixed Success Criteria), the default correlationId, the current Constraints of the Project's Workspace " +
+        "and the Project's Repositories. Requires a manager Grant in the Project; no Workspace Grant is needed or used. " +
+        "NOT_FOUND if the Outcome is not in the Project's Workspace, CONFLICT with reason not_target_project if this Project is not " +
+        "a Target of the Outcome. A cancelled Outcome is returned with its status, but issue_story rejects it.",
+      inputSchema: { projectId: z.string().min(1), outcomeId: z.string().min(1) },
+    },
+    ({ projectId, outcomeId }) =>
+      asPrincipal((principalId) => coordination.getOutcomeHandoffContext(principalId, projectId, outcomeId)),
+  );
+  server.registerTool(
     "list_tasks",
     {
       title: "List Tasks",
