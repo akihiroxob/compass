@@ -446,6 +446,8 @@ test("AC-15 archivedの書込MCP toolはisErrorのCONFLICT（projectStatus / wor
     ["update_outcome", { ...ids, outcomeId: outcome.id, title: "Changed" }, "strat-1"],
     ["update_outcome", { ...ids, outcomeId: outcome.id, description: "fixed" }, "strat-1"],
     ["cancel_outcome", { ...ids, outcomeId: outcome.id, reason: "x" }, "strat-1"],
+    ["set_outcome_target", { workspaceId: project.workspaceId, outcomeId: outcome.id, projectId: project.id }, "strat-1"],
+    ["unset_outcome_target", { workspaceId: project.workspaceId, outcomeId: outcome.id, projectId: project.id }, "strat-1"],
   ];
   for (const [name, args, principal] of writes) {
     const result = await callTool(app, name, args, principal);
@@ -485,6 +487,8 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       "get_intent", "get_orchestration_state", "get_outcome", "get_project", "get_research_request", "get_researcher_context", "get_role_instructions", "get_role_context", "list_skills", "get_skill_context",
       "get_outcome_execution_summary", "get_evaluator_context", "record_outcome_evaluation", "get_strategist_context", "list_adr_references", "list_intents", "list_outcomes", "list_projects",
       "list_research_requests", "record_adr_reference",
+      // Target Projectの設定・解除はOutcomeとProjectの関連だけで、Projectのarchive・削除ではない。
+      "list_outcome_targets", "set_outcome_target", "unset_outcome_target",
       "record_execution_evidence", "register_research_result", "register_research_synthesis", "update_intent", "update_outcome", "update_project",
       // Execution（Story / Task / Claim）。archive・delete・restoreに当たるtoolは無い（cancelは取消であり削除ではない）。
       "accept_task", "add_task_comment", "cancel_story", "cancel_task", "claim_acceptance", "claim_review", "claim_task",

@@ -312,6 +312,16 @@ export const createApp = (
       ),
     }),
   );
+  // Target Projectの参照（Workspace member）。設定・解除はStrategistの判断で、MCPだけに公開する。
+  app.get("/api/workspaces/:workspaceId/outcomes/:outcomeId/target-projects", async (c) =>
+    c.json({
+      targets: await human.listOutcomeTargetProjects.execute(
+        await actorOf(c),
+        c.req.param("workspaceId"),
+        c.req.param("outcomeId"),
+      ),
+    }),
+  );
   // Execution閲覧（Task 45。docs/lv6-unification-design.md「Web UIの配置と移行順」U2）。GETだけで、Execution serviceの
   // Grant不要な読取へMembership（viewer以上）の認可後に委譲する。MCP・SQLite tableをWeb UIから直接使わない。
   app.get("/api/projects/:projectId/execution", async (c) => {

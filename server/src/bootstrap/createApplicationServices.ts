@@ -6,6 +6,7 @@ import { FileAgentAssetRepository } from "../infrastructure/agentAssets/FileAgen
 import {
   AbandonIntentUseCase,
   AckRuntimeEventUseCase,
+  SetOutcomeTargetProjectUseCase,
   CancelOutcomeUseCase,
   CancelResearchRequestUseCase,
   CompleteResearchRequestUseCase,
@@ -30,6 +31,7 @@ import {
   ListDirectionDecisionsUseCase,
   ListIntentsUseCase,
   ListOutcomeEvaluationsUseCase,
+  ListOutcomeTargetProjectsUseCase,
   ListOutcomesUseCase,
   ListResearchRequestsUseCase,
   ListRuntimeEventsUseCase,
@@ -38,12 +40,14 @@ import {
   RecordOutcomeEvaluationUseCase,
   RegisterResearchResultUseCase,
   RegisterResearchSynthesisUseCase,
+  UnsetOutcomeTargetProjectUseCase,
   SQLiteAdrHandoffRepository,
   SQLiteDirectionDecisionRepository,
   SQLiteIntentRepository,
   SQLiteOutcomeEvaluationRepository,
   SQLiteOutcomeExecutionRepository,
   SQLiteOutcomeRepository,
+  SQLiteOutcomeTargetProjectRepository,
   SQLiteResearchRepository,
   SQLiteRuntimeEventRepository,
   UpdateIntentUseCase,
@@ -200,6 +204,8 @@ export const createApplicationServices = (
   // Directionの重要な状態変更も、同じtransactionでcanonical Activityへ投影する。
   const workspaceIntentRepository = new SQLiteIntentRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
   const workspaceOutcomeRepository = new SQLiteOutcomeRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
+  // Target ProjectとOutcomeのWorkspace一致は、書込と同じtransactionでProject（Organization）を読んで検査する。
+  const outcomeTargetProjectRepository = new SQLiteOutcomeTargetProjectRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders, clock);
   const { intents: intentRepository, outcomes: outcomeRepository } = projectDirectionRepositories(projectRepository, workspaceIntentRepository, workspaceOutcomeRepository);
   const workspaceBasics = {
     createIntentUseCase: new CreateIntentUseCase(workspaceRepository, workspaceIntentRepository),
@@ -212,6 +218,9 @@ export const createApplicationServices = (
     getOutcomeUseCase: new GetOutcomeUseCase(workspaceRepository, workspaceIntentRepository, workspaceOutcomeRepository),
     updateOutcomeUseCase: new UpdateOutcomeUseCase(workspaceRepository, workspaceOutcomeRepository),
     cancelOutcomeUseCase: new CancelOutcomeUseCase(workspaceRepository, workspaceOutcomeRepository),
+    setOutcomeTargetProjectUseCase: new SetOutcomeTargetProjectUseCase(workspaceRepository, outcomeTargetProjectRepository),
+    unsetOutcomeTargetProjectUseCase: new UnsetOutcomeTargetProjectUseCase(workspaceRepository, outcomeTargetProjectRepository),
+    listOutcomeTargetProjectsUseCase: new ListOutcomeTargetProjectsUseCase(workspaceRepository, outcomeTargetProjectRepository),
   };
   const workspaceResearchRepository = new SQLiteResearchRepository(
     directionDatabase,
@@ -414,6 +423,10 @@ export const createApplicationServices = (
     getOutcomeUseCase: workspaceDirection.getOutcomeUseCase,
     updateOutcomeUseCase: workspaceDirection.updateOutcomeUseCase,
     cancelOutcomeUseCase: workspaceDirection.cancelOutcomeUseCase,
+    // Target Projectの設定・解除はStrategistの判断（MCP）。一覧はWorkspace member・Workspace Role Grantで読む。
+    setOutcomeTargetProjectUseCase: workspaceDirection.setOutcomeTargetProjectUseCase,
+    unsetOutcomeTargetProjectUseCase: workspaceDirection.unsetOutcomeTargetProjectUseCase,
+    listOutcomeTargetProjectsUseCase: workspaceDirection.listOutcomeTargetProjectsUseCase,
     createResearchRequestUseCase: workspaceDirection.createResearchRequestUseCase,
     listResearchRequestsUseCase: workspaceDirection.listResearchRequestsUseCase,
     getResearchRequestUseCase: workspaceDirection.getResearchRequestUseCase,
@@ -533,6 +546,7 @@ export const createApplicationServices = (
     listDirectionDecisions: workspaceAuthorized("workspace.read", services.listDirectionDecisionsUseCase),
     listAdrReferences: workspaceAuthorized("workspace.read", services.listAdrReferencesUseCase),
     listOutcomeEvaluations: workspaceAuthorized("workspace.read", services.listOutcomeEvaluationsUseCase),
+    listOutcomeTargetProjects: workspaceAuthorized("workspace.read", services.listOutcomeTargetProjectsUseCase),
     grantProjectRole: authorized("grant.manage", services.grantProjectRoleUseCase),
     revokeProjectRole: authorized("grant.manage", services.revokeProjectRoleUseCase),
     listProjectGrants: authorized("grant.read", services.listProjectGrantsUseCase),

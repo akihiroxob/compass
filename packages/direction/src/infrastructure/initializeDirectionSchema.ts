@@ -717,6 +717,23 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     .columns(["outcome_id", "position"])
     .execute();
 
+  // OutcomeのTarget Project。ProjectとOutcomeのWorkspace一致はRepositoryが書込と同一transactionで検査する。
+  // Projectのarchiveは状態の変更で行が消えないため、Targetは残り、Strategistが解除・再設定を判断する。
+  await database.schema
+    .createTable("outcome_target_project")
+    .ifNotExists()
+    .addColumn("outcome_id", "text", (column) => column.notNull().references("outcome.id").onDelete("cascade"))
+    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("outcome_target_project_pk", ["outcome_id", "project_id"])
+    .execute();
+  await database.schema
+    .createIndex("outcome_target_project_project_idx")
+    .ifNotExists()
+    .on("outcome_target_project")
+    .column("project_id")
+    .execute();
+
   await initializeResearchSchema(database);
   await initializeDirectionDecisionSchema(database);
   await addOutcomeOriginDecisionColumn(database);

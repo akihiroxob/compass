@@ -128,6 +128,16 @@ Success Criterion は観測可能に書く。`measurement` には「どの証拠
 
 Success Criterion は作成時に固定され、作成後に変更できない。`update_outcome` で変えられるのは active な Outcome の `title` と `hypothesis` だけで、`description` / `rationale` / `successCriteria` を渡すと `CONFLICT` になる。成功条件を変える必要があるなら、`cancel_outcome` で理由付きで取り消し、新しい Outcome を作る。
 
+## Target Project
+
+Outcome を担当する Project（Target Project）は Strategist が判断して設定する。Target が無い Outcome も保存でき、Target を設定した Project の manager がその Project の Story を作る。
+
+- `set_outcome_target`: active な Outcome に、同じ Workspace の active な Project を Target として追加する。別 Workspace の Project は `NOT_FOUND`、archived の Project・設定済みの Project・active でない Outcome は `CONFLICT`
+- `unset_outcome_target`: active な Outcome から Target を解除する。archived の Project も解除できる。既存の Story・成果・Evidence の参照は残る
+- `list_outcome_targets`: 設定順の Target と、各 Project の現在の状態（`projectStatus`: "active" / "archived"）を返す
+
+Target の Project が archive されても、Target・既存 Story・Evidence は自動では削除されない。未完了の実行が残る場合は、archived の Target を解除して同じ Workspace の active な Project を設定し直すか、Outcome 自体を見直すかを判断する。
+
 ## Allowed
 
 - `get_role_instructions`
@@ -139,6 +149,7 @@ Success Criterion は作成時に固定され、作成後に変更できない�
 - `create_direction_decision`（"additional_research" / "intent_complete" / "intent_abandon" / "policy_proposal" / "adr_candidate"）
 - `update_outcome`（`title` と `hypothesis` のみ）
 - `cancel_outcome`（理由必須）
+- `set_outcome_target` / `unset_outcome_target` / `list_outcome_targets`（Target Project の設定・解除・参照）
 - `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`（type が "adr_candidate" の Decision の Wacha 引き渡しと結果の記録）
 - 読み取りの `list_intents` / `get_intent`（`list_projects` / `get_project` は Project の Grant がある範囲だけ）
 

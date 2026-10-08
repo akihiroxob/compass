@@ -572,6 +572,64 @@ export const createMcpServer = (
         })),
       ),
   );
+  const outcomeTargetInput = {
+    workspaceId: z.string().min(1),
+    outcomeId: z.string().min(1),
+    projectId: z.string().min(1),
+  };
+  server.registerTool(
+    "set_outcome_target",
+    {
+      title: "Set Outcome Target Project",
+      description:
+        "Set a Project of the same Workspace as a Target Project of an active Outcome (the Project's manager then plans Stories " +
+        "for the Outcome). Choosing Target Projects is the Strategist's decision; an Outcome may have none. " +
+        "A Project of another Workspace is NOT_FOUND; an archived Project, a Project that is already a Target, " +
+        "or an Outcome that is not active fails with CONFLICT. " +
+        "Requires Authorization: Bearer <AgentName> with a strategist Grant in the Workspace (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: outcomeTargetInput,
+    },
+    ({ workspaceId, outcomeId, projectId }) =>
+      execute(() =>
+        asStrategist(workspaceId, async () => ({
+          target: await services.setOutcomeTargetProjectUseCase.execute(workspaceId, outcomeId, projectId),
+        })),
+      ),
+  );
+  server.registerTool(
+    "unset_outcome_target",
+    {
+      title: "Unset Outcome Target Project",
+      description:
+        "Remove a Target Project from an active Outcome, including an archived Project. Existing Stories, execution results and " +
+        "Evidence references are kept. After a Target Project is archived, decide whether to remove it and set an active Project " +
+        "of the same Workspace instead, or to revise the Outcome. NOT_FOUND if the Project is not a Target; CONFLICT if the Outcome " +
+        "is not active. Requires Authorization: Bearer <AgentName> with a strategist Grant in the Workspace (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: outcomeTargetInput,
+    },
+    ({ workspaceId, outcomeId, projectId }) =>
+      execute(() =>
+        asStrategist(workspaceId, async () => ({
+          target: await services.unsetOutcomeTargetProjectUseCase.execute(workspaceId, outcomeId, projectId),
+        })),
+      ),
+  );
+  server.registerTool(
+    "list_outcome_targets",
+    {
+      title: "List Outcome Target Projects",
+      description:
+        "List the Target Projects of an Outcome in the order they were set, each with the Project's current status " +
+        "(active | archived). An Outcome without Target Projects returns an empty list.",
+      inputSchema: { workspaceId: z.string().min(1), outcomeId: z.string().min(1) },
+    },
+    ({ workspaceId, outcomeId }) =>
+      execute(() =>
+        asWorkspaceReader(workspaceId, async () => ({
+          targets: await services.listOutcomeTargetProjectsUseCase.execute(workspaceId, outcomeId),
+        })),
+      ),
+  );
 
   server.registerTool(
     "create_direction_decision",
