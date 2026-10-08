@@ -22,8 +22,8 @@ import { workExternalReaders } from "../src/infrastructure/repository/contextAda
  * Directionを参照しない操作では読取ポートは使われないため、呼ばれたら失敗するstubにしている。
  */
 const noDirectionReferences: DirectionReferenceLookupPort = {
+  getProjectExecutionContext: async () => assert.fail("Directionを参照しない操作でProjectの実行Contextを読んではならない"),
   getOutcomeSnapshot: async () => assert.fail("Directionを参照しない操作でOutcomeを読んではならない"),
-  getRepositoryReference: async () => assert.fail("Directionを参照しない操作でRepositoryを読んではならない"),
 };
 
 let database = createDatabase(":memory:");

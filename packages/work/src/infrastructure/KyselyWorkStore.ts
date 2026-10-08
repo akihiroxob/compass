@@ -5,6 +5,7 @@ import type {
   ChangeRecord,
   CommandReceiptRecord,
   EntityCorrelation,
+  OutcomeTargetReader,
   ProjectGrantReader,
   ProjectStateReader,
   StoryRecord,
@@ -20,11 +21,12 @@ type Executor = Kysely<WorkDatabase> | Transaction<WorkDatabase>;
 
 /**
  * Workの外（Access・Direction）が所有するtableの読取。serverが同じ接続・transactionで読む実装を渡す。
- * Work自身はproject・project_grantのtableを扱わない。
+ * Work自身はproject・project_grant・outcome_target_projectのtableを扱わない。
  */
 export type WorkExternalReaders = (executor: Executor) => {
   grants: ProjectGrantReader;
   projects: ProjectStateReader;
+  outcomeTargets: OutcomeTargetReader;
 };
 
 /**
@@ -42,6 +44,7 @@ const toChange = (row: { cursor: number | bigint } & Omit<ChangeRecord, "cursor"
 export class KyselyWorkStore implements WorkStore {
   readonly grants: ProjectGrantReader;
   readonly projects: ProjectStateReader;
+  readonly outcomeTargets: OutcomeTargetReader;
 
   constructor(
     private readonly db: Executor,
@@ -51,6 +54,7 @@ export class KyselyWorkStore implements WorkStore {
     const readers = externalReaders(db);
     this.grants = readers.grants;
     this.projects = readers.projects;
+    this.outcomeTargets = readers.outcomeTargets;
   }
 
   transaction<T>(work: (store: WorkStore) => Promise<T>): Promise<T> {

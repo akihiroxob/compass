@@ -107,8 +107,9 @@ const outcomeInput = () => ({
   ],
 });
 
-/** Outcomeを参照するStoryのTaskを1件acceptedまで進め、Evidence参照付きで還流する。 */
-const executeAndReflect = async ({ app }: Kit, projectId: string, outcomeId: string) => {
+/** ProjectをTargetに設定したOutcomeのStoryのTaskを1件acceptedまで進め、Evidence参照付きで還流する。 */
+const executeAndReflect = async ({ app, services }: Kit, projectId: string, outcomeId: string) => {
+  await services.setOutcomeTargetProjectUseCase.execute((await services.getProjectUseCase.execute(projectId)).workspaceId, outcomeId, projectId);
   const story = ok(await callTool(app, "issue_story", { projectId, title: next("Story"), outcomeId, requestId: next("story") }, "mgr"));
   const task = ok(await callTool(app, "issue_task", { projectId, storyId: story.id, title: next("Task"), taskKey: next("key"), requestId: next("task") }, "mgr"));
   const work = ok(await callTool(app, "claim_task", { taskId: task.id, requestId: next("claim") }, "wrk"));

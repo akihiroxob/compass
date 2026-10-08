@@ -273,7 +273,7 @@ export const createApplicationServices = (
   const workStore = new KyselyWorkStore(asWorkDatabase(applicationDatabase), workExternalReaders, workChangeActivityObserver);
   const taskCoordinationService = new TaskCoordinationService(
     workStore,
-    new DirectionReferenceLookupService(projectRepository, outcomeRepository),
+    new DirectionReferenceLookupService(projectRepository, workspaceOutcomeRepository, outcomeTargetProjectRepository),
     clock,
   );
   // Direction → Executionは読取専用ポート（Execution自身のtableだけを読む）を通す。Direction側の還流先は自身のRepository。

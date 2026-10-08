@@ -9,5 +9,4 @@ export interface ProjectIntentReader {
 
 export interface ProjectOutcomeReader {
   findByIntent(projectId: string, intentId: string): Promise<Outcome[]>;
-  findByIdInProject(projectId: string, outcomeId: string): Promise<Outcome | null>;
 }

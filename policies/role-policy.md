@@ -28,6 +28,7 @@ Execution（Story / Task / Claim / Comment / Change Log）は旧 Wacha から移
 - Role は Project 単位で判断する。別 Project の Grant は使えない
 - 1 Principal は同一 Project で複数 Role を持てる。ただし後述の自己レビュー・自己受入の禁止は Role を増やしても回避できない
 - Execution の read（`list_stories` / `list_tasks` / `list_task_comments` / `list_changes`）は、その Project の何らかの Role Grant があれば行える。書き込みは各 tool が必要な Role を検査する
+- Manager が Outcome handoff の計画に読む `get_outcome_handoff_context` は、その Project の manager Grant が要り、その Project を Target とする Outcome だけを返す。Workspace の Direction Grant は要求も継承もしない
 
 ## 認証と信頼境界
 

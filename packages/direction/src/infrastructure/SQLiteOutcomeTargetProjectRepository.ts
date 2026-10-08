@@ -24,6 +24,23 @@ const toTarget = (row: Selectable<OutcomeTargetProjectTable>): OutcomeTargetProj
   createdAt: row.created_at,
 });
 
+/**
+ * ProjectがOutcomeのTargetか。WorkがStoryを保存するtransactionで、解除との競合を防ぐため同じ接続・transactionで呼ぶ（serverが配線する）。
+ */
+export const isOutcomeTargetProject = async (
+  database: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
+  outcomeId: string,
+  projectId: string,
+): Promise<boolean> => {
+  const row = await database
+    .selectFrom("outcome_target_project")
+    .select("project_id")
+    .where("outcome_id", "=", outcomeId)
+    .where("project_id", "=", projectId)
+    .executeTakeFirst();
+  return row !== undefined;
+};
+
 export class SQLiteOutcomeTargetProjectRepository implements OutcomeTargetProjectRepository {
   constructor(
     private readonly database: Kysely<DirectionDatabase>,

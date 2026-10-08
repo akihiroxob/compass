@@ -10,8 +10,8 @@ export const projectWorkspaceId = async (projects: ProjectRepository, projectId:
 };
 
 /**
- * Workspace単位へ切り替える前のProject基準の読取（Orchestration State・Story handoffの参照）。Workspace IDをProject IDと解釈せず、
- * Organizationで所属を解決する。複数Projectが共有するWorkspaceのDirectionはProject単位で扱えないため拒否する（S04-03・S08-01で切替）。
+ * Workspace単位へ切り替える前のProject基準の読取（Orchestration State）。Workspace IDをProject IDと解釈せず、
+ * Organizationで所属を解決する。複数Projectが共有するWorkspaceのDirectionはProject単位で扱えないため拒否する（S08-01で切替）。
  */
 export const resolveProjectDirectionWorkspace = async (projects: ProjectRepository, projectId: string): Promise<string> => {
   const workspaceId = await projectWorkspaceId(projects, projectId);
@@ -34,7 +34,6 @@ export const projectDirectionRepositories = (projects: ProjectRepository, intent
     },
     outcomes: {
       findByIntent: async (id, intentId) => outcomes.findByIntent(await workspace(id), intentId),
-      findByIdInProject: async (id, outcomeId) => outcomes.findByIdInWorkspace(await workspace(id), outcomeId),
     },
   };
 };

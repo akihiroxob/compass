@@ -20,8 +20,8 @@ import type { WorkDatabase } from "../src/infrastructure/schema.ts";
  * 実際のGrant・Project状態との結合はserverのテスト（executionCoordination・projectArchive）で検証する。
  */
 const noDirectionReferences: DirectionReferenceLookupPort = {
+  getProjectExecutionContext: async () => assert.fail("Directionを参照しない操作でProjectの実行Contextを読んではならない"),
   getOutcomeSnapshot: async () => assert.fail("Directionを参照しない操作でOutcomeを読んではならない"),
-  getRepositoryReference: async () => assert.fail("Directionを参照しない操作でRepositoryを読んではならない"),
 };
 
 const openDatabase = () => {
@@ -43,6 +43,7 @@ const createService = () =>
         exists: async (projectId) => (await sql`select id from project where id = ${projectId}`.execute(database)).rows.length > 0,
         isArchived: async (projectId) => archivedProjects.has(projectId),
       },
+      outcomeTargets: { isTarget: async () => assert.fail("Directionを参照しない操作でOutcome Targetを読んではならない") },
     })),
     noDirectionReferences,
     () => now,

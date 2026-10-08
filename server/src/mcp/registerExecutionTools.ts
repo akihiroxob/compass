@@ -51,6 +51,21 @@ export const registerExecutionTools = (server: McpServer, services: OperationSer
     ({ projectId, status }) => asPrincipal((principalId) => coordination.listStories(principalId, projectId, status)),
   );
   server.registerTool(
+    "get_outcome_handoff_context",
+    {
+      title: "Get Outcome Handoff Context",
+      description:
+        "Read what a Manager needs to plan the handoff of an Outcome to this Project: the Outcome (title, description, hypothesis, " +
+        "status, origin Decision, fixed Success Criteria), the default correlationId, the current Constraints of the Project's Workspace " +
+        "and the Project's Repositories. Requires a manager Grant in the Project; no Workspace Grant is needed or used. " +
+        "NOT_FOUND if the Outcome is not in the Project's Workspace, CONFLICT with reason not_target_project if this Project is not " +
+        "a Target of the Outcome. A cancelled Outcome is returned with its status, but issue_story rejects it.",
+      inputSchema: { projectId: z.string().min(1), outcomeId: z.string().min(1) },
+    },
+    ({ projectId, outcomeId }) =>
+      asPrincipal((principalId) => coordination.getOutcomeHandoffContext(principalId, projectId, outcomeId)),
+  );
+  server.registerTool(
     "list_tasks",
     {
       title: "List Tasks",
@@ -109,8 +124,10 @@ export const registerExecutionTools = (server: McpServer, services: OperationSer
       title: "Issue Story",
       description:
         "Create a Story as a Manager. To hand off a Direction Outcome, pass outcomeId: Compass then snapshots the Outcome's fixed " +
-        "Success Criteria, its origin Decision and the Project's current Constraints into the Story (NOT_FOUND if the Outcome is not " +
-        "in this Project, CONFLICT if it is not active). repositoryId (a Repository registered on the Project) records the target " +
+        "Success Criteria, its origin Decision and the current Constraints of the Project's Workspace into the Story. The Outcome is " +
+        "read in the Workspace the Project belongs to and the Project must be one of its Target Projects (NOT_FOUND if the Outcome is " +
+        "not in that Workspace, CONFLICT if it is not active or, with reason not_target_project, if this Project is not a Target). " +
+        "One Outcome may have a Story in each of its Target Projects. repositoryId (a Repository registered on the Project) records the target " +
         "Repository; checking it out is the Runtime's or Agent's job. correlationId defaults to outcome:<outcomeId> and is unique per " +
         "Project: resending the same handoff, even with a new requestId after a timeout, returns the existing Story instead of creating a " +
         "second one, while a different Story under the same correlationId fails with IDEMPOTENCY_CONFLICT. Not available in an archived Project.",

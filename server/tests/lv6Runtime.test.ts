@@ -9,7 +9,7 @@ const setup = (t: TestContext, event: Json, timeout = false) => {
   const workspaceId = "workspace-A";
   // Runtime event・Direction RoleはWorkspace scope、Manager（Work）はProject scopeのContextを使う。
   const workspaceTools = new Set(["fetch_runtime_events", "ack_runtime_event", "get_researcher_context", "register_research_result",
-    "register_research_synthesis", "complete_research_request", "get_strategist_context", "decide_next_outcome", "create_direction_decision"]);
+    "register_research_synthesis", "complete_research_request", "get_strategist_context", "decide_next_outcome", "create_direction_decision", "list_outcome_targets"]);
   const calls: { tool: string; args: Json }[] = [];
   const credential = (principal: string) => ({ principal, token: `test-${principal}` });
   const tokens: Tokens = {
@@ -24,6 +24,10 @@ const setup = (t: TestContext, event: Json, timeout = false) => {
     if (workspaceTools.has(name)) {
       assert.equal(args.workspaceId, workspaceId, `${name} must use the Workspace of the fetched event`);
       assert.equal("projectId" in args, false, `${name} must not pass a Project ID`);
+    } else if (name === "set_outcome_target") {
+      // Target設定はWorkspaceのOutcomeに、そのWorkspaceのProjectを指定する。
+      assert.equal(args.workspaceId, workspaceId, `${name} must use the Workspace of the fetched event`);
+      assert.equal(args.projectId, projectId, `${name} must target the Project of that Workspace`);
     } else {
       assert.equal(args.projectId, projectId, `${name} must use the Project of that Workspace`);
     }
@@ -47,10 +51,17 @@ const setup = (t: TestContext, event: Json, timeout = false) => {
         content = {
           activeIntent: { id: "intent-A", completionDefinition: "CI passes" },
           evaluations: event.type === "outcome_evaluated" ? [{ id: "evaluation-A", result: "achieved" }] : [],
+          projects: [{ id: projectId }],
         };
         break;
       case "decide_next_outcome":
         content = { outcome: { id: "outcome-A" } };
+        break;
+      case "list_outcome_targets":
+        content = { targets: [] };
+        break;
+      case "set_outcome_target":
+        content = { target: { outcomeId: args.outcomeId, projectId: args.projectId } };
         break;
       case "create_direction_decision":
         content = {};
@@ -91,7 +102,7 @@ const event = (type: string, version = 2): Json => ({
 
 for (const [type, expectedTools] of [
   ["research_requested", ["get_researcher_context", "register_research_result", "register_research_synthesis", "complete_research_request"]],
-  ["research_completed", ["get_strategist_context", "decide_next_outcome"]],
+  ["research_completed", ["get_strategist_context", "decide_next_outcome", "list_outcome_targets", "set_outcome_target"]],
   ["outcome_confirmed", ["issue_story", "list_tasks", "issue_task"]],
   ["outcome_evaluated", ["get_strategist_context", "create_direction_decision"]],
 ] as const) {

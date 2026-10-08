@@ -1520,21 +1520,71 @@ export class TaskCoordinationService {
     );
   }
 
+  private async getProjectExecutionContext(projectId: string) {
+    const project = await this.directionReferences.getProjectExecutionContext(projectId);
+    if (!project) throw new NotFoundError(`Project ${projectId} was not found`);
+    return project;
+  }
+
+  /**
+   * Projectの所属WorkspaceでOutcomeを読み、このProjectがTargetであることを検査する。
+   * 別WorkspaceのOutcomeは存在しないOutcomeと区別しない。Target外は`CONFLICT`（`not_target_project`）。
+   */
+  private async getTargetOutcome(projectId: string, workspaceId: string, outcomeId: string) {
+    const outcome = await this.directionReferences.getOutcomeSnapshot(workspaceId, outcomeId);
+    if (!outcome) throw new NotFoundError(`Outcome ${outcomeId} was not found in the Workspace of Project ${projectId}`);
+    if (!outcome.targetProjectIds.includes(projectId)) {
+      throw new ConflictError(`Project ${projectId} is not a Target Project of Outcome ${outcomeId}`, {
+        reason: "not_target_project",
+      });
+    }
+    return outcome;
+  }
+
+  /**
+   * ManagerがOutcome handoffの計画に読むContext。Project manager Grantだけで、このProjectをTargetとするOutcomeの本文・
+   * 固定Success Criteria・所属WorkspaceのConstraints・ProjectのRepositoryを返す。Workspace Direction Grantは要求も継承もしない。
+   * Target外・別WorkspaceのOutcomeは返さない。取消済みOutcomeも状態を確認できるよう返す（Storyは作れない）。
+   */
+  async getOutcomeHandoffContext(principalId: string, projectId: string, outcomeId: string) {
+    await this.requireRole(this.store, projectId, principalId, WorkRole.MANAGER);
+    const project = await this.getProjectExecutionContext(projectId);
+    const outcome = await this.getTargetOutcome(projectId, project.workspaceId, outcomeId);
+    return {
+      projectId,
+      workspaceId: project.workspaceId,
+      correlationId: outcomeCorrelationId(outcome.outcomeId),
+      outcome: {
+        id: outcome.outcomeId,
+        intentId: outcome.intentId,
+        title: outcome.title,
+        description: outcome.description,
+        hypothesis: outcome.hypothesis,
+        status: outcome.status,
+        originDecisionId: outcome.originDecisionId,
+        successCriteria: outcome.successCriteria,
+      },
+      constraints: project.constraints,
+      repositories: project.repositories,
+    };
+  }
+
   /**
    * DirectionのOutcomeを参照するStoryの参照・snapshotを、transactionの前に解決する。SQLiteの接続はtransaction中は
    * 1本を占有するため、Directionの読取はここ（transactionの外）で行う。認可（manager Grant）を先に検査し、
-   * 権限の無い呼び出しにOutcome・Repositoryの存在有無を漏らさない。再送（同じ`requestId`、または同じ相関IDの既存Story）では
-   * 参照先が変わっていても元の結果を返すべきなので、解決自体を省く。
+   * 権限の無い呼び出しにOutcome・Repositoryの存在有無を漏らさない。OutcomeはProjectの所属Workspaceで読み、
+   * 別WorkspaceのOutcomeは存在しない扱い、Target ProjectでないProjectからのhandoffは拒否する。再送（同じ`requestId`、
+   * または同じ相関IDの既存Story）では参照先が変わっていても元の結果を返すべきなので、解決自体を省く。
    */
   private async resolveStoryReferences(
     principalId: string,
     input: IssueStoryInput,
     requestId: string,
     correlationId: string | null,
-  ): Promise<{ outcome: OutcomeReferenceSnapshot | null; repository: RepositoryReference | null } | null> {
+  ): Promise<{ outcome: OutcomeReferenceSnapshot | null; constraints: string[]; repository: RepositoryReference | null } | null> {
     const outcomeId = optionalId(input.outcomeId, "outcomeId");
     const repositoryId = optionalId(input.repositoryId, "repositoryId");
-    if (outcomeId === null && repositoryId === null) return { outcome: null, repository: null };
+    if (outcomeId === null && repositoryId === null) return { outcome: null, constraints: [], repository: null };
 
     await this.requireRole(this.store, input.projectId, principalId, WorkRole.MANAGER);
     const receipt = await this.store.findReceipt(principalId, "issue_story", requestId);
@@ -1544,10 +1594,10 @@ export class TaskCoordinationService {
       if (existing) return null;
     }
 
+    const project = await this.getProjectExecutionContext(input.projectId);
     let outcome: OutcomeReferenceSnapshot | null = null;
     if (outcomeId !== null) {
-      outcome = await this.directionReferences.getOutcomeSnapshot(input.projectId, outcomeId);
-      if (!outcome) throw new NotFoundError(`Outcome ${outcomeId} was not found in Project ${input.projectId}`);
+      outcome = await this.getTargetOutcome(project.projectId, project.workspaceId, outcomeId);
       if (outcome.status !== "active") {
         throw new ConflictError(`Outcome ${outcomeId} is ${outcome.status}; Stories can only be created for an active Outcome`, {
           status: outcome.status,
@@ -1556,10 +1606,10 @@ export class TaskCoordinationService {
     }
     let repository: RepositoryReference | null = null;
     if (repositoryId !== null) {
-      repository = await this.directionReferences.getRepositoryReference(input.projectId, repositoryId);
+      repository = project.repositories.find((item) => item.id === repositoryId) ?? null;
       if (!repository) throw new NotFoundError(`Repository ${repositoryId} was not found in Project ${input.projectId}`);
     }
-    return { outcome, repository };
+    return { outcome, constraints: project.constraints, repository };
   }
 
   async issueStory(principalId: string, input: IssueStoryInput, requestId: string) {
@@ -1602,11 +1652,18 @@ export class TaskCoordinationService {
           throw new CoordinationError("INVALID_INPUT", "Story references could not be resolved; retry the request");
         }
 
+        const outcome = references?.outcome ?? null;
+        // snapshotはtransactionの外で読むため、保存と同じtransactionでTargetを再検査する。取得後に解除された古い検査結果では作らない。
+        if (outcome !== null && !(await store.outcomeTargets.isTarget(outcome.outcomeId, input.projectId))) {
+          throw new ConflictError(`Project ${input.projectId} is not a Target Project of Outcome ${outcome.outcomeId}`, {
+            reason: "not_target_project",
+          });
+        }
+
         const maxSortOrder = await store.maxStorySortOrder(input.projectId);
         const now = this.clock();
         const id = crypto.randomUUID();
         const sortOrder = (maxSortOrder ?? 0) + 1;
-        const outcome = references?.outcome ?? null;
         const row = await store.insertStory({
             id,
             project_id: input.projectId,
@@ -1619,7 +1676,7 @@ export class TaskCoordinationService {
             outcome_ref: outcome?.outcomeId ?? null,
             origin_decision_id: outcome?.originDecisionId ?? null,
             success_criteria_snapshot: outcome ? JSON.stringify(outcome.successCriteria) : null,
-            constraints_snapshot: outcome ? JSON.stringify(outcome.constraints) : null,
+            constraints_snapshot: outcome ? JSON.stringify(references?.constraints ?? []) : null,
             repository_snapshot: references?.repository ? JSON.stringify(references.repository) : null,
             correlation_id: correlationId,
           });

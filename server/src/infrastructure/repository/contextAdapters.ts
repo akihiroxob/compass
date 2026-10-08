@@ -19,6 +19,7 @@ import {
 } from "@compass/activity";
 import {
   findAdrReferencedRepositoryId,
+  isOutcomeTargetProject,
   type DirectionChangeObserver,
   type DirectionProjectReaders,
   type DirectionWorkspaceReaders,
@@ -56,10 +57,14 @@ import { currentActivityActor, systemActivityActor } from "../../application/act
  * 所有Contextが公開する関数をserverがここで渡す。受け取った接続・transactionのまま実行する。
  */
 
-/** WorkがClaim・状態遷移と同じtransactionで読む、Role Grant（Access）とProject状態（Organization）。 */
+/**
+ * WorkがClaim・状態遷移と同じtransactionで読む、Role Grant（Access）とProject状態（Organization）、
+ * Story保存時に再検査するOutcome Target（Direction）。
+ */
 export const workExternalReaders: WorkExternalReaders = (executor) => {
   const access = asAccessDatabase(executor);
   const organization = asOrganizationDatabase(executor);
+  const direction = asDirectionDatabase(executor);
   return {
     grants: {
       listRoles: (projectId, principalId) => listGrantedRoles(access, projectId, principalId),
@@ -67,6 +72,9 @@ export const workExternalReaders: WorkExternalReaders = (executor) => {
     projects: {
       exists: (projectId) => projectExists(organization, projectId),
       isArchived: (projectId) => isProjectArchived(organization, projectId),
+    },
+    outcomeTargets: {
+      isTarget: (outcomeId, projectId) => isOutcomeTargetProject(direction, outcomeId, projectId),
     },
   };
 };
