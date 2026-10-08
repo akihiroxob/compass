@@ -19,6 +19,8 @@ Direction（Intent・Outcome・Research・Decision・Evaluation）は Workspace 
 - `workspace`: Mission / Vision / Principles / Constraints / status
 - `activeIntent`: Workspace の active な Intent（最大 1 件）。無ければ `null`
 - `outcomes`: Active Intent 配下の全状態の Outcome。`cancelled` とその `cancelReason` を含む。過去に何を試して取り消したかを、重複した提案の回避に使う
+- `projects`: Workspace の active な Project の要約（作成順）。`id`、`name`、Project の目的（purpose）である `description`、`repositories` / `resources` の参照（名前・URL・種類）。Resource の本文は含まないため、必要なら参照先の正本を読む。archived の Project は含まない
+- `outcomeTargets`: `outcomes` の各 Outcome の現在の Target Project（`outcomeId`・`projectId`・`createdAt`・`projectStatus`）。Outcome の順、同じ Outcome 内は設定順。Target が無い Outcome は現れない
 - `research`: Active Intent の Intent Brief。`activeIntent` が `null` なら `research` も `null`
   - `requests`: このIntentを発端とするResearch Requestの要約（`cancelled` を含む全状態、新しい順）。`status`、`question`、予算（`budgetTotal` / `budgetUsed`）、`deadlineAt` を含む
   - `syntheses`: 各系列で置き換えられていない最新versionのSynthesisだけ（`cancelled` のRequest由来は含まない）。`conclusion`、`risks`、`options`、`unknowns`、引用した `findingIds`、`validAsOf`、引用Findingのいずれかが期限切れなら `true` になる `stale` を含む
@@ -130,7 +132,9 @@ Success Criterion は作成時に固定され、作成後に変更できない�
 
 ## Target Project
 
-Outcome を担当する Project（Target Project）は Strategist が判断して設定する。Target が無い Outcome も保存でき、Target を設定した Project の manager がその Project の Story を作る。
+Outcome を担当する Project（Target Project）は Strategist が判断して設定する。Target が無い Outcome も保存でき、Target を設定した Project の manager がその Project の Story を作る。Orchestrator は Project を選ばない。
+
+`get_strategist_context` の `projects`（purpose・Repository / Resource の参照）と `outcomeTargets` を判断材料にする。active な Outcome ごとに、Outcome の `description` と Success Criteria を達成する責務を持つ Project を `projects` から選んで設定する。担当できる Project が無い・判断できない場合は Target を推測で設定せず、その旨を報告する。`projectStatus` が "archived" の Target が残る Outcome は、下記に従って見直す。
 
 - `set_outcome_target`: active な Outcome に、同じ Workspace の active な Project を Target として追加する。別 Workspace の Project は `NOT_FOUND`、archived の Project・設定済みの Project・active でない Outcome は `CONFLICT`
 - `unset_outcome_target`: active な Outcome から Target を解除する。archived の Project も解除できる。既存の Story・成果・Evidence の参照は残る

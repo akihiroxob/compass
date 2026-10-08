@@ -18,7 +18,7 @@ Workspace Grantの管理・Directionの公開API/MCP・Workspace Role Contextは
 
 ## ContextとInstruction
 
-`get_strategist_context({ workspaceId })`はWorkspace Contextの`workspace`・Intent/Outcome・判断材料を返す。Research要約はrequests/syntheses/conflicts各50件までで、`researchHistory`が総件数と省略の有無を示す。Strategist / Researcher / Evaluator ContextはWorkspace Role Grant（activeRole指定時はそのRole）で認可し、Project Grantからは継承しない。`get_role_instructions({ role, includeShared })`は現在の`roles/<role>.md`を読み、`includeShared`指定時は`policies/role-policy.md`も返す。静的Instructionは認可の強制手段ではない。
+`get_strategist_context({ workspaceId })`はWorkspace Contextの`workspace`・Intent/Outcome・判断材料を返す。Target Projectの判断材料として、activeなProjectの要約（purpose・Repository/Resourceの参照。本文は含めない）と各Outcomeの現在のTargetを含む。Project選択はStrategistが行い、Orchestratorは判断しない。Research要約はrequests/syntheses/conflicts各50件までで、`researchHistory`が総件数と省略の有無を示す。Strategist / Researcher / Evaluator ContextはWorkspace Role Grant（activeRole指定時はそのRole）で認可し、Project Grantからは継承しない。`get_role_instructions({ role, includeShared })`は現在の`roles/<role>.md`を読み、`includeShared`指定時は`policies/role-policy.md`も返す。静的Instructionは認可の強制手段ではない。
 
 `roles/`・`policies/`・`skills/`・`knowledge/`は実行時に配信される構成資産なので、変更はWachaの実装Taskで行う。
 

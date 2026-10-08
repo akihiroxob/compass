@@ -1,6 +1,6 @@
 import type { Intent } from "../domain/Intent.ts";
 import type { Outcome } from "../domain/Outcome.ts";
-import type { Workspace } from "@compass/organization";
+import type { ProjectDetail, Workspace } from "@compass/organization";
 import type { IntentResearchSummary } from "../domain/Research.ts";
 import type { OutcomeEvaluation } from "../domain/OutcomeEvaluation.ts";
 import type { DirectionDecisionRepository } from "../domain/DirectionDecisionRepository.ts";
@@ -8,6 +8,7 @@ import type { IntentRepository } from "../domain/IntentRepository.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
 import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
+import type { OutcomeTargetProjectRepository, OutcomeTargetProjectView } from "../domain/OutcomeTargetProject.ts";
 import { NotFoundError } from "@compass/shared";
 import { DirectionAgentRole } from "./port/DirectionAuthorizationPort.ts";
 
@@ -27,6 +28,17 @@ export interface WorkspaceEvaluationReader {
   findLatestByIntent(workspaceId: string, intentId: string): Promise<OutcomeEvaluation[]>;
 }
 
+/**
+ * Target判断の材料にするProjectの要約。purpose（`description`）とRepository・Resourceの参照（名前・URL・種類）だけを持ち、
+ * Resourceの本文は含めない。本文は各参照の正本から取得する。
+ */
+export type StrategistProjectSummary = Pick<ProjectDetail, "id" | "name" | "description" | "repositories" | "resources">;
+
+/** WorkspaceのactiveなProjectを読むport（Organizationが所有）。Organizationの`ProjectRepository`がこの形を満たす。 */
+export interface WorkspaceProjectReader {
+  findAllInWorkspace(workspaceId: string): Promise<(StrategistProjectSummary & Pick<ProjectDetail, "createdAt">)[]>;
+}
+
 export type StrategistContext = {
   principalId: string;
   role: DirectionAgentRole;
@@ -34,6 +46,10 @@ export type StrategistContext = {
   activeIntent: Intent | null;
   /** Active Intent配下の全状態のOutcome（新しい順）。取消済みも含め、過去の試行の重複提案を避けられるようにする。 */
   outcomes: Outcome[];
+  /** WorkspaceのactiveなProjectの要約（作成順）。Target Projectの選択肢。 */
+  projects: StrategistProjectSummary[];
+  /** `outcomes`の各Outcomeの現在のTarget（`outcomes`の順、Outcome内は設定順）。archivedのProjectは`projectStatus`で示す。 */
+  outcomeTargets: OutcomeTargetProjectView[];
   /** Active IntentのIntent Brief（関連Synthesis要約・競合・鮮度・残予算の根拠）。Active Intentが無ければnull。 */
   research: IntentResearchSummary | null;
   /** Active Intent配下の各Outcomeの最新Evaluation（新しい順）。Active Intentが無ければ空。 */
@@ -43,8 +59,9 @@ export type StrategistContext = {
 };
 
 /**
- * StrategistがOutcomeを決めるために必要な、Workspace・Active Intent・既存Outcome・Intent Brief・最新のOutcome Evaluationを
- * 1回で返す。Evaluationは再計画（次のOutcome・追加Research）とIntent完了の判断材料で、Evidence本文は含めない。
+ * StrategistがOutcomeを決めるために必要な、Workspace・Active Intent・既存Outcome・Intent Brief・最新のOutcome Evaluation・
+ * Project要約・現在のTargetを1回で返す。Evaluationは再計画（次のOutcome・追加Research）とIntent完了の判断材料で、
+ * Evidence本文は含めない。Project要約とTargetは、StrategistがTargetの要否と対象を判断する材料（選択はStrategistが行う）。
  */
 export class GetStrategistContextUseCase {
   constructor(
@@ -54,6 +71,8 @@ export class GetStrategistContextUseCase {
     private readonly researchRepository: Pick<ResearchRepository, "findRequests" | "findRequestDetail" | "findIntentResearchSummary" | "findRelatedFindings">,
     private readonly directionDecisionRepository: Pick<DirectionDecisionRepository, "findByIntent">,
     private readonly outcomeEvaluationRepository: WorkspaceEvaluationReader,
+    private readonly projectReader: WorkspaceProjectReader,
+    private readonly targetRepository: Pick<OutcomeTargetProjectRepository, "listByOutcome">,
   ) {}
 
   async execute(principalId: string, workspaceId: string): Promise<StrategistContext> {
@@ -68,12 +87,19 @@ export class GetStrategistContextUseCase {
       ? await this.researchRepository.findIntentResearchSummary(workspaceId, activeIntent.id)
       : null;
     const evaluations = activeIntent ? await this.evaluationsOf(workspaceId, activeIntent.id) : [];
+    const projects = (await this.projectReader.findAllInWorkspace(workspaceId))
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map(({ id, name, description, repositories, resources }) => ({ id, name, description, repositories, resources }));
+    const outcomeTargets: OutcomeTargetProjectView[] = [];
+    for (const outcome of outcomes) outcomeTargets.push(...((await this.targetRepository.listByOutcome(workspaceId, outcome.id)) ?? []));
     return {
       principalId,
       role: DirectionAgentRole.STRATEGIST,
       workspace,
       activeIntent,
       outcomes,
+      projects,
+      outcomeTargets,
       research: research ? { requests: research.requests.slice(0, strategistResearchLimit),
         syntheses: research.syntheses.slice(0, strategistResearchLimit), conflicts: research.conflicts.slice(0, strategistResearchLimit) } : null,
       researchHistory: research ? { requestCount: research.requests.length, synthesisCount: research.syntheses.length,
