@@ -31,6 +31,7 @@ import {
   findProjectWorkspaceId,
   findProjectWorkspaceConstraints,
   isProjectArchived,
+  findArchivedProjectIds,
   isWorkspaceArchived,
   listProjectIdsInCreationOrder,
   listWorkspaceIdsInCreationOrder,
@@ -104,6 +105,7 @@ export const directionProjectReaders: DirectionProjectReaders = (executor) => {
   const database = asOrganizationDatabase(executor);
   return {
     isArchived: (projectId) => isProjectArchived(database, projectId),
+    findArchivedIds: (projectIds) => findArchivedProjectIds(database, projectIds),
     findRepository: (projectId, repositoryId) => findProjectRepository(database, projectId, repositoryId),
     findConstraints: (projectId) => findProjectWorkspaceConstraints(database, projectId),
     findWorkspaceId: (projectId) => findProjectWorkspaceId(database, projectId),

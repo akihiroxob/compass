@@ -106,6 +106,19 @@ export class KyselyWorkStore implements WorkStore {
       .execute();
   }
 
+  listStoriesByOutcomeProjects(refs: { projectId: string; outcomeId: string }[]): Promise<StoryRecord[]> {
+    if (refs.length === 0) return Promise.resolve([]);
+    return this.db
+      .selectFrom("story")
+      .selectAll()
+      .where((eb) =>
+        eb.or(refs.map(({ projectId, outcomeId }) => eb.and([eb("project_id", "=", projectId), eb("outcome_ref", "=", outcomeId)]))),
+      )
+      .orderBy("sort_order", "asc")
+      .orderBy("created_at", "asc")
+      .execute();
+  }
+
   async maxStorySortOrder(projectId: string): Promise<number | null> {
     const row = await this.db
       .selectFrom("story")
@@ -171,6 +184,18 @@ export class KyselyWorkStore implements WorkStore {
       .where("project_id", "=", projectId)
       .where("story_id", "in", storyIds)
       .execute();
+  }
+
+  async countTasksOfStories(storyIds: string[]): Promise<{ story_id: string; status: string; count: number }[]> {
+    if (storyIds.length === 0) return [];
+    const rows = await this.db
+      .selectFrom("task")
+      .innerJoin("story", (join) => join.onRef("story.id", "=", "task.story_id").onRef("story.project_id", "=", "task.project_id"))
+      .select(({ fn }) => ["story.id as story_id", "task.status as status", fn.countAll<number>().as("count")])
+      .where("story.id", "in", storyIds)
+      .groupBy(["story.id", "task.status"])
+      .execute();
+    return rows.map((row) => ({ story_id: row.story_id, status: row.status, count: Number(row.count) }));
   }
 
   async hasUnsettledTask(storyId: string): Promise<boolean> {

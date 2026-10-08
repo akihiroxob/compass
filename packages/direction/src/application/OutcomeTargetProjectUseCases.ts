@@ -4,6 +4,10 @@ import type {
   OutcomeTargetProjectView,
 } from "../domain/OutcomeTargetProject.ts";
 import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
+import type { OutcomeProjectWorkSummary, OutcomeWorkSummaryPort } from "./port/ExecutionSummaryPort.ts";
+import type { IntentRepository } from "../domain/IntentRepository.ts";
+import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
+import type { OutcomeStatus } from "../domain/Outcome.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
 import { ProjectArchivedError, WorkspaceArchivedError } from "@compass/organization";
 
@@ -93,5 +97,56 @@ export class ListOutcomeTargetProjectsUseCase {
     const targets = await this.targetRepository.listByOutcome(workspaceId, outcomeId);
     if (!targets) throw new NotFoundError(`Outcome ${outcomeId} was not found in Workspace ${workspaceId}`);
     return targets;
+  }
+}
+
+/** Target 1件と、そのProjectでOutcomeに相関付いたWorkの要約。Storyが無ければ`work`はnull。 */
+export type OutcomeTargetWork = OutcomeTargetProjectView & {
+  work: Pick<OutcomeProjectWorkSummary, "state" | "storyCount" | "taskCounts"> | null;
+};
+
+/**
+ * OutcomeごとのTarget別Work。`targets`が空ならTargetなし（Strategistの判断待ち）、`work`がnullのTargetは
+ * そのProjectにStoryが無い（そのProjectのManagerの計画待ち）。Story / Task本文はWorkが正本で、ここへ複製しない。
+ */
+export type OutcomeTargetWorkSummary = {
+  outcomeId: string;
+  outcomeStatus: OutcomeStatus;
+  targets: OutcomeTargetWork[];
+};
+
+/**
+ * Intent配下の全OutcomeのTarget別Work要約（表示・dispatchの入力）。Outcome・Target・Workをそれぞれ一定回数で読み、
+ * Outcome数・Target数に比例した読取をしない。WorkはTargetの組（Outcome・Project）だけを数え、Target外のProjectのStoryは含めない。
+ */
+export class ListOutcomeTargetWorkUseCase {
+  constructor(
+    private readonly workspaceReader: DirectionWorkspaceReader,
+    private readonly intentRepository: Pick<IntentRepository, "findById">,
+    private readonly outcomeRepository: Pick<OutcomeRepository, "findByIntent">,
+    private readonly targetRepository: Pick<OutcomeTargetProjectRepository, "listByIntent">,
+    private readonly workSummary: OutcomeWorkSummaryPort,
+  ) {}
+
+  /** Outcomeは新しい順、Targetは設定順。 */
+  async execute(workspaceId: string, intentId: string): Promise<OutcomeTargetWorkSummary[]> {
+    await requireWorkspace(this.workspaceReader, workspaceId);
+    if (!(await this.intentRepository.findById(workspaceId, intentId))) {
+      throw new NotFoundError(`Intent ${intentId} was not found in Workspace ${workspaceId}`);
+    }
+    const outcomes = await this.outcomeRepository.findByIntent(workspaceId, intentId);
+    const targets = await this.targetRepository.listByIntent(workspaceId, intentId);
+    const key = (outcomeId: string, projectId: string) => JSON.stringify([outcomeId, projectId]);
+    const works = new Map(
+      (await this.workSummary.summarizeOutcomeProjects(targets.map(({ outcomeId, projectId }) => ({ outcomeId, projectId }))))
+        .map(({ outcomeId, projectId, state, storyCount, taskCounts }) => [key(outcomeId, projectId), { state, storyCount, taskCounts }]),
+    );
+    return outcomes.map((outcome) => ({
+      outcomeId: outcome.id,
+      outcomeStatus: outcome.status,
+      targets: targets
+        .filter((target) => target.outcomeId === outcome.id)
+        .map((target) => ({ ...target, work: works.get(key(target.outcomeId, target.projectId)) ?? null })),
+    }));
   }
 }

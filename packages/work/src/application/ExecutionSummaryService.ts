@@ -3,6 +3,9 @@ import type { WorkStore } from "./port/WorkStore.ts";
 import {
   type ExecutionStorySummary,
   type ExecutionSummaryPort,
+  type OutcomeProjectRef,
+  type OutcomeProjectWorkSummary,
+  type OutcomeWorkSummaryPort,
   type ExecutionSummarySnapshot,
   type ExecutionSummaryState,
   type ExecutionSummaryTaskCounts,
@@ -46,7 +49,7 @@ const outcomeState = (stories: ExecutionStorySummary[]): ExecutionSummaryState =
  * Work自身のrecord（Story / Task / Change Log）だけをstore経由で読み、Outcomeに相関付いたStory・Taskの結果を導出する。
  * Directionのtableは読まず、書き込みもしない。Outcomeとの対応は、Story作成時に保存した`outcome_ref`だけを使う。
  */
-export class ExecutionSummaryService implements ExecutionSummaryPort {
+export class ExecutionSummaryService implements ExecutionSummaryPort, OutcomeWorkSummaryPort {
   constructor(private readonly store: WorkStore) {}
 
   async getOutcomeExecutionSummary(projectId: string, outcomeId: string): Promise<ExecutionSummarySnapshot | null> {
@@ -78,5 +81,36 @@ export class ExecutionSummaryService implements ExecutionSummaryPort {
       latestChangeCursor,
       headChangeCursor,
     };
+  }
+
+  /**
+   * 組（Project・Outcome）ごとのWork要約。組の数によらずStory・Taskを各1回で読む。Storyは組のProjectのものだけを数え、
+   * 同じOutcomeを参照する他ProjectのStoryを混ぜない。Storyが無い組は返さない。
+   */
+  async summarizeOutcomeProjects(refs: OutcomeProjectRef[]): Promise<OutcomeProjectWorkSummary[]> {
+    const stories = await this.store.listStoriesByOutcomeProjects(refs);
+    if (stories.length === 0) return [];
+    const countsByStory = new Map<string, ExecutionSummaryTaskCounts>(stories.map((story) => [story.id, emptyCounts()]));
+    for (const { story_id, status, count } of await this.store.countTasksOfStories(stories.map((story) => story.id))) {
+      const counts = countsByStory.get(story_id);
+      if (counts && status in counts) counts[status as keyof ExecutionSummaryTaskCounts] += count;
+    }
+    const key = (projectId: string, outcomeId: string) => JSON.stringify([projectId, outcomeId]);
+    const grouped = new Map<string, ExecutionStorySummary[]>();
+    for (const story of stories) {
+      const taskCounts = countsByStory.get(story.id) ?? emptyCounts();
+      const group = key(story.project_id, story.outcome_ref ?? "");
+      grouped.set(group, [...(grouped.get(group) ?? []),
+        { storyId: story.id, status: story.status, state: storyState(story.status, taskCounts), taskCounts }]);
+    }
+    return refs.flatMap(({ projectId, outcomeId }) => {
+      const summaries = grouped.get(key(projectId, outcomeId));
+      if (!summaries) return [];
+      const taskCounts = emptyCounts();
+      for (const summary of summaries) {
+        for (const status of Object.keys(taskCounts) as (keyof ExecutionSummaryTaskCounts)[]) taskCounts[status] += summary.taskCounts[status];
+      }
+      return [{ projectId, outcomeId, state: outcomeState(summaries), storyCount: summaries.length, taskCounts }];
+    });
   }
 }

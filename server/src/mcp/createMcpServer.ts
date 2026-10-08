@@ -634,6 +634,25 @@ export const createMcpServer = (
         })),
       ),
   );
+  server.registerTool(
+    "list_outcome_target_work",
+    {
+      title: "List Outcome Target Work",
+      description:
+        "For every Outcome of an Intent (newest first), list its Target Projects in the order they were set, each with the " +
+        "Project's current status and a summary of the Project's Work correlated to the Outcome: work is null when the Project " +
+        "has no Story for the Outcome yet, otherwise { state: accepted | rejected | canceled | incomplete, storyCount, taskCounts } " +
+        "counted from that Project's Stories only. An Outcome with an empty targets list has no Target Projects. " +
+        "Story and Task contents are not included; read them from the Project.",
+      inputSchema: { workspaceId: z.string().min(1), intentId: z.string().min(1) },
+    },
+    ({ workspaceId, intentId }) =>
+      execute(() =>
+        asWorkspaceReader(workspaceId, async () => ({
+          outcomes: await services.listOutcomeTargetWorkUseCase.execute(workspaceId, intentId),
+        })),
+      ),
+  );
 
   server.registerTool(
     "create_direction_decision",

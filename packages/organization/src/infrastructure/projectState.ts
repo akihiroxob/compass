@@ -25,6 +25,18 @@ export const isProjectArchived = async (database: Queryable, projectId: string):
   return row?.status === "archived";
 };
 
+/** 指定したProjectのうちarchivedのもの。一覧の参照モデルがProjectごとに読まないよう1回で読む。 */
+export const findArchivedProjectIds = async (database: Queryable, projectIds: string[]): Promise<Set<string>> => {
+  if (projectIds.length === 0) return new Set();
+  const rows = await database
+    .selectFrom("project")
+    .select("id")
+    .where("id", "in", projectIds)
+    .where("status", "=", "archived")
+    .execute();
+  return new Set(rows.map(({ id }) => id));
+};
+
 /** active / archivedを問わず、作成順のProject ID。呼出し側のtransactionのまま読む（Accessのowner補完が使う）。 */
 export const listProjectIdsInCreationOrder = async (database: Queryable): Promise<string[]> => {
   const rows = await database.selectFrom("project").select("id").orderBy("created_at").execute();

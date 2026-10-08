@@ -89,14 +89,32 @@ export class SQLiteOutcomeTargetProjectRepository implements OutcomeTargetProjec
         .orderBy("created_at")
         .orderBy(sql`rowid`)
         .execute();
-      const projects = this.projects(transaction);
-      return Promise.all(
-        rows.map(async (row): Promise<OutcomeTargetProjectView> => ({
-          ...toTarget(row),
-          projectStatus: (await projects.isArchived(row.project_id)) ? "archived" : "active",
-        })),
-      );
+      return this.toViews(transaction, rows);
     });
+  }
+
+  async listByIntent(workspaceId: string, intentId: string): Promise<OutcomeTargetProjectView[]> {
+    return this.database.transaction().execute(async (transaction) => {
+      const rows = await transaction
+        .selectFrom("outcome_target_project")
+        .innerJoin("outcome", "outcome.id", "outcome_target_project.outcome_id")
+        .selectAll("outcome_target_project")
+        .where("outcome.workspace_id", "=", workspaceId)
+        .where("outcome.intent_id", "=", intentId)
+        .orderBy("outcome_target_project.created_at")
+        .orderBy(sql`outcome_target_project.rowid`)
+        .execute();
+      return this.toViews(transaction, rows);
+    });
+  }
+
+  /** Projectの現在の状態（Organizationが所有）を、Targetごとに読まず1回で添える。 */
+  private async toViews(
+    transaction: Transaction<DirectionDatabase>,
+    rows: Selectable<OutcomeTargetProjectTable>[],
+  ): Promise<OutcomeTargetProjectView[]> {
+    const archived = await this.projects(transaction).findArchivedIds([...new Set(rows.map((row) => row.project_id))]);
+    return rows.map((row) => ({ ...toTarget(row), projectStatus: archived.has(row.project_id) ? "archived" : "active" }));
   }
 
   /** Workspaceがactiveで、OutcomeがWorkspace内のactiveなもので、ProjectがOutcomeと同じWorkspaceにあるか。 */
