@@ -184,7 +184,14 @@ const runStrategist = async (connection: Connection, tokens: Tokens, workspaceId
         ...(synthesis ? { usedSyntheses: [{ synthesisId: synthesis.synthesisId, version: synthesis.version }] } : {}),
         outcome: plan,
       });
-      return `outcome ${decided.outcome.id}`;
+      // Target判断: このharnessのWorkspaceはProjectが1つなので、activeなProjectをすべてTargetにする。再実行では設定済みを飛ばす。
+      const outcomeId = decided.outcome.id;
+      const targets = await call("list_outcome_targets", { workspaceId, outcomeId });
+      const targeted = new Set((targets.targets as Json[]).map((target) => target.projectId));
+      for (const project of context.projects as Json[]) {
+        if (!targeted.has(project.id)) await call("set_outcome_target", { workspaceId, outcomeId, projectId: project.id });
+      }
+      return `outcome ${outcomeId}`;
     }
 
     // outcome_evaluated: 最新でないEvaluation・判断済みのEvaluationには何もしない（重複配送・順序逆転）。

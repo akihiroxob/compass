@@ -58,6 +58,7 @@ const seed = async (kit: Kit, name = "Compass") => {
     title: "Outcome", description: "Visible", rationale: "Because",
     successCriteria: [{ description: "c1", measurement: "m1", target: null }],
   });
+  await services.setOutcomeTargetProjectUseCase.execute(project.workspaceId, outcome.id, project.id);
   const story = await ok(callTool(app, "issue_story", { projectId: project.id, title: "Outcome story", outcomeId: outcome.id, requestId: next("s") }, "mgr"));
   const rejected = await ok(callTool(app, "issue_task", { projectId: project.id, storyId: story.id, title: "Rejected task", description: "Do it", taskKey: next("k"), requestId: next("t") }, "mgr"));
   const work = await ok(callTool(app, "claim_task", { taskId: rejected.id, requestId: next("c") }, "wrk"));

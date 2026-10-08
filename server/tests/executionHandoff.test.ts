@@ -71,7 +71,7 @@ const successCriteria = [
   { description: "Every claim is audited", measurement: "Change log entry exists" },
 ];
 
-/** ProjectにManager・Strategist・Runtime・Workerを割り当て、Strategistの判断でOutcome（origin Decision付き）を確定させる。 */
+/** ProjectにManager・Strategist・Runtime・Workerを割り当て、Strategistの判断でOutcome（origin Decision付き）を確定させ、ProjectをTargetに設定する。 */
 const confirmOutcome = async ({ database, services, app }: Kit) => {
   const project = await services.createProjectUseCase.execute({
     name: "Compass",
@@ -100,6 +100,8 @@ const confirmOutcome = async ({ database, services, app }: Kit) => {
   assert.equal(decided.isError, undefined, JSON.stringify(decided.structuredContent));
   const { decision, outcome } = decided.structuredContent as { decision: { id: string }; outcome: { id: string; originDecisionId: string; successCriteria: { id: string }[] } };
   assert.equal(outcome.originDecisionId, decision.id);
+  const targeted = await callTool(app, "set_outcome_target", { workspaceId: project.workspaceId, outcomeId: outcome.id, projectId: project.id }, "strat");
+  assert.equal(targeted.isError, undefined, JSON.stringify(targeted.structuredContent));
   return { project, intent, outcome, decisionId: decision.id };
 };
 
@@ -176,7 +178,7 @@ test("同じhandoffの再送は、同じrequestIdでも新しいrequestId（time
   assert.equal((await storiesOf(kit.app, project.id)).length, 1);
 
   // 同時に届いた重複handoffも1件に収束する。
-  const other = await confirmOutcomeAgain(kit, project.workspaceId);
+  const other = await confirmOutcomeAgain(kit, project);
   const [left, right] = await Promise.all([
     callTool(kit.app, "issue_story", { projectId: project.id, title: "Concurrent", outcomeId: other, requestId: "race-a" }, "mgr"),
     callTool(kit.app, "issue_story", { projectId: project.id, title: "Concurrent", outcomeId: other, requestId: "race-b" }, "mgr"),
@@ -188,15 +190,16 @@ test("同じhandoffの再送は、同じrequestIdでも新しいrequestId（time
   await kit.database.destroy();
 });
 
-/** 同じProjectに2件目のOutcome（別のIntentは作れないため、既存Intent配下）を作る。 */
-const confirmOutcomeAgain = async (kit: Kit, workspaceId: string): Promise<string> => {
-  const intent = (await kit.services.listIntentsUseCase.execute(workspaceId))[0]!;
-  const created = await kit.services.createOutcomeUseCase.execute(workspaceId, intent.id, {
+/** 同じWorkspaceに2件目のOutcome（別のIntentは作れないため、既存Intent配下）を作り、ProjectをTargetに設定する。 */
+const confirmOutcomeAgain = async (kit: Kit, project: { id: string; workspaceId: string }): Promise<string> => {
+  const intent = (await kit.services.listIntentsUseCase.execute(project.workspaceId))[0]!;
+  const created = await kit.services.createOutcomeUseCase.execute(project.workspaceId, intent.id, {
     title: "Second",
     description: "d",
     rationale: "r",
     successCriteria: [{ description: "d", measurement: "m" }],
   });
+  await kit.services.setOutcomeTargetProjectUseCase.execute(project.workspaceId, created.id, project.id);
   return created.id;
 };
 

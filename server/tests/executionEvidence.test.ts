@@ -92,9 +92,11 @@ const createOutcome = async ({ services }: Kit, workspaceId: string, intentId: s
     successCriteria: [{ description: "duplicate_claim_count = 0", measurement: "Count duplicate claims", target: "= 0" }],
   });
 
-/** ManagerがOutcomeを参照するStoryを作り、Taskを`count`件作る。 */
+/** StrategistがProjectをTargetに設定したOutcomeから、ManagerがStoryを作り、Taskを`count`件作る。 */
 const issueStory = async (kit: Kit, projectId: string, outcomeId: string, taskCount = 1) => {
   const n = ++outcomeCount;
+  const { workspaceId } = await kit.services.getProjectUseCase.execute(projectId);
+  await kit.services.setOutcomeTargetProjectUseCase.execute(workspaceId, outcomeId, projectId);
   const story = ok(await callTool(kit.app, "issue_story", { projectId, title: `Story ${n}`, outcomeId, requestId: `story-${n}` }, "mgr"));
   const taskIds: string[] = [];
   for (let index = 0; index < taskCount; index += 1) {

@@ -1,21 +1,34 @@
-import type { ProjectOutcomeReader } from "./port/ProjectDirectionReaders.ts";
+import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
+import type { OutcomeTargetProjectRepository } from "../domain/OutcomeTargetProject.ts";
 import type { DirectionProjectReader } from "./port/DirectionProjectReader.ts";
 
 /**
- * Directionの既存Repository（Outcome・Project）を読むだけの薄いadapter。書き込まない。
+ * Directionの既存Repository（Outcome・Target・Project）を読むだけの薄いadapter。書き込まない。
  * Workが要求する`DirectionReferenceLookupPort`を構造的に満たし、serverが配線する（DirectionはWorkをimportしない）。
+ * OutcomeはWorkspace所有、Repository・ConstraintsはProjectとその所属Workspaceから読む。
  */
 export class DirectionReferenceLookupService {
   constructor(
     private readonly projectReader: DirectionProjectReader,
-    private readonly outcomeRepository: ProjectOutcomeReader,
+    private readonly outcomeRepository: Pick<OutcomeRepository, "findByIdInWorkspace">,
+    private readonly targetRepository: Pick<OutcomeTargetProjectRepository, "listByOutcome">,
   ) {}
 
-  async getOutcomeSnapshot(projectId: string, outcomeId: string) {
-    const outcome = await this.outcomeRepository.findByIdInProject(projectId, outcomeId);
-    if (!outcome) return null;
+  async getProjectExecutionContext(projectId: string) {
     const project = await this.projectReader.findDetailById(projectId);
     if (!project) return null;
+    return {
+      projectId: project.id,
+      workspaceId: project.workspaceId,
+      constraints: [...project.constraints],
+      repositories: project.repositories.map((repository) => ({ id: repository.id, name: repository.name, url: repository.url })),
+    };
+  }
+
+  async getOutcomeSnapshot(workspaceId: string, outcomeId: string) {
+    const outcome = await this.outcomeRepository.findByIdInWorkspace(workspaceId, outcomeId);
+    if (!outcome) return null;
+    const targets = (await this.targetRepository.listByOutcome(workspaceId, outcomeId)) ?? [];
     return {
       outcomeId: outcome.id,
       originDecisionId: outcome.originDecisionId,
@@ -27,13 +40,7 @@ export class DirectionReferenceLookupService {
         measurement: criterion.measurement,
         target: criterion.target,
       })),
-      constraints: [...project.constraints],
+      targetProjectIds: targets.map((target) => target.projectId),
     };
-  }
-
-  async getRepositoryReference(projectId: string, repositoryId: string) {
-    const project = await this.projectReader.findDetailById(projectId);
-    const repository = project?.repositories.find((item) => item.id === repositoryId);
-    return repository ? { id: repository.id, name: repository.name, url: repository.url } : null;
   }
 }

@@ -61,13 +61,13 @@ schema再作成の共通確認点:
 
 S03-01〜03で新規DBのDirection tableと読取・書込を`workspace_id`へ切り替える。Project固有参照に必要な`project_id`以外は、参照元を切り替えたTaskで旧列・indexを除いてよい。`project_id`列にWorkspace IDを保存しない。
 
-S03-01はIntent/Outcomeのdomain・Repository・10 use case・保存列・通知をWorkspaceへ切替済み。S03-04でDirectionの公開Web API（`/api/workspaces/:workspaceId/…`）・MCP（`workspaceId`入力）・Strategist / Researcher / Evaluator ContextをWorkspace Membership・Workspace Role Grant・Workspace Runtime Credentialへ接続し、Project配下の旧経路・`projectId`入力・Project ContextのDirection adapterを除いた。Project基準のまま残るOrchestration StateとStory作成時のOutcome参照だけが`projectDirectionAdapter.ts`/`ProjectDirectionReaders`で所属Workspaceを明示解決し、複数ProjectのWorkspaceを拒否する（S04-03・S08-01で切替）。Research/Decision/ADRの保存・検索はWorkspace IDを直接使う。Evaluation/Runtimeの保存・取得もWorkspaceを直接指定する。Execution Summary/Evidenceは所属WorkspaceとProjectを明示し、両者とOutcomeの一致をtransaction内のreaderと複合FKで強制する。Runtimeの`outcome_confirmed`・`research_requested`・`research_completed`はserverの`directionChangeObserver`がProject数によらずWorkspace eventへ投影する。Workspace Runtime eventの認可付き公開入口はS03-04で接続済みで、OrchestratorのWorkspace接続は未実装（S08）。
+S03-01はIntent/Outcomeのdomain・Repository・10 use case・保存列・通知をWorkspaceへ切替済み。S03-04でDirectionの公開Web API（`/api/workspaces/:workspaceId/…`）・MCP（`workspaceId`入力）・Strategist / Researcher / Evaluator ContextをWorkspace Membership・Workspace Role Grant・Workspace Runtime Credentialへ接続し、Project配下の旧経路・`projectId`入力・Project ContextのDirection adapterを除いた。Project基準のまま残るOrchestration Stateだけが`projectDirectionAdapter.ts`/`ProjectDirectionReaders`で所属Workspaceを明示解決し、複数ProjectのWorkspaceを拒否する（S08-01で切替）。Story作成時のOutcome参照はS04-03で`DirectionReferenceLookupService`のWorkspace Outcome snapshot＋Project execution contextへ切替済み。Research/Decision/ADRの保存・検索はWorkspace IDを直接使う。Evaluation/Runtimeの保存・取得もWorkspaceを直接指定する。Execution Summary/Evidenceは所属WorkspaceとProjectを明示し、両者とOutcomeの一致をtransaction内のreaderと複合FKで強制する。Runtimeの`outcome_confirmed`・`research_requested`・`research_completed`はserverの`directionChangeObserver`がProject数によらずWorkspace eventへ投影する。Workspace Runtime eventの認可付き公開入口はS03-04で接続済みで、OrchestratorのWorkspace接続は未実装（S08）。
 
 ### Work（Project scopeを維持）
 
 | table | 現況 | 変更 | Task |
 | --- | --- | --- | --- |
-| `story` | `project_id` FK、`outcome_ref`（FKなし）、`correlation_id`、`story_project_correlation_idx`（`(project_id, correlation_id)` unique） | 変更なし。相関ID`outcome:{outcomeId}`の一意性がProject単位なので、1つのOutcomeからTarget Projectごとに別Storyを作れる | S04-03（作成時の検査のみ） |
+| `story` | `project_id` FK、`outcome_ref`（FKなし）、`correlation_id`、`story_project_correlation_idx`（`(project_id, correlation_id)` unique） | 変更なし。相関ID`outcome:{outcomeId}`の一意性がProject単位なので、1つのOutcomeからTarget Projectごとに別Storyを作れる。作成時のTarget検査は実装済み | S04-03（作成時の検査のみ） |
 | `task` / `task_comment` / `task_claim` / `change_log` / `command_receipt` | `project_id`（task・change_log）、Claim・状態遷移 | 変更なし | — |
 
 WorkのProject scope、Claim・状態遷移・Change Logの規則を維持し、S12-02で新規DBのfixtureから検証する。
@@ -164,7 +164,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `packages/direction/src/application/*UseCase.ts`（大半が`projectRepository`を使う）、`*Rejection.ts` | Project存在・archive検査、`requireRole(principal, projectId, role)` | Workspace存在・archive検査、Workspace scopeの認可 | S03-01〜04 |
 | `application/port/DirectionAuthorizationPort.ts` | `requireRole` / `requireScope`が`projectId` | `workspaceId`へ。実装はAccessの`WorkspaceRoleGrant`・Workspace Credential | S03-04、S06-02 |
 | `application/port/ExecutionSummaryPort.ts`、Workの`ExecutionSummaryService.ts` | `getOutcomeExecutionSummary(projectId, outcomeId)` | 形は維持し、Target Projectごとに呼ぶ | S05-01 |
-| `application/DirectionReferenceLookupService.ts`、Workの`port/DirectionReferenceLookupPort.ts` | `findByIdInProject`でOutcomeを取り、Project Constraintsをsnapshot | Outcome（Workspace）・Target・Project所属Workspaceの一致を検査し、ConstraintsはWorkspaceから取る。Repository参照はProjectのまま | S04-03 |
+| `application/DirectionReferenceLookupService.ts`、Workの`port/DirectionReferenceLookupPort.ts` | `getProjectExecutionContext(projectId)`（所属Workspace・WorkspaceのConstraints・ProjectのRepository）と`getOutcomeSnapshot(workspaceId, outcomeId)`（`targetProjectIds`付き） | 実装済み。Outcome（Workspace）・Target・Project所属Workspaceの一致を`issue_story`で検査する | S04-03 |
 | `GetOrchestrationStateUseCase.ts`（`OrchestrationState.project`） | 1 Projectの状態 | Workspace単位の集約（Outcomes・Targets・Project別Work summary） | S08-01 |
 | `GetStrategistContextUseCase.ts`・`GetResearcherContextUseCase.ts`・`GetEvaluatorContextUseCase.ts` | `project`全体と`projectId`で集約 | Workspace Context（Mission等・Project要約・Target）。StrategistのProject要約・Targetは実装済み（S04-02） | S03-02、S04-02、S05-02、S07-03 |
 | `outcomeCorrelation.ts`（`outcome:{outcomeId}`） | Project非依存 | 変更なし | — |

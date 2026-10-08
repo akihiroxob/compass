@@ -109,8 +109,10 @@ export const registerExecutionTools = (server: McpServer, services: OperationSer
       title: "Issue Story",
       description:
         "Create a Story as a Manager. To hand off a Direction Outcome, pass outcomeId: Compass then snapshots the Outcome's fixed " +
-        "Success Criteria, its origin Decision and the Project's current Constraints into the Story (NOT_FOUND if the Outcome is not " +
-        "in this Project, CONFLICT if it is not active). repositoryId (a Repository registered on the Project) records the target " +
+        "Success Criteria, its origin Decision and the current Constraints of the Project's Workspace into the Story. The Outcome is " +
+        "read in the Workspace the Project belongs to and the Project must be one of its Target Projects (NOT_FOUND if the Outcome is " +
+        "not in that Workspace, CONFLICT if it is not active or, with reason not_target_project, if this Project is not a Target). " +
+        "One Outcome may have a Story in each of its Target Projects. repositoryId (a Repository registered on the Project) records the target " +
         "Repository; checking it out is the Runtime's or Agent's job. correlationId defaults to outcome:<outcomeId> and is unique per " +
         "Project: resending the same handoff, even with a new requestId after a timeout, returns the existing Story instead of creating a " +
         "second one, while a different Story under the same correlationId fails with IDEMPOTENCY_CONFLICT. Not available in an archived Project.",

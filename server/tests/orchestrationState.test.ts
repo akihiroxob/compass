@@ -126,6 +126,7 @@ test("get_orchestration_stateは状態とIDだけを返し、Story・Taskの有�
   assert.deepEqual(confirmed.outcomes, [
     { id: outcome.id, status: "active", updatedAt: outcome.updatedAt, work: null, execution: null, latestEvaluation: null },
   ]);
+  await services.setOutcomeTargetProjectUseCase.execute(project.workspaceId, outcome.id, project.id);
   const story = ok(
     await rpc(app, "issue_story", { projectId: project.id, title: "Claims", outcomeId: outcome.id, requestId: "story-1" }, "mgr"),
   );

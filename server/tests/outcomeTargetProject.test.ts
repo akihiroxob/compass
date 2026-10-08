@@ -35,7 +35,7 @@ const setup = async (path = ":memory:") => {
   const organization = asOrganizationDatabase(database);
   const createWorkspace = new CreateWorkspaceUseCase(new SQLiteWorkspaceRepository(organization));
   const createProject = new CreateWorkspaceProjectUseCase(new SQLiteProjectRepository(organization, projectRepositoryReferenceFinder));
-  const workspace = await createWorkspace.execute({ name: "Workspace", mission: "Mission" });
+  const workspace = await createWorkspace.execute({ name: "Workspace", mission: "Mission", constraints: ["Keep the public API"] });
   const [a, b, c] = [
     await createProject.execute(workspace.id, { name: "A" }),
     await createProject.execute(workspace.id, { name: "B" }),
@@ -275,5 +275,80 @@ test("Strategist Context: active Project summaries (purpose and references only)
     assert.equal((await callTool(app, "get_strategist_context", { workspaceId: workspace.id }, "researcher-agent")).structuredContent.error.code, "FORBIDDEN");
   } finally {
     await database.destroy();
+  }
+});
+
+const storiesOf = async (app: App, projectId: string, principal: string) =>
+  (await callTool(app, "list_stories", { projectId }, principal)).structuredContent.stories as Record<string, any>[];
+
+test("Story handoff: one Outcome yields a Story per Target Project; non-Target and other-Workspace Projects are rejected; Work stays Project-scoped", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "compass-target-handoff-"));
+  const path = join(directory, "compass.db");
+  try {
+    const { database, services, workspace, outcome, a, b, c, foreign } = await setup(path);
+    const app = await createSignedInApp(database, services);
+    for (const [project, principal] of [[a, "manager-a"], [b, "manager-b"], [c, "manager-c"], [foreign, "manager-f"]] as const) {
+      await seedProjectGrant(database, project.id, principal, "manager");
+    }
+    await seedProjectGrant(database, a.id, "worker-a", "worker");
+    await services.updateProjectUseCase.execute(a.id, { repositories: [{ name: "app", url: "https://example.com/app.git" }] });
+    await services.updateProjectUseCase.execute(b.id, { repositories: [{ name: "api", url: "https://example.com/api.git" }] });
+    const repositoryA = (await services.getProjectUseCase.execute(a.id)).repositories[0]!;
+    const repositoryB = (await services.getProjectUseCase.execute(b.id)).repositories[0]!;
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, a.id);
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, b.id);
+    const handoff = (projectId: string, principal: string, extra: object = {}) =>
+      callTool(app, "issue_story", { projectId, title: "Deliver", outcomeId: outcome.id, requestId: `${principal}-${JSON.stringify(extra)}`, ...extra }, principal);
+
+    // Target A / Bには、同じOutcomeから別々のStoryを作れる。ConstraintsはWorkspace、RepositoryはそのProjectから取る。
+    const storyA = (await handoff(a.id, "manager-a", { repositoryId: repositoryA.id })).structuredContent;
+    const storyB = (await handoff(b.id, "manager-b", { repositoryId: repositoryB.id })).structuredContent;
+    assert.notEqual(storyA.id, storyB.id);
+    for (const [story, project, repository] of [[storyA, a, repositoryA], [storyB, b, repositoryB]] as const) {
+      assert.equal(story.projectId, project.id);
+      assert.equal(story.outcomeId, outcome.id);
+      assert.equal(story.correlationId, `outcome:${outcome.id}`);
+      assert.deepEqual(story.constraints, ["Keep the public API"]);
+      assert.deepEqual(story.repository, { id: repository.id, name: repository.name, url: repository.url });
+    }
+    // 別ProjectのRepositoryは参照できない。
+    assert.equal((await handoff(a.id, "manager-a", { repositoryId: repositoryB.id, correlationId: "other" })).structuredContent.error.code, "NOT_FOUND");
+
+    // 同じWorkspaceでもTargetでないProjectはCONFLICT、別WorkspaceのProjectにはOutcomeが見えない（NOT_FOUND）。
+    const notTarget = (await handoff(c.id, "manager-c")).structuredContent.error;
+    assert.equal(notTarget.code, "CONFLICT");
+    assert.equal(notTarget.reason, "not_target_project");
+    assert.equal((await handoff(foreign.id, "manager-f")).structuredContent.error.code, "NOT_FOUND");
+    assert.deepEqual(await storiesOf(app, c.id, "manager-c"), []);
+    assert.deepEqual(await storiesOf(app, foreign.id, "manager-f"), []);
+
+    // Work（Story / Task / Claim / Change）はProject単位のまま。他ProjectのGrantでは読めず、操作できない。
+    const taskB = (await callTool(app, "issue_task", { projectId: b.id, storyId: storyB.id, title: "API", taskKey: "api", requestId: "task-b" }, "manager-b")).structuredContent;
+    assert.deepEqual((await storiesOf(app, a.id, "manager-a")).map((story) => story.id), [storyA.id]);
+    assert.equal((await callTool(app, "list_stories", { projectId: b.id }, "manager-a")).structuredContent.error.code, "FORBIDDEN");
+    assert.equal((await callTool(app, "list_tasks", { projectId: b.id }, "worker-a")).structuredContent.error.code, "FORBIDDEN");
+    assert.equal((await callTool(app, "claim_task", { taskId: taskB.id, requestId: "claim-b" }, "worker-a")).structuredContent.error.code, "FORBIDDEN");
+    const changesA = (await callTool(app, "list_changes", { projectId: a.id }, "manager-a")).structuredContent.changes as { entityId: string }[];
+    assert.deepEqual(changesA.map((change) => change.entityId), [storyA.id]);
+
+    // Target解除後は新しいhandoffを拒否するが、作成済みStoryの再送は元のStoryを返す。
+    await services.unsetOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, a.id);
+    assert.equal((await handoff(a.id, "manager-a", { repositoryId: repositoryA.id, requestId: "replay" })).structuredContent.id, storyA.id);
+    assert.equal((await handoff(a.id, "manager-a", { correlationId: "again" })).structuredContent.error.reason, "not_target_project");
+    await database.destroy();
+
+    // 同じschemaで再起動しても、Project別のStoryが残る。
+    const reopened = createDatabase(path);
+    try {
+      await initializeSchema(reopened);
+      const reopenedServices = createApplicationServices(reopened);
+      const reopenedApp = await createSignedInApp(reopened, reopenedServices);
+      assert.deepEqual((await storiesOf(reopenedApp, a.id, "manager-a")).map((story) => story.id), [storyA.id]);
+      assert.deepEqual((await storiesOf(reopenedApp, b.id, "manager-b")).map((story) => story.id), [storyB.id]);
+    } finally {
+      await reopened.destroy();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });

@@ -48,7 +48,7 @@ if (role === "strategist") {
       runRef: env.COMPASS_DISPATCH_KEY!,
     });
   } else {
-    await call("create_outcome", {
+    const created = await call("create_outcome", {
       workspaceId,
       intentId,
       title: "First outcome",
@@ -56,6 +56,8 @@ if (role === "strategist") {
       rationale: "R",
       successCriteria: [{ description: "d", measurement: "m" }],
     });
+    // Story handoffはTarget Projectだけに許可されるため、起動元のProjectをTargetにする。
+    await call("set_outcome_target", { workspaceId, outcomeId: created.outcome.id, projectId });
   }
 } else if (role === "researcher") {
   await call("complete_research_request", { workspaceId, requestId: subjectId, conclusion: "not_needed", stopReason: "Known" });

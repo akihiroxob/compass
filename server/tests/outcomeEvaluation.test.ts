@@ -106,9 +106,10 @@ const createOutcome = async ({ services }: Kit, workspaceId: string, intentId: s
     })),
   });
 
-/** ManagerがOutcomeを参照するStoryを作り、Taskを1件acceptedまで進める。 */
+/** StrategistがProjectをTargetに設定したOutcomeから、ManagerがStoryを作り、Taskを1件acceptedまで進める。 */
 const executeToAccepted = async (kit: Kit, projectId: string, outcomeId: string) => {
-  const { app } = kit;
+  const { app, services } = kit;
+  await services.setOutcomeTargetProjectUseCase.execute((await services.getProjectUseCase.execute(projectId)).workspaceId, outcomeId, projectId);
   const story = ok(await callTool(app, "issue_story", { projectId, title: next("Story"), outcomeId, requestId: next("story") }, "mgr"));
   const task = ok(await callTool(app, "issue_task", { projectId, storyId: story.id, title: next("Task"), taskKey: next("key"), requestId: next("task") }, "mgr"));
   const work = ok(await callTool(app, "claim_task", { taskId: task.id, requestId: next("claim") }, "wrk"));
