@@ -139,6 +139,7 @@ Outcome を担当する Project（Target Project）は Strategist が判断し�
 - `set_outcome_target`: active な Outcome に、同じ Workspace の active な Project を Target として追加する。別 Workspace の Project は `NOT_FOUND`、archived の Project・設定済みの Project・active でない Outcome は `CONFLICT`
 - `unset_outcome_target`: active な Outcome から Target を解除する。archived の Project も解除できる。既存の Story・成果・Evidence の参照は残る
 - `list_outcome_targets`: 設定順の Target と、各 Project の現在の状態（`projectStatus`: "active" / "archived"）を返す
+- `list_outcome_target_work`: Intent 配下の Outcome ごとに、Target と各 Project の Work 要約（`work`。Story が無ければ null、あれば `state`・`storyCount`・`taskCounts`）を返す。`targets` が空なら Target なし。Story の作成は各 Project の manager が行う
 
 Target の Project が archive されても、Target・既存 Story・Evidence は自動では削除されない。未完了の実行が残る場合は、archived の Target を解除して同じ Workspace の active な Project を設定し直すか、Outcome 自体を見直すかを判断する。
 
@@ -154,6 +155,7 @@ Target の Project が archive されても、Target・既存 Story・Evidence �
 - `update_outcome`（`title` と `hypothesis` のみ）
 - `cancel_outcome`（理由必須）
 - `set_outcome_target` / `unset_outcome_target` / `list_outcome_targets`（Target Project の設定・解除・参照）
+- `list_outcome_target_work`（Target 別の Work 要約の参照）
 - `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`（type が "adr_candidate" の Decision の Wacha 引き渡しと結果の記録）
 - 読み取りの `list_intents` / `get_intent`（`list_projects` / `get_project` は Project の Grant がある範囲だけ）
 

@@ -195,6 +195,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `fetch_runtime_events` / `ack_runtime_event` / `record_execution_evidence` / `get_outcome_execution_summary` | `projectId`、Runtime scope | Runtime eventは`workspaceId`とWorkspace Runtime Credential（S03-04で実装済み）。Execution Evidence / SummaryはProject固有の記録として`projectId`とProject Runtime Credentialのまま所属Workspaceを明示解決する（S03-04）。Target別の集約はS05-01 | S03-04、S05-01 |
 | `get_orchestration_state` | `projectId` | Workspace単位 | S08-01 |
 | `set_outcome_target` / `unset_outcome_target` / `list_outcome_targets` | `workspaceId`・`outcomeId`・`projectId` | 設定・解除はWorkspace strategist Grant、一覧はWorkspaceの参照権限（S04-01で実装済み） | S04-01 |
+| `list_outcome_target_work` | `workspaceId`・`intentId` | Intent配下のOutcomeごとのTarget別Work要約（状態・件数）。Workspaceの参照権限（S04-04で実装済み） | S04-04 |
 | `get_role_context` | `projectId`・`role` | Workspace Role向けとProject Role向けを分ける | S07-03、S07-04 |
 | `get_role_instructions` / `list_skills` / `get_skill_context` | Project非依存 | 変更なし | — |
 | Work tools（`list_stories`〜`reject_task`、`registerExecutionTools.ts`） | `projectId` | 変更なし。`issue_story`のOutcome参照検査と、Manager向けProject scopeの`get_outcome_handoff_context`追加だけS04-03 | S04-03 |
@@ -209,6 +210,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `/api/projects`・`/api/projects/:projectId`（GET / POST / PATCH）・`/archive` | Projectの参照とWorkspaceへの所属。Workspaceの作成・参照・更新・archiveの入口を追加。S02-04でProjectの応答に`workspaceId`、Workspaceの参照`GET /api/workspaces`・`/api/workspaces/:workspaceId`・`/api/workspaces/:workspaceId/projects`を追加済み。作成・更新・archive・既存WorkspaceへのProject作成は未接続 | S02-04、S09-03 |
 | `/api/projects/:projectId/intents…`・`/intents/:intentId/outcomes…`・`/research-requests…`・`/intents/:intentId/decisions`・`/adr-references`・`/outcomes/:outcomeId/evaluations`・`/runtime-events…` | `/api/workspaces/:workspaceId/…`へ移した（S03-04で実装済み。Workspace Membership、Runtime eventはWorkspace Runtime Credential）。Project配下の旧経路は残さない。`/outcomes/:outcomeId/execution-summary`・`/execution-evidence`はProject固有の記録としてProject配下に残す | S03-04、S05-01 |
 | `/api/workspaces/:workspaceId/outcomes/:outcomeId/target-projects`（GET） | Target Projectの参照（Workspace Membership）。設定・解除はStrategistのMCPだけ（S04-01で実装済み） | S04-01 |
+| `/api/workspaces/:workspaceId/intents/:intentId/outcome-target-work`（GET） | OutcomeごとのTarget別Work要約（Workspace Membership。S04-04で実装済み） | S04-04 |
 | `/api/projects/:projectId/grants`・`/credentials` | Workspace用のGrant・Credentialの入口を追加。ProjectのものはProject Roleに限る | S06-02、S06-03、S11-03 |
 | `/api/projects/:projectId/members`・`/invitations` | 維持。WorkspaceMembershipの入口を追加（use caseはS06-01で実装済み） | S06-04、S11-03 |
 | `/api/projects/:projectId/execution`・`/changes`・`/stories`・`/tasks…` | 変更なし | — |

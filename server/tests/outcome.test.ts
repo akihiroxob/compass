@@ -423,6 +423,8 @@ test("Intentを作成してもOutcomeは自動生成されず、Outcomeの状態
     "setOutcomeTargetProjectUseCase",
     "unsetOutcomeTargetProjectUseCase",
     "listOutcomeTargetProjectsUseCase",
+    // Target別のWork要約を読むだけ（outcomeTargetProject.test.ts）。
+    "listOutcomeTargetWorkUseCase",
     "updateOutcomeUseCase",
   ].sort());
   await database.destroy();

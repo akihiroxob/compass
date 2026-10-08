@@ -43,3 +43,23 @@ export type ExecutionSummarySnapshot = {
 export interface ExecutionSummaryPort {
   getOutcomeExecutionSummary(projectId: string, outcomeId: string): Promise<ExecutionSummarySnapshot | null>;
 }
+
+/** Outcomeと、そのWorkを持ちうるProjectの組。 */
+export type OutcomeProjectRef = { outcomeId: string; projectId: string };
+
+/** 1組のWorkの要約。Story / Taskの本文・IDは含めず、状態と件数だけを返す。 */
+export type OutcomeProjectWorkSummary = OutcomeProjectRef & {
+  state: ExecutionSummaryState;
+  storyCount: number;
+  /** 組に相関付いた全StoryのTaskの状態別件数。 */
+  taskCounts: ExecutionSummaryTaskCounts;
+};
+
+/**
+ * Direction → Workの読取専用ポート（Target別の表示・dispatch用）。各組について、そのProjectのStoryのうち
+ * Outcomeへ相関付いたもの（`outcome_ref`）だけを数え、他Projectの同じOutcomeのStoryを混ぜない。
+ * 組の数によらず一定回数の読取で返す。Storyが無い組は結果に含めない。書込メソッドは持たない。
+ */
+export interface OutcomeWorkSummaryPort {
+  summarizeOutcomeProjects(refs: OutcomeProjectRef[]): Promise<OutcomeProjectWorkSummary[]>;
+}

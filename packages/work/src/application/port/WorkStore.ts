@@ -154,6 +154,8 @@ export interface WorkStore {
   listStories(projectId: string, status?: string): Promise<StoryRecord[]>;
   /** `sort_order`・`created_at`の昇順。 */
   listStoriesByOutcome(projectId: string, outcomeId: string): Promise<StoryRecord[]>;
+  /** 各組（Project・Outcome）について、そのProjectでOutcomeへ相関付いたStoryを1回で返す。 */
+  listStoriesByOutcomeProjects(refs: { projectId: string; outcomeId: string }[]): Promise<StoryRecord[]>;
   maxStorySortOrder(projectId: string): Promise<number | null>;
   insertStory(story: StoryRecord): Promise<StoryRecord>;
   updateStory(storyId: string, patch: StoryPatch): Promise<StoryRecord>;
@@ -165,6 +167,8 @@ export interface WorkStore {
   findTaskByKey(storyId: string | null, taskKey: string): Promise<TaskRecord | null>;
   listTasks(projectId: string): Promise<TaskRecord[]>;
   listTasksOfStories(projectId: string, storyIds: string[]): Promise<TaskRecord[]>;
+  /** Storyごと・状態ごとのTask件数（Project横断。Storyの所属Projectと同じProjectのTaskだけ）。 */
+  countTasksOfStories(storyIds: string[]): Promise<{ story_id: string; status: string; count: number }[]>;
   /** `accepted`・`canceled`以外のTaskがStoryに残っているか。 */
   hasUnsettledTask(storyId: string): Promise<boolean>;
   maxTaskSortOrder(projectId: string): Promise<number | null>;

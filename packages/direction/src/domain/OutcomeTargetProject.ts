@@ -41,4 +41,6 @@ export interface OutcomeTargetProjectRepository {
   remove(workspaceId: string, outcomeId: string, projectId: string): Promise<RemoveOutcomeTargetProjectResult>;
   /** Workspace内のOutcomeのTargetを設定順で返す。Outcomeが無ければnull。 */
   listByOutcome(workspaceId: string, outcomeId: string): Promise<OutcomeTargetProjectView[] | null>;
+  /** Workspace内のIntent配下の全OutcomeのTargetを、Outcomeごとの設定順で1回に返す（Outcome間の順序は呼出し側が決める）。 */
+  listByIntent(workspaceId: string, intentId: string): Promise<OutcomeTargetProjectView[]>;
 }

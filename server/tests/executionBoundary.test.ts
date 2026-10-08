@@ -100,6 +100,9 @@ test("WorkはDirectionの公開indexの契約だけを使い、DirectionのRepos
     "ExecutionSummaryState",
     "ExecutionStorySummary",
     "ExecutionSummaryTaskCounts",
+    "OutcomeProjectRef",
+    "OutcomeProjectWorkSummary",
+    "OutcomeWorkSummaryPort",
   ]);
   for (const file of workFiles) {
     for (const specifier of importsOf(file.text)) {

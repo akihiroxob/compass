@@ -72,7 +72,7 @@ export class GetStrategistContextUseCase {
     private readonly directionDecisionRepository: Pick<DirectionDecisionRepository, "findByIntent">,
     private readonly outcomeEvaluationRepository: WorkspaceEvaluationReader,
     private readonly projectReader: WorkspaceProjectReader,
-    private readonly targetRepository: Pick<OutcomeTargetProjectRepository, "listByOutcome">,
+    private readonly targetRepository: Pick<OutcomeTargetProjectRepository, "listByIntent">,
   ) {}
 
   async execute(principalId: string, workspaceId: string): Promise<StrategistContext> {
@@ -90,8 +90,8 @@ export class GetStrategistContextUseCase {
     const projects = (await this.projectReader.findAllInWorkspace(workspaceId))
       .sort((a, b) => a.createdAt - b.createdAt)
       .map(({ id, name, description, repositories, resources }) => ({ id, name, description, repositories, resources }));
-    const outcomeTargets: OutcomeTargetProjectView[] = [];
-    for (const outcome of outcomes) outcomeTargets.push(...((await this.targetRepository.listByOutcome(workspaceId, outcome.id)) ?? []));
+    const targets = activeIntent ? await this.targetRepository.listByIntent(workspaceId, activeIntent.id) : [];
+    const outcomeTargets: OutcomeTargetProjectView[] = outcomes.flatMap((outcome) => targets.filter((target) => target.outcomeId === outcome.id));
     return {
       principalId,
       role: DirectionAgentRole.STRATEGIST,
