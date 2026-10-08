@@ -18,7 +18,7 @@
 MCP `get_orchestration_state({ projectId })` は、起動する専門 Role を判断するための Project の現在状態を返す。読取だけで状態を変えず、Activity・Runtime event の cursor に依存しない。`X-Compass-Active-Role: runtime` を付けて呼ぶ。
 
 - `project`（`id`・`name`・`status`）、`activeIntent`（`id`・`status`・`updatedAt`。無ければ `null`）
-- `outcomes`: Active Intent 配下の全状態の Outcome。`work`（相関付いた Story / Task の件数と状態。Story が無ければ `null`）、`execution`（還流済みの Execution 要約の状態と `executionCursor`。未還流は `null`）、`latestEvaluation`（最新 Evaluation と、それを根拠にした Decision の `decisionId`。未判断は `null`）
+- `outcomes`: Active Intent 配下の全状態の Outcome。`work`（相関付いた Story / Task の件数と状態。Story が無ければ `null`）、`execution`（この Project から還流済みの Execution 要約の状態と `executionCursor`。未還流は `null`）、`evaluability`（全 Target Project から見た評価可能性。`status` は `evaluable` / `no_targets` / `replan_required` / `awaiting_execution`、`unfinishedTargets` は評価を妨げている Target の Project ID・状態・理由）、`latestEvaluation`（最新 Evaluation と、それを根拠にした Decision の `decisionId`、Evaluation snapshot にあるこの Project の `executionCursor`。未判断は `null`）
 - `intentResearchRequests`: Active Intent を発端とする全状態の Research Request。`openResearchRequests`: Project 内の未終了（`requested` / `running`）の Request
 - Mission・Intent の本文・Research の内容は含めない。起動された Role は自分の Role Context から取得する
 

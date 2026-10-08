@@ -140,9 +140,9 @@ Outcome を担当する Project（Target Project）は Strategist が判断し�
 - `unset_outcome_target`: active な Outcome から Target を解除する。archived の Project も解除できる。既存の Story・成果・Evidence の参照は残る
 - `list_outcome_targets`: 設定順の Target と、各 Project の現在の状態（`projectStatus`: "active" / "archived"）を返す
 - `list_outcome_target_work`: Intent 配下の Outcome ごとに、Target と各 Project の Work 要約（`work`。Story が無ければ null、あれば `state`・`storyCount`・`taskCounts`）を返す。`targets` が空なら Target なし。Story の作成は各 Project の manager が行う
-- `list_outcome_target_executions`: 1 つの Outcome について、Target ごとに還流済みの Execution Summary と Evidence 参照（`execution`。未還流なら null）を返す。Summary・Evidence は Project 別のままで合算されない。Target 解除前に還流された記録は `nonTargetExecutions` に分かれる。ある Target の `accepted` は Outcome の達成を意味しない
+- `list_outcome_target_executions`: 1 つの Outcome について、Target ごとに還流済みの Execution Summary と Evidence 参照（`execution`。未還流なら null）を返す。Summary・Evidence は Project 別のままで合算されない。Target 解除前に還流された記録は `nonTargetExecutions` に分かれる。ある Target の `accepted` は Outcome の達成を意味しない。`evaluability.status` は全 Target から見た評価可能性で、"evaluable" だけが Evaluator の評価対象になる。"no_targets" は Target の設定、"replan_required"（archived の Target に未還流または `incomplete` が残る）は下記の再計画が Strategist の判断対象。"awaiting_execution" は active な Target の Execution 待ち
 
-Target の Project が archive されても、Target・既存 Story・Evidence は自動では削除されない。未完了の実行が残る場合は、archived の Target を解除して同じ Workspace の active な Project を設定し直すか、Outcome 自体を見直すかを判断する。
+Target の Project が archive されても、Target・既存 Story・Evidence は自動では削除されない。未完了の実行（Summary 未還流または `incomplete`）が残る場合は評価待ちにならず（"replan_required"）、archived の Target を解除して同じ Workspace の active な Project を設定し直すか、Outcome 自体を見直すかを判断する。archive 前に完了を還流した Target は、archive だけを理由に解除しなくても評価の入力に含まれる。
 
 ## Allowed
 

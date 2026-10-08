@@ -109,7 +109,9 @@ const createOutcome = async ({ services }: Kit, workspaceId: string, intentId: s
 /** StrategistがProjectをTargetに設定したOutcomeから、ManagerがStoryを作り、Taskを1件acceptedまで進める。 */
 const executeToAccepted = async (kit: Kit, projectId: string, outcomeId: string) => {
   const { app, services } = kit;
-  await services.setOutcomeTargetProjectUseCase.execute((await services.getProjectUseCase.execute(projectId)).workspaceId, outcomeId, projectId);
+  const workspaceId = (await services.getProjectUseCase.execute(projectId)).workspaceId;
+  const targets = await services.listOutcomeTargetProjectsUseCase.execute(workspaceId, outcomeId);
+  if (!targets.some((target) => target.projectId === projectId)) await services.setOutcomeTargetProjectUseCase.execute(workspaceId, outcomeId, projectId);
   const story = ok(await callTool(app, "issue_story", { projectId, title: next("Story"), outcomeId, requestId: next("story") }, "mgr"));
   const task = ok(await callTool(app, "issue_task", { projectId, storyId: story.id, title: next("Task"), taskKey: next("key"), requestId: next("task") }, "mgr"));
   const work = ok(await callTool(app, "claim_task", { taskId: task.id, requestId: next("claim") }, "wrk"));
@@ -177,8 +179,11 @@ test("EvaluatorがInstructionとContextを取得し、Criterionごとの判定�
   assert.equal(context.workspace.id, project.workspaceId);
   assert.equal(context.outcome.id, outcome.id);
   assert.deepEqual(context.outcome.successCriteria.map((criterion: Record<string, any>) => criterion.id), outcome.successCriteria.map((criterion) => criterion.id));
-  assert.equal(context.execution.summary.state, "accepted");
-  assert.deepEqual(context.execution.evidence, reflected.evidence);
+  // 単一TargetのOutcomeも全Targetの形で受け取り、全Targetが還流・完了していれば評価可能。
+  assert.deepEqual(context.targets.map((target: Record<string, any>) => [target.projectId, target.projectStatus]), [[project.id, "active"]]);
+  assert.equal(context.targets[0].execution.summary.state, "accepted");
+  assert.deepEqual(context.targets[0].execution.evidence, reflected.evidence);
+  assert.deepEqual(context.evaluability, { status: "evaluable", unfinishedTargets: [] });
   assert.deepEqual(context.evaluations, []);
   assert.deepEqual(context.unavailable, ["evidence_content"]);
 
@@ -201,11 +206,14 @@ test("EvaluatorがInstructionとContextを取得し、Criterionごとの判定�
     evaluation.criteria.map((item: Record<string, any>) => [item.criterionId, item.position, item.description, item.measurement, item.target, item.verdict, item.rationale, item.evidenceIds]),
     outcome.successCriteria.map((criterion, index) => [criterion.id, criterion.position, criterion.description, criterion.measurement, criterion.target, "met", "observed met", [evidenceIds[0]]]),
   );
-  // 評価時のsnapshot: Outcome・Execution Summary・Evidence参照。
+  // 評価時のsnapshot: Outcome・TargetごとのExecution Summary・Evidence参照。
   assert.equal(evaluation.snapshot.outcome.title, outcome.title);
-  assert.equal(evaluation.snapshot.execution.state, "accepted");
-  assert.equal(evaluation.snapshot.execution.executionCursor, before.record.summary.executionCursor);
-  assert.deepEqual(evaluation.snapshot.evidence.map((item: Record<string, any>) => item.id), evidenceIds);
+  assert.equal(evaluation.snapshot.targets.length, 1);
+  const [targetSnapshot] = evaluation.snapshot.targets;
+  assert.equal(targetSnapshot.projectId, project.id);
+  assert.equal(targetSnapshot.execution.state, "accepted");
+  assert.equal(targetSnapshot.execution.executionCursor, before.record.summary.executionCursor);
+  assert.deepEqual(targetSnapshot.evidence.map((item: Record<string, any>) => item.id), evidenceIds);
 
   // Contextからも取得でき、Outcome・Execution結果は変更されていない。
   const after = ok(await getContext(kit.app, project.workspaceId, outcome.id));
@@ -251,7 +259,7 @@ test("Evidence不足はinsufficient_evidenceとして保存でき、Evidence参�
     }),
   );
   assert.equal(insufficient.evaluation.result, "insufficient_evidence");
-  assert.equal((await getContext(kit.app, project.workspaceId, outcome.id)).structuredContent.execution.summary.state, "accepted");
+  assert.equal((await getContext(kit.app, project.workspaceId, outcome.id)).structuredContent.targets[0].execution.summary.state, "accepted");
 
   for (const verdict of ["met", "not_met"] as const) {
     const error = errorOf(
@@ -386,11 +394,20 @@ test("Evaluatorは評価できる状態のOutcomeだけを扱う: Execution Summ
   const fresh = await createOutcome(kit, project.workspaceId, intent.id);
   const noExecution = { requestKey: "eval-none", runRef: "run", criteria: judgments(fresh, ["insufficient_evidence", "insufficient_evidence"]) };
 
-  // Executionが未着手・未還流のOutcomeは、成功・失敗・不足のいずれとも推測しない。
+  // Targetの無いOutcomeは評価せず、Strategistの判断へ戻す。成功・失敗・不足のいずれとも推測しない。
+  const noTargets = errorOf(await evaluate(kit.app, project.workspaceId, fresh.id, noExecution));
+  assert.equal(noTargets.code, "CONFLICT");
+  assert.equal(noTargets.reason, "no_targets");
+  const freshContext = ok(await getContext(kit.app, project.workspaceId, fresh.id));
+  assert.deepEqual([freshContext.targets, freshContext.evaluability], [[], { status: "no_targets", unfinishedTargets: [] }]);
+  // Target設定後、Executionが未還流の間は還流待ち。
+  await kit.services.setOutcomeTargetProjectUseCase.execute(project.workspaceId, fresh.id, project.id);
   const notReflected = errorOf(await evaluate(kit.app, project.workspaceId, fresh.id, noExecution));
-  assert.equal(notReflected.code, "CONFLICT");
-  assert.equal(notReflected.reason, "no_execution_summary");
-  assert.equal(ok(await getContext(kit.app, project.workspaceId, fresh.id)).execution, null);
+  assert.deepEqual([notReflected.code, notReflected.reason, notReflected.unfinishedProjectIds], ["CONFLICT", "awaiting_execution", project.id]);
+  assert.deepEqual(ok(await getContext(kit.app, project.workspaceId, fresh.id)).evaluability, {
+    status: "awaiting_execution",
+    unfinishedTargets: [{ projectId: project.id, projectStatus: "active", reason: "not_reflected" }],
+  });
 
   await executeToAccepted(kit, project.id, fresh.id);
   const reflected = await reflect(kit.app, project.id, fresh.id, [evidenceItem()]);

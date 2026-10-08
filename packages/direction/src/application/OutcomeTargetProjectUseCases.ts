@@ -10,6 +10,7 @@ import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
 import type { OutcomeStatus } from "../domain/Outcome.ts";
 import type { OutcomeExecutionRecord } from "../domain/OutcomeExecution.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
+import { assessOutcomeEvaluability, type OutcomeEvaluability, type OutcomeTargetExecution } from "../domain/OutcomeEvaluability.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
 import { ProjectArchivedError, WorkspaceArchivedError } from "@compass/organization";
 
@@ -153,19 +154,40 @@ export class ListOutcomeTargetWorkUseCase {
   }
 }
 
-/** Target 1件と、そのProjectからOutcomeへ還流済みのExecution Summary・Evidence参照。未還流なら`execution`はnull。 */
-export type OutcomeTargetExecution = OutcomeTargetProjectView & { execution: OutcomeExecutionRecord | null };
+/**
+ * OutcomeのTarget（設定順）と、各Targetが還流済みのExecution・Target解除前に還流された記録（Project ID順）を読む。
+ * Outcomeが無ければnull。Evaluator Context・評価の記録・Target別集約で同じ読み方をする。
+ */
+export const readOutcomeTargetExecutions = async (
+  targetRepository: Pick<OutcomeTargetProjectRepository, "listByOutcome">,
+  executionRepository: Pick<OutcomeExecutionRepository, "findByOutcome">,
+  workspaceId: string,
+  outcomeId: string,
+): Promise<{ targets: OutcomeTargetExecution[]; nonTargetExecutions: OutcomeExecutionRecord[] } | null> => {
+  const targets = await targetRepository.listByOutcome(workspaceId, outcomeId);
+  if (!targets) return null;
+  const records = new Map(
+    (await executionRepository.findByOutcome(workspaceId, outcomeId)).map((record) => [record.summary.projectId, record]),
+  );
+  const targetProjectIds = new Set(targets.map((target) => target.projectId));
+  return {
+    targets: targets.map((target) => ({ ...target, execution: records.get(target.projectId) ?? null })),
+    nonTargetExecutions: [...records.values()].filter((record) => !targetProjectIds.has(record.summary.projectId)),
+  };
+};
 
 /**
  * OutcomeへのExecutionの還流をTarget Projectごとに集約した読取モデル。Summary・EvidenceはProject別のまま並べ、
  * 別ProjectのEvidenceや受入状況を合算しない。`nonTargetExecutions`はTarget解除前に還流された記録で、
- * 参照は保持するがTargetの集約には含めない。Evidence本文・Story / Task本文は含まない。
+ * 参照は保持するがTargetの集約・評価可能性には含めない。`evaluability`は全Targetから見た評価可能性。
+ * Evidence本文・Story / Task本文は含まない。
  */
 export type OutcomeTargetExecutions = {
   outcomeId: string;
   outcomeStatus: OutcomeStatus;
   targets: OutcomeTargetExecution[];
   nonTargetExecutions: OutcomeExecutionRecord[];
+  evaluability: OutcomeEvaluability;
 };
 
 /** OutcomeのTarget別のExecution Summary・Evidence（Workspaceの参照権限で読む）。archivedのProject・Outcomeも参照できる。 */
@@ -181,17 +203,8 @@ export class ListOutcomeTargetExecutionsUseCase {
   async execute(workspaceId: string, outcomeId: string): Promise<OutcomeTargetExecutions> {
     await requireWorkspace(this.workspaceReader, workspaceId);
     const outcome = await this.outcomeRepository.findByIdInWorkspace(workspaceId, outcomeId);
-    const targets = await this.targetRepository.listByOutcome(workspaceId, outcomeId);
-    if (!outcome || !targets) throw new NotFoundError(`Outcome ${outcomeId} was not found in Workspace ${workspaceId}`);
-    const records = new Map(
-      (await this.executionRepository.findByOutcome(workspaceId, outcomeId)).map((record) => [record.summary.projectId, record]),
-    );
-    const targetProjectIds = new Set(targets.map((target) => target.projectId));
-    return {
-      outcomeId,
-      outcomeStatus: outcome.status,
-      targets: targets.map((target) => ({ ...target, execution: records.get(target.projectId) ?? null })),
-      nonTargetExecutions: [...records.values()].filter((record) => !targetProjectIds.has(record.summary.projectId)),
-    };
+    const read = await readOutcomeTargetExecutions(this.targetRepository, this.executionRepository, workspaceId, outcomeId);
+    if (!outcome || !read) throw new NotFoundError(`Outcome ${outcomeId} was not found in Workspace ${workspaceId}`);
+    return { outcomeId, outcomeStatus: outcome.status, ...read, evaluability: assessOutcomeEvaluability(read.targets) };
   }
 }

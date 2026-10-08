@@ -37,7 +37,8 @@ const fingerprint = (parts: string[]) => createHash("sha256").update([...parts].
  * - 未終了の Research Request → researcher
  * - 判断待ちの最新 Evaluation → strategist
  * - Story / Task の無い Outcome（未分解）→ manager
- * - 還流済みの Execution が終わり、その cursor で未評価の Outcome → evaluator
+ * - 全 Target Project から還流し incomplete が無く（`evaluability.status === "evaluable"`）、この Project の還流 cursor で
+ *   未評価の Outcome → evaluator。一部の Project の完了だけでは起動しない
  * - 上記のいずれも無い Active Intent（進行中の Outcome・未終了の Research・判断待ちの Evaluation が無い）→ strategist。
  *   Research の要否は起動された Strategist が判断する
  */
@@ -86,7 +87,7 @@ export const planDispatches = (state: OrchestrationState): Dispatch[] => {
     const execution = outcome.execution;
     if (
       execution &&
-      execution.state !== "incomplete" &&
+      outcome.evaluability.status === "evaluable" &&
       (evaluation === null || evaluation.executionCursor < execution.executionCursor)
     ) {
       dispatches.push({

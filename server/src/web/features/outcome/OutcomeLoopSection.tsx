@@ -47,7 +47,7 @@ const EvidenceList = ({ record }: { record: OutcomeExecutionRecord }) =>
   );
 
 const EvaluationCard = ({ evaluation, decisions }: { evaluation: OutcomeEvaluation; decisions: DirectionDecision[] }) => {
-  const evidenceById = new Map(evaluation.snapshot.evidence.map((item) => [item.id, item]));
+  const evidenceById = new Map(evaluation.snapshot.targets.flatMap((target) => target.evidence).map((item) => [item.id, item]));
   return (
     <article className="intent-card">
       <h4>
@@ -55,8 +55,17 @@ const EvaluationCard = ({ evaluation, decisions }: { evaluation: OutcomeEvaluati
         {formatTime(evaluation.createdAt)} の評価
       </h4>
       <p className="execution-meta">
-        {evaluation.principalId} ・ runRef <code>{evaluation.runRef}</code> ・ 評価時のExecution {executionStateLabels[evaluation.snapshot.execution.state]}（相関ID <code>{evaluation.snapshot.execution.correlationId}</code>）
+        {evaluation.principalId} ・ runRef <code>{evaluation.runRef}</code>
       </p>
+      <p className="section-label">評価時のTarget ProjectごとのExecution</p>
+      <ul className="grant-list">
+        {evaluation.snapshot.targets.map((target) => (
+          <li key={target.projectId}>
+            <span><code>{target.projectId}</code>{target.projectStatus === "archived" && <> （archived）</>}</span>
+            <small>{executionStateLabels[target.execution.state]} ・ 相関ID <code>{target.execution.correlationId}</code> ・ Evidence {target.evidence.length}件</small>
+          </li>
+        ))}
+      </ul>
       <ol className="criteria-list">
         {evaluation.criteria.map((criterion) => (
           <li key={criterion.criterionId}>

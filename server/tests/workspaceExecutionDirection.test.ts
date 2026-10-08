@@ -90,9 +90,9 @@ test("Workspace execution storage isolates each Project's cursor and Evidence an
     await assert.rejects(repository.record(workspace.id, foreign.id, input), { code: "NOT_FOUND" });
     await assert.rejects(repository.record(other.id, foreign.id, input), { code: "NOT_FOUND" });
     await assert.rejects(direction.recordExecutionEvidenceUseCase.execute("runtime", workspace.id, foreign.id, outcome.id, { changeCursor: 0 }), { code: "NOT_FOUND" });
-    // 全Target評価は後続Task。現行の単一source snapshotで複数Projectの片方だけを評価しない。
+    // 一部のTarget（A）の完了だけでは評価しない。BがExecution中の間は還流待ち。
     await assert.rejects(direction.recordOutcomeEvaluationUseCase.execute(workspace.id, "evaluator", outcome.id,
-      judgment(outcome, first.record.evidence[0]!.id)), { code: "CONFLICT", details: { reason: "multi_project_evaluation_required" } });
+      judgment(outcome, first.record.evidence[0]!.id)), { code: "CONFLICT", details: { reason: "awaiting_execution", unfinishedProjectIds: b.id } });
     const row = await database.selectFrom("outcome_execution_summary").selectAll().where("project_id", "=", a.id).executeTakeFirstOrThrow();
     await assert.rejects(database.insertInto("outcome_execution_summary").values({ ...row, project_id: foreign.id }).execute(), /FOREIGN KEY/);
     await assert.rejects(database.updateTable("outcome_execution_evidence").set({ workspace_id: other.id }).execute(), /FOREIGN KEY/);
@@ -113,12 +113,13 @@ test("Workspace Evaluation, Evidence and event/ack persist on file DB reopen, wi
     const { workspace, other, a, outcome, input, repository, direction } = kit;
     const saved = await repository.record(workspace.id, a.id, input);
     if (saved.kind !== "recorded") throw new Error("record missing");
+    await repository.record(workspace.id, kit.b.id, { ...input, executionCursor: 4, changeCursor: 4 });
     const args = judgment(outcome, saved.record.evidence[0]!.id);
     const result = await direction.recordOutcomeEvaluationUseCase.execute(workspace.id, "evaluator", outcome.id, args);
     assert.equal(result.evaluation.workspaceId, workspace.id);
     assert.equal("projectId" in result.evaluation, false);
-    assert.equal(result.evaluation.snapshot.execution.projectId, a.id);
-    assert.equal(result.evaluation.snapshot.execution.workspaceId, workspace.id);
+    // snapshotは全TargetのSummary・EvidenceをProject別に保持する。
+    assert.deepEqual(result.evaluation.snapshot.targets.map(target => [target.projectId, target.execution.executionCursor]), [[a.id, 10], [kit.b.id, 4]]);
     await assert.rejects(direction.recordOutcomeEvaluationUseCase.execute(other.id, "evaluator", outcome.id, args), { code: "NOT_FOUND" });
     assert.deepEqual(await database.selectFrom("outcome_evaluation").selectAll().where("workspace_id", "=", other.id).execute(), []);
     const activity = await database.selectFrom("activity").selectAll().where("type", "=", "outcome.evaluated").executeTakeFirstOrThrow();
@@ -149,10 +150,11 @@ test("Workspace Evaluation, Evidence and event/ack persist on file DB reopen, wi
 });
 
 test("Evaluation, event and canonical Activity roll back together; archived Workspace rejects new evaluations and execution", async () => {
-  const { database, direction, repository, input, workspace, a, outcome } = await setup();
+  const { database, direction, repository, input, workspace, a, b, outcome } = await setup();
   try {
     const saved = await repository.record(workspace.id, a.id, input);
     if (saved.kind !== "recorded") throw new Error("record missing");
+    await repository.record(workspace.id, b.id, input);
     const args = judgment(outcome, saved.record.evidence[0]!.id);
     await sql`create trigger reject_evaluation_activity before insert on activity when new.type = 'outcome.evaluated' begin select raise(abort, 'activity rejected'); end`.execute(database);
     await assert.rejects(direction.recordOutcomeEvaluationUseCase.execute(workspace.id, "evaluator", outcome.id, args), /activity rejected/);
@@ -162,6 +164,106 @@ test("Evaluation, event and canonical Activity roll back together; archived Work
     await assert.rejects(direction.recordOutcomeEvaluationUseCase.execute(workspace.id, "evaluator", outcome.id, args), { code: "CONFLICT", details: { workspaceStatus: "archived" } });
     assert.deepEqual(await repository.record(workspace.id, a.id, input), { kind: "workspace_archived" });
     assert.deepEqual(await repository.find(workspace.id, a.id, outcome.id), saved.record);
+  } finally { await database.destroy(); }
+});
+
+test("Outcome becomes evaluable only when every Target reflected a finished Execution, and the Evaluator gets all Targets", async () => {
+  const { database, services, direction, repository, input, workspace, a, b, outcome } = await setup();
+  try {
+    const evaluate = (evidenceId: string, requestKey: string) =>
+      direction.recordOutcomeEvaluationUseCase.execute(workspace.id, "evaluator", outcome.id, judgment(outcome, evidenceId, requestKey));
+    const context = () => direction.getEvaluatorContextUseCase.execute("evaluator", workspace.id, outcome.id);
+    const listed = () => direction.listOutcomeTargetExecutionsUseCase.execute(workspace.id, outcome.id);
+
+    // 還流前: 全Targetが未還流。
+    assert.deepEqual((await context()).evaluability, {
+      status: "awaiting_execution",
+      unfinishedTargets: [
+        { projectId: a.id, projectStatus: "active", reason: "not_reflected" },
+        { projectId: b.id, projectStatus: "active", reason: "not_reflected" },
+      ],
+    });
+    // Aだけ完了（Bは未還流）: 一部のProjectの完了だけでは評価しない。
+    const first = await repository.record(workspace.id, a.id, input);
+    if (first.kind !== "recorded") throw new Error("record missing");
+    const evidenceA = first.record.evidence[0]!.id;
+    await assert.rejects(evaluate(evidenceA, "partial"), { code: "CONFLICT", details: { reason: "awaiting_execution", unfinishedProjectIds: b.id } });
+    // Bが還流してもincompleteの間は評価しない。
+    await repository.record(workspace.id, b.id, { ...input, state: "incomplete", executionCursor: 3, changeCursor: 3 });
+    assert.deepEqual((await listed()).evaluability.unfinishedTargets, [{ projectId: b.id, projectStatus: "active", reason: "incomplete" }]);
+    await assert.rejects(evaluate(evidenceA, "incomplete"), { code: "CONFLICT", details: { reason: "awaiting_execution", unfinishedProjectIds: b.id } });
+
+    // 全Targetが完了: Evaluator Contextは全TargetのSummary・EvidenceをProject別に持ち、評価可能。
+    const second = await repository.record(workspace.id, b.id, { ...input, executionCursor: 5, changeCursor: 5,
+      evidence: [{ kind: "ci", uri: "https://ci.example.com/b", versionHash: null, observedAt: 1 }] });
+    if (second.kind !== "recorded") throw new Error("record missing");
+    const evidenceB = second.record.evidence.find(item => item.kind === "ci")!.id;
+    const ready = await context();
+    assert.deepEqual(ready.evaluability, { status: "evaluable", unfinishedTargets: [] });
+    assert.deepEqual(ready.targets.map(target => [target.projectId, target.projectStatus, target.execution?.summary.executionCursor]), [[a.id, "active", 10], [b.id, "active", 5]]);
+    assert.deepEqual((await listed()).evaluability, ready.evaluability);
+    // BのEvidenceを根拠にでき、snapshotはTargetごとのSummary・Evidenceを合算せずに保持する。
+    const evaluated = await evaluate(evidenceB, "all-targets");
+    assert.deepEqual(evaluated.evaluation.snapshot.targets.map(target => [target.projectId, target.execution.state, target.evidence.map(item => item.id)]), [
+      [a.id, "accepted", first.record.evidence.map(item => item.id)],
+      [b.id, "accepted", second.record.evidence.map(item => item.id)],
+    ]);
+
+    // archive前に完了を還流したTargetは、Project archiveだけを理由に評価から除外しない。
+    await services.archiveProjectUseCase.execute(b.id, { reason: "Done" });
+    const archivedDone = await context();
+    assert.deepEqual(archivedDone.evaluability, { status: "evaluable", unfinishedTargets: [] });
+    assert.deepEqual(archivedDone.targets.map(target => [target.projectId, target.projectStatus]), [[a.id, "active"], [b.id, "archived"]]);
+    const afterArchive = await evaluate(evidenceB, "archived-done");
+    assert.deepEqual(afterArchive.evaluation.snapshot.targets.map(target => [target.projectId, target.projectStatus]), [[a.id, "active"], [b.id, "archived"]]);
+    assert.equal(afterArchive.evaluation.criteria[0]!.evidenceIds[0], evidenceB);
+  } finally { await database.destroy(); }
+});
+
+test("Archived Target with unfinished Execution and an Outcome without Targets go back to the Strategist", async () => {
+  const { database, services, direction, repository, input, workspace, intent, a, b, outcome } = await setup();
+  try {
+    const context = (outcomeId: string) => direction.getEvaluatorContextUseCase.execute("evaluator", workspace.id, outcomeId);
+    const evaluate = (outcomeId: string, args: ReturnType<typeof judgment>) =>
+      direction.recordOutcomeEvaluationUseCase.execute(workspace.id, "evaluator", outcomeId, args);
+
+    // Targetなし: 評価せず、Strategistの判断へ戻す。
+    const untargeted = await direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
+      title: "Untargeted", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
+    });
+    assert.deepEqual([(await context(untargeted.id)).targets, (await context(untargeted.id)).evaluability], [[], { status: "no_targets", unfinishedTargets: [] }]);
+    await assert.rejects(evaluate(untargeted.id, { ...judgment(untargeted, "none", "untargeted"), criteria: [{ criterionId: untargeted.successCriteria[0]!.id, verdict: "insufficient_evidence", rationale: "None", evidenceIds: [] }] }),
+      { code: "CONFLICT", details: { reason: "no_targets", unfinishedProjectIds: "" } });
+
+    // archivedのTarget Bに未完了（incomplete）が残る: 還流待ちに留めず、Strategistの再計画対象。
+    const saved = await repository.record(workspace.id, a.id, input);
+    if (saved.kind !== "recorded") throw new Error("record missing");
+    await repository.record(workspace.id, b.id, { ...input, state: "incomplete", executionCursor: 3, changeCursor: 3 });
+    await services.archiveProjectUseCase.execute(b.id, { reason: "Stopped" });
+    assert.deepEqual((await context(outcome.id)).evaluability, {
+      status: "replan_required",
+      unfinishedTargets: [{ projectId: b.id, projectStatus: "archived", reason: "incomplete" }],
+    });
+    await assert.rejects(evaluate(outcome.id, judgment(outcome, saved.record.evidence[0]!.id, "replan")),
+      { code: "CONFLICT", details: { reason: "replan_required", unfinishedProjectIds: b.id } });
+    // 保存済みのSummary・Evidenceは保持する。
+    assert.equal((await repository.find(workspace.id, b.id, outcome.id))!.summary.state, "incomplete");
+
+    // StrategistがBをTargetから外すと、Aだけで評価可能になる。Bの記録は評価の入力にしない。
+    await direction.unsetOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, b.id);
+    const replanned = await context(outcome.id);
+    assert.deepEqual([replanned.evaluability.status, replanned.targets.map(target => target.projectId)], ["evaluable", [a.id]]);
+    const bEvidence = (await repository.find(workspace.id, b.id, outcome.id))!.evidence[0]!.id;
+    await assert.rejects(evaluate(outcome.id, judgment(outcome, bEvidence, "removed-target")), { code: "VALIDATION_ERROR" });
+    const result = await evaluate(outcome.id, judgment(outcome, saved.record.evidence[0]!.id, "after-replan"));
+    assert.deepEqual(result.evaluation.snapshot.targets.map(target => target.projectId), [a.id]);
+
+    // archivedのTarget Bが未還流でも同じくStrategistへ戻す。
+    const next = await direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
+      title: "Next", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
+    });
+    await direction.setOutcomeTargetProjectUseCase.execute(workspace.id, next.id, a.id);
+    await assert.rejects(direction.setOutcomeTargetProjectUseCase.execute(workspace.id, next.id, b.id), { code: "CONFLICT" });
   } finally { await database.destroy(); }
 });
 

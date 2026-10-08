@@ -9,6 +9,9 @@ import type {
   OutcomeEvaluationRequest,
 } from "../domain/OutcomeEvaluationRepository.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
+import { assessOutcomeEvaluability } from "../domain/OutcomeEvaluability.ts";
+import type { OutcomeTargetProjectRepository } from "../domain/OutcomeTargetProject.ts";
+import { readOutcomeTargetExecutions } from "./OutcomeTargetProjectUseCases.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
 import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import { parseRecordOutcomeEvaluationInput } from "./outcomeEvaluationSchema.ts";
@@ -24,7 +27,8 @@ export type RecordOutcomeEvaluationResult = {
 /**
  * Evaluatorが、Outcomeの固定Success Criteriaを1件ずつ観測結果で判定した内容を、追記のEvaluationとして保存する。
  * 総合結果（achieved / failed / insufficient_evidence）はCriterionの判定から導出し、Executionの`accepted`だけでは
- * `achieved`にならない。`met` / `not_met`は、このOutcomeに還流済みのEvidence参照を根拠に持たなければ保存できない。
+ * `achieved`にならない。全Targetから還流し`incomplete`が無い（評価可能な）Outcomeだけを評価し、snapshotへ全TargetのSummary・
+ * EvidenceをProject別に写す。`met` / `not_met`は、いずれかのTargetが還流したEvidence参照を根拠に持たなければ保存できない。
  * Outcome・Success Criteria・Executionの結果は変更しない。保存と同じtransactionで`outcome_evaluated`イベントを作り、
  * RuntimeがStrategistを起動する条件にする。再計画・Intent完了の判断はStrategistのDirection Decisionが行う（Task 36）。
  */
@@ -32,7 +36,8 @@ export class RecordOutcomeEvaluationUseCase {
   constructor(
     private readonly workspaceReader: DirectionWorkspaceReader,
     private readonly outcomeRepository: OutcomeRepository,
-    private readonly outcomeExecutionRepository: OutcomeExecutionRepository,
+    private readonly targetRepository: Pick<OutcomeTargetProjectRepository, "listByOutcome">,
+    private readonly outcomeExecutionRepository: Pick<OutcomeExecutionRepository, "findByOutcome">,
     private readonly outcomeEvaluationRepository: OutcomeEvaluationRepository,
     private readonly clock: () => number,
   ) {}
@@ -68,16 +73,36 @@ export class RecordOutcomeEvaluationUseCase {
         outcomeStatus: outcome.status,
       });
     }
-    const records = await this.outcomeExecutionRepository.findByOutcome(workspaceId, outcomeId);
-    if (records.length > 1) throw new ConflictError("Multiple Project evaluation requires the Target evaluation contract", { reason: "multi_project_evaluation_required" });
-    const execution = records[0] ?? null;
-    if (execution === null) {
-      throw new ConflictError(`Execution has not been reflected into Outcome ${outcomeId} yet`, {
-        reason: "no_execution_summary",
-      });
+    const read = await readOutcomeTargetExecutions(this.targetRepository, this.outcomeExecutionRepository, workspaceId, outcomeId);
+    if (!read) throw new NotFoundError(`Outcome ${outcomeId} was not found in Workspace ${workspaceId}`);
+    // 一部のTargetの完了だけでは評価しない。Targetなし・archived Targetの未完了はStrategist、activeなTargetの未完了は還流待ち。
+    const evaluability = assessOutcomeEvaluability(read.targets);
+    if (evaluability.status !== "evaluable") {
+      const unfinished = evaluability.unfinishedTargets.map((target) => `${target.projectId} (${target.projectStatus}, ${target.reason})`);
+      throw new ConflictError(
+        `Outcome ${outcomeId} is not evaluable: ${evaluability.status}${unfinished.length ? `; unfinished Targets: ${unfinished.join(", ")}` : ""}`,
+        { reason: evaluability.status, unfinishedProjectIds: evaluability.unfinishedTargets.map((target) => target.projectId).join(",") },
+      );
     }
 
-    const criteria = this.judge(outcome.successCriteria, parsed.criteria, new Set(execution.evidence.map((item) => item.id)));
+    const targets = read.targets.map(({ projectId, projectStatus, execution }) => {
+      // evaluableなら全Targetが還流済み。
+      const { summary, evidence } = execution!;
+      return {
+        projectId,
+        projectStatus,
+        execution: {
+          correlationId: summary.correlationId,
+          state: summary.state,
+          stories: summary.stories,
+          executionCursor: summary.executionCursor,
+          observedCursor: summary.observedCursor,
+        },
+        evidence: evidence.map(({ id, kind, uri, versionHash, observedAt }) => ({ id, kind, uri, versionHash, observedAt })),
+      };
+    });
+    const evidenceIds = new Set(targets.flatMap((target) => target.evidence.map((item) => item.id)));
+    const criteria = this.judge(outcome.successCriteria, parsed.criteria, evidenceIds);
     const snapshot: EvaluationSnapshot = {
       outcome: {
         title: outcome.title,
@@ -85,22 +110,7 @@ export class RecordOutcomeEvaluationUseCase {
         hypothesis: outcome.hypothesis,
         status: outcome.status,
       },
-      execution: {
-        workspaceId,
-        projectId: execution.summary.projectId,
-        correlationId: execution.summary.correlationId,
-        state: execution.summary.state,
-        stories: execution.summary.stories,
-        executionCursor: execution.summary.executionCursor,
-        observedCursor: execution.summary.observedCursor,
-      },
-      evidence: execution.evidence.map(({ id, kind, uri, versionHash, observedAt }) => ({
-        id,
-        kind,
-        uri,
-        versionHash,
-        observedAt,
-      })),
+      targets,
     };
 
     const saved = await this.outcomeEvaluationRepository.record(workspaceId, {
@@ -147,7 +157,7 @@ export class RecordOutcomeEvaluationUseCase {
         if (!evidenceIds.has(evidenceId)) {
           issues.push({
             path: `criteria.${index}.evidenceIds.${evidenceIndex}`,
-            message: `evidenceId ${evidenceId} is not an Evidence reference reflected into this Outcome`,
+            message: `evidenceId ${evidenceId} is not an Evidence reference reflected into this Outcome by its Target Projects`,
           });
         }
       });

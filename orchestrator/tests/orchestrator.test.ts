@@ -130,7 +130,7 @@ test("lease切れの実行は回収して再試行し、Roleのコマンドが�
     await orchestrator.drain();
     await restarted.drain();
 
-    kit.states.set("p-1", { ...baseState("p-1"), outcomes: [{ id: "o-1", status: "active", updatedAt: 1, work: null, execution: null, latestEvaluation: null }] });
+    kit.states.set("p-1", { ...baseState("p-1"), outcomes: [{ id: "o-1", status: "active", updatedAt: 1, work: null, execution: null, evaluability: { status: "no_targets", unfinishedTargets: [] }, latestEvaluation: null }] });
     const unconfigured = await restarted.tick();
     assert.equal(unconfigured.launched.length, 0);
     assert.equal(unconfigured.skipped[0]!.reason, "no command is configured for the manager Role");

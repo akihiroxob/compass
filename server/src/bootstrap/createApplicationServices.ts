@@ -291,13 +291,13 @@ export const createApplicationServices = (
     getStrategistContextUseCase: new GetStrategistContextUseCase(workspaceRepository, workspaceIntentRepository, workspaceOutcomeRepository,
       workspaceResearchRepository, workspaceDecisionRepository, outcomeEvaluationRepository, projectRepository, outcomeTargetProjectRepository),
     getEvaluatorContextUseCase: new GetEvaluatorContextUseCase(workspaceRepository, workspaceIntentRepository,
-      workspaceOutcomeRepository, outcomeExecutionRepository, outcomeEvaluationRepository),
+      workspaceOutcomeRepository, outcomeTargetProjectRepository, outcomeExecutionRepository, outcomeEvaluationRepository),
   };
   // Human認証・Membership（docs/step-6-human-auth-design.md）。Agent GrantのRepository・認可とは分離する。
   const workspaceDirection = {
     ...workspaceDirectionBasics,
     recordOutcomeEvaluationUseCase: new RecordOutcomeEvaluationUseCase(workspaceRepository, workspaceOutcomeRepository,
-      outcomeExecutionRepository, outcomeEvaluationRepository, clock),
+      outcomeTargetProjectRepository, outcomeExecutionRepository, outcomeEvaluationRepository, clock),
     listOutcomeEvaluationsUseCase: new ListOutcomeEvaluationsUseCase(workspaceRepository, workspaceOutcomeRepository, outcomeEvaluationRepository),
     recordExecutionEvidenceUseCase: new RecordExecutionEvidenceUseCase(projectRepository, workspaceOutcomeRepository,
       executionSummaryService, outcomeExecutionRepository, clock),
@@ -385,6 +385,7 @@ export const createApplicationServices = (
         researchRepository,
         directionDecisionRepository,
         outcomeEvaluationRepository,
+        outcomeTargetProjectRepository,
         outcomeExecutionRepository,
         executionSummaryService,
         clock,

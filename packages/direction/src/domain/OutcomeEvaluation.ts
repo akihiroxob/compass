@@ -42,12 +42,12 @@ export type EvaluationEvidenceSnapshot = {
   observedAt: number;
 };
 
-/** 評価に使った入力の、評価時点の写し。後からExecutionが進んでも、何を根拠に評価したかを辿れる。 */
-export type EvaluationSnapshot = {
-  outcome: { title: string; description: string; hypothesis: string | null; status: string };
+/** 評価時点の、Target 1件のExecution Summaryと、そのProjectが還流したEvidence参照。 */
+export type EvaluationTargetSnapshot = {
+  projectId: string;
+  /** 評価時点のProjectの状態。archivedでも、archive前に還流済みのExecutionは評価の入力に含める。 */
+  projectStatus: "active" | "archived";
   execution: {
-    workspaceId: string;
-    projectId: string;
     correlationId: string;
     state: ExecutionState;
     stories: readonly ExecutionStoryResult[];
@@ -55,6 +55,15 @@ export type EvaluationSnapshot = {
     observedCursor: number;
   };
   evidence: EvaluationEvidenceSnapshot[];
+};
+
+/**
+ * 評価に使った入力の、評価時点の写し。後からExecutionが進んでも、何を根拠に評価したかを辿れる。
+ * `targets`は評価時点の全Target（設定順）で、Project別のSummary・Evidenceを合算しない。
+ */
+export type EvaluationSnapshot = {
+  outcome: { title: string; description: string; hypothesis: string | null; status: string };
+  targets: EvaluationTargetSnapshot[];
 };
 
 /** Outcomeごとに追記する評価。作成後は変更しない（再評価は新しい行で、最新の評価が現在の結果）。 */

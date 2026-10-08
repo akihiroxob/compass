@@ -25,6 +25,6 @@ HumanはWeb UIから、Agentはstrategist GrantでMCPから操作する。主要
 
 WorkのStoryはOutcomeを参照し、作成時の成功条件等をsnapshotとして持つ。WorkによるTask受入はOutcome達成を意味しない。
 
-現在のEvaluationはevaluator Grantを持つAgentが全Criterionを`met` / `not_met` / `insufficient_evidence`で判定する。`met` / `not_met`には対象Outcomeへ還流済みのEvidence参照が必要。総合結果は全件metならachieved、not_metがあればfailed、それ以外はinsufficient_evidenceとして導出する。
+現在のEvaluationはevaluator Grantを持つAgentが全Criterionを`met` / `not_met` / `insufficient_evidence`で判定する。評価できるのは全Target ProjectからSummaryが還流し`incomplete`が無いOutcomeだけで、`met` / `not_met`にはいずれかのTargetが還流したEvidence参照が必要。総合結果は全件metならachieved、not_metがあればfailed、それ以外はinsufficient_evidenceとして導出する。
 
 Evaluation保存はOutcomeのstatusを変更しない。StrategistはEvaluationを根拠に次Outcome・追加調査・Intent完了等を判断する。実Agentによる自律運転は未検証。

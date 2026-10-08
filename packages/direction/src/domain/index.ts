@@ -6,6 +6,7 @@ export * from "./DirectionDecisionRepository.ts";
 export * from "./Intent.ts";
 export * from "./IntentRepository.ts";
 export * from "./Outcome.ts";
+export * from "./OutcomeEvaluability.ts";
 export * from "./OutcomeEvaluation.ts";
 export * from "./OutcomeEvaluationRepository.ts";
 export * from "./OutcomeExecution.ts";

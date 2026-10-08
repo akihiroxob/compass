@@ -643,7 +643,12 @@ export const createMcpServer = (
         "they were set, each with the Project's current status and execution = { summary, evidence } reflected from that Project by " +
         "record_execution_evidence (null until the Project's first reflection). Summaries and Evidence references are kept per Project " +
         "and never merged; a Target's accepted state does not mean the Outcome is achieved. nonTargetExecutions lists records reflected " +
-        "before their Project was removed from the Targets. Evidence content and Story / Task contents are not included.",
+        "before their Project was removed from the Targets and do not count for evaluability. evaluability = { status, " +
+        "unfinishedTargets } tells whether the Outcome can be evaluated: evaluable (every Target reflected and none incomplete), " +
+        "no_targets (the Strategist decides the Target Projects), replan_required (an archived Target still has no reflected Summary " +
+        "or an incomplete one; the Strategist replans) or awaiting_execution (an active Target has not finished). An archived Target " +
+        "whose finished Execution was reflected before the archive stays an evaluation input. Evidence content and Story / Task " +
+        "contents are not included.",
       inputSchema: { workspaceId: z.string().min(1), outcomeId: z.string().min(1) },
     },
     ({ workspaceId, outcomeId }) =>
@@ -1028,9 +1033,11 @@ export const createMcpServer = (
       title: "Get Evaluator Context",
       description:
         "Get what an Evaluator needs to evaluate one Outcome: the Workspace snapshot, the origin Intent, the Outcome with its fixed " +
-        "Success Criteria (id, position, description, measurement, target), execution (the Execution Summary and the Evidence " +
-        "references, each with an id, already reflected by record_execution_evidence; null until the first reflection, and an " +
-        "evaluation cannot be recorded before that) and evaluations (this Outcome's earlier Evaluations, newest first). " +
+        "Success Criteria (id, position, description, measurement, target), targets (every Target Project in the order it was set, " +
+        "with projectStatus and execution = { summary, evidence } reflected from that Project by record_execution_evidence, null until " +
+        "its first reflection; Summaries and Evidence stay per Project), evaluability (status evaluable | no_targets | " +
+        "replan_required | awaiting_execution with unfinishedTargets; an Evaluation can be recorded only when evaluable, i.e. every " +
+        "Target reflected and none incomplete) and evaluations (this Outcome's earlier Evaluations, newest first). " +
         "It never includes Evidence content: observe the referenced sources yourself. unavailable lists inputs that are not " +
         "available; do not assume or invent them. Requires Authorization: Bearer <AgentName> with an evaluator Grant in the " +
         "Workspace (UNAUTHENTICATED / FORBIDDEN otherwise).",
@@ -1046,16 +1053,17 @@ export const createMcpServer = (
       description:
         "Save an Evaluation of an active Outcome: one judgment per fixed Success Criterion (every Criterion exactly once) with " +
         "verdict met | not_met | insufficient_evidence, a rationale, and evidenceIds (ids from get_evaluator_context's " +
-        "execution.evidence). met and not_met require at least one evidenceId; use insufficient_evidence when the Evidence could not " +
+        "targets[].execution.evidence of any Target Project). met and not_met require at least one evidenceId; use insufficient_evidence when the Evidence could not " +
         "be observed - never guess success or failure. The overall result is derived by Compass, not sent: achieved only when every " +
         "Criterion is met; failed when any Criterion is not_met; otherwise insufficient_evidence. Execution being accepted does not " +
-        "make an Outcome achieved. The Evaluation is append-only, keeps a snapshot of the Outcome, Execution Summary and Evidence " +
-        "references at evaluation time, and is stored with the Principal from the Bearer and runRef. requestKey makes a resend " +
+        "make an Outcome achieved. The Evaluation is append-only, keeps a snapshot of the Outcome and of every Target's Execution " +
+        "Summary and Evidence references (per Project) at evaluation time, and is stored with the Principal from the Bearer and runRef. requestKey makes a resend " +
         "idempotent (recorded: false, the same Evaluation); the same requestKey with different content fails with CONFLICT. " +
         "It does not change the Outcome, its Success Criteria or the Execution result, and it does not decide the next Outcome or " +
         "Intent completion: a new Evaluation adds one outcome_evaluated Runtime event (a resend adds none) so that the Runtime starts " +
-        "a Strategist. An Outcome of another Workspace fails with NOT_FOUND; a non-active Outcome, an Outcome whose Execution has " +
-        "not been reflected yet (reason no_execution_summary), an Intent that is no longer active (reason intent_not_active) or an " +
+        "a Strategist. An Outcome of another Workspace fails with NOT_FOUND; a non-active Outcome, an Outcome that is not evaluable " +
+        "(reason no_targets, replan_required or awaiting_execution, with comma-separated unfinishedProjectIds; a part of the Target Projects finishing is " +
+        "not enough), an Intent that is no longer active (reason intent_not_active) or an " +
         "archived Workspace fails with CONFLICT. " +
         "Requires Authorization: Bearer <AgentName> with an evaluator Grant in the Workspace (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: outcomeEvaluationSchema,
