@@ -5,17 +5,28 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { sql } from "kysely";
 import {
+  DirectionReferenceLookupService,
+  SQLiteOutcomeRepository,
+  SQLiteOutcomeTargetProjectRepository,
+} from "@compass/direction";
+import { KyselyWorkStore, TaskCoordinationService, type DirectionReferenceLookupPort } from "@compass/work";
+import {
   CreateWorkspaceProjectUseCase,
   CreateWorkspaceUseCase,
   SQLiteProjectRepository,
   SQLiteWorkspaceRepository,
 } from "@compass/organization";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import { asDirectionDatabase, asOrganizationDatabase, asWorkDatabase } from "../src/bootstrap/database/contextDatabase.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { projectRepositoryReferenceFinder } from "../src/infrastructure/repository/contextAdapters.ts";
+import {
+  directionProjectReaders,
+  directionWorkspaceReaders,
+  projectRepositoryReferenceFinder,
+  workExternalReaders,
+} from "../src/infrastructure/repository/contextAdapters.ts";
 import { createSignedInApp, seedWorkspaceGrant } from "./support/humanSession.ts";
 
 type Database = ReturnType<typeof createDatabase>;
@@ -351,6 +362,55 @@ test("Story handoff: one Outcome yields a Story per Target Project; non-Target a
     }
   } finally {
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Story handoff: a Target removed after the Outcome snapshot and before the Story is saved rejects the new Story; replays still return the created Story", async () => {
+  const { database, services, workspace, outcome, a, b } = await setup();
+  try {
+    await seedProjectGrant(database, a.id, "manager-a", "manager");
+    await seedProjectGrant(database, b.id, "manager-b", "manager");
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, a.id);
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, b.id);
+    const direction = asDirectionDatabase(database);
+    const lookup = new DirectionReferenceLookupService(
+      new SQLiteProjectRepository(asOrganizationDatabase(database), projectRepositoryReferenceFinder),
+      new SQLiteOutcomeRepository(direction, directionWorkspaceReaders),
+      new SQLiteOutcomeTargetProjectRepository(direction, directionProjectReaders, directionWorkspaceReaders),
+    );
+    // Story処理がTargetを含むsnapshotを取得した直後、保存transactionの前に、別操作のTarget解除をcommitさせる。
+    let unsetAfterSnapshot: string | null = null;
+    const racingLookup: DirectionReferenceLookupPort = {
+      getProjectExecutionContext: (projectId) => lookup.getProjectExecutionContext(projectId),
+      getOutcomeSnapshot: async (workspaceId, outcomeId) => {
+        const snapshot = await lookup.getOutcomeSnapshot(workspaceId, outcomeId);
+        if (unsetAfterSnapshot !== null) {
+          await services.unsetOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, unsetAfterSnapshot);
+          unsetAfterSnapshot = null;
+        }
+        return snapshot;
+      },
+    };
+    const coordination = new TaskCoordinationService(new KyselyWorkStore(asWorkDatabase(database), workExternalReaders), racingLookup);
+    const input = (projectId: string) => ({ projectId, title: "Deliver", outcomeId: outcome.id });
+
+    const created = await coordination.issueStory("manager-a", input(a.id), "story-a");
+    unsetAfterSnapshot = b.id;
+    await assert.rejects(coordination.issueStory("manager-b", input(b.id), "story-b"), {
+      code: "CONFLICT",
+      details: { reason: "not_target_project" },
+    });
+    assert.equal(unsetAfterSnapshot, null);
+    assert.deepEqual(await services.listOutcomeTargetProjectsUseCase.execute(workspace.id, outcome.id).then((targets) => targets.map((target) => target.projectId)), [a.id]);
+    assert.deepEqual(await database.selectFrom("story").select("id").where("project_id", "=", b.id).execute(), []);
+
+    // 作成済みStoryの再送は、Target解除後も元のStoryを返す（同じrequestId・同じ相関ID）。
+    await services.unsetOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, a.id);
+    assert.equal((await coordination.issueStory("manager-a", input(a.id), "story-a")).id, created.id);
+    assert.equal((await coordination.issueStory("manager-a", input(a.id), "story-a-again")).id, created.id);
+    assert.deepEqual((await database.selectFrom("story").select("id").where("project_id", "=", a.id).execute()).map((row) => row.id), [created.id]);
+  } finally {
+    await database.destroy();
   }
 });
 

@@ -130,14 +130,22 @@ export interface ProjectStateReader {
 }
 
 /**
+ * Outcome Target（Directionが所有）の読取。Story作成の保存と同じtransactionで、ProjectがOutcomeのTargetであることを再検査する。
+ */
+export interface OutcomeTargetReader {
+  isTarget(outcomeId: string, projectId: string): Promise<boolean>;
+}
+
+/**
  * Workのrecordの読み書き（Unit of Work）。`transaction`の中で受け取ったstoreの操作は、同じtransactionで実行される。
- * Project状態・Grantの読取もそのtransactionに含める（SQLiteでは接続を1本で共有するため、外で読まない）。
+ * Project状態・Grant・Outcome Targetの読取もそのtransactionに含める（SQLiteでは接続を1本で共有するため、外で読まない）。
  */
 export interface WorkStore {
   transaction<T>(work: (store: WorkStore) => Promise<T>): Promise<T>;
 
   readonly grants: ProjectGrantReader;
   readonly projects: ProjectStateReader;
+  readonly outcomeTargets: OutcomeTargetReader;
 
   findStory(storyId: string): Promise<StoryRecord | null>;
   findStoryInProject(projectId: string, storyId: string): Promise<StoryRecord | null>;

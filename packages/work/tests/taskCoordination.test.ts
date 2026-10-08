@@ -43,6 +43,7 @@ const createService = () =>
         exists: async (projectId) => (await sql`select id from project where id = ${projectId}`.execute(database)).rows.length > 0,
         isArchived: async (projectId) => archivedProjects.has(projectId),
       },
+      outcomeTargets: { isTarget: async () => assert.fail("Directionを参照しない操作でOutcome Targetを読んではならない") },
     })),
     noDirectionReferences,
     () => now,

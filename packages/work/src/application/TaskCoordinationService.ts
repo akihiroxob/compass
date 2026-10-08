@@ -1652,11 +1652,18 @@ export class TaskCoordinationService {
           throw new CoordinationError("INVALID_INPUT", "Story references could not be resolved; retry the request");
         }
 
+        const outcome = references?.outcome ?? null;
+        // snapshotはtransactionの外で読むため、保存と同じtransactionでTargetを再検査する。取得後に解除された古い検査結果では作らない。
+        if (outcome !== null && !(await store.outcomeTargets.isTarget(outcome.outcomeId, input.projectId))) {
+          throw new ConflictError(`Project ${input.projectId} is not a Target Project of Outcome ${outcome.outcomeId}`, {
+            reason: "not_target_project",
+          });
+        }
+
         const maxSortOrder = await store.maxStorySortOrder(input.projectId);
         const now = this.clock();
         const id = crypto.randomUUID();
         const sortOrder = (maxSortOrder ?? 0) + 1;
-        const outcome = references?.outcome ?? null;
         const row = await store.insertStory({
             id,
             project_id: input.projectId,
