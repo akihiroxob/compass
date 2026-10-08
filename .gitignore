@@ -156,3 +156,6 @@ apm_modules/
 
 # Compass Ralph の Operational Log
 .compass-ralph/
+
+# Ralph のローカル停止状態
+.ralph/pauses/
