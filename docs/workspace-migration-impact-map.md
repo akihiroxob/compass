@@ -202,7 +202,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | Work tools（`list_stories`〜`reject_task`、`registerExecutionTools.ts`） | `projectId` | 変更なし。`issue_story`のOutcome参照検査と、Manager向けProject scopeの`get_outcome_handoff_context`追加だけS04-03 | S04-03 |
 | `record_activity` / `list_activities` / `get_activity` | `projectId` | workspace scopeの記録・取得を追加 | S07-01、S07-02 |
 
-`X-Compass-Active-Role`の解決（`server/src/auth/resolvePrincipal.ts`）は`projectRoles`だけを受け付ける。Workspace Roleを加えるときにscopeとの組合せ検証をS06-02・S06-04で行う。
+`X-Compass-Active-Role`の解決（`server/src/auth/resolvePrincipal.ts`）は`projectRoles`（Workspace Role・Project Role・`runtime`）を受け付け、scopeとの組合せはAccessが操作ごとに検査する（S06-02で実装）。公開済みのMCP・Web API・Project Role Context・Runtime向けAPIの入口横断の検証はS06-04（`server/tests/scopeAuthorization.test.ts`）。
 
 ### Web API（`server/src/bootstrap/app.ts`）
 
@@ -213,7 +213,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `/api/workspaces/:workspaceId/outcomes/:outcomeId/target-projects`（GET） | Target Projectの参照（Workspace Membership）。設定・解除はStrategistのMCPだけ（S04-01で実装済み） | S04-01 |
 | `/api/workspaces/:workspaceId/intents/:intentId/outcome-target-work`（GET） | OutcomeごとのTarget別Work要約（Workspace Membership。S04-04で実装済み） | S04-04 |
 | `/api/projects/:projectId/grants`・`/credentials` | Workspace用のGrant・Credentialの入口を追加。ProjectのものはProject Roleに限る | S06-02、S06-03、S11-03 |
-| `/api/projects/:projectId/members`・`/invitations` | 維持。WorkspaceMembershipの入口を追加（use caseはS06-01で実装済み） | S06-04、S11-03 |
+| `/api/projects/:projectId/members`・`/invitations` | 維持。WorkspaceMembershipの管理入口を追加（use caseはS06-01で実装済み。S06-04は公開済み入口の非継承だけを検証し、管理入口は追加しない） | S11-03 |
 | `/api/projects/:projectId/execution`・`/changes`・`/stories`・`/tasks…` | 変更なし | — |
 | `/api/projects/:projectId/activities…` | 維持し、Workspace Activityの入口を追加 | S07-02 |
 | `/api/auth/*`・`/auth/*`・`/health` | 変更なし | — |
