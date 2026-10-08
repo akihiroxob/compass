@@ -232,3 +232,48 @@ test("MCP: a Workspace strategist sets and removes Targets; other Roles are forb
     await database.destroy();
   }
 });
+
+test("Strategist Context: active Project summaries (purpose and references only) and current Targets are the Target decision input", async () => {
+  const { database, services, workspace, intent, outcome, a, b, c } = await setup();
+  try {
+    await services.updateProjectUseCase.execute(a.id, {
+      description: "Consumer app",
+      repositories: [{ name: "app", url: "https://example.com/app.git" }],
+      resources: [{ name: "spec", url: "https://example.com/spec", kind: "docs" }],
+    });
+    await services.archiveProjectUseCase.execute(c.id, { reason: "Retired" });
+    const cancelled = await services.createOutcomeUseCase.execute(workspace.id, intent.id, outcomeInput);
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, cancelled.id, b.id);
+    await services.cancelOutcomeUseCase.execute(workspace.id, intent.id, cancelled.id, { reason: "Replan" });
+    await seedWorkspaceGrant(database, workspace.id, "strategist-agent", "strategist");
+    await seedWorkspaceGrant(database, workspace.id, "researcher-agent", "researcher");
+    const app = await createSignedInApp(database, services);
+
+    const empty = (await callTool(app, "get_strategist_context", { workspaceId: workspace.id }, "strategist-agent")).structuredContent;
+    // archivedのProject・別WorkspaceのProjectは選択肢に含めない。Resourceは参照（名前・URL・種類）だけ。
+    assert.deepEqual(empty.projects.map((project: { id: string }) => project.id), [a.id, b.id]);
+    const summary = empty.projects[0];
+    assert.deepEqual(Object.keys(summary).sort(), ["description", "id", "name", "repositories", "resources"]);
+    assert.equal(summary.description, "Consumer app");
+    assert.deepEqual(summary.repositories.map((item: { name: string; url: string }) => [item.name, item.url]), [["app", "https://example.com/app.git"]]);
+    assert.deepEqual(Object.keys(summary.resources[0]).sort(), ["id", "kind", "name", "url"]);
+    // Targetなしの有効なOutcomeと、取消済みOutcomeのTargetを区別できる。
+    assert.deepEqual(empty.outcomeTargets.map((target: { outcomeId: string; projectId: string }) => [target.outcomeId, target.projectId]), [[cancelled.id, b.id]]);
+
+    const added = await callTool(app, "set_outcome_target", { workspaceId: workspace.id, outcomeId: outcome.id, projectId: a.id }, "strategist-agent");
+    assert.equal(added.isError, undefined);
+    await services.archiveProjectUseCase.execute(a.id, { reason: "Moved" });
+    const after = (await callTool(app, "get_strategist_context", { workspaceId: workspace.id }, "strategist-agent")).structuredContent;
+    assert.deepEqual(after.projects.map((project: { id: string }) => project.id), [b.id]);
+    assert.deepEqual(
+      after.outcomeTargets
+        .filter((target: { outcomeId: string }) => target.outcomeId === outcome.id)
+        .map((target: { projectId: string; projectStatus: string }) => [target.projectId, target.projectStatus]),
+      [[a.id, "archived"]],
+    );
+
+    assert.equal((await callTool(app, "get_strategist_context", { workspaceId: workspace.id }, "researcher-agent")).structuredContent.error.code, "FORBIDDEN");
+  } finally {
+    await database.destroy();
+  }
+});

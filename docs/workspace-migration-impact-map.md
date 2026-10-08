@@ -166,7 +166,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `application/port/ExecutionSummaryPort.ts`、Workの`ExecutionSummaryService.ts` | `getOutcomeExecutionSummary(projectId, outcomeId)` | 形は維持し、Target Projectごとに呼ぶ | S05-01 |
 | `application/DirectionReferenceLookupService.ts`、Workの`port/DirectionReferenceLookupPort.ts` | `findByIdInProject`でOutcomeを取り、Project Constraintsをsnapshot | Outcome（Workspace）・Target・Project所属Workspaceの一致を検査し、ConstraintsはWorkspaceから取る。Repository参照はProjectのまま | S04-03 |
 | `GetOrchestrationStateUseCase.ts`（`OrchestrationState.project`） | 1 Projectの状態 | Workspace単位の集約（Outcomes・Targets・Project別Work summary） | S08-01 |
-| `GetStrategistContextUseCase.ts`・`GetResearcherContextUseCase.ts`・`GetEvaluatorContextUseCase.ts` | `project`全体と`projectId`で集約 | Workspace Context（Mission等・Project要約・Target） | S03-02、S04-02、S05-02、S07-03 |
+| `GetStrategistContextUseCase.ts`・`GetResearcherContextUseCase.ts`・`GetEvaluatorContextUseCase.ts` | `project`全体と`projectId`で集約 | Workspace Context（Mission等・Project要約・Target）。StrategistのProject要約・Targetは実装済み（S04-02） | S03-02、S04-02、S05-02、S07-03 |
 | `outcomeCorrelation.ts`（`outcome:{outcomeId}`） | Project非依存 | 変更なし | — |
 | `packages/work/src/application/TaskCoordinationService.ts`・`ExecutionOperatorUseCases.ts`・`ExecutionReadUseCases.ts` | Project scope、`ProjectGrantReader`・`ProjectStateReader` | 変更なし。`issue_story`のOutcome参照検査だけS04-03で変わる | S04-03 |
 | `packages/access/src/domain/ProjectRole.ts`、`application/ProjectAuthorizationService.ts`・`GrantProjectRoleUseCase.ts`・`RevokeProjectRoleUseCase.ts`・`ListProjectGrantsUseCase.ts`・`projectGrantSchema.ts` | 7 RoleをProject scopeに集約 | Workspace Role（strategist / researcher / evaluator）とProject Role（manager / worker / reviewer）に分け、Role-scopeの組合せを検証 | S06-02 |

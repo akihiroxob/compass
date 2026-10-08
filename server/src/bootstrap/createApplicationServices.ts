@@ -287,7 +287,7 @@ export const createApplicationServices = (
   const workspaceContexts = {
     getResearcherContextUseCase: new GetResearcherContextUseCase(workspaceRepository, workspaceIntentRepository, workspaceResearchRepository),
     getStrategistContextUseCase: new GetStrategistContextUseCase(workspaceRepository, workspaceIntentRepository, workspaceOutcomeRepository,
-      workspaceResearchRepository, workspaceDecisionRepository, outcomeEvaluationRepository),
+      workspaceResearchRepository, workspaceDecisionRepository, outcomeEvaluationRepository, projectRepository, outcomeTargetProjectRepository),
     getEvaluatorContextUseCase: new GetEvaluatorContextUseCase(workspaceRepository, workspaceIntentRepository,
       workspaceOutcomeRepository, outcomeExecutionRepository, outcomeEvaluationRepository),
   };

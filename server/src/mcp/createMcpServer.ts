@@ -459,6 +459,10 @@ export const createMcpServer = (
       description:
         "Get what a Strategist needs to decide the next Outcome: the Workspace (Mission, Vision, Principles, Constraints, status), " +
         "its active Intent (null if none), every Outcome under that Intent including cancelled ones, " +
+        "projects (the Workspace's active Projects in creation order: id, name, description as the Project purpose, and " +
+        "Repository / Resource references with name, url and kind; Resource content is not included), outcomeTargets (the current " +
+        "Target Projects of those Outcomes, in Outcome order then set order, with projectStatus active | archived; use them with " +
+        "projects to decide whether an Outcome needs Targets and which, then call set_outcome_target / unset_outcome_target), " +
         "and research (the Intent Brief: this Intent's Research Requests including cancelled ones, and the latest, " +
         "non-superseded Synthesis of each still-open request with its risks/options/unknowns, findingIds, validAsOf and a stale " +
         "flag when a cited Finding has expired; conflicts lists Finding id pairs that were declared to contradict each other, " +
