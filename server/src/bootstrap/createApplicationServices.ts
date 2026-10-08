@@ -32,6 +32,7 @@ import {
   ListIntentsUseCase,
   ListOutcomeEvaluationsUseCase,
   ListOutcomeTargetProjectsUseCase,
+  ListOutcomeTargetExecutionsUseCase,
   ListOutcomeTargetWorkUseCase,
   ListOutcomesUseCase,
   ListResearchRequestsUseCase,
@@ -304,6 +305,9 @@ export const createApplicationServices = (
     // Target別のWork要約。WorkのStory / Taskは読取専用ポートで数えるだけで、Directionへ複製しない。
     listOutcomeTargetWorkUseCase: new ListOutcomeTargetWorkUseCase(workspaceRepository, workspaceIntentRepository,
       workspaceOutcomeRepository, outcomeTargetProjectRepository, executionSummaryService),
+    // Target別に還流済みのExecution Summary・Evidence参照（Directionが保存した記録だけを読む）。
+    listOutcomeTargetExecutionsUseCase: new ListOutcomeTargetExecutionsUseCase(workspaceRepository, workspaceOutcomeRepository,
+      outcomeTargetProjectRepository, outcomeExecutionRepository),
     listRuntimeEventsUseCase: new ListRuntimeEventsUseCase(workspaceRepository, runtimeEventRepository),
     fetchRuntimeEventsUseCase: new FetchRuntimeEventsUseCase(workspaceRepository, runtimeEventRepository),
     ackRuntimeEventUseCase: new AckRuntimeEventUseCase(workspaceRepository, runtimeEventRepository, clock),
@@ -432,6 +436,7 @@ export const createApplicationServices = (
     unsetOutcomeTargetProjectUseCase: workspaceDirection.unsetOutcomeTargetProjectUseCase,
     listOutcomeTargetProjectsUseCase: workspaceDirection.listOutcomeTargetProjectsUseCase,
     listOutcomeTargetWorkUseCase: workspaceDirection.listOutcomeTargetWorkUseCase,
+    listOutcomeTargetExecutionsUseCase: workspaceDirection.listOutcomeTargetExecutionsUseCase,
     createResearchRequestUseCase: workspaceDirection.createResearchRequestUseCase,
     listResearchRequestsUseCase: workspaceDirection.listResearchRequestsUseCase,
     getResearchRequestUseCase: workspaceDirection.getResearchRequestUseCase,
@@ -553,6 +558,7 @@ export const createApplicationServices = (
     listOutcomeEvaluations: workspaceAuthorized("workspace.read", services.listOutcomeEvaluationsUseCase),
     listOutcomeTargetProjects: workspaceAuthorized("workspace.read", services.listOutcomeTargetProjectsUseCase),
     listOutcomeTargetWork: workspaceAuthorized("workspace.read", services.listOutcomeTargetWorkUseCase),
+    listOutcomeTargetExecutions: workspaceAuthorized("workspace.read", services.listOutcomeTargetExecutionsUseCase),
     grantProjectRole: authorized("grant.manage", services.grantProjectRoleUseCase),
     revokeProjectRole: authorized("grant.manage", services.revokeProjectRoleUseCase),
     listProjectGrants: authorized("grant.read", services.listProjectGrantsUseCase),

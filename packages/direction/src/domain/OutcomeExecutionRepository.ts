@@ -37,6 +37,8 @@ export type RecordOutcomeExecutionResult =
       evidenceAdded: number;
     }
   | { kind: "evidence_limit_exceeded"; limit: number }
+  /** ProjectがOutcomeのTargetでない（Target解除後を含む）。保存済みの要約・Evidenceは変えない。 */
+  | { kind: "not_target_project" }
   | ProjectArchivedResult
   | WorkspaceArchivedResult;
 
@@ -46,11 +48,12 @@ export type RecordOutcomeExecutionResult =
  */
 export interface OutcomeExecutionRepository {
   /**
-   * 1 transactionで、要約を「Execution cursorが進むときだけ」上書きし、Evidenceを`(Outcome, Project, kind, uri, versionHash)`で
-   * 重複なく追記する。同じ入力の再送は何も増やさない。
+   * 1 transactionで、ProjectがOutcomeの現在のTargetであることを検査し、要約を「Execution cursorが進むときだけ」上書きし、
+   * Evidenceを`(Outcome, Project, kind, uri, versionHash)`で重複なく追記する。同じ入力の再送は何も増やさない。
    */
   record(workspaceId: string, projectId: string, input: RecordOutcomeExecutionInput): Promise<RecordOutcomeExecutionResult>;
   /** まだ還流されていないOutcomeはnull。 */
   find(workspaceId: string, projectId: string, outcomeId: string): Promise<OutcomeExecutionRecord | null>;
+  /** OutcomeのProject別の記録をProject ID順に返す。Projectの数によらず一定回数で読む。 */
   findByOutcome(workspaceId: string, outcomeId: string): Promise<OutcomeExecutionRecord[]>;
 }

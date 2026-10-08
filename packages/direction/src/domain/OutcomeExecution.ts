@@ -74,5 +74,8 @@ export type OutcomeExecutionRecord = {
   readonly evidence: readonly OutcomeExecutionEvidence[];
 };
 
-/** 1 Outcomeに保持するEvidence参照の上限。参照の無制限な蓄積を防ぐ。 */
-export const maximumEvidencePerOutcome = 200;
+/**
+ * 1 Outcome・1 Projectに保持するEvidence参照の上限。参照の無制限な蓄積を防ぐ。Target Projectごとに数え、
+ * 1つのProjectの還流が他のTarget ProjectのEvidenceを締め出さないようにする。
+ */
+export const maximumEvidencePerOutcomeProject = 200;

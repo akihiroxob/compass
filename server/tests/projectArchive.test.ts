@@ -488,7 +488,7 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       "get_outcome_execution_summary", "get_evaluator_context", "record_outcome_evaluation", "get_strategist_context", "list_adr_references", "list_intents", "list_outcomes", "list_projects",
       "list_research_requests", "record_adr_reference",
       // Target Projectの設定・解除はOutcomeとProjectの関連だけで、Projectのarchive・削除ではない。
-      "list_outcome_targets", "list_outcome_target_work", "set_outcome_target", "unset_outcome_target",
+      "list_outcome_targets", "list_outcome_target_work", "list_outcome_target_executions", "set_outcome_target", "unset_outcome_target",
       "record_execution_evidence", "register_research_result", "register_research_synthesis", "update_intent", "update_outcome", "update_project",
       // Execution（Story / Task / Claim）。archive・delete・restoreに当たるtoolは無い（cancelは取消であり削除ではない）。
       "accept_task", "add_task_comment", "cancel_story", "cancel_task", "claim_acceptance", "claim_review", "claim_task",

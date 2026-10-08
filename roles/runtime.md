@@ -79,7 +79,8 @@ Execution の進行を Direction（Outcome）へ還流するのは Runtime の�
 
 - 応答の `summary.state` は Compass が Execution の現在の状態から導出した `accepted` / `rejected` / `canceled` / `incomplete`。Runtime が状態を指定することはできない。`accepted` は Success Criterion を満たしたことを意味しない（判定は Evaluation）
 - 同じ通知・同じ Evidence の再送は重複しない（`recorded.evidenceAdded: 0`）。応答が失われたら同じ内容を再送してよい。古い `changeCursor`（順序逆転）は状態を巻き戻さず、現在の状態が返る（`recorded.staleInput: true`）。Runtime 再起動後は保持した cursor（失った場合は 0）から再取得して再送してよい
-- `NOT_FOUND`（別 Project・存在しない Outcome）、`CONFLICT`（Story 未着手 `reason: no_correlated_story`・取消済み Outcome・archived Project・Evidence 上限 200 件）、`VALIDATION_ERROR`（不正な URI / SHA / 時刻、Change Log より先の `changeCursor`）。未着手の `CONFLICT` は Manager の `issue_story` 後に再試行できる。それ以外は再試行しても成功しないため、理由を残して打ち切る
+- 還流できるのは Outcome の現在の Target Project だけで、Summary・Evidence は Project ごとに保存される（同じ URI を複数 Project が報告しても Project 別に残る）
+- `NOT_FOUND`（別 Project・存在しない Outcome）、`CONFLICT`（Story 未着手 `reason: no_correlated_story`・Target でない Project `reason: not_target_project`・取消済み Outcome・archived Project・Project ごとの Evidence 上限 200 件）、`VALIDATION_ERROR`（不正な URI / SHA / 時刻、Change Log より先の `changeCursor`）。未着手の `CONFLICT` は Manager の `issue_story` 後に再試行できる。それ以外は再試行しても成功しないため、理由を残して打ち切る
 - 還流済みの内容は `get_outcome_execution_summary({ projectId, outcomeId })` で確認できる（未還流は `record: null`）
 - `execution:evidence:write` / `execution:summary:read` scope が必要
 

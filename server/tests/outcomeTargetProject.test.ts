@@ -630,3 +630,130 @@ test("Target Work: archived Targets keep their Work summary and the query count 
     await database.destroy();
   }
 });
+
+test("Target Execution: each Target reflects its own Summary and Evidence; non-Target Projects are rejected; the Outcome aggregates them per Project", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "compass-target-execution-"));
+  const path = join(directory, "compass.db");
+  try {
+    const { database, services, workspace, outcome, a, b, c, other } = await setup(path);
+    const app = await createSignedInApp(database, services);
+    for (const project of [a, b, c]) {
+      for (const role of ["manager", "worker", "reviewer", "runtime"]) await seedProjectGrant(database, project.id, `${role}-${project.name}`, role);
+    }
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, a.id);
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, b.id);
+    const ok = async (result: Promise<Awaited<ReturnType<typeof callTool>>>) => {
+      const value = await result;
+      assert.equal(value.isError, undefined, JSON.stringify(value.structuredContent));
+      return value.structuredContent;
+    };
+    const handoff = async (project: typeof a) => {
+      const story = await ok(callTool(app, "issue_story", { projectId: project.id, title: "Deliver", outcomeId: outcome.id, requestId: `story-${project.name}` }, `manager-${project.name}`));
+      const task = await ok(callTool(app, "issue_task", { projectId: project.id, storyId: story.id, title: "Do", taskKey: "do", requestId: `task-${project.name}` }, `manager-${project.name}`));
+      return task.id as string;
+    };
+    const accept = async (project: typeof a, taskId: string) => {
+      const step = (label: string) => `${label}-${project.name}`;
+      const work = await ok(callTool(app, "claim_task", { taskId, requestId: step("claim") }, `worker-${project.name}`));
+      await ok(callTool(app, "add_task_comment", { taskId, claimId: work.claimId, body: "done", requestId: step("comment") }, `worker-${project.name}`));
+      await ok(callTool(app, "complete_task", { taskId, claimId: work.claimId, requestId: step("complete") }, `worker-${project.name}`));
+      const review = await ok(callTool(app, "claim_review", { taskId, requestId: step("review") }, `reviewer-${project.name}`));
+      await ok(callTool(app, "reviewed_task", { taskId, claimId: review.claimId, requestId: step("reviewed") }, `reviewer-${project.name}`));
+      const acceptance = await ok(callTool(app, "claim_acceptance", { taskId, requestId: step("acceptance") }, `manager-${project.name}`));
+      await ok(callTool(app, "accept_task", { taskId, claimId: acceptance.claimId, requestId: step("accept") }, `manager-${project.name}`));
+    };
+    const headOf = async (project: typeof a) =>
+      (await ok(callTool(app, "list_changes", { projectId: project.id, afterCursor: 0 }, `manager-${project.name}`))).nextCursor as number;
+    const pr = (number: number, character: string) => ({
+      kind: "pull_request", uri: `https://github.com/example/compass/pull/${number}`, versionHash: character.repeat(40), observedAt: Date.now() - 1_000,
+    });
+    const reflect = async (project: typeof a, evidence: object[]) =>
+      callTool(app, "record_execution_evidence", { projectId: project.id, outcomeId: outcome.id, changeCursor: await headOf(project), evidence }, `runtime-${project.name}`);
+    const list = () => services.listOutcomeTargetExecutionsUseCase.execute(workspace.id, outcome.id);
+
+    // 還流前: Target A / Bはどちらも`execution: null`。
+    const initial = await list();
+    assert.deepEqual(initial.targets.map((target) => [target.projectId, target.execution]), [[a.id, null], [b.id, null]]);
+    assert.deepEqual(initial.nonTargetExecutions, []);
+
+    // Aは受入済み、Bは未完了。同じPRのURIをA / Bが報告しても、Project別のEvidenceとして保持する。
+    await accept(a, await handoff(a));
+    await handoff(b);
+    await ok(reflect(a, [pr(1, "a")]));
+    await ok(reflect(b, [pr(1, "a"), pr(2, "b")]));
+    const reflected = await list();
+    const [targetA, targetB] = reflected.targets;
+    assert.deepEqual([targetA!.execution!.summary.projectId, targetA!.execution!.summary.state], [a.id, "accepted"]);
+    assert.deepEqual([targetB!.execution!.summary.projectId, targetB!.execution!.summary.state], [b.id, "incomplete"]);
+    assert.deepEqual(targetA!.execution!.evidence.map((item) => [item.projectId, item.uri]), [[a.id, "https://github.com/example/compass/pull/1"]]);
+    assert.deepEqual(targetB!.execution!.evidence.map((item) => item.projectId), [b.id, b.id]);
+    // 相関IDはOutcomeのもので一致し、Evidenceは参照だけで本文を持たない。
+    for (const target of reflected.targets) assert.equal(target.execution!.summary.correlationId, `outcome:${outcome.id}`);
+    assert.deepEqual(Object.keys(targetA!.execution!.evidence[0]!).sort(),
+      ["createdAt", "id", "kind", "observedAt", "outcomeId", "principalId", "projectId", "sourceChangeCursor", "uri", "versionHash", "workspaceId"]);
+
+    // Target外のProject C（Target設定前のStoryがあっても）は還流できず、何も保存しない。
+    await database.insertInto("story").values({
+      id: "story-c", project_id: c.id, title: "Story", description: null, status: "todo", sort_order: 0,
+      created_at: 1, updated_at: 1, outcome_ref: outcome.id, origin_decision_id: null, success_criteria_snapshot: null,
+      constraints_snapshot: null, repository_snapshot: null, correlation_id: `outcome:${outcome.id}`,
+    }).execute();
+    const rejected = await reflect(c, [pr(3, "c")]);
+    assert.equal(rejected.isError, true);
+    assert.deepEqual([rejected.structuredContent.error.code, rejected.structuredContent.error.reason], ["CONFLICT", "not_target_project"]);
+    assert.equal((await database.selectFrom("outcome_execution_summary").select("project_id").where("project_id", "=", c.id).execute()).length, 0);
+
+    // Target解除後: 既存のSummary・Evidenceは保持してTargetの集約から外し、新しい還流は拒否する。
+    await services.unsetOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, b.id);
+    const afterUnset = await reflect(b, [pr(4, "d")]);
+    assert.equal(afterUnset.structuredContent.error?.reason, "not_target_project");
+    const unset = await list();
+    assert.deepEqual(unset.targets.map((target) => target.projectId), [a.id]);
+    assert.deepEqual(unset.nonTargetExecutions, [targetB!.execution]);
+
+    // Evidenceの上限はProjectごと。Aが上限（既存1件＋199件）に達しても、再設定したTarget BのEvidenceは保存できる。
+    for (const [from, count] of [[100, 50], [150, 50], [200, 50], [250, 49]] as const) {
+      await ok(reflect(a, Array.from({ length: count }, (_, index) => ({ ...pr(from + index, "a"), versionHash: null }))));
+    }
+    const full = await reflect(a, [pr(999, "a")]);
+    assert.equal(full.structuredContent.error?.reason, "evidence_limit_exceeded");
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, b.id);
+    assert.equal((await ok(reflect(b, [pr(5, "e")]))).recorded.evidenceAdded, 1);
+    const final = await list();
+    assert.deepEqual(final.targets.map((target) => [target.projectId, target.execution!.evidence.length]), [[a.id, 200], [b.id, 3]]);
+    assert.deepEqual(final.nonTargetExecutions, []);
+
+    // 別Workspace・存在しないOutcomeはNOT_FOUND。
+    await assert.rejects(services.listOutcomeTargetExecutionsUseCase.execute(other.id, outcome.id), { code: "NOT_FOUND" });
+    await assert.rejects(services.listOutcomeTargetExecutionsUseCase.execute(workspace.id, "missing"), { code: "NOT_FOUND" });
+
+    // MCP: Workspace Role Grantで読む。Project Grant（Manager）からは継承しない。
+    await seedWorkspaceGrant(database, workspace.id, "strategist-agent", "strategist");
+    const input = { workspaceId: workspace.id, outcomeId: outcome.id };
+    const viaMcp = await callTool(app, "list_outcome_target_executions", input, "strategist-agent", "strategist");
+    assert.equal(viaMcp.isError, undefined);
+    assert.deepEqual(viaMcp.structuredContent, JSON.parse(JSON.stringify(final)));
+    const denied = await callTool(app, "list_outcome_target_executions", input, "manager-A", "manager");
+    assert.equal(denied.structuredContent.error?.code, "FORBIDDEN");
+
+    // Web API: Workspace Membershipで読む。Project Membershipだけでは読めない。
+    const response = await app.request(`/api/workspaces/${workspace.id}/outcomes/${outcome.id}/target-executions`);
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), JSON.parse(JSON.stringify(final)));
+    const projectOnly = await createTestHuman(database);
+    await addTestMembership(database, a.id, projectOnly, "viewer");
+    assert.equal((await requestAs(createApp(services), projectOnly)(`/api/workspaces/${workspace.id}/outcomes/${outcome.id}/target-executions`)).status, 404);
+    await database.destroy();
+
+    // 同じschemaで再起動しても同じ集約を返す。
+    const reopened = createDatabase(path);
+    try {
+      await initializeSchema(reopened);
+      assert.deepEqual(await createApplicationServices(reopened).listOutcomeTargetExecutionsUseCase.execute(workspace.id, outcome.id), final);
+    } finally {
+      await reopened.destroy();
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

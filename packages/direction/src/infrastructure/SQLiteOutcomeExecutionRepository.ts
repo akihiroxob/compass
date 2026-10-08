@@ -1,7 +1,7 @@
 import type { Kysely, Selectable } from "kysely";
 import { sql } from "kysely";
 import {
-  maximumEvidencePerOutcome,
+  maximumEvidencePerOutcomeProject,
   type OutcomeExecutionEvidence,
   type OutcomeExecutionRecord,
   type OutcomeExecutionSummary,
@@ -66,6 +66,10 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
       if (!outcome) throw new NotFoundError(`Outcome ${input.outcomeId} was not found in Workspace ${workspaceId}`);
       if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
       if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
+      // Target別の還流。Targetの解除・追加と同じtransactionで検査し、Target外のProjectの結果をOutcomeへ混ぜない。
+      const target = await transaction.selectFrom("outcome_target_project").select("project_id")
+        .where("outcome_id", "=", input.outcomeId).where("project_id", "=", projectId).executeTakeFirst();
+      if (!target) return { kind: "not_target_project" };
 
       const existing = await transaction
         .selectFrom("outcome_execution_summary")
@@ -100,10 +104,11 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
         .selectFrom("outcome_execution_evidence")
         .select(({ fn }) => fn.countAll<number>().as("total"))
         .where("workspace_id", "=", workspaceId)
+        .where("project_id", "=", projectId)
         .where("outcome_id", "=", input.outcomeId)
         .executeTakeFirstOrThrow();
-      if (Number(stored.total) + fresh.length > maximumEvidencePerOutcome) {
-        return { kind: "evidence_limit_exceeded", limit: maximumEvidencePerOutcome };
+      if (Number(stored.total) + fresh.length > maximumEvidencePerOutcomeProject) {
+        return { kind: "evidence_limit_exceeded", limit: maximumEvidencePerOutcomeProject };
       }
 
       let summaryChanged = false;
@@ -180,9 +185,17 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
   }
 
   async findByOutcome(workspaceId: string, outcomeId: string): Promise<OutcomeExecutionRecord[]> {
-    const rows = await this.database.selectFrom("outcome_execution_summary").select("project_id")
+    const summaries = await this.database.selectFrom("outcome_execution_summary").selectAll()
       .where("workspace_id", "=", workspaceId).where("outcome_id", "=", outcomeId).orderBy("project_id").execute();
-    return Promise.all(rows.map(async row => (await this.find(workspaceId, row.project_id, outcomeId))!));
+    if (summaries.length === 0) return [];
+    const evidence = await this.database.selectFrom("outcome_execution_evidence").selectAll()
+      .where("workspace_id", "=", workspaceId).where("outcome_id", "=", outcomeId)
+      .orderBy("observed_at", "asc").orderBy("created_at", "asc").orderBy(sql`rowid`, "asc").execute();
+    // 発生元Projectごとに分け、別ProjectのEvidenceを混ぜない。
+    return summaries.map((summary) => ({
+      summary: toSummary(summary),
+      evidence: evidence.filter((row) => row.project_id === summary.project_id).map(toEvidence),
+    }));
   }
 
   private async load(
