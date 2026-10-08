@@ -10,7 +10,12 @@ import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
 import type { OutcomeStatus } from "../domain/Outcome.ts";
 import type { OutcomeExecutionRecord } from "../domain/OutcomeExecution.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
-import { assessOutcomeEvaluability, type OutcomeEvaluability, type OutcomeTargetExecution } from "../domain/OutcomeEvaluability.ts";
+import {
+  assessOutcomeEvaluability,
+  attachTargetExecutions,
+  type OutcomeEvaluability,
+  type OutcomeTargetExecution,
+} from "../domain/OutcomeEvaluability.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
 import { ProjectArchivedError, WorkspaceArchivedError } from "@compass/organization";
 
@@ -156,7 +161,8 @@ export class ListOutcomeTargetWorkUseCase {
 
 /**
  * OutcomeのTarget（設定順）と、各Targetが還流済みのExecution・Target解除前に還流された記録（Project ID順）を読む。
- * Outcomeが無ければnull。Evaluator Context・評価の記録・Target別集約で同じ読み方をする。
+ * Outcomeが無ければnull。Evaluator Context・評価の記録・Target別集約で同じ読み方をする。TargetとExecutionは別々に読むため、
+ * 評価の保存ではRepositoryが保存と同じtransactionで現在の状態との一致を検査する。
  */
 export const readOutcomeTargetExecutions = async (
   targetRepository: Pick<OutcomeTargetProjectRepository, "listByOutcome">,
@@ -166,14 +172,7 @@ export const readOutcomeTargetExecutions = async (
 ): Promise<{ targets: OutcomeTargetExecution[]; nonTargetExecutions: OutcomeExecutionRecord[] } | null> => {
   const targets = await targetRepository.listByOutcome(workspaceId, outcomeId);
   if (!targets) return null;
-  const records = new Map(
-    (await executionRepository.findByOutcome(workspaceId, outcomeId)).map((record) => [record.summary.projectId, record]),
-  );
-  const targetProjectIds = new Set(targets.map((target) => target.projectId));
-  return {
-    targets: targets.map((target) => ({ ...target, execution: records.get(target.projectId) ?? null })),
-    nonTargetExecutions: [...records.values()].filter((record) => !targetProjectIds.has(record.summary.projectId)),
-  };
+  return attachTargetExecutions(targets, await executionRepository.findByOutcome(workspaceId, outcomeId));
 };
 
 /**

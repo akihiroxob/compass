@@ -96,5 +96,5 @@ Human の確認・承認・すり合わせを求めない。Instruction、Contex
 - `UNAUTHENTICATED`: Bearer が無い。設定できないなら報告して停止する
 - `FORBIDDEN`: この Workspace の evaluator Grant が無い（別 Workspace・取消済みを区別しない）。権限の自己拡張を試みず、報告して停止する
 - `VALIDATION_ERROR`: `issues` に従って入力を直し、再度呼ぶ（Criterion の不足・重複、`met` / `not_met` の根拠なし、還流されていない `evidenceIds` など）
-- `CONFLICT`: Outcome が `active` でない（`details.outcomeStatus`）、評価可能でない（`details.reason` が `no_targets` / `replan_required` / `awaiting_execution`、`details.unfinishedProjectIds` がカンマ区切りの Project ID）、`requestKey` の内容違い、archived の Workspace（`workspaceStatus: "archived"`）。`awaiting_execution` は Runtime の還流後に再試行できる。それ以外は再試行しても成功しないため、報告して停止する
+- `CONFLICT`: Outcome が `active` でない（`details.outcomeStatus`）、評価可能でない（`details.reason` が `no_targets` / `replan_required` / `awaiting_execution`、`details.unfinishedProjectIds` がカンマ区切りの Project ID）、評価中に Target・還流が変わり続けた（`details.reason` が `targets_changed`）、`requestKey` の内容違い、archived の Workspace（`workspaceStatus: "archived"`）。評価中に Target の追加・解除や還流が入った場合、サーバーは保存せずに最新の状態から評価可能性を判定し直し、評価可能でなくなれば上記の評価可能でない `CONFLICT` を返す。`awaiting_execution` は Runtime の還流後に、`targets_changed` は `get_evaluator_context` を読み直してから再試行できる。それ以外は再試行しても成功しないため、報告して停止する
 - `NOT_FOUND`: `workspaceId` / `outcomeId` を再確認する

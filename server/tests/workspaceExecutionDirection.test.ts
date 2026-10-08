@@ -267,6 +267,89 @@ test("Archived Target with unfinished Execution and an Outcome without Targets g
   } finally { await database.destroy(); }
 });
 
+import {
+  RecordOutcomeEvaluationUseCase, SQLiteOutcomeEvaluationRepository, SQLiteOutcomeRepository, SQLiteOutcomeTargetProjectRepository,
+} from "@compass/direction";
+import { directionChangeObserver } from "../src/infrastructure/repository/contextAdapters.ts";
+
+/** Targetを読んだ直後（保存の前）に、1回だけ別の操作を割り込ませる評価のUseCase。 */
+const evaluationRacing = (database: ReturnType<typeof createDatabase>, interleave: () => Promise<unknown>) => {
+  const direction = asDirectionDatabase(database);
+  const targets = new SQLiteOutcomeTargetProjectRepository(direction, directionProjectReaders, directionWorkspaceReaders);
+  let pending: (() => Promise<unknown>) | null = interleave;
+  const racingTargets = {
+    listByOutcome: async (workspaceId: string, outcomeId: string) => {
+      const read = await targets.listByOutcome(workspaceId, outcomeId);
+      const run = pending;
+      pending = null;
+      if (run) await run();
+      return read;
+    },
+  };
+  return new RecordOutcomeEvaluationUseCase(
+    new SQLiteWorkspaceRepository(asOrganizationDatabase(database)),
+    new SQLiteOutcomeRepository(direction, directionWorkspaceReaders, directionChangeObserver),
+    racingTargets,
+    new SQLiteOutcomeExecutionRepository(direction, directionProjectReaders, directionWorkspaceReaders),
+    new SQLiteOutcomeEvaluationRepository(direction, directionWorkspaceReaders, directionProjectReaders, directionChangeObserver),
+    () => 100,
+  );
+};
+
+const evaluationRecords = async (database: ReturnType<typeof createDatabase>) => [
+  (await database.selectFrom("outcome_evaluation").selectAll().execute()).length,
+  (await database.selectFrom("runtime_event").selectAll().where("event_type", "=", "outcome_evaluated").execute()).length,
+  (await database.selectFrom("activity").selectAll().where("type", "=", "outcome.evaluated").execute()).length,
+];
+
+test("Target and Execution changes racing an evaluation never save an evaluation of only some Targets", async () => {
+  const { database, direction, repository, input, workspace, intent, a, b, outcome } = await setup();
+  try {
+    const saved = await repository.record(workspace.id, a.id, input);
+    if (saved.kind !== "recorded") throw new Error("record missing");
+    const evidenceA = saved.record.evidence[0]!.id;
+    const created = async (title: string) => direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
+      title, description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
+    });
+
+    // Aだけが完了還流した状態で評価を始め、読取の直後に未還流のBがTargetへ加わる: 保存せず、読み直してBの還流待ちで拒否する。
+    const added = await created("Added");
+    await direction.setOutcomeTargetProjectUseCase.execute(workspace.id, added.id, a.id);
+    const addedA = await repository.record(workspace.id, a.id, { ...input, outcomeId: added.id, correlationId: `outcome:${added.id}` });
+    if (addedA.kind !== "recorded") throw new Error("record missing");
+    const raceAdd = evaluationRacing(database, () => direction.setOutcomeTargetProjectUseCase.execute(workspace.id, added.id, b.id));
+    await assert.rejects(raceAdd.execute(workspace.id, "evaluator", added.id, judgment(added, addedA.record.evidence[0]!.id, "race-add")),
+      { code: "CONFLICT", details: { reason: "awaiting_execution", unfinishedProjectIds: b.id } });
+    assert.deepEqual(await evaluationRecords(database), [0, 0, 0]);
+
+    // 全Targetが完了した後、読取の直後にBのExecutionがincompleteへ進む: 評価しない。
+    await repository.record(workspace.id, b.id, input);
+    const raceIncomplete = evaluationRacing(database, () =>
+      repository.record(workspace.id, b.id, { ...input, state: "incomplete", executionCursor: 20, changeCursor: 20 }));
+    await assert.rejects(raceIncomplete.execute(workspace.id, "evaluator", outcome.id, judgment(outcome, evidenceA, "race-incomplete")),
+      { code: "CONFLICT", details: { reason: "awaiting_execution", unfinishedProjectIds: b.id } });
+    assert.deepEqual(await evaluationRecords(database), [0, 0, 0]);
+
+    // Bが完了へ戻った後、読取の直後にBがTargetから外れる: 読み直した全Target（Aだけ）で評価し、snapshotにBを含めない。
+    await repository.record(workspace.id, b.id, { ...input, executionCursor: 25, changeCursor: 25 });
+    const raceRemove = evaluationRacing(database, () => direction.unsetOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, b.id));
+    const removed = await raceRemove.execute(workspace.id, "evaluator", outcome.id, judgment(outcome, evidenceA, "race-remove"));
+    assert.deepEqual([removed.recorded, removed.evaluation.snapshot.targets.map(target => target.projectId)], [true, [a.id]]);
+    assert.deepEqual(await evaluationRecords(database), [1, 1, 1]);
+
+    // 読取の直後にAのSummaryが進む: 古いsnapshotは保存せず、読み直した最新のSummaryで1件だけ保存する。
+    const raceSummary = evaluationRacing(database, () =>
+      repository.record(workspace.id, a.id, { ...input, executionCursor: 30, changeCursor: 30 }));
+    const refreshed = await raceSummary.execute(workspace.id, "evaluator", outcome.id, judgment(outcome, evidenceA, "race-summary"));
+    assert.deepEqual([refreshed.recorded, refreshed.evaluation.snapshot.targets.map(target => target.execution.executionCursor)], [true, [30]]);
+    assert.deepEqual(await evaluationRecords(database), [2, 2, 2]);
+    // 再送は保存済みの評価を返し、新しい評価・イベント・Activityを作らない。
+    const replayed = await direction.recordOutcomeEvaluationUseCase.execute(workspace.id, "evaluator", outcome.id, judgment(outcome, evidenceA, "race-summary"));
+    assert.deepEqual([replayed.recorded, replayed.evaluation.id], [false, refreshed.evaluation.id]);
+    assert.deepEqual(await evaluationRecords(database), [2, 2, 2]);
+  } finally { await database.destroy(); }
+});
+
 import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 
 test("Execution Summary stays Project-scoped while Evaluation and Runtime events require Workspace authorization", async () => {

@@ -1,51 +1,16 @@
-import type { Kysely, Selectable } from "kysely";
+import type { Kysely } from "kysely";
 import { sql } from "kysely";
-import {
-  maximumEvidencePerOutcomeProject,
-  type OutcomeExecutionEvidence,
-  type OutcomeExecutionRecord,
-  type OutcomeExecutionSummary,
-} from "../domain/OutcomeExecution.ts";
+import { maximumEvidencePerOutcomeProject, type OutcomeExecutionRecord } from "../domain/OutcomeExecution.ts";
 import type {
   OutcomeExecutionRepository,
   RecordOutcomeExecutionInput,
   RecordOutcomeExecutionResult,
 } from "../domain/OutcomeExecutionRepository.ts";
-import type {
-  DirectionDatabase,
-  OutcomeExecutionEvidenceTable,
-  OutcomeExecutionSummaryTable,
-} from "./schema.ts";
+import type { DirectionDatabase } from "./schema.ts";
+import { readOutcomeExecutionRecords, toEvidence, toSummary } from "./outcomeTargetExecutionRecord.ts";
 import { NotFoundError } from "@compass/shared";
 import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
 import type { DirectionProjectReaders } from "./directionProjectReaders.ts";
-
-const toSummary = (row: Selectable<OutcomeExecutionSummaryTable>): OutcomeExecutionSummary => ({
-  workspaceId: row.workspace_id,
-  projectId: row.project_id,
-  outcomeId: row.outcome_id,
-  correlationId: row.correlation_id,
-  state: row.state,
-  stories: JSON.parse(row.stories) as OutcomeExecutionSummary["stories"],
-  executionCursor: row.execution_cursor,
-  observedCursor: row.observed_cursor,
-  principalId: row.principal_id,
-  updatedAt: row.updated_at,
-});
-
-const toEvidence = (row: Selectable<OutcomeExecutionEvidenceTable>): OutcomeExecutionEvidence => ({
-  id: row.id,
-  workspaceId: row.workspace_id,
-  projectId: row.project_id,
-  outcomeId: row.outcome_id,
-  kind: row.kind,
-  uri: row.uri,
-  versionHash: row.version_hash,
-  observedAt: row.observed_at,
-  sourceChangeCursor: row.source_change_cursor,
-  principalId: row.principal_id,
-  createdAt: row.created_at,
-});
 
 const sameEvidence = (
   left: RecordOutcomeExecutionInput["evidence"][number],
@@ -185,17 +150,7 @@ export class SQLiteOutcomeExecutionRepository implements OutcomeExecutionReposit
   }
 
   async findByOutcome(workspaceId: string, outcomeId: string): Promise<OutcomeExecutionRecord[]> {
-    const summaries = await this.database.selectFrom("outcome_execution_summary").selectAll()
-      .where("workspace_id", "=", workspaceId).where("outcome_id", "=", outcomeId).orderBy("project_id").execute();
-    if (summaries.length === 0) return [];
-    const evidence = await this.database.selectFrom("outcome_execution_evidence").selectAll()
-      .where("workspace_id", "=", workspaceId).where("outcome_id", "=", outcomeId)
-      .orderBy("observed_at", "asc").orderBy("created_at", "asc").orderBy(sql`rowid`, "asc").execute();
-    // 発生元Projectごとに分け、別ProjectのEvidenceを混ぜない。
-    return summaries.map((summary) => ({
-      summary: toSummary(summary),
-      evidence: evidence.filter((row) => row.project_id === summary.project_id).map(toEvidence),
-    }));
+    return readOutcomeExecutionRecords(this.database, workspaceId, outcomeId);
   }
 
   private async load(

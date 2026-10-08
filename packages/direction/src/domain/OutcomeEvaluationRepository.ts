@@ -5,6 +5,7 @@ import type {
   OutcomeEvaluation,
 } from "./OutcomeEvaluation.ts";
 import type { IntentStatus } from "./Intent.ts";
+import type { OutcomeStatus } from "./Outcome.ts";
 import type { WorkspaceArchivedResult } from "./WorkspaceArchivedResult.ts";
 
 /** 再送の同一性を判定する、Evaluatorが指定した内容。snapshotと導出した結果は含めない（再送のたびに変わり得るため）。 */
@@ -36,6 +37,13 @@ export type RecordOutcomeEvaluationResult =
   | { kind: "key_conflict"; requestKey: string }
   /** 評価対象OutcomeのIntentがactiveでない（達成済み・中止）。 */
   | { kind: "intent_not_active"; status: IntentStatus }
+  /** 評価対象のOutcomeがactiveでない（評価の入力を読んだ後に変わった）。 */
+  | { kind: "outcome_not_active"; status: OutcomeStatus }
+  /**
+   * 評価の入力を読んだ後に、Target・Projectの状態・還流したSummary / Evidenceが変わった（またはもう評価可能でない）。
+   * snapshotが現在の全Targetと一致しないため保存しない。呼出側が読み直して評価可能性から判定し直す。
+   */
+  | { kind: "targets_changed" }
   | WorkspaceArchivedResult;
 
 /**
@@ -47,7 +55,9 @@ export interface OutcomeEvaluationRepository {
   findReplay(workspaceId: string, request: OutcomeEvaluationRequest): Promise<FindEvaluationReplayResult>;
   /**
    * 1 transactionで再送を確認し、なければ評価と`outcome_evaluated` Runtimeイベントを保存する。
-   * archivedなWorkspace・activeでないIntentには保存しない。同じrequestKeyの並行した再送も、1件に収束させる。
+   * archivedなWorkspace・activeでないIntent / Outcomeには保存しない。同じtransactionで現在の全Target・Projectの状態・
+   * Summary / Evidenceを読み、評価可能でsnapshotの`targets`と一致する場合だけ保存する（Target追加・解除や還流との競合で、
+   * 一部のTargetだけの評価を確定させない）。同じrequestKeyの並行した再送も、1件に収束させる。
    */
   record(workspaceId: string, input: RecordOutcomeEvaluationInput): Promise<RecordOutcomeEvaluationResult>;
   /** Outcomeの評価を新しい順に返す。 */

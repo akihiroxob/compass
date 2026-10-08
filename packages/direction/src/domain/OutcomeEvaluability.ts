@@ -5,6 +5,22 @@ import type { OutcomeTargetProjectView } from "./OutcomeTargetProject.ts";
 export type OutcomeTargetExecution = OutcomeTargetProjectView & { execution: OutcomeExecutionRecord | null };
 
 /**
+ * Target（設定順）に、そのProjectが還流したExecutionを結び付ける。`nonTargetExecutions`はTarget解除前に還流された記録で、
+ * 参照は保持するが評価可能性・評価の入力には含めない。
+ */
+export const attachTargetExecutions = (
+  targets: readonly OutcomeTargetProjectView[],
+  records: readonly OutcomeExecutionRecord[],
+): { targets: OutcomeTargetExecution[]; nonTargetExecutions: OutcomeExecutionRecord[] } => {
+  const byProject = new Map(records.map((record) => [record.summary.projectId, record]));
+  const targetProjectIds = new Set(targets.map((target) => target.projectId));
+  return {
+    targets: targets.map((target) => ({ ...target, execution: byProject.get(target.projectId) ?? null })),
+    nonTargetExecutions: records.filter((record) => !targetProjectIds.has(record.summary.projectId)),
+  };
+};
+
+/**
  * Outcomeを評価できるかの区分。
  * - `evaluable`: 全TargetからSummaryが還流し、`incomplete`が無い。Evaluatorが全Targetのsnapshotで評価する
  * - `no_targets`: Targetが無い。担当Projectの判断はStrategistへ戻る

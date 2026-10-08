@@ -1,4 +1,5 @@
 import type { ExecutionEvidenceKind, ExecutionState, ExecutionStoryResult } from "./OutcomeExecution.ts";
+import type { OutcomeTargetExecution } from "./OutcomeEvaluability.ts";
 
 /** Success Criterion 1件の観測結果。証拠が無いものを`met` / `not_met`と推測せず、`insufficient_evidence`で残す。 */
 export const criterionVerdicts = ["met", "not_met", "insufficient_evidence"] as const;
@@ -56,6 +57,27 @@ export type EvaluationTargetSnapshot = {
   };
   evidence: EvaluationEvidenceSnapshot[];
 };
+
+/**
+ * 評価可能な（全Targetが還流済みの）Targetを、評価時点のsnapshotへ写す。評価の保存時に、同じ写しで現在の状態との一致も検査する。
+ */
+export const snapshotEvaluationTargets = (targets: readonly OutcomeTargetExecution[]): EvaluationTargetSnapshot[] =>
+  targets.map(({ projectId, projectStatus, execution }) => {
+    if (!execution) throw new Error(`Target Project ${projectId} has not reflected its Execution`);
+    const { summary, evidence } = execution;
+    return {
+      projectId,
+      projectStatus,
+      execution: {
+        correlationId: summary.correlationId,
+        state: summary.state,
+        stories: summary.stories,
+        executionCursor: summary.executionCursor,
+        observedCursor: summary.observedCursor,
+      },
+      evidence: evidence.map(({ id, kind, uri, versionHash, observedAt }) => ({ id, kind, uri, versionHash, observedAt })),
+    };
+  });
 
 /**
  * 評価に使った入力の、評価時点の写し。後からExecutionが進んでも、何を根拠に評価したかを辿れる。

@@ -284,6 +284,7 @@ export const createApplicationServices = (
   const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(
     directionDatabase,
     directionWorkspaceReaders,
+    directionProjectReaders,
     directionChangeObserver,
   );
   const workspaceContexts = {

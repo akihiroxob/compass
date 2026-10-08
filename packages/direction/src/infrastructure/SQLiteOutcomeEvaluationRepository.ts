@@ -1,6 +1,7 @@
 import type { Kysely, Selectable, Transaction } from "kysely";
 import { sql } from "kysely";
-import type { OutcomeEvaluation } from "../domain/OutcomeEvaluation.ts";
+import { snapshotEvaluationTargets, type OutcomeEvaluation } from "../domain/OutcomeEvaluation.ts";
+import { assessOutcomeEvaluability, attachTargetExecutions } from "../domain/OutcomeEvaluability.ts";
 import type {
   FindEvaluationReplayResult,
   OutcomeEvaluationRepository,
@@ -11,6 +12,8 @@ import type {
 import type { DirectionDatabase, OutcomeEvaluationTable } from "./schema.ts";
 import { inputHash } from "@compass/shared";
 import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
+import type { DirectionProjectReaders } from "./directionProjectReaders.ts";
+import { readOutcomeExecutionRecords, readOutcomeTargetViews } from "./outcomeTargetExecutionRecord.ts";
 import { recordOutcomeEvaluatedEvent } from "./runtimeEventRecord.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
@@ -59,6 +62,7 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
   constructor(
     private readonly database: Kysely<DirectionDatabase>,
     private readonly workspaces: DirectionWorkspaceReaders,
+    private readonly projects: DirectionProjectReaders,
     private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
 
@@ -85,6 +89,25 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
         .where("workspace_id", "=", workspaceId)
         .executeTakeFirstOrThrow();
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
+      const outcome = await transaction
+        .selectFrom("outcome")
+        .select(["title", "status"])
+        .where("id", "=", request.outcomeId)
+        .where("workspace_id", "=", workspaceId)
+        .executeTakeFirstOrThrow();
+      if (outcome.status !== "active") return { kind: "outcome_not_active", status: outcome.status };
+      // 評価の入力を読んだ後のTarget追加・解除、Projectのarchive、Summary / Evidenceの還流と競合しても、
+      // 保存するのは現在の全Targetから評価可能で、snapshotがその全Targetと一致する評価だけにする。
+      const current = attachTargetExecutions(
+        await readOutcomeTargetViews(transaction, this.projects, request.outcomeId),
+        await readOutcomeExecutionRecords(transaction, workspaceId, request.outcomeId),
+      ).targets;
+      if (
+        assessOutcomeEvaluability(current).status !== "evaluable" ||
+        JSON.stringify(snapshotEvaluationTargets(current)) !== JSON.stringify(input.snapshot.targets)
+      ) {
+        return { kind: "targets_changed" };
+      }
 
       const row = await transaction
         .insertInto("outcome_evaluation")
@@ -112,11 +135,6 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
         evaluationId: row.id,
         occurredAt: input.at,
       });
-      const outcome = await transaction
-        .selectFrom("outcome")
-        .select("title")
-        .where("id", "=", request.outcomeId)
-        .executeTakeFirstOrThrow();
       await notifyDirectionChange(this.changeObserver, transaction, {
         type: "outcome_evaluated",
         workspaceId,

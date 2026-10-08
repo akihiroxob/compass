@@ -1063,7 +1063,9 @@ export const createMcpServer = (
         "Intent completion: a new Evaluation adds one outcome_evaluated Runtime event (a resend adds none) so that the Runtime starts " +
         "a Strategist. An Outcome of another Workspace fails with NOT_FOUND; a non-active Outcome, an Outcome that is not evaluable " +
         "(reason no_targets, replan_required or awaiting_execution, with comma-separated unfinishedProjectIds; a part of the Target Projects finishing is " +
-        "not enough), an Intent that is no longer active (reason intent_not_active) or an " +
+        "not enough; the Targets and their Summary/Evidence are re-checked in the saving transaction, so a Target added or removed " +
+        "or an Execution reflected during the evaluation is re-read instead of being left out, and reason targets_changed means they " +
+        "kept changing), an Intent that is no longer active (reason intent_not_active) or an " +
         "archived Workspace fails with CONFLICT. " +
         "Requires Authorization: Bearer <AgentName> with an evaluator Grant in the Workspace (UNAUTHENTICATED / FORBIDDEN otherwise).",
       inputSchema: outcomeEvaluationSchema,
