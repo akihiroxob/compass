@@ -38,6 +38,13 @@ export type SuccessCriterionTable = {
   created_at: number;
 };
 
+/** OutcomeとTarget Projectの関連。Workspace一致はRepositoryが書込と同一transactionで検査する。 */
+export type OutcomeTargetProjectTable = {
+  outcome_id: string;
+  project_id: string;
+  created_at: number;
+};
+
 /** `unknowns` / `options` / `risks`は不変な文字列配列のJSON。要素単位では検索しない。 */
 export type ResearchRequestTable = {
   id: string;
@@ -314,6 +321,7 @@ export type DirectionDatabase = {
   intent: IntentTable;
   outcome: OutcomeTable;
   success_criterion: SuccessCriterionTable;
+  outcome_target_project: OutcomeTargetProjectTable;
   research_request: ResearchRequestTable;
   research_result: ResearchResultTable;
   research_evidence_ref: ResearchEvidenceRefTable;

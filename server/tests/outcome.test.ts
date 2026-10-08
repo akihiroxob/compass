@@ -419,7 +419,11 @@ test("Intentを作成してもOutcomeは自動生成されず、Outcomeの状態
     "listOutcomesUseCase",
     // Evaluationを追記するだけで、Outcomeの状態・Success Criteriaは変更しない（outcomeEvaluation.test.ts）。
     "recordOutcomeEvaluationUseCase",
+    // Target Projectの関連だけを設定・解除・参照し、Outcomeの状態は変更しない（outcomeTargetProject.test.ts）。
+    "setOutcomeTargetProjectUseCase",
+    "unsetOutcomeTargetProjectUseCase",
+    "listOutcomeTargetProjectsUseCase",
     "updateOutcomeUseCase",
-  ]);
+  ].sort());
   await database.destroy();
 });

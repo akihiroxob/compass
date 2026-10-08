@@ -57,7 +57,7 @@ schema再作成の共通確認点:
 | `outcome_execution_summary` | PK `(outcome_id, project_id)`、`workspace_id`・`project_id` | 保存構造を維持し、Target別の還流へ接続する | S03-03（保存）、S05-01（Target別還流） | 新規DBで同じOutcomeのProject別Summaryを区別する |
 | `outcome_execution_evidence` | `workspace_id`・`project_id`、identity index `(outcome_id, project_id, kind, uri, version)` | 発生元Projectを保持し、Target検証を接続する | S03-03、S05-01 | 複数Projectが同じURIを報告してもProject別に保持する。Target別還流はS05-01で接続する |
 | `outcome_evaluation` | `workspace_id` FK、`(workspace_id, request_key)` unique | `workspace_id`。評価snapshot（JSON）は全TargetのSummary / Evidenceを含む形へ | S03-03、S05-02 | 既存snapshotは書き換えない |
-| `outcome_target_project`（新規） | — | `outcome_id`・`project_id`・`created_at`、`UNIQUE(outcome_id, project_id)` | S04-01 | 旧OutcomeのTarget補完は不要。新規OutcomeはTargetなしを許容し、Strategistが設定する |
+| `outcome_target_project` | `outcome_id`・`project_id`・`created_at`、主キー`(outcome_id, project_id)`、`outcome.id`・`project.id`へのFK | 実装済み | S04-01 | 旧OutcomeのTarget補完は不要。新規OutcomeはTargetなしを許容し、Strategistが設定する。Workspace一致はRepositoryが書込と同じtransactionで検査する |
 
 S03-01〜03で新規DBのDirection tableと読取・書込を`workspace_id`へ切り替える。Project固有参照に必要な`project_id`以外は、参照元を切り替えたTaskで旧列・indexを除いてよい。`project_id`列にWorkspace IDを保存しない。
 
@@ -194,7 +194,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references` | `projectId`・`repositoryId` | `workspaceId`とProject固有の`projectId`（S03-04で実装済み） | S03-04 |
 | `fetch_runtime_events` / `ack_runtime_event` / `record_execution_evidence` / `get_outcome_execution_summary` | `projectId`、Runtime scope | Runtime eventは`workspaceId`とWorkspace Runtime Credential（S03-04で実装済み）。Execution Evidence / SummaryはProject固有の記録として`projectId`とProject Runtime Credentialのまま所属Workspaceを明示解決する（S03-04）。Target別の集約はS05-01 | S03-04、S05-01 |
 | `get_orchestration_state` | `projectId` | Workspace単位 | S08-01 |
-| （新規）Outcome Targetの設定・解除・一覧 | — | Strategistが使う | S04-01 |
+| `set_outcome_target` / `unset_outcome_target` / `list_outcome_targets` | `workspaceId`・`outcomeId`・`projectId` | 設定・解除はWorkspace strategist Grant、一覧はWorkspaceの参照権限（S04-01で実装済み） | S04-01 |
 | `get_role_context` | `projectId`・`role` | Workspace Role向けとProject Role向けを分ける | S07-03、S07-04 |
 | `get_role_instructions` / `list_skills` / `get_skill_context` | Project非依存 | 変更なし | — |
 | Work tools（`list_stories`〜`reject_task`、`registerExecutionTools.ts`） | `projectId` | 変更なし。`issue_story`のOutcome参照検査だけS04-03 | S04-03 |
@@ -208,6 +208,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | --- | --- | --- |
 | `/api/projects`・`/api/projects/:projectId`（GET / POST / PATCH）・`/archive` | Projectの参照とWorkspaceへの所属。Workspaceの作成・参照・更新・archiveの入口を追加。S02-04でProjectの応答に`workspaceId`、Workspaceの参照`GET /api/workspaces`・`/api/workspaces/:workspaceId`・`/api/workspaces/:workspaceId/projects`を追加済み。作成・更新・archive・既存WorkspaceへのProject作成は未接続 | S02-04、S09-03 |
 | `/api/projects/:projectId/intents…`・`/intents/:intentId/outcomes…`・`/research-requests…`・`/intents/:intentId/decisions`・`/adr-references`・`/outcomes/:outcomeId/evaluations`・`/runtime-events…` | `/api/workspaces/:workspaceId/…`へ移した（S03-04で実装済み。Workspace Membership、Runtime eventはWorkspace Runtime Credential）。Project配下の旧経路は残さない。`/outcomes/:outcomeId/execution-summary`・`/execution-evidence`はProject固有の記録としてProject配下に残す | S03-04、S05-01 |
+| `/api/workspaces/:workspaceId/outcomes/:outcomeId/target-projects`（GET） | Target Projectの参照（Workspace Membership）。設定・解除はStrategistのMCPだけ（S04-01で実装済み） | S04-01 |
 | `/api/projects/:projectId/grants`・`/credentials` | Workspace用のGrant・Credentialの入口を追加。ProjectのものはProject Roleに限る | S06-02、S06-03、S11-03 |
 | `/api/projects/:projectId/members`・`/invitations` | 維持。WorkspaceMembershipの入口を追加（use caseはS06-01で実装済み） | S06-04、S11-03 |
 | `/api/projects/:projectId/execution`・`/changes`・`/stories`・`/tasks…` | 変更なし | — |
