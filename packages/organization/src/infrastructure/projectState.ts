@@ -97,3 +97,28 @@ export const findProjectWorkspaceId = async (database: Queryable, projectId: str
   const row = await database.selectFrom("project").select("workspace_id").where("id", "=", projectId).executeTakeFirst();
   return row?.workspace_id ?? null;
 };
+
+/** Workspaceの状態。存在しなければnull。呼出し元のtransactionのまま読む。 */
+export const findWorkspaceStatus = async (database: Queryable, workspaceId: string): Promise<"active" | "archived" | null> => {
+  const row = await database.selectFrom("workspace").select("status").where("id", "=", workspaceId).executeTakeFirst();
+  return row?.status ?? null;
+};
+
+/** Workspaceに所属するProject（active / archivedを問わない）に登録されたRepository・ResourceのID。 */
+export const listWorkspaceProjectResourceIds = async (database: Queryable, workspaceId: string): Promise<string[]> => {
+  const [repositories, resources] = await Promise.all([
+    database
+      .selectFrom("project_repository_link")
+      .innerJoin("project", "project.id", "project_repository_link.project_id")
+      .select("project_repository_link.id")
+      .where("project.workspace_id", "=", workspaceId)
+      .execute(),
+    database
+      .selectFrom("project_resource")
+      .innerJoin("project", "project.id", "project_resource.project_id")
+      .select("project_resource.id")
+      .where("project.workspace_id", "=", workspaceId)
+      .execute(),
+  ]);
+  return [...repositories, ...resources].map(({ id }) => id);
+};

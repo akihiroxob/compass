@@ -1,4 +1,4 @@
-import type { ActivityProjectReader } from "./ActivityProjectReader.ts";
+import type { ActivityScopeReader } from "./ActivityScopeReader.ts";
 import type { Activity, ActivityEntityKind } from "../../domain/Activity.ts";
 
 /** 保存するActivity。`cursor`は保存時に採番する。 */
@@ -46,7 +46,7 @@ export interface ActivityStore {
   maxProjectCursor(projectId: string): Promise<number>;
 }
 
-/** 明示記録のProject状態・所属解決・参照検証とappendを同じtransactionで行う。 */
+/** 明示記録のProject / Workspace状態・所属解決・参照検証とappendを同じtransactionで行う。 */
 export interface ActivityUnitOfWork {
-  execute<T>(work: (store: ActivityStore, projects: ActivityProjectReader) => Promise<T>): Promise<T>;
+  execute<T>(work: (store: ActivityStore, scopes: ActivityScopeReader) => Promise<T>): Promise<T>;
 }

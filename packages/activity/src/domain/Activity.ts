@@ -15,6 +15,12 @@ export type ActivityScope = (typeof ActivityScope)[keyof typeof ActivityScope];
 
 export const activityScopes = Object.values(ActivityScope) as [ActivityScope, ...ActivityScope[]];
 
+/** 公開入口（明示記録・一覧・取得）の対象scope。systemは保存形式だけで入口を持たない。 */
+export type ActivityTargetKind = typeof ActivityScope.PROJECT | typeof ActivityScope.WORKSPACE;
+
+/** 公開入口が扱うProjectまたはWorkspace。`id`はProject ID・Workspace ID。 */
+export type ActivityTarget = { readonly kind: ActivityTargetKind; readonly id: string };
+
 /**
  * - `recorded`: Agent等が明示的に記録した意味的Activity（調査結果・判断理由・決定・引き継ぎ等）。
  * - `canonical`: 重要な状態変更から、状態変更と同じtransactionでserverが自動生成したActivity。

@@ -7,6 +7,7 @@ import {
   type AccessWorkspaceReaders,
   type ProjectAuthorizationService,
   type ProjectRole,
+  type RoleScopeAuthorizationService,
 } from "@compass/access";
 import {
   KyselyActivityStore,
@@ -15,7 +16,8 @@ import {
   recordCanonicalProjectActivity,
   recordCanonicalWorkActivity,
   type ActivityAuthorizationPort,
-  type ActivityProjectReader,
+  type ActivityScopeReader,
+  type ActivityTarget,
 } from "@compass/activity";
 import {
   findAdrReferencedRepositoryId,
@@ -29,6 +31,7 @@ import {
 import {
   findProjectRepository,
   findProjectWorkspaceId,
+  findWorkspaceStatus,
   findProjectWorkspaceConstraints,
   isProjectArchived,
   findArchivedProjectIds,
@@ -36,6 +39,7 @@ import {
   listProjectIdsInCreationOrder,
   listWorkspaceIdsInCreationOrder,
   listWorkspaceProjectIds,
+  listWorkspaceProjectResourceIds,
   projectExists,
   SQLiteProjectRepository,
   type OwnerMembershipWriters,
@@ -232,15 +236,30 @@ export const projectChangeActivityObserver: ProjectChangeObserver = (executor) =
   };
 };
 
-/** Activityが参照するProject（Organization）の状態と、登録済みRepository・ResourceのID。 */
-export const activityProjectReader = (executor: Parameters<typeof asOrganizationDatabase>[0]): ActivityProjectReader => {
-  const projects = new SQLiteProjectRepository(asOrganizationDatabase(executor), projectRepositoryReferenceFinder);
+/**
+ * Activityの記録・取得の対象（Organization）の状態と、`project_resource`参照として受け付けるRepository・ResourceのID。
+ * ProjectはそのProjectに登録済みのもの、Workspaceは所属Project（archivedを含む）に登録済みのものを返す。
+ */
+export const activityScopeReader = (executor: Parameters<typeof asOrganizationDatabase>[0]): ActivityScopeReader => {
+  const database = asOrganizationDatabase(executor);
+  const projects = new SQLiteProjectRepository(database, projectRepositoryReferenceFinder);
   return {
-    find: async (projectId) => {
-      const project = await projects.findById(projectId);
+    find: async (target) => {
+      if (target.kind === "workspace") {
+        const status = await findWorkspaceStatus(database, target.id);
+        if (status === null) return null;
+        return {
+          workspaceId: target.id,
+          projectId: null,
+          archived: status === "archived",
+          resourceIds: await listWorkspaceProjectResourceIds(database, target.id),
+        };
+      }
+      const project = await projects.findById(target.id);
       if (!project) return null;
       return {
         workspaceId: project.workspaceId,
+        projectId: project.id,
         archived: project.status === "archived",
         resourceIds: [...project.repositories, ...project.resources].map(({ id }) => id),
       };
@@ -250,17 +269,33 @@ export const activityProjectReader = (executor: Parameters<typeof asOrganization
 
 const isProjectRole = (role: string): role is ProjectRole => (projectRoles as readonly string[]).includes(role);
 
-/** ActivityのAgent認可を、AccessのProject Role Grant（activeRoleの固定を含む）で行う。 */
-export const activityAuthorization = (authorization: ProjectAuthorizationService): ActivityAuthorizationPort => ({
-  requireReader: (principal, projectId) => authorization.requireAnyRole(principal, projectId),
-  resolveActor: async (principal, projectId, role) => {
-    if (role !== undefined) {
-      if (!isProjectRole(role)) {
-        throw new ValidationError("Activity input is invalid", [{ path: "role", message: `role must be one of ${projectRoles.join(", ")}` }]);
+/**
+ * ActivityのAgent認可（activeRoleの固定を含む）。ProjectはAccessのProject Role Grant、WorkspaceはWorkspace Role Grantで検査し、
+ * 互いに継承・合算しない。Workspace scopeではExecution Role、Project scopeでは新規発行できないDirection RoleのGrantを
+ * Roleのscope検査で拒否する（Project scopeの旧Direction Grantは`ProjectAuthorizationService`の移行経路のまま）。
+ */
+export const activityAuthorization = (
+  projectAuthorization: ProjectAuthorizationService,
+  roleScopeAuthorization: RoleScopeAuthorizationService,
+): ActivityAuthorizationPort => {
+  const requireReader = (principal: string | null, target: ActivityTarget) =>
+    target.kind === "workspace"
+      ? roleScopeAuthorization.requireAnyRole(principal, target)
+      : projectAuthorization.requireAnyRole(principal, target.id);
+  return {
+    requireReader,
+    resolveActor: async (principal, target, role) => {
+      if (role !== undefined) {
+        if (!isProjectRole(role)) {
+          throw new ValidationError("Activity input is invalid", [{ path: "role", message: `role must be one of ${projectRoles.join(", ")}` }]);
+        }
+        const principalId = target.kind === "workspace"
+          ? await roleScopeAuthorization.requireRole(principal, target, role)
+          : await projectAuthorization.requireRole(principal, target.id, role);
+        return { principalId, role };
       }
-      return { principalId: await authorization.requireRole(principal, projectId, role), role };
-    }
-    if (authorization.activeRole === null) return null;
-    return { principalId: await authorization.requireAnyRole(principal, projectId), role: authorization.activeRole };
-  },
-});
+      if (projectAuthorization.activeRole === null) return null;
+      return { principalId: await requireReader(principal, target), role: projectAuthorization.activeRole };
+    },
+  };
+};

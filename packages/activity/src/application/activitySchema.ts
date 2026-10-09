@@ -1,6 +1,6 @@
 import { optionalText, parseWith, trimmedText } from "@compass/shared";
 import { z } from "zod";
-import { activityEntityKinds, type ActivityReference } from "../domain/Activity.ts";
+import { activityEntityKinds, type ActivityReference, type ActivityTarget, type ActivityTargetKind } from "../domain/Activity.ts";
 
 export const maximumActivitySummaryLength = 500;
 export const maximumActivityBodyLength = 20_000;
@@ -43,28 +43,37 @@ const referenceSchema = z.union([
   z.object({ kind: z.enum(activityEntityKinds), id: identifier("id") }).strict(),
 ]);
 
+const recordActivityFields = {
+  type: activityType,
+  summary: trimmedText("summary", maximumActivitySummaryLength),
+  body: optionalText(maximumActivityBodyLength),
+  refs: z.array(referenceSchema).max(maximumActivityRefs, `refs must be ${maximumActivityRefs} items or fewer`).default([]),
+  role: identifier("role").optional(),
+  correctsActivityId: identifier("correctsActivityId").optional(),
+  occurredAt: z.number().int().positive().optional(),
+  requestId: identifier("requestId"),
+};
+
 /**
- * 明示記録の入力。Agentの実行単位（`runId`等）や成果物の本文は受け付けない（strictで未知の項目を拒否する）。
+ * 明示記録の入力。対象はscopeごとに`projectId`または`workspaceId`の一方だけで指定する。
+ * Agentの実行単位（`runId`等）や成果物の本文は受け付けない（strictで未知の項目を拒否する）。
  * Principalは入力に持たず、Bearerから解決した値だけを使う。
  */
-const recordActivitySchema = z
-  .object({
-    projectId: identifier("projectId"),
-    type: activityType,
-    summary: trimmedText("summary", maximumActivitySummaryLength),
-    body: optionalText(maximumActivityBodyLength),
-    refs: z.array(referenceSchema).max(maximumActivityRefs, `refs must be ${maximumActivityRefs} items or fewer`).default([]),
-    role: identifier("role").optional(),
-    correctsActivityId: identifier("correctsActivityId").optional(),
-    occurredAt: z.number().int().positive().optional(),
-    requestId: identifier("requestId"),
-  })
-  .strict();
+const recordActivitySchemas = {
+  project: z.object({ projectId: identifier("projectId"), ...recordActivityFields }).strict(),
+  workspace: z.object({ workspaceId: identifier("workspaceId"), ...recordActivityFields }).strict(),
+} satisfies Record<ActivityTargetKind, z.ZodType>;
 
-export type RecordActivityInput = Omit<z.output<typeof recordActivitySchema>, "refs"> & { refs: ActivityReference[] };
+type RecordActivityFields = Omit<z.output<typeof recordActivitySchemas.project>, "projectId" | "refs"> & { refs: ActivityReference[] };
 
-export const parseRecordActivityInput = (input: unknown): RecordActivityInput =>
-  parseWith(recordActivitySchema, input, "Activity") as RecordActivityInput;
+/** 検証済みの明示記録。`target`は入力の`projectId` / `workspaceId`から作る。 */
+export type RecordActivityInput = RecordActivityFields & { target: ActivityTarget };
+
+export const parseRecordActivityInput = (kind: ActivityTargetKind, input: unknown): RecordActivityInput => {
+  const parsed = parseWith(recordActivitySchemas[kind], input, "Activity") as Record<string, unknown>;
+  const { projectId, workspaceId, ...fields } = parsed;
+  return { ...(fields as RecordActivityFields), target: { kind, id: (projectId ?? workspaceId) as string } };
+};
 
 const optionalCursor = z.number().int().min(0).optional();
 

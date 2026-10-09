@@ -342,6 +342,19 @@ export const createApp = (
       ),
     }),
   );
+  // Workspace Activity閲覧。Workspace Membership（viewer以上）で認可し、Workspace scopeのsummary・refsと1件の本文・訂正を返す。
+  // 所属ProjectのActivityは含めない（Project Membershipで`/api/projects/:projectId/activities`から読む）。Web UIからは記録しない。
+  app.get("/api/workspaces/:workspaceId/activities", async (c) =>
+    c.json(
+      await human.listWorkspaceActivities.execute(await actorOf(c), c.req.param("workspaceId"), {
+        beforeCursor: queryNumber(c.req.query("beforeCursor")),
+        limit: queryNumber(c.req.query("limit")),
+      }),
+    ),
+  );
+  app.get("/api/workspaces/:workspaceId/activities/:activityId", async (c) =>
+    c.json(await human.getWorkspaceActivity.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("activityId"))),
+  );
   // Execution閲覧（Task 45。docs/lv6-unification-design.md「Web UIの配置と移行順」U2）。GETだけで、Execution serviceの
   // Grant不要な読取へMembership（viewer以上）の認可後に委譲する。MCP・SQLite tableをWeb UIから直接使わない。
   app.get("/api/projects/:projectId/execution", async (c) => {
