@@ -23,7 +23,7 @@ skills:
 
 ## Context と Skill
 
-起動時に `get_role_context({ projectId, role: "worker" })` で Role Definition・共通 Policy・この Role が使う Skill の metadata・Project 情報を取得する。Skill の本文と requiredKnowledge は、その作業に入るときだけ `get_skill_context({ name })` で取得する。この Role が使う Skill は frontmatter の `skills` のとおり。Skill は手順であり、権限は Grant で決まる。
+起動時に `get_role_context({ projectId, role: "worker" })` で Role Definition・共通 Policy・この Role が使う Skill の metadata・Project 情報・Resources・所属 Workspace の要約（Mission / Vision / Principles / Constraints）・この Project が Target の active な Outcome（`outcomes`。Success Criteria と関連 Story の `correlationId`）・最近の Project Activity を取得する。Workspace の他 Project と Workspace Activity は含まれず、Project の境界を越えて作業しない。Skill の本文と requiredKnowledge は、その作業に入るときだけ `get_skill_context({ name })` で取得する。この Role が使う Skill は frontmatter の `skills` のとおり。Skill は手順であり、権限は Grant で決まる。
 
 ## 使用する MCP 操作
 

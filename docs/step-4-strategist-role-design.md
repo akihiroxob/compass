@@ -26,4 +26,4 @@ Workspace Grantの管理・Directionの公開API/MCP・Workspace Role Contextは
 
 `manager`を含む既存Role名を維持し、Role Definitionは`roles/`、共通Policyは`policies/`へ配置する。RoleはSkillを参照し、Skillに`allowRoles`を持たせない。machine-readableなTool metadataはnamespace付きにする。
 
-1回の実行・操作Contextは1つのactiveRoleに固定し、Serverがscopeに対応するGrantを検査する。Role / Skill ContextはMCPからJIT取得する。Project入口のactiveRoleとRole / Skill Context、Workspace DirectionのtoolのactiveRole認可は実装済み。Workspace Role Context（`get_role_context`のWorkspace版）はS07-03で接続する。
+1回の実行・操作Contextは1つのactiveRoleに固定し、Serverがscopeに対応するGrantを検査する。Role / Skill ContextはMCPからJIT取得する。Project入口のactiveRoleとRole / Skill Context、Workspace DirectionのtoolのactiveRole認可は実装済み。Workspace Role Context（`get_workspace_role_context`）と、Project Role Context（`get_role_context`）の所属Workspace要約・関連Outcomeは接続済み。
