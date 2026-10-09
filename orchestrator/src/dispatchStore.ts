@@ -159,14 +159,14 @@ export class DispatchStore {
   }
 
   /**
-   * 指定 Project の記録のうち、現在の計画に無く実行中でもないものを捨てる（状態が進んだ）。
+   * 指定 scope（key の先頭の Project / Workspace ID）の記録のうち、現在の計画に無く実行中でもないものを捨てる（状態が進んだ）。
    * 失敗で打ち切った記録も、状態が変わって key が消えれば捨てる。
    */
-  prune(projectId: string, planned: readonly Dispatch[]): void {
+  prune(scopeId: string, planned: readonly Pick<Dispatch, "key">[]): void {
     const keep = new Set(planned.map((dispatch) => dispatch.key));
     let changed = false;
     for (const [key, record] of Object.entries(this.records)) {
-      if (!key.startsWith(`${projectId}:`) || keep.has(key) || record.status === "running") continue;
+      if (!key.startsWith(`${scopeId}:`) || keep.has(key) || record.status === "running") continue;
       delete this.records[key];
       changed = true;
     }

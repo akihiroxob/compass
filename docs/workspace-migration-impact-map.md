@@ -236,9 +236,9 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | 対象 | 現況 | 変更 | Task |
 | --- | --- | --- | --- |
 | `orchestrator/src/config.ts` | `projects[]`（`projectId`・`tokenEnv`） | Workspace単位の設定へ。既存Project設定からの移行手順を示す | S08-03 |
-| `state.ts`・`compassClient.ts` | `get_orchestration_state({ projectId })` | Workspace単位の状態（Server側の`get_workspace_orchestration_state`はS08-01で実装済み） | S08-02/03 |
-| `plan.ts` | dispatch key `projectId:role:...`、`state.project.status !== "active"`で停止 | `workspace:project:role:outcome`等のkey。Targetなし・未完了archived Targetあり→Workspaceのstrategist、active TargetのStory未作成→そのProjectのmanager、全Target評価可能→evaluator。archived Workspace / Projectへの起動を除外し、保存済みの成果・Evidenceは保持する | S08-02、S08-03 |
-| `dispatchStore.ts` | 記録のkeyがProject IDで始まる（`prune`もProject前方一致） | 新keyへ。既存記録はkeyが変わるため、切替時に実行中の起動が二重にならない手順を確認する | S08-03 |
+| `state.ts`・`compassClient.ts` | `get_orchestration_state({ projectId })`。`state.ts`はWorkspace単位の応答型も持つ（S08-02） | Workspace単位の状態（Server側の`get_workspace_orchestration_state`はS08-01で実装済み）。`compassClient.ts`の読取切替はS08-03 | S08-02/03 |
+| `plan.ts` | dispatch key `projectId:role:...`、`state.project.status !== "active"`で停止。Workspace基準の`planWorkspaceDispatches`（S08-02、実装済み）はkey `<workspaceId>:<role>:…`・manager `<workspaceId>:<projectId>:manager:outcome:<outcomeId>`を返す | `workspace:project:role:outcome`等のkey。Targetなし・未完了archived Targetあり→Workspaceのstrategist、active TargetのStory未作成→そのProjectのmanager、全Target評価可能→evaluator。archived Workspace / Projectへの起動を除外し、保存済みの成果・Evidenceは保持する | S08-02、S08-03 |
+| `dispatchStore.ts` | 記録のkeyがProject IDで始まる（`prune`は指定scope IDの前方一致で、Workspace IDも渡せる） | 新keyへ。既存記録はkeyが変わるため、切替時に実行中の起動が二重にならない手順を確認する | S08-03 |
 | `launcher.ts` | Agentへ`COMPASS_PROJECT_ID`と`get_role_context({ projectId })`の指示を渡す | Workspace RoleはWorkspace ID、managerはProject ID | S08-03 |
 | `ralph/bin/ralph-loop`・`backends/compass.sh`・`prompts/*.md`・`examples/config.json` | `projectId`でWork toolsを呼ぶ | 変更なし（Project scopeの実行ループのまま）。Workspaceを所有・選択せず、Workspace要約・関連OutcomeはServerの`get_role_context({ projectId })`から得る（S07-04で接続済み） | S07-04（実装済み）、S08-04 |
 

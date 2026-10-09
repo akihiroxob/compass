@@ -19,6 +19,22 @@ Project 横断で Compass Server の現在状態を読み、次に起動すべ�
 
 最新 Evaluation が判断済みの Outcome は進行中とみなしません。取消済み・archived Project は対象外です。Intent 作成時に Research Request は自動で作られず、Research の要否は起動された Strategist が判断します。
 
+### Workspace 単位の起動規則
+
+Server の `get_workspace_orchestration_state` の応答に対する規則を [`planWorkspaceDispatches`](src/plan.ts) に実装しています。周回（`Orchestrator.tick`）・設定・Credential・Agent へ渡す対象はまだ上表の Project 基準で、この規則への切替は未接続です（S08-03）。
+
+| 現在状態 | 起動する Role | 対象 | dispatch key |
+| --- | --- | --- | --- |
+| 未終了の Research Request | `researcher` | Workspace・Research Request | `<workspaceId>:researcher:research_request:<id>` |
+| 判断待ちの最新 Evaluation | `strategist` | Workspace・Evaluation | `<workspaceId>:strategist:evaluation:<id>` |
+| 進行中の Outcome に Target が無い（`no_targets`） | `strategist` | Workspace・Outcome | `<workspaceId>:strategist:outcome:<id>:no_targets` |
+| 進行中の Outcome の archived Target に未還流・`incomplete` が残る（`replan_required`）。他の active Target があっても起動する | `strategist` | Workspace・Outcome | `<workspaceId>:strategist:outcome:<id>:replan:<Target構成と未完了Targetの版>` |
+| 進行中の Outcome の active Target で、その Project に Story、または Task が無い | `manager` | Target Project・Outcome | `<workspaceId>:<projectId>:manager:outcome:<id>` |
+| 全 Target から還流し `incomplete` が無く（`evaluable`。archive 前に還流を終えた Target を含む）、最新 Evaluation の Project 別 cursor と一致しない | `evaluator` | Workspace・Outcome | `<workspaceId>:evaluator:outcome:<id>:<Project別cursorの版>` |
+| 上記の無い Active Intent | `strategist` | Workspace・Intent | `<workspaceId>:strategist:intent:<id>:<状態の版>` |
+
+archived の Workspace では何も起動せず、archived Project の manager は起動しません。どの Project を Target にするか、Target の解除・再割当・Outcome の見直し、Research の要否、Story の分割は起動された Role が判断し、Orchestrator は推論しません。同じ状態からは同じ key になり、再計画で状態が変われば新しい key になります。
+
 ## 重複起動の抑止
 
 起動対象は Project・対象・状態から決まる dispatch key を持ちます（例: `<projectId>:manager:outcome:<outcomeId>`。Intent の key は Outcome・Research の状態から求めた値を含み、状態が進むと変わります）。`stateDir` の `dispatches.json` に key ごとの起動記録を保存し、次の規則で起動します。

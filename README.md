@@ -101,7 +101,7 @@ RuntimeにはAgentとは別のCredentialとscopeを発行します。Credential�
 
 eventの`nextCursor`はページ送り専用で、再開位置には使いません。再開は`resumeCursor`または0から行います。配送はat-least-onceで、ack再送には同じ`attemptId`を使います。Task受入をOutcome達成として扱わず、Evidenceを評価へ渡します。
 
-Orchestrator（[orchestrator/README.md](orchestrator/README.md)）は`get_orchestration_state`の現在状態から起動を判断し（Workspace単位の`get_workspace_orchestration_state`への切替はS08-02/03で未接続）、Activity cursorやRuntime eventのcursorをworkflow checkpointにしません。Intent作成時にResearch Requestは自動で作られず、OrchestratorがStrategistを起動してResearchの要否を判断させます。実Agentを起動した運用・Lv6自律運転は未検証です。
+Orchestrator（[orchestrator/README.md](orchestrator/README.md)）は`get_orchestration_state`の現在状態から起動を判断し（Workspace単位の状態に対するdispatch規則`planWorkspaceDispatches`は実装済みで、`get_workspace_orchestration_state`の読取・Credential・dispatch keyの記録・起動への切替はS08-03で未接続）、Activity cursorやRuntime eventのcursorをworkflow checkpointにしません。Intent作成時にResearch Requestは自動で作られず、OrchestratorがStrategistを起動してResearchの要否を判断させます。実Agentを起動した運用・Lv6自律運転は未検証です。
 
 ## 検証
 
