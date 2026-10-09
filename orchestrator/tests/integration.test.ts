@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +13,8 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 
 /**
  * 独立したプロセスとして起動したCompass Server（trusted-local・一時DB）とOrchestratorを、MCPだけで接続する結合テスト。
+ * OrchestratorはWeb APIで発行したWorkspace Runtime Credentialで状態を読み、Workspace RoleのAgentはWorkspace Agent Credential、
+ * Target ProjectのManagerはそのProjectのAgent Credentialで操作する。
  * 起動されるAgentは`support/fakeAgent.ts`の決定的なfixtureで、実LLM・実Agentの自律運転の実証ではない。
  * 起動ディレクトリを一時directoryにし、親プロセスの`COMPASS_*`・`PORT`を引き継がない（ローカルの`.env`と既存portから隔離）。
  */
@@ -64,29 +66,33 @@ const waitFor = async (check: () => boolean | Promise<boolean>, what: string, ti
   throw new Error(`timed out waiting for ${what}`);
 };
 
+type Json = Record<string, any>;
+
 const setup = async () => {
   const directory = await mkdtemp(join(tmpdir(), "compass-orchestrator-it-"));
   const port = await freePort();
   const serverUrl = `http://127.0.0.1:${port}`;
+  const origin = `http://localhost:${port}`;
+  const ownerEmail = "owner@example.com";
   const serverEnv = isolatedEnv({
     PORT: String(port),
     COMPASS_DB_PATH: join(directory, "compass.db"),
     COMPASS_AUTH_MODE: "trusted-local",
-    COMPASS_INITIAL_OWNER_EMAIL: "owner@example.com",
+    COMPASS_INITIAL_OWNER_EMAIL: ownerEmail,
   });
   const server = runTs(join(repositoryRoot, "server/src/main.ts"), [], directory, serverEnv);
   const serverExit = exited(server);
   await waitFor(async () => (await fetch(`${serverUrl}/health`)).ok, "the Compass server");
 
-  const mcp = async (principal: string, name: string, args: Record<string, unknown>) => {
+  const mcp = async (bearer: string, name: string, args: Record<string, unknown>) => {
     const client = new Client({ name: "orchestrator-it", version: "0" });
     await client.connect(
       new StreamableHTTPClientTransport(new URL("/mcp", serverUrl), {
-        requestInit: { headers: { Authorization: `Bearer ${principal}`, Connection: "close" } },
+        requestInit: { headers: { Authorization: `Bearer ${bearer}`, Connection: "close" } },
       }),
     );
     try {
-      const result = (await client.callTool({ name, arguments: args })) as { isError?: boolean; structuredContent?: Record<string, any> };
+      const result = (await client.callTool({ name, arguments: args })) as { isError?: boolean; structuredContent?: Json };
       assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent));
       return result.structuredContent!;
     } finally {
@@ -98,38 +104,61 @@ const setup = async () => {
     assert.equal(result.code, 0, result.stderr);
   };
 
-  const project = await mcp("admin", "create_project", { name: "Compass", mission: "Keep direction explicit" });
-  const projectId = project.id as string;
-  for (const [principal, role] of [
-    ["orchestrator-1", "runtime"],
-    ["manager-1", "manager"],
-  ]) {
-    await cli("grant", projectId, principal!, role!);
-  }
-  // Direction RoleのGrantはWorkspace所有。Workspace Role Grantの付与入口が未接続のため、一時DBへ直接置くfixture。
-  // OrchestratorはS08まで`projectId`でRoleを起動するため、起動されたAgentが`get_project`で所属Workspaceを読めるよう
-  // 同じRoleの旧Project Grant（Project参照・Role Context用）も置く。
-  const workspaceId = project.workspaceId as string;
+  // HumanはWeb UIと同じWeb API（開発用ログイン）でProjectを作り、Workspace / ProjectのCredentialを発行する。
+  const login = await fetch(`${serverUrl}/auth/local/login`, {
+    method: "POST",
+    redirect: "manual",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: origin },
+    body: new URLSearchParams({ email: ownerEmail }).toString(),
+  });
+  const cookie = login.headers.getSetCookie().map((line) => line.split(";")[0]!).join("; ");
+  const { csrfToken } = (await (await fetch(`${serverUrl}/api/auth/session`, { headers: { Cookie: cookie } })).json()) as Json;
+  const web = async (path: string, body: Json) => {
+    const response = await fetch(`${serverUrl}${path}`, {
+      method: "POST",
+      headers: { Cookie: cookie, Origin: origin, "X-Compass-CSRF": csrfToken, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const json = (await response.json()) as Json;
+    assert.equal(response.status, 201, JSON.stringify(json));
+    return json;
+  };
+  const projectA = (await web("/api/projects", { name: "A", mission: "Keep direction explicit" })).project as Json;
+  const workspaceId = projectA.workspaceId as string;
+  const projectB = (await web("/api/projects", { name: "B", mission: "M" })).project as Json;
   const database = new DatabaseSync(join(directory, "compass.db"));
   try {
-    const projectGrant = database.prepare("insert into project_grant (project_id, principal_id, role, created_at) values (?, ?, ?, ?)");
+    // 既存WorkspaceへProjectを作る公開入口が未接続のため、BをAと同じWorkspaceへ移す一時DBのfixture。
+    database.prepare("update project set workspace_id = ? where id = ?").run(workspaceId, projectB.id);
+    // Direction RoleのGrantはWorkspace所有。Workspace Role Grantの付与入口が未接続のため、一時DBへ直接置くfixture。
     const workspaceGrant = database.prepare("insert into workspace_grant (workspace_id, principal_id, role, created_at) values (?, ?, ?, ?)");
-    for (const [principal, role] of [
-      ["strategist-1", "strategist"],
-      ["researcher-1", "researcher"],
-    ]) {
-      projectGrant.run(projectId, principal!, role!, Date.now());
-      workspaceGrant.run(workspaceId, principal!, role!, Date.now());
-    }
+    for (const role of ["strategist", "researcher"]) workspaceGrant.run(workspaceId, "direction-agent", role, Date.now());
   } finally {
     database.close();
   }
+  const projectIds = [projectA.id as string, projectB.id as string];
+  for (const [projectId, principal] of [[projectIds[0]!, "manager-a"], [projectIds[1]!, "manager-b"]]) await cli("grant", projectId!, principal!, "manager");
+
+  // OrchestratorはWorkspace Runtime Credentialで状態を読む。AgentはRole・scopeごとのAgent Credentialを使う。
+  const orchestratorToken = (await web(`/api/workspaces/${workspaceId}/credentials`, { kind: "runtime", principalId: "orchestrator", scopes: ["runtime:state:read"] })).token as string;
+  const directionToken = (await web(`/api/workspaces/${workspaceId}/credentials`, { kind: "agent", principalId: "direction-agent" })).token as string;
+  const managerTokens = [
+    (await web(`/api/projects/${projectIds[0]}/credentials`, { kind: "agent", principalId: "manager-a" })).token as string,
+    (await web(`/api/projects/${projectIds[1]}/credentials`, { kind: "agent", principalId: "manager-b" })).token as string,
+  ];
   await mcp("admin", "create_intent", { workspaceId, title: "Exclusive claims", desiredState: "One owner per Task" });
 
   const agentLog = join(directory, "agents.jsonl");
   const configPath = join(directory, "orchestrator.json");
   const agentCommand = `"${process.execPath}" --import "${tsx}" "${fakeAgent}"`;
-  const writeConfig = (agentEnv: Record<string, string> = {}) =>
+  const roleEnv = (agentEnv: Record<string, string>) => ({ FAKE_AGENT_LOG: agentLog, FAKE_TARGET_PROJECTS: projectIds.join(","), ...agentEnv });
+  const workspaceConfig = {
+    workspaceId,
+    tokenEnv: "ORCHESTRATOR_TOKEN",
+    agentEnv: { FAKE_AGENT_TOKEN: directionToken },
+    projects: projectIds.map((projectId, index) => ({ projectId, agentEnv: { FAKE_AGENT_TOKEN: managerTokens[index]! } })),
+  };
+  const writeConfig = (agentEnv: Record<string, string> = {}, overrides: Json = {}) =>
     writeFile(
       configPath,
       JSON.stringify({
@@ -139,67 +168,100 @@ const setup = async () => {
         leaseMs: 60_000,
         maxAttempts: 2,
         retryBackoffMs: 0,
-        projects: [{ projectId, tokenEnv: "ORCHESTRATOR_TOKEN" }],
-        roles: Object.fromEntries(
-          ["strategist", "researcher", "manager"].map((role) => [role, { command: agentCommand, env: { FAKE_AGENT_LOG: agentLog, ...agentEnv } }]),
-        ),
+        workspaces: [workspaceConfig],
+        roles: Object.fromEntries(["strategist", "researcher", "manager"].map((role) => [role, { command: agentCommand, env: roleEnv(agentEnv) }])),
+        ...overrides,
       }),
     );
   await writeConfig();
   const orchestrator = (...args: string[]) =>
-    runTs(join(repositoryRoot, "orchestrator/src/main.ts"), ["--config", configPath, ...args], directory, isolatedEnv({ ORCHESTRATOR_TOKEN: "orchestrator-1" }));
+    runTs(join(repositoryRoot, "orchestrator/src/main.ts"), ["--config", configPath, ...args], directory, isolatedEnv({ ORCHESTRATOR_TOKEN: orchestratorToken }));
   const runOnce = async () => {
     const result = await exited(orchestrator("--once"));
     assert.equal(result.code, 0, result.stderr);
     return result;
   };
+  const state = () => mcp(orchestratorToken, "get_workspace_orchestration_state", { workspaceId });
   const launches = () =>
     existsSync(agentLog)
       ? readFileSync(agentLog, "utf8")
           .trim()
           .split("\n")
-          .map((line) => JSON.parse(line) as { role: string; subject: string; key: string; attempt: number; pid: number; prompt: string; credentialVisible: boolean })
+          .map(
+            (line) =>
+              JSON.parse(line) as {
+                role: string;
+                workspaceId: string;
+                projectId: string | null;
+                subject: string;
+                key: string;
+                attempt: number;
+                pid: number;
+                prompt: string;
+                credentialVisible: boolean;
+              },
+          )
       : [];
   const stop = async () => {
     server.kill("SIGTERM");
     await serverExit;
     await rm(directory, { recursive: true, force: true });
   };
-  return { projectId, mcp, orchestrator, runOnce, launches, writeConfig, stop };
+  return { directory, workspaceId, projectIds, configPath, mcp, orchestrator, runOnce, state, launches, writeConfig, stop };
 };
 
 test(
-  "現在状態だけでIntent→Strategist→Researcher→Strategist→Managerと起動し、同じ状態では再起動しない",
+  "Workspaceの現在状態だけでStrategist→Researcher→Strategist→Target A / BのManagerと起動し、同じ状態では再起動しない",
   { skip: loopbackSkip, timeout: 120_000 },
   async () => {
     const kit = await setup();
     try {
-      // 1. Researchは自動作成されず、Intentを受けたStrategistが起動される（fixtureは追加Researchを依頼する）。
+      const [projectA, projectB] = kit.projectIds;
+      // 1. Researchは自動作成されず、Intentを受けたWorkspaceのStrategistが起動される（fixtureは追加Researchを依頼する）。
       await kit.runOnce();
       assert.deepEqual(kit.launches().map(({ role }) => role), ["strategist"]);
       const [first] = kit.launches();
-      assert.match(first!.prompt, /get_role_context/);
+      assert.match(first!.prompt, new RegExp(`get_workspace_role_context\\(\\{ workspaceId: "${kit.workspaceId}", role: "strategist" \\}\\)`));
+      assert.equal(first!.workspaceId, kit.workspaceId);
+      assert.equal(first!.projectId, null, "a Workspace Role is not given a Project ID");
+      assert.ok(first!.key.startsWith(`${kit.workspaceId}:strategist:intent:`));
       assert.equal(first!.attempt, 1);
-      // OrchestratorのRuntime CredentialはAgentへ渡さない。
-      assert.equal(first!.credentialVisible, false);
 
       // 2. 未終了のResearchだけを見てResearcherを起動する（fixtureはnot_neededで終える）。
       await kit.runOnce();
       assert.deepEqual(kit.launches().map(({ role }) => role), ["strategist", "researcher"]);
 
-      // 3. Researchが終わったIntentはStrategistへ戻る（fixtureはOutcomeを確定する）。
+      // 3. Researchが終わったIntentはStrategistへ戻る（fixtureはOutcomeを確定し、Target A / Bを設定する）。
       await kit.runOnce();
-      // 4. 未分解のOutcomeはManagerへ（fixtureはStory・Taskを作る）。
+      // 4. Target A / Bそれぞれの未分解はそのProjectのManagerへ。ManagerはそのProjectのAgent Credentialで Story・Taskを作る。
       await kit.runOnce();
-      assert.deepEqual(kit.launches().map(({ role }) => role), ["strategist", "researcher", "strategist", "manager"]);
-      assert.notEqual(kit.launches()[0]!.key, kit.launches()[2]!.key);
+      const launched = kit.launches();
+      assert.deepEqual(launched.map(({ role }) => role), ["strategist", "researcher", "strategist", "manager", "manager"]);
+      assert.notEqual(launched[0]!.key, launched[2]!.key);
+      const outcomeId = launched[3]!.subject.replace("outcome:", "");
+      assert.deepEqual(
+        launched.slice(3).map(({ key, projectId }) => [key, projectId]).sort(),
+        [
+          [`${kit.workspaceId}:${projectA}:manager:outcome:${outcomeId}`, projectA],
+          [`${kit.workspaceId}:${projectB}:manager:outcome:${outcomeId}`, projectB],
+        ].sort(),
+      );
+      assert.match(launched[3]!.prompt, /get_role_context\(\{ projectId: "[^"]+", role: "manager" \}\)/);
+      // OrchestratorのWorkspace Runtime CredentialはどのAgentへも渡さない。
+      assert.deepEqual(new Set(launched.map(({ credentialVisible }) => credentialVisible)), new Set([false]));
 
       // 5. Taskが進行中の間は何も起動しない（Worker / ReviewerはRalphの責務）。再実行しても増えない。
       await kit.runOnce();
       await kit.runOnce();
-      assert.equal(kit.launches().length, 4);
-      const state = await kit.mcp("orchestrator-1", "get_orchestration_state", { projectId: kit.projectId });
-      assert.deepEqual(state.outcomes[0].work, { state: "incomplete", storyCount: 1, taskCount: 1 });
+      assert.equal(kit.launches().length, 5);
+      const state = await kit.state();
+      assert.deepEqual(
+        state.outcomes[0].targets.map(({ projectId, work }: Json) => [projectId, work]),
+        [
+          [projectA, { state: "incomplete", storyCount: 1, taskCount: 1 }],
+          [projectB, { state: "incomplete", storyCount: 1, taskCount: 1 }],
+        ],
+      );
     } finally {
       await kit.stop();
     }
@@ -232,7 +294,7 @@ test(
       assert.equal(kit.launches().length, 1);
 
       // Agentが状態を進めて終わった後は、次の状態（Research）だけを起動する。Strategistは再起動しない。
-      await waitFor(async () => (await kit.mcp("orchestrator-1", "get_orchestration_state", { projectId: kit.projectId })).openResearchRequests.length === 1, "the Strategist result");
+      await waitFor(async () => (await kit.state()).openResearchRequests.length === 1, "the Strategist result");
       await kit.writeConfig();
       await kit.runOnce();
       assert.deepEqual(kit.launches().map(({ role }) => role), ["strategist", "researcher"]);
@@ -256,6 +318,38 @@ test(
         ["strategist", 1],
         ["strategist", 2],
       ]);
+    } finally {
+      await kit.stop();
+    }
+  },
+);
+
+test(
+  "Project単位の旧設定は移行手順を示して起動せず、Workspace単位の設定へ移すと旧dispatch記録を引き継がずに起動する",
+  { skip: loopbackSkip, timeout: 120_000 },
+  async () => {
+    const kit = await setup();
+    try {
+      const [projectA] = kit.projectIds;
+      // 既存のProject運転の設定（projects[]）と、Project IDで始まる旧dispatch記録（version 1・Agentは終了済み）が残っている。
+      await kit.writeConfig({}, { workspaces: undefined, projects: [{ projectId: projectA, tokenEnv: "ORCHESTRATOR_TOKEN" }] });
+      const legacy = await exited(kit.orchestrator("--once"));
+      assert.equal(legacy.code, 1);
+      assert.match(legacy.stderr, /projects\[\] \(Project-based orchestration\) is no longer supported/);
+      assert.equal(kit.launches().length, 0);
+      await mkdir(join(kit.directory, "state"), { recursive: true });
+      await writeFile(
+        join(kit.directory, "state", "dispatches.json"),
+        JSON.stringify({ version: 1, records: { [`${projectA}:strategist:intent:legacy`]: { status: "succeeded", attempt: 1, finishedAt: 0 } } }),
+      );
+
+      // Workspace単位の設定へ移す: Workspace Runtime Credentialで状態を読み、Workspace IDで始まるkeyで起動する。
+      await kit.writeConfig();
+      await kit.runOnce();
+      assert.deepEqual(kit.launches().map(({ role }) => role), ["strategist"]);
+      const records = JSON.parse(readFileSync(join(kit.directory, "state", "dispatches.json"), "utf8")) as { version: number; records: Json };
+      assert.equal(records.version, 2);
+      assert.deepEqual(Object.keys(records.records), [kit.launches()[0]!.key]);
     } finally {
       await kit.stop();
     }

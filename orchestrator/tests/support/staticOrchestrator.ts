@@ -1,8 +1,8 @@
-import { loadConfig } from "../../src/config.ts";
+import { credentialEnvOf, loadConfig } from "../../src/config.ts";
 import { acquireProcessLock, DispatchStore, type DispatchRecord } from "../../src/dispatchStore.ts";
 import { ShellAgentLauncher } from "../../src/launcher.ts";
 import { Orchestrator } from "../../src/orchestrator.ts";
-import type { OrchestrationState } from "../../src/state.ts";
+import type { WorkspaceOrchestrationState } from "../../src/state.ts";
 
 /**
  * Server を使わずに Orchestrator を実プロセスとして動かすテスト用の起動口。状態は固定の Active Intent だけで、
@@ -20,9 +20,10 @@ class CrashBeforePidStore extends DispatchStore {
 const [configPath, mode] = process.argv.slice(2);
 const config = loadConfig(configPath!);
 const release = acquireProcessLock(config.stateDir);
-const state = (projectId: string): OrchestrationState => ({
-  project: { id: projectId, name: projectId, status: "active" },
-  activeIntent: { id: `${projectId}-intent`, status: "active", updatedAt: 1 },
+const state = (workspaceId: string): WorkspaceOrchestrationState => ({
+  workspace: { id: workspaceId, name: workspaceId, status: "active" },
+  projects: [],
+  activeIntent: { id: `${workspaceId}-intent`, status: "active", updatedAt: 1 },
   outcomes: [],
   intentResearchRequests: [],
   openResearchRequests: [],
@@ -30,8 +31,8 @@ const state = (projectId: string): OrchestrationState => ({
 });
 const orchestrator = new Orchestrator(
   config,
-  { getOrchestrationState: async (projectId) => state(projectId) },
-  new ShellAgentLauncher({ credentialEnv: config.projects.map(({ tokenEnv }) => tokenEnv), terminateGraceMs: config.terminateGraceMs }),
+  { getWorkspaceOrchestrationState: async (workspaceId) => state(workspaceId) },
+  new ShellAgentLauncher({ credentialEnv: credentialEnvOf(config), terminateGraceMs: config.terminateGraceMs }),
   process.env.STATIC_ORCHESTRATOR_CRASH_BEFORE_PID === "1" ? new CrashBeforePidStore(config.stateDir) : new DispatchStore(config.stateDir),
 );
 try {

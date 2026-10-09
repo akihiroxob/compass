@@ -1,8 +1,8 @@
 import type { CompassStateReader } from "./compassClient.ts";
-import type { OrchestratorConfig } from "./config.ts";
+import type { OrchestratorConfig, RoleCommand, WorkspaceConfig } from "./config.ts";
 import { decideLaunch, finishRecord, type DispatchPolicy, type DispatchStore } from "./dispatchStore.ts";
 import { terminateAgent, type AgentLauncher } from "./launcher.ts";
-import { planDispatches, type Dispatch } from "./plan.ts";
+import { planWorkspaceDispatches, type WorkspaceDispatch } from "./plan.ts";
 
 /** Operational Log。stdout / stderr へ出す実行記録で、Compass の Activity・Change Log には書かない。 */
 export type OperationalLog = (event: string, fields: Record<string, unknown>) => void;
@@ -11,14 +11,16 @@ export const jsonLog: OperationalLog = (event, fields) =>
   console.error(JSON.stringify({ at: new Date().toISOString(), event, ...fields }));
 
 export type TickReport = {
-  launched: Dispatch[];
+  launched: WorkspaceDispatch[];
   skipped: { key: string; reason: string }[];
-  failedProjects: { projectId: string; error: string }[];
+  failedWorkspaces: { workspaceId: string; error: string }[];
 };
 
 /**
- * Project 横断で現在状態を読み、起動すべき専門 Role を起動する。判断は `planDispatches` の明示的な状態判定だけで、
- * 知的判断は起動された Role に委ねる。起動の重複は dispatch key の記録（`DispatchStore`）で抑止する。
+ * 設定した Workspace ごとに現在状態を Workspace Runtime Credential で読み、起動すべき専門 Role を起動する。判断は
+ * `planWorkspaceDispatches` の明示的な状態判定だけで、知的判断は起動された Role に委ねる。起動の重複は dispatch key の記録
+ * （`DispatchStore`）で抑止する。Workspace Role の Agent には Workspace の `agentEnv`、manager の Agent には Target Project の
+ * `agentEnv` を加え、scope の違う Agent Credential を混ぜない。
  */
 export class Orchestrator {
   private readonly running = new Map<string, Promise<void>>();
@@ -42,21 +44,21 @@ export class Orchestrator {
   }
 
   async tick(): Promise<TickReport> {
-    const report: TickReport = { launched: [], skipped: [], failedProjects: [] };
-    for (const project of this.config.projects) {
-      let planned: Dispatch[];
+    const report: TickReport = { launched: [], skipped: [], failedWorkspaces: [] };
+    for (const workspace of this.config.workspaces) {
+      let planned: WorkspaceDispatch[];
       try {
-        planned = planDispatches(await this.reader.getOrchestrationState(project.projectId, project.token));
+        planned = planWorkspaceDispatches(await this.reader.getWorkspaceOrchestrationState(workspace.workspaceId, workspace.token));
       } catch (error) {
-        // 状態を読めない Project は起動も記録の整理もしない（次の周回で読み直す）。
+        // 状態を読めない Workspace は起動も記録の整理もしない（次の周回で読み直す）。
         const message = (error as Error).message;
-        report.failedProjects.push({ projectId: project.projectId, error: message });
-        this.log("state_read_failed", { projectId: project.projectId, error: message });
+        report.failedWorkspaces.push({ workspaceId: workspace.workspaceId, error: message });
+        this.log("state_read_failed", { workspaceId: workspace.workspaceId, error: message });
         continue;
       }
-      this.store.prune(project.projectId, planned);
+      this.store.prune(workspace.workspaceId, planned);
       for (const dispatch of planned) {
-        const skipped = this.tryLaunch(dispatch, report);
+        const skipped = this.tryLaunch(workspace, dispatch, report);
         if (skipped) {
           report.skipped.push({ key: dispatch.key, reason: skipped });
           this.log("dispatch_skipped", { key: dispatch.key, role: dispatch.role, reason: skipped });
@@ -71,9 +73,22 @@ export class Orchestrator {
     while (this.running.size > 0) await Promise.all(this.running.values());
   }
 
-  private tryLaunch(dispatch: Dispatch, report: TickReport): string | null {
+  /**
+   * 起動する Role のコマンドに scope の `agentEnv` を合わせる。manager は設定に無い Project では起動しない（Workspace の設定で代用しない）。
+   * 起動しない理由を文字列で返す。
+   */
+  private commandOf(workspace: WorkspaceConfig, dispatch: WorkspaceDispatch): RoleCommand | string {
     const command = this.config.roles[dispatch.role];
     if (!command) return `no command is configured for the ${dispatch.role} Role`;
+    if (dispatch.projectId === null) return { command: command.command, env: { ...command.env, ...workspace.agentEnv } };
+    const project = workspace.projects.find(({ projectId }) => projectId === dispatch.projectId);
+    if (!project) return `Project ${dispatch.projectId} is not configured in workspaces[].projects`;
+    return { command: command.command, env: { ...command.env, ...project.agentEnv } };
+  }
+
+  private tryLaunch(workspace: WorkspaceConfig, dispatch: WorkspaceDispatch, report: TickReport): string | null {
+    const command = this.commandOf(workspace, dispatch);
+    if (typeof command === "string") return command;
     if (this.running.has(dispatch.key)) return "already running";
     const now = this.clock();
     const decision = decideLaunch(this.store.get(dispatch.key), now, this.policy);
@@ -108,6 +123,7 @@ export class Orchestrator {
     this.log("dispatch_launched", {
       key: dispatch.key,
       role: dispatch.role,
+      workspaceId: dispatch.workspaceId,
       projectId: dispatch.projectId,
       subject: dispatch.subject,
       attempt: decision.attempt,

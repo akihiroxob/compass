@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Dispatch } from "./plan.ts";
+import type { WorkspaceDispatch } from "./plan.ts";
 
 /**
  * 起動の重複抑止に使う、dispatch key ごとの起動記録。workflow の正本ではない（起動判断は毎回 Server の現在状態から行う）。
@@ -19,7 +19,11 @@ export type DispatchPolicy = {
   terminateGraceMs: number;
 };
 
-type StoreFile = { version: 1; records: Record<string, DispatchRecord> };
+/**
+ * 保存形式。version 2 の key は Workspace ID で始まる（`planWorkspaceDispatches`）。version 1 は Project 基準の Orchestrator の記録で、
+ * key が Project ID で始まるため新しい計画とは一致しない。
+ */
+type StoreFile = { version: 2; records: Record<string, DispatchRecord> };
 
 /** プロセスが生きているか。権限不足（EPERM）は存在するとみなす。 */
 export const isProcessAlive = (pid: number): boolean => {
@@ -118,30 +122,49 @@ export const finishRecord = (
 /**
  * dispatch 記録を state directory の JSON file に保存する。書込は一時 file からの rename で行い、途中で停止しても壊さない。
  * 同じ state directory を使う Orchestrator は `acquireProcessLock` で同時に1つだけにする。
+ *
+ * Project 基準の Orchestrator が残した version 1 の記録は key が変わるため引き継がない。その Agent がまだ動いていれば、
+ * 新しい key で同じ論理起動を重ねないよう読込を拒否する（Agent の終了を待つか停止してから起動し直す）。動いていなければ捨てる。
  */
 export class DispatchStore {
   private readonly path: string;
   private records: Record<string, DispatchRecord>;
 
-  constructor(private readonly directory: string) {
+  constructor(
+    private readonly directory: string,
+    private readonly agentAlive: (pid: number) => boolean = isAgentAlive,
+  ) {
     mkdirSync(directory, { recursive: true });
     this.path = join(directory, "dispatches.json");
     this.records = this.load();
   }
 
   private load(): Record<string, DispatchRecord> {
+    let parsed: { version?: unknown; records?: Record<string, DispatchRecord> };
     try {
-      const parsed = JSON.parse(readFileSync(this.path, "utf8")) as StoreFile;
-      return parsed.version === 1 && parsed.records ? parsed.records : {};
+      parsed = JSON.parse(readFileSync(this.path, "utf8"));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
       throw new Error(`Cannot read the dispatch store ${this.path}: ${(error as Error).message}`);
     }
+    if (parsed.version === 2 && parsed.records) return parsed.records;
+    if (parsed.version === 1 && parsed.records) {
+      const stillRunning = Object.entries(parsed.records)
+        .filter(([, record]) => record.status === "running" && record.childPid !== null && this.agentAlive(record.childPid))
+        .map(([key]) => key);
+      if (stillRunning.length > 0) {
+        throw new Error(
+          `The dispatch store ${this.path} has Project-based launches whose Agents are still running (${stillRunning.join(", ")}). ` +
+            "Wait for them to finish or stop them, then start the orchestrator again",
+        );
+      }
+    }
+    return {};
   }
 
   private save(): void {
     const temporary = `${this.path}.${process.pid}.tmp`;
-    writeFileSync(temporary, JSON.stringify({ version: 1, records: this.records } satisfies StoreFile, null, 2));
+    writeFileSync(temporary, JSON.stringify({ version: 2, records: this.records } satisfies StoreFile, null, 2));
     renameSync(temporary, this.path);
   }
 
@@ -159,14 +182,14 @@ export class DispatchStore {
   }
 
   /**
-   * 指定 scope（key の先頭の Project / Workspace ID）の記録のうち、現在の計画に無く実行中でもないものを捨てる（状態が進んだ）。
+   * 指定 Workspace（key の先頭の Workspace ID）の記録のうち、現在の計画に無く実行中でもないものを捨てる（状態が進んだ）。
    * 失敗で打ち切った記録も、状態が変わって key が消えれば捨てる。
    */
-  prune(scopeId: string, planned: readonly Pick<Dispatch, "key">[]): void {
+  prune(workspaceId: string, planned: readonly Pick<WorkspaceDispatch, "key">[]): void {
     const keep = new Set(planned.map((dispatch) => dispatch.key));
     let changed = false;
     for (const [key, record] of Object.entries(this.records)) {
-      if (!key.startsWith(`${scopeId}:`) || keep.has(key) || record.status === "running") continue;
+      if (!key.startsWith(`${workspaceId}:`) || keep.has(key) || record.status === "running") continue;
       delete this.records[key];
       changed = true;
     }
