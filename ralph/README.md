@@ -86,6 +86,8 @@ npm run lint --workspace ralph
 - provider の失敗後の再試行、Claim を残して停止した Agent の Task を Claim 期限後に再取得して完了・レビューまで進む
 - Token 上限の検出、Agent 実行中の SIGTERM で Agent の終了を待ち次を起動しない
 
+Orchestrator と接続した Workspace 境界の E2E（`orchestrator/tests/integration.test.ts`）では、Target Project ごとに Ralph を起動し、設定と起動指示が Project ID だけを持ち、Agent が所属 Workspace の要約と Target Outcome を `get_role_context` から受け取ることを確認します。
+
 起動される Agent は決定的な fixture（`tests/support/fakeAgent.ts`。`claude` / `codex` の引数から MCP 接続設定を読む）で、実 Agent による自律運転の実証ではありません。
 
 ## 未接続・未検証

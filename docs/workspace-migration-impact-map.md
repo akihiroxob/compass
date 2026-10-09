@@ -240,7 +240,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `plan.ts` | `planWorkspaceDispatches`だけ。key `<workspaceId>:<role>:…`・manager `<workspaceId>:<projectId>:manager:outcome:<outcomeId>`。Targetなし・未完了archived Targetあり→Workspaceのstrategist、active TargetのStory未作成→そのProjectのmanager、全Target評価可能→evaluator。archived Workspace / Projectへは起動しない。Project基準の`planDispatches`は削除 | 実装済み | S08-02、S08-03 |
 | `dispatchStore.ts` | 保存形式version 2（keyはWorkspace IDで始まる）。`prune`はWorkspace単位。Project基準のversion 1の記録は引き継がず、そのAgentが動いている間は読込を拒否する | 実装済み | S08-03 |
 | `launcher.ts` | Workspace Roleへ`COMPASS_WORKSPACE_ID`と`get_workspace_role_context`、managerへ`COMPASS_WORKSPACE_ID`・`COMPASS_PROJECT_ID`と`get_role_context`の指示を渡す。Workspace Roleには`COMPASS_PROJECT_ID`を渡さない | 実装済み | S08-03 |
-| `ralph/bin/ralph-loop`・`backends/compass.sh`・`prompts/*.md`・`examples/config.json` | `projectId`でWork toolsを呼ぶ | 変更なし（Project scopeの実行ループのまま）。Workspaceを所有・選択せず、Workspace要約・関連OutcomeはServerの`get_role_context({ projectId })`から得る（S07-04で接続済み） | S07-04（実装済み）、S08-04 |
+| `ralph/bin/ralph-loop`・`backends/compass.sh`・`prompts/*.md`・`examples/config.json` | `projectId`でWork toolsを呼ぶ | 変更なし（Project scopeの実行ループのまま）。Workspaceを所有・選択せず、Workspace要約・関連OutcomeはServerの`get_role_context({ projectId })`から得る（S07-04で接続済み） | S07-04（実装済み）、S08-04（OrchestratorとのE2Eで検証済み） |
 
 ## Role・Policy・Skill文書
 

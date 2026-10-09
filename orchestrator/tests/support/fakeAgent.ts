@@ -5,6 +5,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 /**
  * 結合テスト用の決定的なAgent（fixture）。Orchestratorが渡した環境変数だけを使い、Roleの最小限の結果をMCPで返す。
  * Credentialは設定のscope別`agentEnv`が渡す`FAKE_AGENT_TOKEN`（Workspace RoleはWorkspace、managerはProjectのAgent Credential）。
+ * Evaluatorは還流済みEvidenceを観測したものとして全Criterionを`met`にし、StrategistはそのEvaluationを根拠にIntent完了を判断する。
  * 実LLM・実Agentの起動ではなく、自律運転の実証として扱わない。
  */
 const env = process.env;
@@ -34,7 +35,19 @@ const call = async (name: string, args: Record<string, unknown>) => {
 if (role === "strategist") {
   const context = await call("get_strategist_context", { workspaceId });
   const intentId = context.activeIntent.id as string;
-  if (context.research.requests.length === 0) {
+  if (env.COMPASS_SUBJECT_KIND === "evaluation") {
+    // 判断待ちのEvaluationを根拠に次を判断する。fixtureは達成としてIntentを完了する。
+    await call("create_direction_decision", {
+      workspaceId,
+      intentId,
+      type: "intent_complete",
+      evaluationId: subjectId,
+      judgment: "Outcome achieved",
+      reason: "Every criterion is met",
+      requestKey: `complete:${subjectId}`,
+      runRef: env.COMPASS_DISPATCH_KEY!,
+    });
+  } else if (context.research.requests.length === 0) {
     // 情報不足と判断して追加Researchを依頼する。
     await call("create_direction_decision", {
       workspaceId,
@@ -60,6 +73,16 @@ if (role === "strategist") {
   }
 } else if (role === "researcher") {
   await call("complete_research_request", { workspaceId, requestId: subjectId, conclusion: "not_needed", stopReason: "Known" });
+} else if (role === "evaluator") {
+  const context = await call("get_evaluator_context", { workspaceId, outcomeId: subjectId });
+  const evidenceIds = context.targets.flatMap((target: { execution: { evidence: { id: string }[] } | null }) => target.execution?.evidence.map(({ id }) => id) ?? []);
+  await call("record_outcome_evaluation", {
+    workspaceId,
+    outcomeId: subjectId,
+    requestKey: env.COMPASS_DISPATCH_KEY!,
+    runRef: env.COMPASS_DISPATCH_KEY!,
+    criteria: context.outcome.successCriteria.map(({ id }: { id: string }) => ({ criterionId: id, verdict: "met", rationale: "Observed every Target's Evidence", evidenceIds })),
+  });
 } else if (role === "manager") {
   const story = await call("issue_story", { projectId, title: "Story", outcomeId: subjectId, requestId: `story:${subjectId}` });
   await call("issue_task", { projectId, storyId: story.id, title: "Task", taskKey: "task", requestId: `task:${subjectId}` });

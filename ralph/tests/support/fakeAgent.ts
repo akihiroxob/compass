@@ -8,6 +8,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
  * 実LLM・実Agentの起動ではなく、自律運転の実証として扱わない。
  *
  * 動作は`FAKE_AGENT_ACTIONS`（Roleごとの配列。n回目の起動でn番目を使う）で決める。
+ * `FAKE_AGENT_CONTEXT_LOG`があれば、`get_role_context`で受け取った所属Workspace・Target Outcomeを記録する。
  */
 const env = process.env;
 const argv = process.argv.slice(2);
@@ -83,7 +84,13 @@ const call = async (name: string, args: Record<string, unknown>) => {
   return result.structuredContent!;
 };
 
-await call("get_role_context", { projectId, role });
+const context = await call("get_role_context", { projectId, role });
+if (env.FAKE_AGENT_CONTEXT_LOG) {
+  appendFileSync(
+    env.FAKE_AGENT_CONTEXT_LOG,
+    `${JSON.stringify({ role, projectId, workspaceId: context.workspace.id, outcomeIds: context.outcomes.map(({ id }: { id: string }) => id) })}\n`,
+  );
+}
 const request = (step: string, taskId: string) => `fake-${role}-${process.pid}-${step}-${taskId}`;
 if (role === "worker") {
   const { tasks } = await call("list_tasks", { projectId, filter: { availableFor: "work" } });
