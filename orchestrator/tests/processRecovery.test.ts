@@ -49,7 +49,7 @@ const setup = async (agentEnv: Record<string, string>, orchestratorEnv: Record<s
       maxAttempts: 3,
       retryBackoffMs: 0,
       terminateGraceMs: 1000,
-      projects: [{ projectId: "p-1", tokenEnv: "RUNTIME_TOKEN" }],
+      workspaces: [{ workspaceId: "w-1", tokenEnv: "RUNTIME_TOKEN" }],
       roles: {
         strategist: {
           command: `"${process.execPath}" --import "${tsx}" "${sleepAgent}"`,

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { OrchestrationResearchRequest, OrchestrationState, WorkspaceOrchestrationOutcome, WorkspaceOrchestrationState } from "./state.ts";
+import type { OrchestrationResearchRequest, WorkspaceOrchestrationOutcome, WorkspaceOrchestrationState } from "./state.ts";
 
 /** Orchestrator が起動する専門 Role。Role 名と値は Compass の Grant と同じ。 */
 export type DispatchRole = "strategist" | "researcher" | "manager" | "evaluator";
@@ -7,19 +7,6 @@ export type DispatchRole = "strategist" | "researcher" | "manager" | "evaluator"
 export const dispatchRoles: readonly DispatchRole[] = ["strategist", "researcher", "manager", "evaluator"];
 
 export type DispatchSubject = { kind: "intent" | "evaluation" | "research_request" | "outcome"; id: string };
-
-/**
- * 現在状態から導いた「この Role をこの対象で起動する」という1件。`key` は Project・対象・状態から決定的に決まり（Project ID で始まる）、
- * 同じ状態からは同じ key になる。起動の重複抑止（並行・再起動・再試行）はこの key で行う。
- */
-export type Dispatch = {
-  key: string;
-  projectId: string;
-  role: DispatchRole;
-  subject: DispatchSubject;
-  /** 起動理由の要約。Operational Log と起動する Role への手掛かりに使い、判断内容は含めない。 */
-  reason: string;
-};
 
 const openResearchStatuses = new Set(["requested", "running"]);
 
@@ -59,91 +46,10 @@ const intentNeedsStrategist = (outcomes: readonly OutcomeProgress[], intentResea
   !outcomes.some(isLive);
 
 /**
- * 明示的な状態判定だけを行い、起動すべき Role を返す。Outcome の内容・調査方法・分解方法などの知的判断は含めない。
- * Project 基準の `get_orchestration_state` に対する規則で、Workspace 基準の `planWorkspaceDispatches` へ周回を切り替える（S08-03）まで使う。
- *
- * - 未終了の Research Request → researcher
- * - 判断待ちの最新 Evaluation → strategist
- * - Story / Task の無い Outcome（未分解）→ manager
- * - 全 Target Project から還流し incomplete が無く（`evaluability.status === "evaluable"`）、この Project の還流 cursor で
- *   未評価の Outcome → evaluator。一部の Project の完了だけでは起動しない
- * - 上記のいずれも無い Active Intent（進行中の Outcome・未終了の Research・判断待ちの Evaluation が無い）→ strategist。
- *   Research の要否は起動された Strategist が判断する
- */
-export const planDispatches = (state: OrchestrationState): Dispatch[] => {
-  if (state.project.status !== "active") return [];
-  const projectId = state.project.id;
-  const dispatches: Dispatch[] = [];
-
-  for (const request of state.openResearchRequests) {
-    dispatches.push({
-      key: `${projectId}:researcher:research_request:${request.id}`,
-      projectId,
-      role: "researcher",
-      subject: { kind: "research_request", id: request.id },
-      reason: `Research Request is ${request.status}`,
-    });
-  }
-
-  const intent = state.activeIntent;
-  if (!intent) return dispatches;
-
-  for (const outcome of state.outcomes) {
-    const evaluation = outcome.latestEvaluation;
-    const pending = pendingEvaluationOf(outcome);
-    if (pending) {
-      dispatches.push({
-        key: `${projectId}:strategist:evaluation:${pending.id}`,
-        projectId,
-        role: "strategist",
-        subject: { kind: "evaluation", id: pending.id },
-        reason: `Outcome ${outcome.id} has an Evaluation awaiting a Direction Decision`,
-      });
-    }
-    if (!isLive(outcome)) continue;
-    if (outcome.work === null || outcome.work.taskCount === 0) {
-      dispatches.push({
-        key: `${projectId}:manager:outcome:${outcome.id}`,
-        projectId,
-        role: "manager",
-        subject: { kind: "outcome", id: outcome.id },
-        reason: outcome.work === null ? "Outcome has no Story" : "Outcome's Stories have no Task",
-      });
-      continue;
-    }
-    const execution = outcome.execution;
-    if (
-      execution &&
-      outcome.evaluability.status === "evaluable" &&
-      (evaluation === null || evaluation.executionCursor < execution.executionCursor)
-    ) {
-      dispatches.push({
-        key: `${projectId}:evaluator:outcome:${outcome.id}:${execution.executionCursor}`,
-        projectId,
-        role: "evaluator",
-        subject: { kind: "outcome", id: outcome.id },
-        reason: `Execution is ${execution.state} at cursor ${execution.executionCursor} and not evaluated`,
-      });
-    }
-  }
-
-  if (intentNeedsStrategist(state.outcomes, state.intentResearchRequests)) {
-    const { version, reason } = intentStrategistOf(state.outcomes, state.intentResearchRequests);
-    dispatches.push({
-      key: `${projectId}:strategist:intent:${intent.id}:${version}`,
-      projectId,
-      role: "strategist",
-      subject: { kind: "intent", id: intent.id },
-      reason,
-    });
-  }
-  return dispatches;
-};
-
-/**
- * Workspace 単位の現在状態から導いた起動1件。Workspace Role（strategist / researcher / evaluator）は Workspace を対象にし
- * `projectId` は null、manager は Target の Project を対象にする。`key` は Workspace ID で始まり、Workspace・Project・対象・状態から
- * 決定的に決まる（manager は `<workspaceId>:<projectId>:manager:outcome:<outcomeId>`）。
+ * Workspace 単位の現在状態から導いた「この Role をこの対象で起動する」という1件。Workspace Role（strategist / researcher / evaluator）は
+ * Workspace を対象にし `projectId` は null、manager は Target の Project を対象にする。`key` は Workspace ID で始まり、Workspace・Project・
+ * 対象・状態から決定的に決まる（manager は `<workspaceId>:<projectId>:manager:outcome:<outcomeId>`）。同じ状態からは同じ key になり、
+ * 起動の重複抑止（並行・再起動・再試行）はこの key で行う。
  */
 export type WorkspaceDispatch = {
   key: string;

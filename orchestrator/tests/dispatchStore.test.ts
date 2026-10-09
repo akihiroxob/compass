@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { acquireProcessLock, decideLaunch, DispatchStore, finishRecord, type DispatchRecord } from "../src/dispatchStore.ts";
-import type { Dispatch } from "../src/plan.ts";
+import type { WorkspaceDispatch } from "../src/plan.ts";
 
 const policy = { leaseMs: 1000, maxAttempts: 3, retryBackoffMs: 100, terminateGraceMs: 500 };
 const deadPid = 2_147_483_646;
@@ -77,14 +77,43 @@ test("記録はfileに残り、計画から消えた非実行中の記録だけ�
   const directory = await mkdtemp(join(tmpdir(), "compass-orchestrator-store-"));
   try {
     const store = new DispatchStore(directory);
-    store.set("p-1:a", { status: "succeeded", attempt: 1, finishedAt: 0 });
-    store.set("p-1:b", running());
-    store.set("p-1:c", { status: "failed", attempt: 3, finishedAt: 0, lastError: "x" });
-    store.set("p-2:a", { status: "succeeded", attempt: 1, finishedAt: 0 });
-    const planned = [{ key: "p-1:a" }] as Dispatch[];
-    store.prune("p-1", planned);
+    store.set("w-1:strategist:a", { status: "succeeded", attempt: 1, finishedAt: 0 });
+    store.set("w-1:p-a:manager:outcome:o-1", running());
+    store.set("w-1:p-b:manager:outcome:o-1", { status: "failed", attempt: 3, finishedAt: 0, lastError: "x" });
+    store.set("w-2:strategist:a", { status: "succeeded", attempt: 1, finishedAt: 0 });
+    const planned = [{ key: "w-1:strategist:a" }] as WorkspaceDispatch[];
+    store.prune("w-1", planned);
     const reopened = new DispatchStore(directory);
-    assert.deepEqual(Object.keys(reopened.all()).sort(), ["p-1:a", "p-1:b", "p-2:a"]);
+    assert.deepEqual(Object.keys(reopened.all()).sort(), ["w-1:p-a:manager:outcome:o-1", "w-1:strategist:a", "w-2:strategist:a"]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("Project基準のOrchestratorの記録（version 1）は、Agentが動いていれば読込を拒否し、動いていなければ捨てる", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "compass-orchestrator-legacy-store-"));
+  try {
+    const path = join(directory, "dispatches.json");
+    const legacy = {
+      version: 1,
+      records: {
+        "p-1:strategist:intent:i-1:v": running({ childPid: 222 }),
+        "p-1:researcher:research_request:r-1": { status: "succeeded", attempt: 1, finishedAt: 0 },
+      },
+    };
+    await writeFile(path, JSON.stringify(legacy));
+    // 旧Agentが動いている: 新しいkeyで同じ論理起動を重ねないよう、Orchestratorを起動させない。
+    assert.throws(() => new DispatchStore(directory, (pid) => pid === 222), /Project-based launches whose Agents are still running \(p-1:strategist:intent:i-1:v\)/);
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), legacy, "the legacy records are kept while refusing");
+    // 旧Agentが終わった後は、旧keyの記録を引き継がず空から始める（新しいkeyはWorkspace IDで始まる）。
+    const store = new DispatchStore(directory, () => false);
+    assert.deepEqual(store.all(), {});
+    store.set("w-1:strategist:intent:i-1:v", { status: "succeeded", attempt: 1, finishedAt: 0 });
+    assert.deepEqual(JSON.parse(await readFile(path, "utf8")), {
+      version: 2,
+      records: { "w-1:strategist:intent:i-1:v": { status: "succeeded", attempt: 1, finishedAt: 0 } },
+    });
+    assert.deepEqual(Object.keys(new DispatchStore(directory, () => true).all()), ["w-1:strategist:intent:i-1:v"]);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

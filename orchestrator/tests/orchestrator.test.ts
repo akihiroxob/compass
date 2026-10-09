@@ -4,39 +4,53 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { CompassStateReader } from "../src/compassClient.ts";
-import type { OrchestratorConfig } from "../src/config.ts";
+import type { OrchestratorConfig, RoleCommand } from "../src/config.ts";
 import { DispatchStore } from "../src/dispatchStore.ts";
 import type { AgentLauncher, LaunchResult } from "../src/launcher.ts";
 import { Orchestrator } from "../src/orchestrator.ts";
-import type { Dispatch } from "../src/plan.ts";
-import type { OrchestrationState } from "../src/state.ts";
+import type { WorkspaceDispatch } from "../src/plan.ts";
+import type { WorkspaceOrchestrationOutcome, WorkspaceOrchestrationState } from "../src/state.ts";
 
-const baseState = (projectId: string): OrchestrationState => ({
-  project: { id: projectId, name: projectId, status: "active" },
-  activeIntent: { id: `${projectId}-intent`, status: "active", updatedAt: 1 },
+const baseState = (workspaceId: string): WorkspaceOrchestrationState => ({
+  workspace: { id: workspaceId, name: workspaceId, status: "active" },
+  projects: [],
+  activeIntent: { id: `${workspaceId}-intent`, status: "active", updatedAt: 1 },
   outcomes: [],
   intentResearchRequests: [],
   openResearchRequests: [],
   observedAt: 1,
 });
 
+/** Target A / B の Story が無い（未分解の）進行中の Outcome。 */
+const undecomposed = (id: string, projectIds: string[]): WorkspaceOrchestrationOutcome => ({
+  id,
+  status: "active",
+  updatedAt: 1,
+  targets: projectIds.map((projectId) => ({ projectId, projectStatus: "active", work: null, execution: null })),
+  evaluability: {
+    status: "awaiting_execution",
+    unfinishedTargets: projectIds.map((projectId) => ({ projectId, projectStatus: "active", reason: "not_reflected" })),
+  },
+  latestEvaluation: null,
+});
+
 /** 起動を記録し、テストが結果を確定させるまで終わらないAgent。 */
 class FakeLauncher implements AgentLauncher {
-  readonly launches: { dispatch: Dispatch; attempt: number; finish: (result: LaunchResult) => void }[] = [];
-  launch(dispatch: Dispatch, _command: unknown, context: { attempt: number }) {
+  readonly launches: { dispatch: WorkspaceDispatch; command: RoleCommand; attempt: number; finish: (result: LaunchResult) => void }[] = [];
+  launch(dispatch: WorkspaceDispatch, command: RoleCommand, context: { attempt: number }) {
     let finish!: (result: LaunchResult) => void;
     const done = new Promise<LaunchResult>((resolve) => (finish = resolve));
-    this.launches.push({ dispatch, attempt: context.attempt, finish });
+    this.launches.push({ dispatch, command, attempt: context.attempt, finish });
     return { pid: null, done, start: () => {} };
   }
 }
 
 const setup = async (overrides: Partial<OrchestratorConfig> = {}) => {
   const directory = await mkdtemp(join(tmpdir(), "compass-orchestrator-"));
-  const states = new Map<string, OrchestrationState | Error>([["p-1", baseState("p-1")]]);
+  const states = new Map<string, WorkspaceOrchestrationState | Error>([["w-1", baseState("w-1")]]);
   const reader: CompassStateReader = {
-    getOrchestrationState: async (projectId) => {
-      const state = states.get(projectId);
+    getWorkspaceOrchestrationState: async (workspaceId) => {
+      const state = states.get(workspaceId);
       if (state instanceof Error) throw state;
       return state!;
     },
@@ -51,7 +65,7 @@ const setup = async (overrides: Partial<OrchestratorConfig> = {}) => {
     retryBackoffMs: 500,
     maxConcurrent: 5,
     terminateGraceMs: 1_000,
-    projects: [{ projectId: "p-1", tokenEnv: "RUNTIME_TOKEN", token: "runtime-1" }],
+    workspaces: [{ workspaceId: "w-1", tokenEnv: "RUNTIME_TOKEN", token: "runtime-1", agentEnv: {}, projects: [] }],
     roles: { strategist: { command: "true", env: {} }, researcher: { command: "true", env: {} } },
     ...overrides,
   };
@@ -79,12 +93,12 @@ test("同じ状態では実行中・成功後とも再起動せず、状態が�
     assert.equal((await orchestrator.tick()).launched.length, 0);
 
     // StrategistがResearchを依頼した: Researcherだけを起動する。
-    const request = { id: "r-1", kind: "decision", status: "requested", originIntentId: "p-1-intent", originOutcomeId: null, updatedAt: 2 };
-    kit.states.set("p-1", { ...baseState("p-1"), openResearchRequests: [request], intentResearchRequests: [request] });
+    const request = { id: "r-1", kind: "decision", status: "requested", originIntentId: "w-1-intent", originOutcomeId: null, updatedAt: 2 };
+    kit.states.set("w-1", { ...baseState("w-1"), openResearchRequests: [request], intentResearchRequests: [request] });
     assert.deepEqual((await orchestrator.tick()).launched.map(({ role }) => role), ["researcher"]);
     // 状態が進んで計画から消えた成功記録は捨てる（Strategistの古いkey）。
     const store = new DispatchStore(kit.directory);
-    assert.deepEqual(Object.keys(store.all()), ["p-1:researcher:research_request:r-1"]);
+    assert.deepEqual(Object.keys(store.all()), ["w-1:researcher:research_request:r-1"]);
     kit.launcher.launches[1]!.finish({ ok: true });
     await orchestrator.drain();
   } finally {
@@ -130,32 +144,33 @@ test("lease切れの実行は回収して再試行し、Roleのコマンドが�
     await orchestrator.drain();
     await restarted.drain();
 
-    kit.states.set("p-1", { ...baseState("p-1"), outcomes: [{ id: "o-1", status: "active", updatedAt: 1, work: null, execution: null, evaluability: { status: "no_targets", unfinishedTargets: [] }, latestEvaluation: null }] });
+    kit.states.set("w-1", { ...baseState("w-1"), outcomes: [undecomposed("o-1", ["p-a"])] });
     const unconfigured = await restarted.tick();
     assert.equal(unconfigured.launched.length, 0);
     assert.equal(unconfigured.skipped[0]!.reason, "no command is configured for the manager Role");
-    assert.equal(new DispatchStore(kit.directory).get("p-1:manager:outcome:o-1"), undefined);
+    assert.equal(new DispatchStore(kit.directory).get("w-1:p-a:manager:outcome:o-1"), undefined);
   } finally {
     await kit.cleanup();
   }
 });
 
-test("状態を読めないProjectは他のProjectの起動を妨げず、記録も消さない", async () => {
-  const kit = await setup({ projects: [{ projectId: "p-1", tokenEnv: "T", token: "t" }, { projectId: "p-2", tokenEnv: "T", token: "t" }] });
+test("状態を読めないWorkspaceは他のWorkspaceの起動を妨げず、記録も消さない", async () => {
+  const workspace = (workspaceId: string) => ({ workspaceId, tokenEnv: "T", token: "t", agentEnv: {}, projects: [] });
+  const kit = await setup({ workspaces: [workspace("w-1"), workspace("w-2")] });
   try {
-    kit.states.set("p-2", baseState("p-2"));
+    kit.states.set("w-2", baseState("w-2"));
     const orchestrator = kit.create();
     await orchestrator.tick();
     for (const launch of kit.launcher.launches) launch.finish({ ok: true });
     await orchestrator.drain();
 
-    kit.states.set("p-1", new Error("FORBIDDEN"));
-    kit.states.set("p-2", { ...baseState("p-2"), activeIntent: null });
+    kit.states.set("w-1", new Error("FORBIDDEN"));
+    kit.states.set("w-2", { ...baseState("w-2"), activeIntent: null });
     const report = await orchestrator.tick();
-    assert.deepEqual(report.failedProjects, [{ projectId: "p-1", error: "FORBIDDEN" }]);
+    assert.deepEqual(report.failedWorkspaces, [{ workspaceId: "w-1", error: "FORBIDDEN" }]);
     const keys = Object.keys(new DispatchStore(kit.directory).all());
     assert.equal(keys.length, 1);
-    assert.ok(keys[0]!.startsWith("p-1:strategist:intent:"));
+    assert.ok(keys[0]!.startsWith("w-1:strategist:intent:"));
   } finally {
     await kit.cleanup();
   }
@@ -164,8 +179,8 @@ test("状態を読めないProjectは他のProjectの起動を妨げず、記録
 test("同時起動数の上限を超える対象は次の周回へ回す", async () => {
   const kit = await setup({ maxConcurrent: 1 });
   try {
-    const requests = ["r-1", "r-2"].map((id) => ({ id, kind: "decision", status: "requested", originIntentId: "p-1-intent", originOutcomeId: null, updatedAt: 1 }));
-    kit.states.set("p-1", { ...baseState("p-1"), openResearchRequests: requests, intentResearchRequests: requests });
+    const requests = ["r-1", "r-2"].map((id) => ({ id, kind: "decision", status: "requested", originIntentId: "w-1-intent", originOutcomeId: null, updatedAt: 1 }));
+    kit.states.set("w-1", { ...baseState("w-1"), openResearchRequests: requests, intentResearchRequests: requests });
     const orchestrator = kit.create();
     const first = await orchestrator.tick();
     assert.equal(first.launched.length, 1);
@@ -175,6 +190,55 @@ test("同時起動数の上限を超える対象は次の周回へ回す", async
     await orchestrator.drain();
     assert.equal((await orchestrator.tick()).launched.length, 1);
     kit.launcher.launches[1]!.finish({ ok: true });
+    await orchestrator.drain();
+  } finally {
+    await kit.cleanup();
+  }
+});
+
+test("Workspace RoleにはWorkspaceのagentEnv、managerにはTarget ProjectのagentEnvを渡し、設定に無いProjectのmanagerは起動も記録もしない", async () => {
+  const kit = await setup({
+    workspaces: [
+      {
+        workspaceId: "w-1",
+        tokenEnv: "RUNTIME_TOKEN",
+        token: "runtime-1",
+        agentEnv: { AGENT_MCP_CONFIG: "/etc/w-1-direction.json" },
+        projects: [{ projectId: "p-a", agentEnv: { AGENT_MCP_CONFIG: "/etc/p-a-manager.json" } }],
+      },
+    ],
+    roles: {
+      strategist: { command: "true", env: { ROLE: "strategist" } },
+      manager: { command: "true", env: { ROLE: "manager" } },
+    },
+  });
+  try {
+    const request = { id: "r-1", kind: "decision", status: "requested", originIntentId: "w-1-intent", originOutcomeId: null, updatedAt: 1 };
+    kit.states.set("w-1", {
+      ...baseState("w-1"),
+      // 未分解の Outcome の Target A / B と、判断待ちの Evaluation（Strategist）。researcher のコマンドは無い。
+      outcomes: [
+        undecomposed("o-1", ["p-a", "p-b"]),
+        { ...undecomposed("o-2", []), status: "achieved", latestEvaluation: { id: "e-1", decisionId: null, createdAt: 1, targets: [] } },
+      ],
+      openResearchRequests: [request],
+    });
+    const orchestrator = kit.create();
+    const report = await orchestrator.tick();
+    const launched = kit.launcher.launches.map(({ dispatch, command }) => [dispatch.key, command.env]);
+    assert.deepEqual(launched, [
+      ["w-1:p-a:manager:outcome:o-1", { ROLE: "manager", AGENT_MCP_CONFIG: "/etc/p-a-manager.json" }],
+      ["w-1:strategist:evaluation:e-1", { ROLE: "strategist", AGENT_MCP_CONFIG: "/etc/w-1-direction.json" }],
+    ]);
+    assert.deepEqual(
+      report.skipped.map(({ key, reason }) => [key, reason]),
+      [
+        ["w-1:researcher:research_request:r-1", "no command is configured for the researcher Role"],
+        ["w-1:p-b:manager:outcome:o-1", "Project p-b is not configured in workspaces[].projects"],
+      ],
+    );
+    assert.equal(new DispatchStore(kit.directory).get("w-1:p-b:manager:outcome:o-1"), undefined);
+    for (const launch of kit.launcher.launches) launch.finish({ ok: true });
     await orchestrator.drain();
   } finally {
     await kit.cleanup();

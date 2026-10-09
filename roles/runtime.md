@@ -15,14 +15,14 @@
 
 ## 現在状態の取得（Orchestrator）
 
-MCP `get_orchestration_state({ projectId })` は、起動する専門 Role を判断するための Project の現在状態を返す。読取だけで状態を変えず、Activity・Runtime event の cursor に依存しない。`X-Compass-Active-Role: runtime` を付けて呼ぶ。
+MCP `get_orchestration_state({ projectId })` は、1 Project から見た現在状態を返す。読取だけで状態を変えず、Activity・Runtime event の cursor に依存しない。`X-Compass-Active-Role: runtime` を付けて呼ぶ。`orchestrator/` は使わず、下の `get_workspace_orchestration_state` で起動を判断する。
 
 - `project`（`id`・`name`・`status`）、`activeIntent`（`id`・`status`・`updatedAt`。無ければ `null`）
 - `outcomes`: Active Intent 配下の全状態の Outcome。`work`（相関付いた Story / Task の件数と状態。Story が無ければ `null`）、`execution`（この Project から還流済みの Execution 要約の状態と `executionCursor`。未還流は `null`）、`evaluability`（全 Target Project から見た評価可能性。`status` は `evaluable` / `no_targets` / `replan_required` / `awaiting_execution`、`unfinishedTargets` は評価を妨げている Target の Project ID・状態・理由）、`latestEvaluation`（最新 Evaluation と、それを根拠にした Decision の `decisionId`、Evaluation snapshot にあるこの Project の `executionCursor`。未判断は `null`）
 - `intentResearchRequests`: Active Intent を発端とする全状態の Research Request。`openResearchRequests`: Project 内の未終了（`requested` / `running`）の Request
 - Mission・Intent の本文・Research の内容は含めない。起動された Role は自分の Role Context から取得する
 
-MCP `get_workspace_orchestration_state({ workspaceId })` は、Workspace 単位の現在状態を返す（handoff v2「19」）。Workspace Runtime Credential（scope `runtime:state:read`）だけで読め、Project Credential・trusted-local の Runtime 名・Agent では読めない。読取だけで状態を変えず、Activity・Runtime event の cursor に依存しない。現在の Orchestrator はまだ使わない（S08-02/03 で切替）。
+MCP `get_workspace_orchestration_state({ workspaceId })` は、Workspace 単位の現在状態を返す（handoff v2「19」）。Workspace Runtime Credential（scope `runtime:state:read`）だけで読め、Project Credential・trusted-local の Runtime 名・Agent では読めない。読取だけで状態を変えず、Activity・Runtime event の cursor に依存しない。`orchestrator/` はこの状態で起動を判断する。
 
 - `workspace`（`id`・`name`・`status`）。archived の Workspace は状態だけを返し、他は空にする
 - `projects`: Workspace の active な Project（`id`・`name`、作成順）。archived の Project は含めない
@@ -30,7 +30,7 @@ MCP `get_workspace_orchestration_state({ workspaceId })` は、Workspace 単位�
 - `outcomes`: Active Intent 配下の全状態の Outcome（新しい順）。`targets` は現在の Target（設定順）で、Target ごとに `projectStatus`（archived も残す）、`work`（その Project で Outcome に相関付いた Story / Task の件数。Story が無ければ `null`）、`execution`（その Project から還流済みの要約の状態と `executionCursor`。未還流は `null`）。`evaluability` は全 Target から見た評価可能性で、未完了（未還流・`incomplete`）の archived Target があれば `replan_required`。`latestEvaluation` は最新 Evaluation・`decisionId`・評価 snapshot にあった Project 別の `executionCursor`（`targets`）
 - 本文（Mission・Intent / Outcome・Research・Story / Task の内容）は含めない
 
-起動判断（どの状態で何の Role を起動するか）と重複抑止は `orchestrator/` の実装が持つ（`orchestrator/README.md`）。
+起動判断（どの状態で何の Role を起動するか）と重複抑止は `orchestrator/` の実装が持つ（`orchestrator/README.md`）。Workspace Role（strategist / researcher / evaluator）は Workspace を対象に Workspace Agent Credential で、manager は Target Project を対象にその Project の Agent Credential で起動する。Orchestrator の Runtime Credential を Agent へ渡さない。
 
 ## イベントの取得
 

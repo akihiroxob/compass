@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type { RoleCommand } from "./config.ts";
 import { agentProcessGroup, isAgentAlive } from "./dispatchStore.ts";
-import type { Dispatch } from "./plan.ts";
+import type { WorkspaceDispatch } from "./plan.ts";
 
 export type LaunchResult = { ok: true } | { ok: false; error: string };
 
@@ -12,19 +12,26 @@ export type LaunchResult = { ok: true } | { ok: false; error: string };
 export type Launched = { pid: number | null; done: Promise<LaunchResult>; start(): void };
 
 export interface AgentLauncher {
-  launch(dispatch: Dispatch, command: RoleCommand, context: { serverUrl: string; attempt: number; timeoutMs: number }): Launched;
+  launch(dispatch: WorkspaceDispatch, command: RoleCommand, context: { serverUrl: string; attempt: number; timeoutMs: number }): Launched;
 }
 
+/** Role Context の取得方法。Workspace Role は Workspace、manager は Target の Project を scope にする。 */
+const roleContextCall = (dispatch: WorkspaceDispatch) =>
+  dispatch.projectId === null
+    ? `get_workspace_role_context({ workspaceId: "${dispatch.workspaceId}", role: "${dispatch.role}" })`
+    : `get_role_context({ projectId: "${dispatch.projectId}", role: "${dispatch.role}" })`;
+
 /**
- * 起動する Agent へ渡す指示。対象の特定だけを伝え、Role の手順・判断基準は含めない（Agent が `get_role_context` で取得する）。
+ * 起動する Agent へ渡す指示。対象の特定だけを伝え、Role の手順・判断基準は含めない（Agent が Role Context で取得する）。
  */
-export const buildPrompt = (dispatch: Dispatch): string =>
+export const buildPrompt = (dispatch: WorkspaceDispatch): string =>
   [
     `Compass の ${dispatch.role} Role として起動された。`,
-    `projectId: ${dispatch.projectId}`,
+    `workspaceId: ${dispatch.workspaceId}`,
+    ...(dispatch.projectId === null ? [] : [`projectId: ${dispatch.projectId}`]),
     `対象: ${dispatch.subject.kind} ${dispatch.subject.id}`,
     `起動理由: ${dispatch.reason}`,
-    `MCP の get_role_context({ projectId: "${dispatch.projectId}", role: "${dispatch.role}" }) で Role Context を取得し、その指示に従って対象を処理する。`,
+    `MCP の ${roleContextCall(dispatch)} で Role Context を取得し、その指示に従って対象を処理する。`,
   ].join("\n");
 
 /**
@@ -40,23 +47,38 @@ export const terminateAgent = (pid: number, signal: NodeJS.Signals): void => {
   }
 };
 
+/** Orchestrator が対象の指定として Agent へ渡す環境変数。親・Role の `env` の同名の値は使わない。 */
+const dispatchEnvNames = [
+  "COMPASS_SERVER_URL",
+  "COMPASS_WORKSPACE_ID",
+  "COMPASS_PROJECT_ID",
+  "COMPASS_ROLE",
+  "COMPASS_SUBJECT_KIND",
+  "COMPASS_SUBJECT_ID",
+  "COMPASS_DISPATCH_KEY",
+  "COMPASS_DISPATCH_ATTEMPT",
+  "COMPASS_PROMPT",
+];
+
 /**
- * Agent へ渡す環境変数。親の環境変数から Orchestrator の Credential（`projects[].tokenEnv`）を除き、
- * Role の `env` と対象の指定を加える。Agent の Credential は Role ごとの Principal で Agent 側に持たせる。
+ * Agent へ渡す環境変数。親の環境変数から Orchestrator の Credential（`workspaces[].tokenEnv`）と対象の指定（`COMPASS_*` の対象変数）を除き、
+ * Role の `env`（scope の `agentEnv` を合わせたもの）と対象の指定を加える。Agent の Credential は Role・scope ごとの Principal で Agent 側に持たせる。
+ * Workspace Role には `COMPASS_PROJECT_ID` を渡さない（Project ID を Workspace ID として扱わせない）。
  */
 export const buildAgentEnv = (
   parentEnv: NodeJS.ProcessEnv,
   credentialEnv: readonly string[],
-  dispatch: Dispatch,
+  dispatch: WorkspaceDispatch,
   command: RoleCommand,
   context: { serverUrl: string; attempt: number },
 ): NodeJS.ProcessEnv => {
-  const excluded = new Set(credentialEnv);
+  const excluded = new Set([...credentialEnv, ...dispatchEnvNames]);
   return {
     ...Object.fromEntries(Object.entries(parentEnv).filter(([name]) => !excluded.has(name))),
     ...Object.fromEntries(Object.entries(command.env).filter(([name]) => !excluded.has(name))),
     COMPASS_SERVER_URL: context.serverUrl,
-    COMPASS_PROJECT_ID: dispatch.projectId,
+    COMPASS_WORKSPACE_ID: dispatch.workspaceId,
+    ...(dispatch.projectId === null ? {} : { COMPASS_PROJECT_ID: dispatch.projectId }),
     COMPASS_ROLE: dispatch.role,
     COMPASS_SUBJECT_KIND: dispatch.subject.kind,
     COMPASS_SUBJECT_ID: dispatch.subject.id,
@@ -86,7 +108,7 @@ export class ShellAgentLauncher implements AgentLauncher {
     private readonly options: { credentialEnv: readonly string[]; terminateGraceMs: number; parentEnv?: NodeJS.ProcessEnv },
   ) {}
 
-  launch(dispatch: Dispatch, command: RoleCommand, context: { serverUrl: string; attempt: number; timeoutMs: number }): Launched {
+  launch(dispatch: WorkspaceDispatch, command: RoleCommand, context: { serverUrl: string; attempt: number; timeoutMs: number }): Launched {
     const child = spawn(agentProcessGroup ? gatedCommand(command.command) : command.command, {
       shell: true,
       stdio: agentProcessGroup ? ["inherit", "inherit", "inherit", "pipe"] : "inherit",

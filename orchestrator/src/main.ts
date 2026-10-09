@@ -1,6 +1,6 @@
 import { parseArgs } from "node:util";
 import { McpCompassStateReader } from "./compassClient.ts";
-import { ConfigError, loadConfig } from "./config.ts";
+import { ConfigError, credentialEnvOf, loadConfig } from "./config.ts";
 import { acquireProcessLock, DispatchStore } from "./dispatchStore.ts";
 import { ShellAgentLauncher } from "./launcher.ts";
 import { jsonLog, Orchestrator } from "./orchestrator.ts";
@@ -18,7 +18,7 @@ const main = async () => {
   const orchestrator = new Orchestrator(
     config,
     new McpCompassStateReader(config.serverUrl),
-    new ShellAgentLauncher({ credentialEnv: config.projects.map(({ tokenEnv }) => tokenEnv), terminateGraceMs: config.terminateGraceMs }),
+    new ShellAgentLauncher({ credentialEnv: credentialEnvOf(config), terminateGraceMs: config.terminateGraceMs }),
     new DispatchStore(config.stateDir),
   );
   try {
@@ -33,7 +33,7 @@ const main = async () => {
     };
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
-    jsonLog("orchestrator_started", { projects: config.projects.map(({ projectId }) => projectId), intervalMs: config.intervalMs });
+    jsonLog("orchestrator_started", { workspaces: config.workspaces.map(({ workspaceId }) => workspaceId), intervalMs: config.intervalMs });
     while (!stopping) {
       await orchestrator.tick();
       const deadline = Date.now() + config.intervalMs;
