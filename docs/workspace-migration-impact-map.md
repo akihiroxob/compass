@@ -167,7 +167,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `application/port/DirectionAuthorizationPort.ts` | `requireRole` / `requireScope`が`projectId` | `workspaceId`へ。実装はAccessの`WorkspaceRoleGrant`・Workspace Credential | S03-04、S06-02 |
 | `application/port/ExecutionSummaryPort.ts`、Workの`ExecutionSummaryService.ts` | `getOutcomeExecutionSummary(projectId, outcomeId)` | 形は維持し、Target Projectごとに呼ぶ（還流はTarget検査付きで実装済み） | S05-01 |
 | `application/DirectionReferenceLookupService.ts`、Workの`port/DirectionReferenceLookupPort.ts` | `getProjectExecutionContext(projectId)`（所属Workspace・WorkspaceのConstraints・ProjectのRepository）と`getOutcomeSnapshot(workspaceId, outcomeId)`（`targetProjectIds`付き） | 実装済み。Outcome（Workspace）・Target・Project所属Workspaceの一致を`issue_story`・`get_outcome_handoff_context`で検査する。`issue_story`はTargetをStory保存と同じtransactionでも再検査する | S04-03 |
-| `GetOrchestrationStateUseCase.ts`（`OrchestrationState.project`） | 1 Projectの状態 | Workspace単位の集約（Outcomes・Targets・Project別Work summary） | S08-01 |
+| `GetOrchestrationStateUseCase.ts`（`OrchestrationState.project`） | 1 Projectの状態。Workspace単位の集約は`GetWorkspaceOrchestrationStateUseCase.ts`（Outcomes・Targets・Target別Work summary・還流・評価可能性）で実装済み | Orchestratorの切替後にProject基準のQueryの扱いを決める | S08-01（実装済み）、S08-02/03 |
 | `GetStrategistContextUseCase.ts`・`GetResearcherContextUseCase.ts`・`GetEvaluatorContextUseCase.ts` | `project`全体と`projectId`で集約 | Workspace Context（Mission等・Project要約・Target）。StrategistのProject要約・Targetは実装済み（S04-02）。Evaluator Contextの全Target・評価可能性は実装済み（S05-02）。Role共通のWorkspace Contextは`get_workspace_role_context`（S07-03）で並べて返し、これらの集約は置き換えない | S03-02、S04-02、S05-02、S07-03（実装済み） |
 | `outcomeCorrelation.ts`（`outcome:{outcomeId}`） | Project非依存 | 変更なし | — |
 | `packages/work/src/application/TaskCoordinationService.ts`・`ExecutionOperatorUseCases.ts`・`ExecutionReadUseCases.ts` | Project scope、`ProjectGrantReader`・`ProjectStateReader` | 変更なし。`issue_story`のOutcome参照検査だけS04-03で変わる | S04-03 |
@@ -195,7 +195,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `create_intent` / `list_intents` / `get_intent` / `update_intent` / `abandon_intent`、`create_outcome` / `list_outcomes` / `get_outcome` / `update_outcome` / `cancel_outcome`、`create_direction_decision` / `decide_next_outcome`、`get_research_request` / `list_research_requests` / `register_research_result` / `register_research_synthesis` / `complete_research_request`、`get_strategist_context` / `get_researcher_context` / `get_evaluator_context` / `record_outcome_evaluation` | `projectId` | `workspaceId`へ。`projectId`をWorkspace IDと解釈する互換を作らない（S03-04で実装済み。Workspace Role Grant・activeRoleで認可） | S03-04、S05-02 |
 | `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references` | `projectId`・`repositoryId` | `workspaceId`とProject固有の`projectId`（S03-04で実装済み） | S03-04 |
 | `fetch_runtime_events` / `ack_runtime_event` / `record_execution_evidence` / `get_outcome_execution_summary` | `projectId`、Runtime scope | Runtime eventは`workspaceId`とWorkspace Runtime Credential（S03-04で実装済み）。Execution Evidence / SummaryはProject固有の記録として`projectId`とProject Runtime Credentialのまま所属Workspaceを明示解決する（S03-04）。還流はTarget Projectだけが行える（`not_target_project`）。Target別の集約は`list_outcome_target_executions`（S05-01で実装済み） | S03-04、S05-01 |
-| `get_orchestration_state` | `projectId` | Workspace単位 | S08-01 |
+| `get_orchestration_state` | `projectId` | Workspace単位の`get_workspace_orchestration_state({ workspaceId })`をWorkspace Runtime Credential（`runtime:state:read`）で追加済み。Project基準のtoolはOrchestrator切替まで残る | S08-01（実装済み）、S08-02/03 |
 | `set_outcome_target` / `unset_outcome_target` / `list_outcome_targets` | `workspaceId`・`outcomeId`・`projectId` | 設定・解除はWorkspace strategist Grant、一覧はWorkspaceの参照権限（S04-01で実装済み） | S04-01 |
 | `list_outcome_target_work` | `workspaceId`・`intentId` | Intent配下のOutcomeごとのTarget別Work要約（状態・件数）。Workspaceの参照権限（S04-04で実装済み） | S04-04 |
 | `list_outcome_target_executions` | `workspaceId`・`outcomeId` | OutcomeのTarget別に還流済みのExecution Summary・Evidence参照（Project別、未還流はnull、Target解除前の記録は`nonTargetExecutions`）。Workspaceの参照権限（S05-01で実装済み） | S05-01 |
@@ -236,7 +236,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | 対象 | 現況 | 変更 | Task |
 | --- | --- | --- | --- |
 | `orchestrator/src/config.ts` | `projects[]`（`projectId`・`tokenEnv`） | Workspace単位の設定へ。既存Project設定からの移行手順を示す | S08-03 |
-| `state.ts`・`compassClient.ts` | `get_orchestration_state({ projectId })` | Workspace単位の状態 | S08-01 |
+| `state.ts`・`compassClient.ts` | `get_orchestration_state({ projectId })` | Workspace単位の状態（Server側の`get_workspace_orchestration_state`はS08-01で実装済み） | S08-02/03 |
 | `plan.ts` | dispatch key `projectId:role:...`、`state.project.status !== "active"`で停止 | `workspace:project:role:outcome`等のkey。Targetなし・未完了archived Targetあり→Workspaceのstrategist、active TargetのStory未作成→そのProjectのmanager、全Target評価可能→evaluator。archived Workspace / Projectへの起動を除外し、保存済みの成果・Evidenceは保持する | S08-02、S08-03 |
 | `dispatchStore.ts` | 記録のkeyがProject IDで始まる（`prune`もProject前方一致） | 新keyへ。既存記録はkeyが変わるため、切替時に実行中の起動が二重にならない手順を確認する | S08-03 |
 | `launcher.ts` | Agentへ`COMPASS_PROJECT_ID`と`get_role_context({ projectId })`の指示を渡す | Workspace RoleはWorkspace ID、managerはProject ID | S08-03 |

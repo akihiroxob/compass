@@ -1052,6 +1052,28 @@ export const createMcpServer = (
     },
     ({ projectId }) => execute(() => services.getOrchestrationStateUseCase.execute(caller, projectId)),
   );
+  server.registerTool(
+    "get_workspace_orchestration_state",
+    {
+      title: "Get Workspace Orchestration State",
+      description:
+        "For an external Orchestrator: read the Workspace's current state used to decide which specialist Role to start. " +
+        "It returns the Workspace status, its active Projects (id and name; archived Projects are excluded), the active Intent " +
+        "(id and status only), the active Intent's Outcomes with their Target Projects in configured order (projectStatus, the " +
+        "Project's Work counts for the Outcome - null before the Project has a correlated Story - and the Execution summary the " +
+        "Project already reflected - null while not reflected), the evaluability over all Targets (no_targets, awaiting_execution, " +
+        "evaluable, or replan_required when an archived Target has an unreflected or incomplete Execution, with the unfinished " +
+        "Targets), the latest Evaluation with the Direction Decision based on it (decisionId null while undecided) and the per-Project " +
+        "Execution cursors it evaluated, the active Intent's Research Requests and the Workspace's open (requested / running) Research " +
+        "Requests. An archived Workspace returns only its status with empty lists. No content (Mission, Intent or Outcome text, " +
+        "Research findings, Story / Task text) is included: the started Role reads it through its own Role Context. Reading does " +
+        "not change state and does not depend on Activity or Runtime event cursors. Requires a Workspace Runtime Credential " +
+        "(Authorization: Bearer cmp_runtime...) of the Workspace with the runtime:state:read scope; a Project Credential or a " +
+        "trusted-local Bearer <RuntimeName> is rejected (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: { workspaceId: z.string().min(1) },
+    },
+    ({ workspaceId }) => execute(() => services.getWorkspaceOrchestrationStateUseCase.execute(caller, workspaceId)),
+  );
 
   server.registerTool(
     "get_evaluator_context",

@@ -225,10 +225,11 @@ test("Workspaceの管理操作はWeb API・MCPへ公開せず、AgentはProject�
 
   await services.grantProjectRoleUseCase.execute(projectA.id, { principalId: "planner", role: "manager" });
   const tools = ((await callTool(app, "tools/list", {}, "planner")).tools as Body[]).map(({ name }) => name);
-  // Workspaceの名を持つtoolはWorkspace Activityの記録・参照とWorkspace Role Context（Workspace Role Grantで認可）だけで、管理操作は無い。
+  // Workspaceの名を持つtoolはWorkspace Activityの記録・参照とWorkspace Role Context（Workspace Role Grantで認可）、
+  // Orchestrator向けの現在状態（Workspace Runtime Credentialで認可）だけで、管理操作は無い。
   assert.deepEqual(
     tools.filter((name) => name.includes("workspace")).sort(),
-    ["get_workspace_activity", "get_workspace_role_context", "list_workspace_activities", "record_workspace_activity"],
+    ["get_workspace_activity", "get_workspace_orchestration_state", "get_workspace_role_context", "list_workspace_activities", "record_workspace_activity"],
   );
   const { structuredContent: project } = await callTool(app, "get_project", { projectId: projectA.id }, "planner");
   assert.equal(project.workspaceId, workspaceId);

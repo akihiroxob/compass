@@ -17,6 +17,7 @@ export * from "./application/FetchRuntimeEventsUseCase.ts";
 export * from "./application/GetEvaluatorContextUseCase.ts";
 export * from "./application/GetExecutionSummaryUseCase.ts";
 export * from "./application/GetOrchestrationStateUseCase.ts";
+export * from "./application/GetWorkspaceOrchestrationStateUseCase.ts";
 export * from "./application/GetIntentUseCase.ts";
 export * from "./application/GetOutcomeUseCase.ts";
 export * from "./application/GetResearchRequestUseCase.ts";

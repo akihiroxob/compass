@@ -30,3 +30,8 @@ export interface DirectionRoleAuthorizationPort {
 export interface DirectionRuntimeAuthorizationPort<TCaller> {
   requireScope(caller: TCaller, projectId: string, scope: DirectionRuntimeScope): Promise<string>;
 }
+
+/** Workspace scopeの外部Runtime向け入口。Workspace Runtime Credentialだけを受け付け、Project Credentialから継承しない。 */
+export interface DirectionWorkspaceRuntimeAuthorizationPort<TCaller> {
+  requireWorkspaceScope(caller: TCaller, workspaceId: string, scope: DirectionRuntimeScope): Promise<string>;
+}
