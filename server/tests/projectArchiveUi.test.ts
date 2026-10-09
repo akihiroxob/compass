@@ -69,8 +69,8 @@ test("一覧の切替: statusの解釈とpath・queryを生成する", () => {
   assert.equal(parseListStatus("all"), "active");
   assert.equal(projectsApiPath("active"), "/api/projects");
   assert.equal(projectsApiPath("archived"), "/api/projects?status=archived");
-  assert.equal(projectListPath("active"), "/");
-  assert.equal(projectListPath("archived"), "/?status=archived");
+  assert.equal(projectListPath("active"), "/projects");
+  assert.equal(projectListPath("archived"), "/projects?status=archived");
 });
 
 test("archiveの入力検証: 理由は必須（空白のみも不可）で2,000文字まで", () => {

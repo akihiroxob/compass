@@ -56,6 +56,16 @@
 }
 .archive-notice { border-left: 4px solid var(--color-accent); padding-left: 1.5rem; }
 .archive-preview { margin-top: var(--space-sm); }
+// Membershipの無いProject（Workspaceの一覧）。リンクにしないため、hoverで持ち上げない。
+.project-card.locked {
+  border-style: dashed;
+  &:hover { transform: none; box-shadow: none; }
+}
+.locked-note { color: var(--color-text-secondary); font-size: var(--text-note); line-height: 1.6; }
+.workspace-agent-projects {
+  @include unstyled-list;
+  li > p { @include list-item; display: flex; justify-content: space-between; gap: 1rem; margin: 0; padding: 1rem; @include narrow { flex-direction: column; } }
+}
 
 // Project詳細の方向と概要（features/project）
 .direction-panel {
@@ -140,6 +150,7 @@
   summary::marker { color: var(--color-accent); }
   ul { @include unstyled-list; margin-top: .8rem; display: grid; gap: .5rem; }
   a { @include list-link; padding: .8rem 1rem; }
+  .plain-item { @include list-item; padding: .8rem 1rem; }
 }
 
 // Outcomeと成功条件（features/outcome）

@@ -7,7 +7,7 @@ const hasPreviousEntry = () => {
   return typeof state === "object" && state !== null && "idx" in state && typeof state.idx === "number" && state.idx > 0;
 };
 
-/** 定義していないURL。一覧と、Compass内の直前の画面へ戻る導線を出す。 */
+/** 定義していないURL。ホーム（現在のWorkspace）と、Compass内の直前の画面へ戻る導線を出す。 */
 export const NotFoundPage = () => {
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -20,7 +20,7 @@ export const NotFoundPage = () => {
           <p>URLが間違っているか、画面の場所が変わった可能性があります。</p>
           <p className="section-note">開いたURL: <code>{pathname}</code></p>
           <div className="action-row">
-            <Link to="/" className="button">Project一覧へ</Link>
+            <Link to="/" className="button">ホームへ</Link>
             {hasPreviousEntry() && <button type="button" className="secondary-button" onClick={() => void navigate(-1)}>直前の画面へ戻る</button>}
           </div>
         </div>
