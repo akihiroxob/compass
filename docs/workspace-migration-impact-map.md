@@ -10,7 +10,7 @@ Compassはリリース前のため、開発DBはtableのDROPまたはDB file削�
 
 - DBは単一SQLite file（`COMPASS_DB_PATH`、`server/src/bootstrap/database/createDatabase.ts`）で、`foreign_keys = ON`。table定義は各packageの`infrastructure/schema.ts`、初期化は`initialize*Schema.ts`をserverの`initializeSchema.ts`が順に呼ぶ（Organization → Direction → Work → Access → Activity）。
 - migrationのversion管理はない。`create ... if not exists`と、`pragma_table_info`で列の有無を見る冪等な`ALTER TABLE ADD COLUMN`（Organizationのarchive・`workspace_id`・`strategy_migrated_at`、Directionの評価参照、Workの`active_role`）で既存DBへ追随する。server起動のたびに実行される。
-- OrganizationはWorkspaceとProjectを保存する。DirectionのIntent・Outcome・成功条件はWorkspace所有で、`intent.workspace_id`・`outcome.workspace_id`は`workspace.id`をFK参照し、成功条件は`outcome_id`でOutcomeを参照する。Research/Decision/ADRはWorkspace scopeへ切替済みで、ADRは対象artifactのProject/Repository参照も持つ。Evaluation・Runtime event・配送・ackはWorkspace scope。Execution Summary/EvidenceはWorkspace所有で発生元Projectも保持し、Outcome/ProjectのWorkspace一致は複合FKで強制する。WorkはProject scopeで、`project_id`は`project.id`を参照する。Activityは`workspace_id`で`workspace.id`、`project_id`で`project.id`を参照し、3 scopeとID組合せのCHECKを持つ。Direction canonical ActivityはWorkspace scopeで内部保存・取得まで実装済み。Directionの通知はEvaluationを含め全てWorkspace IDを直接使う。AccessにはProject単位のtableに加え、`workspace_membership`があり`workspace.id`を参照する。Workspace DirectionのWeb/API/MCP入口はWorkspace Membership・Role Grant・Runtime Credentialで認可する（S03-04で接続済み）。Workspace Role Grantの付与・取消、Workspace member管理は未接続。Workspace ActivityのMCP・Web APIは接続済み（S07-02）で、Web UIとWorkspace Role Contextは未接続。
+- OrganizationはWorkspaceとProjectを保存する。DirectionのIntent・Outcome・成功条件はWorkspace所有で、`intent.workspace_id`・`outcome.workspace_id`は`workspace.id`をFK参照し、成功条件は`outcome_id`でOutcomeを参照する。Research/Decision/ADRはWorkspace scopeへ切替済みで、ADRは対象artifactのProject/Repository参照も持つ。Evaluation・Runtime event・配送・ackはWorkspace scope。Execution Summary/EvidenceはWorkspace所有で発生元Projectも保持し、Outcome/ProjectのWorkspace一致は複合FKで強制する。WorkはProject scopeで、`project_id`は`project.id`を参照する。Activityは`workspace_id`で`workspace.id`、`project_id`で`project.id`を参照し、3 scopeとID組合せのCHECKを持つ。Direction canonical ActivityはWorkspace scopeで内部保存・取得まで実装済み。Directionの通知はEvaluationを含め全てWorkspace IDを直接使う。AccessにはProject単位のtableに加え、`workspace_membership`があり`workspace.id`を参照する。Workspace DirectionのWeb/API/MCP入口はWorkspace Membership・Role Grant・Runtime Credentialで認可する（S03-04で接続済み）。Workspace Role Grantの付与・取消、Workspace member管理は未接続。Workspace ActivityのMCP・Web API（S07-02）とWorkspace Role Context（S07-03）は接続済みで、Web UIは未接続。
 - Projectの戦略値（Mission等）を読むのは`DirectionReferenceLookupService`（Story作成時のConstraints snapshot）、`GetRoleContextUseCase`、`GetStrategistContextUseCase`（`workspace`を返す）、Web UIの`ProjectDetailPage`・`ProjectListPage`・`projectForm.ts`。
 - `server/tests`・各packageのテストにはProject作成入力の`mission`を使うfixtureがある。Project作成の入力契約を変えるTaskは`projectWorkspaceMigration.test.ts`・`projectAdapters.test.ts`等と関連fixtureの追随を含む。
 
@@ -132,6 +132,7 @@ Activity側の受け口は`canonicalDirectionActivity.ts`の`DirectionChangeFact
 | S06-02〜03 | S06-01とS03-01〜03のScope切替後、Workspace Role Grant・Credentialを用意する |
 | S03-04 → S06-04 | S03-01〜03とS06-02〜03受入後に認可付きDirection公開入口を接続し、その後に入口横断認可を検証する |
 | S07-02 | S07-01・S03-01〜03・S06-02〜03受入後に認可付きWorkspace Activity公開入口（MCP・Web API）を接続する（実装済み） |
+| S07-03 | S07-01〜02・Story 03・06受入後にWorkspace Role Context（`get_workspace_role_context`）を接続する（実装済み）。Orchestratorの起動指示はS08-01まで`get_role_context({ projectId })`のまま |
 
 #### project scopeの経路
 
@@ -141,7 +142,7 @@ Activity側の受け口は`canonicalDirectionActivity.ts`の`DirectionChangeFact
 
 #### 参照への影響
 
-DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`list_activities`・`/api/projects/:projectId/activities`・Web UIの`features/activity/`・`GetRoleContextUseCase`の最近のProject Activity）には出ない。内部の`ActivityStore.listWorkspace`・`maxWorkspaceCursor`は実装済みで、Workspace scopeだけを取得し、同じWorkspaceのProject Activityは含めない。既存のcursor・filterを共用する。認可付きWorkspace記録・取得のuse caseと公開入口（MCP・Web API）はS07-02で接続済みで、Role ContextはS07-03、Web UIはS11-01で接続する。開発DBを再作成する場合、旧Activityの再分類や引継ぎは不要。
+DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`list_activities`・`/api/projects/:projectId/activities`・Web UIの`features/activity/`・`GetRoleContextUseCase`の最近のProject Activity）には出ない。内部の`ActivityStore.listWorkspace`・`maxWorkspaceCursor`は実装済みで、Workspace scopeだけを取得し、同じWorkspaceのProject Activityは含めない。既存のcursor・filterを共用する。認可付きWorkspace記録・取得のuse caseと公開入口（MCP・Web API）はS07-02、Workspace Role ContextはS07-03で接続済みで、Web UIはS11-01で接続する。開発DBを再作成する場合、旧Activityの再分類や引継ぎは不要。
 
 #### 回帰
 
@@ -166,7 +167,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `application/port/ExecutionSummaryPort.ts`、Workの`ExecutionSummaryService.ts` | `getOutcomeExecutionSummary(projectId, outcomeId)` | 形は維持し、Target Projectごとに呼ぶ（還流はTarget検査付きで実装済み） | S05-01 |
 | `application/DirectionReferenceLookupService.ts`、Workの`port/DirectionReferenceLookupPort.ts` | `getProjectExecutionContext(projectId)`（所属Workspace・WorkspaceのConstraints・ProjectのRepository）と`getOutcomeSnapshot(workspaceId, outcomeId)`（`targetProjectIds`付き） | 実装済み。Outcome（Workspace）・Target・Project所属Workspaceの一致を`issue_story`・`get_outcome_handoff_context`で検査する。`issue_story`はTargetをStory保存と同じtransactionでも再検査する | S04-03 |
 | `GetOrchestrationStateUseCase.ts`（`OrchestrationState.project`） | 1 Projectの状態 | Workspace単位の集約（Outcomes・Targets・Project別Work summary） | S08-01 |
-| `GetStrategistContextUseCase.ts`・`GetResearcherContextUseCase.ts`・`GetEvaluatorContextUseCase.ts` | `project`全体と`projectId`で集約 | Workspace Context（Mission等・Project要約・Target）。StrategistのProject要約・Targetは実装済み（S04-02）。Evaluator Contextの全Target・評価可能性は実装済み（S05-02） | S03-02、S04-02、S05-02、S07-03 |
+| `GetStrategistContextUseCase.ts`・`GetResearcherContextUseCase.ts`・`GetEvaluatorContextUseCase.ts` | `project`全体と`projectId`で集約 | Workspace Context（Mission等・Project要約・Target）。StrategistのProject要約・Targetは実装済み（S04-02）。Evaluator Contextの全Target・評価可能性は実装済み（S05-02）。Role共通のWorkspace Contextは`get_workspace_role_context`（S07-03）で並べて返し、これらの集約は置き換えない | S03-02、S04-02、S05-02、S07-03（実装済み） |
 | `outcomeCorrelation.ts`（`outcome:{outcomeId}`） | Project非依存 | 変更なし | — |
 | `packages/work/src/application/TaskCoordinationService.ts`・`ExecutionOperatorUseCases.ts`・`ExecutionReadUseCases.ts` | Project scope、`ProjectGrantReader`・`ProjectStateReader` | 変更なし。`issue_story`のOutcome参照検査だけS04-03で変わる | S04-03 |
 | `packages/access/src/domain/ProjectRole.ts`、`application/ProjectAuthorizationService.ts`・`GrantProjectRoleUseCase.ts`・`RevokeProjectRoleUseCase.ts`・`ListProjectGrantsUseCase.ts`・`projectGrantSchema.ts` | 7 RoleをProject scopeに集約 | Workspace Role（strategist / researcher / evaluator）とProject Role（manager / worker / reviewer）に分け、Role-scopeの組合せを検証 | S06-02 |
@@ -180,7 +181,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `application/ActivityUseCases.ts`の`RecordActivityUseCase`、`port/ActivityScopeReader.ts`の`ActivityScopeState` | 所属Workspaceの解決・検証とappendをActivityUnitOfWorkの同じtransactionで行う。workspace scopeの明示記録も同じuse caseで行う | 実装済み | S07-01・S07-02（実装済み） |
 | `server/src/infrastructure/repository/contextAdapters.ts`の`workChangeActivityObserver`・`directionChangeActivityObserver`・`projectChangeActivityObserver`・`activityScopeReader`・`activityAuthorization` | 同じexecutorのOrganization readerで所属Workspaceを解決し、欠損は拒否。Direction通知のProject IDはWorkspace IDへ解決してActivityへ渡す | Direction通知元をworkspaceIdへ切り替えた経路は直接渡す。Work・Change Logにworkspace_idは足さない | S07-01（実装済み）、S03-01〜03 |
 | `packages/direction/src/infrastructure/directionChange.ts`（`DirectionChangeNotice`）と通知元 | Intent/Outcomeは`workspaceId`、未切替通知は`projectId`のunion（`project_archived`はorganization） | 「Directionの状態変更通知」の表のとおり`workspaceId`へ | S03-01〜03 |
-| `server/src/application/agentContext/GetRoleContextUseCase.ts`・`AgentContextService.ts` | `get_role_context({ projectId, role })`、Project全体とProject Activity | Workspace Role向けとProject Role向けのContextを分ける | S07-03、S07-04 |
+| `server/src/application/agentContext/GetRoleContextUseCase.ts`・`GetWorkspaceRoleContextUseCase.ts`・`AgentContextService.ts` | `get_role_context({ projectId, role })`、Project全体とProject Activity | Workspace Role向け（`GetWorkspaceRoleContextUseCase`：Workspace戦略値・activeなProject要約・Workspace Activity）は実装済み。Project Role向けへのWorkspace要約・関連Outcomeの追加はS07-04 | S07-03（実装済み）、S07-04 |
 | `server/src/infrastructure/repository/contextAdapters.ts`、`bootstrap/createApplicationServices.ts`・`database/*` | Context間のreader配線とschema合成 | organizationのschema・readerを合成に加える | S02-01〜03 |
 
 ## 公開入口
@@ -197,7 +198,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `set_outcome_target` / `unset_outcome_target` / `list_outcome_targets` | `workspaceId`・`outcomeId`・`projectId` | 設定・解除はWorkspace strategist Grant、一覧はWorkspaceの参照権限（S04-01で実装済み） | S04-01 |
 | `list_outcome_target_work` | `workspaceId`・`intentId` | Intent配下のOutcomeごとのTarget別Work要約（状態・件数）。Workspaceの参照権限（S04-04で実装済み） | S04-04 |
 | `list_outcome_target_executions` | `workspaceId`・`outcomeId` | OutcomeのTarget別に還流済みのExecution Summary・Evidence参照（Project別、未還流はnull、Target解除前の記録は`nonTargetExecutions`）。Workspaceの参照権限（S05-01で実装済み） | S05-01 |
-| `get_role_context` | `projectId`・`role` | Workspace Role向けとProject Role向けを分ける | S07-03、S07-04 |
+| `get_role_context` / `get_workspace_role_context` | `projectId`・`role` | Workspace Role向けの`get_workspace_role_context`（`workspaceId`・Workspace Role、Workspace Role Grant）は実装済み。`get_role_context`はProject Role向けとしてS07-04で拡張する | S07-03（実装済み）、S07-04 |
 | `get_role_instructions` / `list_skills` / `get_skill_context` | Project非依存 | 変更なし | — |
 | Work tools（`list_stories`〜`reject_task`、`registerExecutionTools.ts`） | `projectId` | 変更なし。`issue_story`のOutcome参照検査と、Manager向けProject scopeの`get_outcome_handoff_context`追加だけS04-03 | S04-03 |
 | `record_activity` / `list_activities` / `get_activity` | `projectId` | 維持。workspace scopeは`record_workspace_activity` / `list_workspace_activities` / `get_workspace_activity`（`workspaceId`、Workspace Role Grant）で実装済み | S07-01、S07-02 |

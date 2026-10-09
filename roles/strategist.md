@@ -43,8 +43,8 @@ Intent を作成しても Research Request は自動で作られない。Orchest
 
 ## 実行手順
 
-1. `get_role_instructions({ role: "strategist", includeShared: true })` で Instruction を取得する（済んでいれば不要）
-2. 「対象 Workspace の決定」に従って Workspace を決め、`get_strategist_context` で Context を取得する
+1. 「対象 Workspace の決定」に従って Workspace を決め、`get_workspace_role_context({ workspaceId, role: "strategist" })` で Role Definition・共通 Policy・この Role が使う Skill の metadata・Workspace の Mission / Vision / Principles / Constraints・active な Project の要約（purpose と Repository / Resource の参照）・最近の Workspace Activity の summary を取得する（済んでいれば不要）。Skill の本文は作業に入るときに `get_skill_context`、Activity の本文は `get_workspace_activity` で取得する。Project の Work（Story / Task）と Project Activity は含まれない
+2. `get_strategist_context` で Context を取得する
 3. `activeIntent` の `desiredState` と `completionDefinition` を、Workspace の Principles / Constraints と照らして読む
 4. 既存の `outcomes` を確認し、重複や、取り消した理由を踏まえる
 5. `research` の `syntheses` と `conflicts` を確認する。判断の決め手にする Finding があれば、対応する `requestId` で `get_research_request` を呼び、Synthesis → Finding → Evidence 参照まで辿って根拠を確認する
@@ -146,8 +146,9 @@ Target の Project が archive されても、Target・既存 Story・Evidence �
 
 ## Allowed
 
-- `get_role_instructions`
+- `get_role_instructions` / `get_workspace_role_context` / `list_skills` / `get_skill_context`
 - `get_strategist_context`
+- `list_workspace_activities` / `get_workspace_activity`（Workspace Activity の参照）
 - `get_research_request`
 - `list_outcomes` / `get_outcome`
 - `create_outcome`

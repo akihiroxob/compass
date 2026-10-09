@@ -40,8 +40,9 @@ Execution（Story / Task / Claim / Comment / Change Log）は旧 Wacha から移
 - `Authorization` が有るのに形式が不正な場合、`/mcp` は HTTP `401` で拒否する。anonymous へ黙って降格しない
 - `get_role_instructions` は静的な文書の取得であり、Bearer も Grant も要らない
 - `list_skills` / `get_skill_context` も静的な文書の取得で Grant は要らない（remote mode では有効な Credential が要る）。Skill は手順であり、認可を担わない。Role と Skill の対応は Role Definition の `skills` だけで表す
-- `get_role_context` は Project 情報を含むため、要求した Role の Grant が要る（`X-Compass-Active-Role` の指定時は同じ Role に限る）
-- Role Context は Role・Policy・Skill metadata・Project 情報だけを返す。Skill 本文と requiredKnowledge は作業に入るときに `get_skill_context` で取得する。`unavailable` に挙がった入力は推測で補わない。`source.revision` は資産を読んだ Git commit で、`source.dirty` が true なら未 commit の変更を含む
+- `get_role_context({ projectId, role })` は Project 情報を含むため、その Project で要求した Role の Grant が要る（`X-Compass-Active-Role` の指定時は同じ Role に限る）
+- Workspace Role（strategist / researcher / evaluator）は `get_workspace_role_context({ workspaceId, role })` を使う。その Workspace で要求した Role の Workspace Grant が要り（`X-Compass-Active-Role` の指定時は同じ Role に限る）、Project の Grant からは継承しない
+- Role Context は Role・Policy・Skill metadata と、scope の基本情報だけを返す。Project 向けは Project 情報・Resources・最近の Project Activity、Workspace 向けは Workspace の Mission / Vision / Principles / Constraints・active な Project の要約（purpose と Repository / Resource の参照）・最近の Workspace Activity の summary で、Project の Work（Story / Task）・Project Activity・別 Workspace の情報は含まない。Skill 本文と requiredKnowledge は作業に入るときに `get_skill_context` で取得する。`unavailable` に挙がった入力は推測で補わない。`source.revision` は資産を読んだ Git commit で、`source.dirty` が true なら未 commit の変更を含む
 
 ## エラー
 

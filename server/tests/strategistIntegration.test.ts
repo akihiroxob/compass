@@ -255,7 +255,7 @@ test("Grantは API・CLI のどちらでも発行でき、MCPにはGrant管理to
     // MCPからGrantを発行・取消・一覧するtoolは公開されず、呼んでも権限は増えない。
     await withAgent(server.baseUrl, "self-grant", async (client) => {
       const names = (await client.listTools()).tools.map((tool) => tool.name);
-      assert.equal(names.filter((name) => !["get_role_instructions", "get_role_context"].includes(name) && /grant|role/i.test(name)).length, 0);
+      assert.equal(names.filter((name) => !["get_role_instructions", "get_role_context", "get_workspace_role_context"].includes(name) && /grant|role/i.test(name)).length, 0);
       const attempt = await client
         .callTool({ name: "grant_project_role", arguments: { projectId, principalId: "self-grant", role: "manager" } })
         .then((result) => result as ToolResult, () => ({ isError: true }) as ToolResult);

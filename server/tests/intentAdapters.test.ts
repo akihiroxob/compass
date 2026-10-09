@@ -174,7 +174,7 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
     [
       "create_project", "update_project", "list_projects", "get_project",
       "create_intent", "list_intents", "get_intent", "update_intent", "abandon_intent",
-      "get_role_instructions", "get_role_context", "list_skills", "get_skill_context", "get_strategist_context", "get_research_request", "create_outcome", "list_outcomes", "get_outcome", "update_outcome", "cancel_outcome",
+      "get_role_instructions", "get_role_context", "get_workspace_role_context", "list_skills", "get_skill_context", "get_strategist_context", "get_research_request", "create_outcome", "list_outcomes", "get_outcome", "update_outcome", "cancel_outcome",
       "set_outcome_target", "unset_outcome_target", "list_outcome_targets", "list_outcome_target_executions", "list_outcome_target_work",
       "create_direction_decision", "decide_next_outcome",
       "create_adr_handoff_request", "record_adr_reference", "list_adr_references",

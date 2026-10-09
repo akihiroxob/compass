@@ -5,9 +5,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { projectRoles } from "@compass/access";
-import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { projectRoles, workspaceRoles, type HumanActor } from "@compass/access";
+import { createApp } from "../src/bootstrap/app.ts";
+import { createSignedInApp, createTestHuman } from "./support/humanSession.ts";
 import { AgentContextService } from "../src/application/agentContext/AgentContextService.ts";
 import { InstructionUnavailableError } from "../src/application/agentContext/InstructionUnavailableError.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
@@ -218,6 +218,117 @@ test("get_role_contextは要求RoleのGrantを要求し、activeRoleと異なる
   assert.equal(errorCode(await callTool(app, "get_role_context", { projectId, role: "reviewer" }, "both", "reviewer")), null);
   assert.equal((await callTool(app, "get_role_context", { projectId, role: "admin" }, "worker-a")).isError, true);
   await database.destroy();
+});
+
+/**
+ * 新規DBにWorkspace W（Project A・B、archived Project Z）と別Workspace V（Project C）を作り、
+ * WのWorkspace Role Grant・AのProject Role Grant・VのStrategist Grantを付与する。
+ */
+const setupWorkspaces = async () => {
+  const database = createDatabase(":memory:");
+  await initializeSchema(database);
+  const services = createApplicationServices(database);
+  const app = createApp(services);
+  const owner = await createTestHuman(database);
+  const actor: HumanActor = { kind: "human", humanUserId: owner.humanUserId };
+  const workspace = await services.human.createWorkspace.execute(
+    { name: "Alpha", mission: "Ship guarded work", vision: "Calm delivery", principles: ["Small steps"], constraints: ["No PII"] },
+    actor,
+  );
+  const otherWorkspace = await services.human.createWorkspace.execute({ name: "Beta", mission: "Other mission" }, actor);
+  const projectInput = (name: string) => ({
+    name,
+    description: `${name} purpose`,
+    repositories: [{ name: "repo", url: `https://example.com/${name}.git` }],
+    resources: [{ name: "docs", url: `https://example.com/${name}/docs`, kind: "docs" }],
+  });
+  const a = await services.human.createWorkspaceProject.execute(actor, workspace.id, projectInput("a"));
+  const b = await services.human.createWorkspaceProject.execute(actor, workspace.id, projectInput("b"));
+  const archived = await services.human.createWorkspaceProject.execute(actor, workspace.id, projectInput("z"));
+  await services.archiveProjectUseCase.execute(archived.id, { reason: "done" });
+  const c = await services.human.createWorkspaceProject.execute(actor, otherWorkspace.id, projectInput("c"));
+  for (const role of workspaceRoles) await services.grantWorkspaceRoleUseCase.execute(workspace.id, { principalId: `${role}-a`, role });
+  await services.grantWorkspaceRoleUseCase.execute(otherWorkspace.id, { principalId: "strategist-v", role: "strategist" });
+  await services.grantProjectRoleUseCase.execute(a.id, { principalId: "manager-a", role: "manager" });
+  return { database, services, app, workspace, otherWorkspace, a, b, archived, c };
+};
+
+test("get_workspace_role_contextはRole・Policy・Skill metadata・Workspace戦略値・Project要約・Workspace Activity summaryを返し、Work本文・Project Activity・別Workspaceを含めない", async () => {
+  const { database, services, app, workspace, otherWorkspace, a, b, archived, c } = await setupWorkspaces();
+  try {
+    // Workspace Activity（Direction canonical）と、同じWorkspaceのProject Activity（Work）・別WorkspaceのActivityを作る。
+    const intent = await services.createIntentUseCase.execute(workspace.id, { title: "Alpha intent", desiredState: "done" });
+    await services.createIntentUseCase.execute(otherWorkspace.id, { title: "Beta secret intent", desiredState: "done" });
+    const story = await callTool(app, "issue_story", { projectId: a.id, title: "Secret story body", requestId: "story-1" }, "manager-a", "manager");
+    assert.equal(story.isError, undefined, JSON.stringify(story.structuredContent));
+
+    for (const role of workspaceRoles) {
+      const result = await callTool(app, "get_workspace_role_context", { workspaceId: workspace.id, role }, `${role}-a`, role);
+      assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent));
+      const context = result.structuredContent;
+      assert.deepEqual(Object.keys(context).sort(), ["activity", "policies", "projects", "role", "skills", "source", "unavailable", "workspace"]);
+      assert.equal(context.role.name, role);
+      assert.equal(context.role.path, `roles/${role}.md`);
+      assert.ok(context.role.content.length > 0);
+      assert.deepEqual(context.policies.map((policy: { path: string }) => policy.path), ["policies/role-policy.md"]);
+      // Skill metadataはRole Definitionの参照どおり（本文なし）。現在のWorkspace RoleはSkillを参照しない。
+      assert.deepEqual(context.skills, (await callTool(app, "list_skills", { role })).structuredContent.skills);
+      assert.deepEqual(context.workspace, {
+        id: workspace.id,
+        name: "Alpha",
+        mission: "Ship guarded work",
+        vision: "Calm delivery",
+        principles: ["Small steps"],
+        constraints: ["No PII"],
+        status: "active",
+      });
+      // activeなProjectだけの要約（purposeとRepository・Resource参照）。archived・別WorkspaceのProjectは含めない。
+      assert.deepEqual(context.projects.map((project: { id: string }) => project.id).sort(), [a.id, b.id].sort());
+      const summary = context.projects.find((project: { id: string }) => project.id === a.id);
+      assert.deepEqual(Object.keys(summary).sort(), ["description", "id", "name", "repositories", "resources", "status"]);
+      assert.equal(summary.description, "a purpose");
+      assert.deepEqual(summary.repositories.map((item: { url: string }) => item.url), ["https://example.com/a.git"]);
+      assert.deepEqual(summary.resources.map((item: { kind: string }) => item.kind), ["docs"]);
+      // 最近のWorkspace Activityだけ（summaryとrefs、本文なし）。Project ActivityとWorkは含めない。
+      assert.deepEqual(context.activity.activities.map((item: { type: string; scope: string }) => [item.type, item.scope]), [["intent.created", "workspace"]]);
+      assert.equal(context.activity.activities[0].refs.some((ref: { id?: string }) => ref.id === intent.id), true);
+      assert.equal("body" in context.activity.activities[0], false);
+      assert.deepEqual(context.unavailable, []);
+      const serialized = JSON.stringify(context);
+      for (const leaked of ["Secret story body", "Beta secret intent", "Other mission", archived.id, c.id, otherWorkspace.id]) {
+        assert.equal(serialized.includes(leaked), false, leaked);
+      }
+    }
+  } finally {
+    await database.destroy();
+  }
+});
+
+test("get_workspace_role_contextはWorkspaceの要求RoleのGrantを要求し、Project Grant・別Workspace・activeRole不一致・Project Roleを拒否する", async () => {
+  const { database, app, workspace, otherWorkspace, a } = await setupWorkspaces();
+  try {
+    const errorCode = (result: ToolResult) => (result.isError ? result.structuredContent.error.code : null);
+    const context = (workspaceId: string, role: string, principal?: string, activeRole?: string) =>
+      callTool(app, "get_workspace_role_context", { workspaceId, role }, principal, activeRole);
+    assert.equal(errorCode(await context(workspace.id, "strategist")), "UNAUTHENTICATED");
+    assert.equal(errorCode(await context(workspace.id, "strategist", "strategist-a")), null);
+    // 他のWorkspace RoleのContextは、そのRoleのGrantが無ければ読めない。activeRoleと異なるRoleも拒否する。
+    assert.equal(errorCode(await context(workspace.id, "evaluator", "strategist-a")), "FORBIDDEN");
+    assert.equal(errorCode(await context(workspace.id, "strategist", "strategist-a", "evaluator")), "FORBIDDEN");
+    // 別Workspace・存在しないWorkspaceは区別せずFORBIDDEN。応答に別Workspaceの値を含めない。
+    const other = await context(otherWorkspace.id, "strategist", "strategist-a", "strategist");
+    assert.equal(errorCode(other), "FORBIDDEN");
+    assert.equal(JSON.stringify(other).includes("Other mission"), false);
+    assert.equal(errorCode(await context("missing", "strategist", "strategist-a")), "FORBIDDEN");
+    assert.equal(errorCode(await context(otherWorkspace.id, "strategist", "strategist-v")), null);
+    // Project Grant（manager）からWorkspaceのContextは継承しない。Project RoleとProject IDは入力として受け付けない。
+    assert.equal(errorCode(await context(workspace.id, "strategist", "manager-a", "manager")), "FORBIDDEN");
+    assert.equal(errorCode(await context(workspace.id, "strategist", "manager-a")), "FORBIDDEN");
+    assert.equal((await context(workspace.id, "manager", "manager-a")).isError, true);
+    assert.equal((await callTool(app, "get_workspace_role_context", { projectId: a.id, role: "strategist" }, "strategist-a")).isError, true);
+  } finally {
+    await database.destroy();
+  }
 });
 
 test("list_skillsはmetadataだけを返し、roleはRole Definitionの参照で絞る。get_skill_contextは本文とrequiredKnowledgeを返す", async () => {

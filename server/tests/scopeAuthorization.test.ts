@@ -8,7 +8,7 @@ import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts"
 import { addTestMembership, addTestWorkspaceMembership, createTestHuman, humanHeaders, requestAs, type TestHuman } from "./support/humanSession.ts";
 
 /**
- * S06-04: 公開済みの入口（Human Web API・MCP・Project Role Context・Runtime向けAPI）を横断して、
+ * S06-04: 公開済みの入口（Human Web API・MCP・Project / Workspace Role Context・Runtime向けAPI）を横断して、
  * Principal + scope + activeRoleが一致する操作だけが成功することを検証する。
  * WorkspaceのRole（strategist / researcher / evaluator）とProjectのRole（manager / worker / reviewer）は互いに継承・合算せず、
  * Workspace MembershipだけではProjectのWorkへ入れない。
@@ -128,6 +128,7 @@ test("MCPはactiveRoleとscopeが一致する入口だけを認可し、全Role�
       ["strategist", "get_strategist_context", { workspaceId: workspace.id }],
       ["researcher", "list_research_requests", { workspaceId: workspace.id }],
       ["evaluator", "get_evaluator_context", { workspaceId: workspace.id, outcomeId: outcome.id }],
+      ...workspaceRoles.map((role): [string, string, object] => [role, "get_workspace_role_context", { workspaceId: workspace.id, role }]),
     ];
     for (const [required, name, args] of contexts) {
       for (const role of [...workspaceRoles, ...executionRoles]) {
@@ -186,6 +187,7 @@ test("Project GrantはWorkspace Roleを新規発行せず、残ったDirection R
         ["claim_task", { taskId: task.id, requestId: `legacy-claim-${role}` }],
         ["list_intents", { workspaceId: workspace.id }],
         ["get_strategist_context", { workspaceId: workspace.id }],
+        ["get_workspace_role_context", { workspaceId: workspace.id, role: role ?? "strategist" }],
       ] as const) {
         // headerなしtrusted-localのDirection参照はGrantを問わない互換（docs/implementation-status.md）。
         if (role === undefined && name === "list_intents") continue;
@@ -193,7 +195,7 @@ test("Project GrantはWorkspace Roleを新規発行せず、残ったDirection R
       }
     }
     // Project参照・Project Role Contextの旧Direction Grantによる読取は、OrchestratorがprojectIdでWorkspace Roleを起動する
-    // 移行経路（S07-03〜04・S08-01で切替）のため、このTaskでは拒否しない。
+    // 移行経路（S08-01で切替）のため、まだ拒否しない。Workspace Role Contextは旧Project Grantを数えない。
   } finally {
     await database.destroy();
   }
@@ -224,6 +226,9 @@ test("remote modeのAgent Credentialは発行scopeのRoleだけで認可し、ac
     }
     assert.deepEqual((await callTool(remoteApp, strategist, "list_projects", {})).structuredContent.projects, []);
     assert.equal(errorCode(await callTool(remoteApp, strategist, "get_strategist_context", { workspaceId: workspace.id }, "manager")), "FORBIDDEN");
+    const workspaceContext = { workspaceId: workspace.id, role: "strategist" };
+    assert.equal(errorCode(await callTool(remoteApp, strategist, "get_workspace_role_context", workspaceContext, "strategist")), "OK");
+    assert.equal(errorCode(await callTool(remoteApp, strategist, "get_role_context", { projectId: project.id, role: "strategist" }, "strategist")), "FORBIDDEN");
 
     assert.equal(errorCode(await callTool(remoteApp, worker, "list_tasks", { projectId: project.id }, "worker")), "OK");
     assert.equal(errorCode(await callTool(remoteApp, worker, "get_role_context", { projectId: project.id, role: "worker" }, "worker")), "OK");
@@ -234,6 +239,9 @@ test("remote modeのAgent Credentialは発行scopeのRoleだけで認可し、ac
     }
     assert.equal(errorCode(await callTool(remoteApp, worker, "list_tasks", { projectId: project.id }, "strategist")), "FORBIDDEN");
     assert.equal(errorCode(await callTool(remoteApp, worker, "get_role_context", { projectId: project.id, role: "strategist" })), "FORBIDDEN");
+    for (const activeRole of [undefined, "worker", "strategist"]) {
+      assert.equal(errorCode(await callTool(remoteApp, worker, "get_workspace_role_context", workspaceContext, activeRole)), "FORBIDDEN");
+    }
   } finally {
     await database.destroy();
   }
