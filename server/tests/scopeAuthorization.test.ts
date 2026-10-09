@@ -91,6 +91,7 @@ test("MCPはactiveRoleとscopeが一致する入口だけを認可し、全Role�
       ["list_outcome_targets", { workspaceId: workspace.id, outcomeId: outcome.id }],
       ["list_outcome_target_work", { workspaceId: workspace.id, intentId: intent.id }],
       ["list_outcome_target_executions", { workspaceId: workspace.id, outcomeId: outcome.id }],
+      ["list_workspace_activities", { workspaceId: workspace.id }],
     ];
 
     for (const role of executionRoles) {
@@ -151,6 +152,17 @@ test("MCPはactiveRoleとscopeが一致する入口だけを認可し、全Role�
         "FORBIDDEN",
       );
     }
+    // Workspace Activityの記録もWorkspace RoleのactiveRoleに限る。
+    for (const role of executionRoles) {
+      assert.equal(
+        errorCode(await callTool(app, "multi", "record_workspace_activity", { workspaceId: workspace.id, type: "note.recorded", summary: "s", requestId: `ws-act-${role}` }, role)),
+        "FORBIDDEN",
+      );
+    }
+    assert.equal(
+      errorCode(await callTool(app, "multi", "record_workspace_activity", { workspaceId: workspace.id, type: "note.recorded", summary: "s", requestId: "ws-act-strategist" }, "strategist")),
+      "OK",
+    );
     assert.equal(errorCode(await callTool(app, "multi", "claim_task", { taskId: task.id, requestId: "claim-worker" }, "worker")), "OK");
   } finally {
     await database.destroy();
@@ -247,6 +259,7 @@ test("Human Web APIはWorkspace MembershipとProject Membershipを継承せず�
       `/api/workspaces/${workspace.id}/intents`,
       `/api/workspaces/${workspace.id}/intents/${intent.id}`,
       `/api/workspaces/${workspace.id}/intents/${intent.id}/outcome-target-work`,
+      `/api/workspaces/${workspace.id}/activities`,
     ];
 
     for (const path of workspacePaths) assert.equal((await requestAs(app, workspaceOnly)(path)).status, 200, path);

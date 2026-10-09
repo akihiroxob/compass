@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { KyselyActivityStore } from "@compass/activity";
 import { SQLiteProjectRepository, SQLiteWorkspaceRepository, CreateWorkspaceUseCase, CreateWorkspaceProjectUseCase } from "@compass/organization";
 import { asActivityDatabase, asDirectionDatabase, asOrganizationDatabase, asWorkDatabase } from "../src/bootstrap/database/contextDatabase.ts";
-import { activityProjectReader, directionChangeActivityObserver, projectChangeActivityObserver, projectRepositoryReferenceFinder, workChangeActivityObserver } from "../src/infrastructure/repository/contextAdapters.ts";
+import { activityScopeReader, directionChangeActivityObserver, projectChangeActivityObserver, projectRepositoryReferenceFinder, workChangeActivityObserver } from "../src/infrastructure/repository/contextAdapters.ts";
 import type { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp, seedLegacyProjectGrant, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
@@ -397,12 +397,11 @@ test("Directionの重要な状態変更は同じtransactionで操作者付きの
 
   assert.equal((await send(app, "POST", `/api/workspaces/${project.workspaceId}/intents/${intent.id}/abandon`, { reason: "方針を変える" })).status, 200);
 
-  // Projectの公開入口にはWorkspace Activityを流さない。Workspace読取の公開はGrant整備後のTask。
+  // Projectの公開入口にはWorkspace Activityを流さない。Workspace Activityは Workspace Role Grantで読む。
   const projectPage = ok(await callTool(app, "list_activities", { projectId: project.id, afterCursor: 0 }, "worker-a"));
   assert.deepEqual(projectPage.activities, []);
-  const store = new KyselyActivityStore(asActivityDatabase(database));
-  const page = { activities: await store.listWorkspace(project.workspaceId, { limit: 100, afterCursor: 0 }) };
-  assert.ok(page.activities.every(item => item.scope === "workspace" && item.workspaceId === project.workspaceId && item.projectId === null));
+  const page = ok(await callTool(app, "list_workspace_activities", { workspaceId: project.workspaceId, afterCursor: 0 }, "strategist-a"));
+  assert.ok(page.activities.every((item: any) => item.scope === "workspace" && item.workspaceId === project.workspaceId && item.projectId === null));
   const facts = page.activities.map((item: any) => [item.type, item.principalId.startsWith("human:") ? "human" : item.principalId, item.role, item.source]);
   assert.deepEqual(facts, [
     ["intent.created", "human", "operator", "canonical"],
@@ -424,8 +423,8 @@ test("Directionの重要な状態変更は同じtransactionで操作者付きの
   );
   assert.equal(recorded.summary, "Direction Decision（next_outcome）「OIDCから着手する」を記録した");
   assert.equal(errorCode(await callTool(app, "get_activity", { projectId: project.id, activityId: canceled.id }, "worker-a")), "NOT_FOUND");
-  const detail = await store.find(canceled.id);
-  assert.equal(detail!.body, "理由: 範囲を見直す");
+  const detail = ok(await callTool(app, "get_workspace_activity", { workspaceId: project.workspaceId, activityId: canceled.id }, "strategist-a"));
+  assert.equal(detail.activity.body, "理由: 範囲を見直す");
   assert.equal(abandoned.summary, "Intent「認証を整備する」を放棄した");
 
   // Activityを保存できなければDirectionの状態変更も確定しない（同一transaction）。
@@ -567,7 +566,7 @@ test("所属欠損の通知はWorkspace IDを捏造せず拒否する", async ()
   await assert.rejects(directionChangeActivityObserver(asDirectionDatabase(database))({ type: "intent_created", workspaceId: "missing", recordId: "i1", title: "I", refs: [], result: null, reason: null, principalId: null, occurredAt: 1 }));
   await assert.rejects(projectChangeActivityObserver(asOrganizationDatabase(database))({ type: "project_archived", workspaceId: a.workspaceId, projectId: a.id, title: "A", reason: "R", occurredAt: 1 }), message);
   await assert.rejects(workChangeActivityObserver(asWorkDatabase(database))({ entity_id: "s1", claim_id: null, cursor: 1, project_id: a.id, type: "STORY_CREATED", principal_id: "m", payload: "{}", occurred_at: 1, subject: { kind: "story", id: "s1", title: "S", storyId: null } }), message);
-  await assert.rejects(activityProjectReader(database).find(a.id), /does not belong to a Workspace/);
+  await assert.rejects(activityScopeReader(database).find({ kind: "project", id: a.id }), /does not belong to a Workspace/);
   assert.equal((await record(app, "worker-a", { projectId: a.id, role: "worker", type: "note", summary: "missing", requestId: "missing-record" })).isError, true);
   assert.deepEqual(await database.selectFrom("activity").selectAll().execute(), []);
   await database.destroy();

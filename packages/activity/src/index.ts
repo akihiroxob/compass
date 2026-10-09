@@ -1,5 +1,5 @@
 export * from "./domain/Activity.ts";
-export * from "./application/port/ActivityProjectReader.ts";
+export * from "./application/port/ActivityScopeReader.ts";
 export * from "./application/port/ActivityStore.ts";
 export * from "./application/activitySchema.ts";
 export * from "./application/ActivityUseCases.ts";

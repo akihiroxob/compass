@@ -145,11 +145,13 @@ import {
   type ProjectRole,
 } from "@compass/access";
 import {
+  ActivityScope,
   AgentActivityReader,
   GetActivityUseCase,
   KyselyActivityStore,
   ListActivitiesUseCase,
   RecordActivityUseCase,
+  type ActivityUnitOfWork,
 } from "@compass/activity";
 import type { Kysely } from "kysely";
 import {
@@ -164,7 +166,7 @@ import {
   accessProjectReaders,
   accessWorkspaceReaders,
   activityAuthorization,
-  activityProjectReader,
+  activityScopeReader,
   directionChangeObserver,
   directionProjectReaders,
   directionWorkspaceReaders,
@@ -265,11 +267,19 @@ export const createApplicationServices = (
   const roleScopeAuthorizationService = new RoleScopeAuthorizationService(workspaceGrantRepository, projectGrantRepository);
   const accessCredentialRepository = new SQLiteAccessCredentialRepository(accessDatabase, accessProjectReaders, accessWorkspaceReaders);
   const getProjectUseCase = new GetProjectUseCase(projectRepository);
-  // Activity（意味のある履歴）。Change Log・Operational Logとは別のtableで、Projectの状態はOrganizationのreaderで読む。
+  // Activity（意味のある履歴）。Change Log・Operational Logとは別のtableで、Project・Workspaceの状態はOrganizationのreaderで読む。
+  // Project ActivityとWorkspace Activityは別のuse case instanceで、互いのscopeを返さない。
   const activityStore = new KyselyActivityStore(asActivityDatabase(applicationDatabase));
-  const activityProjects = activityProjectReader(applicationDatabase);
-  const listActivitiesUseCase = new ListActivitiesUseCase(activityProjects, activityStore);
-  const getActivityUseCase = new GetActivityUseCase(activityProjects, activityStore);
+  const activityScopes = activityScopeReader(applicationDatabase);
+  const listActivitiesUseCase = new ListActivitiesUseCase(ActivityScope.PROJECT, activityScopes, activityStore);
+  const getActivityUseCase = new GetActivityUseCase(ActivityScope.PROJECT, activityScopes, activityStore);
+  const listWorkspaceActivitiesUseCase = new ListActivitiesUseCase(ActivityScope.WORKSPACE, activityScopes, activityStore);
+  const getWorkspaceActivityUseCase = new GetActivityUseCase(ActivityScope.WORKSPACE, activityScopes, activityStore);
+  const activityUnitOfWork: ActivityUnitOfWork = {
+    execute: (work) => applicationDatabase.transaction().execute((transaction) =>
+      work(new KyselyActivityStore(asActivityDatabase(transaction)), activityScopeReader(transaction)),
+    ),
+  };
   // Execution（旧Wachaから移植）。同じDB・同じプロセスの中で動き、Directionの参照は読取専用ポートだけを通す。
   // 重要な状態変更は、同じtransactionでcanonical Activityへ投影する。
   const workStore = new KyselyWorkStore(asWorkDatabase(applicationDatabase), workExternalReaders, workChangeActivityObserver);
@@ -343,7 +353,7 @@ export const createApplicationServices = (
   ) => {
     // Runtime向けの入口はRuntime Credentialのscopeで認可する（trusted-localのAgent名だけ暫定のruntime Grant）。
     const runtimeAuthorization = new RuntimeAuthorizationService(projectAuthorization);
-    const activityAuthorizationPort = activityAuthorization(projectAuthorization);
+    const activityAuthorizationPort = activityAuthorization(projectAuthorization, roleScopeAuthorization);
     // Workspace Direction RoleのContext。WorkspaceのRole Grant（activeRoleの指定時はそのRoleだけ）で認可してから読む。
     const workspaceRoleContext = <Args extends unknown[], Result>(
       role: DirectionAgentRole,
@@ -405,12 +415,16 @@ export const createApplicationServices = (
         getProjectUseCase,
         listActivitiesUseCase,
       ),
-      recordActivityUseCase: new RecordActivityUseCase(activityAuthorizationPort, {
-        execute: (work) => applicationDatabase.transaction().execute((transaction) =>
-          work(new KyselyActivityStore(asActivityDatabase(transaction)), activityProjectReader(transaction)),
-        ),
-      }, clock),
-      agentActivityReader: new AgentActivityReader(activityAuthorizationPort, listActivitiesUseCase, getActivityUseCase),
+      recordActivityUseCase: new RecordActivityUseCase(ActivityScope.PROJECT, activityAuthorizationPort, activityUnitOfWork, clock),
+      agentActivityReader: new AgentActivityReader(ActivityScope.PROJECT, activityAuthorizationPort, listActivitiesUseCase, getActivityUseCase),
+      // Workspace Activity（Direction canonical・Workspace Roleの明示記録）。Workspace Role Grantで認可し、Project Grantから継承しない。
+      recordWorkspaceActivityUseCase: new RecordActivityUseCase(ActivityScope.WORKSPACE, activityAuthorizationPort, activityUnitOfWork, clock),
+      agentWorkspaceActivityReader: new AgentActivityReader(
+        ActivityScope.WORKSPACE,
+        activityAuthorizationPort,
+        listWorkspaceActivitiesUseCase,
+        getWorkspaceActivityUseCase,
+      ),
       getStrategistContextUseCase: workspaceRoleContext(DirectionAgentRole.STRATEGIST, workspaceContexts.getStrategistContextUseCase),
     };
   };
@@ -561,6 +575,9 @@ export const createApplicationServices = (
     listOutcomeTargetProjects: workspaceAuthorized("workspace.read", services.listOutcomeTargetProjectsUseCase),
     listOutcomeTargetWork: workspaceAuthorized("workspace.read", services.listOutcomeTargetWorkUseCase),
     listOutcomeTargetExecutions: workspaceAuthorized("workspace.read", services.listOutcomeTargetExecutionsUseCase),
+    // Workspace Activity閲覧（Workspace Membership）。所属ProjectのActivityは含めず、Web UIからは記録しない。
+    listWorkspaceActivities: workspaceAuthorized("workspace.read", listWorkspaceActivitiesUseCase),
+    getWorkspaceActivity: workspaceAuthorized("workspace.read", getWorkspaceActivityUseCase),
     grantProjectRole: authorized("grant.manage", services.grantProjectRoleUseCase),
     revokeProjectRole: authorized("grant.manage", services.revokeProjectRoleUseCase),
     listProjectGrants: authorized("grant.read", services.listProjectGrantsUseCase),
