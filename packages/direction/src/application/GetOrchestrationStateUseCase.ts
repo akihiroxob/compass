@@ -60,7 +60,7 @@ export type OrchestrationState = {
   observedAt: number;
 };
 
-const toResearchRequest = (request: {
+export const toOrchestrationResearchRequest = (request: {
   id: string;
   kind: ResearchRequestKind;
   status: ResearchRequestStatus;
@@ -102,7 +102,7 @@ export class GetOrchestrationStateUseCase<TCaller> {
     if (!project) throw new NotFoundError(`Project ${projectId} was not found`);
 
     const requests = await this.researchRepository.findRequests(projectId);
-    const openResearchRequests = requests.filter((request) => !isClosedResearchStatus(request.status)).map(toResearchRequest);
+    const openResearchRequests = requests.filter((request) => !isClosedResearchStatus(request.status)).map(toOrchestrationResearchRequest);
     const intents = await this.intentRepository.findByProject(projectId);
     const activeIntent = intents.find((intent) => intent.status === "active") ?? null;
     const base = {
@@ -163,7 +163,7 @@ export class GetOrchestrationStateUseCase<TCaller> {
       outcomes,
       intentResearchRequests: requests
         .filter((request) => request.originIntentId === activeIntent.id)
-        .map(toResearchRequest),
+        .map(toOrchestrationResearchRequest),
     };
   }
 }

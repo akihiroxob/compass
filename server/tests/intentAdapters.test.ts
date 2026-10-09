@@ -179,7 +179,7 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
       "create_direction_decision", "decide_next_outcome",
       "create_adr_handoff_request", "record_adr_reference", "list_adr_references",
       "get_researcher_context", "list_research_requests", "register_research_result", "register_research_synthesis", "complete_research_request",
-      "fetch_runtime_events", "ack_runtime_event", "record_execution_evidence", "get_outcome_execution_summary", "get_orchestration_state",
+      "fetch_runtime_events", "ack_runtime_event", "record_execution_evidence", "get_outcome_execution_summary", "get_orchestration_state", "get_workspace_orchestration_state",
       "get_evaluator_context", "record_outcome_evaluation",
       // Execution（旧Wachaから移植）。同じendpointから列挙される。
       "list_stories", "get_outcome_handoff_context", "list_tasks", "list_task_comments", "list_changes",

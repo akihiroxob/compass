@@ -2,16 +2,16 @@
 
 ## Goal
 
-外部 Runtime が、Compass の確定イベント（Runtime event）を取得し、Researcher・Strategist・Manager などの Agent を起動して、処理結果を `ack` で残す。Compass は Agent を起動せず、polling・timeout・retry の間隔・backoff・token 予算も持たない。これらは Runtime の責務である。Runtime は Agent の Role Grant ではなく、Administrator が発行した Runtime Credential の scope で認可される。Runtime event は Workspace 所有で Workspace Runtime Credential、Execution の変更・還流・要約と現在状態は Project Runtime Credential を使う。
+外部 Runtime が、Compass の確定イベント（Runtime event）を取得し、Researcher・Strategist・Manager などの Agent を起動して、処理結果を `ack` で残す。Compass は Agent を起動せず、polling・timeout・retry の間隔・backoff・token 予算も持たない。これらは Runtime の責務である。Runtime は Agent の Role Grant ではなく、Administrator が発行した Runtime Credential の scope で認可される。Runtime event と Workspace の現在状態は Workspace Runtime Credential、Execution の変更・還流・要約と Project の現在状態は Project Runtime Credential を使う。
 
 ## 認証
 
 - `Authorization: Bearer cmp_runtime.<id>.<secret>`（Runtime Credential）を送る。Credential に登録された Runtime 名が consumer になり、consumer ごとに処理結果（ack）が独立して記録される。別 consumer の ack は互いに影響しない
-- Credential は発行した scope（Workspace または Project）だけで有効で、Workspace と Project の間で転用できない。入口ごとに scope が必要: Workspace Runtime Credential の `fetch_runtime_events` は `runtime:event:read`、`ack_runtime_event` は `runtime:event:ack`。Project Runtime Credential の `list_changes` は `execution:change:read`、`record_execution_evidence` は `execution:evidence:write`、`get_outcome_execution_summary` は `execution:summary:read`、`get_orchestration_state` は `runtime:state:read`。不足・別 scope・Agent Credential は `FORBIDDEN`、Bearer なし・期限切れ・取消済み・不正な token は `UNAUTHENTICATED`。別 scope へ切り替えたり scope を増やそうとしたりせず、報告して停止する
+- Credential は発行した scope（Workspace または Project）だけで有効で、Workspace と Project の間で転用できない。入口ごとに scope が必要: Workspace Runtime Credential の `fetch_runtime_events` は `runtime:event:read`、`ack_runtime_event` は `runtime:event:ack`、`get_workspace_orchestration_state` は `runtime:state:read`。Project Runtime Credential の `list_changes` は `execution:change:read`、`record_execution_evidence` は `execution:evidence:write`、`get_outcome_execution_summary` は `execution:summary:read`、`get_orchestration_state` は `runtime:state:read`。不足・別 scope・Agent Credential は `FORBIDDEN`、Bearer なし・期限切れ・取消済み・不正な token は `UNAUTHENTICATED`。別 scope へ切り替えたり scope を増やそうとしたりせず、報告して停止する
 - Runtime Credential では Agent 向け tool（Role Grant で認可するもの）を使えない
 - rotation 中は新旧の token が期限付きで併用できる。新しい token へ切り替え、旧 token の期限前に設定を更新する
 - token をログ・Evidence・Comment に書かない
-- trusted-local mode（明示設定の local 開発用）だけは、Project の入口を `Authorization: Bearer <RuntimeName>` と Project の `runtime` Grant でも呼べる。Runtime event（Workspace）の入口は Workspace Runtime Credential だけを受け付ける。remote mode では Runtime 名だけの Bearer は `401`
+- trusted-local mode（明示設定の local 開発用）だけは、Project の入口を `Authorization: Bearer <RuntimeName>` と Project の `runtime` Grant でも呼べる。Runtime event・Workspace の現在状態（Workspace）の入口は Workspace Runtime Credential だけを受け付ける。remote mode では Runtime 名だけの Bearer は `401`
 
 ## 現在状態の取得（Orchestrator）
 
@@ -21,6 +21,14 @@ MCP `get_orchestration_state({ projectId })` は、起動する専門 Role を�
 - `outcomes`: Active Intent 配下の全状態の Outcome。`work`（相関付いた Story / Task の件数と状態。Story が無ければ `null`）、`execution`（この Project から還流済みの Execution 要約の状態と `executionCursor`。未還流は `null`）、`evaluability`（全 Target Project から見た評価可能性。`status` は `evaluable` / `no_targets` / `replan_required` / `awaiting_execution`、`unfinishedTargets` は評価を妨げている Target の Project ID・状態・理由）、`latestEvaluation`（最新 Evaluation と、それを根拠にした Decision の `decisionId`、Evaluation snapshot にあるこの Project の `executionCursor`。未判断は `null`）
 - `intentResearchRequests`: Active Intent を発端とする全状態の Research Request。`openResearchRequests`: Project 内の未終了（`requested` / `running`）の Request
 - Mission・Intent の本文・Research の内容は含めない。起動された Role は自分の Role Context から取得する
+
+MCP `get_workspace_orchestration_state({ workspaceId })` は、Workspace 単位の現在状態を返す（handoff v2「19」）。Workspace Runtime Credential（scope `runtime:state:read`）だけで読め、Project Credential・trusted-local の Runtime 名・Agent では読めない。読取だけで状態を変えず、Activity・Runtime event の cursor に依存しない。現在の Orchestrator はまだ使わない（S08-02/03 で切替）。
+
+- `workspace`（`id`・`name`・`status`）。archived の Workspace は状態だけを返し、他は空にする
+- `projects`: Workspace の active な Project（`id`・`name`、作成順）。archived の Project は含めない
+- `activeIntent`、`intentResearchRequests`・`openResearchRequests`（Workspace 内の未終了 Request）は Project 単位と同じ形
+- `outcomes`: Active Intent 配下の全状態の Outcome（新しい順）。`targets` は現在の Target（設定順）で、Target ごとに `projectStatus`（archived も残す）、`work`（その Project で Outcome に相関付いた Story / Task の件数。Story が無ければ `null`）、`execution`（その Project から還流済みの要約の状態と `executionCursor`。未還流は `null`）。`evaluability` は全 Target から見た評価可能性で、未完了（未還流・`incomplete`）の archived Target があれば `replan_required`。`latestEvaluation` は最新 Evaluation・`decisionId`・評価 snapshot にあった Project 別の `executionCursor`（`targets`）
+- 本文（Mission・Intent / Outcome・Research・Story / Task の内容）は含めない
 
 起動判断（どの状態で何の Role を起動するか）と重複抑止は `orchestrator/` の実装が持つ（`orchestrator/README.md`）。
 

@@ -97,11 +97,11 @@ RuntimeにはAgentとは別のCredentialとscopeを発行します。Credential�
 | event取得・ack | `fetch_runtime_events` / `ack_runtime_event` |
 | Executionの変更取得 | `list_changes` |
 | Evidence還流・結果参照 | `record_execution_evidence` / `get_outcome_execution_summary` |
-| Orchestrator向けの現在状態 | `get_orchestration_state`（scope `runtime:state:read`） |
+| Orchestrator向けの現在状態 | `get_orchestration_state`（Project Runtime Credential、scope `runtime:state:read`）/ `get_workspace_orchestration_state`（Workspace Runtime Credential、scope `runtime:state:read`） |
 
 eventの`nextCursor`はページ送り専用で、再開位置には使いません。再開は`resumeCursor`または0から行います。配送はat-least-onceで、ack再送には同じ`attemptId`を使います。Task受入をOutcome達成として扱わず、Evidenceを評価へ渡します。
 
-Orchestrator（[orchestrator/README.md](orchestrator/README.md)）は`get_orchestration_state`の現在状態から起動を判断し、Activity cursorやRuntime eventのcursorをworkflow checkpointにしません。Intent作成時にResearch Requestは自動で作られず、OrchestratorがStrategistを起動してResearchの要否を判断させます。実Agentを起動した運用・Lv6自律運転は未検証です。
+Orchestrator（[orchestrator/README.md](orchestrator/README.md)）は`get_orchestration_state`の現在状態から起動を判断し（Workspace単位の`get_workspace_orchestration_state`への切替はS08-02/03で未接続）、Activity cursorやRuntime eventのcursorをworkflow checkpointにしません。Intent作成時にResearch Requestは自動で作られず、OrchestratorがStrategistを起動してResearchの要否を判断させます。実Agentを起動した運用・Lv6自律運転は未検証です。
 
 ## 検証
 
