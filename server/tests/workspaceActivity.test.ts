@@ -187,6 +187,7 @@ test("Workspace / Project Activityはscope別に記録され、Workspace Grant�
     assert.equal(errorCode(await callTool(app, "strategist-a", "record_workspace_activity", note("w-5"))), "VALIDATION_ERROR");
     // Project ActivityのtoolでWorkspaceを指定することもできない（scopeの取り違えを黙って受け付けない）。
     assert.equal(errorCode(await callTool(app, "worker-a", "record_activity", { ...note("w-6"), projectId: a.id }, "worker")), "VALIDATION_ERROR");
+    assert.equal(errorCode(await callTool(app, "strategist-a", "record_workspace_activity", note("w-6b", { projectId: a.id }), "strategist")), "VALIDATION_ERROR");
 
     // runId・本文の取り違え・別WorkspaceのResource・Project Activityの訂正は拒否する。
     assert.equal(errorCode(await callTool(app, "strategist-a", "record_workspace_activity", note("w-7", { runId: "run-1" }), "strategist")), "VALIDATION_ERROR");
