@@ -1,6 +1,7 @@
 import { projectDecisionReader, projectResearchReader, projectDirectionRepositories, projectWorkspaceId } from "../infrastructure/repository/projectDirectionAdapter.ts";
 import { AgentContextService } from "../application/agentContext/AgentContextService.ts";
 import { GetRoleContextUseCase } from "../application/agentContext/GetRoleContextUseCase.ts";
+import { GetWorkspaceRoleContextUseCase } from "../application/agentContext/GetWorkspaceRoleContextUseCase.ts";
 import { withActivityActor } from "../application/activityActor.ts";
 import { FileAgentAssetRepository } from "../infrastructure/agentAssets/FileAgentAssetRepository.ts";
 import {
@@ -414,6 +415,14 @@ export const createApplicationServices = (
         agentContextService,
         getProjectUseCase,
         listActivitiesUseCase,
+      ),
+      // Workspace Role（strategist / researcher / evaluator）のRole Context。Workspace Role Grantで認可し、Project Grantから継承しない。
+      getWorkspaceRoleContextUseCase: new GetWorkspaceRoleContextUseCase(
+        roleScopeAuthorization,
+        agentContextService,
+        new GetWorkspaceUseCase(workspaceRepository),
+        new ListWorkspaceProjectsUseCase(workspaceRepository, projectRepository),
+        listWorkspaceActivitiesUseCase,
       ),
       recordActivityUseCase: new RecordActivityUseCase(ActivityScope.PROJECT, activityAuthorizationPort, activityUnitOfWork, clock),
       agentActivityReader: new AgentActivityReader(ActivityScope.PROJECT, activityAuthorizationPort, listActivitiesUseCase, getActivityUseCase),

@@ -36,7 +36,7 @@ Research Request の Question に対し、Strategist が判断できる材料を
 
 ## 実行手順
 
-1. `get_role_instructions({ role: "researcher", includeShared: true })` で Instruction を取得する（済んでいれば不要）
+1. 「対象 Request の決定」に従って Workspace を決め、`get_workspace_role_context({ workspaceId, role: "researcher" })` で Role Definition・共通 Policy・この Role が使う Skill の metadata・Workspace の Mission / Vision / Principles / Constraints・active な Project の要約（purpose と Repository / Resource の参照）・最近の Workspace Activity の summary を取得する（済んでいれば不要）。Skill の本文は作業に入るときに `get_skill_context`、Activity の本文は `get_workspace_activity` で取得する。Project の Work（Story / Task）と Project Activity は含まれない
 2. 「対象 Request の決定」に従って Request を決め、`get_researcher_context` で Context を取得する
 3. `question` / `scope` / `completionCondition` を、`workspace` の Principles / Constraints と照らして読む。`budget.remaining` と `deadlineAt` の範囲で調査を計画する
 4. 調査する。得た主張ごとに、根拠を Evidence 参照（`url` / `repository_file` / `issue` / `pull_request` / `ci` / `wacha_run`）として集める
@@ -71,8 +71,9 @@ Result と Synthesis は追記だけで、後から更新・削除できない�
 
 ## Allowed
 
-- `get_role_instructions`
+- `get_role_instructions` / `get_workspace_role_context` / `list_skills` / `get_skill_context`
 - `get_researcher_context`
+- `list_workspace_activities` / `get_workspace_activity`（Workspace Activity の参照）
 - `list_research_requests`
 - `register_research_result`
 - `register_research_synthesis`

@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { directionDecisionRecordTypes } from "@compass/direction";
-import { agentPrincipalOf, ProjectRole, projectRoles, type Caller } from "@compass/access";
+import { agentPrincipalOf, ProjectRole, projectRoles, workspaceRoles, type Caller } from "@compass/access";
 import type { AuthMode } from "../auth/humanAuthConfig.ts";
 import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
 import { registerActivityTools } from "./registerActivityTools.ts";
@@ -422,12 +422,35 @@ export const createMcpServer = (
         "an Activity body with get_activity, older Activities with list_activities, and read Project documents from their " +
         "Repository / Docs. unavailable lists inputs that are not connected yet (currently none); do not assume or invent them. source.revision is the Git commit the Role, Policy and Skill " +
         "files were read from (source.dirty=true means uncommitted changes; null when not available). Does not replace " +
-        "get_strategist_context / get_researcher_context / get_evaluator_context. Requires Authorization: Bearer <AgentName> with a Grant " +
+        "get_strategist_context / get_researcher_context / get_evaluator_context. Workspace Roles get their Workspace context with " +
+        "get_workspace_role_context. Requires Authorization: Bearer <AgentName> with a Grant " +
         "of the requested role in the Project (with X-Compass-Active-Role it must be the same role); UNAUTHENTICATED / FORBIDDEN otherwise. " +
         "Fails with INSTRUCTION_UNAVAILABLE if a Role, Policy or Skill file cannot be read.",
       inputSchema: { projectId: z.string().min(1), role: z.enum(projectRoles) },
     },
     ({ projectId, role }) => execute(() => services.getRoleContextUseCase.execute(principal, projectId, role)),
+  );
+  // Workspace Role向けのRole Context。scopeとRoleを入力で明示し、Project向けのget_role_contextとは別のtoolにする。
+  server.registerTool(
+    "get_workspace_role_context",
+    {
+      title: "Get Workspace Role Context",
+      description:
+        "Get what a Workspace Role Agent (strategist, researcher, evaluator) needs when it starts: the Role Definition " +
+        "(roles/<role>.md without frontmatter) and the Skill names it uses, the shared Policies, metadata of those Skills (no Skill body), " +
+        "the Workspace (Mission, Vision, Principles, Constraints, status), projects (the Workspace's active Projects, most recently " +
+        "updated first: id, name, description as the Project purpose, status and Repository / Resource references with name, url and kind; " +
+        "no Story, Task or Resource content) and the recent Workspace Activity summaries (activity: newest first, summary and refs only, " +
+        "same shape as list_workspace_activities; Project Activities are not included). Fetch a Skill body with get_skill_context, " +
+        "an Activity body with get_workspace_activity, older Activities with list_workspace_activities, and read Project documents from " +
+        "their Repository / Docs. unavailable lists inputs that are not connected yet (currently none). source.revision is the Git commit " +
+        "the Role, Policy and Skill files were read from. Does not replace get_strategist_context / get_researcher_context / " +
+        "get_evaluator_context. Requires Authorization: Bearer <AgentName> with a Workspace Role Grant of the requested role in the " +
+        "Workspace (with X-Compass-Active-Role it must be the same role; Project Grants do not count); UNAUTHENTICATED / FORBIDDEN " +
+        "otherwise. Fails with INSTRUCTION_UNAVAILABLE if a Role, Policy or Skill file cannot be read.",
+      inputSchema: { workspaceId: z.string().min(1), role: z.enum(workspaceRoles) },
+    },
+    ({ workspaceId, role }) => execute(() => services.getWorkspaceRoleContextUseCase.execute(principal, workspaceId, role)),
   );
   // Skillは認可を担わない静的な手順書。Roleとの対応はRole Definitionのskillsだけで表す。
   server.registerTool(

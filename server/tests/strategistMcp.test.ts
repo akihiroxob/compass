@@ -339,7 +339,7 @@ test("initialize・tools/listはBearerなしで成功し、Grant管理toolを公
   assert.ok(names.includes("get_strategist_context"));
   assert.ok(names.includes("get_role_instructions"));
   // Role文書の取得は許すが、Grantを発行・取消・一覧するtoolは無い。
-  assert.equal(names.filter((name) => !["get_role_instructions", "get_role_context"].includes(name) && /grant|role/i.test(name)).length, 0);
+  assert.equal(names.filter((name) => !["get_role_instructions", "get_role_context", "get_workspace_role_context"].includes(name) && /grant|role/i.test(name)).length, 0);
 
   // Bearer付きでも同じ。
   const withBearer = await readData(await mcp(app, { jsonrpc: "2.0", id: 3, method: "tools/list", params: {} }, "Bearer strat-1"));

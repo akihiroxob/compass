@@ -37,7 +37,7 @@ Outcome の固定 Success Criteria を、Execution が残した Evidence 参照�
 
 ## 実行手順
 
-1. `get_role_instructions({ role: "evaluator", includeShared: true })` で Instruction を取得する（済んでいれば不要）
+1. 「対象 Outcome の決定」に従って Workspace を決め、`get_workspace_role_context({ workspaceId, role: "evaluator" })` で Role Definition・共通 Policy・この Role が使う Skill の metadata・Workspace の Mission / Vision / Principles / Constraints・active な Project の要約（purpose と Repository / Resource の参照）・最近の Workspace Activity の summary を取得する（済んでいれば不要）。Skill の本文は作業に入るときに `get_skill_context`、Activity の本文は `get_workspace_activity` で取得する。Project の Work（Story / Task）と Project Activity は含まれない
 2. 「対象 Outcome の決定」に従って Outcome を決め、`get_evaluator_context` で Context を取得する
 3. `evaluability.status` が `evaluable` でなければ停止して報告する。一部の Target の完了だけで評価しない。`evaluations` に同じ Target・Evidence・`executionCursor` の評価があれば、二重に評価しない
 4. Criterion ごとに `measurement` に従って全 Target の `execution.evidence` の参照先を観測し、判定・根拠・使った Evidence の `id` を決める
@@ -69,8 +69,9 @@ Evaluation は追記だけで、後から更新・削除できない。観測が
 
 ## Allowed
 
-- `get_role_instructions`
+- `get_role_instructions` / `get_workspace_role_context` / `list_skills` / `get_skill_context`
 - `get_evaluator_context`
+- `list_workspace_activities` / `get_workspace_activity`（Workspace Activity の参照）
 - `record_outcome_evaluation`
 - 読み取りの `list_projects` / `get_project` / `list_intents` / `get_intent` / `list_outcomes` / `get_outcome` / `get_outcome_execution_summary` は、Grant に応じた範囲で使う（`get_outcome_execution_summary` は `runtime` Grant が必要）
 
