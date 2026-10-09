@@ -87,6 +87,20 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     return outcome ?? null;
   }
 
+  async findActiveByTargetProject(workspaceId: string, projectId: string): Promise<Outcome[]> {
+    const rows = await this.database
+      .selectFrom("outcome")
+      .innerJoin("outcome_target_project", "outcome_target_project.outcome_id", "outcome.id")
+      .selectAll("outcome")
+      .where("outcome.workspace_id", "=", workspaceId)
+      .where("outcome.status", "=", "active")
+      .where("outcome_target_project.project_id", "=", projectId)
+      .orderBy("outcome_target_project.created_at", "desc")
+      .orderBy(sql`outcome_target_project.rowid`, "desc")
+      .execute();
+    return loadOutcomes(this.database, rows);
+  }
+
   async update(
     workspaceId: string,
     intentId: string,

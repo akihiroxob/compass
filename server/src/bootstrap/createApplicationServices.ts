@@ -36,6 +36,7 @@ import {
   ListOutcomeTargetExecutionsUseCase,
   ListOutcomeTargetWorkUseCase,
   ListOutcomesUseCase,
+  ListProjectTargetOutcomesUseCase,
   ListResearchRequestsUseCase,
   ListRuntimeEventsUseCase,
   RecordAdrReferenceUseCase,
@@ -414,6 +415,8 @@ export const createApplicationServices = (
         projectAuthorization,
         agentContextService,
         getProjectUseCase,
+        new GetWorkspaceUseCase(workspaceRepository),
+        new ListProjectTargetOutcomesUseCase(workspaceOutcomeRepository),
         listActivitiesUseCase,
       ),
       // Workspace Role（strategist / researcher / evaluator）のRole Context。Workspace Role Grantで認可し、Project Grantから継承しない。

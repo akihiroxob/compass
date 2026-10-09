@@ -44,6 +44,8 @@ export interface OutcomeRepository {
   findById(workspaceId: string, intentId: string, outcomeId: string): Promise<Outcome | null>;
   /** Intentを指定せず、Workspace内のOutcomeをIDで取得する。他WorkspaceのOutcome IDはnull（Execution向けの参照ポートが使う）。 */
   findByIdInWorkspace(workspaceId: string, outcomeId: string): Promise<Outcome | null>;
+  /** Workspace内で、ProjectをTargetとするactiveなOutcomeをTarget設定の新しい順で返す（Project Role Contextが使う）。 */
+  findActiveByTargetProject(workspaceId: string, projectId: string): Promise<Outcome[]>;
   /** activeなOutcomeのtitle・hypothesisだけを更新する。 */
   update(
     workspaceId: string,

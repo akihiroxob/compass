@@ -162,7 +162,10 @@ test("get_role_contextはRole・Policy・Skill metadata・Project情報・Resour
   const result = await callTool(app, "get_role_context", { projectId, role: "worker" }, "worker-a");
   assert.equal(result.isError, undefined);
   const context = result.structuredContent;
-  assert.deepEqual(Object.keys(context).sort(), ["activity", "policies", "project", "resources", "role", "skills", "source", "unavailable"]);
+  assert.deepEqual(
+    Object.keys(context).sort(),
+    ["activity", "outcomes", "policies", "project", "resources", "role", "skills", "source", "unavailable", "workspace"],
+  );
   const roleFile = await readFile(new URL("roles/worker.md", repoRoot), "utf-8");
   assert.equal(context.role.name, "worker");
   assert.equal(context.role.path, "roles/worker.md");
@@ -182,10 +185,15 @@ test("get_role_contextはRole・Policy・Skill metadata・Project情報・Resour
     assert.deepEqual(Object.keys(skill).sort(), ["description", "name", "path", "requiredKnowledge", "requiredTools", "status", "version"]);
   }
   assert.equal(JSON.stringify(context).includes("# implement-task"), false, "Skill本文は含めない");
+  assert.deepEqual(Object.keys(context.project).sort(), ["description", "id", "name", "status", "workspaceId"]);
   assert.equal(context.project.id, projectId);
-  assert.equal(context.project.mission, "Keep execution guarded");
-  assert.deepEqual(context.project.principles, ["Small steps"]);
   assert.equal(context.project.status, "active");
+  // 戦略値は所属Workspaceが正本。Projectへ重複させずworkspaceの要約で返す。
+  assert.equal(context.workspace.id, context.project.workspaceId);
+  assert.equal(context.workspace.mission, "Keep execution guarded");
+  assert.deepEqual(context.workspace.principles, ["Small steps"]);
+  // Targetが無いProjectには関連Outcomeが無い。
+  assert.deepEqual(context.outcomes, []);
   assert.deepEqual(context.resources.repositories.map((item: { url: string }) => item.url), ["https://example.com/compass.git"]);
   assert.deepEqual(context.resources.resources.map((item: { kind: string }) => item.kind), ["docs"]);
   // Activity summaryは接続済み。履歴が無いProjectでは空の一覧になる（内容の検証はactivity.test.ts）。
@@ -326,6 +334,87 @@ test("get_workspace_role_contextはWorkspaceの要求RoleのGrantを要求し、
     assert.equal(errorCode(await context(workspace.id, "strategist", "manager-a")), "FORBIDDEN");
     assert.equal((await context(workspace.id, "manager", "manager-a")).isError, true);
     assert.equal((await callTool(app, "get_workspace_role_context", { projectId: a.id, role: "strategist" }, "strategist-a")).isError, true);
+  } finally {
+    await database.destroy();
+  }
+});
+
+test("get_role_contextは所属Workspaceの要約・Targetのactive Outcome・Project Activityを返し、他Project・別Workspace・Workspace Activityを含めない", async () => {
+  const { database, services, app, workspace, otherWorkspace, a, b } = await setupWorkspaces();
+  try {
+    const outcomeInput = (title: string) => ({
+      title,
+      description: `${title} description`,
+      hypothesis: `${title} hypothesis`,
+      rationale: "R",
+      successCriteria: [{ description: `${title} criterion`, measurement: "M", target: "T" }],
+    });
+    const intent = await services.createIntentUseCase.execute(workspace.id, { title: "Alpha intent", desiredState: "done" });
+    const first = await services.createOutcomeUseCase.execute(workspace.id, intent.id, outcomeInput("First A"));
+    const second = await services.createOutcomeUseCase.execute(workspace.id, intent.id, outcomeInput("Second A"));
+    const onlyB = await services.createOutcomeUseCase.execute(workspace.id, intent.id, outcomeInput("Only B"));
+    const cancelled = await services.createOutcomeUseCase.execute(workspace.id, intent.id, outcomeInput("Cancelled A"));
+    const untargeted = await services.createOutcomeUseCase.execute(workspace.id, intent.id, outcomeInput("Untargeted"));
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, first.id, a.id);
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, onlyB.id, b.id);
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, cancelled.id, a.id);
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, second.id, a.id);
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, second.id, b.id);
+    await services.cancelOutcomeUseCase.execute(workspace.id, intent.id, cancelled.id, { reason: "dropped" });
+    const otherIntent = await services.createIntentUseCase.execute(otherWorkspace.id, { title: "Beta intent", desiredState: "done" });
+    await services.createOutcomeUseCase.execute(otherWorkspace.id, otherIntent.id, outcomeInput("Beta secret outcome"));
+
+    // Project Role（manager / worker / reviewer）は別Principal。Projectの作業はProject A・Bそれぞれで行う。
+    await services.grantProjectRoleUseCase.execute(a.id, { principalId: "worker-a", role: "worker" });
+    await services.grantProjectRoleUseCase.execute(a.id, { principalId: "reviewer-a", role: "reviewer" });
+    await services.grantProjectRoleUseCase.execute(b.id, { principalId: "manager-b", role: "manager" });
+    const story = await callTool(app, "issue_story", { projectId: a.id, title: "A story", outcomeId: first.id, requestId: "s-a" }, "manager-a", "manager");
+    assert.equal(story.isError, undefined, JSON.stringify(story.structuredContent));
+    const storyB = await callTool(app, "issue_story", { projectId: b.id, title: "B secret story", requestId: "s-b" }, "manager-b", "manager");
+    assert.equal(storyB.isError, undefined, JSON.stringify(storyB.structuredContent));
+
+    for (const [principal, role] of [["manager-a", "manager"], ["worker-a", "worker"], ["reviewer-a", "reviewer"]] as const) {
+      const result = await callTool(app, "get_role_context", { projectId: a.id, role }, principal, role);
+      assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent));
+      const context = result.structuredContent;
+      assert.deepEqual(context.project, { id: a.id, workspaceId: workspace.id, name: "a", description: "a purpose", status: "active" });
+      assert.deepEqual(context.resources.repositories.map((item: { url: string }) => item.url), ["https://example.com/a.git"]);
+      assert.deepEqual(context.workspace, {
+        id: workspace.id,
+        name: "Alpha",
+        mission: "Ship guarded work",
+        vision: "Calm delivery",
+        principles: ["Small steps"],
+        constraints: ["No PII"],
+        status: "active",
+      });
+      // AがTargetのactiveなOutcomeだけ（Target設定の新しい順）。取消済み・Target外・別WorkspaceのOutcomeは含めない。
+      assert.deepEqual(context.outcomes.map((outcome: { id: string }) => outcome.id), [second.id, first.id]);
+      const [latest] = context.outcomes;
+      assert.deepEqual(Object.keys(latest).sort(), ["correlationId", "description", "hypothesis", "id", "intentId", "status", "successCriteria", "title"]);
+      assert.equal(latest.intentId, intent.id);
+      assert.equal(latest.status, "active");
+      assert.equal(latest.correlationId, `outcome:${second.id}`);
+      assert.deepEqual(latest.successCriteria.map(({ description, measurement, target }: Record<string, string>) => [description, measurement, target]), [
+        ["Second A criterion", "M", "T"],
+      ]);
+      // Project Activityだけ。Workspace Activity（intent.created等）は含めない。
+      assert.ok(context.activity.activities.length > 0);
+      assert.ok(context.activity.activities.every((item: { scope: string }) => item.scope === "project"));
+      const serialized = JSON.stringify(context);
+      for (const leaked of [onlyB.id, cancelled.id, untargeted.id, b.id, "B secret story", "Beta secret outcome", "Other mission", otherWorkspace.id]) {
+        assert.equal(serialized.includes(leaked), false, leaked);
+      }
+    }
+
+    // Project Grantの境界を越えない。AのGrantでBのContextは読めず、Workspace Role GrantでもProject Contextは読めない。
+    const errorCode = (result: ToolResult) => (result.isError ? result.structuredContent.error.code : null);
+    assert.equal(errorCode(await callTool(app, "get_role_context", { projectId: b.id, role: "worker" }, "worker-a", "worker")), "FORBIDDEN");
+    assert.equal(errorCode(await callTool(app, "get_role_context", { projectId: a.id, role: "manager" }, "strategist-a")), "FORBIDDEN");
+    // Target解除後はそのOutcomeを担当として返さない。
+    await services.unsetOutcomeTargetProjectUseCase.execute(workspace.id, second.id, a.id);
+    const after = (await callTool(app, "get_role_context", { projectId: a.id, role: "worker" }, "worker-a", "worker")).structuredContent;
+    assert.deepEqual(after.outcomes.map((outcome: { id: string }) => outcome.id), [first.id]);
   } finally {
     await database.destroy();
   }

@@ -133,6 +133,7 @@ Activity側の受け口は`canonicalDirectionActivity.ts`の`DirectionChangeFact
 | S03-04 → S06-04 | S03-01〜03とS06-02〜03受入後に認可付きDirection公開入口を接続し、その後に入口横断認可を検証する |
 | S07-02 | S07-01・S03-01〜03・S06-02〜03受入後に認可付きWorkspace Activity公開入口（MCP・Web API）を接続する（実装済み） |
 | S07-03 | S07-01〜02・Story 03・06受入後にWorkspace Role Context（`get_workspace_role_context`）を接続する（実装済み）。Orchestratorの起動指示はS08-01まで`get_role_context({ projectId })`のまま |
+| S07-04 | S07-03・Story 04のTarget受入後にProject Role Context（`get_role_context`）へ所属Workspaceの要約・Targetのactive Outcomeを加える（実装済み）。Ralphは`projectId`のまま |
 
 #### project scopeの経路
 
@@ -181,7 +182,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `application/ActivityUseCases.ts`の`RecordActivityUseCase`、`port/ActivityScopeReader.ts`の`ActivityScopeState` | 所属Workspaceの解決・検証とappendをActivityUnitOfWorkの同じtransactionで行う。workspace scopeの明示記録も同じuse caseで行う | 実装済み | S07-01・S07-02（実装済み） |
 | `server/src/infrastructure/repository/contextAdapters.ts`の`workChangeActivityObserver`・`directionChangeActivityObserver`・`projectChangeActivityObserver`・`activityScopeReader`・`activityAuthorization` | 同じexecutorのOrganization readerで所属Workspaceを解決し、欠損は拒否。Direction通知のProject IDはWorkspace IDへ解決してActivityへ渡す | Direction通知元をworkspaceIdへ切り替えた経路は直接渡す。Work・Change Logにworkspace_idは足さない | S07-01（実装済み）、S03-01〜03 |
 | `packages/direction/src/infrastructure/directionChange.ts`（`DirectionChangeNotice`）と通知元 | Intent/Outcomeは`workspaceId`、未切替通知は`projectId`のunion（`project_archived`はorganization） | 「Directionの状態変更通知」の表のとおり`workspaceId`へ | S03-01〜03 |
-| `server/src/application/agentContext/GetRoleContextUseCase.ts`・`GetWorkspaceRoleContextUseCase.ts`・`AgentContextService.ts` | `get_role_context({ projectId, role })`、Project全体とProject Activity | Workspace Role向け（`GetWorkspaceRoleContextUseCase`：Workspace戦略値・activeなProject要約・Workspace Activity）は実装済み。Project Role向けへのWorkspace要約・関連Outcomeの追加はS07-04 | S07-03（実装済み）、S07-04 |
+| `server/src/application/agentContext/GetRoleContextUseCase.ts`・`GetWorkspaceRoleContextUseCase.ts`・`AgentContextService.ts` | `get_role_context({ projectId, role })`、Project全体とProject Activity | Workspace Role向け（`GetWorkspaceRoleContextUseCase`：Workspace戦略値・activeなProject要約・Workspace Activity）は実装済み。Project Role向け（`GetRoleContextUseCase`）への所属Workspace要約・Targetのactive Outcome（`ListProjectTargetOutcomesUseCase`）の追加も実装済み | S07-03、S07-04（実装済み） |
 | `server/src/infrastructure/repository/contextAdapters.ts`、`bootstrap/createApplicationServices.ts`・`database/*` | Context間のreader配線とschema合成 | organizationのschema・readerを合成に加える | S02-01〜03 |
 
 ## 公開入口
@@ -198,7 +199,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `set_outcome_target` / `unset_outcome_target` / `list_outcome_targets` | `workspaceId`・`outcomeId`・`projectId` | 設定・解除はWorkspace strategist Grant、一覧はWorkspaceの参照権限（S04-01で実装済み） | S04-01 |
 | `list_outcome_target_work` | `workspaceId`・`intentId` | Intent配下のOutcomeごとのTarget別Work要約（状態・件数）。Workspaceの参照権限（S04-04で実装済み） | S04-04 |
 | `list_outcome_target_executions` | `workspaceId`・`outcomeId` | OutcomeのTarget別に還流済みのExecution Summary・Evidence参照（Project別、未還流はnull、Target解除前の記録は`nonTargetExecutions`）。Workspaceの参照権限（S05-01で実装済み） | S05-01 |
-| `get_role_context` / `get_workspace_role_context` | `projectId`・`role` | Workspace Role向けの`get_workspace_role_context`（`workspaceId`・Workspace Role、Workspace Role Grant）は実装済み。`get_role_context`はProject Role向けとしてS07-04で拡張する | S07-03（実装済み）、S07-04 |
+| `get_role_context` / `get_workspace_role_context` | `projectId`・`role` | Workspace Role向けの`get_workspace_role_context`（`workspaceId`・Workspace Role、Workspace Role Grant）は実装済み。`get_role_context`（`projectId`・Project Role、Project Grant）はProject Role向けとして所属Workspace要約・関連Outcomeを返す（実装済み） | S07-03、S07-04（実装済み） |
 | `get_role_instructions` / `list_skills` / `get_skill_context` | Project非依存 | 変更なし | — |
 | Work tools（`list_stories`〜`reject_task`、`registerExecutionTools.ts`） | `projectId` | 変更なし。`issue_story`のOutcome参照検査と、Manager向けProject scopeの`get_outcome_handoff_context`追加だけS04-03 | S04-03 |
 | `record_activity` / `list_activities` / `get_activity` | `projectId` | 維持。workspace scopeは`record_workspace_activity` / `list_workspace_activities` / `get_workspace_activity`（`workspaceId`、Workspace Role Grant）で実装済み | S07-01、S07-02 |
@@ -239,7 +240,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `plan.ts` | dispatch key `projectId:role:...`、`state.project.status !== "active"`で停止 | `workspace:project:role:outcome`等のkey。Targetなし・未完了archived Targetあり→Workspaceのstrategist、active TargetのStory未作成→そのProjectのmanager、全Target評価可能→evaluator。archived Workspace / Projectへの起動を除外し、保存済みの成果・Evidenceは保持する | S08-02、S08-03 |
 | `dispatchStore.ts` | 記録のkeyがProject IDで始まる（`prune`もProject前方一致） | 新keyへ。既存記録はkeyが変わるため、切替時に実行中の起動が二重にならない手順を確認する | S08-03 |
 | `launcher.ts` | Agentへ`COMPASS_PROJECT_ID`と`get_role_context({ projectId })`の指示を渡す | Workspace RoleはWorkspace ID、managerはProject ID | S08-03 |
-| `ralph/bin/ralph-loop`・`backends/compass.sh`・`prompts/*.md`・`examples/config.json` | `projectId`でWork toolsを呼ぶ | 変更なし（Project scopeの実行ループのまま）。Contextの取得先だけS07-04に追随 | S07-04、S08-04 |
+| `ralph/bin/ralph-loop`・`backends/compass.sh`・`prompts/*.md`・`examples/config.json` | `projectId`でWork toolsを呼ぶ | 変更なし（Project scopeの実行ループのまま）。Workspaceを所有・選択せず、Workspace要約・関連OutcomeはServerの`get_role_context({ projectId })`から得る（S07-04で接続済み） | S07-04（実装済み）、S08-04 |
 
 ## Role・Policy・Skill文書
 

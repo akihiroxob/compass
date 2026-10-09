@@ -16,6 +16,7 @@ import {
   type OutcomeEvaluability,
   type OutcomeTargetExecution,
 } from "../domain/OutcomeEvaluability.ts";
+import { outcomeCorrelationId } from "../outcomeCorrelation.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
 import { ProjectArchivedError, WorkspaceArchivedError } from "@compass/organization";
 
@@ -205,5 +206,48 @@ export class ListOutcomeTargetExecutionsUseCase {
     const read = await readOutcomeTargetExecutions(this.targetRepository, this.executionRepository, workspaceId, outcomeId);
     if (!outcome || !read) throw new NotFoundError(`Outcome ${outcomeId} was not found in Workspace ${workspaceId}`);
     return { outcomeId, outcomeStatus: outcome.status, ...read, evaluability: assessOutcomeEvaluability(read.targets) };
+  }
+}
+
+/**
+ * Project RoleがProject Role Contextで読む、そのProjectをTargetとするOutcome。Storyとの相関には`correlationId`を使う。
+ * Workspace所有のOutcomeの値を参照として返すだけで、Work側へ複製しない。
+ */
+export type ProjectTargetOutcome = {
+  id: string;
+  intentId: string;
+  title: string;
+  description: string;
+  hypothesis: string | null;
+  status: OutcomeStatus;
+  successCriteria: { id: string; position: number; description: string; measurement: string; target: string | null }[];
+  correlationId: string;
+};
+
+/**
+ * ProjectをTargetとするactiveなOutcome（Target設定の新しい順）。Target外・別Workspace・activeでないOutcomeは含めない。
+ * 認可は呼び出し側（Project Role Grant）が行い、ProjectはそのProjectの所属Workspaceで読む。
+ */
+export class ListProjectTargetOutcomesUseCase {
+  constructor(private readonly outcomeRepository: Pick<OutcomeRepository, "findActiveByTargetProject">) {}
+
+  async execute(workspaceId: string, projectId: string): Promise<ProjectTargetOutcome[]> {
+    const outcomes = await this.outcomeRepository.findActiveByTargetProject(workspaceId, projectId);
+    return outcomes.map((outcome) => ({
+      id: outcome.id,
+      intentId: outcome.intentId,
+      title: outcome.title,
+      description: outcome.description,
+      hypothesis: outcome.hypothesis,
+      status: outcome.status,
+      successCriteria: outcome.successCriteria.map(({ id, position, description, measurement, target }) => ({
+        id,
+        position,
+        description,
+        measurement,
+        target,
+      })),
+      correlationId: outcomeCorrelationId(outcome.id),
+    }));
   }
 }
