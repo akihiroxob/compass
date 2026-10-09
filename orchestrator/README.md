@@ -132,13 +132,16 @@ npm run typecheck --workspace orchestrator
 
 `tests/processRecovery.test.ts` は Orchestrator と Agent を実プロセスで起動し（Server は使わず固定状態）、Orchestrator を SIGKILL した後に残った Agent が lease を過ぎたら停止され（SIGTERM を無視する Agent は猶予後に SIGKILL）、停止を確認してから次の試行が起動されること、spawn 後・PID 記録前に Orchestrator を SIGKILL しても旧 Agent が Role のコマンドを実行せず次の試行だけが動くこと、Agent が Runtime Credential を読めないことを確認します。
 
-`tests/integration.test.ts` は Server と Orchestrator を別プロセスで起動し（trusted-local・一時 DB・一時 cwd で、親の `COMPASS_*`・`PORT` を引き継がない）、Web API で発行した Workspace Runtime Credential で状態を読み、Workspace Role の Agent は Workspace Agent Credential、Target Project A / B の manager はそれぞれの Project Agent Credential で操作することを確認します。並行起動・再起動・再試行の重複抑止、Intent → Strategist → Researcher → Strategist → Manager（A・B）の起動順、Project 単位の設定の拒否と Workspace 単位の設定への移行（旧起動記録を引き継がない）も確認します。同じ Workspace へ2つ目の Project を作る公開入口と Workspace Role Grant の付与入口が未接続のため、その2点は一時 DB への fixture です。起動される Agent は決定的な fixture（`tests/support/fakeAgent.ts`）で、実 Agent による自律運転の実証ではありません。
+`tests/integration.test.ts` は Server と Orchestrator を別プロセスで起動し（trusted-local・一時 DB・一時 cwd で、親の `COMPASS_*`・`PORT` を引き継がない）、Web API で発行した Workspace Runtime Credential で状態を読み、Workspace Role の Agent は Workspace Agent Credential、Target Project A / B の manager はそれぞれの Project Agent Credential で操作することを確認します。並行起動・再起動・再試行の重複抑止、Intent → Strategist → Researcher → Strategist → Manager（A・B）の起動順、Project 単位の設定の拒否と Workspace 単位の設定への移行（旧起動記録を引き継がない）も確認します。同じ Workspace へ2つ目の Project を作る公開入口と Workspace Role Grant の付与入口が未接続のため、その2点は一時 DB への fixture です。
+
+同じファイルの Workspace 境界の E2E は、Target A / B ごとに Ralph（`ralph/bin/ralph`）も別プロセスで起動し、Strategist → Target 設定 → 各 Project の manager → Ralph の Worker / Reviewer → manager の受入と Project Runtime の還流 → Evaluator → Strategist（Intent 完了）までを接続します。manager と Ralph の Agent は Project の `get_role_context` だけを指示され、所属 Workspace の要約と Target Outcome を Server の Role Context から受け取ること、Worker / Reviewer の段階と一部 Target の還流だけでは何も起動しないこと、Claim の期限後の再取得・Ralph の再試行・自己レビューの拒否を確認します。Ralph の Agent は `ralph/tests/support/fakeAgent.ts` の fixture で、manager の受入と還流はテストが MCP で行います。起動される Agent は決定的な fixture（`tests/support/fakeAgent.ts`）で、実 Agent による自律運転の実証ではありません。
 
 ## 未接続・未検証
 
 - 実 Agent（Claude Code・Codex 等）を起動した運用は未検証。上の設定例の `--mcp-config` による Credential の受け渡しも未検証
 - Workspace Runtime / Agent Credential を発行する Web UI は無く、Web API（`/api/workspaces/:workspaceId/credentials`）で発行する
 - Execution Evidence の還流（`record_execution_evidence`）は行わない。Evaluator の起動条件は還流済みの要約に依存する
+- `wait_accept` の Task に対する manager の最終受入は起動しない（manager は Story / Task の無い Target Project だけに起動する）
 - 複数ホストでの並行実行の重複抑止はない（`stateDir` を共有する1台を前提とする）
 - 旧 Agent の生存は記録した PID の process group で判定する。Orchestrator の停止中に旧 Agent が終わり、同じ PID が別の process group leader に再利用された場合は、その group を旧 Agent とみなして停止し得る
 - Windows では process group と開始合図を使わず、shell 経由で起動した孫プロセスの停止・生存確認と、PID 記録前に停止した場合の重複抑止は保証しない

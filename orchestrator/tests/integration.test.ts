@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,12 +16,15 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
  * OrchestratorはWeb APIで発行したWorkspace Runtime Credentialで状態を読み、Workspace RoleのAgentはWorkspace Agent Credential、
  * Target ProjectのManagerはそのProjectのAgent Credentialで操作する。
  * 起動されるAgentは`support/fakeAgent.ts`の決定的なfixtureで、実LLM・実Agentの自律運転の実証ではない。
+ * Workspace境界のE2EではRalph（`ralph/bin/ralph`）も別プロセスで起動し、Ralphが起動するAgentは`ralph/tests/support/fakeAgent.ts`のfixtureを使う。
  * 起動ディレクトリを一時directoryにし、親プロセスの`COMPASS_*`・`PORT`を引き継がない（ローカルの`.env`と既存portから隔離）。
  */
 
 const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 const tsx = import.meta.resolve("tsx");
 const fakeAgent = fileURLToPath(new URL("./support/fakeAgent.ts", import.meta.url));
+const ralph = join(repositoryRoot, "ralph/bin/ralph");
+const ralphFakeAgent = join(repositoryRoot, "ralph/tests/support/fakeAgent.ts");
 
 const loopbackDenial = await new Promise<string | undefined>((resolve) => {
   const probe = createServer();
@@ -68,7 +71,7 @@ const waitFor = async (check: () => boolean | Promise<boolean>, what: string, ti
 
 type Json = Record<string, any>;
 
-const setup = async () => {
+const setup = async (options: { claimTtlMs?: number } = {}) => {
   const directory = await mkdtemp(join(tmpdir(), "compass-orchestrator-it-"));
   const port = await freePort();
   const serverUrl = `http://127.0.0.1:${port}`;
@@ -79,25 +82,28 @@ const setup = async () => {
     COMPASS_DB_PATH: join(directory, "compass.db"),
     COMPASS_AUTH_MODE: "trusted-local",
     COMPASS_INITIAL_OWNER_EMAIL: ownerEmail,
+    ...(options.claimTtlMs ? { COMPASS_CLAIM_TTL_MS: String(options.claimTtlMs) } : {}),
   });
   const server = runTs(join(repositoryRoot, "server/src/main.ts"), [], directory, serverEnv);
   const serverExit = exited(server);
   await waitFor(async () => (await fetch(`${serverUrl}/health`)).ok, "the Compass server");
 
-  const mcp = async (bearer: string, name: string, args: Record<string, unknown>) => {
+  /** MCPのtoolを呼び、エラーも含めた応答を返す。`activeRole`があれば`X-Compass-Active-Role`で操作Contextを固定する。 */
+  const mcpResult = async (bearer: string, name: string, args: Record<string, unknown>, activeRole?: string) => {
     const client = new Client({ name: "orchestrator-it", version: "0" });
-    await client.connect(
-      new StreamableHTTPClientTransport(new URL("/mcp", serverUrl), {
-        requestInit: { headers: { Authorization: `Bearer ${bearer}`, Connection: "close" } },
-      }),
-    );
+    const headers: Record<string, string> = { Authorization: `Bearer ${bearer}`, Connection: "close" };
+    if (activeRole) headers["X-Compass-Active-Role"] = activeRole;
+    await client.connect(new StreamableHTTPClientTransport(new URL("/mcp", serverUrl), { requestInit: { headers } }));
     try {
-      const result = (await client.callTool({ name, arguments: args })) as { isError?: boolean; structuredContent?: Json };
-      assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent));
-      return result.structuredContent!;
+      return (await client.callTool({ name, arguments: args })) as { isError?: boolean; structuredContent?: Json };
     } finally {
       await client.close();
     }
+  };
+  const mcp = async (bearer: string, name: string, args: Record<string, unknown>, activeRole?: string) => {
+    const result = await mcpResult(bearer, name, args, activeRole);
+    assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent));
+    return result.structuredContent!;
   };
   const cli = async (...args: string[]) => {
     const result = await exited(runTs(join(repositoryRoot, "server/src/cli/main.ts"), args, directory, serverEnv));
@@ -132,7 +138,7 @@ const setup = async () => {
     database.prepare("update project set workspace_id = ? where id = ?").run(workspaceId, projectB.id);
     // Direction RoleのGrantはWorkspace所有。Workspace Role Grantの付与入口が未接続のため、一時DBへ直接置くfixture。
     const workspaceGrant = database.prepare("insert into workspace_grant (workspace_id, principal_id, role, created_at) values (?, ?, ?, ?)");
-    for (const role of ["strategist", "researcher"]) workspaceGrant.run(workspaceId, "direction-agent", role, Date.now());
+    for (const role of ["strategist", "researcher", "evaluator"]) workspaceGrant.run(workspaceId, "direction-agent", role, Date.now());
   } finally {
     database.close();
   }
@@ -146,7 +152,12 @@ const setup = async () => {
     (await web(`/api/projects/${projectIds[0]}/credentials`, { kind: "agent", principalId: "manager-a" })).token as string,
     (await web(`/api/projects/${projectIds[1]}/credentials`, { kind: "agent", principalId: "manager-b" })).token as string,
   ];
-  await mcp("admin", "create_intent", { workspaceId, title: "Exclusive claims", desiredState: "One owner per Task" });
+  await mcp("admin", "create_intent", {
+    workspaceId,
+    title: "Exclusive claims",
+    desiredState: "One owner per Task",
+    completionDefinition: "Every Target Project enforces one owner per Task",
+  });
 
   const agentLog = join(directory, "agents.jsonl");
   const configPath = join(directory, "orchestrator.json");
@@ -169,7 +180,7 @@ const setup = async () => {
         maxAttempts: 2,
         retryBackoffMs: 0,
         workspaces: [workspaceConfig],
-        roles: Object.fromEntries(["strategist", "researcher", "manager"].map((role) => [role, { command: agentCommand, env: roleEnv(agentEnv) }])),
+        roles: Object.fromEntries(["strategist", "researcher", "manager", "evaluator"].map((role) => [role, { command: agentCommand, env: roleEnv(agentEnv) }])),
         ...overrides,
       }),
     );
@@ -207,7 +218,7 @@ const setup = async () => {
     await serverExit;
     await rm(directory, { recursive: true, force: true });
   };
-  return { directory, workspaceId, projectIds, configPath, mcp, orchestrator, runOnce, state, launches, writeConfig, stop };
+  return { directory, serverUrl, workspaceId, projectIds, managerTokens, configPath, mcp, mcpResult, web, cli, orchestrator, runOnce, state, launches, writeConfig, stop };
 };
 
 test(
@@ -262,6 +273,189 @@ test(
           [projectB, { state: "incomplete", storyCount: 1, taskCount: 1 }],
         ],
       );
+    } finally {
+      await kit.stop();
+    }
+  },
+);
+
+test(
+  "Workspace境界のE2E: Strategist→Target設定→各Projectのmanager→RalphのWorker / Reviewer→受入・還流→Evaluator→Strategistと接続する",
+  { skip: loopbackSkip, timeout: 180_000 },
+  async () => {
+    // Claimの期限切れ後の再取得を短時間で確かめるため、Claimの期限を短くする。
+    const kit = await setup({ claimTtlMs: 2_000 });
+    try {
+      const [projectA, projectB] = kit.projectIds as [string, string];
+      // Orchestrator: Strategist → Researcher → Strategist（Outcome確定・Target A / B設定）→ Target A / Bのmanager。
+      for (let round = 0; round < 4; round++) await kit.runOnce();
+      assert.deepEqual(kit.launches().map(({ role }) => role), ["strategist", "researcher", "strategist", "manager", "manager"]);
+      const outcomeId = kit.launches()[3]!.subject.replace("outcome:", "");
+      // managerはProject scopeのまま: 対象Projectと`get_role_context({ projectId })`だけを受け取り、Workspace Roleの指示を受けない。
+      for (const manager of kit.launches().slice(3)) {
+        assert.equal(manager.workspaceId, kit.workspaceId);
+        assert.match(manager.prompt, new RegExp(`get_role_context\\(\\{ projectId: "${manager.projectId}", role: "manager" \\}\\)`));
+        assert.doesNotMatch(manager.prompt, /get_workspace_role_context/);
+      }
+
+      // Ralphの準備: ProjectごとにWorker / Reviewerを別Principal・別のProject Agent Credentialで接続する。
+      // 自己レビュー禁止の回帰のため、AのWorkerのPrincipalにはAのreviewer Grantも付ける。
+      const agentToken = async (projectId: string, principalId: string, roles: string[]) => {
+        for (const role of roles) await kit.cli("grant", projectId, principalId, role);
+        return (await kit.web(`/api/projects/${projectId}/credentials`, { kind: "agent", principalId })).token as string;
+      };
+      const ralphTokens = {
+        [projectA]: { worker: await agentToken(projectA, "worker-a", ["worker", "reviewer"]), reviewer: await agentToken(projectA, "reviewer-a", ["reviewer"]) },
+        [projectB]: { worker: await agentToken(projectB, "worker-b", ["worker"]), reviewer: await agentToken(projectB, "reviewer-b", ["reviewer"]) },
+      };
+      const managerToken = (projectId: string) => kit.managerTokens[kit.projectIds.indexOf(projectId)]!;
+      const taskOf = async (projectId: string) => {
+        const { tasks } = await kit.mcp(managerToken(projectId), "list_tasks", { projectId }, "manager");
+        assert.equal(tasks.length, 1);
+        return tasks[0] as { id: string; status: string };
+      };
+      const fakeCommand = join(kit.directory, "ralph-fake-agent");
+      await writeFile(fakeCommand, `#!/bin/sh\nexec "${process.execPath}" --import "${tsx}" "${ralphFakeAgent}" "$@"\n`);
+      await chmod(fakeCommand, 0o755);
+      const contextLog = join(kit.directory, "ralph-contexts.jsonl");
+      /** RalphはProjectごとに1つの設定で起動する。設定に持つのはProject IDだけで、Workspace IDを持たない。 */
+      const ralphFor = async (projectId: string, label: string) => {
+        const root = join(kit.directory, `ralph-${label}`);
+        await mkdir(root, { recursive: true });
+        const configPath = join(root, "ralph.json");
+        await writeFile(
+          configPath,
+          JSON.stringify({
+            serverUrl: kit.serverUrl,
+            projectId,
+            projectRoot: ".",
+            agentProvider: "claude",
+            pollIntervalSeconds: 1,
+            retry: { initialSeconds: 1, tokenLimitSeconds: 1 },
+            logging: { path: "logs/ralph.log" },
+            roles: {
+              worker: { tokenEnv: "WORKER_TOKEN", agentProvider: "claude", command: fakeCommand },
+              reviewer: { tokenEnv: "REVIEWER_TOKEN", agentProvider: "codex", command: fakeCommand },
+            },
+          }),
+        );
+        const agentLog = join(root, "agents.jsonl");
+        return {
+          start: (args: string[], actions: Record<string, string[]> = {}) =>
+            spawn(ralph, ["run", ...args, "--config", configPath], {
+              cwd: root,
+              env: isolatedEnv({
+                WORKER_TOKEN: ralphTokens[projectId]!.worker,
+                REVIEWER_TOKEN: ralphTokens[projectId]!.reviewer,
+                FAKE_AGENT_LOG: agentLog,
+                FAKE_AGENT_CONTEXT_LOG: contextLog,
+                FAKE_AGENT_ACTIONS: JSON.stringify(actions),
+              }),
+              stdio: ["ignore", "pipe", "pipe"],
+            }),
+          launches: () =>
+            existsSync(agentLog)
+              ? readFileSync(agentLog, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { role: string; action: string; prompt: string })
+              : [],
+        };
+      };
+
+      // Project A: Workerの失敗を再試行し、Claimを残して止まったAgentのTaskを期限後に別のClaimで再取得して完了する。
+      const ralphA = await ralphFor(projectA, "a");
+      const workerLoop = ralphA.start(["worker"], { worker: ["fail", "claim-only", "complete"] });
+      const workerExit = exited(workerLoop);
+      await waitFor(async () => (await taskOf(projectA)).status === "in_review", "Project A's Task to be completed", 60_000);
+      workerLoop.kill("SIGTERM");
+      const workerResult = await workerExit;
+      assert.equal(workerResult.code, 143, workerResult.stderr);
+      assert.match(workerResult.stderr, /workerが終了コード 3 で終了しました。 1秒後に再試行します。/);
+      assert.deepEqual(ralphA.launches().map(({ role, action }) => `${role}:${action}`), ["worker:fail", "worker:claim-only", "worker:complete"]);
+
+      // 自己レビュー禁止: reviewer GrantがあってもTaskを完了したPrincipalにはレビュー候補が無く、claim_reviewはWorkが拒否する。
+      const taskA = await taskOf(projectA);
+      const selfReviewCandidates = await kit.mcp(ralphTokens[projectA]!.worker, "list_tasks", { projectId: projectA, filter: { availableFor: "review" } }, "reviewer");
+      assert.deepEqual(selfReviewCandidates.tasks, []);
+      const selfReview = await kit.mcpResult(ralphTokens[projectA]!.worker, "claim_review", { taskId: taskA.id, requestId: "self-review" }, "reviewer");
+      assert.equal(selfReview.isError, true);
+      assert.equal(selfReview.structuredContent?.error?.code, "SELF_REVIEW_NOT_ALLOWED");
+
+      // 別PrincipalのReviewerがレビューする。
+      const reviewerA = await exited(ralphA.start(["reviewer", "--once"]));
+      assert.equal(reviewerA.code, 0, reviewerA.stderr);
+      assert.equal((await taskOf(projectA)).status, "wait_accept");
+
+      // Project B: 自動モードで Worker → Reviewer の順に1件ずつ処理する。
+      const ralphB = await ralphFor(projectB, "b");
+      for (let round = 0; round < 2; round++) {
+        const result = await exited(ralphB.start(["auto", "--once"]));
+        assert.equal(result.code, 0, result.stderr);
+      }
+      assert.equal((await taskOf(projectB)).status, "wait_accept");
+      assert.deepEqual(ralphB.launches().map(({ role }) => role), ["worker", "reviewer"]);
+
+      // RalphはProject execution loopのまま: 起動指示はProjectの`get_role_context`だけで、Workspace IDを含まない。
+      // Workspaceの要約とTargetのOutcomeは、Ralphの設定ではなくServerのRole Contextから受け取る。
+      for (const [projectId, launches] of [[projectA, ralphA.launches()], [projectB, ralphB.launches()]] as const) {
+        for (const launch of launches) {
+          assert.match(launch.prompt, new RegExp(`get_role_context\\(\\{ projectId: "${projectId}", role: "${launch.role}" \\}\\)`));
+          assert.doesNotMatch(launch.prompt, new RegExp(kit.workspaceId));
+        }
+      }
+      const contexts = readFileSync(contextLog, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Json);
+      assert.equal(contexts.length, ralphA.launches().length - 1 + ralphB.launches().length, "every launched Agent except the failed one read its Role Context");
+      for (const context of contexts) {
+        assert.equal(context.workspaceId, kit.workspaceId);
+        assert.deepEqual(context.outcomeIds, [outcomeId]);
+      }
+
+      // Worker / Reviewerの段階ではOrchestratorは何も起動しない（RalphとOrchestratorの責務の分離）。
+      await kit.runOnce();
+      assert.equal(kit.launches().length, 5);
+
+      // 最終受入は各Projectのmanager（Ralphの対象外）、Executionの還流はProjectのRuntime。Orchestratorはどちらも起動しないため、
+      // テストがMCPで操作する（未接続の工程）。
+      const reflect = async (projectId: string, label: string) => {
+        const task = await taskOf(projectId);
+        const acceptance = await kit.mcp(managerToken(projectId), "claim_acceptance", { taskId: task.id, requestId: `accept-claim-${label}` }, "manager");
+        await kit.mcp(managerToken(projectId), "accept_task", { taskId: task.id, claimId: acceptance.claimId, requestId: `accept-${label}` }, "manager");
+        const runtimeToken = (
+          await kit.web(`/api/projects/${projectId}/credentials`, {
+            kind: "runtime",
+            principalId: `runtime-${label}`,
+            scopes: ["execution:change:read", "execution:evidence:write"],
+          })
+        ).token as string;
+        const changes = await kit.mcp(runtimeToken, "list_changes", { projectId, afterCursor: 0 });
+        const evidence = [{ kind: "pull_request", uri: `https://github.com/example/${label}/pull/1`, versionHash: "a".repeat(40), observedAt: Date.now() - 1_000 }];
+        const reflected = await kit.mcp(runtimeToken, "record_execution_evidence", { projectId, outcomeId, changeCursor: changes.nextCursor, evidence });
+        assert.equal(reflected.summary.state, "accepted");
+      };
+
+      // 一部のTargetの還流だけではEvaluatorを起動しない。
+      await reflect(projectA, "a");
+      await kit.runOnce();
+      assert.equal(kit.launches().length, 5);
+
+      // 全Targetが還流するとWorkspaceのEvaluatorを起動し、そのEvaluationを根拠にStrategistがIntentの完了を判断する。
+      await reflect(projectB, "b");
+      await kit.runOnce();
+      await kit.runOnce();
+      const launched = kit.launches();
+      assert.deepEqual(launched.map(({ role }) => role), ["strategist", "researcher", "strategist", "manager", "manager", "evaluator", "strategist"]);
+      const [evaluator, strategist] = launched.slice(5);
+      for (const [launch, role] of [[evaluator!, "evaluator"], [strategist!, "strategist"]] as const) {
+        assert.equal(launch.projectId, null, "a Workspace Role is not given a Project ID");
+        assert.match(launch.prompt, new RegExp(`get_workspace_role_context\\(\\{ workspaceId: "${kit.workspaceId}", role: "${role}" \\}\\)`));
+      }
+      assert.equal(evaluator!.subject, `outcome:${outcomeId}`);
+      assert.ok(strategist!.subject.startsWith("evaluation:"));
+      assert.deepEqual(new Set(launched.map(({ credentialVisible }) => credentialVisible)), new Set([false]));
+
+      // Intentは達成済みになり、Active Intentの無いWorkspaceでは何も起動しない。
+      const finalState = await kit.state();
+      assert.equal(finalState.activeIntent, null);
+      await kit.runOnce();
+      assert.equal(kit.launches().length, 7);
     } finally {
       await kit.stop();
     }
