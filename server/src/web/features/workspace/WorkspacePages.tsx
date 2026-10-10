@@ -16,6 +16,7 @@ import { humanRoleLabels, type HumanRole } from "../member";
 import { projectViewPath } from "../project/overview";
 import { ProjectListSwitch } from "../project";
 import { useWorkspaceNavigation } from "./WorkspaceContext";
+import { WorkspaceOverview } from "./WorkspaceOverview";
 import { chooseHomeWorkspace, withProjectAccess, workspaceCreatePath, workspaceEditPath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath, workspaceSectionLabels, type Workspace, type WorkspaceProject, type WorkspaceSection } from "./workspace";
 
 /** 読込の状態。`key`は取得対象（URLのID・status）で、入力が変わった最初のrenderから前の結果を出さない。 */
@@ -147,32 +148,19 @@ const ManageSection = ({ workspace, myRole, reload }: { workspace: Workspace; my
   );
 };
 
-/** 概要。Mission・Vision、Active Intent、所属Projectの件数。各項目の詳細は対応する画面へ辿る。 */
-const OverviewContent = ({ workspace, myRole, reload }: { workspace: Workspace; myRole: HumanRole; reload: () => void }) => {
-  const intents = useWorkspaceIntents(workspace.id);
-  const projects = useWorkspaceProjects(workspace.id, "active");
-  return (
-    <>
-      <section className="detail-section" aria-labelledby="workspace-mission-heading">
-        <h2 id="workspace-mission-heading">Mission</h2>
-        <p className="pre-wrap">{workspace.mission}</p>
-        <h3>Vision</h3>
-        {workspace.vision ? <p className="pre-wrap">{workspace.vision}</p> : <p className="unset">未設定</p>}
-      </section>
-      <section className="detail-section" aria-labelledby="workspace-intent-heading">
-        <h2 id="workspace-intent-heading">Active Intent</h2>
-        {intents.error ? <ErrorState message={`Intentの読み込みに失敗しました: ${intents.error}`} /> : !intents.value ? <Loading /> : intents.value.active ? <p><span className={statusBadgeClass("progress")}>{intentStatusLabels.active}</span> {intents.value.active.title}</p> : <p className="unset">ActiveなIntentはありません。</p>}
-        <Link to={workspacePath(workspace.id, "direction")} className="text-link">方向を開く →</Link>
-      </section>
-      <section className="detail-section" aria-labelledby="workspace-projects-heading">
-        <h2 id="workspace-projects-heading">Project</h2>
-        {projects.error ? <ErrorState message={`Projectの読み込みに失敗しました: ${projects.error}`} /> : !projects.value ? <Loading /> : <p>{projects.value.length ? `activeなProjectが${projects.value.length}件あります。` : "activeなProjectはありません。"}</p>}
-        <Link to={workspaceProjectsPath(workspace.id)} className="text-link">Projectを開く →</Link>
-      </section>
-      <ManageSection workspace={workspace} myRole={myRole} reload={reload} />
-    </>
-  );
-};
+/** 概要。Mission・Visionと、現在地・要対応・Project・Agent・最近の記録（`WorkspaceOverview`）、Workspaceの管理。 */
+const OverviewContent = ({ workspace, myRole, reload }: { workspace: Workspace; myRole: HumanRole; reload: () => void }) => (
+  <>
+    <section className="detail-section" aria-labelledby="workspace-mission-heading">
+      <h2 id="workspace-mission-heading">Mission</h2>
+      <p className="pre-wrap">{workspace.mission}</p>
+      <h3>Vision</h3>
+      {workspace.vision ? <p className="pre-wrap">{workspace.vision}</p> : <p className="unset">未設定</p>}
+    </section>
+    <WorkspaceOverview workspace={workspace} myRole={myRole} />
+    <ManageSection workspace={workspace} myRole={myRole} reload={reload} />
+  </>
+);
 
 /** 方向。Mission・Vision、Intent（Active・過去）、Principles・Constraints。いずれもWorkspaceが正本。 */
 const DirectionContent = ({ workspace }: { workspace: Workspace }) => {
