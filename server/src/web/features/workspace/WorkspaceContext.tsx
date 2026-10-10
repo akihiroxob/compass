@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
-import { classifyError, loadFailureMessage, request } from "../../api";
+import { classifyError, loadFailureMessage, request, type FetchLike } from "../../api";
 import type { Project } from "../../projectForm";
-import { parseShellLocation, type ShellLocation, type Workspace } from "./workspace";
+import { parseShellLocation, resolveCurrentWorkspace, type ShellLocation, type Workspace } from "./workspace";
 
 const rememberedKey = "compass.workspaceId";
 const readRemembered = (): string | null => {
@@ -20,11 +20,25 @@ const remember = (workspaceId: string) => {
   }
 };
 
+/**
+ * Workspace一覧と、指定したWorkspaceの最新状態を同じ時点で取得する。指定したWorkspaceを閲覧できなければ`workspace`はnull。
+ * Projectのarchiveで所属Workspaceもarchiveされうるため、一覧（activeのみ）と個別の状態を揃えて反映するのに使う。
+ */
+export const loadWorkspaceNavigation = async (workspaceId: string | null, fetchImpl?: FetchLike) => {
+  const [{ workspaces }, workspace] = await Promise.all([
+    request<{ workspaces: Workspace[] }>("/api/workspaces", undefined, fetchImpl),
+    workspaceId === null ? Promise.resolve(null) : request<{ workspace: Workspace }>(`/api/workspaces/${workspaceId}`, undefined, fetchImpl).then(({ workspace }) => workspace, () => null),
+  ]);
+  return { workspaces, workspace };
+};
+
 type WorkspaceNavigation = {
-  /** 有効なWorkspace Membershipを持つactiveなWorkspace。権限の無いWorkspaceはserverが返さない。 */
+  /** 有効なWorkspace Membershipを持つactiveなWorkspace。権限の無いWorkspaceはserverが返さない。再取得中はnull（古い一覧で遷移先を選ばない）。 */
   workspaces: Workspace[] | null;
   error: string | null;
   reload: () => void;
+  /** Workspaceの状態が変わりうる操作（Projectのarchive等）の後に、一覧と当該Workspaceの状態を再取得する。 */
+  refreshWorkspace: (workspaceId: string) => void;
   location: ShellLocation;
   /** 現在位置のWorkspace。Project配下はProjectの所属Workspace、それ以外は前回選択したWorkspace。 */
   currentId: string | null;
@@ -48,21 +62,31 @@ export const WorkspaceNavigationProvider = ({ children }: { children: ReactNode 
   const location = parseShellLocation(useLocation().pathname);
   const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [revision, setRevision] = useState(0);
+  // 一覧の再取得要求。`workspaceId`を指定すると、そのWorkspaceの個別の状態も同じ時点で取り直す。
+  const [refresh, setRefresh] = useState<{ revision: number; workspaceId: string | null }>({ revision: 0, workspaceId: null });
+  const [loadedRevision, setLoadedRevision] = useState<number | null>(null);
   const [rememberedId, setRememberedId] = useState(readRemembered);
   // Project配下の画面の所属Workspace（取得できなければnull）と、一覧に無いWorkspaceの個別取得の結果。
   const [projectWorkspaces, setProjectWorkspaces] = useState<Record<string, string | null>>({});
   const [extraWorkspaces, setExtraWorkspaces] = useState<Record<string, Workspace | null>>({});
 
-  const reload = useCallback(() => setRevision((value) => value + 1), []);
+  const reload = useCallback(() => setRefresh(({ revision }) => ({ revision: revision + 1, workspaceId: null })), []);
+  const refreshWorkspace = useCallback((workspaceId: string) => setRefresh(({ revision }) => ({ revision: revision + 1, workspaceId })), []);
   useEffect(() => {
     let active = true;
+    const { revision, workspaceId } = refresh;
     setError(null);
-    request<{ workspaces: Workspace[] }>("/api/workspaces")
-      .then((body) => { if (active) setWorkspaces(body.workspaces); })
-      .catch((reason: unknown) => { if (active) setError(loadFailureMessage(classifyError(reason), "Workspaceの一覧が見つかりません。")); });
+    // 一覧と個別の状態は同じrenderで反映し、Selector・Shell・本文が食い違う中間状態を作らない。
+    loadWorkspaceNavigation(workspaceId)
+      .then(({ workspaces, workspace }) => {
+        if (!active) return;
+        setWorkspaces(workspaces);
+        if (workspaceId !== null) setExtraWorkspaces((map) => ({ ...map, [workspaceId]: workspace }));
+      })
+      .catch((reason: unknown) => { if (active) setError(loadFailureMessage(classifyError(reason), "Workspaceの一覧が見つかりません。")); })
+      .finally(() => { if (active) setLoadedRevision(revision); });
     return () => { active = false; };
-  }, [revision]);
+  }, [refresh]);
 
   const projectId = location.kind === "project" ? location.projectId : null;
   useEffect(() => {
@@ -103,15 +127,16 @@ export const WorkspaceNavigationProvider = ({ children }: { children: ReactNode 
     return () => { active = false; };
   }, [missingId, reload]);
 
-  const current = listed ?? (currentId === null ? null : extraWorkspaces[currentId] ?? null);
+  const current = resolveCurrentWorkspace(workspaces, extraWorkspaces, currentId);
+  const listFresh = loadedRevision === refresh.revision;
   const resolving =
     (workspaces === null && error === null) ||
     (location.kind === "project" && !(location.projectId in projectWorkspaces)) ||
     (currentId !== null && listed === null && !(currentId in extraWorkspaces) && error === null);
   const value = useMemo(
-    () => ({ workspaces, error, reload, location, currentId, current, resolving, rememberedId }),
+    () => ({ workspaces: listFresh ? workspaces : null, error, reload, refreshWorkspace, location, currentId, current, resolving, rememberedId }),
     // locationは毎render作り直すため、内容で比較する。
-    [workspaces, error, reload, JSON.stringify(location), currentId, current, resolving, rememberedId],
+    [workspaces, listFresh, error, reload, refreshWorkspace, JSON.stringify(location), currentId, current, resolving, rememberedId],
   );
   return <WorkspaceNavigationContext.Provider value={value}>{children}</WorkspaceNavigationContext.Provider>;
 };

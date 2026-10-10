@@ -17,6 +17,7 @@ import {
   summarizeReason,
   validateArchiveReason,
 } from "../src/web/projectArchive.ts";
+import { chooseHomeWorkspace, resolveCurrentWorkspace, type Workspace } from "../src/web/features/workspace/workspace.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 
@@ -32,6 +33,19 @@ const loadProjectWorkspaceDirection = async (projectId: string, fetchImpl: Fetch
       loadProjectWorkspaceDirection: (projectId: string, fetchImpl: FetchLike) => Promise<WorkspaceDirectionState>;
     };
     return await module.loadProjectWorkspaceDirection(projectId, fetchImpl);
+  } finally { await web.unregister(); }
+};
+
+type WorkspaceNavigationState = { workspaces: Workspace[]; workspace: Workspace | null };
+
+/** Shellと同じ経路で、Workspace一覧と現在のWorkspaceの状態を同じ時点で取得する（Projectのarchive後の再取得）。 */
+const loadWorkspaceNavigation = async (workspaceId: string, fetchImpl: FetchLike): Promise<WorkspaceNavigationState> => {
+  const web = register({ namespace: "project-archive-ui-navigation", tsconfig: fileURLToPath(new URL("../src/web/tsconfig.json", import.meta.url)) });
+  try {
+    const module = await web.import("../src/web/features/workspace/WorkspaceContext.tsx", import.meta.url) as {
+      loadWorkspaceNavigation: (workspaceId: string, fetchImpl: FetchLike) => Promise<WorkspaceNavigationState>;
+    };
+    return await module.loadWorkspaceNavigation(workspaceId, fetchImpl);
   } finally { await web.unregister(); }
 };
 
@@ -177,5 +191,38 @@ test("archive後の再取得: 他のactive Projectが残るWorkspaceは、Projec
   const intentInit: RequestInit = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "T", desiredState: "S" }) };
   const created = await request<{ intent: { workspaceId: string } }>(`/api/workspaces/${project.workspaceId}/intents`, intentInit, fetchImpl);
   assert.equal(created.intent.workspaceId, project.workspaceId);
+  await database.destroy();
+});
+
+test("archive後のShell: 最後のactive ProjectのarchiveでWorkspaceを一覧から外し、現在のWorkspaceはarchived、ホームは選ばない", async () => {
+  const { database, app, fetchImpl } = await setup();
+  const project = await createProject(app, "Compass");
+  const other = await createProject(app, "Other");
+  const before = await loadWorkspaceNavigation(project.workspaceId, fetchImpl);
+  assert.ok(before.workspaces.some(({ id }) => id === project.workspaceId));
+
+  await request(archiveProjectPath(project.id), archiveInit("終了"), fetchImpl);
+  const after = await loadWorkspaceNavigation(project.workspaceId, fetchImpl);
+  assert.deepEqual(after.workspaces.map(({ id }) => id), [other.workspaceId]);
+  assert.equal(after.workspace?.status, "archived");
+  // 再取得前に一覧から得ていた古いactiveの状態は使わず、個別に取得した状態（archived）を表示する。
+  const stale = { [project.workspaceId]: before.workspaces.find(({ id }) => id === project.workspaceId) ?? null };
+  assert.equal(resolveCurrentWorkspace(after.workspaces, { ...stale, [project.workspaceId]: after.workspace }, project.workspaceId)?.status, "archived");
+  // 前回選択がarchiveされたWorkspaceでも、ホームはactiveな一覧から選ぶ。
+  assert.equal(chooseHomeWorkspace(after.workspaces, project.workspaceId)?.id, other.workspaceId);
+  await database.destroy();
+});
+
+test("archive後のShell: 他のactive Projectが残るWorkspaceは一覧に残り、activeのまま表示する", async () => {
+  const { database, services, app, fetchImpl } = await setup();
+  const project = await createProject(app, "Compass");
+  await services.human.createWorkspaceProject.execute({ kind: "human", humanUserId: app.human.humanUserId }, project.workspaceId, { name: "Sibling" });
+
+  await request(archiveProjectPath(project.id), archiveInit("終了"), fetchImpl);
+  const after = await loadWorkspaceNavigation(project.workspaceId, fetchImpl);
+  assert.ok(after.workspaces.some(({ id }) => id === project.workspaceId));
+  assert.equal(after.workspace?.status, "active");
+  assert.equal(resolveCurrentWorkspace(after.workspaces, { [project.workspaceId]: after.workspace }, project.workspaceId)?.status, "active");
+  assert.equal(chooseHomeWorkspace(after.workspaces, project.workspaceId)?.id, project.workspaceId);
   await database.destroy();
 });

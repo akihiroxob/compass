@@ -14,6 +14,7 @@ import { AgentSettingsSection } from "../grant";
 import { IntentSection } from "../intent";
 import { useSession } from "../auth";
 import { workspaceProjectsPath } from "../workspace/workspace";
+import { useWorkspaceNavigation } from "../workspace/WorkspaceContext";
 import { humanRoleLabels, MembershipSection, type HumanRole } from "../member";
 import { canOperate } from "../../permissions";
 import { useProjectWorkspaceDirection } from "../../useWorkspaceDirection";
@@ -37,18 +38,21 @@ export const ProjectDetailPage = () => {
   // Intent・Outcome・Research・ADR参照は所属WorkspaceのDirection。Workspace Membershipで閲覧・変更の可否が決まり、Project Membershipから継承しない。
   // Projectのarchiveで所属Workspaceもarchiveされうるため、archive後はrevisionを進めてWorkspaceの状態を再取得する。
   const [directionRevision, setDirectionRevision] = useState(0);
+  const navigation = useWorkspaceNavigation();
   const direction = useProjectWorkspaceDirection(projectId, directionRevision);
   const directionUnavailable = direction.access === "error" ? <ErrorState message={direction.message} /> : <Loading />;
-  const load = () => request<{ project: Project; myRole: HumanRole }>(`/api/projects/${projectId}`).then(({ project, myRole }) => { setProject(project); setMyRole(myRole); });
+  const load = () => request<{ project: Project; myRole: HumanRole }>(`/api/projects/${projectId}`).then(({ project, myRole }) => { setProject(project); setMyRole(myRole); return project; });
   // 未所属・取消済み・存在しないProjectはserverが区別せず404を返す（存在を漏らさない）。
   const showLoadError = (reason: unknown) => { setProject(null); setError(loadFailureMessage(classifyError(reason), "Projectが見つからないか、このProjectを閲覧する権限がありません。Projectのownerに招待を依頼してください。")); };
   useEffect(() => { load().catch(showLoadError); }, [projectId]);
   const archive = useReasonAction(async (reason) => {
     const invalid = validateArchiveReason(reason);
     if (invalid) throw new Error(invalid);
-    try { setProject((await request<{ project: Project }>(archiveProjectPath(projectId), archiveInit(reason))).project); setDirectionRevision((revision) => revision + 1); } catch (failure) {
+    // 本文のDirectionと、Shell・Selector・ホームが使うWorkspaceの一覧・状態を同じ再取得で揃える。
+    const syncWorkspace = (archived: Project | undefined) => { setDirectionRevision((revision) => revision + 1); if (archived) navigation?.refreshWorkspace(archived.workspaceId); };
+    try { const { project: archived } = await request<{ project: Project }>(archiveProjectPath(projectId), archiveInit(reason)); setProject(archived); syncWorkspace(archived); } catch (failure) {
       // 他の操作で既にアーカイブされていた場合は、表示を最新（アーカイブ済み）へ揃えてから失敗を表示する。
-      if (classifyError(failure).kind === "project_archived") { await load().catch(() => undefined); setDirectionRevision((revision) => revision + 1); }
+      if (classifyError(failure).kind === "project_archived") syncWorkspace(await load().catch(() => undefined));
       throw failure;
     }
   }, describeArchiveFailure);

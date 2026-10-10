@@ -77,6 +77,16 @@ export const currentSection = (location: ShellLocation): WorkspaceSection | null
 export const switchWorkspacePath = (location: ShellLocation, workspaceId: string) =>
   workspacePath(workspaceId, currentSection(location) ?? "overview");
 
+/**
+ * 現在のWorkspace。一覧（activeのみ）にあればそれ、無ければ個別に取得した状態（archived等。閲覧できなければnull）。
+ * 一覧から外れたWorkspaceは個別の状態で表示し、古いactiveの状態を残さない。
+ */
+export const resolveCurrentWorkspace = (
+  workspaces: readonly Workspace[] | null,
+  fetched: Readonly<Record<string, Workspace | null>>,
+  currentId: string | null,
+): Workspace | null => (currentId === null ? null : workspaces?.find(({ id }) => id === currentId) ?? fetched[currentId] ?? null);
+
 /** ホームで開くWorkspace。前回選択したWorkspaceが今も閲覧できればそれ、無ければ一覧の先頭（更新日時の降順）。 */
 export const chooseHomeWorkspace = (workspaces: readonly Workspace[], rememberedId: string | null): Workspace | null =>
   workspaces.find(({ id }) => id === rememberedId) ?? workspaces[0] ?? null;

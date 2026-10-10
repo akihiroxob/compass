@@ -5,6 +5,7 @@ import {
   currentSection,
   filterWorkspaces,
   parseShellLocation,
+  resolveCurrentWorkspace,
   switchWorkspacePath,
   withProjectAccess,
   workspacePath,
@@ -90,4 +91,14 @@ test("WorkspaceのProjectは、Project Membershipを持つものだけを開け�
     withProjectAccess([project("p-1"), project("p-2")], new Set(["p-2", "p-other"])).map(({ project, canOpen }) => [project.id, canOpen]),
     [["p-1", false], ["p-2", true]],
   );
+});
+
+test("現在のWorkspaceは一覧（active）を優先し、一覧に無ければ個別に取得した状態、閲覧できなければnull", () => {
+  const taneru = workspace("ws-1", "Taneru");
+  const archived: Workspace = { ...taneru, status: "archived", archivedAt: 2, archiveReason: "終了" };
+  assert.equal(resolveCurrentWorkspace([taneru], {}, "ws-1"), taneru);
+  assert.equal(resolveCurrentWorkspace([], { "ws-1": archived }, "ws-1")?.status, "archived");
+  assert.equal(resolveCurrentWorkspace([], { "ws-1": null }, "ws-1"), null);
+  assert.equal(resolveCurrentWorkspace(null, {}, "ws-1"), null);
+  assert.equal(resolveCurrentWorkspace([taneru], {}, null), null);
 });
