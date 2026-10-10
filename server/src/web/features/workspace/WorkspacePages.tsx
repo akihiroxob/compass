@@ -1,12 +1,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
+import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { Shell } from "../../components/Shell";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { intentStatusLabels, splitIntents, type Intent } from "../../intentForm";
 import { workspaceApiPath } from "../../paths";
 import type { Project } from "../../projectForm";
-import { parseListStatus, projectsApiPath, summarizeReason, type ProjectStatus } from "../../projectArchive";
+import { canOperateWorkspace } from "../../permissions";
+import { archiveInit, describeArchiveFailure, parseListStatus, projectsApiPath, summarizeReason, validateArchiveReason, type ProjectStatus } from "../../projectArchive";
 import { statusBadgeClass } from "../../statusTone";
 import { ActivitySection } from "../activity";
 import { IntentFacts } from "../intent/IntentFacts";
@@ -14,7 +16,7 @@ import { humanRoleLabels, type HumanRole } from "../member";
 import { projectViewPath } from "../project/overview";
 import { ProjectListSwitch } from "../project";
 import { useWorkspaceNavigation } from "./WorkspaceContext";
-import { chooseHomeWorkspace, withProjectAccess, workspacePath, workspaceProjectsPath, workspaceSectionLabels, type Workspace, type WorkspaceProject, type WorkspaceSection } from "./workspace";
+import { chooseHomeWorkspace, withProjectAccess, workspaceCreatePath, workspaceEditPath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath, workspaceSectionLabels, type Workspace, type WorkspaceProject, type WorkspaceSection } from "./workspace";
 
 /** 読込の状態。`key`は取得対象（URLのID・status）で、入力が変わった最初のrenderから前の結果を出さない。 */
 type Loaded<T> = { key: string; value: T | null; error: string | null };
@@ -48,9 +50,9 @@ export const WorkspaceHomePage = () => {
       <main className="narrow">
         <div className="detail-hero"><p className="eyebrow">Workspace</p><h1>参加しているWorkspaceはありません</h1></div>
         <div className="state-card">
-          <p>Workspaceは、Mission・Visionを共有して複数のProjectで成果を実現する単位です。Projectを作成するとWorkspaceも作られ、あなたがownerになります。</p>
+          <p>Workspaceは、Mission・Visionを共有して複数のProjectで成果を実現する単位です。Workspaceを作成するとあなたがownerになり、Projectを追加できます。</p>
           <p>既存のWorkspaceに参加するには、そのWorkspaceのownerにMembershipの追加を依頼してください。</p>
-          <div className="action-row"><Link to="/projects/new" className="button">Projectを作成</Link><Link to="/projects" className="secondary-button">参加中のProject</Link></div>
+          <div className="action-row"><Link to={workspaceCreatePath} className="button">Workspaceを作成</Link><Link to="/projects" className="secondary-button">参加中のProject</Link></div>
         </div>
       </main>
     </Shell>
@@ -61,9 +63,11 @@ export const WorkspaceHomePage = () => {
  * Workspaceの画面の共通枠。URLのWorkspaceをWorkspace Membershipで取得し、閲覧できなければ一覧に無いWorkspaceと同じく
  * 理由だけを出す（未所属・不在はserverが区別せず404）。見出しにWorkspace名・項目・状態・自分のRoleを出す。
  */
-const WorkspaceFrame = ({ section, children }: { section: WorkspaceSection; children: (workspace: Workspace, myRole: HumanRole) => ReactNode }) => {
+const WorkspaceFrame = ({ section, children }: { section: WorkspaceSection; children: (workspace: Workspace, myRole: HumanRole, reload: () => void) => ReactNode }) => {
   const { workspaceId = "" } = useParams();
-  const { value, error } = useLoad(workspaceId, () => request<{ workspace: Workspace; myRole: HumanRole }>(workspaceApiPath(workspaceId)), workspaceNotFound);
+  // archive等で状態が変わった後に取り直す。再取得中は読み込み中を出し、古い状態の操作を残さない。
+  const [revision, setRevision] = useState(0);
+  const { value, error } = useLoad(`${workspaceId}#${revision}`, () => request<{ workspace: Workspace; myRole: HumanRole }>(workspaceApiPath(workspaceId)), workspaceNotFound);
   return (
     <Shell>
       <main>
@@ -78,11 +82,11 @@ const WorkspaceFrame = ({ section, children }: { section: WorkspaceSection; chil
             {value.workspace.status === "archived" && (
               <section className="detail-section archive-notice" aria-labelledby="workspace-archive-heading">
                 <h2 id="workspace-archive-heading">このWorkspaceはアーカイブされています</h2>
-                <p className="section-note">参照のみできます。Directionの変更やProjectの追加はできません。</p>
+                <p className="section-note">参照のみできます。Workspaceの編集、Directionの変更、Projectの追加はできません。</p>
                 <dl className="intent-facts"><dt>アーカイブの理由</dt><dd>{value.workspace.archiveReason ?? <span className="unset">理由は記録されていません</span>}</dd></dl>
               </section>
             )}
-            <div className="view-panel">{children(value.workspace, value.myRole)}</div>
+            <div className="view-panel">{children(value.workspace, value.myRole, () => setRevision((current) => current + 1))}</div>
           </>
         )}
       </main>
@@ -108,8 +112,43 @@ const useWorkspaceProjects = (workspaceId: string, status: ProjectStatus) =>
 const useWorkspaceIntents = (workspaceId: string) =>
   useLoad(workspaceId, () => request<{ intents: Intent[] }>(workspaceApiPath(workspaceId, "/intents")).then(({ intents }) => splitIntents(intents)), workspaceNotFound);
 
+/**
+ * Workspaceの管理（編集はadministrator以上、archiveはowner）。Workspace Membershipの`myRole`で導線を出し、Project Roleからは継承しない。
+ * archiveすると一覧（Selector）から外れ、Directionの変更とProjectの追加ができなくなる。所属Projectのarchiveはしない。
+ */
+const ManageSection = ({ workspace, myRole, reload }: { workspace: Workspace; myRole: HumanRole; reload: () => void }) => {
+  const navigation = useWorkspaceNavigation();
+  const canUpdate = canOperateWorkspace(myRole, "workspace.update");
+  const canArchive = canOperateWorkspace(myRole, "workspace.archive");
+  const archive = useReasonAction(async (reason) => {
+    const invalid = validateArchiveReason(reason);
+    if (invalid) throw new Error(invalid);
+    const sync = () => { navigation?.refreshWorkspace(workspace.id); reload(); };
+    try {
+      await request<{ workspace: Workspace }>(workspaceApiPath(workspace.id, "/archive"), archiveInit(reason));
+      sync();
+    } catch (failure) {
+      // 他の操作で既にアーカイブされていた場合は、表示を最新（アーカイブ済み）へ揃えてから失敗を表示する。
+      if (classifyError(failure).kind === "project_archived") sync();
+      throw failure;
+    }
+  }, (classified) => (classified.kind === "not_found" ? workspaceNotFound : describeArchiveFailure(classified)));
+  if (workspace.status === "archived" || !(canUpdate || canArchive)) return null;
+  return (
+    <section className="detail-section" aria-labelledby="workspace-manage-heading">
+      <h2 id="workspace-manage-heading">Workspaceの管理</h2>
+      <p className="section-note">名前・Mission・Vision・Principles・Constraintsの編集と、Workspaceのアーカイブです。</p>
+      <div className="action-row">
+        {canUpdate && <Link to={workspaceEditPath(workspace.id)} className="button">Workspaceを編集</Link>}
+        {canArchive && <button type="button" className="secondary-button danger" aria-expanded={archive.confirming} onClick={archive.open}>アーカイブ</button>}
+      </div>
+      {canArchive && archive.confirming && <ReasonPanel action={archive} title="このWorkspaceをアーカイブしますか？" description="アーカイブすると、Workspaceの編集、Intent・Outcome等のDirectionの変更、Projectの追加ができなくなり、Workspaceの一覧から外れます。内容と履歴は参照できます。所属Projectはアーカイブされません。" label={<>アーカイブの理由 <span>必須</span></>} required confirmLabel="アーカイブする" pendingLabel="アーカイブ中..." />}
+    </section>
+  );
+};
+
 /** 概要。Mission・Vision、Active Intent、所属Projectの件数。各項目の詳細は対応する画面へ辿る。 */
-const OverviewContent = ({ workspace }: { workspace: Workspace }) => {
+const OverviewContent = ({ workspace, myRole, reload }: { workspace: Workspace; myRole: HumanRole; reload: () => void }) => {
   const intents = useWorkspaceIntents(workspace.id);
   const projects = useWorkspaceProjects(workspace.id, "active");
   return (
@@ -130,6 +169,7 @@ const OverviewContent = ({ workspace }: { workspace: Workspace }) => {
         {projects.error ? <ErrorState message={`Projectの読み込みに失敗しました: ${projects.error}`} /> : !projects.value ? <Loading /> : <p>{projects.value.length ? `activeなProjectが${projects.value.length}件あります。` : "activeなProjectはありません。"}</p>}
         <Link to={workspaceProjectsPath(workspace.id)} className="text-link">Projectを開く →</Link>
       </section>
+      <ManageSection workspace={workspace} myRole={myRole} reload={reload} />
     </>
   );
 };
@@ -160,14 +200,19 @@ const DirectionContent = ({ workspace }: { workspace: Workspace }) => {
  * WorkspaceのProject一覧。Workspace Membershipで所属Project全体を見られるが、Project詳細はProject Membershipで認可されるため、
  * Membershipの無いProjectはリンクにせず理由を出す。
  */
-const ProjectsContent = ({ workspace }: { workspace: Workspace }) => {
+const ProjectsContent = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
   const status = parseListStatus(useSearchParams()[0].get("status"));
   const { value, error } = useWorkspaceProjects(workspace.id, status);
+  // Projectの追加はWorkspace Membershipのadministrator以上で、archivedのWorkspaceには追加できない。
+  const canCreate = workspace.status === "active" && canOperateWorkspace(myRole, "project.create");
   return (
     <>
-      <ProjectListSwitch status={status} pathOf={(next) => workspaceProjectsPath(workspace.id, next)} />
+      <div className="action-row">
+        <ProjectListSwitch status={status} pathOf={(next) => workspaceProjectsPath(workspace.id, next)} />
+        {canCreate && <Link to={workspaceProjectCreatePath(workspace.id)} className="button">Projectを追加</Link>}
+      </div>
       {error ? <ErrorState message={`Projectの読み込みに失敗しました: ${error}`} /> : !value ? <Loading /> : value.length === 0 ? (
-        <div className="state-card">{status === "archived" ? <p>アーカイブ済みのProjectはありません。</p> : <p>このWorkspaceにactiveなProjectはありません。WorkspaceへのProjectの追加はWorkspaceのadministratorが行います。</p>}</div>
+        <div className="state-card">{status === "archived" ? <p>アーカイブ済みのProjectはありません。</p> : workspace.status === "archived" ? <p>このWorkspaceにactiveなProjectはありません。アーカイブ済みのWorkspaceにはProjectを追加できません。</p> : canCreate ? <><p>このWorkspaceにactiveなProjectはまだありません。Missionを実現する実行の単位としてProjectを追加します。</p><Link to={workspaceProjectCreatePath(workspace.id)} className="text-link">Projectを追加 →</Link></> : <p>このWorkspaceにactiveなProjectはありません。WorkspaceへのProjectの追加はWorkspaceのadministratorが行います。</p>}</div>
       ) : (
         <section className="project-grid" aria-label={`${value.length}件のProject`}>
           {value.map(({ project, canOpen }) => {
@@ -201,8 +246,8 @@ const AgentsContent = ({ workspace }: { workspace: Workspace }) => {
   );
 };
 
-export const WorkspaceOverviewPage = () => <WorkspaceFrame section="overview">{(workspace) => <OverviewContent workspace={workspace} />}</WorkspaceFrame>;
+export const WorkspaceOverviewPage = () => <WorkspaceFrame section="overview">{(workspace, myRole, reload) => <OverviewContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
 export const WorkspaceDirectionPage = () => <WorkspaceFrame section="direction">{(workspace) => <DirectionContent workspace={workspace} />}</WorkspaceFrame>;
-export const WorkspaceProjectsPage = () => <WorkspaceFrame section="projects">{(workspace) => <ProjectsContent workspace={workspace} />}</WorkspaceFrame>;
+export const WorkspaceProjectsPage = () => <WorkspaceFrame section="projects">{(workspace, myRole) => <ProjectsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceActivityPage = () => <WorkspaceFrame section="activity">{(workspace) => <ActivityContent workspace={workspace} />}</WorkspaceFrame>;
 export const WorkspaceAgentsPage = () => <WorkspaceFrame section="agents">{(workspace) => <AgentsContent workspace={workspace} />}</WorkspaceFrame>;

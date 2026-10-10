@@ -86,7 +86,7 @@ const ExecutionItemForm = ({
         <Link to={cancelTo} className="back-link">← 戻る</Link>
         <div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div>
         <p className="lede">{heading.lede}</p>
-        {error && <FormErrorSummary error={error} projectDetailTo={projectDetail(projectId)} conflict={{ title: `この${subject}は変更できない状態です。`, action: <Link to={projectDetail(projectId)} className="text-link">Project詳細で最新の状態を確認する →</Link> }} />}
+        {error && <FormErrorSummary error={error} detailTo={projectDetail(projectId)} conflict={{ title: `この${subject}は変更できない状態です。`, action: <Link to={projectDetail(projectId)} className="text-link">Project詳細で最新の状態を確認する →</Link> }} />}
         <form onSubmit={submit} className="project-form execution-form" noValidate>
           <section className="form-section">
             <label>

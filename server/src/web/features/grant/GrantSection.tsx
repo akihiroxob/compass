@@ -45,7 +45,7 @@ const GrantForm = ({ projectId, role, onGranted }: { projectId: string; role: Ag
   };
   return (
     <>
-      {error && <FormErrorSummary error={error} projectDetailTo={`/projects/${projectId}`} />}
+      {error && <FormErrorSummary error={error} detailTo={`/projects/${projectId}`} />}
       <form className="grant-form" onSubmit={submit}>
         <label>
           Agent名 <span>必須</span>

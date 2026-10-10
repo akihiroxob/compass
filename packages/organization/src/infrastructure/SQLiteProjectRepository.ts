@@ -13,7 +13,7 @@ import type {
 import type { ProjectChangeObserver } from "./projectChange.ts";
 import type { OrganizationDatabase } from "./schema.ts";
 import type { WorkspaceOwnerMembershipWriter } from "./SQLiteWorkspaceRepository.ts";
-import { replaceWorkspaceOrderedValues, writeWorkspace } from "./writeWorkspace.ts";
+import { writeWorkspace } from "./writeWorkspace.ts";
 
 type Queryable = Kysely<OrganizationDatabase> | Transaction<OrganizationDatabase>;
 
@@ -116,18 +116,11 @@ export class SQLiteProjectRepository implements ProjectRepository {
     const outcome = await this.database.transaction().execute(async (transaction) => {
       const existing = await transaction
         .selectFrom("project")
-        .innerJoin("workspace", "workspace.id", "project.workspace_id")
-        .select(["project.status as status", "workspace.id as workspaceId", "workspace.status as workspaceStatus"])
-        .where("project.id", "=", projectId)
+        .select("status")
+        .where("id", "=", projectId)
         .executeTakeFirst();
       if (!existing) return { kind: "not_found" as const };
       if (existing.status === "archived") return { kind: "project_archived" as const };
-      const updatesStrategy = [input.mission, input.vision, input.principles, input.constraints].some(
-        (value) => value !== undefined,
-      );
-      if (updatesStrategy && existing.workspaceStatus === "archived") {
-        return { kind: "workspace_archived" as const, workspaceId: existing.workspaceId };
-      }
 
       // Repositoryを外す変更はADR Handoff Request/Referenceの参照先を失わせないか、他の書込より先に検査する。
       // 途中まで書き込んでから拒否すると、そのtransactionはKyselyの仕様上そのまま commit されてしまうため。
@@ -137,7 +130,6 @@ export class SQLiteProjectRepository implements ProjectRepository {
       }
 
       // undefinedの項目はKyselyがSETから除外するため、未指定の列は変更されない。
-      // 戦略値だけの変更でもProjectのupdated_atを進める（一覧の更新順は従来どおりProject単位）。
       const now = Date.now();
       await transaction
         .updateTable("project")
@@ -145,19 +137,6 @@ export class SQLiteProjectRepository implements ProjectRepository {
         .where("id", "=", projectId)
         .execute();
 
-      if (updatesStrategy) {
-        await transaction
-          .updateTable("workspace")
-          .set({ mission: input.mission, vision: input.vision, updated_at: now })
-          .where("id", "=", existing.workspaceId)
-          .execute();
-        if (input.principles) {
-          await replaceWorkspaceOrderedValues(transaction, "workspace_principle", existing.workspaceId, input.principles);
-        }
-        if (input.constraints) {
-          await replaceWorkspaceOrderedValues(transaction, "workspace_constraint", existing.workspaceId, input.constraints);
-        }
-      }
       if (input.repositories) await this.syncRepositories(transaction, projectId, input.repositories);
       if (input.resources) await this.syncResources(transaction, projectId, input.resources);
       return { kind: "updated" as const };

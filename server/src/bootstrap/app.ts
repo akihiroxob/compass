@@ -88,7 +88,14 @@ export const createApp = (
     return c.json({ project });
   });
 
-  // Workspaceの参照（Workspace Membershipで認可。未所属・不在は404）。作成・更新・archive・member管理の入口はまだ公開しない。
+  // Workspaceの作成・参照・更新・archiveと、既存WorkspaceへのProject作成。Workspace Membershipで認可し（未所属・不在は404）、
+  // Project Membershipから継承しない。作成は認証済みであればよく、作成者を同一transactionでowner Membershipにする。
+  // member管理の入口はまだ公開しない。
+  app.post("/api/workspaces", async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Workspace");
+    return c.json({ workspace: await human.createWorkspace.execute(input, actor) }, 201);
+  });
   // 有効なMembershipを持つWorkspaceだけ。既定はactiveのみ。`?status=archived`でアーカイブ済み一覧。
   app.get("/api/workspaces", async (c) => {
     const actor = await actorOf(c);
@@ -102,6 +109,25 @@ export const createApp = (
     const actor = await actorOf(c);
     const status = parseProjectStatusFilter(c.req.query("status"));
     return c.json({ projects: await human.listWorkspaceProjects.execute(actor, c.req.param("workspaceId"), status) });
+  });
+  // Mission等の更新はadministrator以上。archivedのWorkspaceは409（`workspaceStatus: archived`）。
+  app.patch("/api/workspaces/:workspaceId", async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Workspace");
+    return c.json({ workspace: await human.updateWorkspace.execute(actor, c.req.param("workspaceId"), input) });
+  });
+  // 既存WorkspaceへのProject作成（administrator以上）。作成者はProjectのownerになる。Mission等はWorkspaceの正本を使う。
+  app.post("/api/workspaces/:workspaceId/projects", async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw);
+    return c.json({ project: await human.createWorkspaceProject.execute(actor, c.req.param("workspaceId"), input) }, 201);
+  });
+  // archiveはowner。Human向けのWeb API専用で、MCP tool・CLIコマンドへは公開せず、復帰・削除のAPIも作らない。
+  app.post("/api/workspaces/:workspaceId/archive", async (c) => {
+    const actor = await actorOf(c);
+    const hasBody = (await c.req.raw.clone().text()).trim() !== "";
+    const input = hasBody ? await readJsonBody(c.req.raw, "Workspace") : {};
+    return c.json({ workspace: await human.archiveWorkspace.execute(actor, c.req.param("workspaceId"), input) });
   });
 
   // archiveはHuman向けのWeb API専用。MCP tool・CLIコマンドへは公開せず、復帰・削除のAPIも作らない。

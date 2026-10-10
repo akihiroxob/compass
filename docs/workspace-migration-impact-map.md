@@ -42,7 +42,7 @@ schema再作成の共通確認点:
 | `project_principle` / `project_constraint` | 読み書きしない旧table | 旧tableを除き、Workspaceの子を使う | S12-01 | 新規Workspaceの値と並び順（`sort_order`）を検証する |
 | `project_repository_link` / `project_resource` | Projectの子（`packages/organization`が所有） | 変更なし | S02-03（実装済み） | 新規DB内で`adr_handoff_request.repository_id`・Activityの`project_resource`参照・Storyの`repository_snapshot`が同じResourceを指すことを確認する |
 
-現行のOrganizationには`migrateProjectStrategy.ts`による旧戦略値の変換と、ProjectからWorkspaceの戦略値を編集する互換経路がある。新しい所属・入力契約を接続したTaskで不要な変換・互換コードを除いてよい。旧ProjectごとのWorkspace生成は今後の受入条件ではない。現行のProject作成は専用Workspaceを同じtransactionで作り、最後のactive Projectのarchiveは所属Workspaceもarchiveする。この公開契約の切替は後続Taskで行う。Workspaceへの所属を選ぶ入口はS02-04・S09-03で接続する。
+現行のOrganizationには`migrateProjectStrategy.ts`による旧戦略値の変換と、ProjectからWorkspaceの戦略値を編集する互換経路がある。新しい所属・入力契約を接続したTaskで不要な変換・互換コードを除いてよい。ProjectからWorkspaceの戦略値を編集する互換経路はS09-03で除いた。旧ProjectごとのWorkspace生成は今後の受入条件ではない。現行のProject作成は専用Workspaceを同じtransactionで作り、最後のactive Projectのarchiveは所属Workspaceもarchiveする。この公開契約の切替は後続Taskで行う。Workspaceへの所属を選ぶ入口はS02-04・S09-03で接続する。
 
 ### Direction（Workspace scopeへ。S03）
 
@@ -210,7 +210,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 
 | route | 変更 | Task |
 | --- | --- | --- |
-| `/api/projects`・`/api/projects/:projectId`（GET / POST / PATCH）・`/archive` | Projectの参照とWorkspaceへの所属。Workspaceの作成・参照・更新・archiveの入口を追加。S02-04でProjectの応答に`workspaceId`、Workspaceの参照`GET /api/workspaces`・`/api/workspaces/:workspaceId`・`/api/workspaces/:workspaceId/projects`を追加済み。作成・更新・archive・既存WorkspaceへのProject作成は未接続 | S02-04、S09-03 |
+| `/api/projects`・`/api/projects/:projectId`（GET / POST / PATCH）・`/archive` | Projectの参照とWorkspaceへの所属。Workspaceの作成・参照・更新・archiveの入口を追加。S02-04でProjectの応答に`workspaceId`、Workspaceの参照`GET /api/workspaces`・`/api/workspaces/:workspaceId`・`/api/workspaces/:workspaceId/projects`を追加済み。S09-03で作成`POST /api/workspaces`・更新`PATCH /api/workspaces/:workspaceId`・archive`POST /api/workspaces/:workspaceId/archive`・既存WorkspaceへのProject作成`POST /api/workspaces/:workspaceId/projects`を追加し、ProjectからWorkspaceの戦略値を編集する互換経路を除いた（実装済み） | S02-04、S09-03 |
 | `/api/projects/:projectId/intents…`・`/intents/:intentId/outcomes…`・`/research-requests…`・`/intents/:intentId/decisions`・`/adr-references`・`/outcomes/:outcomeId/evaluations`・`/runtime-events…` | `/api/workspaces/:workspaceId/…`へ移した（S03-04で実装済み。Workspace Membership、Runtime eventはWorkspace Runtime Credential）。Project配下の旧経路は残さない。`/outcomes/:outcomeId/execution-summary`・`/execution-evidence`はProject固有の記録としてProject配下に残す。Target別の集約は`GET /api/workspaces/:workspaceId/outcomes/:outcomeId/target-executions`（Workspace Membership。S05-01で実装済み） | S03-04、S05-01 |
 | `/api/workspaces/:workspaceId/outcomes/:outcomeId/target-projects`（GET） | Target Projectの参照（Workspace Membership）。設定・解除はStrategistのMCPだけ（S04-01で実装済み） | S04-01 |
 | `/api/workspaces/:workspaceId/intents/:intentId/outcome-target-work`（GET） | OutcomeごとのTarget別Work要約（Workspace Membership。S04-04で実装済み） | S04-04 |

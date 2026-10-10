@@ -209,19 +209,110 @@ test("archivedのProject・Workspaceは既定の一覧から外れ、status=arch
   await database.destroy();
 });
 
-test("Workspaceの管理操作はWeb API・MCPへ公開せず、AgentはProject参照から所属workspaceIdだけを得る", async () => {
+const send = async (request: ReturnType<typeof requestAs>, method: string, path: string, body: unknown, status: number) => {
+  const response = await request(path, { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const parsed = await json(response);
+  assert.equal(response.status, status, `${method} ${path}: ${JSON.stringify(parsed)}`);
+  return parsed;
+};
+
+test("HumanはWeb APIでWorkspaceを作成・編集し、Projectを所属させ、archiveできる。新規DBの再起動後も同じ状態を参照できる", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "compass-workspace-manage-"));
+  const databasePath = join(directory, "compass.db");
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const first = await setup(databasePath);
+  const carol = await createTestHuman(first.database, { email: "carol@example.com" });
+  const asCarol = requestAs(first.app, carol);
+
+  const { workspace } = await send(asCarol, "POST", "/api/workspaces", { name: " Petari ", mission: "Small teams ship together", principles: ["Small steps"] }, 201);
+  assert.deepEqual(
+    { name: workspace.name, mission: workspace.mission, vision: workspace.vision, principles: workspace.principles, constraints: workspace.constraints, status: workspace.status },
+    { name: "Petari", mission: "Small teams ship together", vision: null, principles: ["Small steps"], constraints: [], status: "active" },
+  );
+  assert.equal((await get(asCarol, `/api/workspaces/${workspace.id}`)).myRole, "owner", "作成者はWorkspaceのowner");
+
+  const { workspace: edited } = await send(asCarol, "PATCH", `/api/workspaces/${workspace.id}`, { vision: "Every team decides with context", constraints: ["No tracking"] }, 200);
+  assert.equal(edited.vision, "Every team decides with context");
+  assert.deepEqual(edited.constraints, ["No tracking"]);
+  assert.equal(edited.mission, "Small teams ship together", "未指定の項目は変えない");
+
+  // Mission等はWorkspaceの正本を使い、Projectの入力では受け取らない。作成者はProjectのowner。
+  const { project } = await send(asCarol, "POST", `/api/workspaces/${workspace.id}/projects`, { name: "Consumer", description: "App", mission: "ignored", resources: [{ name: "Figma", url: "https://figma.example/c", kind: "design" }] }, 201);
+  assert.equal(project.workspaceId, workspace.id);
+  assert.equal(project.mission, "Small teams ship together");
+  assert.equal((await get(asCarol, `/api/projects/${project.id}`)).myRole, "owner");
+  assert.deepEqual(((await get(asCarol, `/api/workspaces/${workspace.id}/projects`)).projects as Body[]).map(({ id }) => id), [project.id]);
+
+  // archiveは理由が必須で、archived後は編集・Project追加・再archiveを409（workspaceStatus: archived）で拒否する。
+  assert.deepEqual((await send(asCarol, "POST", `/api/workspaces/${workspace.id}/archive`, undefined, 400)).error.issues.map(({ path }: Body) => path), ["reason"]);
+  const { workspace: archived } = await send(asCarol, "POST", `/api/workspaces/${workspace.id}/archive`, { reason: "Merged into Taneru" }, 200);
+  assert.equal(archived.status, "archived");
+  assert.equal(archived.archiveReason, "Merged into Taneru");
+  for (const [method, path, body] of [
+    ["PATCH", `/api/workspaces/${workspace.id}`, { name: "Renamed" }],
+    ["POST", `/api/workspaces/${workspace.id}/projects`, { name: "Late" }],
+    ["POST", `/api/workspaces/${workspace.id}/archive`, { reason: "Again" }],
+  ] as const) {
+    const error = (await send(asCarol, method, path, body, 409)).error;
+    assert.equal(error.code, "CONFLICT", `${method} ${path}`);
+    assert.equal(error.workspaceStatus, "archived", `${method} ${path}`);
+  }
+  assert.deepEqual(((await get(asCarol, "/api/workspaces?status=archived")).workspaces as Body[]).map(({ id }) => id), [workspace.id]);
+  const before = await get(asCarol, `/api/workspaces/${workspace.id}`);
+  await first.database.destroy();
+
+  const reopened = await setup(databasePath);
+  t.after(() => reopened.database.destroy());
+  const asCarolAgain = requestAs(reopened.app, carol);
+  assert.deepEqual(await get(asCarolAgain, `/api/workspaces/${workspace.id}`), before);
+  assert.equal((await get(asCarolAgain, `/api/projects/${project.id}`)).project.workspaceId, workspace.id);
+});
+
+test("Workspaceの管理はWorkspace Membershipの権限表で認可し、Project Roleから継承しない。入力エラーはpath付きの400", async () => {
+  const { database, services, app, alice, bob, workspaceId, projectA, projectY } = await seed();
+  const asAlice = requestAs(app, alice);
+  const asBob = requestAs(app, bob);
+  // BobをProject Aのownerにしても、Workspaceはviewerのまま。Workspaceの管理とWorkspace戦略値の変更はできない。
+  await database.updateTable("project_membership").set({ role: "owner" }).where("project_id", "=", projectA.id).where("human_user_id", "=", bob.humanUserId).execute();
+  assert.equal((await get(asBob, `/api/projects/${projectA.id}`)).myRole, "owner");
+  for (const [method, path, body] of [
+    ["PATCH", `/api/workspaces/${workspaceId}`, { mission: "Hijacked" }],
+    ["POST", `/api/workspaces/${workspaceId}/projects`, { name: "Sneaky" }],
+    ["POST", `/api/workspaces/${workspaceId}/archive`, { reason: "No" }],
+  ] as const) {
+    const error = (await send(asBob, method, path, body, 403)).error;
+    assert.equal(error.code, "FORBIDDEN", `${method} ${path}`);
+  }
+  // Projectの更新はMission等を受け取らない（Workspaceの正本を変えない）。
+  assert.equal((await send(asBob, "PATCH", `/api/projects/${projectA.id}`, { mission: "Hijacked" }, 400)).error.code, "VALIDATION_ERROR");
+  await send(asBob, "PATCH", `/api/projects/${projectA.id}`, { description: "Renamed by project owner", mission: "Hijacked" }, 200);
+  assert.equal((await get(asAlice, `/api/workspaces/${workspaceId}`)).workspace.mission, "Make direction explicit");
+
+  // administratorは編集・Project追加ができるが、archiveはownerだけ。
+  await services.human.changeWorkspaceMemberRole.execute(actorOf(alice), workspaceId, (await services.human.listWorkspaceMembers.execute(actorOf(alice), workspaceId)).find(({ human }) => human.id === bob.humanUserId)!.membership.id, { role: "administrator" });
+  await send(asBob, "PATCH", `/api/workspaces/${workspaceId}`, { vision: "Shared vision" }, 200);
+  await send(asBob, "POST", `/api/workspaces/${workspaceId}/projects`, { name: "Gamma" }, 201);
+  assert.equal((await send(asBob, "POST", `/api/workspaces/${workspaceId}/archive`, { reason: "No" }, 403)).error.code, "FORBIDDEN");
+
+  // 別Workspace・存在しないWorkspaceは区別せず404。
+  for (const path of [`/api/workspaces/${projectY.workspaceId}`, "/api/workspaces/missing"]) {
+    assert.equal((await send(asBob, "PATCH", path, { name: "x" }, 404)).error.code, "NOT_FOUND");
+    assert.equal((await send(asBob, "POST", `${path}/projects`, { name: "x" }, 404)).error.code, "NOT_FOUND");
+  }
+
+  const invalid = await send(asAlice, "POST", "/api/workspaces", { name: " ", principles: [""] }, 400);
+  assert.deepEqual(invalid.error.issues.map(({ path }: Body) => path).sort(), ["mission", "name", "principles.0"]);
+  assert.equal((await send(asAlice, "PATCH", `/api/workspaces/${workspaceId}`, {}, 400)).error.code, "VALIDATION_ERROR");
+  assert.deepEqual((await send(asAlice, "POST", `/api/workspaces/${workspaceId}/projects`, { name: "", repositories: [{ name: "x", url: "file:///x" }] }, 400)).error.issues.map(({ path }: Body) => path).sort(), ["name", "repositories.0.url"]);
+  const malformed = await asAlice("/api/workspaces", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{" });
+  assert.equal(malformed.status, 400);
+  await database.destroy();
+});
+
+test("Workspaceのmember管理の入口とWorkspace管理のMCP toolは公開せず、AgentはProject参照から所属workspaceIdだけを得る", async () => {
   const { database, services, app, alice, workspaceId, projectA } = await seed();
   const asAlice = requestAs(app, alice);
-  for (const [method, path] of [
-    ["POST", "/api/workspaces"],
-    ["PATCH", `/api/workspaces/${workspaceId}`],
-    ["POST", `/api/workspaces/${workspaceId}/archive`],
-    ["POST", `/api/workspaces/${workspaceId}/projects`],
-    ["GET", `/api/workspaces/${workspaceId}/members`],
-  ]) {
-    const response = await asAlice(path, { method, headers: { "Content-Type": "application/json" }, body: method === "GET" ? undefined : "{}" });
-    assert.equal(response.status, 404, `${method} ${path}`);
-  }
+  assert.equal((await asAlice(`/api/workspaces/${workspaceId}/members`)).status, 404);
 
   await services.grantProjectRoleUseCase.execute(projectA.id, { principalId: "planner", role: "manager" });
   const tools = ((await callTool(app, "tools/list", {}, "planner")).tools as Body[]).map(({ name }) => name);

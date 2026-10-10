@@ -28,10 +28,6 @@ const projectUpdateSchema = {
   projectId: z.string().min(1),
   name: z.string().optional(),
   description: nullableText(1_000),
-  mission: z.string().optional(),
-  vision: nullableText(2_000),
-  principles: z.array(z.string()).optional(),
-  constraints: z.array(z.string()).optional(),
   repositories: z.array(z.object({ id: z.string().optional(), ...namedLink })).optional(),
   resources: z
     .array(z.object({ id: z.string().optional(), ...namedLink, kind: nullableText(100) }))
@@ -306,8 +302,9 @@ export const createMcpServer = (
     {
       title: "Update Project",
       description:
-        "Update a Compass Project. Omitted fields are unchanged; null or an empty string clears description and vision; " +
-        "principles, constraints, repositories and resources replace the whole list when given. " +
+        "Update a Compass Project. Omitted fields are unchanged; null or an empty string clears description; " +
+        "repositories and resources replace the whole list when given. Mission, vision, principles and constraints belong to the Workspace " +
+        "and are not changed here. " +
         "Repository/Resource items keep their identity when their existing id is included.",
       inputSchema: projectUpdateSchema,
     },

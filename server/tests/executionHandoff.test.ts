@@ -4,9 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
+import { SQLiteWorkspaceRepository } from "@compass/organization";
 import type { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp, issueWorkspaceRuntimeToken, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
+import { asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 
@@ -209,7 +211,8 @@ test("StoryのsnapshotはOutcome・Constraintsが後で変わっても変わら�
   const args = { projectId: project.id, title: "Story", outcomeId: outcome.id };
   const story = (await callTool(kit.app, "issue_story", { ...args, requestId: "req-1" }, "mgr")).structuredContent;
 
-  await kit.services.updateProjectUseCase.execute(project.id, { constraints: ["Changed later"] });
+  // Constraintsは所属Workspaceが正本。
+  await new SQLiteWorkspaceRepository(asOrganizationDatabase(kit.database)).update(project.workspaceId, { constraints: ["Changed later"] });
   await kit.services.cancelOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id, { reason: "Wrong metric" });
 
   const listed = (await storiesOf(kit.app, project.id))[0]!;

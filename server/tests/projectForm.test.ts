@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyFormValues, formValuesFromProject, type Project } from "../src/web/projectForm.ts";
+import { emptyWorkspaceFormValues, workspaceFormValues } from "../src/web/features/workspace/workspaceForm.ts";
 
 const project: Project = {
   id: "p1",
@@ -23,14 +24,10 @@ const project: Project = {
   archiveReason: null,
 };
 
-test("保存済みProjectから、未設定を空欄・子要素のidを保持した編集フォーム値を作る", () => {
+test("保存済みProjectから、未設定を空欄・子要素のidを保持した編集フォーム値を作る。Mission等（Workspaceの値）は含めない", () => {
   assert.deepEqual(formValuesFromProject(project), {
     name: "Compass",
     description: "",
-    mission: "Mission",
-    vision: "",
-    principles: ["a", "b"],
-    constraints: [],
     repositories: [{ id: "r1", name: "core", url: "https://example.com/core", kind: "" }],
     resources: [
       { id: "s1", name: "Docs", url: "https://example.com/docs", kind: "docs" },
@@ -41,8 +38,17 @@ test("保存済みProjectから、未設定を空欄・子要素のidを保持�
 
 test("編集フォーム値は元のProjectと配列を共有せず、作成フォームの初期値は空", () => {
   const values = formValuesFromProject(project);
-  values.principles.push("changed");
-  assert.deepEqual(project.principles, ["a", "b"]);
+  values.resources.push({ name: "added", url: "https://example.com/added", kind: "" });
+  assert.equal(project.resources.length, 2);
   assert.equal(emptyFormValues.name, "");
   assert.deepEqual(emptyFormValues.repositories, []);
+});
+
+test("Workspaceの編集フォーム値は未設定のVisionを空欄にし、元のWorkspaceと配列を共有しない", () => {
+  const workspace = { id: "w1", name: "Petari", mission: "Mission", vision: null, principles: ["a"], constraints: [], createdAt: 1, updatedAt: 1, status: "active" as const, archivedAt: null, archiveReason: null };
+  const values = workspaceFormValues(workspace);
+  assert.deepEqual(values, { name: "Petari", mission: "Mission", vision: "", principles: ["a"], constraints: [] });
+  values.principles.push("changed");
+  assert.deepEqual(workspace.principles, ["a"]);
+  assert.deepEqual(emptyWorkspaceFormValues, { name: "", mission: "", vision: "", principles: [], constraints: [] });
 });

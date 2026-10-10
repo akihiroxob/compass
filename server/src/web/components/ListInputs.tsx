@@ -1,6 +1,6 @@
-import { fieldId } from "../../api";
-import { fieldProps } from "../../components/FormErrorSummary";
-import type { LinkInput } from "../../projectForm";
+import { fieldId } from "../api";
+import { fieldProps } from "./FormErrorSummary";
+import type { LinkInput } from "../projectForm";
 
 export const TextListInput = ({ legend, name, values, setValues, placeholder, invalid }: { legend: string; name: string; values: string[]; setValues: (values: string[]) => void; placeholder: string; invalid: ReadonlySet<string> }) => <fieldset className="repeat-field"><legend>{legend}</legend>{values.map((value, index) => <div className="repeat-row" key={index}><input {...fieldProps(invalid, fieldId(`${name}.${index}`))} aria-label={`${legend} ${index + 1}`} value={value} placeholder={placeholder} onChange={(event) => setValues(values.map((item, i) => i === index ? event.target.value : item))} /><button type="button" className="remove" onClick={() => setValues(values.filter((_, i) => i !== index))}>削除</button></div>)}<button type="button" className="add-row" onClick={() => setValues([...values, ""])}>＋ {legend}を追加</button></fieldset>;
 

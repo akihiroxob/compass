@@ -111,7 +111,7 @@ test("Workspaceの所属Project一覧は明示したworkspaceIdのProjectだけ�
   await database.destroy();
 });
 
-test("更新のMission等は所属Workspaceへ書き、name・purpose・Repository/ResourceはProjectへ書く", async () => {
+test("Projectの更新はname・purpose・Repository/ResourceだけをProjectへ書き、Mission等（Workspaceの正本）は受け取らない", async () => {
   const { database, repository, workspaces, create, update } = await setup();
   const created = await create.execute(input);
   const { workspaceId } = (await repository.findById(created.id))!;
@@ -119,47 +119,34 @@ test("更新のMission等は所属Workspaceへ書き、name・purpose・Reposito
   const updated = await update.execute(created.id, {
     name: "Compass 2",
     description: "Execution boundary",
-    mission: "New mission",
+    mission: "Hijacked",
     vision: null,
     principles: ["p3"],
     constraints: [],
   });
-  assert.equal(updated.mission, "New mission");
-  assert.equal(updated.vision, null);
-  assert.deepEqual(updated.principles, ["p3"]);
-  assert.deepEqual(updated.constraints, []);
   assert.equal(updated.name, "Compass 2");
   assert.equal(updated.description, "Execution boundary");
+  assert.equal(updated.mission, "Make direction explicit");
+  assert.equal(updated.vision, "Agents improve software");
+  assert.deepEqual(updated.principles, ["p1", "p2"]);
 
   const workspace = (await workspaces.findById(workspaceId))!;
-  assert.equal(workspace.mission, "New mission");
-  assert.deepEqual(workspace.principles, ["p3"]);
+  assert.equal(workspace.mission, "Make direction explicit");
+  assert.deepEqual(workspace.constraints, ["c1"]);
   assert.equal(workspace.name, "Compass", "Project名の変更はWorkspace名を変えない");
-  const [legacy, principles] = await legacyColumns(database, created.id);
-  assert.deepEqual(legacy, { mission: "", vision: null });
-  assert.deepEqual(principles, []);
 
-  // 戦略値だけの変更でもProjectの更新時刻を進める（一覧の更新順を従来どおりに保つ）。
-  const before = updated.updatedAt;
-  await new Promise((resolve) => setTimeout(resolve, 2));
-  assert.ok((await update.execute(created.id, { mission: "Again" })).updatedAt > before);
+  // Mission等だけの入力は更新項目が無いため拒否し、何も書かない。
+  await assert.rejects(() => update.execute(created.id, { mission: "Again" }), codeOf("VALIDATION_ERROR"));
+  assert.equal((await workspaces.findById(workspaceId))!.mission, "Make direction explicit");
   await database.destroy();
 });
 
-test("archivedのWorkspaceへの戦略値の更新を拒否し、Projectだけの更新は受け付ける", async () => {
+test("archivedのWorkspaceに所属するactiveなProjectは、Projectの項目を更新できる", async () => {
   const { database, repository, workspaces, create, update } = await setup();
   const created = await create.execute(input);
   const { workspaceId } = (await repository.findById(created.id))!;
   await workspaces.archive(workspaceId, "closed");
 
-  await assert.rejects(() => update.execute(created.id, { mission: "Changed", name: "Changed" }), (error: unknown) => {
-    codeOf("CONFLICT")(error);
-    assert.deepEqual((error as { details?: unknown }).details, { workspaceStatus: "archived" });
-    return true;
-  });
-  const unchanged = (await repository.findDetailById(created.id))!;
-  assert.equal(unchanged.mission, "Make direction explicit");
-  assert.equal(unchanged.name, "Compass");
   assert.equal((await update.execute(created.id, { description: "Still editable" })).description, "Still editable");
   await database.destroy();
 });
@@ -225,7 +212,7 @@ test("ADRから参照されたRepositoryを外す更新は、注入した参照�
   const created = await new CreateProjectUseCase(repository).execute(input);
   const update = new UpdateProjectUseCase(repository);
 
-  await assert.rejects(() => update.execute(created.id, { mission: "Changed", repositories: [] }), (error: unknown) => {
+  await assert.rejects(() => update.execute(created.id, { name: "Changed", repositories: [] }), (error: unknown) => {
     codeOf("CONFLICT")(error);
     assert.deepEqual((error as { details?: unknown }).details, {
       repositoryId: created.repositories[0]!.id,
@@ -267,7 +254,7 @@ const insertLegacyProject = async (
 };
 
 test("起動時の移行は旧列の現在値を所属Workspaceへ一度だけ写し、以後のWorkspaceの変更を上書きしない", async () => {
-  const { database, repository, workspaces, update } = await setup();
+  const { database, repository, workspaces } = await setup();
   // 未所属（Workspace導入前のserverが作成）と、所属済みでWorkspaceが古い写しのまま（正本切替前に旧列を更新）のProject。
   await insertLegacyProject(database, { id: "unassigned", name: "Legacy", mission: "Legacy mission", status: "archived", createdAt: 1_000 });
   const stale = await workspaces.create({ name: "Old name", mission: "Old mission", vision: null, principles: ["old"], constraints: [] });
@@ -294,7 +281,7 @@ test("起動時の移行は旧列の現在値を所属Workspaceへ一度だけ�
   );
 
   // 切替後のWorkspaceの変更は、再起動（再初期化）しても旧列で上書きしない。旧列・旧tableは残す。
-  await update.execute("stale", { mission: "Changed after switch" });
+  await workspaces.update(stale.id, { mission: "Changed after switch" });
   await initializeOrganizationSchema(database);
   assert.equal((await repository.findDetailById("stale"))!.mission, "Changed after switch");
   assert.equal((await database.selectFrom("workspace").select("id").execute()).length, 2, "Workspaceを重複して作らない");

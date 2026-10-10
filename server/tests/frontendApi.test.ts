@@ -22,7 +22,7 @@ const rejectionOf = async (fetchImpl: () => Promise<Response>) => {
 };
 
 test("issue pathを入力ラベルとfield idへ対応づける", () => {
-  assert.equal(formatIssuePath("name"), "Project名");
+  assert.equal(formatIssuePath("name"), "名前");
   assert.equal(formatIssuePath("principles.0"), "Principles 1");
   assert.equal(formatIssuePath("repositories.1.url"), "Repositories 2のURL");
   assert.equal(formatIssuePath("resources.0.kind"), "Resources 1の種類");

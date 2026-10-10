@@ -60,7 +60,7 @@ Role順序はowner > administrator > editor > viewer。
 | Project更新、Agent Grant、Credential管理 | administrator |
 | archive、招待、Membership変更・取消 | owner |
 
-Workspace MembershipはProject Membershipとは別で、相互に継承しない。Human向けの参照Web API（`GET /api/workspaces`・`GET /api/workspaces/:workspaceId`・`GET /api/workspaces/:workspaceId/projects`）はWeb SessionとWorkspace Membershipによる認可まで接続済み。所属Project一覧ではpurpose・Repository・Resourceを参照できるが、Project詳細・Workの参照には別途Project Membershipが必要。Projectの応答は所属`workspaceId`を含む。Web UIはWorkspace Selector・Shellで参照だけを接続し、Selectorは閲覧できるWorkspaceだけを出す。Workspace管理操作（作成・更新・archive・既存WorkspaceへのProject作成・member管理）の入口とWorkspace MCPは未接続。
+Workspace MembershipはProject Membershipとは別で、相互に継承しない。Human向けのWeb API（作成`POST /api/workspaces`、参照`GET /api/workspaces`・`GET /api/workspaces/:workspaceId`・`GET /api/workspaces/:workspaceId/projects`、更新`PATCH /api/workspaces/:workspaceId`、Project作成`POST /api/workspaces/:workspaceId/projects`、archive`POST /api/workspaces/:workspaceId/archive`）はWeb SessionとWorkspace Membershipによる認可まで接続済み。所属Project一覧ではpurpose・Repository・Resourceを参照できるが、Project詳細・Workの参照には別途Project Membershipが必要。Projectの応答は所属`workspaceId`を含む。Web UIはWorkspace Selector・Shellと、Workspaceの作成・編集・Project追加・archiveの導線を接続し、Selectorは閲覧できるWorkspaceだけを出す。Projectの更新ではMission等を受け取らず、Project RoleでWorkspaceの戦略値を変更できない。member管理の入口とWorkspace管理のMCPは未接続。
 
 以下はapplication層のWorkspace権限表であり、参照以外のWeb API接続は後続Taskで行う。
 
