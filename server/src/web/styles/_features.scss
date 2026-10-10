@@ -67,6 +67,29 @@
   li > p { @include list-item; display: flex; justify-content: space-between; gap: 1rem; margin: 0; padding: 1rem; @include narrow { flex-direction: column; } }
 }
 
+// Workspaceの概要（features/workspace/WorkspaceOverview）。Outcomeごとに担当Projectと進み具合を並べる。
+.workspace-intent { margin: 0 0 var(--space-md); font-weight: 700; overflow-wrap: anywhere; }
+.workspace-outcomes, .workspace-targets, .workspace-activities { @include unstyled-list; display: grid; gap: .6rem; }
+.detail-section .workspace-outcomes, .detail-section .workspace-targets, .detail-section .workspace-activities, .detail-section .workspace-agent-projects { padding-left: 0; }
+.workspace-outcomes {
+  margin-bottom: var(--space-md);
+  > li { @include list-item; padding: 1rem; overflow-wrap: anywhere; }
+  .section-label { margin: var(--space-sm) 0 var(--space-xs); }
+  p { margin: 0; }
+}
+.workspace-outcome-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs) 1rem; font-weight: 700; }
+.workspace-targets {
+  gap: var(--space-xs);
+  li { padding: .55rem .9rem; border-left: 3px solid var(--color-line-soft); }
+  small { display: block; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+}
+.workspace-activities {
+  margin-bottom: var(--space-md);
+  li { @include list-item; padding: .7rem 1rem; overflow-wrap: anywhere; }
+  small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+}
+.attention-refs { display: block; flex-basis: 100%; overflow-wrap: anywhere; }
+
 // Project詳細の方向と概要（features/project）
 .direction-panel {
   display: grid;
