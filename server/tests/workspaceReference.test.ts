@@ -189,7 +189,9 @@ test("archivedのProject・Workspaceは既定の一覧から外れ、status=arch
     { id: projectB.id, status: "archived", archiveReason: "Merged" },
   ]);
 
-  // 最後のactiveなProjectのarchiveで所属Workspaceもarchivedになる。履歴として参照はできる。
+  // 最後のactiveなProjectのarchiveでも所属Workspaceはactiveのまま。WorkspaceのarchiveはWorkspace ownerが行い、履歴として参照はできる。
+  assert.equal((await get(asAlice, `/api/workspaces/${projectY.workspaceId}`)).workspace.status, "active");
+  await services.human.archiveWorkspace.execute(actorOf(alice), projectY.workspaceId, { reason: "Done" });
   assert.deepEqual(((await get(asAlice, "/api/workspaces")).workspaces as Body[]).map(({ id }) => id), [workspaceId]);
   assert.deepEqual(
     ((await get(asAlice, "/api/workspaces?status=archived")).workspaces as Body[]).map(({ id }) => id),
@@ -306,6 +308,27 @@ test("Workspaceの管理はWorkspace Membershipの権限表で認可し、Projec
   assert.deepEqual((await send(asAlice, "POST", `/api/workspaces/${workspaceId}/projects`, { name: "", repositories: [{ name: "x", url: "file:///x" }] }, 400)).error.issues.map(({ path }: Body) => path).sort(), ["name", "repositories.0.url"]);
   const malformed = await asAlice("/api/workspaces", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{" });
   assert.equal(malformed.status, 400);
+  await database.destroy();
+});
+
+test("Workspace archive権限の無いProject ownerは、最後のactive Projectをarchiveしても所属Workspaceの状態を変えられない", async () => {
+  const { database, services, app, alice, bob, projectY } = await seed();
+  const asAlice = requestAs(app, alice);
+  const asBob = requestAs(app, bob);
+  // BobはWorkspace Xのviewerで、その唯一のactive Project Yのowner。
+  const workspaceId = projectY.workspaceId;
+  await addTestMembership(database, projectY.id, bob, "owner");
+  await services.human.addWorkspaceMember.execute(actorOf(alice), workspaceId, { humanUserId: bob.humanUserId, role: "viewer" });
+  const before = (await get(asAlice, `/api/workspaces/${workspaceId}`)).workspace;
+
+  assert.equal((await send(asBob, "POST", `/api/workspaces/${workspaceId}/archive`, { reason: "No" }, 403)).error.code, "FORBIDDEN");
+  assert.equal((await send(asBob, "POST", `/api/projects/${projectY.id}/archive`, { reason: "Project done" }, 200)).project.status, "archived");
+
+  // Workspaceは状態・理由・日時とも変わらず、Direction更新・Project追加は引き続きWorkspace Membershipに従う。
+  assert.deepEqual((await get(asAlice, `/api/workspaces/${workspaceId}`)).workspace, before);
+  assert.ok(((await get(asBob, "/api/workspaces")).workspaces as Body[]).some(({ id }) => id === workspaceId));
+  await send(asAlice, "POST", `/api/workspaces/${workspaceId}/intents`, { title: "Next", desiredState: "Next state" }, 201);
+  await send(asAlice, "POST", `/api/workspaces/${workspaceId}/projects`, { name: "Successor" }, 201);
   await database.destroy();
 });
 

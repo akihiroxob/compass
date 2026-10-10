@@ -32,16 +32,14 @@ export const loadProjectWorkspaceDirection = (projectId: string, fetchImpl?: Fet
 
 /**
  * Projectの画面で、所属WorkspaceのDirectionを扱うための状態を取得する。表示の判定であり、拒否は常にサーバーが行う。
- * `revision`を変えると再取得する。Projectのarchiveで所属Workspaceもarchiveされうるため、archive後に使う。
- * 再取得中は直前の結果を表示し続ける。
  */
-export const useProjectWorkspaceDirection = (projectId: string, revision = 0): WorkspaceDirectionState => {
+export const useProjectWorkspaceDirection = (projectId: string): WorkspaceDirectionState => {
   // 結果は対象のprojectIdと組で持ち、入力が変わった最初のrenderから旧Projectの結果を使わない。
   const [stored, setStored] = useState<{ projectId: string; state: WorkspaceDirectionState } | null>(null);
   useEffect(() => {
     let current = true;
     void loadProjectWorkspaceDirection(projectId).then((state) => { if (current) setStored({ projectId, state }); });
     return () => { current = false; };
-  }, [projectId, revision]);
+  }, [projectId]);
   return stored !== null && stored.projectId === projectId ? stored.state : { access: "loading", workspaceId: null };
 };

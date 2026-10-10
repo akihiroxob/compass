@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
+import { archiveTestWorkspace, createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -419,15 +419,16 @@ test("Evaluatorは評価できる状態のOutcomeだけを扱う: Execution Summ
   assert.equal(onCancelled.code, "CONFLICT");
   assert.equal(onCancelled.outcomeStatus, "cancelled");
 
-  // archivedなProjectでは確定できない。
+  // archivedなWorkspaceでは確定できない。
   const other = await seedEvaluable(kit, "Archive");
   assert.equal(
     (await kit.app.request(`/api/projects/${other.project.id}/archive`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ reason: "Done" }) })).status,
     200,
   );
+  await archiveTestWorkspace(kit.database, other.project.workspaceId);
   const archived = errorOf(await evaluate(kit.app, other.project.workspaceId, other.outcome.id, { requestKey: "eval-archived", runRef: "run", criteria: judgments(other.outcome, ["met", "met"], other.evidenceIds) }));
   assert.equal(archived.code, "CONFLICT");
-  // 最後のProjectのarchiveで所属Workspaceもarchivedになり、Direction（Evaluation）の確定はWorkspaceとして拒否される。
+  // Direction（Evaluation）の確定はWorkspaceとして拒否される。
   assert.equal(archived.workspaceStatus, "archived");
 });
 

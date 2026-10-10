@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { sql } from "kysely";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, issueWorkspaceRuntimeToken, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
+import { archiveTestWorkspace, createSignedInApp, issueWorkspaceRuntimeToken, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -328,9 +328,10 @@ test("archived Project・非Active Intent・別Project参照・Researcher / Runt
   assert.equal(errorOf(abandoned).status, "abandoned");
   assert.deepEqual(await counts(context), eventsBefore);
 
-  // archived Project（最後のProjectのため所属Workspaceもarchived。再送の判定より先に拒否される）。
+  // archived Workspace（再送の判定より先に拒否される）。Projectのarchiveは所属Workspaceをarchiveしない。
   const active = await services.createIntentUseCase.execute(project.workspaceId, { title: "Next", desiredState: "Next state" });
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
+  await archiveTestWorkspace(context.database, project.workspaceId);
   const archivedBefore = await counts(context);
   const archived = await callTool(
     app,

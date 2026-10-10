@@ -470,10 +470,11 @@ test("再評価で古くなったEvaluation・別ProjectのEvaluation・取消�
   await kit.database.destroy();
 });
 
-test("archived Projectでは、Evaluationを根拠にした再計画・Intent完了を拒否する", async () => {
+test("archived Project・Workspaceでは、Evaluationを根拠にした再計画・Intent完了を拒否する", async () => {
   const kit = await setup();
   const { project, intent, evaluation } = await seedEvaluated(kit, ["met", "met"]);
   await kit.services.archiveProjectUseCase.execute(project.id, { reason: "Paused" });
+  await new SQLiteWorkspaceRepository(asOrganizationDatabase(kit.database)).archive(project.workspaceId, "Paused");
   const rejected = errorOf(
     await callTool(kit.app, "create_direction_decision", decisionArgs(project.workspaceId, intent.id, { type: "intent_complete", evaluationId: evaluation.id }), "str"),
   );

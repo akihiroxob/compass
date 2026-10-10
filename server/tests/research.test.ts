@@ -7,6 +7,7 @@ import { sql } from "kysely";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { archiveTestWorkspace } from "./support/humanSession.ts";
 
 const projectInput = { name: "Compass", mission: "Keep direction explicit" };
 const intentInput = { title: "Agents improve software", desiredState: "Agents improve the software." };
@@ -689,7 +690,7 @@ test("期限・予算・状態・入力の不正値を拒否する", async () =>
   await database.destroy();
 });
 
-test("abandonedのIntentとarchivedのProjectには新しいRequestもResearchの書込も作らない", async () => {
+test("abandonedのIntentとarchivedのWorkspaceには新しいRequestもResearchの書込も作らない", async () => {
   const { database, services } = await setup();
   const { project, intent } = await seed(services);
   const request = await services.createResearchRequestUseCase.execute(project.workspaceId, decisionRequest(intent.id));
@@ -711,11 +712,12 @@ test("abandonedのIntentとarchivedのProjectには新しいRequestもResearch�
     ["research_requested"],
   );
 
-  // archived側は、未終了のRequestを持つ別のProjectで確かめる（最後のProjectのarchiveで所属Workspaceもarchivedになる）。
+  // archived側は、未終了のRequestを持つ別のWorkspaceで確かめる（Projectのarchiveは所属Workspaceをarchiveしない）。
   const archived = await seed(services);
   const archivedIntent = archived.intent;
   const request2 = await services.createResearchRequestUseCase.execute(archived.project.workspaceId, decisionRequest(archivedIntent.id));
   await services.archiveProjectUseCase.execute(archived.project.id, { reason: "Done" });
+  await archiveTestWorkspace(database, archived.project.workspaceId);
   await assert.rejects(
     services.createResearchRequestUseCase.execute(archived.project.workspaceId, decisionRequest(archivedIntent.id, { requestKey: "after-archive" })),
     rejectsWith("CONFLICT", (error) => assert.equal(error.details?.workspaceStatus, "archived")),

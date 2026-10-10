@@ -22,7 +22,7 @@ const remember = (workspaceId: string) => {
 
 /**
  * Workspace一覧と、指定したWorkspaceの最新状態を同じ時点で取得する。指定したWorkspaceを閲覧できなければ`workspace`はnull。
- * Projectのarchiveで所属Workspaceもarchiveされうるため、一覧（activeのみ）と個別の状態を揃えて反映するのに使う。
+ * Workspaceの更新・archive後に、一覧（activeのみ）と個別の状態を揃えて反映するのに使う。
  */
 export const loadWorkspaceNavigation = async (workspaceId: string | null, fetchImpl?: FetchLike) => {
   const [{ workspaces }, workspace] = await Promise.all([
@@ -37,7 +37,7 @@ type WorkspaceNavigation = {
   workspaces: Workspace[] | null;
   error: string | null;
   reload: () => void;
-  /** Workspaceの状態が変わりうる操作（Projectのarchive等）の後に、一覧と当該Workspaceの状態を再取得する。 */
+  /** Workspaceの状態が変わりうる操作（Workspaceの更新・archive等）の後に、一覧と当該Workspaceの状態を再取得する。 */
   refreshWorkspace: (workspaceId: string) => void;
   location: ShellLocation;
   /** 現在位置のWorkspace。Project配下はProjectの所属Workspace、それ以外は前回選択したWorkspace。 */

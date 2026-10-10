@@ -162,21 +162,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
       const now = Date.now();
       const archived = { status: "archived" as const, archived_at: now, archive_reason: reason, updated_at: now };
       await transaction.updateTable("project").set(archived).where("id", "=", projectId).execute();
-      // 他にactiveなProjectが無いWorkspaceは、新規活動を受けないよう同じ理由・日時でarchiveする（移行時の規則と同じ）。
-      const activeProject = await transaction
-        .selectFrom("project")
-        .select("id")
-        .where("workspace_id", "=", workspaceId)
-        .where("status", "=", "active")
-        .executeTakeFirst();
-      if (!activeProject) {
-        await transaction
-          .updateTable("workspace")
-          .set(archived)
-          .where("id", "=", workspaceId)
-          .where("status", "=", "active")
-          .execute();
-      }
+      // 所属Workspaceはarchiveしない。Workspaceのarchiveは、Workspace ownerだけが行う別の操作とする。
       if (this.changeObserver) {
         await this.changeObserver(transaction)({
           type: "project_archived",

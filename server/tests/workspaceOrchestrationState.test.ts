@@ -226,8 +226,10 @@ test("get_workspace_orchestration_stateは最新EvaluationのProject別評価cur
     targets: [{ projectId: a.id, executionCursor: reflected.executionCursor }],
   });
 
-  // 全Projectをarchiveすると所属Workspaceもarchiveされ、状態だけを返す（OrchestratorはこのWorkspaceで起動しない）。
+  // 全Projectをarchiveしても所属Workspaceはactiveのまま。archivedのWorkspaceは状態だけを返す（OrchestratorはこのWorkspaceで起動しない）。
   for (const project of [a, b, c]) await kit.services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
+  assert.equal((await state()).workspace.status, "active");
+  await new SQLiteWorkspaceRepository(asOrganizationDatabase(kit.database)).archive(workspace.id, "Done");
   assert.deepEqual(await state(), {
     workspace: { id: workspace.id, name: "Workspace", status: "archived" },
     projects: [],

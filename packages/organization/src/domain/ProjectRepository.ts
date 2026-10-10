@@ -79,7 +79,7 @@ export interface ProjectRepository {
   /**
    * activeからarchivedへ遷移する唯一の操作。status・archivedAt・archiveReason・updatedAtを1 transactionで書く。
    * 既にarchivedなら何も書かない（理由・日時を上書きしない）。子データには触れない。
-   * 所属Workspaceに他のactiveなProjectが無ければ、Workspaceも同じ理由・日時でarchiveする。
+   * 所属Workspaceの状態は変えない（Workspaceのarchiveは、Workspace ownerによる別の操作）。
    */
   archive(projectId: string, reason: string): Promise<ArchiveProjectResult>;
   /** 指定した状態のProjectだけを返す。既定はactive。 */

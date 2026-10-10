@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
-import { createSignedInApp } from "./support/humanSession.ts";
+import { archiveTestWorkspace, createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { runtimeEventVersion } from "@compass/direction";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -225,12 +225,13 @@ test("cancelled・確定できない完了・放棄されたIntentのRequestはr
   await database.destroy();
 });
 
-test("archived Projectでは確定してもイベントを作らず、別Projectのイベントは取得できない", async () => {
+test("archived Workspaceでは確定してもイベントを作らず、別Projectのイベントは取得できない", async () => {
   const { database, services } = await setup();
   const { project, intent } = await seedWithResearch(services);
   const other = await seedWithResearch(services);
   const [request] = await requestsOf(services, project.workspaceId, intent.id);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
+  await archiveTestWorkspace(database, project.workspaceId);
   await assert.rejects(
     services.completeResearchRequestUseCase.execute(project.workspaceId, request!.id, { conclusion: "not_needed", stopReason: "x" }),
     rejectsWith("CONFLICT"),

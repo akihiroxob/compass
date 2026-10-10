@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
+import { archiveTestWorkspace, createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -271,15 +271,15 @@ test("同じrequestKeyの再送は重複せず、内容を変えた再利用はC
   await database.destroy();
 });
 
-test("archivedのProject（所属Workspaceもarchived）へResultを登録できない", async () => {
+test("archivedのProject・所属WorkspaceへResultを登録できない", async () => {
   const { database, services, app } = await setup();
   const { project, intent } = await seedProject(services);
   await grantRole(database, app, project.id, "researcher-a");
   const request = await createRequest(services, project.workspaceId, intent.id);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Archived for test" });
+  await archiveTestWorkspace(database, project.workspaceId);
   const rejected = errorOf(await callTool(app, "register_research_result", resultArgs(project.workspaceId, request.id), "researcher-a"));
   assert.equal(rejected.code, "CONFLICT");
-  // 最後のProjectのarchiveで所属Workspaceもarchivedになる。
   assert.equal(rejected.workspaceStatus, "archived");
   assert.equal((await services.getResearchRequestUseCase.execute(project.workspaceId, request.id)).results.length, 0);
   await database.destroy();
