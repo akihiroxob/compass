@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   attentionSummary,
-  countTargetOutcomes,
+  evaluationStage,
   pickOpenProject,
   planWorkspaceAttention,
+  projectTargetNote,
   type Evaluability,
+  type OutcomeExecution,
   type OutcomePosition,
   type TargetWork,
 } from "../src/web/features/workspace/overview.ts";
@@ -18,10 +20,16 @@ const counts = (values: Partial<NonNullable<TargetWork["work"]>["taskCounts"]> =
 const target = (projectId: string, work: TargetWork["work"], projectStatus: TargetWork["projectStatus"] = "active"): TargetWork => ({
   outcomeId: "o", projectId, projectStatus, createdAt: 1, work,
 });
-const outcome = (id: string, targets: TargetWork[] | null, evaluability: Evaluability | null): OutcomePosition => ({
+/** 還流・評価の状態。`cursors`は現在のTarget別還流cursor（既定は全Target未還流）、`latestEvaluation`は最新Evaluation。 */
+const execution = (
+  evaluability: Evaluability,
+  cursors: OutcomeExecution["targetCursors"] = [],
+  latestEvaluation: OutcomeExecution["latestEvaluation"] = null,
+): OutcomeExecution => ({ evaluability, targetCursors: cursors, latestEvaluation });
+const outcome = (id: string, targets: TargetWork[] | null, evaluability: Evaluability | OutcomeExecution | null): OutcomePosition => ({
   outcome: { id, intentId: "i-1", title: `Outcome ${id}` },
   targets,
-  evaluability,
+  execution: evaluability === null || "evaluability" in evaluability ? evaluability : execution(evaluability),
 });
 const awaiting = (unfinished: Evaluability["unfinishedTargets"]): Evaluability => ({ status: "awaiting_execution", unfinishedTargets: unfinished });
 
@@ -65,7 +73,10 @@ test("Workが終わって未還流ならRuntimeの還流待ち、全Target還流
     activeIntent: true,
     outcomes: [
       outcome("reflect", [target("p-1", done)], awaiting([{ projectId: "p-1", projectStatus: "active", reason: "not_reflected" }])),
-      outcome("evaluate", [target("p-1", done), target("p-2", done)], { status: "evaluable", unfinishedTargets: [] }),
+      outcome("evaluate", [target("p-1", done), target("p-2", done)], execution({ status: "evaluable", unfinishedTargets: [] }, [
+        { projectId: "p-1", executionCursor: 3 },
+        { projectId: "p-2", executionCursor: 5 },
+      ])),
       outcome("replan", [target("p-old", null, "archived"), target("p-1", done)], {
         status: "replan_required",
         unfinishedTargets: [{ projectId: "p-old", projectStatus: "archived", reason: "not_reflected" }],
@@ -105,9 +116,65 @@ test("Outcome・Intentの詳細はProject Membershipで開けるProject（Target
   assert.equal(pickOpenProject([], [{ id: "p-locked", status: "active", canOpen: false }]), null);
 });
 
-test("ProjectがTargetになっているActive Outcomeを数え、取得できないOutcomeは数えない", () => {
-  const outcomes = [outcome("a", [target("p-1", null)], null), outcome("b", [target("p-1", null), target("p-2", null)], null), outcome("c", null, null)];
-  assert.equal(countTargetOutcomes(outcomes, "p-1"), 2);
-  assert.equal(countTargetOutcomes(outcomes, "p-2"), 1);
-  assert.equal(countTargetOutcomes(outcomes, "p-3"), 0);
+test("StoryがあってもTaskが無いactiveなTargetは、ProjectのManagerのTask分解待ちにする（ExecutionSummaryのincompleteと同じ）", () => {
+  const { items } = planWorkspaceAttention({
+    activeIntent: true,
+    outcomes: [
+      outcome("split", [
+        target("p-empty", { state: "incomplete", storyCount: 1, taskCounts: counts() }),
+        target("p-old", { state: "incomplete", storyCount: 1, taskCounts: counts() }, "archived"),
+      ], awaiting([
+        { projectId: "p-empty", projectStatus: "active", reason: "not_reflected" },
+      ])),
+    ],
+  });
+  assert.deepEqual(items.map(({ kind, actor, refs }) => [kind, actor, refs.map(({ projectId }) => projectId)]), [["decompose", "manager", ["p-empty"]]]);
+  assert.equal(attentionSummary({ items, outcomeFailures: 0 }), null);
+});
+
+test("全Target還流済みの評価待ちと、評価済みの判断待ち・新しい還流の再評価待ち・判断済みを、最新Evaluationと評価snapshotのcursorで区別する", () => {
+  const done = { state: "accepted" as const, storyCount: 1, taskCounts: counts({ accepted: 1 }) };
+  const evaluable: Evaluability = { status: "evaluable", unfinishedTargets: [] };
+  const cursors = [{ projectId: "p-1", executionCursor: 7 }];
+  const evaluated = (decided: boolean, executionCursor: number): OutcomeExecution["latestEvaluation"] => ({ id: "e-1", decided, targetCursors: [{ projectId: "p-1", executionCursor }] });
+  const plan = (state: OutcomeExecution) => planWorkspaceAttention({ activeIntent: true, outcomes: [outcome("o", [target("p-1", done)], state)] }).items.map(({ kind, actor }) => [kind, actor]);
+
+  const unevaluated = execution(evaluable, cursors);
+  assert.equal(evaluationStage(unevaluated), "evaluation_pending");
+  assert.deepEqual(plan(unevaluated), [["evaluation", "evaluator"]]);
+
+  // 評価済みでもTargetの評価可能性はevaluableのまま。評価待ちとせず、Strategistの判断待ちにする。
+  const awaitingDecision = execution(evaluable, cursors, evaluated(false, 7));
+  assert.equal(evaluationStage(awaitingDecision), "decision_pending");
+  assert.deepEqual(plan(awaitingDecision), [["decision", "strategist"]]);
+
+  // 判断待ちの間に新しい還流があれば、判断待ちに加えて再評価待ち（Orchestratorも両方を起動する）。
+  const reevaluate = execution(evaluable, [{ projectId: "p-1", executionCursor: 9 }], evaluated(false, 7));
+  assert.deepEqual(plan(reevaluate), [["decision", "strategist"], ["evaluation", "evaluator"]]);
+  // Targetの構成が変わった（評価snapshotに無いTargetがある）場合も未評価。
+  assert.deepEqual(plan(execution(evaluable, [...cursors, { projectId: "p-2", executionCursor: 1 }], evaluated(false, 7))), [["decision", "strategist"], ["evaluation", "evaluator"]]);
+
+  // 判断済みのOutcomeは、新しい還流があってもEvaluator・Strategist・Managerを待たない（Orchestratorの`isLive`と同じ）。
+  const decided = execution(evaluable, [{ projectId: "p-1", executionCursor: 9 }], evaluated(true, 7));
+  assert.equal(evaluationStage(decided), "decided");
+  assert.deepEqual(plan(decided), []);
+  assert.deepEqual(
+    planWorkspaceAttention({ activeIntent: true, outcomes: [outcome("o", [target("p-1", null)], execution({ status: "awaiting_execution", unfinishedTargets: [] }, [], evaluated(true, 7)))] }).items,
+    [],
+  );
+
+  assert.equal(evaluationStage(execution({ status: "awaiting_execution", unfinishedTargets: [] })), "awaiting_execution");
+});
+
+test("Project一覧のTarget表示は、Intent・Outcomeの取得失敗・一部OutcomeのTarget取得失敗を0件と断定しない", () => {
+  const outcomes = [outcome("a", [target("p-1", null)], null), outcome("b", [target("p-1", null), target("p-2", null)], null)];
+  assert.equal(projectTargetNote(outcomes, "p-1"), "Active Outcome 2件のTarget");
+  assert.equal(projectTargetNote(outcomes, "p-2"), "Active Outcome 1件のTarget");
+  assert.equal(projectTargetNote(outcomes, "p-3"), "Active OutcomeのTargetではありません");
+  assert.equal(projectTargetNote([], "p-3"), "Active OutcomeのTargetではありません");
+
+  const partial = [...outcomes, outcome("c", null, null)];
+  assert.equal(projectTargetNote(partial, "p-1"), "Active Outcome 2件のTarget（ほかOutcome 1件は確認できません）");
+  assert.equal(projectTargetNote(partial, "p-3"), "Targetか確認できません（Outcome 1件のTargetを取得できません）");
+  assert.equal(projectTargetNote(null, "p-1"), "Targetか確認できません（Intent・Outcomeを取得できません）");
 });

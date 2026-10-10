@@ -10,18 +10,21 @@ import { projectsApiPath } from "../../projectArchive";
 import type { Project } from "../../projectForm";
 import { statusBadgeClass, type StatusTone } from "../../statusTone";
 import { activitiesPath, type ActivityPage, type ActivitySummary } from "../activity";
-import { describePrincipal, formatTime } from "../execution";
+import { describePrincipal, evaluationsPath, formatTime } from "../execution";
 import type { HumanRole } from "../member";
 import { projectViewPath } from "../project/overview";
 import {
   attentionSummary,
-  countTargetOutcomes,
+  evaluationStage,
   pickOpenProject,
   planWorkspaceAttention,
+  projectTargetNote,
   type AttentionItem,
   type AttentionKind,
   type AttentionRef,
   type Evaluability,
+  type EvaluationStage,
+  type OutcomeExecution,
   type OutcomePosition,
   type OutcomeTargetWork,
   type TargetWork,
@@ -46,27 +49,59 @@ const recentActivityLimit = 5;
 
 const notFound = "Workspaceが見つからないか、閲覧する権限がありません。";
 
+/** target-executionsの応答のうち概要が使う部分。 */
+type TargetExecutions = { targets: { projectId: string; execution: { summary: { executionCursor: number } } | null }[]; evaluability: Evaluability };
+/** Evaluationの応答のうち概要が使う部分（新しい順）。 */
+type EvaluationRecord = { id: string; snapshot: { targets: { projectId: string; execution: { executionCursor: number } }[] } };
+
 /**
- * Active Intent配下のActive Outcomeと、Outcomeごとの Target別Work・評価可能性。Target別WorkはIntent単位の1回、
- * 評価可能性はOutcomeごとに読み、失敗したものは`null`にして他のOutcomeの表示を妨げない。
+ * Outcomeの還流・評価の状態。評価可能性・現在の還流cursorはtarget-executions、最新Evaluationとその評価snapshotはevaluations、
+ * 判断済みかはActive IntentのDirection Decision（`decidedEvaluations`、取得失敗はnull）から読む。どれかを読めなければnull。
+ */
+const loadExecution = async (workspaceId: string, outcomeId: string, decidedEvaluations: Set<string> | null): Promise<OutcomeExecution | null> => {
+  try {
+    const [executions, { evaluations }] = await Promise.all([
+      request<TargetExecutions>(workspaceApiPath(workspaceId, `/outcomes/${outcomeId}/target-executions`)),
+      request<{ evaluations: EvaluationRecord[] }>(evaluationsPath(workspaceId, outcomeId)),
+    ]);
+    const latest = evaluations[0] ?? null;
+    if (latest && !decidedEvaluations) return null;
+    return {
+      evaluability: executions.evaluability,
+      targetCursors: executions.targets.map(({ projectId, execution }) => ({ projectId, executionCursor: execution?.summary.executionCursor ?? null })),
+      latestEvaluation: latest && {
+        id: latest.id,
+        decided: decidedEvaluations!.has(latest.id),
+        targetCursors: latest.snapshot.targets.map(({ projectId, execution }) => ({ projectId, executionCursor: execution.executionCursor })),
+      },
+    };
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Active Intent配下のActive Outcomeと、Outcomeごとの Target別Work・還流と評価の状態。Target別Work・Direction DecisionはIntent単位の1回、
+ * 還流と評価はOutcomeごとに読み、失敗したものは`null`にして他のOutcomeの表示を妨げない。
  */
 const loadDirection = async (workspaceId: string): Promise<DirectionData> => {
   const { active: activeIntent } = splitIntents((await request<{ intents: Intent[] }>(workspaceApiPath(workspaceId, "/intents"))).intents);
   if (!activeIntent) return { activeIntent, outcomes: [] };
-  const [{ outcomes }, targetWork] = await Promise.all([
+  const [{ outcomes }, targetWork, decidedEvaluations] = await Promise.all([
     request<{ outcomes: Outcome[] }>(workspaceApiPath(workspaceId, `/intents/${activeIntent.id}/outcomes`)),
     request<{ outcomes: OutcomeTargetWork[] }>(workspaceApiPath(workspaceId, `/intents/${activeIntent.id}/outcome-target-work`)).then(
       (body) => new Map(body.outcomes.map((item) => [item.outcomeId, item.targets])),
+      () => null,
+    ),
+    request<{ decisions: { evaluationId: string | null }[] }>(workspaceApiPath(workspaceId, `/intents/${activeIntent.id}/decisions`)).then(
+      (body) => new Set(body.decisions.flatMap(({ evaluationId }) => (evaluationId ? [evaluationId] : []))),
       () => null,
     ),
   ]);
   const positions = splitOutcomes(outcomes).active.map(async (outcome): Promise<OutcomePosition> => ({
     outcome: { id: outcome.id, intentId: outcome.intentId, title: outcome.title },
     targets: targetWork?.get(outcome.id) ?? null,
-    evaluability: await request<{ evaluability: Evaluability }>(workspaceApiPath(workspaceId, `/outcomes/${outcome.id}/target-executions`)).then(
-      (body) => body.evaluability,
-      () => null,
-    ),
+    execution: await loadExecution(workspaceId, outcome.id, decidedEvaluations),
   }));
   return { activeIntent, outcomes: await Promise.all(positions) };
 };
@@ -91,8 +126,10 @@ const loadOverview = async (workspaceId: string): Promise<OverviewData> => {
   return { direction, projects, activities, fetchedAt: Date.now() };
 };
 
-const evaluabilityLabels: Record<Evaluability["status"], { label: string; tone: StatusTone }> = {
-  evaluable: { label: "評価待ち", tone: "waiting" },
+const stageLabels: Record<EvaluationStage, { label: string; tone: StatusTone }> = {
+  decided: { label: "判断済み", tone: "done" },
+  decision_pending: { label: "評価済み・判断待ち", tone: "attention" },
+  evaluation_pending: { label: "評価待ち", tone: "waiting" },
   no_targets: { label: "Target未設定", tone: "attention" },
   replan_required: { label: "再計画待ち", tone: "warning" },
   awaiting_execution: { label: "実行・還流待ち", tone: "progress" },
@@ -103,7 +140,9 @@ const attentionLabels: Record<AttentionKind, { label: string; tone: StatusTone }
   outcome: { label: "Outcome未登録", tone: "attention" },
   no_targets: { label: "Target未設定", tone: "attention" },
   replan: { label: "再計画待ち", tone: "warning" },
+  decision: { label: "判断待ち", tone: "attention" },
   story: { label: "Story起票待ち", tone: "waiting" },
+  decompose: { label: "Task分解待ち", tone: "waiting" },
   todo: { label: "未着手", tone: "waiting" },
   rejected: { label: "差戻し", tone: "attention" },
   in_review: { label: "レビュー待ち", tone: "progress" },
@@ -142,6 +181,8 @@ const TargetRow = ({ target, projects }: { target: TargetWork; projects: Part<Ov
       <small>
         {target.work === null
           ? "Storyはまだありません"
+          : counts.length === 0 && target.work.taskCounts.canceled === 0
+          ? <>Story {target.work.storyCount}件 ・ Taskはまだありません</>
           : <>Story {target.work.storyCount}件{counts.map((key) => <span key={key}> ・ {workCountLabels[key]} {target.work!.taskCounts[key]}</span>)}</>}
       </small>
     </li>
@@ -160,12 +201,12 @@ const CurrentPosition = ({ direction, projects }: { direction: DirectionData; pr
       {direction.outcomes.length === 0 ? <p className="unset">ActiveなOutcomeはありません。</p> : (
         <ul className="workspace-outcomes">
           {direction.outcomes.map((position) => {
-            const evaluability = position.evaluability ? evaluabilityLabels[position.evaluability.status] : null;
+            const stage = position.execution ? stageLabels[evaluationStage(position.execution)] : null;
             return (
               <li key={position.outcome.id}>
                 <div className="workspace-outcome-head">
                   <OutcomeName outcome={position.outcome} openProjectId={pickOpenProject(position.targets?.map(({ projectId }) => projectId) ?? [], openProjects(projects))} />
-                  {evaluability ? <span className={statusBadgeClass(evaluability.tone)}>{evaluability.label}</span> : <span className="status-badge muted">評価可能性を確認できません</span>}
+                  {stage ? <span className={statusBadgeClass(stage.tone)}>{stage.label}</span> : <span className="status-badge muted">還流・評価の状態を確認できません</span>}
                 </div>
                 <p className="section-label">Target Project</p>
                 {position.targets === null ? <p role="alert" className="error-title">Target Projectを確認できません。</p> : position.targets.length === 0 ? <p className="unset">Target Projectはまだありません。</p> : (
@@ -183,7 +224,7 @@ const CurrentPosition = ({ direction, projects }: { direction: DirectionData; pr
 const AttentionRefItem = ({ refItem, kind, projects }: { refItem: AttentionRef; kind: AttentionKind; projects: Part<OverviewProject[]> }) => (
   <span className="attention-ref">
     <OutcomeName outcome={refItem.outcome} openProjectId={pickOpenProject(refItem.projectId ? [refItem.projectId] : [], openProjects(projects))} />
-    {refItem.projectId && <> / <ProjectName projectId={refItem.projectId} projects={projects} view={kind === "story" || kind === "replan" ? "overview" : "work"} /></>}
+    {refItem.projectId && <> / <ProjectName projectId={refItem.projectId} projects={projects} view={kind === "story" || kind === "decompose" || kind === "replan" ? "overview" : "work"} /></>}
     {refItem.count !== null && <> {refItem.count}件</>}
   </span>
 );
@@ -219,12 +260,13 @@ const Attention = ({ workspace, myRole, direction, projects }: { workspace: Work
           })}
         </ul>
       )}
-      {attention.outcomeFailures > 0 && <p role="alert" className="error-title">一部のOutcome（{attention.outcomeFailures}件）のTarget Project・評価可能性を確認できません。再読込してください。</p>}
+      {attention.outcomeFailures > 0 && <p role="alert" className="error-title">一部のOutcome（{attention.outcomeFailures}件）のTarget Project・還流・評価の状態を確認できません。再読込してください。</p>}
     </>
   );
 };
 
-const ProjectSummary = ({ workspace, projects, outcomes }: { workspace: Workspace; projects: Part<OverviewProject[]>; outcomes: readonly OutcomePosition[] }) => {
+/** `outcomes`はActive Outcomeの現在地。Intent・Outcomeを取得できなければnullで、Targetかどうかを断定しない。 */
+const ProjectSummary = ({ workspace, projects, outcomes }: { workspace: Workspace; projects: Part<OverviewProject[]>; outcomes: readonly OutcomePosition[] | null }) => {
   if (!projects.ok) return <ErrorState message={`Projectの読み込みに失敗しました: ${projects.error}`} />;
   const active = projects.value.filter(({ project }) => project.status === "active");
   const archivedCount = projects.value.length - active.length;
@@ -233,8 +275,7 @@ const ProjectSummary = ({ workspace, projects, outcomes }: { workspace: Workspac
       {active.length === 0 ? <p className="unset">activeなProjectはありません。</p> : (
         <ul className="link-list workspace-agent-projects">
           {active.map(({ project, canOpen }) => {
-            const targets = countTargetOutcomes(outcomes, project.id);
-            const note = targets ? `Active Outcome ${targets}件のTarget` : "Active OutcomeのTargetではありません";
+            const note = projectTargetNote(outcomes, project.id);
             return <li key={project.id}>{canOpen ? <Link to={projectViewPath(project.id, "overview")}><span>{project.name}</span><small>{note}</small></Link> : <p><span>{project.name}</span><small>{note} ・ Project Membershipが無いため開けません</small></p>}</li>;
           })}
         </ul>
@@ -276,7 +317,7 @@ export const WorkspaceOverview = ({ workspace, myRole }: { workspace: Workspace;
     return () => { current = false; };
   }, [load]);
   if (!data) return <Loading />;
-  const outcomes = data.direction.ok ? data.direction.value.outcomes : [];
+  const outcomes = data.direction.ok ? data.direction.value.outcomes : null;
   return (
     <>
       <section className="detail-section workspace-overview" aria-labelledby="workspace-position-heading">
@@ -286,7 +327,7 @@ export const WorkspaceOverview = ({ workspace, myRole }: { workspace: Workspace;
           <button type="button" className="secondary-button compact" disabled={pending} onClick={() => void load()}>{pending ? "読み込み中..." : "再読込"}</button>
         </div>
         {data.direction.ok ? <CurrentPosition direction={data.direction.value} projects={data.projects} /> : <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${data.direction.error}`} />}
-        {outcomes.length > 0 && <p className="section-note">Taskの件数は状態だけを数えたもので、Agentの稼働やClaimの有効性を示しません。Claimの状況は各Projectの概要で確認します。</p>}
+        {outcomes && outcomes.length > 0 && <p className="section-note">Taskの件数は状態だけを数えたもので、Agentの稼働やClaimの有効性を示しません。Claimの状況は各Projectの概要で確認します。</p>}
         <Link to={workspacePath(workspace.id, "direction")} className="text-link">方向を開く →</Link>
       </section>
       <section className="detail-section" aria-labelledby="workspace-attention-heading">
