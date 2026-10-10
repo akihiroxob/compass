@@ -8,7 +8,10 @@ import {
   resolveCurrentWorkspace,
   switchWorkspacePath,
   withProjectAccess,
+  workspaceCreatePath,
+  workspaceEditPath,
   workspacePath,
+  workspaceProjectCreatePath,
   workspaceProjectsPath,
   type Workspace,
   type WorkspaceProject,
@@ -40,6 +43,11 @@ test("現在位置はURLだけから読み、深いURLの再読込でも同じWo
   assert.deepEqual(parseShellLocation("/workspaces/ws-1/activity/x"), { kind: "workspace", workspaceId: "ws-1", section: null });
   assert.deepEqual(parseShellLocation("/projects/p-1/tasks/t-1"), { kind: "project", projectId: "p-1" });
   assert.deepEqual(parseShellLocation("/projects/new"), { kind: "none" });
+  // Workspaceの作成は特定のWorkspaceではない。編集は「概要」、Project追加は「Project」の項目に属する。
+  assert.deepEqual(parseShellLocation("/workspaces/new"), { kind: "none" });
+  assert.deepEqual(parseShellLocation("/workspaces/ws-1/edit"), { kind: "workspace", workspaceId: "ws-1", section: "overview" });
+  assert.deepEqual(parseShellLocation("/workspaces/ws-1/projects/new"), { kind: "workspace", workspaceId: "ws-1", section: "projects" });
+  assert.deepEqual(parseShellLocation("/workspaces/ws-1/edit/x"), { kind: "workspace", workspaceId: "ws-1", section: null });
   assert.deepEqual(parseShellLocation("/projects"), { kind: "none" });
   assert.deepEqual(parseShellLocation("/"), { kind: "none" });
 });
@@ -54,6 +62,9 @@ test("Project配下の画面は「Project」を選択中にし、Workspaceの切
   assert.equal(workspacePath("ws-1", "activity"), "/workspaces/ws-1/activity");
   assert.equal(workspaceProjectsPath("ws-1"), "/workspaces/ws-1/projects");
   assert.equal(workspaceProjectsPath("ws-1", "archived"), "/workspaces/ws-1/projects?status=archived");
+  assert.equal(workspaceCreatePath, "/workspaces/new");
+  assert.equal(workspaceEditPath("ws-1"), "/workspaces/ws-1/edit");
+  assert.equal(workspaceProjectCreatePath("ws-1"), "/workspaces/ws-1/projects/new");
 });
 
 test("ホームは前回選択したWorkspaceを、閲覧できなくなっていれば一覧の先頭を開き、参加が無ければnull", () => {

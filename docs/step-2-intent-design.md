@@ -10,7 +10,7 @@ IntentはHumanが現在実現したい状態。Workspaceの継続的な存在理
 
 ## 更新と操作
 
-activeの間だけ部分更新できる。Outcomeを持つIntentはtitleのみ変更でき、desiredState / completionDefinitionを変更できない。archived Workspaceでは書込を拒否する（最後のactive ProjectのarchiveでWorkspaceもarchivedになる）。
+activeの間だけ部分更新できる。Outcomeを持つIntentはtitleのみ変更でき、desiredState / completionDefinitionを変更できない。archived Workspaceでは書込を拒否する（WorkspaceのarchiveはWorkspace ownerが行い、Projectのarchiveでは変わらない）。
 
 `intent_complete`も、Intentを更新するtransaction内で所属Workspaceのarchiveを検査する。WorkspaceだけarchivedでProjectがactiveでも`CONFLICT`（`workspaceStatus: archived`）を返し、Intent・Decision・Activityを変更しない。
 

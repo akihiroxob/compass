@@ -197,19 +197,18 @@ test("Web APIの更新はMCPから、MCPの更新はWeb APIから参照でき、
   assert.equal(viaMcp.repositories[0].id, repositoryId);
   assert.equal(viaMcp.repositories[0].name, "Renamed");
 
+  // Mission等は所属Workspaceの正本のため、Projectの更新では受け取らず変更しない。
   const mcpUpdated = await callTool(app, 2, "update_project", {
     projectId,
-    mission: "Edited via MCP",
-    vision: null,
-    principles: [],
+    description: "Edited via MCP",
+    mission: "Hijacked via MCP",
   });
   assert.equal(mcpUpdated.isError, undefined);
   const viaApi = (await (await app.request(`/api/projects/${projectId}`)).json()) as {
-    project: { name: string; mission: string; vision: string | null; principles: string[] };
+    project: { name: string; description: string | null; mission: string };
   };
-  assert.equal(viaApi.project.mission, "Edited via MCP");
-  assert.equal(viaApi.project.vision, null);
-  assert.deepEqual(viaApi.project.principles, []);
+  assert.equal(viaApi.project.description, "Edited via MCP");
+  assert.equal(viaApi.project.mission, projectInput.mission);
   assert.equal(viaApi.project.name, "Edited on Web");
 
   const invalidViaMcp = await callTool(app, 3, "update_project", { projectId, name: " " });

@@ -56,9 +56,8 @@ test("更新は同じIDのまま内容を変更し、再起動後も保持され
 
   const updated = await first.update.execute(created.id, {
     name: " Compass 2 ",
-    mission: "New mission",
-    principles: ["p3", "new"],
-    constraints: [],
+    description: "Execution boundary",
+    resources: [],
   });
   assert.equal(updated.id, created.id);
   assert.equal(updated.createdAt, created.createdAt);
@@ -68,9 +67,9 @@ test("更新は同じIDのまま内容を変更し、再起動後も保持され
   const second = await setup(path);
   const found = await second.get.execute(created.id);
   assert.equal(found.name, "Compass 2");
-  assert.equal(found.mission, "New mission");
-  assert.deepEqual(found.principles, ["p3", "new"]);
-  assert.deepEqual(found.constraints, []);
+  assert.equal(found.description, "Execution boundary");
+  assert.deepEqual(found.resources, []);
+  assert.equal(found.mission, fullInput.mission);
   assert.equal(found.createdAt, created.createdAt);
   assert.equal((await second.repository.findAll()).length, 1);
   await second.database.destroy();
@@ -90,18 +89,16 @@ test("未指定の項目は変更せず、null・空文字でだけ任意値を�
   assert.deepEqual(onlyName.repositories, created.repositories);
   assert.deepEqual(onlyName.resources, created.resources);
 
-  const cleared = await update.execute(created.id, { description: null, vision: "  " });
+  const cleared = await update.execute(created.id, { description: "  " });
   assert.equal(cleared.description, null);
-  assert.equal(cleared.vision, null);
   assert.equal(cleared.name, "Renamed");
+  assert.equal((await update.execute(created.id, { description: "Again" })).description, "Again");
+  assert.equal((await update.execute(created.id, { description: null })).description, null);
 
-  const emptyLists = await update.execute(created.id, {
-    principles: [], repositories: [], resources: [],
-  });
-  assert.deepEqual(emptyLists.principles, []);
+  const emptyLists = await update.execute(created.id, { repositories: [], resources: [] });
   assert.deepEqual(emptyLists.repositories, []);
   assert.deepEqual(emptyLists.resources, []);
-  assert.deepEqual(emptyLists.constraints, created.constraints);
+  assert.deepEqual(emptyLists.principles, created.principles);
   await database.destroy();
 });
 
@@ -159,15 +156,15 @@ test("不正な更新は拒否し、既存データを変更しない", async ()
 
   const invalidInputs: [string, unknown, string][] = [
     ["空白のname", { name: "   " }, "name"],
-    ["空のmission", { mission: "" }, "mission"],
+    ["Mission等だけの更新（Projectの項目ではない）", { mission: "x", principles: ["p"] }, ""],
     ["不正URL", { repositories: [{ name: "x", url: "not a url" }] }, "repositories.0.url"],
     ["file URL", { resources: [{ name: "x", url: "file:///tmp/x" }] }, "resources.0.url"],
-    ["空のprinciple", { principles: ["ok", " "] }, "principles.1"],
+    ["空のResource名", { resources: [{ name: " ", url: "https://example.com" }] }, "resources.0.name"],
     ["重複id", { repositories: [
       { id: created.repositories[0]!.id, name: "a", url: "https://example.com/a" },
       { id: created.repositories[0]!.id, name: "b", url: "https://example.com/b" },
     ] }, "repositories.1.id"],
-    ["上限超過", { constraints: Array.from({ length: 21 }, () => "x") }, "constraints"],
+    ["上限超過", { repositories: Array.from({ length: 21 }, (_, index) => ({ name: `r${index}`, url: "https://example.com" })) }, "repositories"],
     ["空更新", {}, ""],
   ];
   for (const [label, input, path] of invalidInputs) {
@@ -202,7 +199,6 @@ test("保存に失敗した更新は親も他の子も部分更新しない", as
   await assert.rejects(() =>
     update.execute(created.id, {
       name: "Should roll back",
-      principles: ["changed"],
       repositories: [{ name: "changed", url: "https://example.com/changed" }],
       resources: [{ name: "new", url: "https://example.com/new" }],
     }),

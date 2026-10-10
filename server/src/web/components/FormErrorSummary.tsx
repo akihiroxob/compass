@@ -19,12 +19,14 @@ type FormErrorSummaryProps = {
   error: FormError;
   /** 409 conflictの表示。省略した場合、conflictも保存失敗として表示する。 */
   conflict?: { title: string; action?: ReactNode };
-  /** Projectがarchivedで拒否された場合に、内容を確認できるProject詳細への導線。 */
-  projectDetailTo?: string;
+  /** archivedで拒否された場合に、内容を確認できる詳細画面への導線。 */
+  detailTo?: string;
+  /** archivedで拒否した対象。WorkspaceのフォームはWorkspace（所属Workspaceのarchiveも`workspaceStatus`で同じ表示）。 */
+  archivedScope?: "Project" | "Workspace";
 };
 
 /** マウント時と`error`が変わるたびにフォーカスを移す。`error`があるときだけ描画すること。 */
-export const FormErrorSummary = ({ error, conflict, projectDetailTo }: FormErrorSummaryProps) => {
+export const FormErrorSummary = ({ error, conflict, detailTo, archivedScope = "Project" }: FormErrorSummaryProps) => {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.focus();
@@ -46,8 +48,8 @@ export const FormErrorSummary = ({ error, conflict, projectDetailTo }: FormError
       ) : error.kind === "project_archived" ? (
         <>
           <p className="error-title">{error.message}</p>
-          <p>このProjectはアーカイブされています。入力した内容は保存されていません。</p>
-          {projectDetailTo && <Link to={projectDetailTo} className="text-link">Project詳細を開く →</Link>}
+          <p>この{archivedScope}はアーカイブされています。入力した内容は保存されていません。</p>
+          {detailTo && <Link to={detailTo} className="text-link">{archivedScope}詳細を開く →</Link>}
         </>
       ) : error.kind === "conflict" && conflict ? (
         <>

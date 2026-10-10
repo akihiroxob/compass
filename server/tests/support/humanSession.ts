@@ -8,6 +8,8 @@ import {
   sessionAbsoluteTtlMs,
   type HumanRole,
 } from "@compass/access";
+import { SQLiteWorkspaceRepository } from "@compass/organization";
+import { asOrganizationDatabase } from "../../src/bootstrap/database/contextDatabase.ts";
 import type { Database } from "../../src/bootstrap/database/schema.ts";
 
 type App = ReturnType<typeof createApp>;
@@ -260,3 +262,10 @@ export const issueWorkspaceRuntimeCredential = async (
 
 export const issueWorkspaceRuntimeToken = async (...args: Parameters<typeof issueWorkspaceRuntimeCredential>) =>
   (await issueWorkspaceRuntimeCredential(...args)).token;
+
+/**
+ * Workspace ownerによるWorkspaceのarchiveを、Membershipを用意せずに再現する。
+ * Projectのarchiveは所属Workspaceをarchiveしないため、archivedのWorkspaceを検証するテストはこれを明示的に呼ぶ。
+ */
+export const archiveTestWorkspace = (database: Kysely<Database>, workspaceId: string, reason = "Done") =>
+  new SQLiteWorkspaceRepository(asOrganizationDatabase(database)).archive(workspaceId, reason);

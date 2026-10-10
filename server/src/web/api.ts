@@ -101,7 +101,7 @@ export const request = async <T>(
 };
 
 const topLevelLabels: Record<string, string> = {
-  name: "Project名",
+  name: "名前",
   description: "説明",
   mission: "Mission",
   vision: "Vision",
@@ -191,7 +191,7 @@ export const classifyError = (error: unknown): ErrorKind => {
     return { kind: "other", message: "ログインの有効期限が切れたか、別の画面でログインし直しました。入力内容はこの画面に残っています。再ログイン後にもう一度実行してください。" };
   }
   if (error.status === 403 && error.code === "FORBIDDEN") {
-    return { kind: "other", message: "この操作を行う権限がありません。ProjectのownerにRoleを確認してください。" };
+    return { kind: "other", message: "この操作を行う権限がありません。ProjectまたはWorkspaceのownerにRoleを確認してください。" };
   }
   // archivedによる拒否は、Intent / Outcomeの状態の競合と区別する（復帰はできないため、再試行を促さない）。
   if (error.status === 409 && error.code === "CONFLICT" && error.projectStatus === "archived") {

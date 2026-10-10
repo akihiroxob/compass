@@ -1,7 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useWorkspaceNavigation } from "./WorkspaceContext";
-import { currentSection, filterWorkspaces, switchWorkspacePath, workspacePath, workspaceSectionLabels, workspaceSections } from "./workspace";
+import { currentSection, filterWorkspaces, switchWorkspacePath, workspaceCreatePath, workspacePath, workspaceSectionLabels, workspaceSections } from "./workspace";
 
 /**
  * Workspace Selector。現在のWorkspaceを示すbuttonから、閲覧できるWorkspaceの一覧（modal dialog）を開く。
@@ -55,8 +55,8 @@ export const WorkspaceSwitcher = () => {
             <div className="state-card" role="status">読み込み中...</div>
           ) : workspaces.length === 0 ? (
             <div className="state-card">
-              <p>参加しているWorkspaceはありません。Projectを作成するとWorkspaceも作られ、あなたがownerになります。既存のWorkspaceは、そのownerにMembershipの追加を依頼してください。</p>
-              <Link to="/projects/new" className="text-link" onClick={close}>Projectを作成 →</Link>
+              <p>参加しているWorkspaceはありません。Workspaceを作成するとあなたがownerになります。既存のWorkspaceは、そのownerにMembershipの追加を依頼してください。</p>
+              <Link to={workspaceCreatePath} className="text-link" onClick={close}>Workspaceを作成 →</Link>
             </div>
           ) : (
             <>
@@ -81,6 +81,7 @@ export const WorkspaceSwitcher = () => {
               )}
             </>
           )}
+          {workspaces !== null && workspaces.length > 0 && <Link to={workspaceCreatePath} className="text-link" onClick={close}>＋ Workspaceを作成</Link>}
           <p className="section-note">Membershipを持つWorkspaceだけを表示します。Workspaceをまたいで参加中のProjectは<Link to="/projects" onClick={close}>参加中のProject</Link>から開けます。</p>
         </div>
       </dialog>

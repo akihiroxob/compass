@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
+import { archiveTestWorkspace, createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -405,9 +405,10 @@ test("Projectまたぎ・Outcome対応なし・取消済み・archived・不正�
   assert.equal(cancelledError.code, "CONFLICT");
   assert.equal(cancelledError.outcomeStatus, "cancelled");
   await kit.services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
+  await archiveTestWorkspace(kit.database, project.workspaceId);
   const archived = errorOf(await record(kit.app, project.id, outcome.id, { changeCursor: head }));
   assert.equal(archived.code, "CONFLICT");
-  // 最後のProjectのarchiveで所属Workspaceもarchivedになり、Workspaceのarchiveを先に検査する。
+  // Project・Workspaceともarchivedの場合は、Workspaceのarchiveを先に検査する。
   assert.equal(archived.workspaceStatus, "archived");
   assert.equal((await saved()).evidence, 200);
   await kit.database.destroy();

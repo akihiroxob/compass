@@ -68,6 +68,9 @@ const createProject = async (app: App, name: string) => {
   return ((await response.json()) as { project: Project }).project;
 };
 
+/** Workspace ownerとしてWorkspaceをarchiveする（Projectのarchiveとは別の操作）。 */
+const archiveWorkspace = (workspaceId: string, fetchImpl: FetchLike) => request(`/api/workspaces/${workspaceId}/archive`, archiveInit("終了"), fetchImpl);
+
 const rejection = async (run: () => Promise<unknown>) => {
   try {
     await run();
@@ -137,6 +140,9 @@ test("archived Projectへの保存はproject_archivedとして分類され、Int
   const intentInit: RequestInit = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title: "T", desiredState: "S" }) };
 
   await request(archiveProjectPath(project.id), archiveInit("終了"), fetchImpl);
+  // Projectのarchiveでは所属WorkspaceのDirectionを書き込める。WorkspaceのarchiveはWorkspace ownerの別操作。
+  await request(`/api/workspaces/${project.workspaceId}/intents`, intentInit, fetchImpl);
+  await archiveWorkspace(project.workspaceId, fetchImpl);
 
   for (const run of [
     () => request(`/api/projects/${project.id}`, patch("Changed"), fetchImpl),
@@ -168,12 +174,14 @@ test("一覧: 通常はactiveのみ、?status=archivedでarchivedのみ（理由
   await database.destroy();
 });
 
-test("archive後の再取得: 単独ProjectのarchiveでWorkspaceもarchivedとなり、Directionの変更導線を閉じる", async () => {
+test("archive後の再取得: 単独ProjectのarchiveではWorkspaceはactiveのままで、Workspaceのarchiveで初めてDirectionの変更導線を閉じる", async () => {
   const { database, app, fetchImpl } = await setup();
   const project = await createProject(app, "Compass");
   assert.deepEqual(await loadProjectWorkspaceDirection(project.id, fetchImpl), { access: "allowed", workspaceId: project.workspaceId });
 
   await request(archiveProjectPath(project.id), archiveInit("終了"), fetchImpl);
+  assert.deepEqual(await loadProjectWorkspaceDirection(project.id, fetchImpl), { access: "allowed", workspaceId: project.workspaceId });
+  await archiveWorkspace(project.workspaceId, fetchImpl);
   assert.deepEqual(await loadProjectWorkspaceDirection(project.id, fetchImpl), { access: "archived", workspaceId: project.workspaceId });
   await database.destroy();
 });
@@ -194,14 +202,16 @@ test("archive後の再取得: 他のactive Projectが残るWorkspaceは、Projec
   await database.destroy();
 });
 
-test("archive後のShell: 最後のactive ProjectのarchiveでWorkspaceを一覧から外し、現在のWorkspaceはarchived、ホームは選ばない", async () => {
+test("archive後のShell: 最後のactive ProjectのarchiveではWorkspaceは一覧に残り、Workspaceのarchiveで一覧から外れ、現在のWorkspaceはarchived、ホームは選ばない", async () => {
   const { database, app, fetchImpl } = await setup();
   const project = await createProject(app, "Compass");
   const other = await createProject(app, "Other");
+  await request(archiveProjectPath(project.id), archiveInit("終了"), fetchImpl);
   const before = await loadWorkspaceNavigation(project.workspaceId, fetchImpl);
   assert.ok(before.workspaces.some(({ id }) => id === project.workspaceId));
+  assert.equal(before.workspace?.status, "active");
 
-  await request(archiveProjectPath(project.id), archiveInit("終了"), fetchImpl);
+  await archiveWorkspace(project.workspaceId, fetchImpl);
   const after = await loadWorkspaceNavigation(project.workspaceId, fetchImpl);
   assert.deepEqual(after.workspaces.map(({ id }) => id), [other.workspaceId]);
   assert.equal(after.workspace?.status, "archived");

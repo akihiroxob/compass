@@ -1,6 +1,7 @@
 /** 作成・編集フォームが扱う1行分のリンク。`id`は保存済みの行だけが持ち、更新時に既存行を維持する。 */
 export type LinkInput = { id?: string; name: string; url: string; kind: string };
 
+/** Web API `GET /api/projects/:projectId`のProject。Mission等は所属Workspaceの値（参照専用）。 */
 export type Project = {
   id: string;
   /** 所属Workspace。Mission等の戦略値とDirection（Intent・Outcome等）はWorkspaceが所有する。 */
@@ -20,13 +21,10 @@ export type Project = {
   archiveReason: string | null;
 };
 
+/** Projectの作成・編集フォームの値。Mission等は所属Workspaceが所有し、Workspaceの編集で扱う。 */
 export type ProjectFormValues = {
   name: string;
   description: string;
-  mission: string;
-  vision: string;
-  principles: string[];
-  constraints: string[];
   repositories: LinkInput[];
   resources: LinkInput[];
 };
@@ -34,10 +32,6 @@ export type ProjectFormValues = {
 export const emptyFormValues: ProjectFormValues = {
   name: "",
   description: "",
-  mission: "",
-  vision: "",
-  principles: [],
-  constraints: [],
   repositories: [],
   resources: [],
 };
@@ -46,10 +40,6 @@ export const emptyFormValues: ProjectFormValues = {
 export const formValuesFromProject = (project: Project): ProjectFormValues => ({
   name: project.name,
   description: project.description ?? "",
-  mission: project.mission,
-  vision: project.vision ?? "",
-  principles: [...project.principles],
-  constraints: [...project.constraints],
   repositories: project.repositories.map(({ id, name, url }) => ({ id, name, url, kind: "" })),
   resources: project.resources.map(({ id, name, url, kind }) => ({ id, name, url, kind: kind ?? "" })),
 });

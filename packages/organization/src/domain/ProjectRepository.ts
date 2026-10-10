@@ -25,15 +25,11 @@ export type CreateWorkspaceProjectResult =
 
 /**
  * 未指定（undefined）の項目は変更しない。Repository / Resourceの`id`は既存行の維持に使う。
- * Mission等は所属Workspaceの値を更新する。
+ * Mission等は所属Workspaceが所有し、Projectの更新では変更しない。
  */
 export type UpdateProjectInput = {
   name?: string;
   description?: string | null;
-  mission?: string;
-  vision?: string | null;
-  principles?: string[];
-  constraints?: string[];
   repositories?: { id?: string; name: string; url: string }[];
   resources?: { id?: string; name: string; url: string; kind: string | null }[];
 };
@@ -55,8 +51,7 @@ export type UpdateProjectResult =
   | { kind: "updated"; project: ProjectDetail }
   | { kind: "not_found" }
   | RepositoryReferencedResult
-  | ProjectArchivedResult
-  | { kind: "workspace_archived"; workspaceId: string };
+  | ProjectArchivedResult;
 
 export type ArchiveProjectResult =
   | { kind: "archived"; project: ProjectDetail }
@@ -79,12 +74,12 @@ export interface ProjectRepository {
     input: CreateWorkspaceProjectInput,
     ownerHumanUserId?: string,
   ): Promise<CreateWorkspaceProjectResult>;
-  /** Project・子要素・所属Workspaceの戦略値を同一transactionで更新する。archivedのProjectは更新しない。 */
+  /** Projectと子要素を同一transactionで更新する。archivedのProjectは更新しない。 */
   update(projectId: string, input: UpdateProjectInput): Promise<UpdateProjectResult>;
   /**
    * activeからarchivedへ遷移する唯一の操作。status・archivedAt・archiveReason・updatedAtを1 transactionで書く。
    * 既にarchivedなら何も書かない（理由・日時を上書きしない）。子データには触れない。
-   * 所属Workspaceに他のactiveなProjectが無ければ、Workspaceも同じ理由・日時でarchiveする。
+   * 所属Workspaceの状態は変えない（Workspaceのarchiveは、Workspace ownerによる別の操作）。
    */
   archive(projectId: string, reason: string): Promise<ArchiveProjectResult>;
   /** 指定した状態のProjectだけを返す。既定はactive。 */

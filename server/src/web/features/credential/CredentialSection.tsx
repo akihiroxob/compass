@@ -202,7 +202,7 @@ export const CredentialSection = ({ projectId, readOnly = false }: { projectId: 
           ))}
         </ul>
       ) : <p className="unset">Credentialはありません</p>}
-      {error && !readOnly && <FormErrorSummary error={error} projectDetailTo={`/projects/${projectId}`} conflict={{ title: "Credentialを発行できませんでした" }} />}
+      {error && !readOnly && <FormErrorSummary error={error} detailTo={`/projects/${projectId}`} conflict={{ title: "Credentialを発行できませんでした" }} />}
       {issued && <IssuedToken issued={issued} onDismiss={() => setIssued(null)} />}
       {!readOnly && (
         <form className="grant-form" onSubmit={submit}>

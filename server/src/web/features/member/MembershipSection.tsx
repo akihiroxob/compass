@@ -192,7 +192,7 @@ const InvitationSection = ({ projectId, readOnly }: { projectId: string; readOnl
           {invitations.map((invitation) => <InvitationRow key={invitation.id} projectId={projectId} invitation={invitation} manage={!readOnly} onChanged={() => void load()} />)}
         </ul>
       ) : <p className="unset">招待はありません</p>}
-      {error && !readOnly && <FormErrorSummary error={error} projectDetailTo={`/projects/${projectId}`} conflict={{ title: "招待を発行できませんでした" }} />}
+      {error && !readOnly && <FormErrorSummary error={error} detailTo={`/projects/${projectId}`} conflict={{ title: "招待を発行できませんでした" }} />}
       {issued && !readOnly && <IssuedInvitation issued={issued} onDismiss={() => setIssued(null)} />}
       {!readOnly && (
         <form className="grant-form" onSubmit={submit}>

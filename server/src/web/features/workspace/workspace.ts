@@ -45,13 +45,19 @@ export const workspaceSectionLabels: Record<WorkspaceSection, string> = {
 export const workspacePath = (workspaceId: string, section: WorkspaceSection = "overview") =>
   `/workspaces/${workspaceId}${section === "overview" ? "" : `/${section}`}`;
 
+/** Workspaceの作成・編集、既存WorkspaceへのProject追加の画面。 */
+export const workspaceCreatePath = "/workspaces/new";
+export const workspaceEditPath = (workspaceId: string) => `${workspacePath(workspaceId)}/edit`;
+export const workspaceProjectCreatePath = (workspaceId: string) => `${workspacePath(workspaceId, "projects")}/new`;
+
 /** WorkspaceのProject一覧。activeは既定のためqueryを付けない。 */
 export const workspaceProjectsPath = (workspaceId: string, status: "active" | "archived" = "active") =>
   `${workspacePath(workspaceId, "projects")}${status === "archived" ? "?status=archived" : ""}`;
 
 /**
  * URLから現在位置を読む。Workspaceの画面はWorkspace IDと項目、Project配下の画面はProject ID（所属Workspaceは取得して解決する）。
- * それ以外（ホーム・参加中のProject・Project作成・未定義のURL）は`none`。
+ * Workspaceの編集は「概要」、Project追加は「Project」の項目に属する。
+ * それ以外（ホーム・参加中のProject・Workspace作成・未定義のURL）は`none`。
  */
 export type ShellLocation =
   | { kind: "workspace"; workspaceId: string; section: WorkspaceSection | null }
@@ -60,8 +66,15 @@ export type ShellLocation =
 
 export const parseShellLocation = (pathname: string): ShellLocation => {
   const [first, id, rest, ...more] = pathname.split("/").filter((segment) => segment !== "");
-  if (first === "workspaces" && id) {
-    const section = rest === undefined ? "overview" : more.length === 0 ? workspaceSections.find((value) => value === rest && value !== "overview") ?? null : null;
+  // `/workspaces/new`はWorkspaceではない（作成画面）。
+  if (first === "workspaces" && id && id !== "new") {
+    const subPage = more.join("/");
+    const section =
+      rest === undefined || (rest === "edit" && subPage === "")
+        ? "overview"
+        : rest === "projects" && subPage === "new"
+          ? "projects"
+          : subPage === "" ? workspaceSections.find((value) => value === rest && value !== "overview") ?? null : null;
     return { kind: "workspace", workspaceId: id, section };
   }
   // `/projects/new`はProjectではない（作成画面）。

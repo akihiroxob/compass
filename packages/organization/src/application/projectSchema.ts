@@ -52,16 +52,13 @@ const uniqueIds = (items: { id?: string }[], context: z.RefinementCtx) => {
 
 /**
  * 部分更新の入力。未指定の項目は変更せず、指定した項目は作成時と同じ規則で検証する。
- * description / vision は `null` または空文字でクリアできる。配列は指定すると全体を置き換える。
+ * description は `null` または空文字でクリアできる。配列は指定すると全体を置き換える。
+ * Mission等はWorkspaceが所有するため受け取らない（未知の項目は無視する）。WorkspaceのMembershipで認可する`updateWorkspace`で変更する。
  */
 export const updateProjectSchema = z
   .object({
     name: trimmedText("name", 100).optional(),
     description: clearableText(1_000).optional(),
-    mission: trimmedText("mission", 2_000).optional(),
-    vision: clearableText(2_000).optional(),
-    principles: z.array(principleSchema).max(20).optional(),
-    constraints: z.array(constraintSchema).max(20).optional(),
     repositories: z.array(namedLinkSchema.extend({ id: optionalId })).max(20).superRefine(uniqueIds).optional(),
     resources: z.array(resourceSchema.extend({ id: optionalId })).max(50).superRefine(uniqueIds).optional(),
   })

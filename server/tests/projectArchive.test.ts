@@ -5,7 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
 import type { createApp } from "../src/bootstrap/app.ts";
-import { createSignedInApp, seedLegacyProjectGrant, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
+import { archiveTestWorkspace, createSignedInApp, seedLegacyProjectGrant, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
@@ -188,6 +188,7 @@ test("AC-6 archivedのIntent作成・更新・放棄は409。存在しないinte
   const { project, intent } = await seed(database, services);
   const before = (await json(await app.request(`/api/workspaces/${project.workspaceId}/intents/${intent.id}`))).intent;
   await archive(app, project.id);
+  await archiveTestWorkspace(database, project.workspaceId);
   const base = `/api/workspaces/${project.workspaceId}/intents`;
   const attempts: [string, string, unknown][] = [
     ["POST", base, { title: "New", desiredState: "State" }],
@@ -199,7 +200,7 @@ test("AC-6 archivedのIntent作成・更新・放棄は409。存在しないinte
   for (const [method, path, body] of attempts) {
     const response = await send(app, method, path, body);
     assert.equal(response.status, 409, `${method} ${path}`);
-    // 最後のProjectのarchiveで所属Workspaceもarchivedになり、DirectionはWorkspaceとして拒否される。
+    // DirectionはWorkspaceの状態で拒否される。
     assert.equal((await json(response)).error.workspaceStatus, "archived");
   }
   assert.deepEqual((await json(await app.request(`${base}/${intent.id}`))).intent, before);
@@ -211,6 +212,7 @@ test("AC-7 archivedのOutcome作成・更新・取消は固定項目を含めて
   const { database, services, app } = await setup();
   const { project, intent, outcome } = await seed(database, services);
   await archive(app, project.id);
+  await archiveTestWorkspace(database, project.workspaceId);
   const base = `/api/workspaces/${project.workspaceId}/intents/${intent.id}/outcomes`;
   const attempts: [string, string, unknown][] = [
     ["POST", base, outcomeInput],
@@ -224,7 +226,7 @@ test("AC-7 archivedのOutcome作成・更新・取消は固定項目を含めて
   for (const [method, path, body] of attempts) {
     const response = await send(app, method, path, body);
     assert.equal(response.status, 409, `${method} ${path}`);
-    // 最後のProjectのarchiveで所属Workspaceもarchivedになり、DirectionはWorkspaceとして拒否される。
+    // DirectionはWorkspaceの状態で拒否される。
     assert.equal((await json(response)).error.workspaceStatus, "archived");
   }
   const fetched = (await json(await app.request(`${base}/${outcome.id}`))).outcome;
@@ -317,6 +319,7 @@ test("AC-11 Repositoryを直接呼んでも、archivedのProjectには何も書�
   const { database, services } = await setup();
   const { project, intent, outcome } = await seed(database, services);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
+  await archiveTestWorkspace(database, project.workspaceId);
   const before = await counts(database);
   const projectBefore = await services.getProjectUseCase.execute(project.id);
 
@@ -402,6 +405,7 @@ test("AC-14 archivedでも読取のMCP toolは成功し、Project.statusがarchi
   const { project, intent, outcome } = await seed(database, services);
   await requestIntentResearch(services, project.workspaceId, intent.id);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
+  await archiveTestWorkspace(database, project.workspaceId);
 
   const got = await callTool(app, "get_project", { projectId: project.id });
   assert.equal(got.isError, undefined);
@@ -435,6 +439,7 @@ test("AC-15 archivedの書込MCP toolはisErrorのCONFLICT（projectStatus / wor
   const { database, services, app } = await setup();
   const { project, intent, outcome } = await seed(database, services);
   await services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
+  await archiveTestWorkspace(database, project.workspaceId);
   const ids = { workspaceId: project.workspaceId, intentId: intent.id };
 
   const writes: [string, object, string | undefined][] = [
@@ -453,7 +458,7 @@ test("AC-15 archivedの書込MCP toolはisErrorのCONFLICT（projectStatus / wor
     const result = await callTool(app, name, args, principal);
     assert.equal(result.isError, true, name);
     assert.equal(result.structuredContent.error.code, "CONFLICT", name);
-    // Project管理はprojectStatus、Workspace Direction（最後のProjectのarchiveでWorkspaceもarchived）はworkspaceStatus。
+    // Project管理はprojectStatus、Workspace DirectionはworkspaceStatus。
     const status = name === "update_project" ? result.structuredContent.error.projectStatus : result.structuredContent.error.workspaceStatus;
     assert.equal(status, "archived", name);
   }
