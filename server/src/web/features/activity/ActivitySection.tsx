@@ -13,6 +13,7 @@ import {
   type ActivityDetail,
   type ActivityPage,
   type ActivityReference,
+  type ActivityScope,
   type ActivitySummary,
   type ProjectResourceLink,
   type ReferenceView,
@@ -25,12 +26,13 @@ const screenPath = (projectId: string, screen: NonNullable<ReferenceView["screen
       ? intentPath(projectId, screen.id)
       : researchRequestPath(projectId, screen.id);
 
-const ReferenceItem = ({ projectId, reference, resources }: { projectId: string; reference: ActivityReference; resources: readonly ProjectResourceLink[] }) => {
+// Web UIのEntity画面はProject配下のrouteのため、Workspace ActivityではIDだけを出す。
+const ReferenceItem = ({ scope, reference, resources }: { scope: ActivityScope; reference: ActivityReference; resources: readonly ProjectResourceLink[] }) => {
   const view = describeReference(reference, resources);
   const label = view.href ? (
     <a href={view.href} target="_blank" rel="noreferrer">{view.label}</a>
-  ) : view.screen ? (
-    <Link to={screenPath(projectId, view.screen)}>{view.label}</Link>
+  ) : view.screen && scope.kind === "project" ? (
+    <Link to={screenPath(scope.projectId, view.screen)}>{view.label}</Link>
   ) : (
     <code>{view.label}</code>
   );
@@ -38,16 +40,17 @@ const ReferenceItem = ({ projectId, reference, resources }: { projectId: string;
 };
 
 /** 本文と訂正。必要になったActivityだけ、開いたときに取得する。 */
-const ActivityBody = ({ projectId, activityId }: { projectId: string; activityId: string }) => {
+const ActivityBody = ({ scope, activityId }: { scope: ActivityScope; activityId: string }) => {
   const [detail, setDetail] = useState<ActivityDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const path = activityPath(scope, activityId);
   useEffect(() => {
     let current = true;
-    request<ActivityDetail>(activityPath(projectId, activityId))
+    request<ActivityDetail>(path)
       .then((body) => { if (current) setDetail(body); })
       .catch((reason: unknown) => { if (current) setError(loadFailureMessage(classifyError(reason), "Activityが見つかりません。")); });
     return () => { current = false; };
-  }, [projectId, activityId]);
+  }, [path]);
   if (error) return <ErrorState message={`本文の読み込みに失敗しました: ${error}`} />;
   if (!detail) return <Loading />;
   return (
@@ -62,7 +65,7 @@ const ActivityBody = ({ projectId, activityId }: { projectId: string; activityId
   );
 };
 
-const ActivityItem = ({ activity, projectId, resources }: { activity: ActivitySummary; projectId: string; resources: readonly ProjectResourceLink[] }) => {
+const ActivityItem = ({ activity, scope, resources }: { activity: ActivitySummary; scope: ActivityScope; resources: readonly ProjectResourceLink[] }) => {
   const [open, setOpen] = useState(false);
   return (
     <li>
@@ -73,7 +76,7 @@ const ActivityItem = ({ activity, projectId, resources }: { activity: ActivitySu
       </small>
       {activity.refs.length > 0 && (
         <ul className="activity-refs">
-          {activity.refs.map((reference, index) => <ReferenceItem key={index} projectId={projectId} reference={reference} resources={resources} />)}
+          {activity.refs.map((reference, index) => <ReferenceItem key={index} scope={scope} reference={reference} resources={resources} />)}
         </ul>
       )}
       {activity.hasBody && (
@@ -83,16 +86,19 @@ const ActivityItem = ({ activity, projectId, resources }: { activity: ActivitySu
           </button>
         </div>
       )}
-      {open && <ActivityBody projectId={projectId} activityId={activity.id} />}
+      {open && <ActivityBody scope={scope} activityId={activity.id} />}
     </li>
   );
 };
 
 /**
- * ProjectのActivity（意味のある履歴）。Agentが記録した調査・判断・引き継ぎと、Story・Taskの重要な状態変更から生成した履歴を
- * 新しい順に表示する。成果物は正本（Repository / Docs・URL）へのlinkだけで、本文はCompassに複製しない。読み取り専用。
+ * ProjectまたはWorkspaceのActivity（意味のある履歴）。Agentが記録した調査・判断・引き継ぎと、重要な状態変更から生成した履歴を
+ * 新しい順に表示する。Project ActivityはStory・Task等のWork、Workspace ActivityはIntent・Outcome等のDirectionの履歴で、
+ * 互いを含めない。成果物は正本（Repository / Docs・URL）へのlinkだけで、本文はCompassに複製しない。読み取り専用。
  */
-export const ActivitySection = ({ projectId, resources }: { projectId: string; resources: readonly ProjectResourceLink[] }) => {
+export const ActivitySection = ({ scope, resources }: { scope: ActivityScope; resources: readonly ProjectResourceLink[] }) => {
+  const notFound = scope.kind === "project" ? "Projectが見つかりません。" : "Workspaceが見つかりません。";
+  const scopeKey = scope.kind === "project" ? `project:${scope.projectId}` : `workspace:${scope.workspaceId}`;
   const [activities, setActivities] = useState<ActivitySummary[] | null>(null);
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -107,22 +113,22 @@ export const ActivitySection = ({ projectId, resources }: { projectId: string; r
     setReachedEnd(false);
     setActivities(null);
     setError(null);
-    request<ActivityPage>(activitiesPath(projectId))
+    request<ActivityPage>(activitiesPath(scope))
       .then((page) => { if (current) { setActivities(page.activities); setNextCursor(page.nextCursor); } })
-      .catch((reason: unknown) => { if (current) setError(loadFailureMessage(classifyError(reason), "Projectが見つかりません。")); });
+      .catch((reason: unknown) => { if (current) setError(loadFailureMessage(classifyError(reason), notFound)); });
     return () => { current = false; };
-  }, [projectId]);
+  }, [scopeKey]);
   const loadMore = async () => {
     if (nextCursor === null || pending) return;
     setPending(true);
     setMoreError(null);
     try {
-      const page = await request<ActivityPage>(activitiesPath(projectId, nextCursor));
+      const page = await request<ActivityPage>(activitiesPath(scope, nextCursor));
       setActivities((existing) => appendActivityPage(existing ?? [], page.activities));
       setNextCursor(page.nextCursor);
       if (page.nextCursor === null) setReachedEnd(true);
     } catch (reason) {
-      setMoreError(`古いActivityを読み込めませんでした: ${loadFailureMessage(classifyError(reason), "Projectが見つかりません。")}`);
+      setMoreError(`古いActivityを読み込めませんでした: ${loadFailureMessage(classifyError(reason), notFound)}`);
     } finally {
       setPending(false);
     }
@@ -140,7 +146,7 @@ export const ActivitySection = ({ projectId, resources }: { projectId: string; r
       ) : activities.length ? (
         <>
           <ul className="grant-list change-list" aria-labelledby="activity-heading">
-            {activities.map((activity) => <ActivityItem key={activity.cursor} activity={activity} projectId={projectId} resources={resources} />)}
+            {activities.map((activity) => <ActivityItem key={activity.cursor} activity={activity} scope={scope} resources={resources} />)}
           </ul>
           {moreError && <p role="alert" className="error-title">{moreError}</p>}
           {reachedEnd && <p ref={endNote} tabIndex={-1} className="unset">これより古いActivityはありません</p>}

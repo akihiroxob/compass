@@ -1,4 +1,4 @@
-// Shell（header・main）とページ見出し、Project詳細のview切替。
+// Shell（Workspaceのsidebar・狭い画面の上下のbar・header・main）とページ見出し、Project詳細のview切替。
 @use "mixins" as *;
 
 .site-header {
@@ -43,12 +43,148 @@
   .action-row { margin-top: var(--space-sm); }
 }
 
+// Workspaceの中の画面。Desktopは左のsidebar、狭い画面は上端のbarと下端に固定したナビゲーション。
+.app-shell {
+  display: grid;
+  grid-template-columns: 16.5rem minmax(0, 1fr);
+  min-height: 100vh;
+  @include narrow { display: block; padding-bottom: 4.75rem; }
+}
+.skip-link {
+  position: absolute;
+  top: var(--space-sm);
+  left: -999px;
+  z-index: 30;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  color: var(--color-inverse-text);
+  background: var(--color-inverse);
+  font-weight: 700;
+  &:focus { left: var(--space-sm); }
+}
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-right: 1px solid var(--color-line);
+  background: var(--color-surface);
+  .session-menu { justify-content: flex-start; }
+  @include narrow {
+    position: static;
+    height: auto;
+    overflow: visible;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) 5vw;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-line);
+  }
+}
+.app-sidebar-footer {
+  display: grid;
+  gap: var(--space-sm);
+  margin-top: auto;
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-line-soft);
+  @include narrow { margin: 0 0 0 auto; padding: 0; border: 0; .sidebar-link { display: none; } }
+}
+.sidebar-link { color: var(--color-text-secondary); font-size: var(--text-note); font-weight: 700; }
+.app-content {
+  min-width: 0;
+  &:focus { outline: none; }
+}
+.workspace-switch {
+  display: grid;
+  gap: var(--space-2xs);
+  justify-items: start;
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-line-input);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-raised);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+  &:hover { border-color: var(--color-accent); box-shadow: var(--shadow-hover); }
+  small { @include caps-label; }
+  strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @include narrow { flex: 1 1 10rem; width: auto; min-width: 0; padding: var(--space-xs) var(--space-sm); }
+}
+.workspace-nav {
+  ul { @include unstyled-list; display: grid; gap: var(--space-2xs); }
+  a { @include nav-link; display: flex; border-radius: var(--radius-sm); }
+  @include narrow {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    padding: var(--space-xs) 2vw calc(var(--space-xs) + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--color-line);
+    background: var(--color-surface);
+    ul { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    a { justify-content: center; min-height: 2.75rem; padding: 0 var(--space-2xs); font-size: var(--text-small); }
+  }
+}
+.workspace-dialog {
+  width: min(36rem, calc(100vw - 2rem));
+  max-height: min(42rem, calc(100vh - 2rem));
+  padding: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lift);
+  &::backdrop { background: rgba(36, 34, 31, .45); }
+  &[open] { animation: view-enter var(--motion-fast) ease-out; }
+}
+.workspace-dialog-body {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  @include narrow { padding: var(--space-md); }
+  .section-note { margin: 0; }
+}
+.workspace-dialog-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  h2 { margin: 0; @include serif-heading(1.8rem); }
+  .eyebrow { margin-bottom: var(--space-2xs); }
+}
+.workspace-search { margin-top: 0; }
+.workspace-options {
+  @include unstyled-list;
+  display: grid;
+  gap: var(--space-xs);
+  a {
+    @include list-link;
+    display: grid;
+    gap: var(--space-2xs);
+    padding: var(--space-sm) var(--space-md);
+    transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+    &[aria-current="true"] { border-color: var(--color-accent); }
+  }
+  small { color: var(--color-text-muted); overflow-wrap: anywhere; }
+  .status-badge { justify-self: start; }
+}
+
 main {
-  width: min(1120px, 92vw);
+  width: min(1120px, calc(100% - 8vw));
   margin: 0 auto;
   padding: 5rem 0 7rem;
-  &.narrow { width: min(820px, 92vw); }
-  @include narrow { padding-top: 1.5rem; }
+  &.narrow { width: min(820px, calc(100% - 8vw)); }
+  .app-content & { padding-top: 3.5rem; }
+  @include narrow { padding-top: 1.5rem; .app-content & { padding-top: 1.5rem; } }
 }
 
 .page-heading {
@@ -91,19 +227,7 @@ main {
   background: var(--color-paper);
   overflow-x: auto;
   ul { display: flex; gap: var(--space-xs); @include unstyled-list; white-space: nowrap; }
-  a {
-    display: inline-flex;
-    align-items: center;
-    min-height: 2.4rem;
-    padding: 0 1rem;
-    border-radius: var(--radius-pill);
-    color: var(--color-text);
-    text-decoration: none;
-    font-weight: 700;
-    transition: background-color var(--motion-fast), color var(--motion-fast);
-    &:hover { background: var(--color-subtle); }
-    &[aria-current="page"] { color: #fff; background: var(--color-text); }
-  }
+  a { @include nav-link; }
   @include narrow { margin-left: -4vw; margin-right: -4vw; padding-left: 4vw; padding-right: 4vw; }
 }
 .view-panel { animation: view-enter var(--motion-fast) ease-out; }

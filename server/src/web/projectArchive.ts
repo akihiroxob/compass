@@ -15,8 +15,8 @@ export const parseListStatus = (value: string | null): ProjectStatus => (value =
 /** 一覧のWeb API path。activeは既定のためqueryを付けない。 */
 export const projectsApiPath = (status: ProjectStatus): string => (status === "archived" ? "/api/projects?status=archived" : "/api/projects");
 
-/** 一覧画面のpath（切替のリンク先）。 */
-export const projectListPath = (status: ProjectStatus): string => (status === "archived" ? "/?status=archived" : "/");
+/** 参加中のProject一覧のpath（切替のリンク先）。Workspaceごとの一覧は`features/workspace`の`workspaceProjectsPath`。 */
+export const projectListPath = (status: ProjectStatus): string => (status === "archived" ? "/projects?status=archived" : "/projects");
 
 export const archiveProjectPath = (projectId: string): string => `/api/projects/${projectId}/archive`;
 

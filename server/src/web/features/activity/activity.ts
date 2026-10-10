@@ -1,4 +1,4 @@
-// ---- Activity閲覧。Web API（`/api/projects/:projectId/activities`・`activities/:activityId`）の応答の型と表示用の変換。 ----
+// ---- Activity閲覧。Web API（`/api/projects/:projectId/activities`・`/api/workspaces/:workspaceId/activities`と各`/:activityId`）の応答の型と表示用の変換。 ----
 
 export type ActivityReference =
   | { kind: "project_resource"; resourceId: string; path: string | null; revision: string | null }
@@ -8,9 +8,10 @@ export type ActivityReference =
 export type ActivitySummary = {
   id: string;
   cursor: number;
-  scope: "project";
+  scope: "project" | "workspace";
   workspaceId: string;
-  projectId: string;
+  /** Workspace Activity（Direction等）ではnull。 */
+  projectId: string | null;
   type: string;
   principalId: string;
   role: string;
@@ -29,9 +30,14 @@ export type ActivityDetail = { activity: Activity; corrections: ActivitySummary[
 /** Projectに登録済みのRepository・Resource。`project_resource`参照の表示名・URLを引く。 */
 export type ProjectResourceLink = { id: string; name: string; url: string };
 
-export const activitiesPath = (projectId: string, beforeCursor: number | null = null, limit = 20) =>
-  `/api/projects/${projectId}/activities?limit=${limit}${beforeCursor === null ? "" : `&beforeCursor=${beforeCursor}`}`;
-export const activityPath = (projectId: string, activityId: string) => `/api/projects/${projectId}/activities/${activityId}`;
+/** 閲覧するActivityのscope。Project ActivityとWorkspace Activityは別のWeb APIで、互いを含めない。 */
+export type ActivityScope = { kind: "project"; projectId: string } | { kind: "workspace"; workspaceId: string };
+
+const activityScopePath = (scope: ActivityScope) =>
+  scope.kind === "project" ? `/api/projects/${scope.projectId}/activities` : `/api/workspaces/${scope.workspaceId}/activities`;
+export const activitiesPath = (scope: ActivityScope, beforeCursor: number | null = null, limit = 20) =>
+  `${activityScopePath(scope)}?limit=${limit}${beforeCursor === null ? "" : `&beforeCursor=${beforeCursor}`}`;
+export const activityPath = (scope: ActivityScope, activityId: string) => `${activityScopePath(scope)}/${activityId}`;
 
 export const activitySourceLabels: Record<ActivitySummary["source"], string> = { recorded: "記録", canonical: "状態変更" };
 
