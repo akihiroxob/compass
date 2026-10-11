@@ -50,13 +50,17 @@ export const workspaceCreatePath = "/workspaces/new";
 export const workspaceEditPath = (workspaceId: string) => `${workspacePath(workspaceId)}/edit`;
 export const workspaceProjectCreatePath = (workspaceId: string) => `${workspacePath(workspaceId, "projects")}/new`;
 
+/** Workspaceの方向のOutcome詳細。Outcomeは所属Intentとともに指す（Web APIのpathと同じ）。 */
+export const workspaceOutcomePath = (workspaceId: string, intentId: string, outcomeId: string) =>
+  `${workspacePath(workspaceId, "direction")}/intents/${intentId}/outcomes/${outcomeId}`;
+
 /** WorkspaceのProject一覧。activeは既定のためqueryを付けない。 */
 export const workspaceProjectsPath = (workspaceId: string, status: "active" | "archived" = "active") =>
   `${workspacePath(workspaceId, "projects")}${status === "archived" ? "?status=archived" : ""}`;
 
 /**
  * URLから現在位置を読む。Workspaceの画面はWorkspace IDと項目、Project配下の画面はProject ID（所属Workspaceは取得して解決する）。
- * Workspaceの編集は「概要」、Project追加は「Project」の項目に属する。
+ * Workspaceの編集は「概要」、Project追加は「Project」、Outcome詳細は「方向」の項目に属する。
  * それ以外（ホーム・参加中のProject・Workspace作成・未定義のURL）は`none`。
  */
 export type ShellLocation =
@@ -74,6 +78,8 @@ export const parseShellLocation = (pathname: string): ShellLocation => {
         ? "overview"
         : rest === "projects" && subPage === "new"
           ? "projects"
+          : rest === "direction" && /^intents\/[^/]+\/outcomes\/[^/]+$/.test(subPage)
+            ? "direction"
           : subPage === "" ? workspaceSections.find((value) => value === rest && value !== "overview") ?? null : null;
     return { kind: "workspace", workspaceId: id, section };
   }
