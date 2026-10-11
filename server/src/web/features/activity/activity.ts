@@ -154,11 +154,13 @@ export const appendActivityPage = (existing: ActivitySummary[], page: ActivitySu
 };
 
 /**
- * 一覧の読込状態。`key`は取得条件（scopeと種別）で、条件が変わると`reset`で初期化する。
- * 応答は要求時の`key`を添えて渡し、現在の`key`と異なる（scope・種別の変更で古くなった）応答の成功・失敗・完了は無視する。
+ * 一覧の読込状態。`key`は取得条件（scopeと種別）、`generation`は取得の世代で、条件が変わるたびに新しい世代で`reset`する。
+ * 応答は要求時の`generation`を添えて渡し、現在の世代と異なる応答の成功・失敗・完了は無視する。
+ * 条件の文字列だけでは`A → B → A`と同じ条件へ戻ったときに旧要求と区別できないため、世代で判定する。
  */
 export type ActivityListState = {
   key: string;
+  generation: number;
   activities: ActivitySummary[] | null;
   nextCursor: number | null;
   error: string | null;
@@ -169,15 +171,16 @@ export type ActivityListState = {
 };
 
 export type ActivityListAction =
-  | { kind: "reset"; key: string }
-  | { kind: "loaded"; key: string; page: ActivityPage }
-  | { kind: "failed"; key: string; message: string }
-  | { kind: "moreStarted"; key: string }
-  | { kind: "moreLoaded"; key: string; page: ActivityPage }
-  | { kind: "moreFailed"; key: string; message: string };
+  | { kind: "reset"; key: string; generation: number }
+  | { kind: "loaded"; generation: number; page: ActivityPage }
+  | { kind: "failed"; generation: number; message: string }
+  | { kind: "moreStarted"; generation: number }
+  | { kind: "moreLoaded"; generation: number; page: ActivityPage }
+  | { kind: "moreFailed"; generation: number; message: string };
 
-export const initialActivityList = (key: string): ActivityListState => ({
+export const initialActivityList = (key: string, generation = 0): ActivityListState => ({
   key,
+  generation,
   activities: null,
   nextCursor: null,
   error: null,
@@ -187,8 +190,8 @@ export const initialActivityList = (key: string): ActivityListState => ({
 });
 
 export const activityListReducer = (state: ActivityListState, action: ActivityListAction): ActivityListState => {
-  if (action.kind === "reset") return initialActivityList(action.key);
-  if (action.key !== state.key) return state;
+  if (action.kind === "reset") return initialActivityList(action.key, action.generation);
+  if (action.generation !== state.generation) return state;
   switch (action.kind) {
     case "loaded":
       return { ...state, activities: action.page.activities, nextCursor: action.page.nextCursor };

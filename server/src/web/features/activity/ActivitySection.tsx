@@ -165,23 +165,24 @@ export const ActivitySection = ({ scope, resources, related }: { scope: Activity
   // 最後のページを読み込むとbuttonが消えるため、focusをbodyへ落とさず末尾の案内へ移す。
   const endNote = useRef<HTMLParagraphElement>(null);
   useEffect(() => { if (reachedEnd) endNote.current?.focus(); }, [reachedEnd]);
-  // 取得条件ごとに状態を作り直す。古い条件の応答（追加読込を含む）はreducerがkeyの不一致で捨てる。
+  // 取得条件ごとに新しい世代で状態を作り直す。同じ条件へ戻った場合も含め、古い世代の応答（追加読込を含む）はreducerが捨てる。
+  const lastGeneration = useRef(0);
   useEffect(() => {
-    const key = scopeKey;
-    dispatch({ kind: "reset", key });
+    const generation = ++lastGeneration.current;
+    dispatch({ kind: "reset", key: scopeKey, generation });
     request<ActivityPage>(activitiesPath(scope, { type }))
-      .then((page) => dispatch({ kind: "loaded", key, page }))
-      .catch((reason: unknown) => dispatch({ kind: "failed", key, message: loadFailureMessage(classifyError(reason), notFound) }));
+      .then((page) => dispatch({ kind: "loaded", generation, page }))
+      .catch((reason: unknown) => dispatch({ kind: "failed", generation, message: loadFailureMessage(classifyError(reason), notFound) }));
   }, [scopeKey]);
   const loadMore = async () => {
     if (nextCursor === null || pending) return;
-    const key = scopeKey;
-    dispatch({ kind: "moreStarted", key });
+    const { generation } = list;
+    dispatch({ kind: "moreStarted", generation });
     try {
       const page = await request<ActivityPage>(activitiesPath(scope, { beforeCursor: nextCursor, type }));
-      dispatch({ kind: "moreLoaded", key, page });
+      dispatch({ kind: "moreLoaded", generation, page });
     } catch (reason) {
-      dispatch({ kind: "moreFailed", key, message: `古いActivityを読み込めませんでした: ${loadFailureMessage(classifyError(reason), notFound)}` });
+      dispatch({ kind: "moreFailed", generation, message: `古いActivityを読み込めませんでした: ${loadFailureMessage(classifyError(reason), notFound)}` });
     }
   };
   const typeLabel = type === null ? null : (activityTypeLabel(scope.kind, type) ?? type);

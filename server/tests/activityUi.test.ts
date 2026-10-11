@@ -86,24 +86,24 @@ test("種別を変えた後に返った古い追加読込の成功・失敗は�
   const item = (cursor: number, type: string) => ({ cursor, type }) as ActivitySummary;
   const all = "project:p1#";
   const accepted = "project:p1#task.accepted";
-  let state = activityListReducer(initialActivityList(all), { kind: "loaded", key: all, page: { activities: [item(30, "task.created")], nextCursor: 30 } });
+  let state = activityListReducer(initialActivityList(all, 1), { kind: "loaded", generation: 1, page: { activities: [item(30, "task.created")], nextCursor: 30 } });
   // 全件で追加読込を始めたまま、種別をtask.acceptedへ変える。
-  state = activityListReducer(state, { kind: "moreStarted", key: all });
+  state = activityListReducer(state, { kind: "moreStarted", generation: 1 });
   assert.equal(state.pending, true);
-  state = activityListReducer(state, { kind: "reset", key: accepted });
+  state = activityListReducer(state, { kind: "reset", key: accepted, generation: 2 });
   assert.equal(state.pending, false);
-  state = activityListReducer(state, { kind: "loaded", key: accepted, page: { activities: [item(40, "task.accepted")], nextCursor: 40 } });
+  state = activityListReducer(state, { kind: "loaded", generation: 2, page: { activities: [item(40, "task.accepted")], nextCursor: 40 } });
   // 絞り込み結果の取得後に、全件の旧ページ・旧エラーが返る。
   const current = state;
-  state = activityListReducer(state, { kind: "moreLoaded", key: all, page: { activities: [item(20, "story.created")], nextCursor: 20 } });
-  state = activityListReducer(state, { kind: "moreFailed", key: all, message: "古いActivityを読み込めませんでした" });
-  state = activityListReducer(state, { kind: "failed", key: all, message: "失敗" });
+  state = activityListReducer(state, { kind: "moreLoaded", generation: 1, page: { activities: [item(20, "story.created")], nextCursor: 20 } });
+  state = activityListReducer(state, { kind: "moreFailed", generation: 1, message: "古いActivityを読み込めませんでした" });
+  state = activityListReducer(state, { kind: "failed", generation: 1, message: "失敗" });
   assert.equal(state, current);
   assert.deepEqual(state.activities?.map(({ type }) => type), ["task.accepted"]);
   assert.equal(state.nextCursor, 40);
   // 現在の条件では続けて追加読込でき、最後のページで末尾に達する。
-  state = activityListReducer(state, { kind: "moreStarted", key: accepted });
-  state = activityListReducer(state, { kind: "moreLoaded", key: accepted, page: { activities: [item(35, "task.accepted")], nextCursor: null } });
+  state = activityListReducer(state, { kind: "moreStarted", generation: 2 });
+  state = activityListReducer(state, { kind: "moreLoaded", generation: 2, page: { activities: [item(35, "task.accepted")], nextCursor: null } });
   assert.deepEqual(state.activities?.map(({ cursor }) => cursor), [40, 35]);
   assert.equal(state.nextCursor, null);
   assert.equal(state.pending, false);
@@ -112,14 +112,47 @@ test("種別を変えた後に返った古い追加読込の成功・失敗は�
   assert.equal(state.error, null);
 });
 
+test("同じ条件へ戻った（A → B → A）後に返った旧世代の初回取得・追加読込は、現在の一覧・cursor・エラー・読込中・末尾へ混入しない", () => {
+  const item = (cursor: number) => ({ cursor, type: "task.created" }) as ActivitySummary;
+  const all = "project:p1#";
+  // 世代1（全件）: 初回取得を保留したまま、別の世代1の追加読込も保留中とみなす。
+  let state = initialActivityList(all, 1);
+  // 種別を変え（世代2）、全件へ戻す（世代3）。条件の文字列は世代1と同じ。
+  state = activityListReducer(state, { kind: "reset", key: "project:p1#task.accepted", generation: 2 });
+  state = activityListReducer(state, { kind: "reset", key: all, generation: 3 });
+  assert.equal(state.key, all);
+  state = activityListReducer(state, { kind: "loaded", generation: 3, page: { activities: [item(60), item(50)], nextCursor: 50 } });
+  state = activityListReducer(state, { kind: "moreStarted", generation: 3 });
+  const current = state;
+  // 世代1の初回取得の成功・失敗、追加読込の成功・失敗が遅れて返る。
+  state = activityListReducer(state, { kind: "loaded", generation: 1, page: { activities: [item(30), item(20)], nextCursor: 20 } });
+  state = activityListReducer(state, { kind: "failed", generation: 1, message: "失敗" });
+  state = activityListReducer(state, { kind: "moreLoaded", generation: 1, page: { activities: [item(10)], nextCursor: null } });
+  state = activityListReducer(state, { kind: "moreFailed", generation: 1, message: "古いActivityを読み込めませんでした" });
+  state = activityListReducer(state, { kind: "moreStarted", generation: 1 });
+  assert.equal(state, current);
+  assert.deepEqual(state.activities?.map(({ cursor }) => cursor), [60, 50]);
+  assert.equal(state.nextCursor, 50);
+  assert.equal(state.pending, true);
+  assert.equal(state.error, null);
+  assert.equal(state.moreError, null);
+  assert.equal(state.reachedEnd, false);
+  // 現在の世代の追加読込はそのまま続けられる。
+  state = activityListReducer(state, { kind: "moreLoaded", generation: 3, page: { activities: [item(40)], nextCursor: 40 } });
+  assert.deepEqual(state.activities?.map(({ cursor }) => cursor), [60, 50, 40]);
+  assert.equal(state.nextCursor, 40);
+  assert.equal(state.pending, false);
+  assert.equal(state.reachedEnd, false);
+});
+
 test("追加読込の失敗は現在の条件の一覧を残してエラーを出し、再試行で消える", () => {
   const key = "workspace:w1#";
-  let state = activityListReducer(initialActivityList(key), { kind: "loaded", key, page: { activities: [{ cursor: 9 } as ActivitySummary], nextCursor: 9 } });
-  state = activityListReducer(activityListReducer(state, { kind: "moreStarted", key }), { kind: "moreFailed", key, message: "読み込めません" });
+  let state = activityListReducer(initialActivityList(key), { kind: "loaded", generation: 0, page: { activities: [{ cursor: 9 } as ActivitySummary], nextCursor: 9 } });
+  state = activityListReducer(activityListReducer(state, { kind: "moreStarted", generation: 0 }), { kind: "moreFailed", generation: 0, message: "読み込めません" });
   assert.equal(state.moreError, "読み込めません");
   assert.equal(state.pending, false);
   assert.equal(state.nextCursor, 9);
   assert.equal(state.activities?.length, 1);
-  state = activityListReducer(state, { kind: "moreStarted", key });
+  state = activityListReducer(state, { kind: "moreStarted", generation: 0 });
   assert.equal(state.moreError, null);
 });
