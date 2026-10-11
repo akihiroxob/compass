@@ -62,7 +62,7 @@
   &:hover { transform: none; box-shadow: none; }
 }
 .locked-note { color: var(--color-text-secondary); font-size: var(--text-note); line-height: 1.6; }
-.workspace-agent-projects {
+.workspace-project-links {
   @include unstyled-list;
   li > p { @include list-item; display: flex; justify-content: space-between; gap: 1rem; margin: 0; padding: 1rem; @include narrow { flex-direction: column; } }
 }
@@ -70,7 +70,7 @@
 // Outcomeごとの担当Projectと進み具合（Workspaceの概要・方向、Project詳細の概要の貢献Outcome）と、概要の最近の記録。
 .workspace-intent { margin: 0 0 var(--space-md); font-weight: 700; overflow-wrap: anywhere; }
 .outcome-positions, .target-works, .recent-activities { @include unstyled-list; display: grid; gap: .6rem; }
-.detail-section .outcome-positions, .detail-section .target-works, .detail-section .recent-activities, .detail-section .workspace-agent-projects { padding-left: 0; }
+.detail-section .outcome-positions, .detail-section .target-works, .detail-section .recent-activities, .detail-section .workspace-project-links { padding-left: 0; }
 .outcome-positions {
   margin-bottom: var(--space-md);
   > li { @include list-item; padding: 1rem; overflow-wrap: anywhere; }
@@ -269,6 +269,16 @@
   .pre-wrap { margin-top: .5rem; }
 }
 .activity-refs { margin: .45rem 0 0; padding-left: 1.1rem; font-size: var(--text-small); li { margin: .15rem 0; } }
+.activity-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  margin-top: var(--space-md);
+  label { margin: 0; }
+  select { min-width: 0; max-width: 100%; }
+  @include narrow { select { flex: 1 1 100%; } }
+}
 .evidence-uri { color: var(--color-accent); font-weight: 700; overflow-wrap: anywhere; }
 .claim-holder-toolbar {
   display: flex;

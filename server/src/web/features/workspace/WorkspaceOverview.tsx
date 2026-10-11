@@ -37,7 +37,7 @@ const loadOverview = async (workspaceId: string): Promise<OverviewData> => {
   const [direction, projects, activities] = await Promise.all([
     settle(loadDirection(workspaceId), notFound),
     settle(loadProjects(workspaceId), notFound),
-    settle(request<ActivityPage>(activitiesPath({ kind: "workspace", workspaceId }, null, recentActivityLimit)).then((page) => page.activities), notFound),
+    settle(request<ActivityPage>(activitiesPath({ kind: "workspace", workspaceId }, { limit: recentActivityLimit })).then((page) => page.activities), notFound),
   ]);
   return { direction, projects, activities, fetchedAt: Date.now() };
 };
@@ -194,7 +194,7 @@ const ProjectSummary = ({ workspace, projects, outcomes }: { workspace: Workspac
   return (
     <>
       {active.length === 0 ? <p className="unset">activeなProjectはありません。</p> : (
-        <ul className="link-list workspace-agent-projects">
+        <ul className="link-list workspace-project-links">
           {active.map(({ project, canOpen }) => {
             const note = projectTargetNote(outcomes, project.id);
             return <li key={project.id}>{canOpen ? <Link to={projectViewPath(project.id, "overview")}><span>{project.name}</span><small>{note}</small></Link> : <p><span>{project.name}</span><small>{note} ・ Project Membershipが無いため開けません</small></p>}</li>;

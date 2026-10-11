@@ -143,7 +143,7 @@ Activity側の受け口は`canonicalDirectionActivity.ts`の`DirectionChangeFact
 
 #### 参照への影響
 
-DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`list_activities`・`/api/projects/:projectId/activities`・Web UIの`features/activity/`・`GetRoleContextUseCase`の最近のProject Activity）には出ない。内部の`ActivityStore.listWorkspace`・`maxWorkspaceCursor`は実装済みで、Workspace scopeだけを取得し、同じWorkspaceのProject Activityは含めない。既存のcursor・filterを共用する。認可付きWorkspace記録・取得のuse caseと公開入口（MCP・Web API）はS07-02、Workspace Role ContextはS07-03で接続済みで、Web UIはS11-01で接続する。開発DBを再作成する場合、旧Activityの再分類や引継ぎは不要。
+DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`list_activities`・`/api/projects/:projectId/activities`・Web UIの`features/activity/`・`GetRoleContextUseCase`の最近のProject Activity）には出ない。内部の`ActivityStore.listWorkspace`・`maxWorkspaceCursor`は実装済みで、Workspace scopeだけを取得し、同じWorkspaceのProject Activityは含めない。既存のcursor・filterを共用する。認可付きWorkspace記録・取得のuse caseと公開入口（MCP・Web API）はS07-02、Workspace Role ContextはS07-03で接続済みで、Web UIはS11-01でWorkspace・Projectの「記録」にscope別に接続済み（種別の絞り込みはWeb APIの`type`）。開発DBを再作成する場合、旧Activityの再分類や引継ぎは不要。
 
 #### 回帰
 
