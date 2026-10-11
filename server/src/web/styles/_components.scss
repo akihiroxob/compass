@@ -180,7 +180,7 @@
   .secondary-button { min-height: 2.4rem; }
   .action-row { margin-top: 0; }
 }
-.outcome-list a, .link-list a, .past-intents a, .grant-list li, .next-action-list li, .position-steps > li, .agent-role {
+.outcome-list a, .link-list a, .past-intents a, .grant-list li, .next-action-list li, .agent-role {
   transition: border-color var(--motion-fast), background-color var(--motion-fast), box-shadow var(--motion-fast);
 }
 
