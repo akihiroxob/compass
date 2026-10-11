@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { directionDecisionTypeLabels, type DirectionDecision } from "../../directionDecisionForm";
@@ -29,7 +29,7 @@ type LoopData = {
   decisions: DirectionDecision[];
 };
 
-const EvidenceList = ({ record }: { record: OutcomeExecutionRecord }) =>
+export const EvidenceList = ({ record }: { record: OutcomeExecutionRecord }) =>
   record.evidence.length ? (
     <ul className="grant-list">
       {record.evidence.map((item) => (
@@ -46,7 +46,8 @@ const EvidenceList = ({ record }: { record: OutcomeExecutionRecord }) =>
     <p className="unset">Evidence参照はまだ還流されていません（Evidence不足）</p>
   );
 
-const EvaluationCard = ({ evaluation, decisions }: { evaluation: OutcomeEvaluation; decisions: DirectionDecision[] }) => {
+/** Evaluation 1件。`projectLabel`があれば評価時のTarget ProjectをIDの代わりにその表示（Project名等）で出す。 */
+export const EvaluationCard = ({ evaluation, decisions, projectLabel }: { evaluation: OutcomeEvaluation; decisions: DirectionDecision[]; projectLabel?: (projectId: string) => ReactNode }) => {
   const evidenceById = new Map(evaluation.snapshot.targets.flatMap((target) => target.evidence).map((item) => [item.id, item]));
   return (
     <article className="intent-card">
@@ -61,7 +62,7 @@ const EvaluationCard = ({ evaluation, decisions }: { evaluation: OutcomeEvaluati
       <ul className="grant-list">
         {evaluation.snapshot.targets.map((target) => (
           <li key={target.projectId}>
-            <span><code>{target.projectId}</code>{target.projectStatus === "archived" && <> （archived）</>}</span>
+            <span>{projectLabel ? projectLabel(target.projectId) : <code>{target.projectId}</code>}{target.projectStatus === "archived" && <> （archived）</>}</span>
             <small>{executionStateLabels[target.execution.state]} ・ 相関ID <code>{target.execution.correlationId}</code> ・ Evidence {target.evidence.length}件</small>
           </li>
         ))}

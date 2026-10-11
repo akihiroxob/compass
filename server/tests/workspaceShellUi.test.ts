@@ -10,6 +10,7 @@ import {
   withProjectAccess,
   workspaceCreatePath,
   workspaceEditPath,
+  workspaceOutcomePath,
   workspacePath,
   workspaceProjectCreatePath,
   workspaceProjectsPath,
@@ -48,6 +49,9 @@ test("現在位置はURLだけから読み、深いURLの再読込でも同じWo
   assert.deepEqual(parseShellLocation("/workspaces/ws-1/edit"), { kind: "workspace", workspaceId: "ws-1", section: "overview" });
   assert.deepEqual(parseShellLocation("/workspaces/ws-1/projects/new"), { kind: "workspace", workspaceId: "ws-1", section: "projects" });
   assert.deepEqual(parseShellLocation("/workspaces/ws-1/edit/x"), { kind: "workspace", workspaceId: "ws-1", section: null });
+  // WorkspaceのOutcome詳細は「方向」に属する。Outcomeまで揃わないURLは選択にしない。
+  assert.deepEqual(parseShellLocation(workspaceOutcomePath("ws-1", "i-1", "o-1")), { kind: "workspace", workspaceId: "ws-1", section: "direction" });
+  assert.deepEqual(parseShellLocation("/workspaces/ws-1/direction/intents/i-1"), { kind: "workspace", workspaceId: "ws-1", section: null });
   assert.deepEqual(parseShellLocation("/projects"), { kind: "none" });
   assert.deepEqual(parseShellLocation("/"), { kind: "none" });
 });

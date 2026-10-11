@@ -34,6 +34,33 @@ export type OutcomeExecution = {
   latestEvaluation: { id: string; decided: boolean; targetCursors: TargetCursor[] } | null;
 };
 
+/** target-executionsの応答のうち、還流と評価の状態の判定に使う部分。 */
+export type TargetExecutionsCursor = { targets: readonly { projectId: string; execution: { summary: { executionCursor: number } } | null }[]; evaluability: Evaluability };
+/** Evaluationの応答のうち、判定に使う部分（新しい順）。 */
+export type EvaluationCursor = { id: string; snapshot: { targets: readonly { projectId: string; execution: { executionCursor: number } }[] } };
+
+/**
+ * target-executions・evaluations・Active IntentのDirection Decision（根拠のEvaluation ID。取得失敗はnull）から、Outcomeの還流と評価の状態を組み立てる。
+ * Evaluationがあるのに判断済みかを確認できなければnull（判断待ちと断定しない）。
+ */
+export const buildOutcomeExecution = (
+  executions: TargetExecutionsCursor,
+  evaluations: readonly EvaluationCursor[],
+  decidedEvaluations: ReadonlySet<string> | null,
+): OutcomeExecution | null => {
+  const latest = evaluations[0] ?? null;
+  if (latest && !decidedEvaluations) return null;
+  return {
+    evaluability: executions.evaluability,
+    targetCursors: executions.targets.map(({ projectId, execution }) => ({ projectId, executionCursor: execution?.summary.executionCursor ?? null })),
+    latestEvaluation: latest && {
+      id: latest.id,
+      decided: decidedEvaluations!.has(latest.id),
+      targetCursors: latest.snapshot.targets.map(({ projectId, execution }) => ({ projectId, executionCursor: execution.executionCursor })),
+    },
+  };
+};
+
 export type OverviewOutcome = { id: string; intentId: string; title: string };
 
 /**
