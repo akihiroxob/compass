@@ -225,9 +225,9 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | 対象 | 変更 | Task |
 | --- | --- | --- |
 | `main.tsx`のroute（`/projects/:projectId/...`）、`paths.ts` | Workspace選択と`Overview / Direction / Projects / Activity / Agents`の導線（S09-02で実装済み。`features/workspace/`・`/workspaces/:workspaceId/...`）。Overviewの現在地・要対応はS10-01で実装済み。DirectionのOutcome → Target Project → Story / Evidence / Evaluationの表示（`/workspaces/:workspaceId/direction/intents/:intentId/outcomes/:outcomeId`）はS10-02で実装済み。Intent・Outcome・Researchの経路をWorkspace配下へ | S09-02、S10-01〜02 |
-| `features/project/`（`ProjectListPage`・`ProjectDetailPage`・`ProjectOverview`・`ProjectForm*`・`overview.ts`）、`projectForm.ts`・`projectArchive.ts` | Mission等の表示・編集をWorkspaceへ。ProjectはPurpose・Resource・Work | S09-03、S10-03 |
+| `features/project/`（`ProjectListPage`・`ProjectDetailPage`・`ProjectOverview`・`ProjectForm*`・`overview.ts`）、`projectForm.ts`・`projectArchive.ts` | Mission等の表示・編集をWorkspaceへ。ProjectはPurpose・Resource・Work。Project詳細の概要を実行境界（Purpose・Resource、貢献するWorkspace Outcome、実行状況、Project scopeの次の行動、Claim、Project Activity）として再構成済み（S10-03） | S09-03、S10-03 |
 | `features/intent/`・`outcome/`・`research/`・`decision/`・`adr/`、`intentForm.ts`・`outcomeForm.ts`・`researchForm.ts`・`directionDecisionForm.ts`・`adrReferenceForm.ts` | Workspace Directionへ。OutcomeからTarget Project・Storyへの遷移はS10-02で実装済み（Outcome詳細の閲覧はWorkspace配下。作成・編集・Research・Decisionの画面はProject配下のまま） | S10-02 |
-| `features/execution/`（`ExecutionSection`・`TaskDetailPage`・`ClaimHolderSection`等） | Project配下のまま。Workspace→Projectの遷移に接続 | S10-03、S10-04 |
+| `features/execution/`（`ExecutionSection`・`TaskDetailPage`・`ClaimHolderSection`等） | Project配下のまま。Workspace→Projectの遷移に接続。Project概要の貢献Outcome・実行状況から「実行」viewのStoryへの遷移はS10-03で実装済み | S10-03、S10-04 |
 | `features/activity/`・`grant/`・`credential/`・`member/`、`permissions.ts`・`projectAccess.ts`・`useProjectAccess.ts` | scope別の表示と、Workspace / Projectの権限の区別 | S11-01〜03 |
 | `styles/main.scss`・`styles/_tokens.scss`・`styles/_mixins.scss`・`components/` | SCSS基盤は既存Project画面に接続済み。Shell・StateCard・FormErrorSummary・ReasonPanel等の既存部品と共通classを再利用する。S09-02でWorkspaceのShell・画面へ接続し、ナビゲーションの`nav-link` mixinとtokenがWorkspace・Projectの双方へ反映されることを実ブラウザで確認済み | S09-01、S09-02 |
 

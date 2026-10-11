@@ -39,6 +39,13 @@ const ReferenceItem = ({ scope, reference, resources }: { scope: ActivityScope; 
   return <li>{label}{view.detail && <> <code>{view.detail}</code></>}</li>;
 };
 
+/** 概要の「最近の記録」。新しい順のsummaryと記録者・日時だけを出し、本文・参照は「記録」で読む。 */
+export const RecentActivityList = ({ activities }: { activities: readonly ActivitySummary[] }) => (
+  <ul className="recent-activities">
+    {activities.map((activity) => <li key={activity.id}>{activity.summary}<small>{describePrincipal(activity.principalId)}（{activity.role}） ・ {formatTime(activity.occurredAt)}</small></li>)}
+  </ul>
+);
+
 /** 本文と訂正。必要になったActivityだけ、開いたときに取得する。 */
 const ActivityBody = ({ scope, activityId }: { scope: ActivityScope; activityId: string }) => {
   const [detail, setDetail] = useState<ActivityDetail | null>(null);

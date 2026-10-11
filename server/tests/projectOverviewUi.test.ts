@@ -1,39 +1,54 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ExecutionTask, LoopStage } from "../src/web/features/execution/execution.ts";
+import type { ExecutionTask } from "../src/web/features/execution/execution.ts";
 import type { GrantRole } from "../src/web/features/grant/grants.ts";
 import {
   agentsWithoutCredential,
+  contributionStage,
   countWork,
   nextClaimExpiry,
   nextActionSummary,
   parseProjectView,
   planNextActions,
+  projectContributionNote,
+  projectContributions,
   projectViewPath,
   type NextActionInput,
-  type OutcomeProgress,
 } from "../src/web/features/project/overview.ts";
+import type { Evaluability, OutcomeExecution, OutcomePosition, TargetWork } from "../src/web/features/workspace/overview.ts";
 import { hashTargetId } from "../src/web/useHashTarget.ts";
 
-/** Project詳細の概要（Task 03）の判定。画面の描画・実ブラウザ確認はTaskの作業コメントに記録する。 */
+/** Project詳細の概要（S10-03）の判定。画面の描画・実ブラウザ確認はTaskの結果に記録する。 */
 
 const now = 1_000_000;
 const task = (id: string, overrides: Partial<ExecutionTask> = {}): ExecutionTask => ({
   id, projectId: "p1", storyId: "s1", title: id, description: null, status: "todo", rejectReason: null, createdAt: 0, updatedAt: 0, taskKey: null, activeClaim: null, reclaimable: false, ...overrides,
 });
 const held = (principalId: string) => ({ claimId: `c-${principalId}`, principalId, expiresAt: now + 60_000 });
-const stage = (value: LoopStage["stage"]): LoopStage =>
-  value === "evaluated" ? { stage: value, label: "評価済み", result: "achieved" } : { stage: value, label: value };
-const outcome = (id: string, value: LoopStage["stage"] | null, tasks: ExecutionTask[] = []): OutcomeProgress => ({
-  outcome: { id, intentId: "i1", title: id }, stage: value === null ? null : stage(value), tasks,
+const counts = (values: Partial<NonNullable<TargetWork["work"]>["taskCounts"]> = {}) => ({
+  todo: 0, doing: 0, in_review: 0, wait_accept: 0, accepted: 0, rejected: 0, canceled: 0, ...values,
+});
+const work = (state: NonNullable<TargetWork["work"]>["state"], taskCounts: ReturnType<typeof counts>): TargetWork["work"] => ({ state, storyCount: 1, taskCounts });
+const target = (projectId: string, targetWork: TargetWork["work"], projectStatus: TargetWork["projectStatus"] = "active"): TargetWork => ({
+  outcomeId: "o", projectId, projectStatus, createdAt: 1, work: targetWork,
+});
+const awaiting = (unfinished: Evaluability["unfinishedTargets"] = []): Evaluability => ({ status: unfinished.length ? "awaiting_execution" : "evaluable", unfinishedTargets: unfinished });
+const execution = (
+  evaluability: Evaluability,
+  targetCursors: OutcomeExecution["targetCursors"] = [],
+  latestEvaluation: OutcomeExecution["latestEvaluation"] = null,
+): OutcomeExecution => ({ evaluability, targetCursors, latestEvaluation });
+const position = (id: string, targets: TargetWork[] | null, outcomeExecution: OutcomeExecution | null): OutcomePosition => ({
+  outcome: { id, intentId: "i1", title: id }, targets, execution: outcomeExecution,
 });
 const allRoles = new Set<GrantRole>(["strategist", "researcher", "manager", "worker", "reviewer", "evaluator", "runtime"]);
-const editor = { directionWrite: true, intervene: true, grantManage: false, credentialManage: false };
-const viewer = { directionWrite: false, intervene: false, grantManage: false, credentialManage: false };
-const administrator = { directionWrite: true, intervene: true, grantManage: true, credentialManage: true };
+const editor = { intervene: true, grantManage: false, credentialManage: false };
+const viewer = { intervene: false, grantManage: false, credentialManage: false };
+const administrator = { intervene: true, grantManage: true, credentialManage: true };
 const input = (overrides: Partial<NextActionInput> = {}): NextActionInput => ({
-  activeIntentId: "i1", outcomes: [outcome("o-done", "evaluated")], tasks: [], assignedRoles: allRoles, agentsWithoutCredential: null, permissions: editor, now, ...overrides,
+  contributions: { items: [], unknown: [] }, tasks: [], assignedRoles: allRoles, agentsWithoutCredential: null, permissions: editor, now, ...overrides,
 });
+const contributionsOf = (outcomes: OutcomePosition[]) => projectContributions(outcomes, "p1");
 
 test("viewは?view=で表し、指定無し・不正な値は概要にする", () => {
   assert.equal(parseProjectView("work"), "work");
@@ -64,37 +79,59 @@ test("現在地のWorkは各Taskを1区分に数え、レビュー待ちと受�
   ]);
 });
 
-test("Active Intentが無いProjectでは「Intentを登録」だけを出し「Outcomeを登録」を出さない", () => {
-  const actions = planNextActions(input({ activeIntentId: null, outcomes: [] }));
-  assert.deepEqual(actions.mine.map((action) => action.kind), ["intent"]);
-  assert.equal(actions.mine[0]?.allowed, true);
-  const forViewer = planNextActions(input({ activeIntentId: null, outcomes: [], permissions: viewer }));
-  assert.deepEqual(forViewer.mine.map((action) => [action.kind, action.allowed, "requestTo" in action ? action.requestTo : null]), [["intent", false, "Editor以上へ依頼"]]);
-});
-
-test("Active IntentがありActive Outcomeが無いProjectでだけ「Outcomeを登録」を出す", () => {
-  assert.deepEqual(planNextActions(input({ outcomes: [] })).mine.map((action) => action.kind), ["outcome"]);
-  assert.deepEqual(planNextActions(input()).mine, []);
-});
-
-test("Story起票待ち・評価待ちはManager・Evaluatorが割当済みでも担当待ちに出し、「今すぐ必要な操作はありません」と言わない", () => {
-  const actions = planNextActions(input({ outcomes: [outcome("o-new", "not_connected"), outcome("o-eval", "not_evaluated")] }));
-  assert.deepEqual(actions.mine, []);
-  assert.deepEqual(actions.waiting.map((item) => [item.kind, item.count, item.unassigned, item.outcomes.map((o) => o.id)]), [
-    ["story", 1, false, ["o-new"]],
-    ["evaluation", 1, false, ["o-eval"]],
+test("貢献OutcomeはこのProjectがTargetのものだけを取り出し、ほかのTarget ProjectのWorkは件数だけにする", () => {
+  const other = target("p2", work("incomplete", counts({ todo: 3 })));
+  const mine = target("p1", work("incomplete", counts({ doing: 1 })));
+  const { items, unknown } = contributionsOf([
+    position("o-shared", [other, mine], execution(awaiting())),
+    position("o-other", [other], execution(awaiting())),
+    position("o-none", [], execution({ status: "no_targets", unfinishedTargets: [] })),
   ]);
-  assert.equal(nextActionSummary(actions), "あなたの操作はありません");
+  assert.deepEqual(items.map((item) => [item.outcome.id, item.target.projectId, item.otherTargets]), [["o-shared", "p1", 1]]);
+  assert.deepEqual(unknown, []);
+  // ほかのTarget ProjectのWork（p2の件数）を貢献へ持ち出さない。
+  assert.ok(!JSON.stringify(items).includes("\"p2\""));
 });
 
-test("還流待ちは未完了のTaskが残らないnot_reflectedのOutcomeだけを数える", () => {
+test("Target別Workを取得できないOutcomeは、貢献か断定せず確認できないものとして分ける", () => {
+  const { items, unknown } = contributionsOf([position("o-failed", null, null), position("o-mine", [target("p1", null)], execution(awaiting()))]);
+  assert.deepEqual(items.map((item) => item.outcome.id), ["o-mine"]);
+  assert.deepEqual(unknown.map((item) => item.id), ["o-failed"]);
+});
+
+test("貢献Outcomeの評価の段階とWorkの説明は、Workspaceと同じ規則でこのProjectの還流を見る", () => {
+  const [unreflected] = contributionsOf([position("o", [target("p1", work("accepted", counts({ accepted: 2 })))], execution(awaiting([{ projectId: "p1", projectStatus: "active", reason: "not_reflected" }]), [{ projectId: "p1", executionCursor: null }]))]).items;
+  assert.equal(contributionStage(unreflected!), "awaiting_execution");
+  assert.equal(projectContributionNote(unreflected!), "Workは終わり、結果の還流待ちです");
+  const [reflected] = contributionsOf([position("o", [target("p1", work("accepted", counts({ accepted: 2 })))], execution(awaiting(), [{ projectId: "p1", executionCursor: 4 }], { id: "e1", decided: false, targetCursors: [{ projectId: "p1", executionCursor: 4 }] }))]).items;
+  assert.equal(contributionStage(reflected!), "decision_pending");
+  assert.equal(projectContributionNote(reflected!), "結果は還流済みです");
+  const [noStory] = contributionsOf([position("o", [target("p1", null)], execution(awaiting([{ projectId: "p1", projectStatus: "active", reason: "not_reflected" }])))]).items;
+  assert.equal(projectContributionNote(noStory!), "Storyはまだありません（ProjectのManagerの起票待ち）");
+  const [unknownExecution] = contributionsOf([position("o", [target("p1", work("incomplete", counts({ todo: 1 })))], null)]).items;
+  assert.equal(contributionStage(unknownExecution!), null);
+  assert.equal(projectContributionNote(unknownExecution!), "還流・評価の状態を確認できません");
+});
+
+test("貢献OutcomeのStory起票・Task分解・還流の担当待ちはこのProjectのManager・Runtimeに出し、判断済みのOutcomeでは起票・分解を出さない", () => {
+  const decided = { id: "e1", decided: true, targetCursors: [] };
   const actions = planNextActions(input({
-    outcomes: [
-      outcome("o-running", "not_reflected", [task("t-open", { status: "in_review" })]),
-      outcome("o-finished", "not_reflected", [task("t-accepted", { status: "accepted" })]),
-    ],
+    contributions: contributionsOf([
+      position("o-story", [target("p1", null), target("p2", work("incomplete", counts({ todo: 1 })))], execution(awaiting([{ projectId: "p1", projectStatus: "active", reason: "not_reflected" }]))),
+      position("o-decompose", [target("p1", work("incomplete", counts()))], execution(awaiting([{ projectId: "p1", projectStatus: "active", reason: "incomplete" }]))),
+      position("o-reflect", [target("p1", work("accepted", counts({ accepted: 1 })))], execution(awaiting([{ projectId: "p1", projectStatus: "active", reason: "not_reflected" }]))),
+      position("o-running", [target("p1", work("incomplete", counts({ doing: 1 })))], execution(awaiting([{ projectId: "p1", projectStatus: "active", reason: "incomplete" }]))),
+      position("o-decided", [target("p1", null)], execution(awaiting(), [], decided)),
+    ]),
   }));
-  assert.deepEqual(actions.waiting.map((item) => [item.kind, item.outcomes.map((o) => o.id)]), [["reflection", ["o-finished"]]]);
+  assert.deepEqual(actions.waiting.map((item) => [item.kind, item.role, item.outcomes.map((o) => o.id)]), [
+    ["story", "manager", ["o-story"]],
+    ["decompose", "manager", ["o-decompose"]],
+    ["reflection", "runtime", ["o-reflect"]],
+  ]);
+  // 担当待ちはAgentの作業で、Humanの操作にしない。Intent・Outcome・評価はWorkspace scopeのため出さない。
+  assert.deepEqual(actions.mine, []);
+  assert.equal(nextActionSummary(actions), "あなたの操作はありません");
 });
 
 test("Taskの担当待ちは期限内Claimの無いものだけを区分ごとに数え、レビュー待ちと受入待ちを分ける", () => {
@@ -121,9 +158,9 @@ test("Taskの担当待ちは期限内Claimの無いものだけを区分ごと�
   assert.deepEqual(planNextActions(input({ tasks: [task("t-accept", { status: "wait_accept" })], permissions: viewer })).mine, []);
 });
 
-test("未割当のRoleはadministratorには割当、それ以外には依頼先を出し、最大3件にする", () => {
+test("未割当のProject RoleはadministratorにはRoleの割当、それ以外には依頼先を出し、最大3件にする", () => {
   const busy = input({
-    outcomes: [outcome("o-new", "not_connected"), outcome("o-eval", "not_evaluated")],
+    contributions: contributionsOf([position("o-story", [target("p1", null)], execution(awaiting([{ projectId: "p1", projectStatus: "active", reason: "not_reflected" }])))]),
     tasks: [task("t-todo"), task("t-review", { status: "in_review" })],
     assignedRoles: new Set<GrantRole>(),
   });
@@ -144,12 +181,19 @@ test("Credentialの発行はCredentialを参照できるadministratorにだけ�
   assert.deepEqual(planNextActions(input({ agentsWithoutCredential: null })).mine, []);
 });
 
-test("Outcomeの取得失敗は件数に含めず、担当待ちが無くても「今すぐ必要な操作はありません」と言わない", () => {
-  const actions = planNextActions(input({ outcomes: [outcome("o-failed", null)] }));
-  assert.equal(actions.outcomeFailures, 1);
-  assert.deepEqual(actions.mine, []);
+test("還流・評価の状態やTargetを確認できないOutcomeは件数に出し、「今すぐ必要な操作はありません」と言わない", () => {
+  const actions = planNextActions(input({
+    contributions: contributionsOf([position("o-failed", null, null), position("o-unknown", [target("p1", null)], null)]),
+  }));
+  assert.equal(actions.outcomeFailures, 2);
+  // 還流・評価の状態が無いOutcomeは、判断済みか分からないため起票待ちと断定しない。
+  assert.deepEqual(actions.waiting, []);
   assert.equal(nextActionSummary(actions), "あなたの操作はありません");
   assert.equal(nextActionSummary(planNextActions(input())), "今すぐ必要な操作はありません");
+  // WorkspaceのDirectionを閲覧できない場合は、Outcomeの担当待ちを判定せず、Taskの担当待ちだけを出す。
+  const withoutDirection = planNextActions(input({ contributions: null, tasks: [task("t-todo")] }));
+  assert.deepEqual(withoutDirection.waiting.map((item) => item.kind), ["todo"]);
+  assert.equal(withoutDirection.outcomeFailures, 0);
 });
 
 test("Credentialの無い割当済みAgentを、Runtimeはruntime、それ以外はagentのCredentialで判定する", () => {

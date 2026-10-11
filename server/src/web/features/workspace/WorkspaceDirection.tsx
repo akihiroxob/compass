@@ -30,19 +30,19 @@ export const DirectionIntents = ({ workspaceId, direction, projects }: { workspa
         <IntentFacts intent={direction.activeIntent} />
         <p className="section-label">Active Outcome（{direction.outcomes.length}件）</p>
         {direction.outcomes.length === 0 ? <p className="unset">ActiveなOutcomeはありません。Strategist（またはHuman）がIntentから観測可能なOutcomeを登録します。</p> : (
-          <ul className="workspace-outcomes">
+          <ul className="outcome-positions">
             {direction.outcomes.map((position) => {
               const stage = position.execution ? stageLabels[evaluationStage(position.execution)] : null;
               return (
                 <li key={position.outcome.id}>
-                  <div className="workspace-outcome-head">
+                  <div className="outcome-position-head">
                     <Link to={workspaceOutcomePath(workspaceId, position.outcome.intentId, position.outcome.id)}>{position.outcome.title}</Link>
                     {stage ? <span className={statusBadgeClass(stage.tone)}>{stage.label}</span> : <span className="status-badge muted">還流・評価の状態を確認できません</span>}
                   </div>
                   <p className="section-note">{position.detail.description}</p>
                   <p className="section-label">Target Project</p>
                   {position.targets === null ? <p role="alert" className="error-title">Target Projectを確認できません。</p> : position.targets.length === 0 ? <p className="unset">{noTargetNote(position.detail.status)}</p> : (
-                    <ul className="workspace-targets">{position.targets.map((target) => <TargetRow key={target.projectId} target={target} projects={projects} />)}</ul>
+                    <ul className="target-works">{position.targets.map((target) => <TargetRow key={target.projectId} target={target} projects={projects} />)}</ul>
                   )}
                 </li>
               );
@@ -123,9 +123,9 @@ export const WorkspaceOutcomeDetail = ({ workspaceId, data, projects, canEdit }:
   return (
     <>
       <Link to={workspacePath(workspaceId, "direction")} className="back-link">← 方向</Link>
-      <section className="detail-section" aria-labelledby="workspace-outcome-heading">
+      <section className="detail-section" aria-labelledby="outcome-position-heading">
         <p className="eyebrow">Outcome</p>
-        <h2 id="workspace-outcome-heading">{outcome.title}</h2>
+        <h2 id="outcome-position-heading">{outcome.title}</h2>
         <p><span className={statusBadgeClass(outcomeTone(outcome))}>{outcomeStatusLabels[outcome.status]}</span>{stage && <> <span className={statusBadgeClass(stage.tone)}>{stage.label}</span></>}</p>
         <dl className="intent-facts"><dt>達成すべき状態</dt><dd>{outcome.description}</dd><dt>仮説</dt><dd>{outcome.hypothesis ?? <span className="unset">未設定</span>}</dd><dt>判断理由（Strategistの判断）</dt><dd>{outcome.rationale}</dd></dl>
         {outcome.status === "cancelled" && <><h3>取消の理由</h3><p>{outcome.cancelReason}</p></>}
@@ -152,8 +152,8 @@ export const WorkspaceOutcomeDetail = ({ workspaceId, data, projects, canEdit }:
           })}
         </ol>
       </section>
-      <section className="detail-section" aria-labelledby="workspace-targets-heading">
-        <h2 id="workspace-targets-heading">Target Projectごとの貢献</h2>
+      <section className="detail-section" aria-labelledby="target-works-heading">
+        <h2 id="target-works-heading">Target Projectごとの貢献</h2>
         <p className="section-note">Story・TaskはTarget Projectに属し、このOutcomeへ貢献します。Taskの受入はOutcomeの達成を意味しません。</p>
         {!executions.ok ? <ErrorState message={`Target Projectの読み込みに失敗しました: ${executions.error}`} /> : contributions!.length === 0 ? <p className="unset">{noTargetNote(outcome.status)}</p> : (
           <>

@@ -5,8 +5,8 @@ import { ErrorState, Loading } from "../../components/StateCard";
 import { intentPath, outcomePath } from "../../paths";
 import { canOperateWorkspace } from "../../permissions";
 import { statusBadgeClass, type StatusTone } from "../../statusTone";
-import { activitiesPath, type ActivityPage, type ActivitySummary } from "../activity";
-import { describePrincipal, formatTime } from "../execution";
+import { activitiesPath, RecentActivityList, type ActivityPage, type ActivitySummary } from "../activity";
+import { formatTime } from "../execution";
 import type { HumanRole } from "../member";
 import { projectViewPath } from "../project/overview";
 import {
@@ -120,18 +120,18 @@ const CurrentPosition = ({ workspaceId, direction, projects }: { workspaceId: st
       <p className="workspace-intent">{intentProject ? <Link to={intentPath(intentProject, direction.activeIntent.id)}>{direction.activeIntent.title}</Link> : direction.activeIntent.title}</p>
       <p className="section-label">Active Outcome（{direction.outcomes.length}件）</p>
       {direction.outcomes.length === 0 ? <p className="unset">ActiveなOutcomeはありません。</p> : (
-        <ul className="workspace-outcomes">
+        <ul className="outcome-positions">
           {direction.outcomes.map((position) => {
             const stage = position.execution ? stageLabels[evaluationStage(position.execution)] : null;
             return (
               <li key={position.outcome.id}>
-                <div className="workspace-outcome-head">
+                <div className="outcome-position-head">
                   <OutcomeName workspaceId={workspaceId} outcome={position.outcome} />
                   {stage ? <span className={statusBadgeClass(stage.tone)}>{stage.label}</span> : <span className="status-badge muted">還流・評価の状態を確認できません</span>}
                 </div>
                 <p className="section-label">Target Project</p>
                 {position.targets === null ? <p role="alert" className="error-title">Target Projectを確認できません。</p> : position.targets.length === 0 ? <p className="unset">{noTargetNote("active")}</p> : (
-                  <ul className="workspace-targets">{position.targets.map((target) => <TargetRow key={target.projectId} target={target} projects={projects} />)}</ul>
+                  <ul className="target-works">{position.targets.map((target) => <TargetRow key={target.projectId} target={target} projects={projects} />)}</ul>
                 )}
               </li>
             );
@@ -210,9 +210,7 @@ const ProjectSummary = ({ workspace, projects, outcomes }: { workspace: Workspac
 const RecentActivity = ({ workspace, activities }: { workspace: Workspace; activities: Part<ActivitySummary[]> }) => (
   <>
     {!activities.ok ? <ErrorState message={`記録の読み込みに失敗しました: ${activities.error}`} /> : activities.value.length === 0 ? <p className="unset">Workspaceの記録はまだありません。</p> : (
-      <ul className="workspace-activities">
-        {activities.value.map((activity) => <li key={activity.id}>{activity.summary}<small>{describePrincipal(activity.principalId)}（{activity.role}） ・ {formatTime(activity.occurredAt)}</small></li>)}
-      </ul>
+      <RecentActivityList activities={activities.value} />
     )}
     <Link to={workspacePath(workspace.id, "activity")} className="text-link">記録を開く →</Link>
   </>
