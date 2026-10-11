@@ -6,6 +6,11 @@
       "headers": {
         "Authorization": "Bearer ${WACHA_AGENT_NAME}"
       }
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@0.0.83", "--isolated", "--headless"]
     }
   }
 }

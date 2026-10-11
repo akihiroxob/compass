@@ -7,6 +7,9 @@
     "initialSeconds": 300,
     "tokenLimitSeconds": 1800
   },
+  "github": {
+    "enabled": true
+  },
   "logging": {
     "path": ".ralph/logs/ralph.log",
     "idleHeartbeatSeconds": 3600
@@ -38,5 +41,22 @@
       "agentProvider": "codex",
       "model": ""
     }
+  },
+  "verification": {
+    "hostCommands": [
+      [
+        "node",
+        "--import",
+        "tsx",
+        "--test",
+        "--test-concurrency=1",
+        "server/tests/humanAuthHttpIntegration.test.ts",
+        "server/tests/lv6ClosedLoop.test.ts",
+        "server/tests/researchDecisionIntegration.test.ts",
+        "server/tests/strategistIntegration.test.ts",
+        "orchestrator/tests/integration.test.ts",
+        "ralph/tests/ralph.test.ts"
+      ]
+    ]
   }
 }

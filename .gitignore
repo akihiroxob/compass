@@ -153,9 +153,29 @@ apm_modules/
 .agents
 .claude
 .codex
+.playwright-mcp
 
 # Compass Ralph の Operational Log
 .compass-ralph/
 
-# Ralph のローカル停止状態
-.ralph/pauses/
+# Ralph の実行時生成物（.ralph/config.json と ralph/ のソース・設定例は管理対象）
+# 実行ログ・ローテート済みログ
+/.ralph/logs/
+# GitHub連携の実行状態・完了記録
+/.ralph/github-state/
+# ホスト検証の結果・ログ
+/.ralph/verification/
+# Role別の停止状態
+/.ralph/pauses/
+# Agent実行用の一時worktree
+/.ralph/worktrees/
+# Providerの利用制限・再開時刻
+/.ralph/quota.json
+# RunnerのプロセスID
+/.ralph/runner.pid
+# 実行Contextから生成するMCP設定
+/.ralph/mcp.json
+# Repo-localインストールのRunner本体
+/.ralph/runtime/
+# Agent実行結果
+.ralph-result.json
