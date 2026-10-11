@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { storyCreatePath, storyEditPath, taskCreatePath, taskPath } from "../../paths";
@@ -8,6 +8,7 @@ import { useProjectOperationState } from "../../useProjectAccess";
 import { statusBadgeClass } from "../../statusTone";
 import {
   appendChangePage,
+  awaitsHumanDecision,
   changeEditSummary,
   changeNote,
   changeTarget,
@@ -16,13 +17,18 @@ import {
   describeClaim,
   describePrincipal,
   executionPath,
+  filterExecution,
   formatTime,
   groupTasksByStory,
   isManualOpenStory,
+  parseTaskFilter,
   storyAnchorId,
   storyEmptyMessage,
   storyStatusLabels,
   taskAnchorId,
+  taskFilterLabels,
+  taskFilters,
+  taskFilterSearch,
   taskStatusLabels,
   type ChangePage,
   type ChangeTarget,
@@ -30,6 +36,7 @@ import {
   type ExecutionOverview,
   type ExecutionTask,
   type StoryGroup,
+  type TaskFilter,
   storyStatusTones,
   taskTone,
 } from "./execution";
@@ -84,6 +91,20 @@ export const StoryList = ({ overview, empty, plan = false }: { overview: Executi
         </article>
       )}
     </>
+  );
+};
+
+/** Taskの絞り込み。URLの`?tasks=`で表し、`view`等の他のqueryは残す。件数は絞り込み前の一覧から数える。 */
+const TaskFilterSwitch = ({ current, counts }: { current: TaskFilter; counts: Record<TaskFilter, number> }) => {
+  const [searchParams] = useSearchParams();
+  return (
+    <nav className="list-switch" aria-label="Taskの絞り込み">
+      {taskFilters.map((filter) => (
+        <Link key={filter} to={{ search: taskFilterSearch(searchParams, filter) }} aria-current={filter === current ? "page" : undefined}>
+          {taskFilterLabels[filter]} <span className="list-switch-count">{counts[filter]}</span>
+        </Link>
+      ))}
+    </nav>
   );
 };
 
@@ -184,6 +205,7 @@ const RecentChanges = ({ projectId, overview }: { projectId: string; overview: E
 export const ExecutionSection = ({ projectId }: { projectId: string }) => {
   const planAccess = useProjectOperationState(projectId, "execution.plan").access;
   const plan = planAccess === "allowed";
+  const requestedFilter = parseTaskFilter(useSearchParams()[0].get("tasks"));
   const [overview, setOverview] = useState<ExecutionOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -197,11 +219,13 @@ export const ExecutionSection = ({ projectId }: { projectId: string }) => {
   }, [projectId]);
   // 概要の「次の行動」などから`?view=work#…`で辿ったTask・Storyへ、一覧の読込後に移動する。
   useHashTarget(overview !== null);
+  // Taskが1件も無ければ絞り込みを出さず、Storyの空状態の案内をそのまま出す。
+  const filter = overview?.tasks.length ? requestedFilter : "all";
   return (
     <section className="detail-section" aria-labelledby="execution-heading">
       <h2 id="execution-heading">Execution</h2>
       <p className="section-note">
-        Manager・Worker・ReviewerのAgentがMCPで進めるStory・Taskです。受入・差戻し・取消・CommentはTask詳細から行えます。
+        Manager・Worker・ReviewerのAgentがMCPで進めるStory・Taskです。Claim・Evidence・Comment・変更履歴の確認と、受入・差戻し・取消・CommentはTask詳細から行えます。
         {plan && " Humanが手動でStory・Taskを起票することもできます（OutcomeからManagerが起票したStory・Taskは編集できません）。"}
       </p>
       {plan && (
@@ -216,7 +240,17 @@ export const ExecutionSection = ({ projectId }: { projectId: string }) => {
         <Loading />
       ) : (
         <>
-          <StoryList overview={overview} empty={storyEmptyMessage(planAccess)} plan={plan} />
+          {overview.tasks.length > 0 && (
+            <TaskFilterSwitch current={filter} counts={{ all: overview.tasks.length, decision: overview.tasks.filter(awaitsHumanDecision).length }} />
+          )}
+          {filter === "decision" && (
+            <p className="section-note">レビュー待ち・受入待ちで、AgentがClaimを持っていないTaskです。Task詳細から受入・差戻しを判断できます（Editor以上）。</p>
+          )}
+          <StoryList
+            overview={filterExecution(overview, filter)}
+            empty={filter === "decision" ? "Humanの判断を待つTaskはありません。" : storyEmptyMessage(planAccess)}
+            plan={plan}
+          />
           <RecentChanges projectId={projectId} overview={overview} />
         </>
       )}

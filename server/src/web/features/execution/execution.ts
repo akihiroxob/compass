@@ -208,7 +208,7 @@ export const availableTaskOperations = (task: Pick<ExecutionTask, "status" | "ac
 };
 
 export const taskOperationNotices: Record<TaskOperation | "comment", string> = {
-  accept: "Taskを受け入れました。",
+  accept: "Taskを受け入れました。Outcomeの達成は、Evidenceをもとに別途評価されます。",
   reject: "Taskを差し戻しました。",
   cancel: "Taskを取り消しました。",
   comment: "Commentを追加しました。",
@@ -355,3 +355,54 @@ export const storyEmptyMessage = (access: ProjectOperationAccess | "loading" | "
     : access === "allowed"
       ? "Storyはまだありません。Outcomeが確定するとManagerが起票し、ここに表示されます。Outcomeに依らない作業は「Storyを起票」から手動で起票できます。"
       : "Storyはまだありません。Outcomeが確定するとManagerが起票し、ここに表示されます。";
+
+// ---- Project Workの一覧とTask詳細（S10-04）。Humanの判断待ちの絞り込みと、Task受入とOutcome評価の区別。 ----
+
+/** 「実行」viewのTaskの絞り込み。`?tasks=`で表し、再読込・共有・戻るで同じ一覧へ戻る。既定（指定なし・不正値）は全件。 */
+export const taskFilters = ["all", "decision"] as const;
+export type TaskFilter = (typeof taskFilters)[number];
+export const taskFilterLabels: Record<TaskFilter, string> = { all: "すべて", decision: "Humanの判断待ち" };
+export const parseTaskFilter = (value: string | null): TaskFilter => taskFilters.find((filter) => filter === value) ?? "all";
+
+/** 現在のqueryの`tasks`だけを置き換えたsearch。`view`等の他のqueryは残し、既定（全件）はqueryを付けない。 */
+export const taskFilterSearch = (current: URLSearchParams, filter: TaskFilter): string => {
+  const next = new URLSearchParams(current);
+  if (filter === "all") next.delete("tasks");
+  else next.set("tasks", filter);
+  const search = next.toString();
+  return search ? `?${search}` : "";
+};
+
+/** Humanの受入・差戻しを待つTask。Task詳細の介入導線と同じ判定（レビュー待ち・受入待ちで、期限内のClaimが無い）。 */
+export const awaitsHumanDecision = (task: Pick<ExecutionTask, "status" | "activeClaim">): boolean => availableTaskOperations(task).includes("accept");
+
+/** 絞り込んだ一覧。判断待ちは該当Taskと、そのTaskを持つStoryだけを残す（Storyの順序・Taskの順序はAPIの順のまま）。 */
+export const filterExecution = (overview: ExecutionOverview, filter: TaskFilter): ExecutionOverview => {
+  if (filter === "all") return overview;
+  const tasks = overview.tasks.filter(awaitsHumanDecision);
+  const storyIds = new Set(tasks.map((task) => task.storyId));
+  return { stories: overview.stories.filter((story) => storyIds.has(story.id)), tasks };
+};
+
+/** Web API `GET /api/workspaces/:workspaceId/intents/:intentId/outcomes`のOutcomeのうち、Task詳細で使う項目。 */
+export type TaskOutcomeRef = { id: string; intentId: string; title: string };
+
+/**
+ * StoryのOutcomeを所属WorkspaceのIntent配下から探す（WorkspaceのOutcome詳細へのリンクにIntentが要る）。見つからなければnull
+ * （Outcomeの所属Intentが無い・別Workspace）。
+ */
+export const findTaskOutcome = (outcomesByIntent: readonly (readonly TaskOutcomeRef[])[], outcomeId: string): TaskOutcomeRef | null =>
+  outcomesByIntent.flat().find((outcome) => outcome.id === outcomeId) ?? null;
+
+/**
+ * Task詳細の「Task受入」の説明。Taskの受入は作業完了の判断で、Outcomeの達成はEvaluatorがEvidenceから別に評価する。
+ * Outcomeを参照しない（手動起票の）Taskは、Outcome評価の対象外と示す。
+ */
+export const taskAcceptanceNote = (task: Pick<ExecutionTask, "status">, hasOutcome: boolean): string => {
+  const accepted = task.status === "accepted"
+    ? "このTaskは受入済みです（作業完了の判断）。"
+    : `このTaskは未受入です（${taskStatusLabels[task.status]}）。`;
+  return hasOutcome
+    ? `${accepted}Outcomeの達成はTaskの受入では決まらず、Evidenceの還流後にEvaluatorが成功条件ごとに評価します。`
+    : `${accepted}このTaskのStoryはOutcomeを参照しないため、Outcome評価の対象外です。`;
+};

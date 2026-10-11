@@ -5,21 +5,30 @@ import { ReasonPanel, useReasonAction, type ReasonAction } from "../../component
 import { ErrorState, Loading } from "../../components/StateCard";
 import { Shell } from "../../components/Shell";
 import { taskEditPath } from "../../paths";
+import type { Project } from "../../projectForm";
 import { useProjectOperation, useProjectOperationState } from "../../useProjectAccess";
 import { membersPath, type Member } from "../member";
+import { projectViewPath } from "../project/overview";
+import { workspacePath, workspaceProjectsPath } from "../workspace/workspace";
+import { useWorkspaceNavigation } from "../workspace/WorkspaceContext";
+import { TaskOutcomeSection } from "./TaskOutcomeSection";
 import { ChangeItem } from "./ExecutionSection";
 import { statusBadgeClass } from "../../statusTone";
 import {
   availableTaskOperations,
-  describeClaim,
   describePrincipal,
+  formatClaimExpiry,
   formatTime,
   isManualEditableTask,
+  storyAnchorId,
   storyStatusLabels,
+  taskAnchorId,
   taskDetailApiPath,
   taskOperationNotices,
   taskOperationPath,
   taskStatusLabels,
+  type ExecutionStory,
+  type ExecutionTask,
   type TaskDetail,
   type TaskOperation,
   taskTone,
@@ -119,6 +128,41 @@ const TaskOperations = ({ operations, actions }: { operations: TaskOperation[]; 
   );
 };
 
+/**
+ * Workspace → Project → 実行 → Story → Taskの現在位置。Workspaceは閲覧できる場合だけ名前で出し、Projectを読めなければProjectは
+ * IDで「実行」viewへ辿る。StoryとTaskの行は「実行」viewの該当cardへ移動する。
+ */
+const TaskBreadcrumb = ({ projectId, project, story, task }: { projectId: string; project: Project | null; story: ExecutionStory | null; task: ExecutionTask }) => {
+  const navigation = useWorkspaceNavigation();
+  const workspace = project && navigation?.current?.id === project.workspaceId ? navigation.current : null;
+  return (
+    <nav className="breadcrumb" aria-label="現在位置">
+      <ol>
+        {workspace && (
+          <>
+            <li><Link to={workspacePath(workspace.id)}>{workspace.name}</Link></li>
+            <li><Link to={workspaceProjectsPath(workspace.id, project?.status ?? "active")}>Project</Link></li>
+          </>
+        )}
+        <li><Link to={projectViewPath(projectId, "overview")}>{project?.name ?? "Project"}</Link></li>
+        <li><Link to={projectViewPath(projectId, "work", taskAnchorId(task.id))}>実行</Link></li>
+        {story && <li><Link to={projectViewPath(projectId, "work", storyAnchorId(story.id))}>{story.title}</Link></li>}
+        <li aria-current="page">{task.title}</li>
+      </ol>
+    </nav>
+  );
+};
+
+/** Claimの保持者と期限。Claimは期限付きの作業権で、Agentプロセスの稼働状態を示さない。 */
+const ClaimFacts = ({ task }: { task: ExecutionTask }) => {
+  const now = Date.now();
+  if (task.activeClaim && task.activeClaim.expiresAt > now) {
+    return <>担当 <strong>{task.activeClaim.principalId}</strong>（期限 {formatTime(task.activeClaim.expiresAt)}・{formatClaimExpiry(task.activeClaim.expiresAt, now)}）</>;
+  }
+  if (task.activeClaim || task.reclaimable) return <>Claimの期限切れ（{task.status === "doing" ? "再取得待ち" : "Claimなし"}）</>;
+  return <span className="unset">担当なし</span>;
+};
+
 /** HumanのComment入力。失敗時は入力を残し、成功時だけ空にする。通知はfocusを動かさずフォームの下に出す。 */
 const CommentForm = ({ projectId, taskId, onAdded }: { projectId: string; taskId: string; onAdded: () => Promise<void> }) => {
   const [body, setBody] = useState("");
@@ -176,13 +220,15 @@ const CommentForm = ({ projectId, taskId, onAdded }: { projectId: string; taskId
 };
 
 /**
- * Task詳細（Task 45の閲覧、Task 46のHuman介入）。説明・状態・Claim・差戻し理由・Comment・当該TaskのChangeを表示し、
- * editor以上には状態に応じた受入・差戻し・取消とCommentの導線を出す（archivedでは出さない）。拒否は常にserverが行う。
+ * Task詳細（Task 45の閲覧、Task 46のHuman介入、S10-04のWorkspace導線）。Workspace → Project → 実行 → Storyの現在位置、説明・状態・
+ * Claim・差戻し理由、Task受入とOutcome評価（Evidence）の区別、Comment・当該TaskのChangeを表示し、editor以上には状態に応じた
+ * 受入・差戻し・取消とCommentの導線を出す（archivedでは出さない）。操作後はserverから読み直し、拒否は常にserverが行う。
  */
 export const TaskDetailPage = () => {
   const { projectId = "", taskId = "" } = useParams();
   const [state, setState] = useState<{ key: string; detail: TaskDetail | null; error: string | null } | null>(null);
   const [notice, setNotice] = useState<{ key: string; message: string; at: number } | null>(null);
+  const [project, setProject] = useState<{ projectId: string; project: Project | null } | null>(null);
   const [humanNames, setHumanNames] = useState<{ projectId: string; names: ReadonlyMap<string, string> } | null>(null);
   const key = `${projectId}/${taskId}`;
   const access = useProjectOperationState(projectId, "execution.intervene").access;
@@ -198,6 +244,14 @@ export const TaskDetailPage = () => {
       .catch((reason: unknown) => { if (current) setState({ key, detail: null, error: taskLoadFailure(reason) }); });
     return () => { current = false; };
   }, [key]);
+  // 現在位置（Workspace・Project名）と、Outcome評価を読む所属Workspace。読めなくてもTask詳細は出す。
+  useEffect(() => {
+    let current = true;
+    request<{ project: Project }>(`/api/projects/${projectId}`)
+      .then(({ project }) => project, () => null)
+      .then((value) => { if (current) setProject({ projectId, project: value }); });
+    return () => { current = false; };
+  }, [projectId]);
   // Human operatorの表示名。取得できなくても画面は出す（IDの先頭で表示する）。
   useEffect(() => {
     let current = true;
@@ -222,18 +276,22 @@ export const TaskDetailPage = () => {
   const detail = settled?.detail ?? null;
   const task = detail?.task;
   const names = humanNames?.projectId === projectId ? humanNames.names : undefined;
+  const projectState = project?.projectId === projectId ? project : null;
   const currentNotice = notice?.key === key ? notice : null;
   const intervene = access === "allowed";
   return (
     <Shell>
       <main className="narrow">
-        <Link to={`/projects/${projectId}`} className="back-link">← Project詳細</Link>
         {settled?.error ? (
-          <ErrorState message={settled.error} />
+          <>
+            <Link to={projectViewPath(projectId, "work")} className="back-link">← 実行</Link>
+            <ErrorState message={settled.error} />
+          </>
         ) : !detail || !task ? (
           <Loading />
         ) : (
           <>
+            <TaskBreadcrumb projectId={projectId} project={projectState?.project ?? null} story={detail.story} task={task} />
             <div className="detail-hero">
               <p className="eyebrow">Task</p>
               <h1>{task.title}</h1>
@@ -255,11 +313,14 @@ export const TaskDetailPage = () => {
                 <dt>説明</dt>
                 <dd>{task.description ?? <span className="unset">未設定</span>}</dd>
                 <dt>Story</dt>
-                <dd>{detail.story ? <>{detail.story.title}（{storyStatusLabels[detail.story.status]}）</> : <span className="unset">Storyに属していません</span>}</dd>
+                <dd>{detail.story ? <><Link to={projectViewPath(projectId, "work", storyAnchorId(detail.story.id))}>{detail.story.title}</Link>（{storyStatusLabels[detail.story.status]}）</> : <span className="unset">Storyに属していません</span>}</dd>
                 {detail.story?.correlationId && <><dt>相関ID</dt><dd><code>{detail.story.correlationId}</code></dd></>}
                 {task.taskKey && <><dt>taskKey</dt><dd><code>{task.taskKey}</code></dd></>}
                 <dt>Claim</dt>
-                <dd>{describeClaim(task)}</dd>
+                <dd>
+                  <ClaimFacts task={task} />
+                  <small className="claim-note">Claimは期限付きの作業権で、Agentプロセスの稼働状態を示しません。</small>
+                </dd>
                 <dt>作成</dt>
                 <dd>{formatTime(task.createdAt)}</dd>
               </dl>
@@ -269,6 +330,11 @@ export const TaskDetailPage = () => {
                 <h2 id="reject-heading">差戻し理由</h2>
                 <p className="pre-wrap">{task.rejectReason}</p>
               </section>
+            )}
+            {projectState ? (
+              <TaskOutcomeSection projectId={projectId} workspaceId={projectState.project?.workspaceId ?? null} task={task} story={detail.story} />
+            ) : (
+              <Loading />
             )}
             <section className="detail-section" aria-labelledby="comments-heading">
               <h2 id="comments-heading">Comment</h2>
