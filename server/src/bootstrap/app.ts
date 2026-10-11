@@ -368,14 +368,17 @@ export const createApp = (
       ),
     }),
   );
+  // Activity一覧のquery。新しい順のページング（`beforeCursor`・`limit`）と種別（`type`、完全一致）の絞り込みだけを受け付け、検証はuse caseが行う。
+  const activityListQuery = (c: Context) => ({
+    beforeCursor: queryNumber(c.req.query("beforeCursor")),
+    limit: queryNumber(c.req.query("limit")),
+    ...(c.req.query("type") === undefined ? {} : { type: c.req.query("type") }),
+  });
   // Workspace Activity閲覧。Workspace Membership（viewer以上）で認可し、Workspace scopeのsummary・refsと1件の本文・訂正を返す。
   // 所属ProjectのActivityは含めない（Project Membershipで`/api/projects/:projectId/activities`から読む）。Web UIからは記録しない。
   app.get("/api/workspaces/:workspaceId/activities", async (c) =>
     c.json(
-      await human.listWorkspaceActivities.execute(await actorOf(c), c.req.param("workspaceId"), {
-        beforeCursor: queryNumber(c.req.query("beforeCursor")),
-        limit: queryNumber(c.req.query("limit")),
-      }),
+      await human.listWorkspaceActivities.execute(await actorOf(c), c.req.param("workspaceId"), activityListQuery(c)),
     ),
   );
   app.get("/api/workspaces/:workspaceId/activities/:activityId", async (c) =>
@@ -402,10 +405,7 @@ export const createApp = (
   // Activity閲覧。Membership（viewer以上）で認可し、新しい順のsummary・refsと、1件の本文・訂正を返す。記録はAgentのMCPとcanonical生成だけ。
   app.get("/api/projects/:projectId/activities", async (c) =>
     c.json(
-      await human.listActivities.execute(await actorOf(c), c.req.param("projectId"), {
-        beforeCursor: queryNumber(c.req.query("beforeCursor")),
-        limit: queryNumber(c.req.query("limit")),
-      }),
+      await human.listActivities.execute(await actorOf(c), c.req.param("projectId"), activityListQuery(c)),
     ),
   );
   app.get("/api/projects/:projectId/activities/:activityId", async (c) =>

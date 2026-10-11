@@ -254,6 +254,14 @@ test("HumanはWorkspace MembershipでWorkspace Activity、Project MembershipでP
     const projectPage = (await (await requestAs(app, projectViewer)(`/api/projects/${a.id}/activities`)).json()) as Json;
     assert.deepEqual(projectPage.activities.map((item: Json) => item.type), ["story.created"]);
     assert.equal((await requestAs(app, projectViewer)(`/api/projects/${a.id}/activities/${recorded.activity.id}`)).status, 404);
+    // 種別の絞り込みは指定したscopeの中だけで、別scopeの同じ種別を混ぜない。形式外の種別は400。
+    const filtered = async (human: TestHuman, path: string) => ((await (await requestAs(app, human)(path)).json()) as Json).activities.map((item: Json) => item.type);
+    assert.deepEqual(await filtered(workspaceViewer, `/api/workspaces/${workspace.id}/activities?type=decision.rationale`), ["decision.rationale"]);
+    assert.deepEqual(await filtered(workspaceViewer, `/api/workspaces/${workspace.id}/activities?type=story.created`), []);
+    assert.deepEqual(await filtered(projectViewer, `/api/projects/${a.id}/activities?type=story.created`), ["story.created"]);
+    assert.deepEqual(await filtered(projectViewer, `/api/projects/${a.id}/activities?type=decision.rationale`), []);
+    assert.equal((await requestAs(app, projectViewer)(`/api/projects/${a.id}/activities?type=Not%20A%20Type`)).status, 400);
+    assert.equal((await requestAs(app, workspaceViewer)(`/api/workspaces/${workspace.id}/activities?type=`)).status, 400);
     // Web UIの入口からは記録しない。
     const post = await requestAs(app, workspaceViewer)(`/api/workspaces/${workspace.id}/activities`, {
       method: "POST",

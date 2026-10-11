@@ -74,7 +74,7 @@ const loadOverview = async (projectId: string, workspaceId: string | null, showC
     settle(request<{ grants: Grant[] }>(grantsPath(projectId)).then((body) => body.grants), notFound),
     showCredentials ? settle(request<{ credentials: Credential[] }>(credentialsPath(projectId)).then((body) => body.credentials), notFound) : null,
     workspaceId === null ? null : settle(loadDirection(workspaceId), "所属Workspaceが見つからないか、閲覧する権限がありません。"),
-    settle(request<ActivityPage>(activitiesPath({ kind: "project", projectId }, null, recentActivityLimit)).then((page) => page.activities), notFound),
+    settle(request<ActivityPage>(activitiesPath({ kind: "project", projectId }, { limit: recentActivityLimit })).then((page) => page.activities), notFound),
   ]);
   return { execution, grants, credentials, direction, activities, fetchedAt: Date.now() };
 };

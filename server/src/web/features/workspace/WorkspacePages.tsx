@@ -218,26 +218,62 @@ const ProjectsContent = ({ workspace, myRole }: { workspace: Workspace; myRole: 
   );
 };
 
-/** 記録。WorkspaceのActivity（Direction等の意味のある履歴）。ProjectのWork履歴は各Projectの「記録」に分ける。 */
-const ActivityContent = ({ workspace }: { workspace: Workspace }) => <ActivitySection scope={{ kind: "workspace", workspaceId: workspace.id }} resources={[]} />;
+/**
+ * 所属Projectのview（記録・設定）への導線。Project詳細はProject Membershipで認可するため、Membershipの無いProjectはリンクにせず理由を出す。
+ */
+const ProjectViewLinks = ({ workspace, view, hint }: { workspace: Workspace; view: "records" | "settings"; hint: string }) => {
+  const { value, error } = useWorkspaceProjects(workspace.id, "active");
+  return error ? <ErrorState message={`Projectの読み込みに失敗しました: ${error}`} /> : !value ? <Loading /> : value.length === 0 ? <p className="unset">activeなProjectはありません。</p> : (
+    <ul className="link-list workspace-project-links">
+      {value.map(({ project, canOpen }) => <li key={project.id}>{canOpen ? <Link to={projectViewPath(project.id, view)}><span>{project.name}</span><small>{hint}</small></Link> : <p><span>{project.name}</span><small>Project Membershipが無いため開けません</small></p>}</li>)}
+    </ul>
+  );
+};
+
+/**
+ * Workspace Activityの`project_resource`参照の表示先。Workspaceの所属Project（archivedを含む）に登録済みのRepository・Resourceで、
+ * Workspace Membershipで読める。取得できなければnull（参照はIDだけを出す）。
+ */
+const useWorkspaceResources = (workspaceId: string) => {
+  const { value, error } = useLoad(
+    `${workspaceId}/resources`,
+    () =>
+      Promise.all(["", "?status=archived"].map((query) => request<{ projects: WorkspaceProject[] }>(workspaceApiPath(workspaceId, `/projects${query}`)))).then((pages) =>
+        pages.flatMap(({ projects }) => projects.flatMap((project) => [...project.repositories, ...project.resources])),
+      ),
+    workspaceNotFound,
+  );
+  return error ? { ready: true, resources: null } : { ready: value !== null, resources: value };
+};
+
+/**
+ * 記録。WorkspaceのActivity（Directionの判断の履歴）と、各ProjectのActivity（Workの履歴）への導線。Project ActivityはProject Membershipで
+ * 各Projectの「記録」から読み、Workspaceの一覧には混ぜない。
+ */
+const ActivityContent = ({ workspace }: { workspace: Workspace }) => {
+  const { ready, resources } = useWorkspaceResources(workspace.id);
+  return (
+    <>
+      {ready ? <ActivitySection scope={{ kind: "workspace", workspaceId: workspace.id }} resources={resources} /> : <Loading />}
+      <section className="detail-section" aria-labelledby="workspace-project-activity-heading">
+        <h2 id="workspace-project-activity-heading">Projectの記録</h2>
+        <p className="section-note">Story・Taskの起票・レビュー・受入などWorkの履歴は、Projectごとに記録されます。Project Membershipのあるactive Projectから開けます。</p>
+        <ProjectViewLinks workspace={workspace} view="records" hint="Projectの記録を開く" />
+      </section>
+    </>
+  );
+};
 
 /**
  * Agent。ProjectのWorkを担うAgent（Role割当・Credential・Claim）は各Projectの「設定」で管理するため、開けるProjectへの導線を出す。
  */
-const AgentsContent = ({ workspace }: { workspace: Workspace }) => {
-  const { value, error } = useWorkspaceProjects(workspace.id, "active");
-  return (
-    <section className="detail-section" aria-labelledby="workspace-agents-heading">
-      <h2 id="workspace-agents-heading">ProjectのAgent</h2>
-      <p className="section-note">Story・Taskを担うAgentのRole割当とCredentialはProjectごとに管理します。Role割当やClaimはAgentプロセスの稼働を示しません。WorkspaceのDirectionを担うAgentの一覧は、まだWeb UIにありません。</p>
-      {error ? <ErrorState message={`Projectの読み込みに失敗しました: ${error}`} /> : !value ? <Loading /> : value.length === 0 ? <p className="unset">activeなProjectはありません。</p> : (
-        <ul className="link-list workspace-agent-projects">
-          {value.map(({ project, canOpen }) => <li key={project.id}>{canOpen ? <Link to={projectViewPath(project.id, "settings")}><span>{project.name}</span><small>Agent・Roleの割当を開く</small></Link> : <p><span>{project.name}</span><small>Project Membershipが無いため開けません</small></p>}</li>)}
-        </ul>
-      )}
-    </section>
-  );
-};
+const AgentsContent = ({ workspace }: { workspace: Workspace }) => (
+  <section className="detail-section" aria-labelledby="workspace-agents-heading">
+    <h2 id="workspace-agents-heading">ProjectのAgent</h2>
+    <p className="section-note">Story・Taskを担うAgentのRole割当とCredentialはProjectごとに管理します。Role割当やClaimはAgentプロセスの稼働を示しません。WorkspaceのDirectionを担うAgentの一覧は、まだWeb UIにありません。</p>
+    <ProjectViewLinks workspace={workspace} view="settings" hint="Agent・Roleの割当を開く" />
+  </section>
+);
 
 export const WorkspaceOverviewPage = () => <WorkspaceFrame section="overview">{(workspace, myRole, reload) => <OverviewContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
 export const WorkspaceDirectionPage = () => <WorkspaceFrame section="direction">{(workspace) => <DirectionContent workspace={workspace} />}</WorkspaceFrame>;
