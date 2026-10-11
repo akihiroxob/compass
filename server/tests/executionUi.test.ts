@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   availableTaskOperations,
+  awaitsHumanDecision,
   describePrincipal,
+  filterExecution,
+  findTaskOutcome,
+  parseTaskFilter,
+  taskAcceptanceNote,
+  taskFilterSearch,
+  taskOperationNotices,
   taskOperationPath,
   appendChangePage,
   changeEditSummary,
@@ -245,4 +252,51 @@ test("Claimの期限は分単位の相対表示で、期限切れを区別する
   assert.equal(formatClaimExpiry(now + 120 * 60_000, now), "あと2時間");
   assert.equal(formatClaimExpiry(now + 125 * 60_000, now), "あと2時間5分");
   assert.equal(formatClaimExpiry(now, now), "期限切れ");
+});
+
+test("Project Workの絞り込み（S10-04）: 判断待ちは介入導線と同じ判定で、該当Taskを持つStoryだけを残す", () => {
+  const holder = { claimId: "c", principalId: "reviewer", expiresAt: 10 };
+  const overview = {
+    stories: [story("s1"), story("s2"), story("s3")],
+    tasks: [
+      task("review", "s1", { status: "in_review" }),
+      task("claimed", "s2", { status: "wait_accept", activeClaim: holder }),
+      task("accept", "s3", { status: "wait_accept" }),
+      task("doing", "s1", { status: "doing" }),
+      task("loose", null, { status: "in_review" }),
+    ],
+  };
+  assert.deepEqual(overview.tasks.filter(awaitsHumanDecision).map((item) => item.id), ["review", "accept", "loose"]);
+  const filtered = filterExecution(overview, "decision");
+  assert.deepEqual(filtered.stories.map((item) => item.id), ["s1", "s3"]);
+  assert.deepEqual(filtered.tasks.map((item) => item.id), ["review", "accept", "loose"]);
+  assert.equal(filterExecution(overview, "all"), overview);
+  assert.deepEqual(filterExecution({ stories: [story("s1")], tasks: [task("done", "s1", { status: "accepted" })] }, "decision"), { stories: [], tasks: [] });
+});
+
+test("Project Workの絞り込みはURLの`tasks`で表し、他のqueryを残して既定はqueryを付けない", () => {
+  assert.equal(parseTaskFilter(null), "all");
+  assert.equal(parseTaskFilter("decision"), "decision");
+  assert.equal(parseTaskFilter("unknown"), "all");
+  assert.equal(taskFilterSearch(new URLSearchParams("view=work"), "decision"), "?view=work&tasks=decision");
+  assert.equal(taskFilterSearch(new URLSearchParams("view=work&tasks=decision"), "all"), "?view=work");
+  assert.equal(taskFilterSearch(new URLSearchParams(), "all"), "");
+});
+
+test("Task詳細はTask受入とOutcome評価を分け、受入をOutcomeの達成として示さない（S10-04）", () => {
+  const accepted = taskAcceptanceNote({ status: "accepted" }, true);
+  assert.match(accepted, /受入済み/);
+  assert.match(accepted, /Outcomeの達成はTaskの受入では決まらず/);
+  assert.match(taskAcceptanceNote({ status: "in_review" }, true), /未受入です（レビュー待ち）/);
+  assert.match(taskAcceptanceNote({ status: "accepted" }, false), /Outcome評価の対象外/);
+  assert.match(taskOperationNotices.accept, /Outcomeの達成は、Evidenceをもとに別途評価されます/);
+  // Execution還流済み・受入済みでも、Evaluationが無ければ「評価済み」にしない。
+  assert.equal(outcomeLoopStage({ storyCount: 1, record: { summary: {}, evidence: [] } as unknown as OutcomeExecutionRecord, evaluations: [] }).stage, "not_evaluated");
+});
+
+test("StoryのOutcomeは所属WorkspaceのIntent配下から探し、見つからなければnull", () => {
+  const lists = [[{ id: "o1", intentId: "i1", title: "A" }], [{ id: "o2", intentId: "i2", title: "B" }]];
+  assert.deepEqual(findTaskOutcome(lists, "o2"), { id: "o2", intentId: "i2", title: "B" });
+  assert.equal(findTaskOutcome(lists, "other"), null);
+  assert.equal(findTaskOutcome([], "o1"), null);
 });

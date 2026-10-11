@@ -5,6 +5,7 @@ import { directionDecisionTypeLabels, type DirectionDecision } from "../../direc
 import { workspaceApiPath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import {
+  EvidenceList,
   evaluationResultLabels,
   evaluationsPath,
   executionPath,
@@ -28,23 +29,6 @@ type LoopData = {
   evaluations: OutcomeEvaluation[];
   decisions: DirectionDecision[];
 };
-
-export const EvidenceList = ({ record }: { record: OutcomeExecutionRecord }) =>
-  record.evidence.length ? (
-    <ul className="grant-list">
-      {record.evidence.map((item) => (
-        <li key={item.id}>
-          <a href={item.uri} target="_blank" rel="noreferrer" className="evidence-uri">{item.uri}</a>
-          <small>
-            {item.kind}
-            {item.versionHash && <> ・ <code>{item.versionHash.slice(0, 12)}</code></>} ・ 観測 {formatTime(item.observedAt)} ・ Change #{item.sourceChangeCursor}
-          </small>
-        </li>
-      ))}
-    </ul>
-  ) : (
-    <p className="unset">Evidence参照はまだ還流されていません（Evidence不足）</p>
-  );
 
 /** Evaluation 1件。`projectLabel`があれば評価時のTarget ProjectをIDの代わりにその表示（Project名等）で出す。 */
 export const EvaluationCard = ({ evaluation, decisions, projectLabel }: { evaluation: OutcomeEvaluation; decisions: DirectionDecision[]; projectLabel?: (projectId: string) => ReactNode }) => {

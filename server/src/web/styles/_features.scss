@@ -254,6 +254,13 @@
 .action-row + .execution-story { margin-top: var(--space-md); }
 .execution-meta { margin: 0 0 .9rem; color: var(--color-text-muted); font-size: .82rem; line-height: 1.6; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .execution-changes { margin-top: 1.75rem; }
+// Task詳細のClaimの注記と、Task受入（Project）とOutcome評価（Workspace）を並べる区画。
+.claim-note { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-size: var(--text-small); }
+.task-outcome-columns {
+  margin-top: 0;
+  > div { min-width: 0; overflow-wrap: anywhere; }
+  p { margin: 0 0 var(--space-xs); }
+}
 .execution-form select { width: 100%; max-width: 100%; min-width: 0; }
 .change-list {
   li { display: block; }
