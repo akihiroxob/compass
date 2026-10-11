@@ -152,3 +152,59 @@ export const appendActivityPage = (existing: ActivitySummary[], page: ActivitySu
   const seen = new Set(existing.map(({ cursor }) => cursor));
   return [...existing, ...page.filter(({ cursor }) => !seen.has(cursor))];
 };
+
+/**
+ * 一覧の読込状態。`key`は取得条件（scopeと種別）で、条件が変わると`reset`で初期化する。
+ * 応答は要求時の`key`を添えて渡し、現在の`key`と異なる（scope・種別の変更で古くなった）応答の成功・失敗・完了は無視する。
+ */
+export type ActivityListState = {
+  key: string;
+  activities: ActivitySummary[] | null;
+  nextCursor: number | null;
+  error: string | null;
+  moreError: string | null;
+  pending: boolean;
+  /** 追加読込で最後のページに達した。 */
+  reachedEnd: boolean;
+};
+
+export type ActivityListAction =
+  | { kind: "reset"; key: string }
+  | { kind: "loaded"; key: string; page: ActivityPage }
+  | { kind: "failed"; key: string; message: string }
+  | { kind: "moreStarted"; key: string }
+  | { kind: "moreLoaded"; key: string; page: ActivityPage }
+  | { kind: "moreFailed"; key: string; message: string };
+
+export const initialActivityList = (key: string): ActivityListState => ({
+  key,
+  activities: null,
+  nextCursor: null,
+  error: null,
+  moreError: null,
+  pending: false,
+  reachedEnd: false,
+});
+
+export const activityListReducer = (state: ActivityListState, action: ActivityListAction): ActivityListState => {
+  if (action.kind === "reset") return initialActivityList(action.key);
+  if (action.key !== state.key) return state;
+  switch (action.kind) {
+    case "loaded":
+      return { ...state, activities: action.page.activities, nextCursor: action.page.nextCursor };
+    case "failed":
+      return { ...state, error: action.message };
+    case "moreStarted":
+      return { ...state, pending: true, moreError: null };
+    case "moreLoaded":
+      return {
+        ...state,
+        activities: appendActivityPage(state.activities ?? [], action.page.activities),
+        nextCursor: action.page.nextCursor,
+        pending: false,
+        reachedEnd: action.page.nextCursor === null,
+      };
+    case "moreFailed":
+      return { ...state, moreError: action.message, pending: false };
+  }
+};

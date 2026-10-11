@@ -4,9 +4,11 @@ import {
   activitiesPath,
   activityTypeGroups,
   activityTypeLabel,
+  activityListReducer,
   activityTypeSearch,
   appendActivityPage,
   describeReference,
+  initialActivityList,
   parseActivityTypeFilter,
   type ActivitySummary,
 } from "../src/web/features/activity/activity.ts";
@@ -78,4 +80,46 @@ test("種別の絞り込みはscopeごとの状態変更だけを選択肢にし
 test("古いページは重複したcursorを除いて末尾へ足す", () => {
   const item = (cursor: number) => ({ cursor }) as ActivitySummary;
   assert.deepEqual(appendActivityPage([item(3), item(2)], [item(2), item(1)]).map(({ cursor }) => cursor), [3, 2, 1]);
+});
+
+test("種別を変えた後に返った古い追加読込の成功・失敗は、一覧・cursor・エラー・読込中へ混入しない", () => {
+  const item = (cursor: number, type: string) => ({ cursor, type }) as ActivitySummary;
+  const all = "project:p1#";
+  const accepted = "project:p1#task.accepted";
+  let state = activityListReducer(initialActivityList(all), { kind: "loaded", key: all, page: { activities: [item(30, "task.created")], nextCursor: 30 } });
+  // 全件で追加読込を始めたまま、種別をtask.acceptedへ変える。
+  state = activityListReducer(state, { kind: "moreStarted", key: all });
+  assert.equal(state.pending, true);
+  state = activityListReducer(state, { kind: "reset", key: accepted });
+  assert.equal(state.pending, false);
+  state = activityListReducer(state, { kind: "loaded", key: accepted, page: { activities: [item(40, "task.accepted")], nextCursor: 40 } });
+  // 絞り込み結果の取得後に、全件の旧ページ・旧エラーが返る。
+  const current = state;
+  state = activityListReducer(state, { kind: "moreLoaded", key: all, page: { activities: [item(20, "story.created")], nextCursor: 20 } });
+  state = activityListReducer(state, { kind: "moreFailed", key: all, message: "古いActivityを読み込めませんでした" });
+  state = activityListReducer(state, { kind: "failed", key: all, message: "失敗" });
+  assert.equal(state, current);
+  assert.deepEqual(state.activities?.map(({ type }) => type), ["task.accepted"]);
+  assert.equal(state.nextCursor, 40);
+  // 現在の条件では続けて追加読込でき、最後のページで末尾に達する。
+  state = activityListReducer(state, { kind: "moreStarted", key: accepted });
+  state = activityListReducer(state, { kind: "moreLoaded", key: accepted, page: { activities: [item(35, "task.accepted")], nextCursor: null } });
+  assert.deepEqual(state.activities?.map(({ cursor }) => cursor), [40, 35]);
+  assert.equal(state.nextCursor, null);
+  assert.equal(state.pending, false);
+  assert.equal(state.reachedEnd, true);
+  assert.equal(state.moreError, null);
+  assert.equal(state.error, null);
+});
+
+test("追加読込の失敗は現在の条件の一覧を残してエラーを出し、再試行で消える", () => {
+  const key = "workspace:w1#";
+  let state = activityListReducer(initialActivityList(key), { kind: "loaded", key, page: { activities: [{ cursor: 9 } as ActivitySummary], nextCursor: 9 } });
+  state = activityListReducer(activityListReducer(state, { kind: "moreStarted", key }), { kind: "moreFailed", key, message: "読み込めません" });
+  assert.equal(state.moreError, "読み込めません");
+  assert.equal(state.pending, false);
+  assert.equal(state.nextCursor, 9);
+  assert.equal(state.activities?.length, 1);
+  state = activityListReducer(state, { kind: "moreStarted", key });
+  assert.equal(state.moreError, null);
 });

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useReducer, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
@@ -11,9 +11,10 @@ import {
   activitySourceLabels,
   activityTypeGroups,
   activityTypeLabel,
+  activityListReducer,
   activityTypeSearch,
-  appendActivityPage,
   describeReference,
+  initialActivityList,
   parseActivityTypeFilter,
   type ActivityDetail,
   type ActivityPage,
@@ -158,39 +159,29 @@ export const ActivitySection = ({ scope, resources, related }: { scope: Activity
   const [searchParams] = useSearchParams();
   const type = parseActivityTypeFilter(searchParams.get("type"));
   const scopeKey = `${scope.kind === "project" ? `project:${scope.projectId}` : `workspace:${scope.workspaceId}`}#${type ?? ""}`;
-  const [activities, setActivities] = useState<ActivitySummary[] | null>(null);
-  const [nextCursor, setNextCursor] = useState<number | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [moreError, setMoreError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
+  const [list, dispatch] = useReducer(activityListReducer, scopeKey, initialActivityList);
+  // 条件の変更直後（reset前）の描画では、前の条件の一覧を出さず読込中にする。
+  const { activities, nextCursor, error, moreError, pending, reachedEnd } = list.key === scopeKey ? list : initialActivityList(scopeKey);
   // 最後のページを読み込むとbuttonが消えるため、focusをbodyへ落とさず末尾の案内へ移す。
-  const [reachedEnd, setReachedEnd] = useState(false);
   const endNote = useRef<HTMLParagraphElement>(null);
   useEffect(() => { if (reachedEnd) endNote.current?.focus(); }, [reachedEnd]);
+  // 取得条件ごとに状態を作り直す。古い条件の応答（追加読込を含む）はreducerがkeyの不一致で捨てる。
   useEffect(() => {
-    let current = true;
-    setReachedEnd(false);
-    setActivities(null);
-    setError(null);
-    setMoreError(null);
+    const key = scopeKey;
+    dispatch({ kind: "reset", key });
     request<ActivityPage>(activitiesPath(scope, { type }))
-      .then((page) => { if (current) { setActivities(page.activities); setNextCursor(page.nextCursor); } })
-      .catch((reason: unknown) => { if (current) setError(loadFailureMessage(classifyError(reason), notFound)); });
-    return () => { current = false; };
+      .then((page) => dispatch({ kind: "loaded", key, page }))
+      .catch((reason: unknown) => dispatch({ kind: "failed", key, message: loadFailureMessage(classifyError(reason), notFound) }));
   }, [scopeKey]);
   const loadMore = async () => {
     if (nextCursor === null || pending) return;
-    setPending(true);
-    setMoreError(null);
+    const key = scopeKey;
+    dispatch({ kind: "moreStarted", key });
     try {
       const page = await request<ActivityPage>(activitiesPath(scope, { beforeCursor: nextCursor, type }));
-      setActivities((existing) => appendActivityPage(existing ?? [], page.activities));
-      setNextCursor(page.nextCursor);
-      if (page.nextCursor === null) setReachedEnd(true);
+      dispatch({ kind: "moreLoaded", key, page });
     } catch (reason) {
-      setMoreError(`古いActivityを読み込めませんでした: ${loadFailureMessage(classifyError(reason), notFound)}`);
-    } finally {
-      setPending(false);
+      dispatch({ kind: "moreFailed", key, message: `古いActivityを読み込めませんでした: ${loadFailureMessage(classifyError(reason), notFound)}` });
     }
   };
   const typeLabel = type === null ? null : (activityTypeLabel(scope.kind, type) ?? type);
