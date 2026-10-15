@@ -1,2 +1,2 @@
 export { AgentSettingsSection } from "./GrantSection";
-export { agentRoleAnchorId, grantRoleLabels, grantsPath, type Grant } from "./grants";
+export { agentRoleAnchorId, agentRoleDescriptions, grantRoleLabels, grantsPath, type Grant } from "./grants";

@@ -272,6 +272,8 @@ export const humanWorkspacePermissions = {
   /** Workspace（Mission / Vision / Principles / Constraints・status）の参照。archivedでも参照できる。 */
   "workspace.read": "viewer",
   "member.read": "viewer",
+  /** Workspace Direction Role（strategist / researcher / evaluator）のAgent Grantの参照。付与・取消の入口は無い。 */
+  "grant.read": "viewer",
   /** Workspace scopeのDirection（Intent・Outcome等）の変更。入口の接続はDirectionのWorkspace scope化（Story 03）以降。 */
   "direction.write": "editor",
   "workspace.update": "administrator",

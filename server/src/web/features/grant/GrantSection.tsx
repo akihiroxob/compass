@@ -6,18 +6,9 @@ import { ErrorState, Loading } from "../../components/StateCard";
 import { useHashTarget } from "../../useHashTarget";
 import { credentialStatus, credentialsPath, type Credential } from "../credential";
 import { GrantRow } from "./GrantRow";
-import { agentRoleAnchorId, agentRoles, canGrantProjectRole, grantInit, grantNotice, grantRoleLabels, grantsPath, type AgentRole, type Grant, type GrantResponse } from "./grants";
+import { agentRoleAnchorId, agentRoleDescriptions, agentRoles, canGrantProjectRole, grantInit, grantNotice, grantRoleLabels, grantsPath, type AgentRole, type Grant, type GrantResponse } from "./grants";
 
 // ---- Project Role Grant（Step 4でStrategist、Task 29でResearcher、Task 33でManager・Worker・Reviewerを統合、Task 03で1つの一覧へ）。Agentの稼働状況・Run・自動起動は扱わないため表示しない。 ----
-
-const roleDescriptions: Record<AgentRole, string> = {
-  strategist: "Intentから次に達成すべきOutcomeを判断します。",
-  researcher: "Research Requestの調査結果を登録します。",
-  manager: "確定したOutcomeをStory・Taskへ落とし込み、最終受入します。",
-  worker: "Taskを引き受けて実装します。",
-  reviewer: "完了したTaskを実装・検証の観点でレビューします。",
-  evaluator: "Outcomeの成功条件を、還流したExecution Evidenceで評価します。",
-};
 
 /** Role 1つの割当フォーム。失敗しても入力（principalId）は維持し、そのまま再送信できる。 */
 const GrantForm = ({ projectId, role, onGranted }: { projectId: string; role: AgentRole; onGranted: () => Promise<void> }) => {
@@ -84,7 +75,7 @@ const RoleRow = ({ projectId, role, grants, credentials, now, readOnly, reload }
             )) : <span className="unset">未割当</span>}
           </span>
         </summary>
-        <p className="section-note">{roleDescriptions[role]}{grantRoleLabels[role]}の割当はAgentを起動しません。</p>
+        <p className="section-note">{agentRoleDescriptions[role]}{grantRoleLabels[role]}の割当はAgentを起動しません。</p>
         {grants.length > 0 && (
           <ul className="grant-list">
             {grants.map((grant) => <GrantRow key={grant.principalId} projectId={projectId} grant={grant} readOnly={readOnly} onRevoked={() => void reload()} />)}

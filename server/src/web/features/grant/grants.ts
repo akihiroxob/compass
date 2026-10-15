@@ -23,6 +23,15 @@ export const canGrantProjectRole = (role: GrantRole) => projectGrantRoles.some((
 export const revokeRecoveryNote = (role: GrantRole) =>
   canGrantProjectRole(role) ? "再度割り当てて元に戻せます。" : "WorkspaceのRoleのため、Projectからは再度割り当てできません。";
 export type AgentRole = (typeof agentRoles)[number];
+/** Roleの責務の要約（Project設定のRole割当・WorkspaceのAgent画面）。正本はGit管理のRole Definition（`roles/<role>.md`）。 */
+export const agentRoleDescriptions: Record<AgentRole, string> = {
+  strategist: "Intentから次に達成すべきOutcomeを判断します。",
+  researcher: "Research Requestの調査結果を登録します。",
+  manager: "確定したOutcomeをStory・Taskへ落とし込み、最終受入します。",
+  worker: "Taskを引き受けて実装します。",
+  reviewer: "完了したTaskを実装・検証の観点でレビューします。",
+  evaluator: "Outcomeの成功条件を、還流したExecution Evidenceで評価します。",
+};
 /** 「設定」viewのRole行のanchor。概要の「次の行動」から辿る。 */
 export const agentRoleAnchorId = (role: GrantRole) => `agent-role-${role}`;
 

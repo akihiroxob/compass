@@ -253,6 +253,15 @@ export const createApp = (
     });
     return c.json({ revoked });
   });
+  // Workspace Direction Role（strategist / researcher / evaluator）のAgent Grantの参照（Workspace Membershipのviewer以上）。
+  // Project Grantは含めない。付与・取消のWeb APIは公開しない。
+  app.get("/api/workspaces/:workspaceId/grants", async (c) =>
+    c.json({ grants: await human.listWorkspaceGrants.execute(await actorOf(c), c.req.param("workspaceId")) }),
+  );
+  // Role DefinitionとSkillのmetadata（Git管理の資産）。認証済みHumanが、Agent画面からRoleの責務・Skillを辿るために読む。
+  app.get("/api/agent-roles/:role", async (c) =>
+    c.json(await human.getAgentRole.execute(await actorOf(c), c.req.param("role"))),
+  );
   // Research・Direction Decision・ADR参照はHuman向けの読み取り専用画面（Task 29）。Agent Role Grantではなく
   // Workspace Membership（viewer以上）で認可し、MCPのResearcher/Strategist tool群と同じapplication use caseへ委譲する。
   app.get("/api/workspaces/:workspaceId/research-requests", async (c) => {
