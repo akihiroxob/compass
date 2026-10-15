@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { intentPath, outcomePath } from "../../paths";
+import { intentPath, outcomePath, researchRequestPath } from "../../paths";
 import { canOperateWorkspace } from "../../permissions";
 import { statusBadgeClass, type StatusTone } from "../../statusTone";
 import { activitiesPath, RecentActivityList, type ActivityPage, type ActivitySummary } from "../activity";
@@ -20,13 +20,21 @@ import {
   type AttentionRef,
   type EvaluationStage,
   type OutcomePosition,
+  type OverviewResearch,
   type TargetWork,
 } from "./overview";
 import { noTargetNote } from "./direction";
-import { loadDirection, loadProjects, settle, type DirectionData, type OverviewProject, type Part } from "./directionData";
+import { loadDirection, loadOpenResearch, loadProjects, settle, type DirectionData, type OverviewProject, type Part } from "./directionData";
 import { workspaceOutcomePath, workspacePath, workspaceProjectsPath, type Workspace } from "./workspace";
 
-type OverviewData = { direction: Part<DirectionData>; projects: Part<OverviewProject[]>; activities: Part<ActivitySummary[]>; fetchedAt: number };
+type OverviewData = {
+  direction: Part<DirectionData>;
+  /** Workspaceの未終了のResearch Request。要対応の判定にだけ使う。 */
+  research: Part<OverviewResearch[]>;
+  projects: Part<OverviewProject[]>;
+  activities: Part<ActivitySummary[]>;
+  fetchedAt: number;
+};
 
 /** 概要に出す最近の記録の件数。続きは「記録」で読む。 */
 const recentActivityLimit = 5;
@@ -34,12 +42,13 @@ const recentActivityLimit = 5;
 const notFound = "Workspaceが見つからないか、閲覧する権限がありません。";
 
 const loadOverview = async (workspaceId: string): Promise<OverviewData> => {
-  const [direction, projects, activities] = await Promise.all([
+  const [direction, research, projects, activities] = await Promise.all([
     settle(loadDirection(workspaceId), notFound),
+    settle(loadOpenResearch(workspaceId), notFound),
     settle(loadProjects(workspaceId), notFound),
     settle(request<ActivityPage>(activitiesPath({ kind: "workspace", workspaceId }, { limit: recentActivityLimit })).then((page) => page.activities), notFound),
   ]);
-  return { direction, projects, activities, fetchedAt: Date.now() };
+  return { direction, research, projects, activities, fetchedAt: Date.now() };
 };
 
 export const stageLabels: Record<EvaluationStage, { label: string; tone: StatusTone }> = {
@@ -53,7 +62,9 @@ export const stageLabels: Record<EvaluationStage, { label: string; tone: StatusT
 
 const attentionLabels: Record<AttentionKind, { label: string; tone: StatusTone }> = {
   intent: { label: "Intent未登録", tone: "attention" },
+  next_direction: { label: "次の判断待ち", tone: "attention" },
   outcome: { label: "Outcome未登録", tone: "attention" },
+  research: { label: "調査待ち", tone: "progress" },
   no_targets: { label: "Target未設定", tone: "attention" },
   replan: { label: "再計画待ち", tone: "warning" },
   decision: { label: "判断待ち", tone: "attention" },
@@ -142,13 +153,22 @@ const CurrentPosition = ({ workspaceId, direction, projects }: { workspaceId: st
   );
 };
 
-const AttentionRefItem = ({ workspaceId, refItem, kind, projects }: { workspaceId: string; refItem: AttentionRef; kind: AttentionKind; projects: Part<OverviewProject[]> }) => (
-  <span className="attention-ref">
-    <OutcomeName workspaceId={workspaceId} outcome={refItem.outcome} />
-    {refItem.projectId && <> / <ProjectName projectId={refItem.projectId} projects={projects} view={kind === "story" || kind === "decompose" || kind === "replan" ? "overview" : "work"} /></>}
-    {refItem.count !== null && <> {refItem.count}件</>}
-  </span>
-);
+/** 要対応の根拠。OutcomeはWorkspaceのOutcome詳細、Intent・Research RequestはProject配下の詳細を開けるProject（`openProject`）から辿る。 */
+const AttentionRefItem = ({ workspaceId, refItem, kind, projects, openProject }: { workspaceId: string; refItem: AttentionRef; kind: AttentionKind; projects: Part<OverviewProject[]>; openProject: string | null }) => {
+  if (refItem.on === "intent") return <span className="attention-ref">{openProject ? <Link to={intentPath(openProject, refItem.intent.id)}>{refItem.intent.title}</Link> : refItem.intent.title}</span>;
+  if (refItem.on === "research") return <span className="attention-ref">{openProject ? <Link to={researchRequestPath(openProject, refItem.request.id)}>{refItem.request.question}</Link> : refItem.request.question}</span>;
+  return (
+    <span className="attention-ref">
+      <OutcomeName workspaceId={workspaceId} outcome={refItem.outcome} />
+      {refItem.projectId && <> / <ProjectName projectId={refItem.projectId} projects={projects} view={kind === "story" || kind === "decompose" || kind === "replan" ? "overview" : "work"} /></>}
+      {refItem.count !== null && <> {refItem.count}件</>}
+    </span>
+  );
+};
+
+/** 根拠のReact key。 */
+const refKey = (refItem: AttentionRef) =>
+  refItem.on === "outcome" ? `${refItem.outcome.id}-${refItem.projectId ?? ""}` : refItem.on === "intent" ? `intent-${refItem.intent.id}` : `research-${refItem.request.id}`;
 
 /** Humanの登録（Intent・Outcome）の導線。作成画面はProject配下のため、開けるProjectが無ければ理由を出す。 */
 const HumanAction = ({ item, intentId, projectId, canWrite }: { item: AttentionItem; intentId: string | null; projectId: string | null; canWrite: boolean }) => {
@@ -158,9 +178,14 @@ const HumanAction = ({ item, intentId, projectId, canWrite }: { item: AttentionI
   return to ? <Link to={to} className="button compact">{item.kind === "intent" ? "Intentを登録" : "Outcomeを登録"}</Link> : null;
 };
 
-const Attention = ({ workspace, myRole, direction, projects }: { workspace: Workspace; myRole: HumanRole; direction: DirectionData; projects: Part<OverviewProject[]> }) => {
+const Attention = ({ workspace, myRole, direction, research, projects }: { workspace: Workspace; myRole: HumanRole; direction: DirectionData; research: Part<OverviewResearch[]>; projects: Part<OverviewProject[]> }) => {
   if (workspace.status === "archived") return <p className="unset">アーカイブ済みのため、要対応はありません。</p>;
-  const attention = planWorkspaceAttention({ activeIntent: direction.activeIntent !== null, outcomes: direction.outcomes });
+  const attention = planWorkspaceAttention({
+    activeIntent: direction.activeIntent && { id: direction.activeIntent.id, title: direction.activeIntent.title },
+    outcomes: direction.outcomes,
+    pendingPastOutcomes: direction.pendingPastOutcomes,
+    research: research.ok ? research.value : null,
+  });
   const summary = attentionSummary(attention);
   const canWrite = canOperateWorkspace(myRole, "direction.write");
   const project = pickOpenProject([], openProjects(projects));
@@ -170,18 +195,19 @@ const Attention = ({ workspace, myRole, direction, projects }: { workspace: Work
       {attention.items.length > 0 && (
         <ul className="next-action-list waiting">
           {attention.items.map((item) => {
-            const total = item.refs.reduce((sum, refItem) => sum + (refItem.count ?? 1), 0);
+            const total = item.refs.reduce((sum, refItem) => sum + (refItem.on === "outcome" ? refItem.count ?? 1 : 1), 0);
             return (
               <li key={item.kind}>
                 <span><span className={statusBadgeClass(attentionLabels[item.kind].tone)}>{attentionLabels[item.kind].label}</span>{item.refs.length > 0 && <> {total}件</>} — {item.note}</span>
                 {item.actor === "human" && <HumanAction item={item} intentId={direction.activeIntent?.id ?? null} projectId={project} canWrite={canWrite} />}
-                {item.refs.length > 0 && <small className="attention-refs">{item.refs.map((refItem, index) => <span key={`${refItem.outcome.id}-${refItem.projectId ?? ""}`}>{index > 0 && "、"}<AttentionRefItem workspaceId={workspace.id} refItem={refItem} kind={item.kind} projects={projects} /></span>)}</small>}
+                {item.refs.length > 0 && <small className="attention-refs">{item.refs.map((refItem, index) => <span key={refKey(refItem)}>{index > 0 && "、"}<AttentionRefItem workspaceId={workspace.id} refItem={refItem} kind={item.kind} projects={projects} openProject={project} /></span>)}</small>}
               </li>
             );
           })}
         </ul>
       )}
       {attention.outcomeFailures > 0 && <p role="alert" className="error-title">一部のOutcome（{attention.outcomeFailures}件）のTarget Project・還流・評価の状態を確認できません。再読込してください。</p>}
+      {attention.unconfirmed.map((note) => <p key={note} role="alert" className="error-title">{note}。再読込してください。</p>)}
     </>
   );
 };
@@ -251,7 +277,7 @@ export const WorkspaceOverview = ({ workspace, myRole }: { workspace: Workspace;
       </section>
       <section className="detail-section" aria-labelledby="workspace-attention-heading">
         <h2 id="workspace-attention-heading">要対応</h2>
-        {data.direction.ok ? <Attention workspace={workspace} myRole={myRole} direction={data.direction.value} projects={data.projects} /> : <p role="alert" className="error-title">Intent・Outcomeを確認できないため、要対応を判定できません。</p>}
+        {data.direction.ok ? <Attention workspace={workspace} myRole={myRole} direction={data.direction.value} research={data.research} projects={data.projects} /> : <p role="alert" className="error-title">Intent・Outcomeを確認できないため、要対応を判定できません。</p>}
       </section>
       <section className="detail-section" aria-labelledby="workspace-projects-heading">
         <h2 id="workspace-projects-heading">Project</h2>

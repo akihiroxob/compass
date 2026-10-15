@@ -6,6 +6,8 @@ import {
   pickOpenProject,
   planWorkspaceAttention,
   projectTargetNote,
+  type AttentionInput,
+  type AttentionRef,
   type Evaluability,
   type OutcomeExecution,
   type OutcomePosition,
@@ -31,17 +33,26 @@ const outcome = (id: string, targets: TargetWork[] | null, evaluability: Evaluab
   targets,
   execution: evaluability === null || "evaluability" in evaluability ? evaluability : execution(evaluability),
 });
+const intent = { id: "i-1", title: "Intent 1" };
+/** 要対応の入力。既定はActive Intentあり・終了したOutcomeの判断待ちなし・未終了のResearchなし。 */
+const attentionOf = (outcomes: OutcomePosition[], input: Partial<AttentionInput> = {}) =>
+  planWorkspaceAttention({ activeIntent: intent, outcomes, pendingPastOutcomes: [], research: [], ...input });
+/** 根拠のOutcome ID（Outcome以外の根拠は`on`）。 */
+const refId = (ref: AttentionRef) => (ref.on === "outcome" ? ref.outcome.id : ref.on);
+const outcomeRef = (ref: AttentionRef) => {
+  assert.equal(ref.on, "outcome");
+  return ref as Extract<AttentionRef, { on: "outcome" }>;
+};
 const awaiting = (unfinished: Evaluability["unfinishedTargets"]): Evaluability => ({ status: "awaiting_execution", unfinishedTargets: unfinished });
 
-test("Active Intentが無ければIntentの登録、ActiveなOutcomeが無ければOutcomeの登録だけをHumanの要対応にする", () => {
-  assert.deepEqual(planWorkspaceAttention({ activeIntent: false, outcomes: [] }).items.map(({ kind, actor }) => [kind, actor]), [["intent", "human"]]);
-  assert.deepEqual(planWorkspaceAttention({ activeIntent: true, outcomes: [] }).items.map(({ kind, actor }) => [kind, actor]), [["outcome", "human"]]);
+test("Active Intentが無ければHumanのIntentの登録、ActiveなOutcomeが無ければStrategistの次の判断とHumanのOutcomeの登録を要対応にする", () => {
+  assert.deepEqual(attentionOf([], { activeIntent: null }).items.map(({ kind, actor }) => [kind, actor]), [["intent", "human"]]);
+  // ActiveなOutcomeが無いActive Intentは、Orchestratorと同じくStrategistの次の判断待ち。Humanも登録できる。
+  assert.deepEqual(attentionOf([]).items.map(({ kind, actor }) => [kind, actor]), [["next_direction", "strategist"], ["outcome", "human"]]);
 });
 
 test("OutcomeごとにTarget Project別のWorkから次に動く主体を上流から順に出し、根拠のOutcome・Project・件数を持つ", () => {
-  const { items, outcomeFailures } = planWorkspaceAttention({
-    activeIntent: true,
-    outcomes: [
+  const { items, outcomeFailures } = attentionOf([
       outcome("a", [], { status: "no_targets", unfinishedTargets: [] }),
       outcome("b", [
         target("p-consumer", null),
@@ -50,8 +61,7 @@ test("OutcomeごとにTarget Project別のWorkから次に動く主体を上流�
         { projectId: "p-consumer", projectStatus: "active", reason: "not_reflected" },
         { projectId: "p-business", projectStatus: "active", reason: "not_reflected" },
       ])),
-    ],
-  });
+  ]);
   assert.equal(outcomeFailures, 0);
   assert.deepEqual(items.map(({ kind, actor }) => [kind, actor]), [
     ["no_targets", "strategist"],
@@ -61,17 +71,15 @@ test("OutcomeごとにTarget Project別のWorkから次に動く主体を上流�
     ["in_review", "reviewer"],
     ["wait_accept", "manager"],
   ]);
-  assert.deepEqual(items.find(({ kind }) => kind === "story")?.refs.map(({ outcome: { id }, projectId }) => [id, projectId]), [["b", "p-consumer"]]);
-  assert.deepEqual(items.find(({ kind }) => kind === "in_review")?.refs.map(({ projectId, count }) => [projectId, count]), [["p-business", 2]]);
+  assert.deepEqual(items.find(({ kind }) => kind === "story")?.refs.map(outcomeRef).map(({ outcome: { id }, projectId }) => [id, projectId]), [["b", "p-consumer"]]);
+  assert.deepEqual(items.find(({ kind }) => kind === "in_review")?.refs.map(outcomeRef).map(({ projectId, count }) => [projectId, count]), [["p-business", 2]]);
   // 作業中（doing）はClaimの有効性を判断できないため、要対応に出さない。
-  assert.equal(items.some(({ refs }) => refs.some(({ count }) => count === 3)), false);
+  assert.equal(items.some(({ refs }) => refs.map(outcomeRef).some(({ count }) => count === 3)), false);
 });
 
 test("Workが終わって未還流ならRuntimeの還流待ち、全Target還流済みならEvaluatorの評価待ち、archived Targetの未完了はStrategistの再計画待ち", () => {
   const done = { state: "accepted" as const, storyCount: 1, taskCounts: counts({ accepted: 2 }) };
-  const { items } = planWorkspaceAttention({
-    activeIntent: true,
-    outcomes: [
+  const { items } = attentionOf([
       outcome("reflect", [target("p-1", done)], awaiting([{ projectId: "p-1", projectStatus: "active", reason: "not_reflected" }])),
       outcome("evaluate", [target("p-1", done), target("p-2", done)], execution({ status: "evaluable", unfinishedTargets: [] }, [
         { projectId: "p-1", executionCursor: 3 },
@@ -81,9 +89,8 @@ test("Workが終わって未還流ならRuntimeの還流待ち、全Target還流
         status: "replan_required",
         unfinishedTargets: [{ projectId: "p-old", projectStatus: "archived", reason: "not_reflected" }],
       }),
-    ],
-  });
-  assert.deepEqual(items.map(({ kind, refs }) => [kind, refs.map(({ outcome: { id }, projectId }) => `${id}:${projectId ?? "-"}`)]), [
+  ]);
+  assert.deepEqual(items.map(({ kind, refs }) => [kind, refs.map(outcomeRef).map(({ outcome: { id }, projectId }) => `${id}:${projectId ?? "-"}`)]), [
     ["replan", ["replan:p-old"]],
     ["reflection", ["reflect:p-1"]],
     ["evaluation", ["evaluate:-"]],
@@ -93,15 +100,15 @@ test("Workが終わって未還流ならRuntimeの還流待ち、全Target還流
 });
 
 test("取得に失敗したOutcomeは要対応を判定せず件数で返し、空・Targetなしと区別する", () => {
-  const attention = planWorkspaceAttention({
-    activeIntent: true,
-    outcomes: [outcome("ok", [target("p-1", { state: "incomplete", storyCount: 1, taskCounts: counts({ doing: 1 }) })], awaiting([])), outcome("failed", null, null), outcome("partial", [], null)],
-  });
+  const attention = attentionOf([outcome("ok", [target("p-1", { state: "incomplete", storyCount: 1, taskCounts: counts({ doing: 1 }) })], awaiting([])), outcome("failed", null, null), outcome("partial", [], null)]);
   assert.deepEqual(attention.items, []);
   assert.equal(attention.outcomeFailures, 2);
-  assert.equal(attentionSummary(attention), "確認できたOutcomeに要対応はありません");
-  assert.equal(attentionSummary({ items: [], outcomeFailures: 0 }), "要対応はありません");
-  assert.equal(attentionSummary(planWorkspaceAttention({ activeIntent: false, outcomes: [] })), null);
+  // 進行中のOutcome（ok）があるため、取得できないOutcomeがあってもIntentの判断は要らないと判定できる。
+  assert.deepEqual(attention.unconfirmed, []);
+  assert.equal(attentionSummary(attention), "確認できた範囲に要対応はありません");
+  assert.equal(attentionSummary({ items: [], outcomeFailures: 0, unconfirmed: [] }), "要対応はありません");
+  assert.equal(attentionSummary({ items: [], outcomeFailures: 0, unconfirmed: ["Research Requestを取得できない"] }), "確認できた範囲に要対応はありません");
+  assert.equal(attentionSummary(attentionOf([], { activeIntent: null })), null);
 });
 
 test("Outcome・Intentの詳細はProject Membershipで開けるProject（Targetを優先、無ければactive）から開き、無ければリンクにしない", () => {
@@ -117,19 +124,16 @@ test("Outcome・Intentの詳細はProject Membershipで開けるProject（Target
 });
 
 test("StoryがあってもTaskが無いactiveなTargetは、ProjectのManagerのTask分解待ちにする（ExecutionSummaryのincompleteと同じ）", () => {
-  const { items } = planWorkspaceAttention({
-    activeIntent: true,
-    outcomes: [
+  const { items } = attentionOf([
       outcome("split", [
         target("p-empty", { state: "incomplete", storyCount: 1, taskCounts: counts() }),
         target("p-old", { state: "incomplete", storyCount: 1, taskCounts: counts() }, "archived"),
       ], awaiting([
         { projectId: "p-empty", projectStatus: "active", reason: "not_reflected" },
       ])),
-    ],
-  });
-  assert.deepEqual(items.map(({ kind, actor, refs }) => [kind, actor, refs.map(({ projectId }) => projectId)]), [["decompose", "manager", ["p-empty"]]]);
-  assert.equal(attentionSummary({ items, outcomeFailures: 0 }), null);
+  ]);
+  assert.deepEqual(items.map(({ kind, actor, refs }) => [kind, actor, refs.map(outcomeRef).map(({ projectId }) => projectId)]), [["decompose", "manager", ["p-empty"]]]);
+  assert.equal(attentionSummary({ items, outcomeFailures: 0, unconfirmed: [] }), null);
 });
 
 test("全Target還流済みの評価待ちと、評価済みの判断待ち・新しい還流の再評価待ち・判断済みを、最新Evaluationと評価snapshotのcursorで区別する", () => {
@@ -137,7 +141,7 @@ test("全Target還流済みの評価待ちと、評価済みの判断待ち・�
   const evaluable: Evaluability = { status: "evaluable", unfinishedTargets: [] };
   const cursors = [{ projectId: "p-1", executionCursor: 7 }];
   const evaluated = (decided: boolean, executionCursor: number): OutcomeExecution["latestEvaluation"] => ({ id: "e-1", decided, targetCursors: [{ projectId: "p-1", executionCursor }] });
-  const plan = (state: OutcomeExecution) => planWorkspaceAttention({ activeIntent: true, outcomes: [outcome("o", [target("p-1", done)], state)] }).items.map(({ kind, actor }) => [kind, actor]);
+  const plan = (state: OutcomeExecution) => attentionOf([outcome("o", [target("p-1", done)], state)]).items.map(({ kind, actor }) => [kind, actor]);
 
   const unevaluated = execution(evaluable, cursors);
   assert.equal(evaluationStage(unevaluated), "evaluation_pending");
@@ -154,13 +158,14 @@ test("全Target還流済みの評価待ちと、評価済みの判断待ち・�
   // Targetの構成が変わった（評価snapshotに無いTargetがある）場合も未評価。
   assert.deepEqual(plan(execution(evaluable, [...cursors, { projectId: "p-2", executionCursor: 1 }], evaluated(false, 7))), [["decision", "strategist"], ["evaluation", "evaluator"]]);
 
-  // 判断済みのOutcomeは、新しい還流があってもEvaluator・Strategist・Managerを待たない（Orchestratorの`isLive`と同じ）。
+  // 判断済みのOutcomeは、新しい還流があってもOutcomeのEvaluator・Strategist・Managerを待たない（Orchestratorの`isLive`と同じ）。
+  // 進行中のOutcomeが無くなったActive Intentは、Strategistの次の判断待ち。
   const decided = execution(evaluable, [{ projectId: "p-1", executionCursor: 9 }], evaluated(true, 7));
   assert.equal(evaluationStage(decided), "decided");
-  assert.deepEqual(plan(decided), []);
+  assert.deepEqual(plan(decided), [["next_direction", "strategist"]]);
   assert.deepEqual(
-    planWorkspaceAttention({ activeIntent: true, outcomes: [outcome("o", [target("p-1", null)], execution({ status: "awaiting_execution", unfinishedTargets: [] }, [], evaluated(true, 7)))] }).items,
-    [],
+    attentionOf([outcome("o", [target("p-1", null)], execution({ status: "awaiting_execution", unfinishedTargets: [] }, [], evaluated(true, 7)))]).items.map(({ kind }) => kind),
+    ["next_direction"],
   );
 
   assert.equal(evaluationStage(execution({ status: "awaiting_execution", unfinishedTargets: [] })), "awaiting_execution");
@@ -177,4 +182,55 @@ test("Project一覧のTarget表示は、Intent・Outcomeの取得失敗・一部
   assert.equal(projectTargetNote(partial, "p-1"), "Active Outcome 2件のTarget（ほかOutcome 1件は確認できません）");
   assert.equal(projectTargetNote(partial, "p-3"), "Targetか確認できません（Outcome 1件のTargetを取得できません）");
   assert.equal(projectTargetNote(null, "p-1"), "Targetか確認できません（Intent・Outcomeを取得できません）");
+});
+
+test("進行中のOutcome・未終了のResearch・判断待ちのEvaluationが無いActive Intentは、Intentを根拠にStrategistの次の判断待ちにする（Orchestratorの`intentNeedsStrategist`と同じ）", () => {
+  const done = { state: "accepted" as const, storyCount: 1, taskCounts: counts({ accepted: 1 }) };
+  const evaluable: Evaluability = { status: "evaluable", unfinishedTargets: [] };
+  const decidedOutcome = (id: string) => outcome(id, [target("p-1", done)], execution(evaluable, [{ projectId: "p-1", executionCursor: 7 }], { id: `e-${id}`, decided: true, targetCursors: [{ projectId: "p-1", executionCursor: 7 }] }));
+  const research = (id: string, originIntentId: string | null, status = "running") => ({ id, question: `Q ${id}`, status, originIntentId });
+
+  // 全Outcome判断済み・未終了Researchなし: Intentを根拠にStrategistの次の判断待ち。
+  const allDecided = attentionOf([decidedOutcome("a"), decidedOutcome("b")]);
+  assert.deepEqual(allDecided.items.map(({ kind, actor, refs }) => [kind, actor, refs.map(refId)]), [["next_direction", "strategist", ["intent"]]]);
+  assert.deepEqual(allDecided.items[0]!.refs[0], { on: "intent", intent });
+  assert.equal(attentionSummary(allDecided), null);
+
+  // 進行中のOutcome（判断済みでない）があれば、Intentの判断は要らない。
+  const live = outcome("live", [target("p-1", { state: "incomplete", storyCount: 1, taskCounts: counts({ doing: 1 }) })], awaiting([]));
+  assert.deepEqual(attentionOf([decidedOutcome("a"), live]).items, []);
+  assert.equal(attentionSummary(attentionOf([decidedOutcome("a"), live])), "要対応はありません");
+
+  // Active Intentを起点にした未終了のResearchがあれば、Researcherの調査待ちで、Intentの判断は要らない。
+  const running = attentionOf([decidedOutcome("a")], { research: [research("r-1", "i-1")] });
+  assert.deepEqual(running.items.map(({ kind, actor, refs }) => [kind, actor, refs.map(refId)]), [["research", "researcher", ["research"]]]);
+  // 他のIntentを起点にしたResearchは調査待ちに出すが、Active IntentのStrategistの判断を止めない（Orchestratorと同じ）。
+  assert.deepEqual(attentionOf([decidedOutcome("a")], { research: [research("r-2", "i-old", "requested")] }).items.map(({ kind }) => kind), ["next_direction", "research"]);
+
+  // 終了したOutcomeに判断待ちのEvaluationがあれば、そのStrategistの判断待ちで、Intentの判断は要らない。
+  const pastPending = attentionOf([decidedOutcome("a")], { pendingPastOutcomes: [{ id: "old", intentId: "i-1", title: "Outcome old" }] });
+  assert.deepEqual(pastPending.items.map(({ kind, refs }) => [kind, refs.map(refId)]), [["decision", ["old"]]]);
+});
+
+test("Research・終了したOutcomeのEvaluation・Outcomeの状態を取得できなければ、Intentの次の判断が要らないと断定しない", () => {
+  const done = { state: "accepted" as const, storyCount: 1, taskCounts: counts({ accepted: 1 }) };
+  const evaluable: Evaluability = { status: "evaluable", unfinishedTargets: [] };
+  const decidedOutcome = outcome("a", [target("p-1", done)], execution(evaluable, [{ projectId: "p-1", executionCursor: 7 }], { id: "e-a", decided: true, targetCursors: [{ projectId: "p-1", executionCursor: 7 }] }));
+
+  const noResearch = attentionOf([decidedOutcome], { research: null });
+  assert.deepEqual(noResearch.items, []);
+  assert.deepEqual(noResearch.unconfirmed, [
+    "Research Requestを取得できないため、Researcherの調査待ちを確認できません",
+    "Research Requestを取得できないため、Active IntentにStrategistの次の判断が必要か確認できません",
+  ]);
+  assert.equal(attentionSummary(noResearch), "確認できた範囲に要対応はありません");
+
+  assert.deepEqual(attentionOf([decidedOutcome], { pendingPastOutcomes: null }).unconfirmed, ["終了したOutcomeのEvaluationを取得できないため、Active IntentにStrategistの次の判断が必要か確認できません"]);
+  const failedOutcome = attentionOf([decidedOutcome, outcome("failed", null, null)]);
+  assert.deepEqual(failedOutcome.items, []);
+  assert.deepEqual(failedOutcome.unconfirmed, ["Active Outcomeの還流・評価の状態を取得できないため、Active IntentにStrategistの次の判断が必要か確認できません"]);
+
+  // 進行中のOutcomeが確認できれば、Researchを取得できなくてもIntentの判断は要らないと判定できる。
+  const live = outcome("live", [target("p-1", { state: "incomplete", storyCount: 1, taskCounts: counts({ todo: 1 }) })], awaiting([]));
+  assert.deepEqual(attentionOf([live], { research: null }).unconfirmed, ["Research Requestを取得できないため、Researcherの調査待ちを確認できません"]);
 });
