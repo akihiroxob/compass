@@ -230,22 +230,7 @@ test("Runtime Credentialは明示scopeと発行Projectだけで認可し、Agent
   assert.equal(((await evidence.json()) as Json).error.requiredScope, "execution:evidence:write");
   const summary = await callTool(remoteApp, token, "get_outcome_execution_summary", { projectId: project.id, outcomeId: "o" });
   assert.equal(summary.structuredContent.error.code, "FORBIDDEN");
-  const deniedState = await callTool(remoteApp, token, "get_orchestration_state", { projectId: project.id });
-  assert.equal(deniedState.structuredContent.error.code, "FORBIDDEN");
-  assert.equal(deniedState.structuredContent.error.requiredScope, "runtime:state:read");
   assert.equal((await runtimeProbe(remoteApp, other.id, token)).status, 403);
-
-  // Orchestrator向けの現在状態はruntime:state:readのscopeを付けたCredentialだけが読める（発行Projectに限る）。
-  const orchestrator = await issueToken(webApp, owner, project.id, {
-    kind: "runtime",
-    principalId: "orchestrator-a",
-    scopes: ["runtime:state:read"],
-  });
-  const state = await callTool(remoteApp, orchestrator.token, "get_orchestration_state", { projectId: project.id });
-  assert.notEqual(state.isError, true, JSON.stringify(state));
-  assert.equal(state.structuredContent.project.id, project.id);
-  const otherState = await callTool(remoteApp, orchestrator.token, "get_orchestration_state", { projectId: other.id });
-  assert.equal(otherState.structuredContent.error.code, "FORBIDDEN");
 
   // Runtime CredentialはRole Grantの経路を使えない（Agent向けtoolではPrincipalなし）。
   const agentTool = await callTool(remoteApp, token, "get_project", { projectId: project.id });

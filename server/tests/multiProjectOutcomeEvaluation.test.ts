@@ -282,9 +282,6 @@ test("A failed criterion of one Target makes the multi-Project Outcome failed an
       { status: "no_targets", unfinishedTargets: [] });
     assert.equal((await kit.services.getIntentUseCase.execute(workspace.id, intent.id)).status, "active");
 
-    // 複数ProjectのWorkspaceは、Project基準のOrchestration Stateでは扱わない（S08で切替）。
-    const state = errorOf(await callTool(kit.app, "get_orchestration_state", { projectId: a.id }, "rt"));
-    assert.deepEqual([state.code, state.reason], ["CONFLICT", "workspace_direction_required"]);
     await kit.database.destroy();
   } finally {
     file.remove();

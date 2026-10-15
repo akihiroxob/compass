@@ -1,4 +1,4 @@
-import { projectDecisionReader, projectResearchReader, projectDirectionRepositories, projectWorkspaceId } from "../infrastructure/repository/projectDirectionAdapter.ts";
+import { projectWorkspaceId } from "../infrastructure/repository/projectWorkspace.ts";
 import { AgentContextService } from "../application/agentContext/AgentContextService.ts";
 import { GetRoleContextUseCase } from "../application/agentContext/GetRoleContextUseCase.ts";
 import { GetWorkspaceRoleContextUseCase } from "../application/agentContext/GetWorkspaceRoleContextUseCase.ts";
@@ -22,7 +22,6 @@ import {
   FetchRuntimeEventsUseCase,
   GetEvaluatorContextUseCase,
   GetExecutionSummaryUseCase,
-  GetOrchestrationStateUseCase,
   GetWorkspaceOrchestrationStateUseCase,
   GetIntentUseCase,
   GetOutcomeUseCase,
@@ -213,7 +212,6 @@ export const createApplicationServices = (
   const workspaceOutcomeRepository = new SQLiteOutcomeRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
   // Target ProjectとOutcomeのWorkspace一致は、書込と同じtransactionでProject（Organization）を読んで検査する。
   const outcomeTargetProjectRepository = new SQLiteOutcomeTargetProjectRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders, clock);
-  const { intents: intentRepository, outcomes: outcomeRepository } = projectDirectionRepositories(projectRepository, workspaceIntentRepository, workspaceOutcomeRepository);
   const workspaceBasics = {
     createIntentUseCase: new CreateIntentUseCase(workspaceRepository, workspaceIntentRepository),
     listIntentsUseCase: new ListIntentsUseCase(workspaceRepository, workspaceIntentRepository),
@@ -241,8 +239,6 @@ export const createApplicationServices = (
     clock,
     directionChangeObserver,
   );
-  const researchRepository = projectResearchReader(projectRepository, workspaceResearchRepository);
-  const directionDecisionRepository = projectDecisionReader(projectRepository, workspaceDecisionRepository);
   const adrHandoffRepository = new SQLiteAdrHandoffRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders);
   const workspaceDirectionBasics = {
     ...workspaceBasics,
@@ -391,19 +387,6 @@ export const createApplicationServices = (
           return workspaceDirection.recordExecutionEvidenceUseCase.execute(principalId, workspaceId, projectId, outcomeId, input);
         },
       },
-      getOrchestrationStateUseCase: new GetOrchestrationStateUseCase(
-        runtimeAuthorization,
-        projectRepository,
-        intentRepository,
-        outcomeRepository,
-        researchRepository,
-        directionDecisionRepository,
-        outcomeEvaluationRepository,
-        outcomeTargetProjectRepository,
-        outcomeExecutionRepository,
-        executionSummaryService,
-        clock,
-      ),
       // Workspace単位の現在状態。Workspace Runtime Credentialのscopeだけで認可し、Project Credentialから継承しない。
       getWorkspaceOrchestrationStateUseCase: new GetWorkspaceOrchestrationStateUseCase(
         runtimeAuthorization,

@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { KyselyActivityStore } from "@compass/activity";
 import { SQLiteProjectRepository, SQLiteWorkspaceRepository, CreateWorkspaceUseCase, CreateWorkspaceProjectUseCase } from "@compass/organization";
-import { asActivityDatabase, asDirectionDatabase, asOrganizationDatabase, asWorkDatabase } from "../src/bootstrap/database/contextDatabase.ts";
-import { activityScopeReader, directionChangeActivityObserver, projectChangeActivityObserver, projectRepositoryReferenceFinder, workChangeActivityObserver } from "../src/infrastructure/repository/contextAdapters.ts";
+import { asActivityDatabase, asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import { projectRepositoryReferenceFinder } from "../src/infrastructure/repository/contextAdapters.ts";
 import type { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp, seedLegacyProjectGrant, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
@@ -557,21 +557,6 @@ test("Activity保存失敗は複数Project WorkspaceでDirection/Work/archive/�
   await database.destroy();
 });
 
-test("所属欠損の通知はWorkspace IDを捏造せず拒否する", async () => {
-  const { app, database } = await setup();
-  const { a } = await sharedWorkspace(database);
-  await grant(app, a.id, "worker-a", "worker");
-  await database.updateTable("project").set({ workspace_id: null }).where("id", "=", a.id).execute();
-  const message = /no Workspace/;
-  await assert.rejects(directionChangeActivityObserver(asDirectionDatabase(database))({ type: "intent_created", workspaceId: "missing", recordId: "i1", title: "I", refs: [], result: null, reason: null, principalId: null, occurredAt: 1 }));
-  await assert.rejects(projectChangeActivityObserver(asOrganizationDatabase(database))({ type: "project_archived", workspaceId: a.workspaceId, projectId: a.id, title: "A", reason: "R", occurredAt: 1 }), message);
-  await assert.rejects(workChangeActivityObserver(asWorkDatabase(database))({ entity_id: "s1", claim_id: null, cursor: 1, project_id: a.id, type: "STORY_CREATED", principal_id: "m", payload: "{}", occurred_at: 1, subject: { kind: "story", id: "s1", title: "S", storyId: null } }), message);
-  await assert.rejects(activityScopeReader(database).find({ kind: "project", id: a.id }), /does not belong to a Workspace/);
-  assert.equal((await record(app, "worker-a", { projectId: a.id, role: "worker", type: "note", summary: "missing", requestId: "missing-record" })).isError, true);
-  assert.deepEqual(await database.selectFrom("activity").selectAll().execute(), []);
-  await database.destroy();
-});
-
 test("新規DBのActivityは同じschemaで再起動後もscope/ID/cursorを保持する", async () => {
   const directory = await mkdtemp(join(tmpdir(), "compass-activity-"));
   const path = join(directory, "activity.db");
@@ -593,26 +578,4 @@ test("新規DBのActivityは同じschemaで再起動後もscope/ID/cursorを保�
     await database.destroy();
     await rm(directory, { recursive: true, force: true });
   }
-});
-
-test("変更transaction内で所属が失われた場合は通知時に検出し、業務変更と所属変更を巻き戻す", async () => {
-  const { app, database } = await setup();
-  const { workspace, a } = await sharedWorkspace(database);
-  await grant(app, a.id, "manager-a", "manager");
-  const services = createApplicationServices(database);
-  // Intent通知は所有Workspaceを直接使うため、Projectの所属解決を経由しない。
-  // 未切替のProject由来通知（Work/archive）は所属欠損を同一transactionで拒否する。
-  await sql`create trigger lose_story_workspace after insert on story begin
-    update project set workspace_id = null where id = new.project_id; end`.execute(database);
-  assert.equal((await callTool(app, "issue_story", { projectId: a.id, title: "fail", requestId: "lose-story" }, "manager-a")).isError, true);
-  assert.deepEqual(await database.selectFrom("story").selectAll().execute(), []);
-  assert.deepEqual(await database.selectFrom("change_log").selectAll().execute(), []);
-  await sql`drop trigger lose_story_workspace`.execute(database);
-  await sql`create trigger lose_archive_workspace after update of status on project when new.status = 'archived' begin
-    update project set workspace_id = null where id = new.id; end`.execute(database);
-  await assert.rejects(services.archiveProjectUseCase.execute(a.id, { reason: "fail" }), /no Workspace/);
-  const project = await database.selectFrom("project").select(["workspace_id", "status"]).where("id", "=", a.id).executeTakeFirstOrThrow();
-  assert.deepEqual(project, { workspace_id: workspace.id, status: "active" });
-  assert.deepEqual(await database.selectFrom("activity").selectAll().execute(), []);
-  await database.destroy();
 });

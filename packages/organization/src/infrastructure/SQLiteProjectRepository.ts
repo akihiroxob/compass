@@ -41,9 +41,6 @@ export type ProjectRepositoryReferenceFinder = (
   repositoryIds: string[],
 ) => Promise<string | null>;
 
-/** 旧`project.mission`はNOT NULLのため作成時に書く値。戦略値の正本はWorkspaceで、旧列は読まない。 */
-const unusedLegacyMission = "";
-
 export class SQLiteProjectRepository implements ProjectRepository {
   constructor(
     private readonly database: Kysely<OrganizationDatabase>,
@@ -156,7 +153,6 @@ export class SQLiteProjectRepository implements ProjectRepository {
       if (!existing) return "not_found" as const;
       if (existing.status === "archived") return "already_archived" as const;
       const workspaceId = existing.workspace_id;
-      if (workspaceId === null) throw new Error(`Project ${projectId} does not belong to a Workspace`);
 
       // updated_atはarchived_atと同じ値にする（Intentの放棄・Outcomeの取消がupdated_atを更新するのと同じ）。
       const now = Date.now();
@@ -215,7 +211,6 @@ export class SQLiteProjectRepository implements ProjectRepository {
       .where("id", "=", projectId)
       .executeTakeFirst();
     if (!row) return null;
-    if (row.workspace_id === null) throw new Error(`Project ${projectId} does not belong to a Workspace`);
 
     const [repositories, resources] = await Promise.all([
       this.database.selectFrom("project_repository_link").select(["id", "name", "url"])
@@ -293,14 +288,11 @@ export class SQLiteProjectRepository implements ProjectRepository {
         workspace_id: workspaceId,
         name: input.name,
         description: input.description,
-        mission: unusedLegacyMission,
-        vision: null,
         created_at: now,
         updated_at: now,
         status: "active",
         archived_at: null,
         archive_reason: null,
-        strategy_migrated_at: now,
       })
       .execute();
 

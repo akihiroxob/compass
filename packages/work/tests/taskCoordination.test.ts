@@ -389,27 +389,6 @@ test("requestId resent with a different activeRole is a conflict, not the earlie
   );
 });
 
-test("command_receipt without active_role keeps existing rows as NULL", async () => {
-  await database.schema.dropTable("command_receipt").execute();
-  await database.schema
-    .createTable("command_receipt")
-    .addColumn("principal_id", "text", (column) => column.notNull())
-    .addColumn("tool_name", "text", (column) => column.notNull())
-    .addColumn("request_id", "text", (column) => column.notNull())
-    .addColumn("input_json", "text", (column) => column.notNull())
-    .addColumn("result_json", "text", (column) => column.notNull())
-    .addColumn("created_at", "integer", (column) => column.notNull())
-    .addPrimaryKeyConstraint("command_receipt_pk", ["principal_id", "tool_name", "request_id"])
-    .execute();
-  await sql`insert into command_receipt values ('worker-a', 'claim_task', 'old', '{}', '{}', 1)`.execute(database);
-
-  await initializeWorkSchema(database);
-  await initializeWorkSchema(database);
-
-  const rows = await database.selectFrom("command_receipt").select(["request_id", "active_role"]).execute();
-  assert.deepEqual(rows, [{ request_id: "old", active_role: null }]);
-});
-
 test("Manager direct review moves in_review to wait_accept when acceptance is claimed", async () => {
   const { project, task } = await createProjectTask();
   await grant(project.id, "worker-a", WorkRole.WORKER);
