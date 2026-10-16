@@ -82,9 +82,9 @@ test("Projectで新規割当できるRoleはExecutionの3Roleだけ", () => {
 });
 
 test("取消確認の復元説明は、Projectから再割当できるExecution Roleだけが元に戻せると伝える", () => {
-  for (const role of ["manager", "worker", "reviewer"] as const) assert.equal(revokeRecoveryNote(role), "再度割り当てて元に戻せます。");
+  for (const role of ["manager", "worker", "reviewer"] as const) assert.equal(revokeRecoveryNote({ kind: "project", id: "p1" }, role), "再度割り当てて元に戻せます。");
   for (const role of ["strategist", "researcher", "evaluator", "runtime"] as const) {
-    const note = revokeRecoveryNote(role);
+    const note = revokeRecoveryNote({ kind: "project", id: "p1" }, role);
     assert.doesNotMatch(note, /元に戻せます/);
     assert.match(note, /Projectからは再度割り当てできません/);
   }
