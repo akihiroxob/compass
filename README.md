@@ -105,6 +105,8 @@ Orchestrator（[orchestrator/README.md](orchestrator/README.md)）はWorkspace R
 
 ## 検証
 
+Managerの専用プレビューは[ブラウザ検証データの準備手順](docs/browser-verification.md)に従い、対象Worktreeのschema・use caseで検証専用DBを作成します。
+
 ```bash
 COMPASS_DB_PATH=:memory: npm test
 npm run typecheck

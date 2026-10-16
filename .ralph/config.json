@@ -71,7 +71,27 @@
         "COMPASS_PUBLIC_ORIGIN": "http://127.0.0.1:{port}",
         "COMPASS_INITIAL_OWNER_EMAIL": "preview-owner@example.test"
       },
-      "readyPath": "/"
+      "readyPath": "/",
+      "setupCommands": [
+        [
+          "npm",
+          "ci",
+          "--ignore-scripts"
+        ],
+        [
+          "npm",
+          "rebuild",
+          "better-sqlite3"
+        ],
+        [
+          "node",
+          "--import",
+          "tsx",
+          "/Users/aokayama/git/compass/scripts/prepare-browser-verification.mjs",
+          "--data-dir",
+          "{dataDir}"
+        ]
+      ]
     }
   }
 }
