@@ -87,9 +87,9 @@ Membershipはrequestごとに読み、取消・Role変更を次の操作へ反�
 
 Credentialはscope（`{ kind: workspace | project, id }`）を明示して発行し、応答・一覧は`scope`を返す。発行・rotation・取消・一覧はProject Credentialが`/api/projects/:projectId/credentials`（Project Membershipのadministrator以上）、Workspace Credentialが`/api/workspaces/:workspaceId/credentials`（Workspace Membershipのadministrator以上）で、Membershipを相互に継承しない。別scopeのCredential IDは404。archivedのscopeでは発行・rotationを拒否し、取消はできる。
 
-Runtime scopeは`runtime:event:read` / `runtime:event:ack` / `execution:change:read` / `execution:evidence:write` / `execution:summary:read` / `runtime:state:read`。`RuntimeAuthorizationService`はCredentialのscopeと操作対象のscope（`requireScope`はProject、`requireWorkspaceScope`はWorkspace）の一致とRuntime scopeを検査し、WorkspaceとProjectの間で継承しない。Agent Grantとは混同しない。公開済みのRuntime入口はProject scopeだけで、Workspace Runtime Credentialを受け付けるWorkspaceの入口は未接続（S03-04・S08-03）。
+Runtime scopeは`runtime:event:read` / `runtime:event:ack` / `execution:change:read` / `execution:evidence:write` / `execution:summary:read` / `runtime:state:read`。`RuntimeAuthorizationService`はCredentialのscopeと操作対象のscope（`requireScope`はProject、`requireWorkspaceScope`はWorkspace）の一致とRuntime scopeを検査し、WorkspaceとProjectの間で継承しない。Agent Grantとは混同しない。Project Runtime CredentialはExecution change・Evidence・Summary・Project基準のOrchestration Stateに、Workspace Runtime CredentialはRuntime event（`fetch_runtime_events` / `ack_runtime_event`・`/api/workspaces/:workspaceId/runtime-events`）と`get_workspace_orchestration_state`に使い、OrchestratorはWorkspace Runtime CredentialでWorkspaceの状態を読む。
 
-Agent CredentialのPrincipalは1つのscopeに束縛する。別scope（別Workspace・別Project、WorkspaceとProjectの違いを含む）のRole Grantまたは有効なAgent Credentialを持つPrincipalへの発行、逆にAgent Credentialに束縛されたPrincipalへの別scopeのProject / Workspace Grantは409 `PRINCIPAL_BOUND_ELSEWHERE`。Workspace Agent CredentialはWorkspace Direction Role（`RoleScopeAuthorizationService`）だけで認可され、所属ProjectのWork・Runtimeには使えない。Workspace Grant・Direction toolのMCP公開入口は未接続のため、Workspace Agent Credentialによる実Agent運転は未検証。
+Agent CredentialのPrincipalは1つのscopeに束縛する。別scope（別Workspace・別Project、WorkspaceとProjectの違いを含む）を次のとおり検査し、違反は409 `PRINCIPAL_BOUND_ELSEWHERE`とする。Agent Credentialの発行は、別scopeのRole Grantまたは有効なAgent Credentialを持つPrincipalを拒否する。Project / Workspace Grantの付与は、別scopeの有効なAgent Credentialに束縛されたPrincipalだけを拒否し、別scopeのGrantだけを持つPrincipalへの付与は拒否しない。Workspace Agent CredentialはWorkspace Direction Role（`RoleScopeAuthorizationService`）だけで認可され、所属ProjectのWork・Runtimeには使えない。Workspace Direction tool・Workspace Role ContextはMCPで接続済みで、Workspace Grantの付与・取消はHuman向けWeb API・Web UIだけで行う。Workspace Agent Credentialによる実Agent運転は未検証（結合テストの起動先はfixture）。
 
 trusted-localではAgent名のBearerも許可するが、`cmp_`形式は常にCredentialとして検証する。remoteではAgent名の自己申告を許可しない。
 
@@ -104,7 +104,7 @@ trusted-localではAgent名のBearerも許可するが、`cmp_`形式は常にCr
 | Role専用tool | 必要なAgent Grantを検査 |
 | Runtime用tool | Runtime CredentialのscopeがProject scopeの対象Projectと一致し、必要なRuntime scopeを持つことを検査 |
 
-新規Project GrantはWeb API・CLIとも`manager` / `worker` / `reviewer`とtrusted-local用`runtime`に限る。Direction Roleの指定は400 `VALIDATION_ERROR`（CLIは終了コード1）。Web UIの割当フォームはExecutionの3Roleだけを表示する。取消は旧Roleの保存済みGrantも対象とする。Workspace Grantの管理入口は未接続。Workspace Credentialの管理Web APIは接続済みで、Web UIは未接続（S11-03）。
+新規Project GrantはWeb API・CLIとも`manager` / `worker` / `reviewer`とtrusted-local用`runtime`に限る。Direction Roleの指定は400 `VALIDATION_ERROR`（CLIは終了コード1）。Web UIの割当フォームはExecutionの3Roleだけを表示する。取消は旧Roleの保存済みGrantも対象とする。Workspace GrantはDirection Role（`strategist` / `researcher` / `evaluator`）だけを`/api/workspaces/:workspaceId/grants`（一覧はWorkspace Membershipのviewer以上、付与・取消はadministrator以上）で管理し、Workspace Credentialは`/api/workspaces/:workspaceId/credentials`で管理する。どちらもWeb UIのWorkspace「設定」に接続済みで、MCPには公開しない。archivedのWorkspaceではGrantの付与・取消を409で拒否する。
 
 CLIのGrant操作はローカル保守・自動検証用。通常のHuman操作の代替としない。
 
