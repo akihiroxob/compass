@@ -6,14 +6,12 @@ import { ErrorState, Loading } from "../../components/StateCard";
 import { useHashTarget } from "../../useHashTarget";
 import { statusBadgeClass } from "../../statusTone";
 import {
-  allRuntimeScopes,
   credentialExpiryOptions,
   credentialKindLabels,
   credentialStatus,
   credentialStatusLabels,
   credentialStatusTones,
   credentialSectionId,
-  credentialsPath,
   defaultCredentialExpiryDays,
   defaultRotationGraceHours,
   issueCredentialInit,
@@ -21,14 +19,17 @@ import {
   rotateCredentialInit,
   rotateCredentialPath,
   rotationGraceOptions,
-  runtimeScopeOptions,
+  runtimeScopeOptionsFor,
+  scopeCredentialsPath,
   type Credential,
   type CredentialKind,
+  type CredentialScope,
   type IssuedCredential,
   type RuntimeScope,
 } from "./credentials";
 
-const notFound = "Projectまたは対象のCredentialが見つかりません。画面を再読み込みしてください。";
+const scopeLabel = (scope: CredentialScope) => (scope.kind === "workspace" ? "Workspace" : "Project");
+const notFoundOf = (scope: CredentialScope) => `${scopeLabel(scope)}または対象のCredentialが見つかりません。画面を再読み込みしてください。`;
 const formatTime = (epochMs: number) => new Date(epochMs).toLocaleString("ja-JP");
 
 /** 発行・rotation直後だけtokenを表示する（serverはhashしか保存しないため、再表示できない）。 */
@@ -61,22 +62,23 @@ const IssuedToken = ({ issued, onDismiss }: { issued: IssuedCredential; onDismis
 };
 
 type CredentialRowProps = {
-  projectId: string;
+  scope: CredentialScope;
   credential: Credential;
   readOnly: boolean;
   onChanged: () => void;
   onRotated: (issued: IssuedCredential) => void;
 };
 
-/** Credential 1件。有効なものだけrotation・取消の導線を出す。取消はarchivedのProjectでも行える。 */
-const CredentialRow = ({ projectId, credential, readOnly, onChanged, onRotated }: CredentialRowProps) => {
+/** Credential 1件。有効なものだけrotation・取消の導線を出す。取消はarchivedのscopeでも行える。 */
+const CredentialRow = ({ scope, credential, readOnly, onChanged, onRotated }: CredentialRowProps) => {
+  const notFound = notFoundOf(scope);
   const status = credentialStatus(credential, Date.now());
   const [rotating, setRotating] = useState(false);
   const [graceHours, setGraceHours] = useState(defaultRotationGraceHours);
   const [rotateError, setRotateError] = useState<string | null>(null);
   const [rotatePending, setRotatePending] = useState(false);
   const revoke = useReasonAction(async () => {
-    await request<{ credential: Credential }>(credentialsPath(projectId, credential.id), revokeCredentialInit);
+    await request<{ credential: Credential }>(scopeCredentialsPath(scope, credential.id), revokeCredentialInit);
     onChanged();
   }, (classified) => describeActionFailure(classified, notFound));
   const rotate = async (event: FormEvent) => {
@@ -84,7 +86,7 @@ const CredentialRow = ({ projectId, credential, readOnly, onChanged, onRotated }
     setRotateError(null);
     setRotatePending(true);
     try {
-      onRotated(await request<IssuedCredential>(rotateCredentialPath(projectId, credential.id), rotateCredentialInit(graceHours)));
+      onRotated(await request<IssuedCredential>(rotateCredentialPath(scope, credential.id), rotateCredentialInit(graceHours)));
       setRotating(false);
     } catch (failure) {
       setRotateError(describeActionFailure(classifyError(failure), notFound));
@@ -134,16 +136,23 @@ const CredentialRow = ({ projectId, credential, readOnly, onChanged, onRotated }
   );
 };
 
+const sectionNotes: Record<CredentialScope["kind"], string> = {
+  project: "Agent CredentialはこのProjectのRole割当で、Runtime Credentialは選んだscopeで認可します。発行したCredentialはこのProjectだけで使え、所属WorkspaceのDirectionには使えません。同じAgent名を別のWorkspace・Projectと共有できません。",
+  workspace: "Agent CredentialはこのWorkspaceのDirection Roleの割当で、Runtime Credentialは選んだscopeで認可します。発行したCredentialはこのWorkspaceだけで使え、所属ProjectのStory・Taskには使えません（ProjectのCredentialは各Projectの設定で発行します）。同じAgent名を別のWorkspace・Projectと共有できません。",
+};
+
 /**
- * Agent・Runtime Credential（Task 37）。Administrator以上だけに表示する（一覧もAdministrator以上）。
- * `readOnly`（archivedのProject）では発行・rotationの導線を出さず、一覧と取消だけを表示する。
+ * Agent・Runtime Credential（Task 37）。scope（Workspace / Project）のAdministrator以上だけに表示する（一覧もAdministrator以上）。
+ * `readOnly`（archivedのscope）では発行・rotationの導線を出さず、一覧と取消だけを表示する。
  */
-export const CredentialSection = ({ projectId, readOnly = false }: { projectId: string; readOnly?: boolean }) => {
+export const CredentialSection = ({ scope, readOnly = false }: { scope: CredentialScope; readOnly?: boolean }) => {
+  const notFound = notFoundOf(scope);
+  const scopeOptions = runtimeScopeOptionsFor(scope.kind);
   const [credentials, setCredentials] = useState<Credential[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [kind, setKind] = useState<CredentialKind>("agent");
   const [principalId, setPrincipalId] = useState("");
-  const [scopes, setScopes] = useState<RuntimeScope[]>(allRuntimeScopes);
+  const [scopes, setScopes] = useState<RuntimeScope[]>(() => scopeOptions.map((option) => option.scope));
   const [expiresInDays, setExpiresInDays] = useState(defaultCredentialExpiryDays);
   const [error, setError] = useState<FormError | null>(null);
   const [issued, setIssued] = useState<IssuedCredential | null>(null);
@@ -152,10 +161,10 @@ export const CredentialSection = ({ projectId, readOnly = false }: { projectId: 
 
   const load = useCallback(
     () =>
-      request<{ credentials: Credential[] }>(credentialsPath(projectId))
+      request<{ credentials: Credential[] }>(scopeCredentialsPath(scope))
         .then((body) => { setCredentials(body.credentials); setLoadError(null); })
         .catch((reason: unknown) => setLoadError(loadFailureMessage(classifyError(reason), notFound))),
-    [projectId],
+    [scope.kind, scope.id],
   );
   useEffect(() => { void load(); }, [load]);
   // 概要の「Credentialを発行」から`?view=settings#agent-credentials`で辿ったとき、一覧の読込後に移動する。
@@ -171,7 +180,7 @@ export const CredentialSection = ({ projectId, readOnly = false }: { projectId: 
     setIssued(null);
     setIsSubmitting(true);
     try {
-      setIssued(await request<IssuedCredential>(credentialsPath(projectId), issueCredentialInit(kind, principalId, scopes, expiresInDays)));
+      setIssued(await request<IssuedCredential>(scopeCredentialsPath(scope), issueCredentialInit(kind, principalId, scopes, expiresInDays)));
       setPrincipalId("");
       await load();
     } catch (reason) {
@@ -185,15 +194,15 @@ export const CredentialSection = ({ projectId, readOnly = false }: { projectId: 
     <section id={credentialSectionId} tabIndex={-1} className="detail-section" aria-labelledby="credential-heading">
       <h2 id="credential-heading">Agent・Runtime Credential</h2>
       <p className="section-note">
-        MCP・Runtime向けAPIの <code>Authorization: Bearer &lt;token&gt;</code> に設定するtokenです。Agent CredentialはこのProjectのRole割当で、Runtime Credentialは選んだscopeで認可します。
-        発行したCredentialはこのProjectだけで使え、同じAgent名を別Projectと共有できません。発行はAgentやRuntimeを起動しません。
+        MCP・Runtime向けAPIの <code>Authorization: Bearer &lt;token&gt;</code> に設定するtokenです。{sectionNotes[scope.kind]}
+        tokenは発行・rotationの直後に一度だけ表示し、一覧には表示しません。発行はAgentやRuntimeを起動しません。
       </p>
       {loadError ? <ErrorState message={`Credentialの読み込みに失敗しました: ${loadError}`} /> : credentials === null ? <Loading /> : credentials.length ? (
         <ul className="grant-list" aria-labelledby="credential-heading">
           {credentials.map((credential) => (
             <CredentialRow
               key={credential.id}
-              projectId={projectId}
+              scope={scope}
               credential={credential}
               readOnly={readOnly}
               onChanged={() => void load()}
@@ -202,7 +211,7 @@ export const CredentialSection = ({ projectId, readOnly = false }: { projectId: 
           ))}
         </ul>
       ) : <p className="unset">Credentialはありません</p>}
-      {error && !readOnly && <FormErrorSummary error={error} detailTo={`/projects/${projectId}`} conflict={{ title: "Credentialを発行できませんでした" }} />}
+      {error && !readOnly && <FormErrorSummary error={error} detailTo={`/${scope.kind === "workspace" ? "workspaces" : "projects"}/${scope.id}`} archivedScope={scopeLabel(scope)} conflict={{ title: "Credentialを発行できませんでした" }} />}
       {issued && <IssuedToken issued={issued} onDismiss={() => setIssued(null)} />}
       {!readOnly && (
         <form className="grant-form" onSubmit={submit}>
@@ -221,7 +230,7 @@ export const CredentialSection = ({ projectId, readOnly = false }: { projectId: 
           {kind === "runtime" && (
             <fieldset className="repeat-field scope-field" {...fieldProps(invalid, "field-scopes")}>
               <legend>scope <span>1つ以上必須</span></legend>
-              {runtimeScopeOptions.map((option) => (
+              {scopeOptions.map((option) => (
                 <label key={option.scope} className="checkbox-label">
                   <input type="checkbox" checked={scopes.includes(option.scope)} onChange={(event) => toggleScope(option.scope, event.target.checked)} />
                   {option.label} <code>{option.scope}</code>

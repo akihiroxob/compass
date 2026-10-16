@@ -84,9 +84,20 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
     COMPASS_INITIAL_OWNER_EMAIL: ownerEmail,
     ...(options.claimTtlMs ? { COMPASS_CLAIM_TTL_MS: String(options.claimTtlMs) } : {}),
   });
-  const server = runTs(join(repositoryRoot, "server/src/main.ts"), [], directory, serverEnv);
-  const serverExit = exited(server);
-  await waitFor(async () => (await fetch(`${serverUrl}/health`)).ok, "the Compass server");
+  let server: ChildProcess;
+  let serverExit: Promise<{ code: number | null; stdout: string; stderr: string }>;
+  const startServer = async () => {
+    server = runTs(join(repositoryRoot, "server/src/main.ts"), [], directory, serverEnv);
+    serverExit = exited(server);
+    await waitFor(async () => (await fetch(`${serverUrl}/health`)).ok, "the Compass server");
+  };
+  /** Serverを停止し、同じDB file・同じportで起動し直す（schemaは変えない）。 */
+  const restartServer = async () => {
+    server.kill("SIGTERM");
+    await serverExit;
+    await startServer();
+  };
+  await startServer();
 
   /** MCPのtoolを呼び、エラーも含めた応答を返す。`activeRole`があれば`X-Compass-Active-Role`で操作Contextを固定する。 */
   const mcpResult = async (bearer: string, name: string, args: Record<string, unknown>, activeRole?: string) => {
@@ -119,23 +130,26 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
   });
   const cookie = login.headers.getSetCookie().map((line) => line.split(";")[0]!).join("; ");
   const { csrfToken } = (await (await fetch(`${serverUrl}/api/auth/session`, { headers: { Cookie: cookie } })).json()) as Json;
-  const web = async (path: string, body: Json) => {
+  /** Web UIと同じSession Cookie・CSRFでWeb APIを呼び、statusと応答を返す。 */
+  const webRequest = async (method: string, path: string, body?: Json) => {
     const response = await fetch(`${serverUrl}${path}`, {
-      method: "POST",
+      method,
       headers: { Cookie: cookie, Origin: origin, "X-Compass-CSRF": csrfToken, "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    const json = (await response.json()) as Json;
-    assert.equal(response.status, 201, JSON.stringify(json));
+    return { status: response.status, json: (await response.json()) as Json };
+  };
+  const web = async (path: string, body: Json) => {
+    const { status, json } = await webRequest("POST", path, body);
+    assert.equal(status, 201, JSON.stringify(json));
     return json;
   };
   const projectA = (await web("/api/projects", { name: "A", mission: "Keep direction explicit" })).project as Json;
   const workspaceId = projectA.workspaceId as string;
-  const projectB = (await web("/api/projects", { name: "B", mission: "M" })).project as Json;
+  const projectB = (await web(`/api/workspaces/${workspaceId}/projects`, { name: "B" })).project as Json;
+  assert.equal(projectB.workspaceId, workspaceId);
   const database = new DatabaseSync(join(directory, "compass.db"));
   try {
-    // 既存WorkspaceへProjectを作る公開入口が未接続のため、BをAと同じWorkspaceへ移す一時DBのfixture。
-    database.prepare("update project set workspace_id = ? where id = ?").run(workspaceId, projectB.id);
     // Direction RoleのGrantはWorkspace所有。Workspace Role Grantの付与入口が未接続のため、一時DBへ直接置くfixture。
     const workspaceGrant = database.prepare("insert into workspace_grant (workspace_id, principal_id, role, created_at) values (?, ?, ?, ?)");
     for (const role of ["strategist", "researcher", "evaluator"]) workspaceGrant.run(workspaceId, "direction-agent", role, Date.now());
@@ -218,7 +232,28 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
     await serverExit;
     await rm(directory, { recursive: true, force: true });
   };
-  return { directory, serverUrl, workspaceId, projectIds, managerTokens, configPath, mcp, mcpResult, web, cli, orchestrator, runOnce, state, launches, writeConfig, stop };
+  return {
+    directory,
+    serverUrl,
+    workspaceId,
+    projectIds,
+    managerTokens,
+    directionToken,
+    orchestratorToken,
+    configPath,
+    mcp,
+    mcpResult,
+    web,
+    webRequest,
+    cli,
+    orchestrator,
+    runOnce,
+    state,
+    launches,
+    writeConfig,
+    restartServer,
+    stop,
+  };
 };
 
 test(
@@ -456,6 +491,146 @@ test(
       assert.equal(finalState.activeIntent, null);
       await kit.runOnce();
       assert.equal(kit.launches().length, 7);
+    } finally {
+      await kit.stop();
+    }
+  },
+);
+
+test(
+  "新規DBの統合回帰: 同じschemaでの再起動後も保存したIDと履歴を参照でき、重複配送・scope違反・自己レビュー/自己受入・archived Projectへの起動を拒否し、未完了のarchived TargetはStrategistの再計画へ戻る",
+  { skip: loopbackSkip, timeout: 180_000 },
+  async () => {
+    const kit = await setup();
+    try {
+      const [projectA, projectB] = kit.projectIds as [string, string];
+      const [managerA, managerB] = kit.managerTokens as [string, string];
+      for (let round = 0; round < 4; round++) await kit.runOnce();
+      assert.deepEqual(kit.launches().map(({ role }) => role), ["strategist", "researcher", "strategist", "manager", "manager"]);
+      const outcomeId = kit.launches()[3]!.subject.replace("outcome:", "");
+      const snapshot = async () => ({
+        projects: await Promise.all(
+          kit.projectIds.map(async (projectId, index) => await kit.mcp(kit.managerTokens[index]!, "get_project", { projectId }, "manager")),
+        ),
+        tasks: await Promise.all(
+          kit.projectIds.map(async (projectId, index) => (await kit.mcp(kit.managerTokens[index]!, "list_tasks", { projectId }, "manager")).tasks),
+        ),
+        changes: await Promise.all(
+          kit.projectIds.map(async (projectId, index) => (await kit.mcp(kit.managerTokens[index]!, "list_changes", { projectId, afterCursor: 0 }, "manager")).changes),
+        ),
+        activities: await Promise.all(kit.projectIds.map(async (projectId) => (await kit.webRequest("GET", `/api/projects/${projectId}/activities`)).json)),
+        workspaceActivities: (await kit.webRequest("GET", `/api/workspaces/${kit.workspaceId}/activities`)).json,
+        // 状態の観測時刻（`observedAt`）は読取ごとに変わるため比較から除く。
+        state: { ...(await kit.state()), observedAt: undefined },
+      });
+
+      // 1. 空DBから作ったWorkspace / Project / Story / Task / Grant / Credential / Activityは、同じschema・同じDB fileで再起動した後も同じIDで参照できる。
+      const before = await snapshot();
+      assert.deepEqual(before.projects.map(({ id, workspaceId }: Json) => [id, workspaceId]), [[projectA, kit.workspaceId], [projectB, kit.workspaceId]]);
+      for (const tasks of before.tasks) assert.equal(tasks.length, 1);
+      for (const changes of before.changes) assert.ok(changes.length > 0);
+      for (const activities of before.activities) assert.ok(activities.activities.length > 0, JSON.stringify(activities));
+      assert.ok(before.workspaceActivities.activities.length > 0);
+      await kit.restartServer();
+      assert.deepEqual(await snapshot(), before);
+
+      // 2. 重複配送: 再起動後の同じ状態ではOrchestratorは何も起動せず、同じrequestIdの再送は新しいStoryを作らない。
+      await kit.runOnce();
+      assert.equal(kit.launches().length, 5);
+      const [storyA] = (await kit.mcp(managerA, "list_stories", { projectId: projectA }, "manager")).stories as Json[];
+      const replayed = await kit.mcp(managerA, "issue_story", { projectId: projectA, title: "Story", outcomeId, requestId: `story:${outcomeId}` }, "manager");
+      assert.equal(replayed.id, storyA!.id);
+      assert.equal((await kit.mcp(managerA, "list_stories", { projectId: projectA }, "manager")).stories.length, 1);
+
+      // 3. Workspace / Project間の漏洩とCredential誤用を拒否する。
+      /** MCPの操作が拒否され、期待したエラーコードを返すことを確認する。 */
+      const denied = async (code: string, bearer: string, name: string, args: Json, activeRole?: string) => {
+        const result = await kit.mcpResult(bearer, name, args, activeRole);
+        assert.equal(result.isError, true, `${name} must be denied: ${JSON.stringify(result.structuredContent)}`);
+        assert.equal(result.structuredContent?.error?.code, code, `${name}: ${JSON.stringify(result.structuredContent)}`);
+      };
+      // ProjectのAgent Credentialは別ProjectのWorkやWorkspace Roleに使えない。
+      await denied("FORBIDDEN", managerA, "list_tasks", { projectId: projectB }, "manager");
+      await denied("FORBIDDEN", managerA, "issue_story", { projectId: projectB, title: "Leak", requestId: "leak-story" }, "manager");
+      await denied("FORBIDDEN", managerA, "get_workspace_role_context", { workspaceId: kit.workspaceId, role: "strategist" }, "strategist");
+      // WorkspaceのAgent CredentialはProject Roleとして使えず、Workspace RoleでもProjectのWorkを操作できない。
+      await denied("FORBIDDEN", kit.directionToken, "list_tasks", { projectId: projectA }, "manager");
+      await denied("FORBIDDEN", kit.directionToken, "issue_story", { projectId: projectA, title: "Leak", requestId: "leak-direction" }, "strategist");
+      // OrchestratorのRuntime Credentialは状態の読取専用で、AgentのBearerとして受け付けず、Workspace RoleとしてDirectionを変更できない。
+      await denied("UNAUTHENTICATED", kit.orchestratorToken, "unset_outcome_target", { workspaceId: kit.workspaceId, outcomeId, projectId: projectA }, "strategist");
+      // 別Workspace（専用Workspaceを持つProject C）の状態・Direction・Projectは、このWorkspaceのCredentialから見えない。
+      const projectC = (await kit.web("/api/projects", { name: "C", mission: "Other" })).project as Json;
+      assert.notEqual(projectC.workspaceId, kit.workspaceId);
+      await denied("FORBIDDEN", kit.orchestratorToken, "get_workspace_orchestration_state", { workspaceId: projectC.workspaceId });
+      await denied("FORBIDDEN", kit.directionToken, "get_strategist_context", { workspaceId: projectC.workspaceId }, "strategist");
+      await denied("NOT_FOUND", kit.directionToken, "set_outcome_target", { workspaceId: kit.workspaceId, outcomeId, projectId: projectC.id }, "strategist");
+      await denied("FORBIDDEN", managerA, "get_project", { projectId: projectC.id }, "manager");
+      assert.deepEqual(
+        (await kit.state()).outcomes[0].targets.map(({ projectId }: Json) => projectId),
+        [projectA, projectB],
+        "no Project of another Workspace leaks into the Targets",
+      );
+
+      // 4. 自己レビュー・自己受入: 複数Role（worker / reviewer / manager）を持つPrincipalでも、自分が完了したTaskはレビュー・受入できない。
+      const [taskB] = before.tasks[1] as Json[];
+      for (const role of ["worker", "reviewer"]) await kit.cli("grant", projectB, "manager-b", role);
+      await kit.cli("grant", projectB, "reviewer-b", "reviewer");
+      await kit.cli("grant", projectB, "acceptor-b", "manager");
+      const reviewerB = (await kit.web(`/api/projects/${projectB}/credentials`, { kind: "agent", principalId: "reviewer-b" })).token as string;
+      const acceptorB = (await kit.web(`/api/projects/${projectB}/credentials`, { kind: "agent", principalId: "acceptor-b" })).token as string;
+      const work = await kit.mcp(managerB, "claim_task", { taskId: taskB!.id, requestId: "claim-b" }, "worker");
+      await kit.mcp(managerB, "add_task_comment", { taskId: taskB!.id, claimId: work.claimId, body: "Done", requestId: "comment-b" }, "worker");
+      await kit.mcp(managerB, "complete_task", { taskId: taskB!.id, claimId: work.claimId, requestId: "complete-b" }, "worker");
+      await denied("SELF_REVIEW_NOT_ALLOWED", managerB, "claim_review", { taskId: taskB!.id, requestId: "self-review-b" }, "reviewer");
+      const review = await kit.mcp(reviewerB, "claim_review", { taskId: taskB!.id, requestId: "review-b" }, "reviewer");
+      await kit.mcp(reviewerB, "reviewed_task", { taskId: taskB!.id, claimId: review.claimId, requestId: "reviewed-b" }, "reviewer");
+      await denied("SELF_ACCEPTANCE_NOT_ALLOWED", managerB, "claim_acceptance", { taskId: taskB!.id, requestId: "self-accept-b" }, "manager");
+      const acceptance = await kit.mcp(acceptorB, "claim_acceptance", { taskId: taskB!.id, requestId: "accept-claim-b" }, "manager");
+      await kit.mcp(acceptorB, "accept_task", { taskId: taskB!.id, claimId: acceptance.claimId, requestId: "accept-b" }, "manager");
+
+      // 5. 未完了のTarget Aをarchiveする。AのmanagerやWorkは起動・開始できず、OrchestratorはStrategistの再計画だけを起動する。
+      const [taskA] = before.tasks[0] as Json[];
+      await kit.cli("grant", projectA, "worker-a", "worker");
+      const workerA = (await kit.web(`/api/projects/${projectA}/credentials`, { kind: "agent", principalId: "worker-a" })).token as string;
+      const archived = await kit.webRequest("POST", `/api/projects/${projectA}/archive`, { reason: "Superseded" });
+      assert.equal(archived.status, 200, JSON.stringify(archived.json));
+      // archivedのProjectへは新しいCredentialを発行しない。
+      assert.equal((await kit.webRequest("POST", `/api/projects/${projectA}/credentials`, { kind: "agent", principalId: "late-a" })).status, 409);
+      await denied("CONFLICT", workerA, "claim_task", { taskId: taskA!.id, requestId: "claim-archived" }, "worker");
+      await denied("CONFLICT", managerA, "issue_story", { projectId: projectA, title: "New", requestId: "story-archived" }, "manager");
+      const replan = await kit.state();
+      assert.equal(replan.outcomes[0].evaluability.status, "replan_required");
+      await kit.runOnce();
+      const [strategist] = kit.launches().slice(5);
+      assert.deepEqual(kit.launches().slice(5).map(({ role }) => role), ["strategist"], "an archived Project's manager is never launched");
+      assert.equal(strategist!.subject, `outcome:${outcomeId}`);
+      assert.match(strategist!.key, new RegExp(`^${kit.workspaceId}:strategist:outcome:${outcomeId}:replan:`));
+      // StrategistがarchivedのTargetを解除した後は、残るTarget Bだけで評価する。
+      assert.deepEqual((await kit.state()).outcomes[0].targets.map(({ projectId }: Json) => projectId), [projectB]);
+
+      // 6. 全Target（B）が還流するとEvaluatorを起動し、そのEvaluationをStrategistが判断する。
+      const runtimeB = (
+        await kit.web(`/api/projects/${projectB}/credentials`, { kind: "runtime", principalId: "runtime-b", scopes: ["execution:change:read", "execution:evidence:write"] })
+      ).token as string;
+      // Runtime CredentialはAgentのBearerとして受け付けず、ProjectのWorkを変更できない。
+      await denied("UNAUTHENTICATED", runtimeB, "issue_story", { projectId: projectB, title: "Runtime", requestId: "runtime-story" }, "manager");
+      const changes = await kit.mcp(runtimeB, "list_changes", { projectId: projectB, afterCursor: 0 });
+      const evidence = [{ kind: "pull_request", uri: "https://github.com/example/b/pull/1", versionHash: "b".repeat(40), observedAt: Date.now() - 1_000 }];
+      const reflected = await kit.mcp(runtimeB, "record_execution_evidence", { projectId: projectB, outcomeId, changeCursor: changes.nextCursor, evidence });
+      assert.equal(reflected.summary.state, "accepted");
+      await kit.runOnce();
+      await kit.runOnce();
+      assert.deepEqual(kit.launches().slice(6).map(({ role }) => role), ["evaluator", "strategist"]);
+      const final = await kit.state();
+      assert.equal(final.activeIntent, null);
+
+      // 7. 終了後の再起動でも、archivedのProject・Work履歴・Activityを同じIDで参照でき、何も再起動しない。
+      const afterRun = await snapshot();
+      assert.equal(afterRun.projects[0].status, "archived");
+      await kit.restartServer();
+      assert.deepEqual(await snapshot(), afterRun);
+      await kit.runOnce();
+      assert.equal(kit.launches().length, 8);
     } finally {
       await kit.stop();
     }

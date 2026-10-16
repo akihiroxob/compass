@@ -1,6 +1,6 @@
 # Projectの現行仕様
 
-ProjectはOrganization（`packages/organization`）が所有する実行境界で、1つのWorkspaceに所属する（[ADR 0001](adr/0001-workspace-project-boundary.md)）。型は [Project.ts](../packages/organization/src/domain/Project.ts)、入力規則は [projectSchema.ts](../packages/organization/src/application/projectSchema.ts) を参照する。Mission / Vision / Principles / Constraintsの正本は所属Workspaceで、Projectの入出力（`ProjectDetail`）は互換のため所属Workspaceの値を合成して同じ項目で読み書きする。Projectの参照（Web API・MCP・Role Context）は所属`workspaceId`を返す。Workspaceの公開入口はHuman向けWeb API（作成・参照・更新・Project作成・archive）と、それを使うWeb UI（Workspace Selector・Shell・作成/編集/Project追加/archiveの導線）まで接続済みで、member管理の入口とWorkspace管理のMCPは未接続（[実装状況](implementation-status.md)）。
+ProjectはOrganization（`packages/organization`）が所有する実行境界で、1つのWorkspaceに所属する（[ADR 0001](adr/0001-workspace-project-boundary.md)）。型は [Project.ts](../packages/organization/src/domain/Project.ts)、入力規則は [projectSchema.ts](../packages/organization/src/application/projectSchema.ts) を参照する。Mission / Vision / Principles / Constraintsの正本は所属Workspaceで、Projectの入出力（`ProjectDetail`）は互換のため所属Workspaceの値を合成して同じ項目で読み書きする。Projectの参照（Web API・MCP・Role Context）は所属`workspaceId`を返す。Workspaceの公開入口はHuman向けWeb API（作成・参照・更新・Project作成・archive）と、それを使うWeb UI（Workspace Selector・Shell・作成/編集/Project追加/archiveの導線）と、Workspace「設定」のmember・Direction Role Grant・Workspace Credentialの管理まで接続済みで、Workspace管理のMCPは未接続（[実装状況](implementation-status.md)）。
 
 ## 項目
 

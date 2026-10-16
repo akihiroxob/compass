@@ -10,7 +10,7 @@ Compassはリリース前のため、開発DBはtableのDROPまたはDB file削�
 
 - DBは単一SQLite file（`COMPASS_DB_PATH`、`server/src/bootstrap/database/createDatabase.ts`）で、`foreign_keys = ON`。table定義は各packageの`infrastructure/schema.ts`、初期化は`initialize*Schema.ts`をserverの`initializeSchema.ts`が順に呼ぶ（Organization → Direction → Work → Access → Activity）。
 - migrationのversion管理はない。`create ... if not exists`と、`pragma_table_info`で列の有無を見る冪等な`ALTER TABLE ADD COLUMN`（Organizationのarchive・`workspace_id`・`strategy_migrated_at`、Directionの評価参照、Workの`active_role`）で既存DBへ追随する。server起動のたびに実行される。
-- OrganizationはWorkspaceとProjectを保存する。DirectionのIntent・Outcome・成功条件はWorkspace所有で、`intent.workspace_id`・`outcome.workspace_id`は`workspace.id`をFK参照し、成功条件は`outcome_id`でOutcomeを参照する。Research/Decision/ADRはWorkspace scopeへ切替済みで、ADRは対象artifactのProject/Repository参照も持つ。Evaluation・Runtime event・配送・ackはWorkspace scope。Execution Summary/EvidenceはWorkspace所有で発生元Projectも保持し、Outcome/ProjectのWorkspace一致は複合FKで強制する。WorkはProject scopeで、`project_id`は`project.id`を参照する。Activityは`workspace_id`で`workspace.id`、`project_id`で`project.id`を参照し、3 scopeとID組合せのCHECKを持つ。Direction canonical ActivityはWorkspace scopeで内部保存・取得まで実装済み。Directionの通知はEvaluationを含め全てWorkspace IDを直接使う。AccessにはProject単位のtableに加え、`workspace_membership`があり`workspace.id`を参照する。Workspace DirectionのWeb/API/MCP入口はWorkspace Membership・Role Grant・Runtime Credentialで認可する（S03-04で接続済み）。Workspace Role Grantの付与・取消、Workspace member管理は未接続。Workspace ActivityのMCP・Web API（S07-02）とWorkspace Role Context（S07-03）は接続済みで、Web UIはS11-01でWorkspace・Projectの「記録」にscope別に接続済み。
+- OrganizationはWorkspaceとProjectを保存する。DirectionのIntent・Outcome・成功条件はWorkspace所有で、`intent.workspace_id`・`outcome.workspace_id`は`workspace.id`をFK参照し、成功条件は`outcome_id`でOutcomeを参照する。Research/Decision/ADRはWorkspace scopeへ切替済みで、ADRは対象artifactのProject/Repository参照も持つ。Evaluation・Runtime event・配送・ackはWorkspace scope。Execution Summary/EvidenceはWorkspace所有で発生元Projectも保持し、Outcome/ProjectのWorkspace一致は複合FKで強制する。WorkはProject scopeで、`project_id`は`project.id`を参照する。Activityは`workspace_id`で`workspace.id`、`project_id`で`project.id`を参照し、3 scopeとID組合せのCHECKを持つ。Direction canonical ActivityはWorkspace scopeで内部保存・取得まで実装済み。Directionの通知はEvaluationを含め全てWorkspace IDを直接使う。AccessにはProject単位のtableに加え、`workspace_membership`があり`workspace.id`を参照する。Workspace DirectionのWeb/API/MCP入口はWorkspace Membership・Role Grant・Runtime Credentialで認可する（S03-04で接続済み）。Workspace Role Grantの付与・取消とWorkspace member管理は、Web APIとWeb UIのWorkspace「設定」で接続済み（S11-03）。Workspace ActivityのMCP・Web API（S07-02）とWorkspace Role Context（S07-03）は接続済みで、Web UIはS11-01でWorkspace・Projectの「記録」にscope別に接続済み。
 - Projectの戦略値（Mission等）を読むのは`DirectionReferenceLookupService`（Story作成時のConstraints snapshot）、`GetRoleContextUseCase`、`GetStrategistContextUseCase`（`workspace`を返す）、Web UIの`ProjectDetailPage`・`ProjectListPage`・`projectForm.ts`。
 - `server/tests`・各packageのテストにはProject作成入力の`mission`を使うfixtureがある。Project作成の入力契約を変えるTaskは`projectWorkspaceMigration.test.ts`・`projectAdapters.test.ts`等と関連fixtureの追随を含む。
 
@@ -70,7 +70,7 @@ S03-01はIntent/Outcomeのdomain・Repository・10 use case・保存列・通知
 | `story` | `project_id` FK、`outcome_ref`（FKなし）、`correlation_id`、`story_project_correlation_idx`（`(project_id, correlation_id)` unique） | 変更なし。相関ID`outcome:{outcomeId}`の一意性がProject単位なので、1つのOutcomeからTarget Projectごとに別Storyを作れる。作成時のTarget検査は実装済み | S04-03（作成時の検査のみ） |
 | `task` / `task_comment` / `task_claim` / `change_log` / `command_receipt` | `project_id`（task・change_log）、Claim・状態遷移 | 変更なし | — |
 
-WorkのProject scope、Claim・状態遷移・Change Logの規則を維持し、S12-02で新規DBのfixtureから検証する。
+WorkのProject scope、Claim・状態遷移・Change Logの規則を維持し、S12-02で新規DBのfixtureから検証する（`orchestrator/tests/integration.test.ts`の統合回帰で実装済み。内容は[実装状況](implementation-status.md)）。
 
 ### Access
 
@@ -264,7 +264,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | Work | `packages/work/tests/taskCoordination.test.ts`、`server/tests/execution*.test.ts`（Mcp・Coordination・Operator・WebRead・Ui・Boundary） | S04-03、S12-02 |
 | Access | `projectGrant*.test.ts`・`grantForm.test.ts`・`activeRole.test.ts`・`accessCredential.test.ts`・`credentialUi.test.ts`・`human*.test.ts`・`membershipUi.test.ts`・`remoteMcpHumanCommands.test.ts` | S06 |
 | Activity・Role Context | `packages/activity/tests/activityStore.test.ts`、`server/tests/activity.test.ts`（Work・Directionの状態変更と同じtransactionのcanonical Activity、`record_activity`）・`activityUi.test.ts`・`agentContext.test.ts`・`instruction.test.ts` | S07 |
-| Orchestrator・Ralph | `server/tests/orchestrationState.test.ts`、`orchestrator/tests/*.test.ts`、`ralph/tests/ralph.test.ts` | S08 |
+| Orchestrator・Ralph | `server/tests/orchestrationState.test.ts`、`orchestrator/tests/*.test.ts`、`ralph/tests/ralph.test.ts` | S08、S12-02 |
 | 入口全体 | `server/tests/app.test.ts`・`frontendApi.test.ts`・`executionBoundary.test.ts`（package間のDB直接操作の検査） | 全Story |
 
 新規に必要なテストは各Taskの受入条件に従う。旧schemaからのmigration専用テストは必須にしない。schema変更で不要になった互換テストは同じTaskで整理し、新規DBからの保存・再起動・scope不一致拒否・Claim・自己レビュー/自己受入禁止・複数Targetと再計画を検証する。

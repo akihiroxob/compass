@@ -10,7 +10,10 @@ import type { Project } from "../../projectForm";
 import { canOperateWorkspace } from "../../permissions";
 import { archiveInit, describeArchiveFailure, parseListStatus, projectsApiPath, summarizeReason, validateArchiveReason, type ProjectStatus } from "../../projectArchive";
 import { ActivitySection } from "../activity";
-import { humanRoleLabels, type HumanRole } from "../member";
+import { useSession } from "../auth";
+import { CredentialSection } from "../credential";
+import { AgentSettingsSection } from "../grant";
+import { humanRoleLabels, WorkspaceMembershipSection, type HumanRole } from "../member";
 import { projectViewPath } from "../project/overview";
 import { ProjectListSwitch } from "../project";
 import { useWorkspaceNavigation } from "./WorkspaceContext";
@@ -270,10 +273,50 @@ const ActivityContent = ({ workspace }: { workspace: Workspace }) => {
 const AgentsContent = ({ workspace }: { workspace: Workspace }) => (
   <section className="detail-section" aria-labelledby="workspace-agents-heading">
     <h2 id="workspace-agents-heading">ProjectのAgent</h2>
-    <p className="section-note">Story・Taskを担うAgentのRole割当とCredentialはProjectごとに管理します。Role割当やClaimはAgentプロセスの稼働を示しません。WorkspaceのDirectionを担うAgentの一覧は、まだWeb UIにありません。</p>
+    <p className="section-note">Story・Taskを担うAgentのRole割当とCredentialはProjectごとに管理します。Role割当やClaimはAgentプロセスの稼働を示しません。WorkspaceのDirectionを担うAgent（Strategist・Researcher・Evaluator）の割当とCredentialは、<Link to={workspacePath(workspace.id, "settings")}>Workspaceの設定</Link>で管理します。</p>
     <ProjectViewLinks workspace={workspace} view="settings" hint="Agent・Roleの割当を開く" />
   </section>
 );
+
+/**
+ * 設定。Workspace scopeのMember（Workspace Membership）・Direction Agent（Workspace Grant）・Workspace Credentialと、Project別の
+ * アクセス（各Projectの設定）への導線。WorkspaceとProjectの権限は互いに継承しないため、ProjectのMember・Role割当・Credentialは
+ * ここで変更しない。導線の表示は`myRole`で決め、拒否は常にserverが行う。
+ */
+const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; myRole: HumanRole; reload: () => void }) => {
+  const session = useSession();
+  const navigation = useWorkspaceNavigation();
+  const archived = workspace.status === "archived";
+  const canManageCredential = canOperateWorkspace(myRole, "credential.manage");
+  const scope = { kind: "workspace", id: workspace.id } as const;
+  return (
+    <>
+      <div className="fixed-note">
+        <p>ここではWorkspace（Mission・Direction）を利用するHumanと、Directionを担うAgentを管理します。WorkspaceのRoleは所属ProjectのStory・Taskの権限を与えず、ProjectのRoleもWorkspaceの権限を与えません。</p>
+      </div>
+      <WorkspaceMembershipSection
+        key={myRole}
+        workspaceId={workspace.id}
+        currentHumanId={session?.human.id ?? null}
+        manage={canOperateWorkspace(myRole, "member.manage")}
+        readOnly={archived}
+        onSelfChanged={() => { navigation?.refreshWorkspace(workspace.id); reload(); }}
+      />
+      <AgentSettingsSection scope={scope} readOnly={archived || !canOperateWorkspace(myRole, "grant.manage")} showCredentials={canManageCredential} />
+      {canManageCredential ? <CredentialSection scope={scope} readOnly={archived} /> : (
+        <section className="detail-section" aria-labelledby="workspace-credential-heading">
+          <h2 id="workspace-credential-heading">Agent・Runtime Credential</h2>
+          <p className="section-note">WorkspaceのCredentialの一覧・発行・取消は、Workspaceのadministrator以上が行います。あなたのRole（{humanRoleLabels[myRole]}）では表示されません。</p>
+        </section>
+      )}
+      <section className="detail-section" aria-labelledby="workspace-project-access-heading">
+        <h2 id="workspace-project-access-heading">Projectのアクセス</h2>
+        <p className="section-note">ProjectのMember・招待、Story・Taskを担うAgent（Manager・Worker・Reviewer）の割当とCredentialは、Projectごとの設定で管理します。Workspaceのowner・administratorでも、Project Membershipが無いProjectは開けません。</p>
+        <ProjectViewLinks workspace={workspace} view="settings" hint="Member・Agent・Credentialを開く" />
+      </section>
+    </>
+  );
+};
 
 export const WorkspaceOverviewPage = () => <WorkspaceFrame section="overview">{(workspace, myRole, reload) => <OverviewContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
 export const WorkspaceDirectionPage = () => <WorkspaceFrame section="direction">{(workspace) => <DirectionContent workspace={workspace} />}</WorkspaceFrame>;
@@ -281,3 +324,4 @@ export const WorkspaceOutcomePage = () => <WorkspaceFrame section="direction">{(
 export const WorkspaceProjectsPage = () => <WorkspaceFrame section="projects">{(workspace, myRole) => <ProjectsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceActivityPage = () => <WorkspaceFrame section="activity">{(workspace) => <ActivityContent workspace={workspace} />}</WorkspaceFrame>;
 export const WorkspaceAgentsPage = () => <WorkspaceFrame section="agents">{(workspace) => <AgentsContent workspace={workspace} />}</WorkspaceFrame>;
+export const WorkspaceSettingsPage = () => <WorkspaceFrame section="settings">{(workspace, myRole, reload) => <SettingsContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
