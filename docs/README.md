@@ -28,5 +28,6 @@
 - [設計確認事項](planning/architecture-questions.md): 未確定事項。仕様として適用しない。
 - [Project画面の情報設計と視覚方針](planning/project-screen-design.md): UI整理Storyの後続Taskが使う画面構成案。実装済みの仕様ではない。
 - [Wacha Skill配布の改善メモ](planning/wacha-skill-delivery.md): Codex・ClaudeへのSkill登録を検討するための案。未採用。
+- [Story分割・AC・検証依存の再発防止案](planning/acceptance-dependency-prevention.md): 検証可能な増分、Givenの成立確認、依存制御と停止後の自律的な回復の提案。依存制御等は未実装。
 
 現行文書へ過去の案・段階別の作業記録を併記しない。過去情報はGit履歴から参照する。

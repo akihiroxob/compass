@@ -165,13 +165,19 @@ apm_modules/
 /.ralph/github-state/
 # ホスト検証の結果・ログ
 /.ralph/verification/
-# Role別の停止状態
+# 旧形式の停止状態（移行時の参照用）
 /.ralph/pauses/
+# Principal・Role別の停止状態、進捗なし回数、Providerの利用制限
+/.ralph/runtime.json
+# 共有状態更新用のOSロック
+/.ralph/runtime.lock
+# Principal・Role別の起動ロック
+/.ralph/runners/
 # Agent実行用の一時worktree
 /.ralph/worktrees/
-# Providerの利用制限・再開時刻
+# 旧形式のProvider利用制限（移行時の参照用）
 /.ralph/quota.json
-# RunnerのプロセスID
+# 旧形式のRunnerプロセスID（移行時の稼働確認用）
 /.ralph/runner.pid
 # 実行Contextから生成するMCP設定
 /.ralph/mcp.json

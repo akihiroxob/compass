@@ -57,6 +57,21 @@
         "orchestrator/tests/integration.test.ts",
         "ralph/tests/ralph.test.ts"
       ]
-    ]
+    ],
+    "browser": {
+      "command": [
+        "npm",
+        "start"
+      ],
+      "env": {
+        "PORT": "{port}",
+        "COMPASS_DB_PATH": "{dataDir}/preview.db",
+        "COMPASS_AUTH_MODE": "trusted-local",
+        "COMPASS_HOST": "127.0.0.1",
+        "COMPASS_PUBLIC_ORIGIN": "http://127.0.0.1:{port}",
+        "COMPASS_INITIAL_OWNER_EMAIL": "preview-owner@example.test"
+      },
+      "readyPath": "/"
+    }
   }
 }
