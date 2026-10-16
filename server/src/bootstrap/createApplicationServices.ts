@@ -138,6 +138,7 @@ import {
   HumanWorkspaceAuthorizationService,
   HumanWorkspaceAuthorizedUseCase,
   ListHumanWorkspacesUseCase,
+  ListWorkspaceMemberCandidatesUseCase,
   ListWorkspaceMembersUseCase,
   RevokeWorkspaceMemberUseCase,
   humanOperatorPrincipalId,
@@ -606,6 +607,11 @@ export const createApplicationServices = (
     // Workspace Activity閲覧（Workspace Membership）。所属ProjectのActivityは含めず、Web UIからは記録しない。
     listWorkspaceActivities: workspaceAuthorized("workspace.read", listWorkspaceActivitiesUseCase),
     getWorkspaceActivity: workspaceAuthorized("workspace.read", getWorkspaceActivityUseCase),
+    // Workspace Direction Role（strategist / researcher / evaluator）のAgent Grant（Workspace Membership）。Project Grantは含めず、
+    // Project Roleからは継承しない。付与・取消はadministrator以上。
+    listWorkspaceGrants: workspaceAuthorized("grant.read", services.listWorkspaceGrantsUseCase),
+    grantWorkspaceRole: workspaceAuthorized("grant.manage", services.grantWorkspaceRoleUseCase),
+    revokeWorkspaceRole: workspaceAuthorized("grant.manage", services.revokeWorkspaceRoleUseCase),
     grantProjectRole: authorized("grant.manage", services.grantProjectRoleUseCase),
     revokeProjectRole: authorized("grant.manage", services.revokeProjectRoleUseCase),
     listProjectGrants: authorized("grant.read", services.listProjectGrantsUseCase),
@@ -629,7 +635,7 @@ export const createApplicationServices = (
     createExecutionTask: operator("execution.plan", new CreateExecutionTaskUseCase(taskCoordinationService)),
     editExecutionTask: operator("execution.plan", new EditExecutionTaskUseCase(taskCoordinationService)),
     // Workspace（Workspace Membershipで認可）。作成・参照・更新・archive・既存WorkspaceへのProject作成はWeb APIへ接続済み。
-    // member管理の入口は未接続。作成は認証済みであればよく、作成者を同一transactionでowner Membershipにする。
+    // 作成は認証済みであればよく、作成者を同一transactionでowner Membershipにする。
     createWorkspace: new CreateWorkspaceUseCase(workspaceRepository),
     listWorkspaces: new ListHumanWorkspacesUseCase(new ListWorkspacesUseCase(workspaceRepository), workspaceMembershipRepository),
     getWorkspace: new GetHumanWorkspaceUseCase(humanWorkspaceAuthorizationService, new GetWorkspaceUseCase(workspaceRepository)),
@@ -644,7 +650,9 @@ export const createApplicationServices = (
       humanWorkspaceAuthorizationService,
       new CreateWorkspaceProjectUseCase(projectRepository),
     ),
+    // Workspace member管理（一覧はviewer以上、追加候補・追加・Role変更・取消はowner）。Project Membershipは変えない。
     listWorkspaceMembers: new ListWorkspaceMembersUseCase(humanWorkspaceAuthorizationService, workspaceMembershipRepository),
+    listWorkspaceMemberCandidates: new ListWorkspaceMemberCandidatesUseCase(humanWorkspaceAuthorizationService, workspaceMembershipRepository),
     addWorkspaceMember: new AddWorkspaceMemberUseCase(humanWorkspaceAuthorizationService, workspaceMembershipRepository),
     changeWorkspaceMemberRole: new ChangeWorkspaceMemberRoleUseCase(
       humanWorkspaceAuthorizationService,

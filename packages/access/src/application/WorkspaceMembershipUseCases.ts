@@ -1,5 +1,5 @@
 import type { HumanActor, WorkspaceMembership } from "../domain/HumanAuth.ts";
-import type { WorkspaceMemberView, WorkspaceMembershipRepository } from "../domain/WorkspaceMembershipRepository.ts";
+import type { WorkspaceMemberCandidate, WorkspaceMemberView, WorkspaceMembershipRepository } from "../domain/WorkspaceMembershipRepository.ts";
 import { parseAddWorkspaceMemberInput, parseChangeMemberRoleInput } from "./humanAuthSchema.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
 import { WorkspaceArchivedError } from "@compass/organization";
@@ -16,6 +16,22 @@ export class ListWorkspaceMembersUseCase {
   async execute(actor: HumanActor, workspaceId: string): Promise<WorkspaceMemberView[]> {
     await this.authorization.authorize(actor, workspaceId, "member.read");
     return this.membershipRepository.listActiveMembers(workspaceId);
+  }
+}
+
+/**
+ * Workspace memberへ追加できるHuman（所属ProjectのMemberで、このWorkspaceのMemberでない者）。追加と同じくownerだけが読め、
+ * Human全体の検索は公開しない。
+ */
+export class ListWorkspaceMemberCandidatesUseCase {
+  constructor(
+    private readonly authorization: HumanWorkspaceAuthorizationService,
+    private readonly membershipRepository: WorkspaceMembershipRepository,
+  ) {}
+
+  async execute(actor: HumanActor, workspaceId: string): Promise<WorkspaceMemberCandidate[]> {
+    await this.authorization.authorize(actor, workspaceId, "member.manage");
+    return this.membershipRepository.listCandidates(workspaceId);
   }
 }
 

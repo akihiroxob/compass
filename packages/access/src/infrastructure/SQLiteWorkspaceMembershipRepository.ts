@@ -5,6 +5,7 @@ import type {
   AddWorkspaceMemberResult,
   ChangeWorkspaceMemberRoleResult,
   RevokeWorkspaceMemberResult,
+  WorkspaceMemberCandidate,
   WorkspaceMemberView,
   WorkspaceMembershipRepository,
 } from "../domain/WorkspaceMembershipRepository.ts";
@@ -57,6 +58,33 @@ export class SQLiteWorkspaceMembershipRepository implements WorkspaceMembershipR
       membership: toWorkspaceMembership(row),
       human: { id: row.human_user_id, displayName: display_name, email },
     }));
+  }
+
+  async listCandidates(workspaceId: string): Promise<WorkspaceMemberCandidate[]> {
+    const projectIds = await this.workspaces(this.database).listProjectIds(workspaceId);
+    if (projectIds.length === 0) return [];
+    const rows = await this.database
+      .selectFrom("project_membership")
+      .innerJoin("human_user", "human_user.id", "project_membership.human_user_id")
+      .select(["human_user.id", "human_user.display_name", "human_user.email"])
+      .distinct()
+      .where("project_membership.project_id", "in", projectIds)
+      .where("project_membership.revoked_at", "is", null)
+      .where(({ not, exists, selectFrom }) =>
+        not(
+          exists(
+            selectFrom("workspace_membership")
+              .select("workspace_membership.id")
+              .where("workspace_membership.workspace_id", "=", workspaceId)
+              .whereRef("workspace_membership.human_user_id", "=", "human_user.id")
+              .where("workspace_membership.revoked_at", "is", null),
+          ),
+        ),
+      )
+      .orderBy("human_user.display_name")
+      .orderBy("human_user.email")
+      .execute();
+    return rows.map(({ id, display_name, email }) => ({ id, displayName: display_name, email }));
   }
 
   async add(command: AddWorkspaceMemberCommand): Promise<AddWorkspaceMemberResult> {

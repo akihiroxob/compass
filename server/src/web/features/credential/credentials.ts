@@ -72,10 +72,23 @@ export const credentialStatusLabels: Record<CredentialStatus, string> = {
 /** 「設定」viewのCredential sectionのanchor。概要の「次の行動」から辿る。 */
 export const credentialSectionId = "agent-credentials";
 
+/** Credentialを発行するscope。Workspace CredentialとProject Credentialは互いの操作に使えない。 */
+export type CredentialScope = Credential["scope"];
+
+export const scopeCredentialsPath = (scope: CredentialScope, credentialId?: string) =>
+  `/api/${scope.kind === "workspace" ? "workspaces" : "projects"}/${scope.id}/credentials${credentialId ? `/${credentialId}` : ""}`;
 export const credentialsPath = (projectId: string, credentialId?: string) =>
-  `/api/projects/${projectId}/credentials${credentialId ? `/${credentialId}` : ""}`;
-export const rotateCredentialPath = (projectId: string, credentialId: string) =>
-  `${credentialsPath(projectId, credentialId)}/rotate`;
+  scopeCredentialsPath({ kind: "project", id: projectId }, credentialId);
+export const rotateCredentialPath = (scope: CredentialScope, credentialId: string) =>
+  `${scopeCredentialsPath(scope, credentialId)}/rotate`;
+
+/**
+ * scopeで意味のあるRuntime scope。Workspace Runtimeはeventの取得・ackとOrchestrator向け現在状態、Project Runtimeは
+ * ExecutionのChange・Evidence還流・Summaryを使う（Project基準の現在状態は互換のため残る）。
+ */
+const workspaceRuntimeScopes: readonly RuntimeScope[] = ["runtime:event:read", "runtime:event:ack", "runtime:state:read"];
+export const runtimeScopeOptionsFor = (kind: CredentialScope["kind"]) =>
+  kind === "workspace" ? runtimeScopeOptions.filter((option) => workspaceRuntimeScopes.includes(option.scope)) : runtimeScopeOptions;
 
 const jsonRequest = (method: string, body: unknown): RequestInit => ({
   method,

@@ -6,6 +6,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
  * 結合テスト用の決定的なAgent（fixture）。Orchestratorが渡した環境変数だけを使い、Roleの最小限の結果をMCPで返す。
  * Credentialは設定のscope別`agentEnv`が渡す`FAKE_AGENT_TOKEN`（Workspace RoleはWorkspace、managerはProjectのAgent Credential）。
  * Evaluatorは還流済みEvidenceを観測したものとして全Criterionを`met`にし、StrategistはそのEvaluationを根拠にIntent完了を判断する。
+ * Outcomeの再計画で起動されたStrategistは、archivedのTargetを解除する。
  * 実LLM・実Agentの起動ではなく、自律運転の実証として扱わない。
  */
 const env = process.env;
@@ -47,6 +48,12 @@ if (role === "strategist") {
       requestKey: `complete:${subjectId}`,
       runRef: env.COMPASS_DISPATCH_KEY!,
     });
+  } else if (env.COMPASS_SUBJECT_KIND === "outcome") {
+    // Outcomeの再計画（Targetなし・未完了のarchived Target）。fixtureはarchivedのTargetを解除し、Story・成果・Evidenceの参照は残す。
+    const archived = context.outcomeTargets.filter(
+      (target: { outcomeId: string; projectStatus: string }) => target.outcomeId === subjectId && target.projectStatus === "archived",
+    );
+    for (const target of archived) await call("unset_outcome_target", { workspaceId, outcomeId: subjectId, projectId: target.projectId });
   } else if (context.research.requests.length === 0) {
     // 情報不足と判断して追加Researchを依頼する。
     await call("create_direction_decision", {

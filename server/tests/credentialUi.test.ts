@@ -36,7 +36,7 @@ test("発行requestはAgentにscopeを送らず、Runtimeだけ選んだscopeを
   });
   assert.deepEqual(JSON.parse(String(rotateCredentialInit(24).body)), { graceHours: 24 });
   assert.equal(credentialsPath("p1"), "/api/projects/p1/credentials");
-  assert.equal(rotateCredentialPath("p1", "c1"), "/api/projects/p1/credentials/c1/rotate");
+  assert.equal(rotateCredentialPath({ kind: "project", id: "p1" }, "c1"), "/api/projects/p1/credentials/c1/rotate");
 });
 
 test("画面のscope選択肢はserverのscopeと一致し、状態は取消・期限から判定する", () => {
