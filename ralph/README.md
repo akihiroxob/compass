@@ -68,6 +68,7 @@ ralph/bin/ralph run auto --once --config /path/to/ralph.json
 - Agent が 0 以外で終了した場合は、Token 上限なら `retry.tokenLimitSeconds`（auto ではその Role だけを待たせ、他の Role を確認）、それ以外は `retry.initialSeconds` 待って再試行します
 - SIGTERM を受けると次の Agent を起動しません。Agent の実行中なら Agent の終了を待ってから終了します（待機中ならすぐ終了）。端末の Ctrl-C は Agent にも届きます
 - Agent が途中で停止した場合も、Claim は期限（Server の `COMPASS_CLAIM_TTL_MS`）が切れると `availableFor: "work"` に戻り、次の起動で別の Claim として再取得されます。Ralph は Claim を保持・更新しません
+- archived の Project では Server が `availableFor` の候補を返さず新しい Claim も拒否するため、未完了 Task や発行済み Credential が残っていても Agent を起動しません
 
 `npm run build --workspace ralph` は shell script の構文検査で、出力 file は作りません。deploy 先に `ralph/` を置き（repo ごとでも可）、設定 file と環境変数を用意して上記コマンドを scheduler または process manager から起動します。Agent が作業する repository は `projectRoot` で指定します。
 

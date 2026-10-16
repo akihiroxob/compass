@@ -621,3 +621,33 @@ test("archived Project rejects new work Claims and Story / Task issuing in the s
   assert.equal(await taskStatus(task.id), TaskStatus.TODO);
   assert.equal((await service.listChanges("manager-a", project.id)).changes.length, 0);
 });
+
+test("archived Project returns no phase candidates and rejects new review / acceptance Claims", async () => {
+  const { project, task: todo } = await createProjectTask();
+  const inReview = await insertTask(project.id, "Task B");
+  await grant(project.id, "worker-a", WorkRole.WORKER);
+  await grant(project.id, "reviewer-a", WorkRole.REVIEWER);
+  await grant(project.id, "manager-a", WorkRole.MANAGER);
+  const workClaim = await service.claimTask("worker-a", inReview.id, "claim-work");
+  await service.addTaskComment("worker-a", inReview.id, workClaim.claimId, "Done", "comment-work");
+  await service.completeTask("worker-a", inReview.id, workClaim.claimId, "complete-work");
+  archivedProjects.add(project.id);
+
+  for (const [principal, availableFor] of [
+    ["worker-a", "work"],
+    ["reviewer-a", "review"],
+    ["manager-a", "acceptance"],
+  ] as const) {
+    const listed = await service.listTasks(principal, project.id, { availableFor });
+    assert.deepEqual(listed.tasks, [], availableFor);
+  }
+  // 候補ではないTaskの事実は引き続き参照できる。
+  const all = await service.listTasks("manager-a", project.id);
+  assert.deepEqual(all.tasks.map(({ id, status }) => [id, status]), [
+    [todo.id, TaskStatus.TODO],
+    [inReview.id, TaskStatus.IN_REVIEW],
+  ]);
+  await assert.rejects(() => service.claimReview("reviewer-a", inReview.id, "claim-review"), ProjectArchivedError);
+  await assert.rejects(() => service.claimAcceptance("manager-a", inReview.id, "claim-acceptance"), ProjectArchivedError);
+  assert.equal(await taskStatus(inReview.id), TaskStatus.IN_REVIEW);
+});
