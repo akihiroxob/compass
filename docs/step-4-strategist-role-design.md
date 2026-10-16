@@ -2,7 +2,7 @@
 
 ## 認証とRole Grant
 
-remote modeではAgent CredentialでPrincipalを認証する。公開入口のRole GrantはProject・Principal・Roleの組で保持し、発行してもAgentは起動しない。内部applicationのWorkspace Grantは下記で説明する。新規Project Grantは`manager` / `worker` / `reviewer`と`runtime`だけを受け付ける。`strategist` / `researcher` / `evaluator`はWorkspace Roleのため、新規Project Grantには指定できない（400 `VALIDATION_ERROR`）。`runtime`はtrusted-localでOrchestratorが名前Bearerを使うための開発用Grantで、Role-scope認可の対象外（remote modeはRuntime Credentialのscope）。scopeの扱いはS08-03で決める。旧Roleの保存済みGrantは一覧・取消の対象として残す。
+remote modeではAgent CredentialでPrincipalを認証する。公開入口のRole GrantはProject・Principal・Roleの組で保持し、発行してもAgentは起動しない。内部applicationのWorkspace Grantは下記で説明する。新規Project Grantは`manager` / `worker` / `reviewer`と`runtime`だけを受け付ける。`strategist` / `researcher` / `evaluator`はWorkspace Roleのため、新規Project Grantには指定できない（400 `VALIDATION_ERROR`）。`runtime`はtrusted-localで名前Bearerを使うための開発用Grantで、Role-scope認可の対象外。Project scopeのRuntime入口（`requireScope`）だけで数え、Workspace scopeのRuntime入口（`requireWorkspaceScope`）はWorkspace Runtime Credentialだけを受け付ける。remote modeはRuntime Credentialのscopeで認可する。旧Roleの保存済みGrantは一覧・取消の対象として残す。
 
 HumanはProject詳細のWeb UIからGrantを管理する。一覧はviewer以上、発行・取消はadministrator以上。Human MembershipとAgent Grantを相互代用しない。archived ProjectではGrant変更を拒否する。
 
@@ -12,7 +12,7 @@ MCPの専用toolはapplication層で必要なRoleを検査する。remote mode�
 
 Workspace Agent Role Grantは`workspace_grant`へ保存し、`GrantWorkspaceRoleUseCase`・`RevokeWorkspaceRoleUseCase`・`ListWorkspaceGrantsUseCase`をserverへ配線済み。許可Roleは`strategist` / `researcher` / `evaluator`で、Workspace FK・Role CHECK・Workspace/Principal/Roleの複合主キーを持つ。付与・取消は書込と同じtransactionでarchiveを検査し、付与はcreatedAtを保った冪等操作、取消は存在しなければfalse。archivedのGrantは一覧で参照できる。Human Membership・Project Grantからの継承は無い。
 
-`RoleScopeAuthorizationService`は`{ kind: workspace | project, id }`と必要Roleを受け、WorkspaceはDirectionの3Role、Projectは`manager` / `worker` / `reviewer`だけを認可する。操作ContextのactiveRole指定時は必要Roleとの一致も検査し、他RoleのGrantを合算しない。serverの`forActiveRole`もこのserviceを同じRoleに固定する。`runtime`はこのAgent Role-scope認可の対象外で、Credential scopeとして後続Taskで接続する。
+`RoleScopeAuthorizationService`は`{ kind: workspace | project, id }`と必要Roleを受け、WorkspaceはDirectionの3Role、Projectは`manager` / `worker` / `reviewer`だけを認可する。操作ContextのactiveRole指定時は必要Roleとの一致も検査し、他RoleのGrantを合算しない。serverの`forActiveRole`もこのserviceを同じRoleに固定する。`runtime`はこのAgent Role-scope認可の対象外で、`RuntimeAuthorizationService`が操作対象のWorkspace / Project scopeとRuntime Credentialのscope・必要なRuntime scopeの一致で認可する（接続済み。[Credential](step-6-human-auth-design.md#agentruntime-credential)）。
 
 Directionの公開API/MCP・Workspace Role Contextは接続済み（S03-04・S07）で、Workspace Grantの付与・取消・一覧はHuman向けWeb API・Web UIのWorkspace「設定」で行う（S11-03）。Workspace Credentialは発行・認証・Principal束縛まで実装済みで、Workspace Agent CredentialのPrincipalはこのserviceのWorkspace scopeで認可する（[Credential](step-6-human-auth-design.md#agentruntime-credential)）。Project配下のDirection入口は廃止し、新規Project Grant入力はExecutionの3Roleと`runtime`に限る。HumanのDirection操作はMembershipを使う。新しいscope認可では同じProjectにDirection Roleの旧GrantがあってもProject scopeで拒否する。Workの`TaskCoordinationService`も参照・更新の共通認可をExecution Roleに限定する。Direction/Runtimeの旧GrantだけでTask・Story・Comment・Change Logを参照できず、Direction activeRoleでは同じPrincipalのExecution Grantも使えない。Runtime Credentialによる明示scopeのChange Log参照は別の認可経路である。`server/tests/workspaceGrant.test.ts`で新規DB・file DB再初期化・archive・FK・全Roleのscope/activeRole境界・Work権限の非継承を確認する。実AgentでのWorkspace運転は未検証。
 
