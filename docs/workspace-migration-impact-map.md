@@ -70,7 +70,7 @@ S03-01はIntent/Outcomeのdomain・Repository・10 use case・保存列・通知
 | `story` | `project_id` FK、`outcome_ref`（FKなし）、`correlation_id`、`story_project_correlation_idx`（`(project_id, correlation_id)` unique） | 変更なし。相関ID`outcome:{outcomeId}`の一意性がProject単位なので、1つのOutcomeからTarget Projectごとに別Storyを作れる。作成時のTarget検査は実装済み | S04-03（作成時の検査のみ） |
 | `task` / `task_comment` / `task_claim` / `change_log` / `command_receipt` | `project_id`（task・change_log）、Claim・状態遷移 | 変更なし | — |
 
-WorkのProject scope、Claim・状態遷移・Change Logの規則を維持し、S12-02で新規DBのfixtureから検証する。
+WorkのProject scope、Claim・状態遷移・Change Logの規則を維持し、S12-02で新規DBのfixtureから検証する（`orchestrator/tests/integration.test.ts`の統合回帰で実装済み。内容は[実装状況](implementation-status.md)）。
 
 ### Access
 
@@ -264,7 +264,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | Work | `packages/work/tests/taskCoordination.test.ts`、`server/tests/execution*.test.ts`（Mcp・Coordination・Operator・WebRead・Ui・Boundary） | S04-03、S12-02 |
 | Access | `projectGrant*.test.ts`・`grantForm.test.ts`・`activeRole.test.ts`・`accessCredential.test.ts`・`credentialUi.test.ts`・`human*.test.ts`・`membershipUi.test.ts`・`remoteMcpHumanCommands.test.ts` | S06 |
 | Activity・Role Context | `packages/activity/tests/activityStore.test.ts`、`server/tests/activity.test.ts`（Work・Directionの状態変更と同じtransactionのcanonical Activity、`record_activity`）・`activityUi.test.ts`・`agentContext.test.ts`・`instruction.test.ts` | S07 |
-| Orchestrator・Ralph | `server/tests/orchestrationState.test.ts`、`orchestrator/tests/*.test.ts`、`ralph/tests/ralph.test.ts` | S08 |
+| Orchestrator・Ralph | `server/tests/orchestrationState.test.ts`、`orchestrator/tests/*.test.ts`、`ralph/tests/ralph.test.ts` | S08、S12-02 |
 | 入口全体 | `server/tests/app.test.ts`・`frontendApi.test.ts`・`executionBoundary.test.ts`（package間のDB直接操作の検査） | 全Story |
 
 新規に必要なテストは各Taskの受入条件に従う。旧schemaからのmigration専用テストは必須にしない。schema変更で不要になった互換テストは同じTaskで整理し、新規DBからの保存・再起動・scope不一致拒否・Claim・自己レビュー/自己受入禁止・複数Targetと再計画を検証する。
