@@ -214,7 +214,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `/api/projects/:projectId/intents…`・`/intents/:intentId/outcomes…`・`/research-requests…`・`/intents/:intentId/decisions`・`/adr-references`・`/outcomes/:outcomeId/evaluations`・`/runtime-events…` | `/api/workspaces/:workspaceId/…`へ移した（S03-04で実装済み。Workspace Membership、Runtime eventはWorkspace Runtime Credential）。Project配下の旧経路は残さない。`/outcomes/:outcomeId/execution-summary`・`/execution-evidence`はProject固有の記録としてProject配下に残す。Target別の集約は`GET /api/workspaces/:workspaceId/outcomes/:outcomeId/target-executions`（Workspace Membership。S05-01で実装済み） | S03-04、S05-01 |
 | `/api/workspaces/:workspaceId/outcomes/:outcomeId/target-projects`（GET） | Target Projectの参照（Workspace Membership）。設定・解除はStrategistのMCPだけ（S04-01で実装済み） | S04-01 |
 | `/api/workspaces/:workspaceId/intents/:intentId/outcome-target-work`（GET） | OutcomeごとのTarget別Work要約（Workspace Membership。S04-04で実装済み） | S04-04 |
-| `/api/projects/:projectId/grants`・`/credentials` | Workspace用のGrant・Credentialの入口を追加。ProjectのものはProject Roleに限る | S06-02、S06-03、S11-03 |
+| `/api/projects/:projectId/grants`・`/credentials` | Workspace用のGrant・Credentialの入口を追加。ProjectのものはProject Roleに限る。Workspace Grantの参照（`GET /api/workspaces/:workspaceId/grants`）とWorkspace Credentialの一覧はS11-02のAgent画面、付与・取消・発行はS11-03のWorkspace「設定」で接続済み | S06-02、S06-03、S11-02、S11-03 |
 | `/api/projects/:projectId/members`・`/invitations` | 維持。WorkspaceMembershipの管理入口を追加（use caseはS06-01で実装済み。S06-04は公開済み入口の非継承だけを検証し、管理入口は追加しない） | S11-03 |
 | `/api/projects/:projectId/execution`・`/changes`・`/stories`・`/tasks…` | 変更なし | — |
 | `/api/projects/:projectId/activities…` | 維持。Workspace Activityは`/api/workspaces/:workspaceId/activities…`（Workspace Membership）で実装済み | S07-02 |
@@ -228,7 +228,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `features/project/`（`ProjectListPage`・`ProjectDetailPage`・`ProjectOverview`・`ProjectForm*`・`overview.ts`）、`projectForm.ts`・`projectArchive.ts` | Mission等の表示・編集をWorkspaceへ。ProjectはPurpose・Resource・Work。Project詳細の概要を実行境界（Purpose・Resource、貢献するWorkspace Outcome、実行状況、Project scopeの次の行動、Claim、Project Activity）として再構成済み（S10-03） | S09-03、S10-03 |
 | `features/intent/`・`outcome/`・`research/`・`decision/`・`adr/`、`intentForm.ts`・`outcomeForm.ts`・`researchForm.ts`・`directionDecisionForm.ts`・`adrReferenceForm.ts` | Workspace Directionへ。OutcomeからTarget Project・Storyへの遷移はS10-02で実装済み（Outcome詳細の閲覧はWorkspace配下。作成・編集・Research・Decisionの画面はProject配下のまま） | S10-02 |
 | `features/execution/`（`ExecutionSection`・`TaskDetailPage`・`ClaimHolderSection`等） | Project配下のまま。Workspace→Projectの遷移に接続。Project概要の貢献Outcome・実行状況から「実行」viewのStoryへの遷移はS10-03で実装済み。Task詳細のWorkspace → Project → 実行 → Storyの現在位置、「実行」viewのHumanの判断待ちの絞り込み、Task受入とOutcome評価（Evidence）の区別はS10-04で実装済み | S10-03、S10-04 |
-| `features/activity/`・`grant/`・`credential/`・`member/`、`permissions.ts`・`projectAccess.ts`・`useProjectAccess.ts` | scope別の表示と、Workspace / Projectの権限の区別 | S11-01〜03 |
+| `features/activity/`・`grant/`・`credential/`・`member/`、`permissions.ts`・`projectAccess.ts`・`useProjectAccess.ts` | scope別の表示と、Workspace / Projectの権限の区別。Activityの表示はS11-01、Agent・Role・Credential・Claimの表示（`features/agent/`）はS11-02で接続済み | S11-01〜03 |
 | `styles/main.scss`・`styles/_tokens.scss`・`styles/_mixins.scss`・`components/` | SCSS基盤は既存Project画面に接続済み。Shell・StateCard・FormErrorSummary・ReasonPanel等の既存部品と共通classを再利用する。S09-02でWorkspaceのShell・画面へ接続し、ナビゲーションの`nav-link` mixinとtokenがWorkspace・Projectの双方へ反映されることを実ブラウザで確認済み | S09-01、S09-02 |
 
 ## Orchestrator・Ralph

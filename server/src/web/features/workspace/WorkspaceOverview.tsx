@@ -259,7 +259,7 @@ export const WorkspaceOverview = ({ workspace, myRole }: { workspace: Workspace;
       </section>
       <section className="detail-section" aria-labelledby="workspace-overview-agents-heading">
         <h2 id="workspace-overview-agents-heading">Agent</h2>
-        <p className="section-note">Agentの稼働状況は、この画面では判断しません。Role割当・Credential・Claimは稼働を示さないため、担当待ちは「要対応」に、Agentの割当は各Projectの設定に出します。</p>
+        <p className="section-note">Agentの稼働状況は、この画面では判断しません。Role割当・Credential・Claimは稼働を示さないため、担当待ちは「要対応」に、Role割当・Credential・保持中のClaimはAgent画面に出します。</p>
         <Link to={workspacePath(workspace.id, "agents")} className="text-link">Agentを開く →</Link>
       </section>
       <section className="detail-section" aria-labelledby="workspace-recent-heading">
