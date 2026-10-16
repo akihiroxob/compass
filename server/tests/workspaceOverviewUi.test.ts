@@ -225,7 +225,10 @@ test("Research・終了したOutcomeのEvaluation・Outcomeの状態を取得で
   ]);
   assert.equal(attentionSummary(noResearch), "確認できた範囲に要対応はありません");
 
-  assert.deepEqual(attentionOf([decidedOutcome], { pendingPastOutcomes: null }).unconfirmed, ["終了したOutcomeのEvaluationを取得できないため、Active IntentにStrategistの次の判断が必要か確認できません"]);
+  assert.deepEqual(attentionOf([decidedOutcome], { pendingPastOutcomes: null }).unconfirmed, [
+    "終了したOutcomeのEvaluationを取得できないため、Strategistの判断待ちを確認できません",
+    "終了したOutcomeのEvaluationを取得できないため、Active IntentにStrategistの次の判断が必要か確認できません",
+  ]);
   const failedOutcome = attentionOf([decidedOutcome, outcome("failed", null, null)]);
   assert.deepEqual(failedOutcome.items, []);
   assert.deepEqual(failedOutcome.unconfirmed, ["Active Outcomeの還流・評価の状態を取得できないため、Active IntentにStrategistの次の判断が必要か確認できません"]);
@@ -233,4 +236,20 @@ test("Research・終了したOutcomeのEvaluation・Outcomeの状態を取得で
   // 進行中のOutcomeが確認できれば、Researchを取得できなくてもIntentの判断は要らないと判定できる。
   const live = outcome("live", [target("p-1", { state: "incomplete", storyCount: 1, taskCounts: counts({ todo: 1 }) })], awaiting([]));
   assert.deepEqual(attentionOf([live], { research: null }).unconfirmed, ["Research Requestを取得できないため、Researcherの調査待ちを確認できません"]);
+
+  // 進行中のOutcomeでIntentの判断は要らないと判定できても、終了したOutcomeのStrategistの判断待ちは確認できない。
+  const pastFailed = attentionOf([live], { pendingPastOutcomes: null });
+  assert.deepEqual(pastFailed.items.map(({ kind }) => kind), ["todo"]);
+  assert.deepEqual(pastFailed.unconfirmed, ["終了したOutcomeのEvaluationを取得できないため、Strategistの判断待ちを確認できません"]);
+  const doingOnly = outcome("doing", [target("p-1", { state: "incomplete", storyCount: 1, taskCounts: counts({ doing: 1 }) })], awaiting([]));
+  const quiet = attentionOf([doingOnly], { pendingPastOutcomes: null });
+  assert.deepEqual(quiet.items, []);
+  assert.deepEqual(quiet.unconfirmed, ["終了したOutcomeのEvaluationを取得できないため、Strategistの判断待ちを確認できません"]);
+  assert.equal(attentionSummary(quiet), "確認できた範囲に要対応はありません");
+  // Researchが進行中でも同じ。
+  const researching = attentionOf([doingOnly], { pendingPastOutcomes: null, research: [{ id: "r-1", question: "Q", status: "running", originIntentId: "i-1" }] });
+  assert.deepEqual(researching.items.map(({ kind }) => kind), ["research"]);
+  assert.deepEqual(researching.unconfirmed, ["終了したOutcomeのEvaluationを取得できないため、Strategistの判断待ちを確認できません"]);
+  // Active Intentが無ければ、終了したOutcomeの判断待ちは対象外。
+  assert.deepEqual(attentionOf([], { activeIntent: null, pendingPastOutcomes: null }).unconfirmed, []);
 });

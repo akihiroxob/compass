@@ -177,7 +177,7 @@ export type AttentionInput = {
  * 順に出す。未終了のResearchはResearcher、各Active Outcomeは還流・評価の状態とTarget別Workから、取消以外の終了したOutcomeの
  * 判断待ちEvaluationはStrategistへ。進行中のOutcome（判断済みでないActive Outcome）・Intentを起点にした未終了のResearch・
  * 判断待ちのEvaluationがどれも無いActive Intentは、Strategistの次の判断待ち（`intentNeedsStrategist`）。どれかを取得できずに
- * 判定できなければ、要対応を出さず`unconfirmed`に理由を返す。最新Evaluationが判断済みのOutcomeにはStrategist・Manager・
+ * 判定できなければ、要対応を出さず`unconfirmed`に理由を返す（Research・終了したOutcomeの取得失敗は、Intentの判断の要否と独立に返す）。最新Evaluationが判断済みのOutcomeにはStrategist・Manager・
  * Evaluatorの担当待ちを出さない。Active Intent・Active Outcomeが無ければHumanの登録も出す。Taskの件数はTaskの状態だけで、
  * Agentの稼働やClaimの有効性を示さない。archivedのWorkspaceでは呼ばない。
  */
@@ -192,6 +192,8 @@ export const planWorkspaceAttention = (input: AttentionInput): WorkspaceAttentio
   if (!activeIntent) add("intent", null);
   const loaded = activeIntent ? input.outcomes.filter((item): item is OutcomePosition & { targets: TargetWork[]; execution: OutcomeExecution } => item.targets !== null && item.execution !== null) : [];
   if (activeIntent && input.outcomes.length === 0) add("outcome", null);
+  // 終了したOutcomeの判断待ちは、進行中のOutcomeの有無（Intentの次の判断の要否）と独立に要対応になる。
+  if (activeIntent && input.pendingPastOutcomes === null) unconfirmed.push("終了したOutcomeのEvaluationを取得できないため、Strategistの判断待ちを確認できません");
   for (const outcome of activeIntent ? input.pendingPastOutcomes ?? [] : []) add("decision", outcomeRef(outcome));
   for (const { outcome, targets, execution } of loaded) {
     const { evaluability } = execution;
