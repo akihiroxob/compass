@@ -253,6 +253,30 @@ export const createApp = (
     });
     return c.json({ revoked });
   });
+  // Workspace Direction Role（strategist / researcher / evaluator）のAgent Grant。Workspace Membership（参照はviewer以上、
+  // 付与・取消はadministrator以上）で認可し、Project Grantは含めない。取消はProject Grantと同じくpathで特定し冪等に扱う。
+  const workspaceGrantsPath = "/api/workspaces/:workspaceId/grants";
+  app.get(workspaceGrantsPath, async (c) =>
+    c.json({ grants: await human.listWorkspaceGrants.execute(await actorOf(c), c.req.param("workspaceId")) }),
+  );
+  app.post(workspaceGrantsPath, async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Grant");
+    const { grant, created } = await human.grantWorkspaceRole.execute(actor, c.req.param("workspaceId"), input);
+    return c.json({ grant, created }, created ? 201 : 200);
+  });
+  app.delete(`${workspaceGrantsPath}/:role/:principalId`, async (c) => {
+    const actor = await actorOf(c);
+    const revoked = await human.revokeWorkspaceRole.execute(actor, c.req.param("workspaceId"), {
+      role: c.req.param("role"),
+      principalId: c.req.param("principalId"),
+    });
+    return c.json({ revoked });
+  });
+  // Role DefinitionとSkillのmetadata（Git管理の資産）。認証済みHumanが、Agent画面からRoleの責務・Skillを辿るために読む。
+  app.get("/api/agent-roles/:role", async (c) =>
+    c.json(await human.getAgentRole.execute(await actorOf(c), c.req.param("role"))),
+  );
   // Research・Direction Decision・ADR参照はHuman向けの読み取り専用画面（Task 29）。Agent Role Grantではなく
   // Workspace Membership（viewer以上）で認可し、MCPのResearcher/Strategist tool群と同じapplication use caseへ委譲する。
   app.get("/api/workspaces/:workspaceId/research-requests", async (c) => {
@@ -475,6 +499,31 @@ export const createApp = (
       c.req.param("projectId"),
       c.req.param("membershipId"),
     );
+    return c.json({ membership });
+  });
+  // Workspace Membership。一覧はviewer以上、追加候補・追加・Role変更・取消はowner（権限表は`humanWorkspacePermissions`）。
+  // 追加できるのは所属ProjectのMemberだけで、Human全体の検索は公開しない。Project Membershipは変えない。
+  const workspaceMembersPath = "/api/workspaces/:workspaceId/members";
+  app.get(workspaceMembersPath, async (c) =>
+    c.json({ members: await human.listWorkspaceMembers.execute(await actorOf(c), c.req.param("workspaceId")) }),
+  );
+  app.get("/api/workspaces/:workspaceId/member-candidates", async (c) =>
+    c.json({ candidates: await human.listWorkspaceMemberCandidates.execute(await actorOf(c), c.req.param("workspaceId")) }),
+  );
+  app.post(workspaceMembersPath, async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Membership");
+    return c.json({ membership: await human.addWorkspaceMember.execute(actor, c.req.param("workspaceId"), input) }, 201);
+  });
+  app.patch(`${workspaceMembersPath}/:membershipId`, async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Membership");
+    const membership = await human.changeWorkspaceMemberRole.execute(actor, c.req.param("workspaceId"), c.req.param("membershipId"), input);
+    return c.json({ membership });
+  });
+  app.delete(`${workspaceMembersPath}/:membershipId`, async (c) => {
+    const actor = await actorOf(c);
+    const membership = await human.revokeWorkspaceMember.execute(actor, c.req.param("workspaceId"), c.req.param("membershipId"));
     return c.json({ membership });
   });
   const invitationsPath = "/api/projects/:projectId/invitations";

@@ -18,21 +18,35 @@ import {
   invitationStatusTones,
   invitationsPath,
   isLastOwner,
-  membersPath,
+  memberScopeLabels,
+  scopeMembersPath,
+  scopeRoleDescriptions,
   type HumanRole,
   type Invitation,
   type InvitationResponse,
   type Member,
+  type MemberScope,
   type Membership,
 } from "./members";
 
-const notFound = "Projectまたは対象が見つかりません。画面を再読み込みしてください。";
+const notFoundOf = (scope: MemberScope) => `${memberScopeLabels[scope.kind]}または対象が見つかりません。画面を再読み込みしてください。`;
+const projectNotFound = notFoundOf({ kind: "project", id: "" });
 const formatTime = (epochMs: number) => new Date(epochMs).toLocaleString("ja-JP");
 
-type MemberRowProps = { projectId: string; member: Member; members: Member[]; isSelf: boolean; manage: boolean; onChanged: () => void };
+type MemberRowProps = { scope: MemberScope; member: Member; members: Member[]; isSelf: boolean; manage: boolean; onChanged: () => void };
 
-/** Member 1件。ownerだけRole変更・取消の導線を出す。最後のownerは導線を無効にする（serverも`409 LAST_OWNER`で拒否する）。 */
-const MemberRow = ({ projectId, member, members, isSelf, manage, onChanged }: MemberRowProps) => {
+const revokeDescriptions: Record<MemberScope["kind"], (isSelf: boolean) => string> = {
+  project: (isSelf) => `${isSelf ? "あなた自身は" : "このHumanは"}次の操作からこのProjectを参照・変更できなくなります。作成済みの内容は変更されません。再び参加するには新しい招待が必要です。`,
+  workspace: (isSelf) => `${isSelf ? "あなた自身は" : "このHumanは"}次の操作からこのWorkspaceを参照・変更できなくなります。所属ProjectのMembershipとWorkの権限は変わりません。再び参加するにはWorkspaceのownerが追加し直します。`,
+};
+
+/**
+ * Member 1件（Project / Workspace）。ownerだけRole変更・取消の導線を出す。最後のownerは導線を無効にする
+ * （serverも`409 LAST_OWNER`で拒否する）。
+ */
+export const MemberRow = ({ scope, member, members, isSelf, manage, onChanged }: MemberRowProps) => {
+  const notFound = notFoundOf(scope);
+  const descriptions = scopeRoleDescriptions(scope);
   const { membership, human } = member;
   const [role, setRole] = useState<HumanRole>(membership.role);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +54,7 @@ const MemberRow = ({ projectId, member, members, isSelf, manage, onChanged }: Me
   const lastOwner = isLastOwner(members, member);
   useEffect(() => setRole(membership.role), [membership.role]);
   const revoke = useReasonAction(async () => {
-    await request<{ membership: Membership }>(membersPath(projectId, membership.id), deleteInit);
+    await request<{ membership: Membership }>(scopeMembersPath(scope, membership.id), deleteInit);
     onChanged();
   }, (classified) => describeActionFailure(classified, notFound));
   // 失敗しても選択したRoleは維持し、そのまま再送信できる。
@@ -49,7 +63,7 @@ const MemberRow = ({ projectId, member, members, isSelf, manage, onChanged }: Me
     setError(null);
     setPending(true);
     try {
-      await request<{ membership: Membership }>(membersPath(projectId, membership.id), changeRoleInit(role));
+      await request<{ membership: Membership }>(scopeMembersPath(scope, membership.id), changeRoleInit(role));
       onChanged();
     } catch (failure) {
       setError(describeActionFailure(classifyError(failure), notFound));
@@ -63,7 +77,7 @@ const MemberRow = ({ projectId, member, members, isSelf, manage, onChanged }: Me
       <div>
         <strong>{human.displayName}</strong>{isSelf && <> <span className="status-badge muted">あなた</span></>}
         <small>{human.email}</small>
-        <small>{humanRoleLabels[membership.role]}（{humanRoleDescriptions[membership.role]}）</small>
+        <small>{humanRoleLabels[membership.role]}（{descriptions[membership.role]}）</small>
       </div>
       {manage && (
         <form className="member-role-form" onSubmit={changeRole}>
@@ -75,13 +89,13 @@ const MemberRow = ({ projectId, member, members, isSelf, manage, onChanged }: Me
           <button type="button" className="secondary-button compact danger" disabled={lastOwner} aria-expanded={revoke.confirming} onClick={revoke.open}>取り消す</button>
         </form>
       )}
-      {manage && lastOwner && <p className="section-note member-note">Projectの最後のownerのため、Role変更と取消はできません。</p>}
+      {manage && lastOwner && <p className="section-note member-note">{memberScopeLabels[scope.kind]}の最後のownerのため、Role変更と取消はできません。</p>}
       {error && <div className="state-card error member-note" role="alert">{error}</div>}
       {manage && revoke.confirming && (
         <ReasonPanel
           action={revoke}
           title={`${human.displayName} のMembershipを取り消しますか？`}
-          description={`${isSelf ? "あなた自身は" : "このHumanは"}次の操作からこのProjectを参照・変更できなくなります。作成済みの内容は変更されません。再び参加するには新しい招待が必要です。`}
+          description={revokeDescriptions[scope.kind](isSelf)}
           confirmLabel="取り消す"
           pendingLabel="取消中..."
         />
@@ -95,7 +109,7 @@ const InvitationRow = ({ projectId, invitation, manage, onChanged }: { projectId
   const revoke = useReasonAction(async () => {
     await request<{ invitation: Invitation }>(invitationsPath(projectId, invitation.id), deleteInit);
     onChanged();
-  }, (classified) => describeActionFailure(classified, notFound));
+  }, (classified) => describeActionFailure(classified, projectNotFound));
   return (
     <li>
       <div>
@@ -161,7 +175,7 @@ const InvitationSection = ({ projectId, readOnly }: { projectId: string; readOnl
     () =>
       request<{ invitations: Invitation[] }>(invitationsPath(projectId))
         .then((body) => { setInvitations(body.invitations); setLoadError(null); })
-        .catch((reason: unknown) => setLoadError(loadFailureMessage(classifyError(reason), notFound))),
+        .catch((reason: unknown) => setLoadError(loadFailureMessage(classifyError(reason), projectNotFound))),
     [projectId],
   );
   useEffect(() => { void load(); }, [load]);
@@ -177,7 +191,7 @@ const InvitationSection = ({ projectId, readOnly }: { projectId: string; readOnl
       setEmail("");
       await load();
     } catch (reason) {
-      setError(withNotFoundMessage(classifyError(reason), notFound));
+      setError(withNotFoundMessage(classifyError(reason), projectNotFound));
     } finally {
       setIsSubmitting(false);
     }
@@ -244,9 +258,9 @@ export const MembershipSection = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const load = useCallback(
     () =>
-      request<{ members: Member[] }>(membersPath(projectId))
+      request<{ members: Member[] }>(scopeMembersPath({ kind: "project", id: projectId }))
         .then((body) => { setMembers(body.members); setLoadError(null); })
-        .catch((reason: unknown) => setLoadError(loadFailureMessage(classifyError(reason), notFound))),
+        .catch((reason: unknown) => setLoadError(loadFailureMessage(classifyError(reason), projectNotFound))),
     [projectId],
   );
   useEffect(() => { void load(); }, [load]);
@@ -257,7 +271,7 @@ export const MembershipSection = ({
       <p className="section-note">このProjectを利用できるHumanです。{manage ? "Role変更・取消は次の操作から反映されます。" : "Memberの招待・Role変更はProjectのownerが行います。"}</p>
       {loadError ? <ErrorState message={`Memberの読み込みに失敗しました: ${loadError}`} /> : members === null ? <Loading /> : (
         <ul className="grant-list" aria-labelledby="member-heading">
-          {members.map((member) => <MemberRow key={member.membership.id} projectId={projectId} member={member} members={members} isSelf={member.human.id === currentHumanId} manage={editable} onChanged={() => (member.human.id === currentHumanId ? onSelfChanged() : void load())} />)}
+          {members.map((member) => <MemberRow key={member.membership.id} scope={{ kind: "project", id: projectId }} member={member} members={members} isSelf={member.human.id === currentHumanId} manage={editable} onChanged={() => (member.human.id === currentHumanId ? onSelfChanged() : void load())} />)}
         </ul>
       )}
       {manage && <InvitationSection projectId={projectId} readOnly={readOnly} />}

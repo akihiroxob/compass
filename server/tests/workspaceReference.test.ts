@@ -332,10 +332,10 @@ test("Workspace archive権限の無いProject ownerは、最後のactive Project
   await database.destroy();
 });
 
-test("Workspaceのmember管理の入口とWorkspace管理のMCP toolは公開せず、AgentはProject参照から所属workspaceIdだけを得る", async () => {
+test("Workspaceのmember管理はHuman向けWeb APIだけで、Workspace管理のMCP toolは公開せず、AgentはProject参照から所属workspaceIdだけを得る", async () => {
   const { database, services, app, alice, workspaceId, projectA } = await seed();
   const asAlice = requestAs(app, alice);
-  assert.equal((await asAlice(`/api/workspaces/${workspaceId}/members`)).status, 404);
+  assert.equal((await asAlice(`/api/workspaces/${workspaceId}/members`)).status, 200);
 
   await services.grantProjectRoleUseCase.execute(projectA.id, { principalId: "planner", role: "manager" });
   const tools = ((await callTool(app, "tools/list", {}, "planner")).tools as Body[]).map(({ name }) => name);
