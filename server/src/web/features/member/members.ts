@@ -11,6 +11,7 @@ export const humanRoleLabels: Record<HumanRole, string> = {
   viewer: "Viewer",
 };
 
+/** Project MembershipのRoleの説明。Workspace Membershipは`workspaceHumanRoleDescriptions`。Roleは互いに継承しない。 */
 export const humanRoleDescriptions: Record<HumanRole, string> = {
   owner: "Memberと招待の管理、アーカイブを含むすべての操作",
   administrator: "Projectの編集とAgent・RuntimeのRole割当",
@@ -18,7 +19,21 @@ export const humanRoleDescriptions: Record<HumanRole, string> = {
   viewer: "参照のみ",
 };
 
-export type Membership = { id: string; projectId: string; humanUserId: string; role: HumanRole; createdAt: number; updatedAt: number };
+/** Workspace MembershipのRoleの説明（権限表`humanWorkspacePermissions`）。所属ProjectのWorkの権限は含まない。 */
+export const workspaceHumanRoleDescriptions: Record<HumanRole, string> = {
+  owner: "Memberの管理、アーカイブを含むすべての操作",
+  administrator: "Workspaceの編集・Projectの追加とDirection Agent・Credentialの管理",
+  editor: "Intent・Outcomeの作成・更新",
+  viewer: "参照のみ",
+};
+
+/** Membershipのscope。Workspace MembershipとProject Membershipは互いに継承しない。 */
+export type MemberScope = { kind: "workspace" | "project"; id: string };
+export const memberScopeLabels: Record<MemberScope["kind"], string> = { workspace: "Workspace", project: "Project" };
+export const scopeRoleDescriptions = (scope: MemberScope) => (scope.kind === "workspace" ? workspaceHumanRoleDescriptions : humanRoleDescriptions);
+
+/** Project Membershipは`projectId`、Workspace Membershipは`workspaceId`を持つ。 */
+export type Membership = { id: string; projectId?: string; workspaceId?: string; humanUserId: string; role: HumanRole; createdAt: number; updatedAt: number };
 export type Member = { membership: Membership; human: { id: string; displayName: string; email: string } };
 export type InvitationStatus = "pending" | "accepted" | "revoked";
 export type Invitation = {
@@ -34,8 +49,12 @@ export type Invitation = {
 };
 export type InvitationResponse = { invitation: Invitation; invitationUrl: string };
 
-export const membersPath = (projectId: string, membershipId?: string) =>
-  `/api/projects/${projectId}/members${membershipId ? `/${membershipId}` : ""}`;
+export const scopeMembersPath = (scope: MemberScope, membershipId?: string) =>
+  `/api/${scope.kind === "workspace" ? "workspaces" : "projects"}/${scope.id}/members${membershipId ? `/${membershipId}` : ""}`;
+export const membersPath = (projectId: string, membershipId?: string) => scopeMembersPath({ kind: "project", id: projectId }, membershipId);
+/** Workspace memberへ追加できるHuman（所属ProjectのMemberで、このWorkspaceのMemberでない者）。ownerだけが読める。 */
+export type MemberCandidate = { id: string; displayName: string; email: string };
+export const workspaceMemberCandidatesPath = (workspaceId: string) => `/api/workspaces/${workspaceId}/member-candidates`;
 export const invitationsPath = (projectId: string, invitationId?: string) =>
   `/api/projects/${projectId}/invitations${invitationId ? `/${invitationId}` : ""}`;
 
@@ -46,6 +65,7 @@ const jsonRequest = (method: string, body: unknown): RequestInit => ({
 });
 
 export const changeRoleInit = (role: HumanRole): RequestInit => jsonRequest("PATCH", { role });
+export const addWorkspaceMemberInit = (humanUserId: string, role: HumanRole): RequestInit => jsonRequest("POST", { humanUserId, role });
 export const invitationInit = (email: string, role: HumanRole, expiresInHours: number): RequestInit =>
   jsonRequest("POST", { email, role, expiresInHours });
 export const deleteInit: RequestInit = { method: "DELETE" };
@@ -76,7 +96,7 @@ export const invitationStatusLabels: Record<InvitationDisplayStatus, string> = {
 };
 
 /**
- * このMemberのRole変更・取消で、Projectの有効なownerが0人になるか。UIでは導線を無効にするだけで、拒否はserverが行う
+ * このMemberのRole変更・取消で、Project・Workspaceの有効なownerが0人になるか。UIでは導線を無効にするだけで、拒否はserverが行う
  * （`409 LAST_OWNER`）。
  */
 export const isLastOwner = (members: readonly Member[], target: Member): boolean =>

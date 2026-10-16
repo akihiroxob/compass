@@ -31,7 +31,7 @@ export type WorkspaceProject = {
   archiveReason: string | null;
 };
 
-export const workspaceSections = ["overview", "direction", "projects", "activity", "agents"] as const;
+export const workspaceSections = ["overview", "direction", "projects", "activity", "agents", "settings"] as const;
 export type WorkspaceSection = (typeof workspaceSections)[number];
 export const workspaceSectionLabels: Record<WorkspaceSection, string> = {
   overview: "概要",
@@ -39,6 +39,7 @@ export const workspaceSectionLabels: Record<WorkspaceSection, string> = {
   projects: "Project",
   activity: "記録",
   agents: "Agent",
+  settings: "設定",
 };
 
 /** Workspaceの画面のpath。概要はWorkspaceのpathそのもの。 */

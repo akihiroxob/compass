@@ -158,9 +158,10 @@ export const isSessionLost = (error: ApiError) =>
   error.status === 401 || (error.status === 403 && error.code === "CSRF_REJECTED");
 
 const conflictMessages: Record<string, string> = {
-  LAST_OWNER: "Projectには少なくとも1人のownerが必要です。別のMemberをownerにしてから変更してください。",
+  LAST_OWNER: "ProjectとWorkspaceには少なくとも1人のownerが必要です。別のMemberをownerにしてから変更してください。",
+  ALREADY_MEMBER: "このHumanは既にこのWorkspaceのMemberです。Roleは一覧から変更してください。",
   INVITATION_PENDING: "このメールアドレスには有効な招待が既にあります。取り消してから再発行してください。",
-  PRINCIPAL_BOUND_ELSEWHERE: "このAgent名は別ProjectのRole割当またはAgent Credentialで使われています。このProject用に別の名前を指定してください。",
+  PRINCIPAL_BOUND_ELSEWHERE: "このAgent名は別のWorkspaceまたはProjectのRole割当・Agent Credentialで使われています。Agent名は1つのWorkspaceまたはProjectだけで使えるため、別の名前を指定してください。",
   CREDENTIAL_NOT_ACTIVE: "取消済みまたは期限切れのCredentialはrotationできません。新しく発行してください。",
   INVITATION_NOT_PENDING: "受諾済み・取消済み・期限切れの招待は取り消せません。",
   CLAIM_CONFLICT: "AgentがこのTaskのClaimを持っているため、今は操作できません。",
