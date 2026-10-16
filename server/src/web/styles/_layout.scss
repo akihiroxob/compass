@@ -130,7 +130,8 @@
     padding: var(--space-xs) 2vw calc(var(--space-xs) + env(safe-area-inset-bottom));
     border-top: 1px solid var(--color-line);
     background: var(--color-surface);
-    ul { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    // 項目数に合わせて等分する（項目を増やしても列数を書き換えない）。
+    ul { grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; }
     a { justify-content: center; min-height: 2.75rem; padding: 0 var(--space-2xs); font-size: var(--text-small); }
   }
 }

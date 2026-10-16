@@ -12,8 +12,6 @@ export const projectAgentRoles = ["manager", "worker", "reviewer"] as const sati
 /** `GET /api/workspaces/:workspaceId/grants`・`GET /api/projects/:projectId/grants`の共通部分。 */
 export type ScopeGrant = { principalId: string; role: string; createdAt: number };
 
-export const workspaceGrantsPath = (workspaceId: string) => `/api/workspaces/${workspaceId}/grants`;
-export const workspaceCredentialsPath = (workspaceId: string) => `/api/workspaces/${workspaceId}/credentials`;
 export const agentRolePath = (role: AgentRole) => `/api/agent-roles/${role}`;
 
 /** `GET /api/agent-roles/:role`。Git管理のRole Definitionと、Roleが参照するSkillのmetadata（本文はMCPの`get_skill_context`）。 */

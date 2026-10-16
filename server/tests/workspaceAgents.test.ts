@@ -50,13 +50,6 @@ test("Workspace GrantはWorkspace Membership（viewer以上）で読め、Projec
     assert.equal((await requestAs(app, projectOnly)(`/api/workspaces/${workspace.id}/grants`)).status, 404);
     assert.equal((await requestAs(app, owner)("/api/workspaces/missing/grants")).status, 404);
     assert.equal((await app.request(`/api/workspaces/${workspace.id}/grants`)).status, 401);
-    // 付与・取消のWeb APIは公開しない。
-    const post = await requestAs(app, owner)(`/api/workspaces/${workspace.id}/grants`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ principalId: "x", role: "strategist" }),
-    });
-    assert.equal(post.status, 404);
   } finally {
     await database.destroy();
   }

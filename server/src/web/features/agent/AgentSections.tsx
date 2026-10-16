@@ -6,13 +6,13 @@ import { taskPath } from "../../paths";
 import { canOperate, canOperateWorkspace } from "../../permissions";
 import type { Project } from "../../projectForm";
 import { statusBadgeClass } from "../../statusTone";
-import { credentialStatusTones, type Credential } from "../credential/credentials";
+import { credentialsPath, credentialStatusTones, scopeCredentialsPath, type Credential } from "../credential/credentials";
 import { executionPath, formatTime, taskStatusLabels, taskStatusTones, type ExecutionOverview } from "../execution";
-import { agentRoleAnchorId, agentRoleDescriptions, grantRoleLabels, grantsPath } from "../grant";
+import { agentRoleAnchorId, agentRoleDescriptions, grantRoleLabels, grantsPath, scopeGrantsPath } from "../grant";
 import type { AgentRole } from "../grant/grants";
 import type { HumanRole } from "../member";
 import { projectViewPath } from "../project/overview";
-import type { Workspace, WorkspaceProject } from "../workspace/workspace";
+import { workspacePath, type Workspace, type WorkspaceProject } from "../workspace/workspace";
 import {
   agentRolePath,
   claimsWithoutGrant,
@@ -20,8 +20,6 @@ import {
   projectAgentRoles,
   summarizeScopeAgents,
   workspaceAgentRoles,
-  workspaceCredentialsPath,
-  workspaceGrantsPath,
   type AgentPrincipal,
   type AgentRoleDefinition,
   type ScopeAgents,
@@ -176,8 +174,8 @@ export const WorkspaceAgentsSection = ({ workspace, myRole }: { workspace: Works
     `${workspace.id}/${showCredentials}`,
     (now) =>
       Promise.all([
-        request<{ grants: ScopeGrant[] }>(workspaceGrantsPath(workspace.id)),
-        showCredentials ? request<{ credentials: Credential[] }>(workspaceCredentialsPath(workspace.id)) : Promise.resolve(null),
+        request<{ grants: ScopeGrant[] }>(scopeGrantsPath({ kind: "workspace", id: workspace.id })),
+        showCredentials ? request<{ credentials: Credential[] }>(scopeCredentialsPath({ kind: "workspace", id: workspace.id })) : Promise.resolve(null),
       ]).then(([{ grants }, credentials]) => summarizeScopeAgents({ roles: workspaceAgentRoles, grants, credentials: credentials?.credentials ?? null, tasks: null, now })),
     workspaceNotFound,
   );
@@ -186,7 +184,7 @@ export const WorkspaceAgentsSection = ({ workspace, myRole }: { workspace: Works
       <h2 id="workspace-direction-agents-heading">WorkspaceのDirection Role <span className={statusBadgeClass("muted")}>Workspace</span></h2>
       <p className="section-note">
         Intent・Outcome・Research・Evaluationを担うRoleで、Workspace Grantで割り当てます。ProjectのRoleからは継承しません。
-        Direction RoleはTaskのClaimを持たないため、作業中かどうかはここでは観測できません。割当とWorkspace Credentialの発行はWeb UIからは行えません。
+        Direction RoleはTaskのClaimを持たないため、作業中かどうかはここでは観測できません。割当とWorkspace Credentialの発行は<Link to={workspacePath(workspace.id, "settings")}>Workspaceの設定</Link>で行います。
       </p>
       <Toolbar fetchedAt={loaded?.fetchedAt ?? null} pending={pending} onReload={() => void reload()} />
       {error ? <ErrorState message={`Agentの読み込みに失敗しました: ${error}`} /> : !loaded ? <Loading /> : (
@@ -211,7 +209,7 @@ const ProjectAgents = ({ project }: { project: WorkspaceProject }) => {
         request<{ grants: ScopeGrant[] }>(grantsPath(project.id)),
         request<ExecutionOverview>(executionPath(project.id)),
       ]);
-      const credentials = canOperate(myRole, "credential.manage") ? (await request<{ credentials: Credential[] }>(`/api/projects/${project.id}/credentials`)).credentials : null;
+      const credentials = canOperate(myRole, "credential.manage") ? (await request<{ credentials: Credential[] }>(credentialsPath(project.id))).credentials : null;
       return summarizeScopeAgents({ roles: projectAgentRoles, grants, credentials, tasks: overview.tasks, now });
     },
     "Projectが見つからないか、閲覧する権限がありません。",
