@@ -11,6 +11,7 @@
 
 ## 現在の実装と利用方法
 
+- [Managerのブラウザ検証データ](browser-verification.md): 対象SHAの専用DB準備・シナリオ・確認範囲。
 - [README](../README.md): 起動・接続・操作・検証。
 - [Project](step-1-project-design.md)
 - [Intent](step-2-intent-design.md)

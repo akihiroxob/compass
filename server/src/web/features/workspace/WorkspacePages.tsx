@@ -10,6 +10,7 @@ import type { Project } from "../../projectForm";
 import { canOperateWorkspace } from "../../permissions";
 import { archiveInit, describeArchiveFailure, parseListStatus, projectsApiPath, summarizeReason, validateArchiveReason, type ProjectStatus } from "../../projectArchive";
 import { ActivitySection } from "../activity";
+import { ProjectAgentsSection, WorkspaceAgentsSection } from "../agent";
 import { useSession } from "../auth";
 import { CredentialSection } from "../credential";
 import { AgentSettingsSection } from "../grant";
@@ -268,15 +269,22 @@ const ActivityContent = ({ workspace }: { workspace: Workspace }) => {
 };
 
 /**
- * Agent。ProjectのWorkを担うAgent（Role割当・Credential・Claim）は各Projectの「設定」で管理するため、開けるProjectへの導線を出す。
+ * Agent。WorkspaceのDirection Role（Workspace Grant・Workspace Credential）と、所属ProjectのExecution Role（Project Grant・
+ * Project Credential・TaskのClaim）をscopeごとに分けて出す。Grant・Credential・ClaimのいずれからもAgentの稼働を推測しない。
  */
-const AgentsContent = ({ workspace }: { workspace: Workspace }) => (
-  <section className="detail-section" aria-labelledby="workspace-agents-heading">
-    <h2 id="workspace-agents-heading">ProjectのAgent</h2>
-    <p className="section-note">Story・Taskを担うAgentのRole割当とCredentialはProjectごとに管理します。Role割当やClaimはAgentプロセスの稼働を示しません。WorkspaceのDirectionを担うAgent（Strategist・Researcher・Evaluator）の割当とCredentialは、<Link to={workspacePath(workspace.id, "settings")}>Workspaceの設定</Link>で管理します。</p>
-    <ProjectViewLinks workspace={workspace} view="settings" hint="Agent・Roleの割当を開く" />
-  </section>
-);
+const AgentsContent = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
+  const { value, error } = useWorkspaceProjects(workspace.id, "active");
+  return (
+    <>
+      <div className="fixed-note agent-intro">
+        <p><strong>Grant</strong>はAgentが担当できるRole、<strong>Credential</strong>はAgentがCompassへ接続する資格、<strong>Claim</strong>はAgentが今保持しているTaskの期限付きの作業権です。</p>
+        <p>それぞれ別の状態で、いずれもAgentプロセスが稼働していることを示しません。</p>
+      </div>
+      <WorkspaceAgentsSection workspace={workspace} myRole={myRole} />
+      {error ? <ErrorState message={`Projectの読み込みに失敗しました: ${error}`} /> : <ProjectAgentsSection projects={value} />}
+    </>
+  );
+};
 
 /**
  * 設定。Workspace scopeのMember（Workspace Membership）・Direction Agent（Workspace Grant）・Workspace Credentialと、Project別の
@@ -323,5 +331,5 @@ export const WorkspaceDirectionPage = () => <WorkspaceFrame section="direction">
 export const WorkspaceOutcomePage = () => <WorkspaceFrame section="direction">{(workspace, myRole) => <OutcomeContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceProjectsPage = () => <WorkspaceFrame section="projects">{(workspace, myRole) => <ProjectsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceActivityPage = () => <WorkspaceFrame section="activity">{(workspace) => <ActivityContent workspace={workspace} />}</WorkspaceFrame>;
-export const WorkspaceAgentsPage = () => <WorkspaceFrame section="agents">{(workspace) => <AgentsContent workspace={workspace} />}</WorkspaceFrame>;
+export const WorkspaceAgentsPage = () => <WorkspaceFrame section="agents">{(workspace, myRole) => <AgentsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceSettingsPage = () => <WorkspaceFrame section="settings">{(workspace, myRole, reload) => <SettingsContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;

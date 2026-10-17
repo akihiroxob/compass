@@ -141,7 +141,9 @@ import {
   ListWorkspaceMemberCandidatesUseCase,
   ListWorkspaceMembersUseCase,
   RevokeWorkspaceMemberUseCase,
+  executionRoles,
   humanOperatorPrincipalId,
+  workspaceRoles,
   type HumanActor,
   type HumanIdentityProvider,
   type HumanProjectOperation,
@@ -180,6 +182,10 @@ import {
   workChangeActivityObserver,
   workExternalReaders,
 } from "../infrastructure/repository/contextAdapters.ts";
+import { NotFoundError } from "@compass/shared";
+
+/** Agentが担うRole（Workspace Direction Role・Project Execution Role）。RuntimeはCredential scopeのため含めない。 */
+const isAgentRole = (role: string): role is ProjectRole => [...workspaceRoles, ...executionRoles].some((candidate) => candidate === role);
 
 /** DBを開かずにUse Caseを組み立てる。containerはimport時にDBを開くため、CLIなどはこちらを使う。 */
 export const createApplicationServices = (
@@ -615,6 +621,15 @@ export const createApplicationServices = (
     grantProjectRole: authorized("grant.manage", services.grantProjectRoleUseCase),
     revokeProjectRole: authorized("grant.manage", services.revokeProjectRoleUseCase),
     listProjectGrants: authorized("grant.read", services.listProjectGrantsUseCase),
+    // Role DefinitionとRoleが参照するSkillのmetadata（Git管理の資産。MCPの`get_role_instructions`・`list_skills`と同じ内容）。
+    // 認証済みHumanであれば読め、Grantの有無を問わない。Agent Roleだけを受け付け、Runtime（Credential scope）は対象外。
+    getAgentRole: {
+      execute: async (_actor: HumanActor, role: string) => {
+        if (!isAgentRole(role)) throw new NotFoundError(`Agent Role ${role} was not found`);
+        const { role: definition, skills, source } = await agentContextService.getRoleAssets(role);
+        return { role: { name: definition.name, path: definition.path, content: definition.content }, skills, source };
+      },
+    },
     // Execution SummaryはProject固有の記録で、Project Membershipで読む。
     getExecutionSummary: authorized("project.read", services.getExecutionSummaryUseCase),
     // Execution閲覧（Task 45）。archivedのProjectも参照できる（介入はTask 46の`execution.intervene`）。

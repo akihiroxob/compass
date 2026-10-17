@@ -273,6 +273,10 @@ export const createApp = (
     });
     return c.json({ revoked });
   });
+  // Role DefinitionとSkillのmetadata（Git管理の資産）。認証済みHumanが、Agent画面からRoleの責務・Skillを辿るために読む。
+  app.get("/api/agent-roles/:role", async (c) =>
+    c.json(await human.getAgentRole.execute(await actorOf(c), c.req.param("role"))),
+  );
   // Research・Direction Decision・ADR参照はHuman向けの読み取り専用画面（Task 29）。Agent Role Grantではなく
   // Workspace Membership（viewer以上）で認可し、MCPのResearcher/Strategist tool群と同じapplication use caseへ委譲する。
   app.get("/api/workspaces/:workspaceId/research-requests", async (c) => {
