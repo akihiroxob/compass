@@ -62,7 +62,8 @@ Sessionは発行から7日または無操作24時間で失効します。secret�
 - Workspaceの「概要」「方向」で現在地・要対応・Intent・Outcome・Target別のWork・Evidence・Evaluation・Direction Decisionを確認する。Intent・Outcome・固定成功条件の登録・編集画面は所属Projectの画面（`/projects/:projectId/intents/…`）から開き、保存先は所属Workspaceになる。Target ProjectはStrategistがMCPで設定し、Web UIは参照だけを提供する。
 - Workspaceの「記録」でDirectionの判断の履歴、Projectの「記録」でStory・Task等の履歴を確認する。
 - Projectのeditor以上はStory / Taskの手動起票・編集、Taskの受入・差戻し・取消・Commentを行う。Outcome handoff管理下のStory / Taskは直接編集できない。編集は変更前後とともにChange Logへ残り、「最近の変更」で確認できる。
-- Workspaceのadministrator以上はWorkspaceの「設定」でmember・Direction Role（Strategist・Researcher・Evaluator）のGrant・Workspace Credentialを、Projectのadministrator以上はProjectの「設定」でAgent Grant（Manager・Worker・Reviewer）・Project Credentialを管理する。ownerはMember招待・権限変更とarchiveを行う。WorkspaceとProjectの権限は互いに継承しない。
+- Workspaceのadministrator以上はWorkspaceの「設定」でDirection Role（Strategist・Researcher・Evaluator）のGrant・Workspace Credentialを、Projectのadministrator以上はProjectの「設定」でAgent Grant（Manager・Worker・Reviewer）・Project Credentialを管理する。memberの一覧はviewer以上が参照できる。
+- Workspaceのownerは「設定」でmemberの追加・Role変更・取消を、Projectのownerは「設定」でMember招待・Role変更・取消を行う。Workspace / Projectのarchiveもそれぞれのownerだけが行う。WorkspaceとProjectの権限は互いに継承しない。
 
 archived Workspace / Projectは参照専用です。WorkspaceのarchiveはSelectorの一覧から外し、所属Projectをarchiveしません。Projectのarchiveは所属Workspaceを変えません。復帰・物理削除は提供していません。通常操作にCLIやDBの直接編集は使いません。
 
