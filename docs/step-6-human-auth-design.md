@@ -55,23 +55,25 @@ Role順序はowner > administrator > editor > viewer。
 | --- | --- |
 | Project作成 | ログイン済み。作成者がownerになる |
 | Project一覧 | 有効なMembershipを持つProjectのみ |
-| Project・Direction・Execution・Member・Grant参照 | viewer |
-| Intent・Outcome変更、Story / Task手動起票・編集、Task介入・Comment | editor |
+| Project・Execution・Execution Summary・Activity・Member・Grant参照 | viewer |
+| Story / Task手動起票・編集、Task介入・Comment | editor |
 | Project更新、Agent Grant、Credential管理 | administrator |
 | archive、招待、Membership変更・取消 | owner |
 
 Workspace MembershipはProject Membershipとは別で、相互に継承しない。Human向けのWeb API（作成`POST /api/workspaces`、参照`GET /api/workspaces`・`GET /api/workspaces/:workspaceId`・`GET /api/workspaces/:workspaceId/projects`、更新`PATCH /api/workspaces/:workspaceId`、Project作成`POST /api/workspaces/:workspaceId/projects`、archive`POST /api/workspaces/:workspaceId/archive`）はWeb SessionとWorkspace Membershipによる認可まで接続済み。所属Project一覧ではpurpose・Repository・Resourceを参照できるが、Project詳細・Workの参照には別途Project Membershipが必要。Projectの応答は所属`workspaceId`を含む。Web UIはWorkspace Selector・Shellと、Workspaceの作成・編集・Project追加・archiveの導線を接続し、Selectorは閲覧できるWorkspaceだけを出す。Projectの更新ではMission等を受け取らず、Project RoleでWorkspaceの戦略値を変更できない。Workspace member管理のWeb API（一覧`GET /api/workspaces/:workspaceId/members`はviewer以上、追加候補`GET .../member-candidates`・追加`POST .../members`・Role変更`PATCH .../members/:membershipId`・取消`DELETE .../members/:membershipId`はowner）とWeb UIのWorkspace「設定」を接続済み。追加できるのは所属ProjectのMemberで、このWorkspaceのMemberでないHumanだけで、候補一覧はownerだけが読める（emailでのHuman検索は公開しない）。追加・Role変更・取消はProject Membershipを変えない。Workspace管理のMCPは無い。
 
-以下はapplication層のWorkspace権限表であり、参照以外のWeb API接続は後続Taskで行う。
+Intent・Outcome等のDirectionはWorkspace scopeで、参照・変更ともWorkspace Membershipで認可し、Project Membershipでは操作できない。Workspace Direction（`/api/workspaces/:workspaceId/intents`配下のIntent・Outcome、Research Request・Direction Decision・ADR参照・Evaluation・Target、Activity）のWeb APIは接続済み。
+
+以下はapplication層のWorkspace権限表で、すべてWeb API・Web UIに接続済み。
 
 | Workspace操作 | 最低Role |
 | --- | --- |
 | Workspace作成 | ログイン済み。作成者がownerになる |
 | Workspace一覧 | 有効なWorkspace Membershipを持つWorkspaceのみ |
-| Workspace・所属Project一覧参照 | viewer |
-| Member参照（入口未接続） | viewer |
-| Workspace scopeのAgent / Runtime Credential管理 | administrator |
-| Direction変更（Workspace scope化後に接続） | editor |
+| Workspace・所属Project一覧・Direction・Activity参照 | viewer |
+| Member・Workspace Grant参照 | viewer |
+| Direction（Intent・Outcome）変更 | editor |
+| Workspace Direction Role Grantの付与・取消、Workspace scopeのAgent / Runtime Credential管理 | administrator |
 | Mission等の更新、既存WorkspaceへのProject作成（作成者がProjectのowner） | administrator |
 | archive、Member追加（所属ProjectのMemberに限る）・Role変更・取消 | owner |
 
@@ -87,9 +89,9 @@ Membershipはrequestごとに読み、取消・Role変更を次の操作へ反�
 
 Credentialはscope（`{ kind: workspace | project, id }`）を明示して発行し、応答・一覧は`scope`を返す。発行・rotation・取消・一覧はProject Credentialが`/api/projects/:projectId/credentials`（Project Membershipのadministrator以上）、Workspace Credentialが`/api/workspaces/:workspaceId/credentials`（Workspace Membershipのadministrator以上）で、Membershipを相互に継承しない。別scopeのCredential IDは404。archivedのscopeでは発行・rotationを拒否し、取消はできる。
 
-Runtime scopeは`runtime:event:read` / `runtime:event:ack` / `execution:change:read` / `execution:evidence:write` / `execution:summary:read` / `runtime:state:read`。`RuntimeAuthorizationService`はCredentialのscopeと操作対象のscope（`requireScope`はProject、`requireWorkspaceScope`はWorkspace）の一致とRuntime scopeを検査し、WorkspaceとProjectの間で継承しない。Agent Grantとは混同しない。公開済みのRuntime入口はProject scopeだけで、Workspace Runtime Credentialを受け付けるWorkspaceの入口は未接続（S03-04・S08-03）。
+Runtime scopeは`runtime:event:read` / `runtime:event:ack` / `execution:change:read` / `execution:evidence:write` / `execution:summary:read` / `runtime:state:read`。`RuntimeAuthorizationService`はCredentialのscopeと操作対象のscope（`requireScope`はProject、`requireWorkspaceScope`はWorkspace）の一致とRuntime scopeを検査し、WorkspaceとProjectの間で継承しない。Agent Grantとは混同しない。Project Runtime CredentialはExecution change・Evidence・Summaryに、Workspace Runtime CredentialはRuntime event（`fetch_runtime_events` / `ack_runtime_event`・`/api/workspaces/:workspaceId/runtime-events`）と`get_workspace_orchestration_state`に使い、OrchestratorはWorkspace Runtime CredentialでWorkspaceの状態を読む。
 
-Agent CredentialのPrincipalは1つのscopeに束縛する。別scope（別Workspace・別Project、WorkspaceとProjectの違いを含む）のRole Grantまたは有効なAgent Credentialを持つPrincipalへの発行、逆にAgent Credentialに束縛されたPrincipalへの別scopeのProject / Workspace Grantは409 `PRINCIPAL_BOUND_ELSEWHERE`。Workspace Agent CredentialはWorkspace Direction Role（`RoleScopeAuthorizationService`）だけで認可され、所属ProjectのWork・Runtimeには使えない。Workspace Grant・Direction toolのMCP公開入口は未接続のため、Workspace Agent Credentialによる実Agent運転は未検証。
+Agent CredentialのPrincipalは1つのscopeに束縛する。別scope（別Workspace・別Project、WorkspaceとProjectの違いを含む）を次のとおり検査し、違反は409 `PRINCIPAL_BOUND_ELSEWHERE`とする。Agent Credentialの発行は、別scopeのRole Grantまたは有効なAgent Credentialを持つPrincipalを拒否する。Project / Workspace Grantの付与は、別scopeの有効なAgent Credentialに束縛されたPrincipalだけを拒否し、別scopeのGrantだけを持つPrincipalへの付与は拒否しない。Workspace Agent CredentialはWorkspace Direction Role（`RoleScopeAuthorizationService`）だけで認可され、所属ProjectのWork・Runtimeには使えない。Workspace Direction tool・Workspace Role ContextはMCPで接続済みで、Workspace Grantの付与・取消はHuman向けWeb API・Web UIだけで行う。Workspace Agent Credentialによる実Agent運転は未検証（結合テストの起動先はfixture）。
 
 trusted-localではAgent名のBearerも許可するが、`cmp_`形式は常にCredentialとして検証する。remoteではAgent名の自己申告を許可しない。
 
@@ -98,13 +100,13 @@ trusted-localではAgent名のBearerも許可するが、`cmp_`形式は常にCr
 | tool分類 | 契約 |
 | --- | --- |
 | Project作成・更新、Intent作成・更新・放棄 | 登録しない。HumanはWeb UIを使用 |
-| Direction参照 | Agent Credentialと対象ProjectのGrantを要求 |
+| Direction参照 | Agent Credentialと対象WorkspaceのDirection Role Grant（`RoleScopeAuthorizationService`）を要求。Project Grantでは参照できない |
 | Project一覧 | Grantのあるactive Projectだけを返す |
 | `get_role_instructions` | 機密を含まない静的文書。認証不要 |
-| Role専用tool | 必要なAgent Grantを検査 |
-| Runtime用tool | Runtime CredentialのscopeがProject scopeの対象Projectと一致し、必要なRuntime scopeを持つことを検査 |
+| Role専用tool | 対象scope（Workspace / Project）の必要なAgent Grantを検査し、scope間で継承しない |
+| Runtime用tool | Runtime Credentialのscopeがtoolの対象scopeと一致し、必要なRuntime scopeを持つことを検査。`fetch_runtime_events`・`ack_runtime_event`・`get_workspace_orchestration_state`はWorkspace Runtime Credential、`list_changes`・`record_execution_evidence`・`get_outcome_execution_summary`はProject Runtime Credentialを要求し、他scopeのCredentialは拒否する |
 
-新規Project GrantはWeb API・CLIとも`manager` / `worker` / `reviewer`とtrusted-local用`runtime`に限る。Direction Roleの指定は400 `VALIDATION_ERROR`（CLIは終了コード1）。Web UIの割当フォームはExecutionの3Roleだけを表示する。取消は旧Roleの保存済みGrantも対象とする。Workspace Grantの管理入口は未接続。Workspace Credentialの管理Web APIは接続済みで、Web UIは未接続（S11-03）。
+新規Project GrantはWeb API・CLIとも`manager` / `worker` / `reviewer`とtrusted-local用`runtime`に限る。Direction Roleの指定は400 `VALIDATION_ERROR`（CLIは終了コード1）。Web UIの割当フォームはExecutionの3Roleだけを表示する。取消は旧Roleの保存済みGrantも対象とする。Workspace GrantはDirection Role（`strategist` / `researcher` / `evaluator`）だけを`/api/workspaces/:workspaceId/grants`（一覧はWorkspace Membershipのviewer以上、付与・取消はadministrator以上）で管理し、Workspace Credentialは`/api/workspaces/:workspaceId/credentials`で管理する。どちらもWeb UIのWorkspace「設定」に接続済みで、MCPには公開しない。archivedのWorkspaceではGrantの付与・取消を409で拒否する。
 
 CLIのGrant操作はローカル保守・自動検証用。通常のHuman操作の代替としない。
 
