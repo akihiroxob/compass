@@ -254,7 +254,7 @@ export class TaskCoordinationService {
     return task;
   }
 
-  /** archivedのProjectでは新しい活動（Story・Task起票、work Claim）を始めない。存在しないProjectは呼び出し前のGrant検査で拒否済み。 */
+  /** archivedのProjectでは新しい活動（Story・Task起票、work / review / acceptanceのClaim）を始めない。存在しないProjectは呼び出し前のGrant検査で拒否済み。 */
   private async assertProjectActive(store: WorkStore, projectId: string): Promise<void> {
     if (await store.projects.isArchived(projectId)) throw new ProjectArchivedError(projectId);
   }
@@ -469,12 +469,13 @@ export class TaskCoordinationService {
     limit?: number,
   ) {
     const now = this.clock();
-    const [tasks, stories, claims, grantedRoles, completionChanges] = await Promise.all([
+    const [tasks, stories, claims, grantedRoles, completionChanges, archived] = await Promise.all([
       this.store.listTasks(projectId),
       this.store.listStories(projectId),
       this.store.listActiveClaims(projectId),
       principalId === null ? Promise.resolve([]) : this.grantedRoles(this.store, projectId, principalId),
       this.store.listCompletions(projectId),
+      filter?.availableFor ? this.store.projects.isArchived(projectId) : Promise.resolve(false),
     ]);
     const storyOrders = new Map(stories.map((story) => [story.id, story.sort_order]));
     const activeClaims = new Map(claims.map((claim) => [claim.task_id, claim]));
@@ -493,6 +494,8 @@ export class TaskCoordinationService {
     });
 
     const isAvailable = (task: (typeof tasks)[number]) => {
+      // archivedのProjectでは新しいClaimを取得できないため、どの工程の候補も返さない。
+      if (filter?.availableFor && archived) return false;
       const claim = activeClaims.get(task.id);
       const hasUnexpiredClaim = claim !== undefined && claim.expires_at > now;
       switch (filter?.availableFor) {
@@ -649,6 +652,7 @@ export class TaskCoordinationService {
         const now = this.clock();
         const task = await this.getTask(store, taskId);
         await this.requireRole(store, task.project_id, principalId, WorkRole.REVIEWER);
+        await this.assertProjectActive(store, task.project_id);
         const currentClaim = await this.getActiveClaim(store, taskId);
         if (currentClaim) {
           if (currentClaim.expires_at > now) {
@@ -695,6 +699,7 @@ export class TaskCoordinationService {
     if (actorRole === "manager") {
       await this.requireRole(store, task.project_id, principalId, WorkRole.MANAGER);
     }
+    await this.assertProjectActive(store, task.project_id);
     const currentClaim = await this.getActiveClaim(store, taskId);
     if (currentClaim) {
       if (currentClaim.expires_at > now) {
