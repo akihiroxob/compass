@@ -359,40 +359,6 @@ test("AC-12 archiveは子データを変更しない。activeなIntentはactive�
   await database.destroy();
 });
 
-test("AC-13 archive導入前のDBは、initializeSchemaを2回実行してもエラーなくactiveへ移行し、子データは不変", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "compass-archive-migration-"));
-  const path = join(directory, "test.db");
-  const legacy = await setup(path);
-  const { project, intent, outcome } = await seed(legacy.database, legacy.services);
-  // archive導入前のproject tableへ戻す。
-  for (const column of ["status", "archived_at", "archive_reason"]) {
-    await sql.raw(`alter table project drop column ${column}`).execute(legacy.database);
-  }
-  const legacyColumns = (await sql<{ name: string }>`select name from pragma_table_info('project')`.execute(legacy.database)).rows;
-  assert.ok(!legacyColumns.some(({ name }) => name === "status"));
-  const before = await counts(legacy.database);
-  await legacy.database.destroy();
-
-  const database = createDatabase(path);
-  await initializeSchema(database);
-  await initializeSchema(database);
-  const services = createApplicationServices(database);
-  const migrated = await services.getProjectUseCase.execute(project.id);
-  assert.equal(migrated.status, "active");
-  assert.equal(migrated.archivedAt, null);
-  assert.equal(migrated.archiveReason, null);
-  assert.equal(migrated.name, project.name);
-  assert.deepEqual(await counts(database), before);
-  assert.deepEqual(await services.getIntentUseCase.execute(project.workspaceId, intent.id), intent);
-  assert.deepEqual(await services.getOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id), outcome);
-  assert.deepEqual((await services.listProjectsUseCase.execute()).map((item) => item.id), [project.id]);
-
-  const archived = await services.archiveProjectUseCase.execute(project.id, { reason: "After migration" });
-  assert.equal(archived.status, "archived");
-  await database.destroy();
-  await rm(directory, { recursive: true, force: true });
-});
-
 test("statusのcheck制約は、active・archived以外の値を保存させない", async () => {
   const { database, services } = await setup();
   const { project } = await seed(database, services);
@@ -489,7 +455,7 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       "abandon_intent", "ack_runtime_event", "cancel_outcome", "complete_research_request", "create_adr_handoff_request",
       "create_direction_decision", "create_intent",
       "create_outcome", "create_project", "decide_next_outcome", "fetch_runtime_events",
-      "get_intent", "get_orchestration_state", "get_workspace_orchestration_state", "get_outcome", "get_project", "get_research_request", "get_researcher_context", "get_role_instructions", "get_role_context", "get_workspace_role_context", "list_skills", "get_skill_context",
+      "get_intent", "get_workspace_orchestration_state", "get_outcome", "get_project", "get_research_request", "get_researcher_context", "get_role_instructions", "get_role_context", "get_workspace_role_context", "list_skills", "get_skill_context",
       "get_outcome_execution_summary", "get_evaluator_context", "record_outcome_evaluation", "get_strategist_context", "list_adr_references", "list_intents", "list_outcomes", "list_projects",
       "list_research_requests", "record_adr_reference",
       // Target Projectの設定・解除はOutcomeとProjectの関連だけで、Projectのarchive・削除ではない。

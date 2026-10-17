@@ -74,7 +74,7 @@ export const isWorkspaceArchived = async (database: Queryable, workspaceId: stri
   return row?.status === "archived";
 };
 
-/** active / archivedを問わず、作成順のWorkspace ID（Accessの初期Membershipの補完が使う）。 */
+/** active / archivedを問わず、作成順のWorkspace ID（Accessのowner不在Workspaceの補完が使う）。 */
 export const listWorkspaceIdsInCreationOrder = async (database: Queryable): Promise<string[]> => {
   const rows = await database.selectFrom("workspace").select("id").orderBy("created_at").orderBy("id").execute();
   return rows.map(({ id }) => id);
@@ -92,7 +92,7 @@ export const listWorkspaceProjectIds = async (database: Queryable, workspaceId: 
   return rows.map(({ id }) => id);
 };
 
-/** Projectの所属Workspace ID。存在・所属の欠損はnull。呼出し元のtransactionのまま読む。 */
+/** Projectの所属Workspace ID。Projectが無ければnull。呼出し元のtransactionのまま読む。 */
 export const findProjectWorkspaceId = async (database: Queryable, projectId: string): Promise<string | null> => {
   const row = await database.selectFrom("project").select("workspace_id").where("id", "=", projectId).executeTakeFirst();
   return row?.workspace_id ?? null;

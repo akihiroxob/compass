@@ -9,10 +9,10 @@ Compassはリリース前のため、開発DBはtableのDROPまたはDB file削�
 ## 前提となる現況
 
 - DBは単一SQLite file（`COMPASS_DB_PATH`、`server/src/bootstrap/database/createDatabase.ts`）で、`foreign_keys = ON`。table定義は各packageの`infrastructure/schema.ts`、初期化は`initialize*Schema.ts`をserverの`initializeSchema.ts`が順に呼ぶ（Organization → Direction → Work → Access → Activity）。
-- migrationのversion管理はない。`create ... if not exists`と、`pragma_table_info`で列の有無を見る冪等な`ALTER TABLE ADD COLUMN`（Organizationのarchive・`workspace_id`・`strategy_migrated_at`、Directionの評価参照、Workの`active_role`）で既存DBへ追随する。server起動のたびに実行される。
+- migrationのversion管理・起動時migrationはない。各tableは新規DBの`create ... if not exists`定義だけで、server起動のたびに同じschemaへ冪等に再適用される。旧定義のDBへの列追加・戦略値の変換・Membershipの補完は行わない（S12-01で除去。開発DBは再作成する）。
 - OrganizationはWorkspaceとProjectを保存する。DirectionのIntent・Outcome・成功条件はWorkspace所有で、`intent.workspace_id`・`outcome.workspace_id`は`workspace.id`をFK参照し、成功条件は`outcome_id`でOutcomeを参照する。Research/Decision/ADRはWorkspace scopeへ切替済みで、ADRは対象artifactのProject/Repository参照も持つ。Evaluation・Runtime event・配送・ackはWorkspace scope。Execution Summary/EvidenceはWorkspace所有で発生元Projectも保持し、Outcome/ProjectのWorkspace一致は複合FKで強制する。WorkはProject scopeで、`project_id`は`project.id`を参照する。Activityは`workspace_id`で`workspace.id`、`project_id`で`project.id`を参照し、3 scopeとID組合せのCHECKを持つ。Direction canonical ActivityはWorkspace scopeで内部保存・取得まで実装済み。Directionの通知はEvaluationを含め全てWorkspace IDを直接使う。AccessにはProject単位のtableに加え、`workspace_membership`があり`workspace.id`を参照する。Workspace DirectionのWeb/API/MCP入口はWorkspace Membership・Role Grant・Runtime Credentialで認可する（S03-04で接続済み）。Workspace Role Grantの付与・取消とWorkspace member管理は、Web APIとWeb UIのWorkspace「設定」で接続済み（S11-03）。Workspace ActivityのMCP・Web API（S07-02）とWorkspace Role Context（S07-03）は接続済みで、Web UIはS11-01でWorkspace・Projectの「記録」にscope別に接続済み。
-- Projectの戦略値（Mission等）を読むのは`DirectionReferenceLookupService`（Story作成時のConstraints snapshot）、`GetRoleContextUseCase`、`GetStrategistContextUseCase`（`workspace`を返す）、Web UIの`ProjectDetailPage`・`ProjectListPage`・`projectForm.ts`。
-- `server/tests`・各packageのテストにはProject作成入力の`mission`を使うfixtureがある。Project作成の入力契約を変えるTaskは`projectWorkspaceMigration.test.ts`・`projectAdapters.test.ts`等と関連fixtureの追随を含む。
+- 戦略値（Mission等）は所属Workspaceから読む。Projectの参照モデル`ProjectDetail`・`DirectionReferenceLookupService`（Story作成時のConstraints snapshot）・`GetRoleContextUseCase`・`GetStrategistContextUseCase`がWorkspaceの値を合成する。
+- `server/tests`・各packageのテストにはProject作成入力の`mission`を使うfixtureがある（`POST /api/projects`・MCP `create_project`が専用Workspaceを作るため）。Project作成の入力契約を変えるTaskは`projectAdapters.test.ts`等と関連fixtureの追随を含む。
 
 ## SQLiteの制約から決まる作業
 
@@ -38,11 +38,11 @@ schema再作成の共通確認点:
 | --- | --- | --- | --- | --- |
 | `workspace` | 作成・参照・更新・archiveを保存済み | id・name・mission・vision・status・archived_at・archive_reason・created_at・updated_at | S02-01 | Workspaceのarchiveは新規活動を拒否する。`project`のarchive列と同じ規則 |
 | `workspace_principle` / `workspace_constraint` | Workspaceの子として保存済み | `project_principle` / `project_constraint`と同じ`OrderedTextTable`形 | S02-01 | — |
-| `project` | `workspace_id`・`strategy_migrated_at`を追加済み。`mission`・`vision`は読み書きしない旧列。FKの参照先 | `workspace_id NOT NULL`（FK `workspace.id`）とProject固有値。不要なmission・vision・移行用列を除く | S02、S12-01 | 新規DBから全ProjectがWorkspaceに属することをDBとapplicationで保証する |
-| `project_principle` / `project_constraint` | 読み書きしない旧table | 旧tableを除き、Workspaceの子を使う | S12-01 | 新規Workspaceの値と並び順（`sort_order`）を検証する |
+| `project` | `workspace_id NOT NULL`（FK `workspace.id`）・name・description・status・archive列。mission・vision・`strategy_migrated_at`はS12-01で除いた | 実装済み | S02、S12-01 | 新規DBから全ProjectがWorkspaceに属することをDBとapplicationで保証する |
+| `project_principle` / `project_constraint` | S12-01で除いた。Principles / ConstraintsはWorkspaceの子だけ | 実装済み | S12-01 | 新規Workspaceの値と並び順（`sort_order`）を検証する |
 | `project_repository_link` / `project_resource` | Projectの子（`packages/organization`が所有） | 変更なし | S02-03（実装済み） | 新規DB内で`adr_handoff_request.repository_id`・Activityの`project_resource`参照・Storyの`repository_snapshot`が同じResourceを指すことを確認する |
 
-現行のOrganizationには`migrateProjectStrategy.ts`による旧戦略値の変換と、ProjectからWorkspaceの戦略値を編集する互換経路がある。新しい所属・入力契約を接続したTaskで不要な変換・互換コードを除いてよい。ProjectからWorkspaceの戦略値を編集する互換経路はS09-03で除いた。旧ProjectごとのWorkspace生成は今後の受入条件ではない。現行の`POST /api/projects`・MCP `create_project`は専用Workspaceを同じtransactionで作る。この公開契約の切替は後続Taskで行う。Projectのarchiveは所属Workspaceをarchiveしない（S09-03でWorkspace ownerのarchiveと分離した）。Workspaceへの所属を選ぶ入口はS02-04・S09-03で接続する。
+旧戦略値の変換（`migrateProjectStrategy.ts`）と起動時の列追加はS12-01で、ProjectからWorkspaceの戦略値を編集する互換経路はS09-03で除いた。旧ProjectごとのWorkspace生成は受入条件ではない。現行の`POST /api/projects`・MCP `create_project`は専用Workspaceを同じtransactionで作る。この公開契約の切替は後続Taskで行う。Projectのarchiveは所属Workspaceをarchiveしない（S09-03でWorkspace ownerのarchiveと分離した）。Workspaceへの所属を選ぶ入口はS02-04・S09-03で接続する。
 
 ### Direction（Workspace scopeへ。S03）
 
@@ -53,7 +53,7 @@ schema再作成の共通確認点:
 | `research_request` / `research_result` / `research_evidence_ref` / `research_finding` / `research_synthesis` | `workspace_id` FK・親子複合FK、Requestの`(workspace_id, request_key)` unique、`research_finding_workspace_idx`等 | 実装済み | S03-02 | 関連tableはscope列なし。EvidenceはURI/revisionと任意の`resource_id`で同じWorkspaceのProject Resourceを参照 |
 | `direction_decision` | `workspace_id` FK、`(workspace_id, request_key)` unique・Intent/Outcome複合FK | 実装済み | S03-02 | `direction_decision_synthesis` / `_finding`は変更不要。Intent Brief snapshot（JSON）は書き換えない |
 | `adr_handoff_request` / `adr_reference` | `workspace_id`と対象artifactの`project_id`・`repository_id`。DecisionとのWorkspace複合FK | 実装済み | S03-02 | `(workspace_id, request_key)` unique。対象Projectが同じWorkspaceに属することをtransaction内で検査 |
-| `runtime_event` / `runtime_event_delivery` / `runtime_event_ack_attempt` | `workspace_id` FK、`runtime_event_workspace_sequence_idx`、version 2 | `workspace_id` | S03-03 | 新規DBでsequence・配送・ack・再送を検証する。`fetch_runtime_events` / `ack_runtime_event`はS03-04でWorkspace Runtime Credentialの入口へ接続済み（Orchestratorは`get_orchestration_state`を使い、これらに依存しない） |
+| `runtime_event` / `runtime_event_delivery` / `runtime_event_ack_attempt` | `workspace_id` FK、`runtime_event_workspace_sequence_idx`、version 2 | `workspace_id` | S03-03 | 新規DBでsequence・配送・ack・再送を検証する。`fetch_runtime_events` / `ack_runtime_event`はS03-04でWorkspace Runtime Credentialの入口へ接続済み（Orchestratorは`get_workspace_orchestration_state`を使い、これらに依存しない） |
 | `outcome_execution_summary` | PK `(outcome_id, project_id)`、`workspace_id`・`project_id` | 保存構造を維持し、Target Projectだけが還流する（S05-01で実装済み） | S03-03（保存）、S05-01（Target別還流） | 新規DBで同じOutcomeのProject別Summaryを区別する |
 | `outcome_execution_evidence` | `workspace_id`・`project_id`、identity index `(outcome_id, project_id, kind, uri, version)` | 発生元Projectを保持し、還流時にTargetを検査する。上限はOutcome・Projectごと（S05-01で実装済み） | S03-03、S05-01 | 複数Projectが同じURIを報告してもProject別に保持する |
 | `outcome_evaluation` | `workspace_id` FK、`(workspace_id, request_key)` unique | `workspace_id`。評価snapshot（JSON）は全Targetの`projectId`・`projectStatus`・Summary / EvidenceをProject別に含む（S05-02で実装済み） | S03-03、S05-02 | 既存snapshotは書き換えない |
@@ -61,7 +61,7 @@ schema再作成の共通確認点:
 
 S03-01〜03で新規DBのDirection tableと読取・書込を`workspace_id`へ切り替える。Project固有参照に必要な`project_id`以外は、参照元を切り替えたTaskで旧列・indexを除いてよい。`project_id`列にWorkspace IDを保存しない。
 
-S03-01はIntent/Outcomeのdomain・Repository・10 use case・保存列・通知をWorkspaceへ切替済み。S03-04でDirectionの公開Web API（`/api/workspaces/:workspaceId/…`）・MCP（`workspaceId`入力）・Strategist / Researcher / Evaluator ContextをWorkspace Membership・Workspace Role Grant・Workspace Runtime Credentialへ接続し、Project配下の旧経路・`projectId`入力・Project ContextのDirection adapterを除いた。Project基準のまま残るOrchestration Stateだけが`projectDirectionAdapter.ts`/`ProjectDirectionReaders`で所属Workspaceを明示解決し、複数ProjectのWorkspaceを拒否する（S08-01で切替）。Story作成時のOutcome参照はS04-03で`DirectionReferenceLookupService`のWorkspace Outcome snapshot＋Project execution contextへ切替済み。Research/Decision/ADRの保存・検索はWorkspace IDを直接使う。Evaluation/Runtimeの保存・取得もWorkspaceを直接指定する。Execution Summary/Evidenceは所属WorkspaceとProjectを明示し、両者とOutcomeの一致をtransaction内のreaderと複合FKで強制する。Runtimeの`outcome_confirmed`・`research_requested`・`research_completed`はserverの`directionChangeObserver`がProject数によらずWorkspace eventへ投影する。Workspace Runtime eventの認可付き公開入口はS03-04で接続済み。OrchestratorはS08-03でWorkspace単位の状態（`get_workspace_orchestration_state`）へ切り替えた（Runtime eventには依存しない）。
+S03-01はIntent/Outcomeのdomain・Repository・10 use case・保存列・通知をWorkspaceへ切替済み。S03-04でDirectionの公開Web API（`/api/workspaces/:workspaceId/…`）・MCP（`workspaceId`入力）・Strategist / Researcher / Evaluator ContextをWorkspace Membership・Workspace Role Grant・Workspace Runtime Credentialへ接続し、Project配下の旧経路・`projectId`入力・Project ContextのDirection adapterを除いた。Project基準のOrchestration State（`get_orchestration_state`・`projectDirectionAdapter.ts`・`ProjectDirectionReaders`）はS12-01で除いた。Story作成時のOutcome参照はS04-03で`DirectionReferenceLookupService`のWorkspace Outcome snapshot＋Project execution contextへ切替済み。Research/Decision/ADRの保存・検索はWorkspace IDを直接使う。Evaluation/Runtimeの保存・取得もWorkspaceを直接指定する。Execution Summary/Evidenceは所属WorkspaceとProjectを明示し、両者とOutcomeの一致をtransaction内のreaderと複合FKで強制する。Runtimeの`outcome_confirmed`・`research_requested`・`research_completed`はserverの`directionChangeObserver`がProject数によらずWorkspace eventへ投影する。Workspace Runtime eventの認可付き公開入口はS03-04で接続済み。OrchestratorはS08-03でWorkspace単位の状態（`get_workspace_orchestration_state`）へ切り替えた（Runtime eventには依存しない）。
 
 ### Work（Project scopeを維持）
 
@@ -159,7 +159,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 
 | 対象（現行ファイル） | project依存 | 変更先 | Task |
 | --- | --- | --- | --- |
-| `packages/organization/src/domain/Project.ts`・`ProjectRepository.ts`、`infrastructure/SQLiteProjectRepository.ts`・`projectState.ts`・`projectChange.ts`・`migrateProjectStrategy.ts`、`application/*Project*UseCase.ts`・`projectSchema.ts`・`error/ProjectArchivedError.ts` | Project本体（S02-03でDirectionから移設済み） | `Project`（Entity）は所属`workspaceId`を持ちMission等を持たない。公開契約用の参照モデル`ProjectDetail`がWorkspaceの戦略値を合成し、所属`workspaceId`を含む（S02-04で公開済み）。所属Project一覧は`ListWorkspaceProjectsUseCase`（S02-04で実装済み）。Direction・Access・Work・Activityが使うProject状態の読取（`DirectionProjectReaders`・`AccessProjectReaders`・WorkStoreの`projects`・`ActivityScopeReader`）はserverがorganizationの関数で配線する | S02-01、S02-03、S02-04（実装済み） |
+| `packages/organization/src/domain/Project.ts`・`ProjectRepository.ts`、`infrastructure/SQLiteProjectRepository.ts`・`projectState.ts`・`projectChange.ts`、`application/*Project*UseCase.ts`・`projectSchema.ts`・`error/ProjectArchivedError.ts` | Project本体（S02-03でDirectionから移設済み） | `Project`（Entity）は所属`workspaceId`を持ちMission等を持たない。公開契約用の参照モデル`ProjectDetail`がWorkspaceの戦略値を合成し、所属`workspaceId`を含む（S02-04で公開済み）。所属Project一覧は`ListWorkspaceProjectsUseCase`（S02-04で実装済み）。Direction・Access・Work・Activityが使うProject状態の読取（`DirectionProjectReaders`・`AccessProjectReaders`・WorkStoreの`projects`・`ActivityScopeReader`）はserverがorganizationの関数で配線する | S02-01、S02-03、S02-04（実装済み） |
 | `SQLiteProjectRepository`のProject・専用Workspace作成時の初期owner Membership書込（`ownerMembershipWriters`経由）、Repositoryを外す前のADR参照検査（`projectRepositoryReferenceFinder`→Directionの`findAdrReferencedRepositoryId`） | 同一transactionの原子性・監査記録の参照先保持 | organization移動後も同じtransactionで行う（serverが配線） | S02-03（実装済み） |
 | `packages/direction/src/application/port/DirectionProjectReader.ts`・`infrastructure/directionProjectReaders.ts` | Intent/OutcomeのUse Caseは`DirectionWorkspaceReader`でWorkspaceの存在・状態を読む。未切替のUse CaseはProject参照モデル、Repositoryは同じtransactionの`DirectionProjectReaders`でProject状態・参照・所属Workspaceを読む | S03でWorkspaceの存在・archive検査へ置き換える | S02-03（実装済み）、S03-01〜04 |
 | `packages/direction/src/domain/*`（Intent・Outcome・Research・DirectionDecision・AdrHandoff・RuntimeEvent・OutcomeExecution・OutcomeEvaluation と各Repository） | Intent/Outcomeは`workspaceId`。Research/Decisionは`workspaceId`、ADRは`workspaceId`と対象artifactの`projectId`。Evaluation/Runtimeは`workspaceId`、Execution Summary/Evidenceは`workspaceId`と`projectId` | Workspace scopeのまま公開入口を接続する。Project固有参照（ADR handoff / reference、Execution Summary / Evidence）は`projectId`を併せ持つ | S03-01〜03 |
@@ -167,7 +167,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `application/port/DirectionAuthorizationPort.ts` | `requireRole` / `requireScope`が`projectId` | `workspaceId`へ。実装はAccessの`WorkspaceRoleGrant`・Workspace Credential | S03-04、S06-02 |
 | `application/port/ExecutionSummaryPort.ts`、Workの`ExecutionSummaryService.ts` | `getOutcomeExecutionSummary(projectId, outcomeId)` | 形は維持し、Target Projectごとに呼ぶ（還流はTarget検査付きで実装済み） | S05-01 |
 | `application/DirectionReferenceLookupService.ts`、Workの`port/DirectionReferenceLookupPort.ts` | `getProjectExecutionContext(projectId)`（所属Workspace・WorkspaceのConstraints・ProjectのRepository）と`getOutcomeSnapshot(workspaceId, outcomeId)`（`targetProjectIds`付き） | 実装済み。Outcome（Workspace）・Target・Project所属Workspaceの一致を`issue_story`・`get_outcome_handoff_context`で検査する。`issue_story`はTargetをStory保存と同じtransactionでも再検査する | S04-03 |
-| `GetOrchestrationStateUseCase.ts`（`OrchestrationState.project`） | 1 Projectの状態。Workspace単位の集約は`GetWorkspaceOrchestrationStateUseCase.ts`（Outcomes・Targets・Target別Work summary・還流・評価可能性）で実装済み | OrchestratorはS08-03でWorkspace単位へ切替済み。Project基準のQueryの扱いは未決定 | S08-01〜03（実装済み） |
+| `GetWorkspaceOrchestrationStateUseCase.ts` | Workspace単位の集約（Outcomes・Targets・Target別Work summary・還流・評価可能性）。Project基準の`GetOrchestrationStateUseCase.ts`はS12-01で除いた | 実装済み。OrchestratorはS08-03でWorkspace単位へ切替済み | S08-01〜03、S12-01（実装済み） |
 | `GetStrategistContextUseCase.ts`・`GetResearcherContextUseCase.ts`・`GetEvaluatorContextUseCase.ts` | `project`全体と`projectId`で集約 | Workspace Context（Mission等・Project要約・Target）。StrategistのProject要約・Targetは実装済み（S04-02）。Evaluator Contextの全Target・評価可能性は実装済み（S05-02）。Role共通のWorkspace Contextは`get_workspace_role_context`（S07-03）で並べて返し、これらの集約は置き換えない | S03-02、S04-02、S05-02、S07-03（実装済み） |
 | `outcomeCorrelation.ts`（`outcome:{outcomeId}`） | Project非依存 | 変更なし | — |
 | `packages/work/src/application/TaskCoordinationService.ts`・`ExecutionOperatorUseCases.ts`・`ExecutionReadUseCases.ts` | Project scope、`ProjectGrantReader`・`ProjectStateReader` | 変更なし。`issue_story`のOutcome参照検査だけS04-03で変わる | S04-03 |
@@ -195,7 +195,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `create_intent` / `list_intents` / `get_intent` / `update_intent` / `abandon_intent`、`create_outcome` / `list_outcomes` / `get_outcome` / `update_outcome` / `cancel_outcome`、`create_direction_decision` / `decide_next_outcome`、`get_research_request` / `list_research_requests` / `register_research_result` / `register_research_synthesis` / `complete_research_request`、`get_strategist_context` / `get_researcher_context` / `get_evaluator_context` / `record_outcome_evaluation` | `projectId` | `workspaceId`へ。`projectId`をWorkspace IDと解釈する互換を作らない（S03-04で実装済み。Workspace Role Grant・activeRoleで認可） | S03-04、S05-02 |
 | `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references` | `projectId`・`repositoryId` | `workspaceId`とProject固有の`projectId`（S03-04で実装済み） | S03-04 |
 | `fetch_runtime_events` / `ack_runtime_event` / `record_execution_evidence` / `get_outcome_execution_summary` | `projectId`、Runtime scope | Runtime eventは`workspaceId`とWorkspace Runtime Credential（S03-04で実装済み）。Execution Evidence / SummaryはProject固有の記録として`projectId`とProject Runtime Credentialのまま所属Workspaceを明示解決する（S03-04）。還流はTarget Projectだけが行える（`not_target_project`）。Target別の集約は`list_outcome_target_executions`（S05-01で実装済み） | S03-04、S05-01 |
-| `get_orchestration_state` | `projectId` | Workspace単位の`get_workspace_orchestration_state({ workspaceId })`をWorkspace Runtime Credential（`runtime:state:read`）で追加済み。Orchestratorは切替済み（S08-03）で、Project基準のtoolは残る（扱いは未決定） | S08-01〜03（実装済み） |
+| `get_workspace_orchestration_state` | `workspaceId` | Workspace Runtime Credential（`runtime:state:read`）で認可（S08-01）。Orchestratorは切替済み（S08-03）。Project基準の`get_orchestration_state`（`projectId`）はS12-01で除いた | S08-01〜03、S12-01（実装済み） |
 | `set_outcome_target` / `unset_outcome_target` / `list_outcome_targets` | `workspaceId`・`outcomeId`・`projectId` | 設定・解除はWorkspace strategist Grant、一覧はWorkspaceの参照権限（S04-01で実装済み） | S04-01 |
 | `list_outcome_target_work` | `workspaceId`・`intentId` | Intent配下のOutcomeごとのTarget別Work要約（状態・件数）。Workspaceの参照権限（S04-04で実装済み） | S04-04 |
 | `list_outcome_target_executions` | `workspaceId`・`outcomeId` | OutcomeのTarget別に還流済みのExecution Summary・Evidence参照（Project別、未還流はnull、Target解除前の記録は`nonTargetExecutions`）。Workspaceの参照権限（S05-01で実装済み） | S05-01 |
@@ -252,19 +252,19 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 - 空DBの初期化、同じschemaでの再起動、Workspace/ProjectのFKとscope、index・冪等性を検証する。
 - Agent・Orchestrator・Ralphの入力と公開入口を揃え、Project IDをWorkspace IDとして扱う別名を作らない。
 - S07-01は全Activity書込経路とCHECKを同時に切り替え、S03-01の通知切替より先に完了する。DB再作成後も、業務変更とActivity追記の原子性は必要である。
-- S12-01は残った旧列・旧table・migration・互換経路を整理する。関連Taskで除去済みのものを重複実装しない。
+- S12-01で残った旧列・旧table・起動時migration（Projectの列追加・戦略値の変換、Workspace Membershipの補完、Direction / Workの列追加）とProject基準のOrchestration Stateを除いた。
 
 ## 回帰の根拠になる既存テスト
 
 | 領域 | test file | 主に影響するTask |
 | --- | --- | --- |
-| Project・archive | `server/tests/projectAdapters.test.ts`・`projectArchive.test.ts`・`projectArchiveUi.test.ts`・`projectForm.test.ts`・`projectOverviewUi.test.ts`・`emptyStateUi.test.ts`・`projectWorkspaceMigration.test.ts`・`workspaceSchema.test.ts`、`packages/organization/tests/project.test.ts`・`updateProject.test.ts`・`projectStrategy.test.ts` | S02 |
+| Project・archive | `server/tests/projectAdapters.test.ts`・`projectArchive.test.ts`・`projectArchiveUi.test.ts`・`projectForm.test.ts`・`projectOverviewUi.test.ts`・`emptyStateUi.test.ts`、`packages/organization/tests/project.test.ts`・`updateProject.test.ts`・`projectStrategy.test.ts`（新規DBのproject定義を含む） | S02、S12-01 |
 | Direction | `intent*.test.ts`・`outcome*.test.ts`・`research*.test.ts`・`initialResearch.test.ts`・`additionalResearch.test.ts`・`directionDecision.test.ts`・`adrHandoff.test.ts`・`strategist*.test.ts`・`researcherMcp.test.ts` | S03 |
 | Execution還流・評価 | `executionEvidence.test.ts`・`executionHandoff.test.ts`・`executionPlan.test.ts`・`outcomeEvaluation.test.ts`・`evaluationReplan.test.ts`・`outcomeConfirmed.test.ts`・`runtimeEvents.test.ts`・`lv6ClosedLoop.test.ts`・`workspaceExecutionDirection.test.ts`・`multiProjectOutcomeEvaluation.test.ts` | S04、S05 |
 | Work | `packages/work/tests/taskCoordination.test.ts`、`server/tests/execution*.test.ts`（Mcp・Coordination・Operator・WebRead・Ui・Boundary） | S04-03、S12-02 |
 | Access | `projectGrant*.test.ts`・`grantForm.test.ts`・`activeRole.test.ts`・`accessCredential.test.ts`・`credentialUi.test.ts`・`human*.test.ts`・`membershipUi.test.ts`・`remoteMcpHumanCommands.test.ts` | S06 |
 | Activity・Role Context | `packages/activity/tests/activityStore.test.ts`、`server/tests/activity.test.ts`（Work・Directionの状態変更と同じtransactionのcanonical Activity、`record_activity`）・`activityUi.test.ts`・`agentContext.test.ts`・`instruction.test.ts` | S07 |
-| Orchestrator・Ralph | `server/tests/orchestrationState.test.ts`、`orchestrator/tests/*.test.ts`、`ralph/tests/ralph.test.ts` | S08、S12-02 |
+| Orchestrator・Ralph | `server/tests/workspaceOrchestrationState.test.ts`、`orchestrator/tests/*.test.ts`、`ralph/tests/ralph.test.ts` | S08、S12-02 |
 | 入口全体 | `server/tests/app.test.ts`・`frontendApi.test.ts`・`executionBoundary.test.ts`（package間のDB直接操作の検査） | 全Story |
 
 新規に必要なテストは各Taskの受入条件に従う。旧schemaからのmigration専用テストは必須にしない。schema変更で不要になった互換テストは同じTaskで整理し、新規DBからの保存・再起動・scope不一致拒否・Claim・自己レビュー/自己受入禁止・複数Targetと再計画を検証する。

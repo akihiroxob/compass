@@ -3,7 +3,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { sql } from "kysely";
 import { SQLiteWorkspaceRepository } from "@compass/organization";
 import type { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp, issueWorkspaceRuntimeToken, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
@@ -439,31 +438,4 @@ test("手動起票のTaskは従来どおりrequestIdだけで冪等になり、t
   assert.equal((await callTool(kit.app, "issue_task", { ...args, taskKey: "k", requestId: "c4" }, "mgr")).structuredContent.id, keyed.id);
   assert.equal(errorOf(await callTool(kit.app, "issue_task", { projectId: project.id, title: "No story", taskKey: "k", requestId: "c5" }, "mgr")).code, "INVALID_INPUT");
   await kit.database.destroy();
-});
-
-test("task_key導入前のDBは再初期化で列と一意制約が追加され、既存Taskは論理IDなしのまま残る", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "compass-task-key-"));
-  const path = join(directory, "compass.db");
-  try {
-    const first = await setup(path);
-    const project = await first.services.createProjectUseCase.execute({ name: "Legacy", mission: "m" });
-    await grant(first.database, first.app, project.id, "mgr", "manager");
-    const legacy = (await callTool(first.app, "issue_task", { projectId: project.id, title: "Legacy", requestId: "l1" }, "mgr")).structuredContent;
-    // 旧DDLを再現する。
-    await sql`drop index task_story_key_idx`.execute(first.database);
-    await sql`alter table task drop column task_key`.execute(first.database);
-    await first.database.destroy();
-
-    const second = await setup(path);
-    const columns = await sql<{ name: string }>`select name from pragma_table_info('task')`.execute(second.database);
-    assert.ok(columns.rows.some(({ name }) => name === "task_key"));
-    const indexes = await sql<{ name: string }>`select name from pragma_index_list('task')`.execute(second.database);
-    assert.ok(indexes.rows.some(({ name }) => name === "task_story_key_idx"));
-    const tasks = (await callTool(second.app, "list_tasks", { projectId: project.id }, "mgr")).structuredContent.tasks as Record<string, any>[];
-    assert.deepEqual(tasks.map((task) => [task.id, task.taskKey]), [[legacy.id, null]]);
-    await initializeSchema(second.database);
-    await second.database.destroy();
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
 });

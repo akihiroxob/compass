@@ -95,12 +95,14 @@ export const evaluationStage = ({ latestEvaluation, evaluability }: OutcomeExecu
 const needsEvaluation = (execution: OutcomeExecution) =>
   !execution.latestEvaluation?.decided && execution.evaluability.status === "evaluable" && hasUnevaluatedExecution(execution);
 
-/** 担当待ちの主体。Workspace scopeのStrategist・Evaluator、Project scopeのManager・Worker・Reviewer、還流のRuntime、Humanの操作。 */
-export type AttentionActor = "human" | "strategist" | "manager" | "worker" | "reviewer" | "evaluator" | "runtime";
+/** 担当待ちの主体。Workspace scopeのStrategist・Researcher・Evaluator、Project scopeのManager・Worker・Reviewer、還流のRuntime、Humanの操作。 */
+export type AttentionActor = "human" | "strategist" | "researcher" | "manager" | "worker" | "reviewer" | "evaluator" | "runtime";
 
 export type AttentionKind =
   | "intent"
+  | "next_direction"
   | "outcome"
+  | "research"
   | "no_targets"
   | "replan"
   | "decision"
@@ -113,12 +115,29 @@ export type AttentionKind =
   | "reflection"
   | "evaluation";
 
-/** 要対応の根拠。Outcome（とTarget Project）と、Taskの件数（Task区分だけ）。 */
-export type AttentionRef = { outcome: OverviewOutcome; projectId: string | null; count: number | null };
+export type OverviewIntent = { id: string; title: string };
+
+/** Workspaceの未終了（`requested`・`running`）のResearch Request。`originIntentId`は依頼元のIntent。 */
+export type OverviewResearch = { id: string; question: string; status: string; originIntentId: string | null };
+
+const openResearchStatuses = new Set(["requested", "running"]);
+
+/** Research Requestの一覧から未終了のものだけを残す。Orchestratorの`openResearchStatuses`と同じ状態。 */
+export const openResearchOf = (requests: readonly OverviewResearch[]): OverviewResearch[] => requests.filter((request) => openResearchStatuses.has(request.status));
+
+/** 要対応の根拠。Outcome（とTarget Project、Taskの件数）、Active Intent、またはResearch Request。 */
+export type AttentionRef =
+  | { on: "outcome"; outcome: OverviewOutcome; projectId: string | null; count: number | null }
+  | { on: "intent"; intent: OverviewIntent }
+  | { on: "research"; request: OverviewResearch };
 
 export type AttentionItem = { kind: AttentionKind; actor: AttentionActor; note: string; refs: AttentionRef[] };
 
-export type WorkspaceAttention = { items: AttentionItem[]; outcomeFailures: number };
+/**
+ * `outcomeFailures`は還流・評価の状態を取得できないActive Outcomeの件数。`unconfirmed`は取得失敗で判定できない要対応の説明で、
+ * どちらかが残るときは要対応が無いと断定しない。
+ */
+export type WorkspaceAttention = { items: AttentionItem[]; outcomeFailures: number; unconfirmed: string[] };
 
 const taskAttention: { kind: Extract<AttentionKind, "todo" | "rejected" | "in_review" | "wait_accept">; actor: AttentionActor; note: string }[] = [
   { kind: "todo", actor: "worker", note: "ProjectのWorkerの着手待ち" },
@@ -127,59 +146,101 @@ const taskAttention: { kind: Extract<AttentionKind, "todo" | "rejected" | "in_re
   { kind: "wait_accept", actor: "manager", note: "ProjectのManagerの受入待ち。Project Editor以上はHumanとしても受入できます" },
 ];
 
+const attentionOrder: { kind: AttentionKind; actor: AttentionActor; note: string }[] = [
+  { kind: "intent", actor: "human", note: "ActiveなIntentがありません。Humanが実現したい状態を登録します" },
+  { kind: "next_direction", actor: "strategist", note: "進行中のOutcome・未終了のResearch・判断待ちのEvaluationが無く、Active Intentに対するStrategistの次の判断待ち（Outcomeの登録・Researchの依頼等）" },
+  { kind: "outcome", actor: "human", note: "Active Intentに、ActiveなOutcomeがありません。Humanが判断した場合は登録できます" },
+  { kind: "research", actor: "researcher", note: "未終了のResearch Requestがあり、Researcherの調査待ち" },
+  { kind: "no_targets", actor: "strategist", note: "担当するTarget Projectが無く、Strategistの判断待ち" },
+  { kind: "replan", actor: "strategist", note: "archivedのTarget Projectに未完了が残り、Strategistの再計画待ち" },
+  { kind: "decision", actor: "strategist", note: "最新のEvaluationを根拠にした判断が無く、Strategistの判断待ち" },
+  { kind: "story", actor: "manager", note: "Target ProjectにStoryが無く、ProjectのManagerの起票待ち" },
+  { kind: "decompose", actor: "manager", note: "StoryにTaskが無く、ProjectのManagerのTask分解待ち" },
+  ...taskAttention,
+  { kind: "reflection", actor: "runtime", note: "Workは終わったが、Runtimeの結果還流待ち" },
+  { kind: "evaluation", actor: "evaluator", note: "全Target Projectから還流済みで、評価していない還流があり、Evaluatorの評価待ち" },
+];
+
 /**
- * 概要の「要対応」。Active Intentが無い・Active Outcomeが無いときはHumanのDirection登録を、各Outcomeは還流・評価の状態と
- * Target別Workから次に動く主体を上流から順に出す。Orchestratorの起動規則（`orchestrator/src/plan.ts`）と揃え、最新Evaluationが
- * 判断済みのOutcomeにはStrategist・Manager・Evaluatorの担当待ちを出さない。Taskの件数はTaskの状態だけで、Agentの稼働や
- * Claimの有効性を示さない。archivedのWorkspaceでは呼ばない。
+ * 概要の「要対応」の入力。`outcomes`はActive Intent配下のActive Outcomeの現在地。`pendingPastOutcomes`は取消以外のActiveでない
+ * Outcomeのうち最新Evaluationが判断待ちのもの、`research`はWorkspaceの未終了のResearch Request（どちらも取得失敗はnull）。
  */
-export const planWorkspaceAttention = (input: { activeIntent: boolean; outcomes: readonly OutcomePosition[] }): WorkspaceAttention => {
-  if (!input.activeIntent) return { items: [{ kind: "intent", actor: "human", note: "ActiveなIntentがありません。Humanが実現したい状態を登録します", refs: [] }], outcomeFailures: 0 };
-  if (input.outcomes.length === 0) return { items: [{ kind: "outcome", actor: "human", note: "Active Intentに、ActiveなOutcomeがありません", refs: [] }], outcomeFailures: 0 };
-  const loaded = input.outcomes.filter((item): item is OutcomePosition & { targets: TargetWork[]; execution: OutcomeExecution } => item.targets !== null && item.execution !== null);
+export type AttentionInput = {
+  activeIntent: OverviewIntent | null;
+  outcomes: readonly OutcomePosition[];
+  pendingPastOutcomes: readonly OverviewOutcome[] | null;
+  research: readonly OverviewResearch[] | null;
+};
+
+/**
+ * 概要の「要対応」。Orchestratorの起動規則（`orchestrator/src/plan.ts`の`planWorkspaceDispatches`）と揃え、次に動く主体を上流から
+ * 順に出す。未終了のResearchはResearcher、各Active Outcomeは還流・評価の状態とTarget別Workから、取消以外の終了したOutcomeの
+ * 判断待ちEvaluationはStrategistへ。進行中のOutcome（判断済みでないActive Outcome）・Intentを起点にした未終了のResearch・
+ * 判断待ちのEvaluationがどれも無いActive Intentは、Strategistの次の判断待ち（`intentNeedsStrategist`）。どれかを取得できずに
+ * 判定できなければ、要対応を出さず`unconfirmed`に理由を返す（Research・終了したOutcomeの取得失敗は、Intentの判断の要否と独立に返す）。最新Evaluationが判断済みのOutcomeにはStrategist・Manager・
+ * Evaluatorの担当待ちを出さない。Active Intent・Active Outcomeが無ければHumanの登録も出す。Taskの件数はTaskの状態だけで、
+ * Agentの稼働やClaimの有効性を示さない。archivedのWorkspaceでは呼ばない。
+ */
+export const planWorkspaceAttention = (input: AttentionInput): WorkspaceAttention => {
   const refs = new Map<AttentionKind, AttentionRef[]>();
-  const add = (kind: AttentionKind, ref: AttentionRef) => refs.set(kind, [...(refs.get(kind) ?? []), ref]);
+  const add = (kind: AttentionKind, ref: AttentionRef | null) => refs.set(kind, [...(refs.get(kind) ?? []), ...(ref ? [ref] : [])]);
+  const unconfirmed: string[] = [];
+  const outcomeRef = (outcome: OverviewOutcome, projectId: string | null = null, count: number | null = null): AttentionRef => ({ on: "outcome", outcome, projectId, count });
+  if (input.research === null) unconfirmed.push("Research Requestを取得できないため、Researcherの調査待ちを確認できません");
+  for (const request of input.research ?? []) add("research", { on: "research", request });
+  const { activeIntent } = input;
+  if (!activeIntent) add("intent", null);
+  const loaded = activeIntent ? input.outcomes.filter((item): item is OutcomePosition & { targets: TargetWork[]; execution: OutcomeExecution } => item.targets !== null && item.execution !== null) : [];
+  if (activeIntent && input.outcomes.length === 0) add("outcome", null);
+  // 終了したOutcomeの判断待ちは、進行中のOutcomeの有無（Intentの次の判断の要否）と独立に要対応になる。
+  if (activeIntent && input.pendingPastOutcomes === null) unconfirmed.push("終了したOutcomeのEvaluationを取得できないため、Strategistの判断待ちを確認できません");
+  for (const outcome of activeIntent ? input.pendingPastOutcomes ?? [] : []) add("decision", outcomeRef(outcome));
   for (const { outcome, targets, execution } of loaded) {
     const { evaluability } = execution;
     const decided = execution.latestEvaluation?.decided === true;
-    if (execution.latestEvaluation && !decided) add("decision", { outcome, projectId: null, count: null });
-    if (!decided && evaluability.status === "no_targets") add("no_targets", { outcome, projectId: null, count: null });
+    if (execution.latestEvaluation && !decided) add("decision", outcomeRef(outcome));
+    if (!decided && evaluability.status === "no_targets") add("no_targets", outcomeRef(outcome));
     if (!decided && evaluability.status === "replan_required") {
-      for (const target of evaluability.unfinishedTargets.filter((item) => item.projectStatus === "archived")) add("replan", { outcome, projectId: target.projectId, count: null });
+      for (const target of evaluability.unfinishedTargets.filter((item) => item.projectStatus === "archived")) add("replan", outcomeRef(outcome, target.projectId));
     }
-    if (needsEvaluation(execution)) add("evaluation", { outcome, projectId: null, count: null });
+    if (needsEvaluation(execution)) add("evaluation", outcomeRef(outcome));
     const notReflected = new Set(evaluability.unfinishedTargets.filter((item) => item.reason === "not_reflected").map((item) => item.projectId));
     for (const target of targets.filter((item) => item.projectStatus === "active")) {
       // Storyが無い・StoryにTaskが無いTargetは、そのProjectのManagerの起票・分解待ち（ExecutionSummaryではincomplete）。
       if (target.work === null || Object.values(target.work.taskCounts).every((count) => count === 0)) {
-        if (!decided) add(target.work === null ? "story" : "decompose", { outcome, projectId: target.projectId, count: null });
+        if (!decided) add(target.work === null ? "story" : "decompose", outcomeRef(outcome, target.projectId));
         continue;
       }
       for (const { kind } of taskAttention) {
         const count = target.work.taskCounts[kind];
-        if (count > 0) add(kind, { outcome, projectId: target.projectId, count });
+        if (count > 0) add(kind, outcomeRef(outcome, target.projectId, count));
       }
       // Workが終わった（未完了でない）のに還流されていないTargetは、Runtimeの還流待ち。
-      if (target.work.state !== "incomplete" && notReflected.has(target.projectId)) add("reflection", { outcome, projectId: target.projectId, count: null });
+      if (target.work.state !== "incomplete" && notReflected.has(target.projectId)) add("reflection", outcomeRef(outcome, target.projectId));
     }
   }
-  const order: { kind: AttentionKind; actor: AttentionActor; note: string }[] = [
-    { kind: "no_targets", actor: "strategist", note: "担当するTarget Projectが無く、Strategistの判断待ち" },
-    { kind: "replan", actor: "strategist", note: "archivedのTarget Projectに未完了が残り、Strategistの再計画待ち" },
-    { kind: "decision", actor: "strategist", note: "最新のEvaluationを根拠にした判断が無く、Strategistの判断待ち" },
-    { kind: "story", actor: "manager", note: "Target ProjectにStoryが無く、ProjectのManagerの起票待ち" },
-    { kind: "decompose", actor: "manager", note: "StoryにTaskが無く、ProjectのManagerのTask分解待ち" },
-    ...taskAttention,
-    { kind: "reflection", actor: "runtime", note: "Workは終わったが、Runtimeの結果還流待ち" },
-    { kind: "evaluation", actor: "evaluator", note: "全Target Projectから還流済みで、評価していない還流があり、Evaluatorの評価待ち" },
-  ];
-  const items = order.flatMap(({ kind, actor, note }) => (refs.has(kind) ? [{ kind, actor, note, refs: refs.get(kind)! }] : []));
-  return { items, outcomeFailures: input.outcomes.length - loaded.length };
+  const outcomeFailures = activeIntent ? input.outcomes.length - loaded.length : 0;
+  if (activeIntent) {
+    // 確認できた範囲で、進行中のOutcome・判断待ちのEvaluation・Intentを起点にした未終了のResearchがあれば、Intentの判断は要らない。
+    const progressing =
+      loaded.some(({ execution }) => execution.latestEvaluation?.decided !== true) ||
+      (input.pendingPastOutcomes?.length ?? 0) > 0 ||
+      (input.research ?? []).some((request) => request.originIntentId === activeIntent.id);
+    const unknown = [
+      ...(outcomeFailures ? ["Active Outcomeの還流・評価の状態"] : []),
+      ...(input.pendingPastOutcomes === null ? ["終了したOutcomeのEvaluation"] : []),
+      ...(input.research === null ? ["Research Request"] : []),
+    ];
+    if (!progressing && unknown.length) unconfirmed.push(`${unknown.join("・")}を取得できないため、Active IntentにStrategistの次の判断が必要か確認できません`);
+    else if (!progressing) add("next_direction", { on: "intent", intent: activeIntent });
+  }
+  const items = attentionOrder.flatMap(({ kind, actor, note }) => (refs.has(kind) ? [{ kind, actor, note, refs: refs.get(kind)! }] : []));
+  return { items, outcomeFailures, unconfirmed };
 };
 
-/** 要対応の見出し下の要約。取得できないOutcomeが残るときは「要対応はありません」と言わない。 */
-export const attentionSummary = ({ items, outcomeFailures }: WorkspaceAttention): string | null =>
-  items.length ? null : outcomeFailures ? "確認できたOutcomeに要対応はありません" : "要対応はありません";
+/** 要対応の見出し下の要約。取得できないOutcome・判定できない要対応が残るときは「要対応はありません」と言わない。 */
+export const attentionSummary = ({ items, outcomeFailures, unconfirmed }: WorkspaceAttention): string | null =>
+  items.length ? null : outcomeFailures || unconfirmed.length ? "確認できた範囲に要対応はありません" : "要対応はありません";
 
 /**
  * Outcome・Intentの詳細を開くProject。詳細画面のrouteはProject配下で、Project Membershipで認可される。

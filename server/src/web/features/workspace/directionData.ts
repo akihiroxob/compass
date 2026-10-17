@@ -8,7 +8,19 @@ import type { Project } from "../../projectForm";
 import type { DirectionDecision } from "../../directionDecisionForm";
 import { evaluationsPath, type OutcomeEvaluation, type OutcomeExecutionRecord } from "../execution";
 import type { TargetExecutionRecord } from "./direction";
-import { buildOutcomeExecution, type EvaluationCursor, type Evaluability, type OutcomeExecution, type OutcomePosition, type OutcomeTargetWork, type TargetExecutionsCursor, type TargetWork } from "./overview";
+import {
+  buildOutcomeExecution,
+  openResearchOf,
+  type EvaluationCursor,
+  type Evaluability,
+  type OutcomeExecution,
+  type OutcomePosition,
+  type OutcomeTargetWork,
+  type OverviewOutcome,
+  type OverviewResearch,
+  type TargetExecutionsCursor,
+  type TargetWork,
+} from "./overview";
 import { withProjectAccess, type WorkspaceProject } from "./workspace";
 
 /** 画面の各部分の取得結果。部分ごとに失敗を出し、取得失敗を空として表示しない。 */
@@ -22,8 +34,17 @@ export const settle = <T,>(promise: Promise<T>, notFound: string): Promise<Part<
 
 /** Active Outcomeの現在地と、その本文（成功条件等）。 */
 export type DirectionPosition = OutcomePosition & { detail: Outcome };
-/** `otherOutcomes`はActive Intent配下のActive以外（取消・評価済み等）のOutcome。 */
-export type DirectionData = { activeIntent: Intent | null; pastIntents: Intent[]; outcomes: DirectionPosition[]; otherOutcomes: Outcome[] };
+/**
+ * `otherOutcomes`はActive Intent配下のActive以外（取消・評価済み等）のOutcome。`pendingPastOutcomes`はそのうち取消以外で、
+ * 最新Evaluationを根拠にしたDirection Decisionが無いもの（確認できなければnull）。
+ */
+export type DirectionData = {
+  activeIntent: Intent | null;
+  pastIntents: Intent[];
+  outcomes: DirectionPosition[];
+  otherOutcomes: Outcome[];
+  pendingPastOutcomes: OverviewOutcome[] | null;
+};
 export type OverviewProject = { project: WorkspaceProject; canOpen: boolean };
 
 /** Active IntentのDirection Decisionが根拠にしたEvaluation（判断済みの判定に使う）。取得できなければnull。 */
@@ -49,6 +70,31 @@ const loadExecution = async (workspaceId: string, outcomeId: string, decidedEval
   }
 };
 
+/**
+ * 取消以外のActiveでないOutcomeのうち、最新Evaluationが判断待ちのもの（Orchestratorの`pendingEvaluationOf`と同じ）。
+ * 対象が無ければ取得しない。Direction Decision・Evaluationのどれかを取得できなければnull。
+ */
+const loadPendingPastOutcomes = async (workspaceId: string, past: readonly Outcome[], decidedEvaluations: Set<string> | null): Promise<OverviewOutcome[] | null> => {
+  const candidates = past.filter((outcome) => outcome.status !== "cancelled");
+  if (candidates.length === 0) return [];
+  if (!decidedEvaluations) return null;
+  try {
+    const latest = await Promise.all(candidates.map((outcome) => request<{ evaluations: EvaluationCursor[] }>(evaluationsPath(workspaceId, outcome.id)).then(({ evaluations }) => evaluations[0] ?? null)));
+    return candidates.flatMap((outcome, index) => {
+      const evaluation = latest[index];
+      return evaluation && !decidedEvaluations.has(evaluation.id) ? [{ id: outcome.id, intentId: outcome.intentId, title: outcome.title }] : [];
+    });
+  } catch {
+    return null;
+  }
+};
+
+/** Workspaceの未終了のResearch Request（Orchestratorが起動を判定する対象）。 */
+export const loadOpenResearch = (workspaceId: string): Promise<OverviewResearch[]> =>
+  request<{ requests: OverviewResearch[] }>(workspaceApiPath(workspaceId, "/research-requests")).then(({ requests }) =>
+    openResearchOf(requests).map(({ id, question, status, originIntentId }) => ({ id, question, status, originIntentId })),
+  );
+
 /** Intent配下のOutcomeごとのTarget別Work。取得できなければnull。 */
 export const loadTargetWork = (workspaceId: string, intentId: string): Promise<Map<string, OutcomeTargetWork["targets"]> | null> =>
   request<{ outcomes: OutcomeTargetWork[] }>(workspaceApiPath(workspaceId, `/intents/${intentId}/outcome-target-work`)).then(
@@ -62,7 +108,7 @@ export const loadTargetWork = (workspaceId: string, intentId: string): Promise<M
  */
 export const loadDirection = async (workspaceId: string): Promise<DirectionData> => {
   const { active: activeIntent, past: pastIntents } = splitIntents((await request<{ intents: Intent[] }>(workspaceApiPath(workspaceId, "/intents"))).intents);
-  if (!activeIntent) return { activeIntent, pastIntents, outcomes: [], otherOutcomes: [] };
+  if (!activeIntent) return { activeIntent, pastIntents, outcomes: [], otherOutcomes: [], pendingPastOutcomes: [] };
   const [{ outcomes }, targetWork, decidedEvaluations] = await Promise.all([
     request<{ outcomes: Outcome[] }>(workspaceApiPath(workspaceId, `/intents/${activeIntent.id}/outcomes`)),
     loadTargetWork(workspaceId, activeIntent.id),
@@ -75,7 +121,8 @@ export const loadDirection = async (workspaceId: string): Promise<DirectionData>
     targets: targetWork?.get(outcome.id) ?? null,
     execution: await loadExecution(workspaceId, outcome.id, decidedEvaluations),
   }));
-  return { activeIntent, pastIntents, outcomes: await Promise.all(positions), otherOutcomes: past };
+  const [resolved, pendingPastOutcomes] = await Promise.all([Promise.all(positions), loadPendingPastOutcomes(workspaceId, past, decidedEvaluations)]);
+  return { activeIntent, pastIntents, outcomes: resolved, otherOutcomes: past, pendingPastOutcomes };
 };
 
 /** 所属Project（active・archived）と、HumanがProject Membershipで開けるか。archivedのTargetも名前を引けるようにする。 */

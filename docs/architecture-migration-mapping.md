@@ -22,19 +22,19 @@
 | --- | --- | --- |
 | Goal / Vision | `project.vision`のfield・column・API名を変更しない。Direction packageでも`Vision`の名称のまま移す。`Goal`は導入しない | 概念図の`Goal`と`Vision`の同一性は未合意。改名は製品判断として[設計確認事項](planning/architecture-questions.md)に残す |
 | evaluator | Role・Grant・`get_evaluator_context` / `record_outcome_evaluation`を維持し、`roles/evaluator.md`へ移す。Outcome Evaluationは`packages/direction`が所有する | 初期Role候補にないことは廃止の合意ではない |
-| runtime Role | trusted-local開発用Roleとして維持し、`roles/runtime.md`へ移す。08ではOrchestratorの現在状態Query（`get_orchestration_state`）の認可に使う（remote modeはRuntime Credentialのscope `runtime:state:read`）。Ralphはruntime Roleを使わず、`worker` / `reviewer`のGrantとactiveRoleだけで接続する（09） | remote modeではRuntime Credentialのscopeで認可しており、Runtime APIの互換を壊さない |
+| runtime Role | trusted-local開発用Roleとして維持し、`roles/runtime.md`へ移す。Orchestratorの現在状態Query（`get_workspace_orchestration_state`）はWorkspace Runtime Credentialのscope `runtime:state:read`だけで認可し、runtime Roleは使わない。Ralphはruntime Roleを使わず、`worker` / `reviewer`のGrantとactiveRoleだけで接続する（09） | remote modeではRuntime Credentialのscopeで認可しており、Runtime APIの互換を壊さない |
 | package manager | npm workspacesを使う。`package-lock.json`を維持し、pnpmへ移行しない。root `npm start` / `npm test` / `npm run typecheck` / `npm run build`は名前と意味を保つ。起動系はroot cwdを保ち、`build`・`typecheck`・`test`はworkspaceへ委譲できる（[rootの設定・文書](#rootの設定文書)） | 推奨Treeのpnpm構成は構成例であり、技術変更を自動採用しない。npm workspacesで独立build・実行の要件を満たせる |
 | activeRole transport | MCPとRuntime向けAPIで、request header `X-Compass-Active-Role`を受け付ける。MCPはrequestごとにstatelessで、`Authorization`と同じ`resolveCaller`の段階で解決する。Tool入力・Credentialには持たせない | 現行の`resolveCaller`が1 requestの`Authorization`だけで主体を確定する構造に、最小変更で追加できる。Credentialへ固定すると1 Principalの複数Grantから実行ごとに1 Roleを選べない |
 | activeRole互換期間 | 05ではheaderなしを従来どおり「操作ごとに必要Roleを検査」で受け付け、headerがあれば`principalId + projectId + activeRole`のGrantだけで認可する（他Grantを合算しない）。Ralph・Orchestrator接続（08 / 09）はheaderを必須で送る。headerなしの拒否はRalph移行後の別判断とする | 稼働中の開発支援Wacha・既存Ralphの接続を05で壊さない |
 | `manager` Role | Role名・Grant値・入力・応答は`manager`のまま維持する。改名用のDB migrationやaliasは作らない | 既存GrantとAgentの接続を維持する |
-| command receipt | 05で`command_receipt`へnullableの`active_role`を追加する。同じ`principal_id + tool_name + request_id`を異なるactiveRoleで再送した場合は既存結果を返さず`CONFLICT`にする。既存行は`NULL`のまま保持する | 冪等性の再送でRole制約を回避させない |
+| command receipt | `command_receipt`はnullableの`active_role`を持つ（`NULL`はheaderなしの操作）。同じ`principal_id + tool_name + request_id`を異なるactiveRoleで再送した場合は既存結果を返さず`CONFLICT`にする | 冪等性の再送でRole制約を回避させない |
 | DB | 単一SQLite file・`COMPASS_DB_PATH`・既存table名を維持する。移行で既存tableを削除しない。table定義（`schema.ts`）と`initializeSchema`は02でserverへ移し、03 / 04で所有packageごとに分割しserverが合成する | 既存データの保持と戻し方を単純にする |
 
 ## 責務が曖昧なコード
 
 | ID | 対象 | 判断 |
 | --- | --- | --- |
-| A1 | `RuntimeEvent`・`runtime_event*` table・`fetch_runtime_events` / `ack_runtime_event` | Direction状態変更と同一transactionで生成するため`packages/direction`へ置く。Activityとして流用しない。08でOrchestratorは現在状態Query（`get_orchestration_state`）を使うようにしたが、公開APIは互換対象とし、廃止は別判断 |
+| A1 | `RuntimeEvent`・`runtime_event*` table・`fetch_runtime_events` / `ack_runtime_event` | Direction状態変更と同一transactionで生成するため`packages/direction`へ置く。Activityとして流用しない。Orchestratorは現在状態Query（`get_workspace_orchestration_state`）を使い、Runtime eventに依存しない。Project基準の`get_orchestration_state`は除いた |
 | A2 | `OutcomeExecution`・`record_execution_evidence`・`get_outcome_execution_summary` | Directionが所有するEvidence還流。Work側の結果は`ExecutionSummaryPort`（Directionが要求、Workが実装）で取得する |
 | A3 | `outcomeCorrelation.ts`（`outcome:{outcomeId}`） | Direction→Workの公開契約。`packages/direction`の`index.ts`からexportし、Workはこれだけを参照する |
 | A4 | `HumanProjectUseCases`（Project操作とMembershipの合成） | Access側に置き、Directionへはuse case経由で依存する。Direction repositoryを直接使わない形へ04で変更する |
@@ -66,7 +66,7 @@ Domain層はReact・Hono・MCP SDK・Kyselyを直接importしていない（V3�
 - 同一portの`/`（Web UI）・`/api`・`/mcp`・`/health`・`/auth/*`。
 - 環境変数: `PORT`・`COMPASS_DB_PATH`・`COMPASS_HOST`・`COMPASS_AUTH_MODE`・`COMPASS_PUBLIC_ORIGIN`・`COMPASS_GOOGLE_CLIENT_ID`・`COMPASS_GOOGLE_CLIENT_SECRET`・`COMPASS_INITIAL_OWNER_EMAIL`・`COMPASS_REGISTRATION_MODE`・`COMPASS_CLAIM_TTL_MS`。起動ディレクトリの`.env`読込。
 - HTTP API: `app.ts`・`registerHumanAuthRoutes.ts`のroute・status・error形式（`{ error: { code, message } }`）。
-- MCP: `createMcpServer.ts`の37 tool（`get_role_instructions`と06で追加した`get_role_context`・`list_skills`・`get_skill_context`、08で追加した`get_orchestration_state`を含む）・`registerExecutionTools.ts`の21 tool・07で追加した`registerActivityTools.ts`の3 tool（`record_activity`・`list_activities`・`get_activity`）の名前・入力・`structuredContent`・error形式（`CoordinationError`の`retryable`を含む）。remote modeの匿名呼出しは`get_role_instructions`だけ。
+- MCP: `createMcpServer.ts`の37 tool（`get_role_instructions`と06で追加した`get_role_context`・`list_skills`・`get_skill_context`）・`registerExecutionTools.ts`の21 tool・07で追加した`registerActivityTools.ts`の3 tool（`record_activity`・`list_activities`・`get_activity`）の名前・入力・`structuredContent`・error形式（`CoordinationError`の`retryable`を含む）。remote modeの匿名呼出しは`get_role_instructions`だけ。
 - 認証: `Authorization: Bearer <AgentName>`（trusted-localのみ）、`cmp_` Credential、Human Session Cookie。
 - DB: 既存table・column・SQLite file。Grantの`manager`は移行後も同じ値。
 - Role文書: `get_role_instructions`の`role`・`includeShared`と共通Policyを先頭に返す応答。fileの`path`は06で`policies/role-policy.md`・`roles/<role>.md`へ変更した。

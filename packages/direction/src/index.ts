@@ -16,7 +16,6 @@ export * from "./application/DirectionReferenceLookupService.ts";
 export * from "./application/FetchRuntimeEventsUseCase.ts";
 export * from "./application/GetEvaluatorContextUseCase.ts";
 export * from "./application/GetExecutionSummaryUseCase.ts";
-export * from "./application/GetOrchestrationStateUseCase.ts";
 export * from "./application/GetWorkspaceOrchestrationStateUseCase.ts";
 export * from "./application/GetIntentUseCase.ts";
 export * from "./application/GetOutcomeUseCase.ts";
@@ -66,7 +65,6 @@ export * from "./infrastructure/schema.ts";
 export * from "./outcomeCorrelation.ts";
 export * from "./application/port/DirectionWorkspaceReader.ts";
 export * from "./infrastructure/directionWorkspaceReaders.ts";
-export * from "./application/port/ProjectDirectionReaders.ts";
 export { recordOutcomeConfirmedEvent } from "./infrastructure/runtimeEventRecord.ts";
 
 export { recordRuntimeEvent } from "./infrastructure/runtimeEventRecord.ts";

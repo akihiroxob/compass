@@ -138,7 +138,7 @@ export const ownerMembershipWriters: OwnerMembershipWriters = {
 export const projectRepositoryReferenceFinder: ProjectRepositoryReferenceFinder = (transaction, repositoryIds) =>
   findAdrReferencedRepositoryId(asDirectionDatabase(transaction), repositoryIds);
 
-/** Activityの所属は状態変更・appendと同じtransactionで解決し、欠損は補正せず拒否する。 */
+/** Activityの所属Workspaceは状態変更・appendと同じtransactionで読む。Projectが無ければ補正せず拒否する。 */
 const activityWorkspaceId = async (executor: Parameters<typeof asOrganizationDatabase>[0], projectId: string): Promise<string> => {
   const workspaceId = await findProjectWorkspaceId(asOrganizationDatabase(executor), projectId);
   if (!workspaceId) throw new ConflictError(`Project ${projectId} has no Workspace for Activity`, { projectId });

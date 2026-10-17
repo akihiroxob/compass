@@ -2,26 +2,6 @@ import { sql, type ColumnDefinitionBuilder, type Kysely } from "kysely";
 import type { WorkDatabase } from "./schema.ts";
 
 /**
- * Task 33差し戻し対応以前のDBの`task`には`task_key`列が無い。列が無い場合だけ追加する（idempotent）。
- * 既存行はNULL（論理IDなし）のままで、旧Wachaの`requestId`だけの契約として扱う。
- */
-const addTaskKeyColumn = async (database: Kysely<WorkDatabase>): Promise<void> => {
-  const columns = await sql<{ name: string }>`select name from pragma_table_info('task')`.execute(database);
-  if (columns.rows.some(({ name }) => name === "task_key")) return;
-  await sql`alter table task add column task_key text`.execute(database);
-};
-
-/**
- * activeRole導入（Task 05）以前の`command_receipt`には`active_role`列が無い。列が無い場合だけ追加する（idempotent）。
- * 既存行はNULLのまま保持し、headerなしの再送とだけ一致させる。
- */
-const addReceiptActiveRoleColumn = async (database: Kysely<WorkDatabase>): Promise<void> => {
-  const columns = await sql<{ name: string }>`select name from pragma_table_info('command_receipt')`.execute(database);
-  if (columns.rows.some(({ name }) => name === "active_role")) return;
-  await sql`alter table command_receipt add column active_role text`.execute(database);
-};
-
-/**
  * Execution（旧Wachaから移植したStory / Task / Claim / Comment / Change Log / Command Receipt）。
  * すべて`create ... if not exists`で、Direction側のtableには触れない。Directionへの参照（`story.outcome_ref`等）は
  * 境界をまたぐためFKを付けず、作成時のsnapshotで保持する。`project_id`は統合した既存`project.id`を使う。
@@ -82,7 +62,6 @@ export const initializeWorkSchema = async (database: Kysely<WorkDatabase>): Prom
     .addColumn("updated_at", "integer", (column) => column.notNull())
     .addColumn("task_key", "text")
     .execute();
-  await addTaskKeyColumn(database);
   await database.schema.createIndex("task_project_idx").ifNotExists().on("task").column("project_id").execute();
   await database.schema.createIndex("task_story_idx").ifNotExists().on("task").column("story_id").execute();
   // Outcome handoffのTaskをStory内の論理ID（taskKey）で一意にする。NULLは対象外なので手動起票のTaskは制約を受けない。
@@ -166,8 +145,9 @@ export const initializeWorkSchema = async (database: Kysely<WorkDatabase>): Prom
     .addColumn("request_id", "text", (column) => column.notNull())
     .addColumn("input_json", "text", (column) => column.notNull())
     .addColumn("result_json", "text", (column) => column.notNull())
+    // 操作ContextのactiveRole。nullはheaderなしの操作で、同じactiveRoleの再送とだけ一致させる。
+    .addColumn("active_role", "text")
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addPrimaryKeyConstraint("command_receipt_pk", ["principal_id", "tool_name", "request_id"])
     .execute();
-  await addReceiptActiveRoleColumn(database);
 };

@@ -268,7 +268,5 @@ test("get_workspace_orchestration_stateはWorkspace Runtime Credentialのruntime
     { kind: "runtime", principalId: "orchestrator-a", scopes: ["runtime:state:read"] },
   );
   assert.equal(errorCode(await read(projectRuntime.token)), "FORBIDDEN");
-  // Project Credentialは自身のProjectの入口だけで認可される（複数ProjectのWorkspaceではProject基準のStateがCONFLICTを返す）。
-  assert.equal(errorCode(await callTool(kit.app, "get_orchestration_state", { projectId: a.id }, projectRuntime.token)), "CONFLICT");
   await kit.database.destroy();
 });

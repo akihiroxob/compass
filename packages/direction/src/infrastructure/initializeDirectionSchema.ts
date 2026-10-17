@@ -243,32 +243,10 @@ const initializeResearchSchema = async (database: Kysely<DirectionDatabase>): Pr
 };
 
 /**
- * Direction Decision導入前のDBには`outcome`にorigin_decision_id列が無い。列が無い場合だけ追加する（idempotent）。
- * FKは付けない。circular reference（direction_decision.outcome_id → outcome.id）を、outcome行を先に作ってから
- * Decision行を作る順序で解決しており、outcome側の逆参照は監査目的の平文IDで十分なため。
- */
-const addOutcomeOriginDecisionColumn = async (database: Kysely<DirectionDatabase>): Promise<void> => {
-  const columns = await sql<{ name: string }>`select name from pragma_table_info('outcome')`.execute(database);
-  if (columns.rows.some(({ name }) => name === "origin_decision_id")) return;
-  await sql`alter table outcome add column origin_decision_id text`.execute(database);
-};
-
-/**
- * Evaluationを根拠にしたDecision（Task 36）の`evaluation_id`。列が無い場合だけ追加する（idempotent）。
- * 1つのEvaluationから確定できる判断は1件だけにし、同じEvaluationで再計画・Intent完了を重複させない。
- */
-const addDirectionDecisionEvaluationColumn = async (database: Kysely<DirectionDatabase>): Promise<void> => {
-  const columns = await sql<{ name: string }>`select name from pragma_table_info('direction_decision')`.execute(database);
-  if (!columns.rows.some(({ name }) => name === "evaluation_id")) {
-    await sql`alter table direction_decision add column evaluation_id text references outcome_evaluation(id)`.execute(database);
-  }
-  await sql`create unique index if not exists direction_decision_evaluation_idx
-    on direction_decision (evaluation_id) where evaluation_id is not null`.execute(database);
-};
-
-/**
  * Direction Decision（Task 27）。作成後は変更しない追記専用tableで、判断時点のIntent Brief snapshotをJSONで保持する。
  * `outcome_id`はnext_outcomeのときだけ設定し、outcome.idへのFKで整合を守る。使用したSynthesis/Findingは関連tableで表す。
+ * `evaluation_id`はEvaluationを根拠にした判断（Task 36）。1つのEvaluationから確定できる判断は1件だけにし、
+ * 同じEvaluationで再計画・Intent完了を重複させない。
  */
 const initializeDirectionDecisionSchema = async (database: Kysely<DirectionDatabase>): Promise<void> => {
   await database.schema
@@ -296,6 +274,7 @@ const initializeDirectionDecisionSchema = async (database: Kysely<DirectionDatab
     .addColumn("run_ref", "text", (column) => column.notNull())
     .addColumn("request_key", "text", (column) => column.notNull())
     .addColumn("input_hash", "text", (column) => column.notNull())
+    .addColumn("evaluation_id", "text", (column) => column.references("outcome_evaluation.id"))
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addCheckConstraint("direction_decision_outcome_requires_next_outcome", sql`(type = 'next_outcome') = (outcome_id is not null)`)
     .execute();
@@ -312,6 +291,8 @@ const initializeDirectionDecisionSchema = async (database: Kysely<DirectionDatab
     .on("direction_decision")
     .columns(["workspace_id", "intent_id"])
     .execute();
+  await sql`create unique index if not exists direction_decision_evaluation_idx
+    on direction_decision (evaluation_id) where evaluation_id is not null`.execute(database);
 
   await database.schema
     .createTable("direction_decision_synthesis")
@@ -686,6 +667,9 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
         .check(sql`status in ('active', 'evaluating', 'achieved', 'not_achieved', 'cancelled')`),
     )
     .addColumn("cancel_reason", "text")
+    // 発端のDirection Decision。FKは付けない。direction_decision.outcome_id → outcome.idとの循環を、outcome行を先に作ってから
+    // Decision行を作る順序で解決しており、outcome側の逆参照は監査目的の平文IDで十分なため。
+    .addColumn("origin_decision_id", "text")
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addColumn("updated_at", "integer", (column) => column.notNull())
     .execute();
@@ -736,10 +720,8 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
 
   await initializeResearchSchema(database);
   await initializeDirectionDecisionSchema(database);
-  await addOutcomeOriginDecisionColumn(database);
   await initializeAdrHandoffSchema(database);
   await initializeRuntimeEventSchema(database);
   await initializeOutcomeExecutionSchema(database);
   await initializeOutcomeEvaluationSchema(database);
-  await addDirectionDecisionEvaluationColumn(database);
 };
