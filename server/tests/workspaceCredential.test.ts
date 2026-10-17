@@ -215,8 +215,6 @@ test("Runtime Credentialは発行scopeと操作scopeが一致し、必要なscop
     const denied = await remoteApp.request(`/api/workspaces/${workspace.id}/runtime-events`, headers(projectRuntime.token));
     assert.equal(denied.status, 403);
     assert.equal(JSON.stringify(await denied.json()).includes(projectRuntime.token.split(".")[2]), false);
-    const state = await callTool(remoteApp, workspaceRuntime.token, "get_orchestration_state", { projectId: project.id });
-    assert.equal(state.structuredContent.error.code, "FORBIDDEN");
   } finally {
     await database.destroy();
   }

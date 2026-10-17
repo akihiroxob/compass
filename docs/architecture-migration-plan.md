@@ -40,7 +40,7 @@ WachaのCompass ProjectにStory `99bfa15a-c27b-4c4f-8a39-37764760a466` とTask 1
 workspace・build（npm workspaces）、`activeRole`のtransport・互換期間、command receiptとの対応、Goal / Vision・evaluatorの移行中の扱いは [構造移行マッピング](architecture-migration-mapping.md) で確定した。`manager`名は維持する。各Taskで引き続き具体化する項目は次のとおり。
 
 - RalphのWorker / Reviewerは別Principal・別Credentialで接続する。命名・発行・Grantの割当と設定は09で具体化した（[Ralph](../ralph/README.md)）。同じPrincipalでの自己レビュー・自己受入はWorkが拒否する。
-- 未処理・実行中・再試行待ちの識別は08で実装した。未処理はServerの現在状態Query（`get_orchestration_state`）、実行中・再試行待ちはOrchestratorの起動記録で識別し、Activityで代用しない（[Orchestrator](../orchestrator/README.md)）。
+- 未処理・実行中・再試行待ちの識別は08で実装した。未処理はServerの現在状態Query（現在はWorkspace単位の`get_workspace_orchestration_state`）、実行中・再試行待ちはOrchestratorの起動記録で識別し、Activityで代用しない（[Orchestrator](../orchestrator/README.md)）。
 - canonical Activityの重複抑止・状態更新との整合性・認可付きcursor取得。
 - Research等の保存先を内容と所有責務で分類する。Compass所有のレコードは保持できる（Workspace移行後のscopeはADR 0001に従う）。外部を正本とする内容だけ移行・参照切替を設計し、既存Evidence・Decision・Evaluationの参照関係を壊さない。
 

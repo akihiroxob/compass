@@ -10,12 +10,29 @@ import type { ExecutionState } from "../domain/OutcomeExecution.ts";
 import type { OutcomeExecutionRepository } from "../domain/OutcomeExecutionRepository.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
 import type { OutcomeTargetProjectRepository, OutcomeTargetProjectView } from "../domain/OutcomeTargetProject.ts";
-import { isClosedResearchStatus } from "../domain/Research.ts";
+import { isClosedResearchStatus, type ResearchRequestKind, type ResearchRequestStatus } from "../domain/Research.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
-import { toOrchestrationResearchRequest, type OrchestrationResearchRequest } from "./GetOrchestrationStateUseCase.ts";
 import type { DirectionWorkspaceRuntimeAuthorizationPort } from "./port/DirectionAuthorizationPort.ts";
 import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import type { ExecutionSummaryState, OutcomeWorkSummaryPort } from "./port/ExecutionSummaryPort.ts";
+
+export type OrchestrationResearchRequest = {
+  id: string;
+  kind: ResearchRequestKind;
+  status: ResearchRequestStatus;
+  originIntentId: string | null;
+  originOutcomeId: string | null;
+  updatedAt: number;
+};
+
+const toOrchestrationResearchRequest = (request: OrchestrationResearchRequest): OrchestrationResearchRequest => ({
+  id: request.id,
+  kind: request.kind,
+  status: request.status,
+  originIntentId: request.originIntentId,
+  originOutcomeId: request.originOutcomeId,
+  updatedAt: request.updatedAt,
+});
 
 /** WorkspaceのactiveなProjectを読むport（Organizationが所有）。Organizationの`ProjectRepository`がこの形を満たす。 */
 export interface WorkspaceOrchestrationProjectReader {

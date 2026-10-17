@@ -42,19 +42,12 @@ const setup = async () => {
   };
 };
 
-const legacyColumns = (database: Awaited<ReturnType<typeof setup>>["database"], projectId: string) =>
-  Promise.all([
-    database.selectFrom("project").select(["mission", "vision"]).where("id", "=", projectId).executeTakeFirstOrThrow(),
-    database.selectFrom("project_principle").select("value").where("project_id", "=", projectId).execute(),
-    database.selectFrom("project_constraint").select("value").where("project_id", "=", projectId).execute(),
-  ]);
-
 const codeOf = (code: string) => (error: unknown) => {
   assert.equal((error as { code?: string }).code, code);
   return true;
 };
 
-test("作成はMission等を専用Workspaceへ書き、Projectには旧列の値を書かない。公開の参照モデルはWorkspaceの値を返す", async () => {
+test("作成はMission等を専用Workspaceへ書き、Projectには書かない。公開の参照モデルはWorkspaceの値を返す", async () => {
   const { database, repository, workspaces, create } = await setup();
   const created = await create.execute(input);
 
@@ -76,11 +69,6 @@ test("作成はMission等を専用Workspaceへ書き、Projectには旧列の値
   assert.equal(created.workspaceId, project.workspaceId);
   assert.equal(created.mission, "Make direction explicit");
   assert.deepEqual(created.principles, ["p1", "p2"]);
-
-  const [legacy, principles, constraints] = await legacyColumns(database, created.id);
-  assert.deepEqual(legacy, { mission: "", vision: null });
-  assert.deepEqual(principles, []);
-  assert.deepEqual(constraints, []);
   await database.destroy();
 });
 
@@ -224,89 +212,26 @@ test("ADRから参照されたRepositoryを外す更新は、注入した参照�
   await database.destroy();
 });
 
-/** Workspace導入前・正本切替前のserverが書いたProject（旧列に戦略値を持つ）。 */
-const insertLegacyProject = async (
-  database: Awaited<ReturnType<typeof setup>>["database"],
-  values: { id: string; name: string; mission: string; status?: "active" | "archived"; workspaceId?: string; createdAt: number },
-) => {
-  await database.insertInto("project").values({
-    id: values.id,
-    workspace_id: values.workspaceId ?? null,
-    name: values.name,
-    description: null,
-    mission: values.mission,
-    vision: `${values.name} vision`,
-    created_at: values.createdAt,
-    updated_at: values.createdAt + 1,
-    status: values.status ?? "active",
-    archived_at: values.status === "archived" ? values.createdAt + 1 : null,
-    archive_reason: values.status === "archived" ? "legacy archive" : null,
-    strategy_migrated_at: null,
-  }).execute();
-  await database.insertInto("project_principle").values([
-    { id: `${values.id}-p2`, project_id: values.id, value: "second", sort_order: 1 },
-    { id: `${values.id}-p1`, project_id: values.id, value: "first", sort_order: 0 },
-  ]).execute();
-  await database.insertInto("project_constraint").values(
-    { id: `${values.id}-c1`, project_id: values.id, value: `${values.name} constraint`, sort_order: 0 },
-  ).execute();
-};
+const columnsOf = async (database: Awaited<ReturnType<typeof setup>>["database"], table: string) =>
+  (await sql<{ name: string; notnull: number }>`select name, "notnull" from pragma_table_info(${table})`.execute(database)).rows;
 
-test("起動時の移行は旧列の現在値を所属Workspaceへ一度だけ写し、以後のWorkspaceの変更を上書きしない", async () => {
-  const { database, repository, workspaces } = await setup();
-  // 未所属（Workspace導入前のserverが作成）と、所属済みでWorkspaceが古い写しのまま（正本切替前に旧列を更新）のProject。
-  await insertLegacyProject(database, { id: "unassigned", name: "Legacy", mission: "Legacy mission", status: "archived", createdAt: 1_000 });
-  const stale = await workspaces.create({ name: "Old name", mission: "Old mission", vision: null, principles: ["old"], constraints: [] });
-  await insertLegacyProject(database, { id: "stale", name: "Current", mission: "Current mission", workspaceId: stale.id, createdAt: 2_000 });
+test("新規DBのprojectは戦略値・移行用の列と旧tableを持たず、所属Workspaceを必須にする。再初期化は保存済みの値を変えない", async () => {
+  const { database, repository, create } = await setup();
+  assert.deepEqual((await columnsOf(database, "project")).map(({ name, notnull }) => [name, notnull]), [
+    ["id", 0], ["workspace_id", 1], ["name", 1], ["description", 0], ["created_at", 1], ["updated_at", 1],
+    ["status", 1], ["archived_at", 0], ["archive_reason", 0],
+  ]);
+  const tables = (await sql<{ name: string }>`select name from sqlite_master where type = 'table'`.execute(database)).rows.map(({ name }) => name);
+  assert.equal(tables.includes("project_principle"), false);
+  assert.equal(tables.includes("project_constraint"), false);
+
+  const created = await create.execute(input);
+  await assert.rejects(() => sql`insert into project (id, name, created_at, updated_at) values ('orphan', 'Orphan', 1, 1)`.execute(database));
+  await assert.rejects(() =>
+    sql`insert into project (id, workspace_id, name, created_at, updated_at) values ('dangling', 'missing', 'Dangling', 1, 1)`.execute(database));
 
   await initializeOrganizationSchema(database);
-
-  const unassigned = (await repository.findById("unassigned"))!;
-  const created = (await workspaces.findById(unassigned.workspaceId))!;
-  assert.deepEqual(
-    { name: created.name, mission: created.mission, vision: created.vision, principles: created.principles, constraints: created.constraints },
-    { name: "Legacy", mission: "Legacy mission", vision: "Legacy vision", principles: ["first", "second"], constraints: ["Legacy constraint"] },
-  );
-  assert.deepEqual(
-    { status: created.status, archivedAt: created.archivedAt, archiveReason: created.archiveReason, createdAt: created.createdAt },
-    { status: "archived", archivedAt: 1_001, archiveReason: "legacy archive", createdAt: 1_000 },
-  );
-
-  const resynced = (await workspaces.findById(stale.id))!;
-  assert.equal((await repository.findById("stale"))!.workspaceId, stale.id, "所属は変えない");
-  assert.deepEqual(
-    { name: resynced.name, mission: resynced.mission, principles: resynced.principles, constraints: resynced.constraints },
-    { name: "Current", mission: "Current mission", principles: ["first", "second"], constraints: ["Current constraint"] },
-  );
-
-  // 切替後のWorkspaceの変更は、再起動（再初期化）しても旧列で上書きしない。旧列・旧tableは残す。
-  await workspaces.update(stale.id, { mission: "Changed after switch" });
-  await initializeOrganizationSchema(database);
-  assert.equal((await repository.findDetailById("stale"))!.mission, "Changed after switch");
-  assert.equal((await database.selectFrom("workspace").select("id").execute()).length, 2, "Workspaceを重複して作らない");
-  const [legacy, principles] = await legacyColumns(database, "stale");
-  assert.equal(legacy.mission, "Current mission");
-  assert.equal(principles.length, 2);
-  await database.destroy();
-});
-
-test("移行の途中失敗は失敗したProjectだけを戻し、再実行で残りを移行する", async () => {
-  const { database, repository, workspaces } = await setup();
-  await insertLegacyProject(database, { id: "first", name: "First", mission: "m1", createdAt: 1_000 });
-  await insertLegacyProject(database, { id: "second", name: "Second", mission: "m2", createdAt: 2_000 });
-  await sql`CREATE TRIGGER fail_second BEFORE INSERT ON workspace WHEN NEW.name = 'Second'
-    BEGIN SELECT RAISE(ABORT, 'forced failure'); END`.execute(database);
-
-  await assert.rejects(() => initializeOrganizationSchema(database));
-  assert.ok((await repository.findById("first"))!.workspaceId);
-  const second = await database.selectFrom("project").select(["workspace_id", "strategy_migrated_at"])
-    .where("id", "=", "second").executeTakeFirstOrThrow();
-  assert.deepEqual(second, { workspace_id: null, strategy_migrated_at: null });
-  assert.equal((await workspaces.findAll()).length, 1);
-
-  await sql`DROP TRIGGER fail_second`.execute(database);
-  await initializeOrganizationSchema(database);
-  assert.equal((await repository.findDetailById("second"))!.mission, "m2");
-  assert.equal((await workspaces.findAll()).length, 2);
+  assert.deepEqual(await repository.findDetailById(created.id), created);
+  assert.deepEqual((await sql`pragma foreign_key_check`.execute(database)).rows, []);
   await database.destroy();
 });

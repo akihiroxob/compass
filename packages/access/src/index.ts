@@ -23,7 +23,6 @@ export * from "./application/secretToken.ts";
 export * from "./application/WorkspaceMembershipUseCases.ts";
 export * from "./infrastructure/AccessProjectReaders.ts";
 export * from "./infrastructure/AccessWorkspaceReaders.ts";
-export * from "./infrastructure/backfillWorkspaceMemberships.ts";
 export * from "./infrastructure/initializeAccessSchema.ts";
 export * from "./infrastructure/schema.ts";
 export * from "./infrastructure/SQLiteAccessCredentialRepository.ts";

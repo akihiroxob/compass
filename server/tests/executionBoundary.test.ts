@@ -248,8 +248,6 @@ test("Organizationは自身のtableだけを読み書きし、sharedだけに依
     "workspace_principle",
     "workspace_constraint",
     "project",
-    "project_principle",
-    "project_constraint",
     "project_repository_link",
     "project_resource",
   ];
