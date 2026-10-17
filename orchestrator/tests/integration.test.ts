@@ -5,7 +5,6 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -148,14 +147,8 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
   const workspaceId = projectA.workspaceId as string;
   const projectB = (await web(`/api/workspaces/${workspaceId}/projects`, { name: "B" })).project as Json;
   assert.equal(projectB.workspaceId, workspaceId);
-  const database = new DatabaseSync(join(directory, "compass.db"));
-  try {
-    // Direction RoleのGrantはWorkspace所有。Workspace Role Grantの付与入口が未接続のため、一時DBへ直接置くfixture。
-    const workspaceGrant = database.prepare("insert into workspace_grant (workspace_id, principal_id, role, created_at) values (?, ?, ?, ?)");
-    for (const role of ["strategist", "researcher", "evaluator"]) workspaceGrant.run(workspaceId, "direction-agent", role, Date.now());
-  } finally {
-    database.close();
-  }
+  // Direction RoleのGrantはWorkspace所有。Web UIと同じWorkspace Grantの付与入口で置く。
+  for (const role of ["strategist", "researcher", "evaluator"]) await web(`/api/workspaces/${workspaceId}/grants`, { principalId: "direction-agent", role });
   const projectIds = [projectA.id as string, projectB.id as string];
   for (const [projectId, principal] of [[projectIds[0]!, "manager-a"], [projectIds[1]!, "manager-b"]]) await cli("grant", projectId!, principal!, "manager");
 
@@ -227,6 +220,51 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
               },
           )
       : [];
+  const ralphFakeCommand = join(directory, "ralph-fake-agent");
+  await writeFile(ralphFakeCommand, `#!/bin/sh\nexec "${process.execPath}" --import "${tsx}" "${ralphFakeAgent}" "$@"\n`);
+  await chmod(ralphFakeCommand, 0o755);
+  const ralphContextLog = join(directory, "ralph-contexts.jsonl");
+  /** RalphはProjectごとに1つの設定で起動する。設定に持つのはProject IDだけで、Workspace IDを持たない。Worker / Reviewerは別Credentialで接続する。 */
+  const ralphFor = async (projectId: string, label: string, tokens: { worker: string; reviewer: string }) => {
+    const root = join(directory, `ralph-${label}`);
+    await mkdir(root, { recursive: true });
+    const ralphConfigPath = join(root, "ralph.json");
+    await writeFile(
+      ralphConfigPath,
+      JSON.stringify({
+        serverUrl,
+        projectId,
+        projectRoot: ".",
+        agentProvider: "claude",
+        pollIntervalSeconds: 1,
+        retry: { initialSeconds: 1, tokenLimitSeconds: 1 },
+        logging: { path: "logs/ralph.log" },
+        roles: {
+          worker: { tokenEnv: "WORKER_TOKEN", agentProvider: "claude", command: ralphFakeCommand },
+          reviewer: { tokenEnv: "REVIEWER_TOKEN", agentProvider: "codex", command: ralphFakeCommand },
+        },
+      }),
+    );
+    const ralphAgentLog = join(root, "agents.jsonl");
+    return {
+      start: (args: string[], actions: Record<string, string[]> = {}) =>
+        spawn(ralph, ["run", ...args, "--config", ralphConfigPath], {
+          cwd: root,
+          env: isolatedEnv({
+            WORKER_TOKEN: tokens.worker,
+            REVIEWER_TOKEN: tokens.reviewer,
+            FAKE_AGENT_LOG: ralphAgentLog,
+            FAKE_AGENT_CONTEXT_LOG: ralphContextLog,
+            FAKE_AGENT_ACTIONS: JSON.stringify(actions),
+          }),
+          stdio: ["ignore", "pipe", "pipe"],
+        }),
+      launches: () =>
+        existsSync(ralphAgentLog)
+          ? readFileSync(ralphAgentLog, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { role: string; action: string; prompt: string })
+          : [],
+    };
+  };
   const stop = async () => {
     server.kill("SIGTERM");
     await serverExit;
@@ -252,6 +290,8 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
     launches,
     writeConfig,
     restartServer,
+    ralphFor,
+    ralphContextLog,
     stop,
   };
 };
@@ -349,54 +389,8 @@ test(
         assert.equal(tasks.length, 1);
         return tasks[0] as { id: string; status: string };
       };
-      const fakeCommand = join(kit.directory, "ralph-fake-agent");
-      await writeFile(fakeCommand, `#!/bin/sh\nexec "${process.execPath}" --import "${tsx}" "${ralphFakeAgent}" "$@"\n`);
-      await chmod(fakeCommand, 0o755);
-      const contextLog = join(kit.directory, "ralph-contexts.jsonl");
-      /** RalphはProjectごとに1つの設定で起動する。設定に持つのはProject IDだけで、Workspace IDを持たない。 */
-      const ralphFor = async (projectId: string, label: string) => {
-        const root = join(kit.directory, `ralph-${label}`);
-        await mkdir(root, { recursive: true });
-        const configPath = join(root, "ralph.json");
-        await writeFile(
-          configPath,
-          JSON.stringify({
-            serverUrl: kit.serverUrl,
-            projectId,
-            projectRoot: ".",
-            agentProvider: "claude",
-            pollIntervalSeconds: 1,
-            retry: { initialSeconds: 1, tokenLimitSeconds: 1 },
-            logging: { path: "logs/ralph.log" },
-            roles: {
-              worker: { tokenEnv: "WORKER_TOKEN", agentProvider: "claude", command: fakeCommand },
-              reviewer: { tokenEnv: "REVIEWER_TOKEN", agentProvider: "codex", command: fakeCommand },
-            },
-          }),
-        );
-        const agentLog = join(root, "agents.jsonl");
-        return {
-          start: (args: string[], actions: Record<string, string[]> = {}) =>
-            spawn(ralph, ["run", ...args, "--config", configPath], {
-              cwd: root,
-              env: isolatedEnv({
-                WORKER_TOKEN: ralphTokens[projectId]!.worker,
-                REVIEWER_TOKEN: ralphTokens[projectId]!.reviewer,
-                FAKE_AGENT_LOG: agentLog,
-                FAKE_AGENT_CONTEXT_LOG: contextLog,
-                FAKE_AGENT_ACTIONS: JSON.stringify(actions),
-              }),
-              stdio: ["ignore", "pipe", "pipe"],
-            }),
-          launches: () =>
-            existsSync(agentLog)
-              ? readFileSync(agentLog, "utf8").trim().split("\n").map((line) => JSON.parse(line) as { role: string; action: string; prompt: string })
-              : [],
-        };
-      };
-
       // Project A: Workerの失敗を再試行し、Claimを残して止まったAgentのTaskを期限後に別のClaimで再取得して完了する。
-      const ralphA = await ralphFor(projectA, "a");
+      const ralphA = await kit.ralphFor(projectA, "a", ralphTokens[projectA]!);
       const workerLoop = ralphA.start(["worker"], { worker: ["fail", "claim-only", "complete"] });
       const workerExit = exited(workerLoop);
       await waitFor(async () => (await taskOf(projectA)).status === "in_review", "Project A's Task to be completed", 60_000);
@@ -420,7 +414,7 @@ test(
       assert.equal((await taskOf(projectA)).status, "wait_accept");
 
       // Project B: 自動モードで Worker → Reviewer の順に1件ずつ処理する。
-      const ralphB = await ralphFor(projectB, "b");
+      const ralphB = await kit.ralphFor(projectB, "b", ralphTokens[projectB]!);
       for (let round = 0; round < 2; round++) {
         const result = await exited(ralphB.start(["auto", "--once"]));
         assert.equal(result.code, 0, result.stderr);
@@ -436,7 +430,7 @@ test(
           assert.doesNotMatch(launch.prompt, new RegExp(kit.workspaceId));
         }
       }
-      const contexts = readFileSync(contextLog, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Json);
+      const contexts = readFileSync(kit.ralphContextLog, "utf8").trim().split("\n").map((line) => JSON.parse(line) as Json);
       assert.equal(contexts.length, ralphA.launches().length - 1 + ralphB.launches().length, "every launched Agent except the failed one read its Role Context");
       for (const context of contexts) {
         assert.equal(context.workspaceId, kit.workspaceId);
@@ -589,15 +583,38 @@ test(
       await kit.mcp(acceptorB, "accept_task", { taskId: taskB!.id, claimId: acceptance.claimId, requestId: "accept-b" }, "manager");
 
       // 5. 未完了のTarget Aをarchiveする。AのmanagerやWorkは起動・開始できず、OrchestratorはStrategistの再計画だけを起動する。
+      // archive前に、Aへ未着手のTaskとレビュー待ちのTaskを残し、Worker / Reviewerへ別Principal・発行済みCredentialを用意する。
       const [taskA] = before.tasks[0] as Json[];
       await kit.cli("grant", projectA, "worker-a", "worker");
-      const workerA = (await kit.web(`/api/projects/${projectA}/credentials`, { kind: "agent", principalId: "worker-a" })).token as string;
+      await kit.cli("grant", projectA, "reviewer-a", "reviewer");
+      const ralphTokensA = {
+        worker: (await kit.web(`/api/projects/${projectA}/credentials`, { kind: "agent", principalId: "worker-a" })).token as string,
+        reviewer: (await kit.web(`/api/projects/${projectA}/credentials`, { kind: "agent", principalId: "reviewer-a" })).token as string,
+      };
+      const workerA = ralphTokensA.worker;
+      const reviewTaskA = await kit.mcp(managerA, "issue_task", { projectId: projectA, storyId: storyA!.id, title: "Review pending", taskKey: "review-pending", requestId: "task-review-a" }, "manager");
+      const workA = await kit.mcp(workerA, "claim_task", { taskId: reviewTaskA.id, requestId: "claim-review-task-a" }, "worker");
+      await kit.mcp(workerA, "add_task_comment", { taskId: reviewTaskA.id, claimId: workA.claimId, body: "Done", requestId: "comment-review-task-a" }, "worker");
+      await kit.mcp(workerA, "complete_task", { taskId: reviewTaskA.id, claimId: workA.claimId, requestId: "complete-review-task-a" }, "worker");
       const archived = await kit.webRequest("POST", `/api/projects/${projectA}/archive`, { reason: "Superseded" });
       assert.equal(archived.status, 200, JSON.stringify(archived.json));
       // archivedのProjectへは新しいCredentialを発行しない。
       assert.equal((await kit.webRequest("POST", `/api/projects/${projectA}/credentials`, { kind: "agent", principalId: "late-a" })).status, 409);
       await denied("CONFLICT", workerA, "claim_task", { taskId: taskA!.id, requestId: "claim-archived" }, "worker");
+      await denied("CONFLICT", ralphTokensA.reviewer, "claim_review", { taskId: reviewTaskA.id, requestId: "review-archived" }, "reviewer");
       await denied("CONFLICT", managerA, "issue_story", { projectId: projectA, title: "New", requestId: "story-archived" }, "manager");
+      // 未完了Taskと発行済みCredentialが残っていても、AのRalphはWorker / ReviewerのAgentを起動しない。
+      assert.deepEqual(
+        (await kit.mcp(managerA, "list_tasks", { projectId: projectA }, "manager")).tasks.map(({ status }: Json) => status),
+        ["todo", "in_review"],
+      );
+      const ralphA = await kit.ralphFor(projectA, "archived-a", ralphTokensA);
+      for (const mode of ["worker", "reviewer", "auto"]) {
+        const idle = await exited(ralphA.start([mode, "--once"]));
+        assert.equal(idle.code, 0, `${mode}: ${idle.stderr}`);
+        assert.match(idle.stdout, /対象がないため終了します/, mode);
+      }
+      assert.deepEqual(ralphA.launches(), [], "no Worker / Reviewer Agent is launched for an archived Project");
       const replan = await kit.state();
       assert.equal(replan.outcomes[0].evaluability.status, "replan_required");
       await kit.runOnce();

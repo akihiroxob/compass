@@ -12,7 +12,9 @@ Projectは作成時active。ownerがWeb UIから理由を指定するとarchived
 
 Executionへの変更、Grant変更、招待、Membership変更は拒否する。Direction（Intent・Outcome等）は所属Workspaceが所有し、変更可否はWorkspaceの状態で決まる。Projectがarchivedでも、activeなWorkspaceではWorkspace Membershipに従い変更でき、Workspace ownerがWorkspaceをarchiveした場合は拒否する（409、`workspaceStatus: archived`）。書込transaction内でもarchive状態を確認し、検査後の競合による更新を防ぐ。例外として、platform ownerによるowner不在ProjectのMembership補完がある。
 
-archiveは外部Agent processの停止完了を意味しない。実行システムによる停止制御は別責務。
+Workは新しいClaim（work / review / acceptance）を拒否し、`list_tasks`の`availableFor`はどの工程の候補も返さない。Ralphはこの候補件数で起動を判断するため、archivedのProjectにはWorker / ReviewerのAgentを新しく起動しない。Task・Claim・Comment等の参照は続けられる。
+
+archiveは外部Agent processの停止完了を意味しない。実行中のAgentの停止制御は実行システムの別責務。
 
 ## UIと認可
 
