@@ -19,7 +19,7 @@
 - [Agent認可・Instruction配信](step-4-strategist-role-design.md)
 - [Project archive](step-5-project-archive-design.md)
 - [Human認証・Membership・Credential](step-6-human-auth-design.md)
-- [実装状況](implementation-status.md)
+- [実装状況](implementation-status.md): 公開入口・検証範囲・未接続の現況。[Workspace移行の受入検証](implementation-status.md#workspace移行の受入検証)に新規DB・実ブラウザ・独立起動で確認した範囲とfixtureの限界を記す。
 
 ## Wachaへの引き継ぎ
 

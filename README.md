@@ -52,23 +52,24 @@ npm start
 
 公開originはhttps必須で、TLSは前段のproxy等で終端します。proxyはOriginとCookieを転送してください。必須設定が欠けると起動を拒否します。
 
-登録は招待制です。初期ownerがログインした後、Project詳細のMember欄からownerが招待を発行し、表示されたリンクを相手へ渡します。メール送信は行いません。相手は招待先emailのGoogleアカウントでログインします。platform ownerにProject Membershipを迂回する権限はありません。
+登録は招待制です。初期ownerがログインした後、Projectの「設定」のMember欄からownerが招待を発行し、表示されたリンクを相手へ渡します。メール送信は行いません。相手は招待先emailのGoogleアカウントでログインします。Workspace Memberには、所属ProjectのMemberをWorkspaceの「設定」から追加します。platform ownerにWorkspace / Project Membershipを迂回する権限はありません。
 
 Sessionは発行から7日または無操作24時間で失効します。secretはリポジトリへ保存しません。認証・権限・Cookie・CSRFの詳細は [認証仕様](docs/step-6-human-auth-design.md) を参照してください。
 
 ## Humanの操作
 
-- Projectを作成し、Mission・Vision・Principles・Constraints・Repositories・Resourcesを登録する。
-- Project内でIntentを作成し、Outcomeと固定成功条件を管理する。
-- Research・Decision・Evidence・Evaluation・Executionを確認する。
-- editor以上はStory / Taskの手動起票・編集、Taskの受入・差戻し・取消・Commentを行う。Outcome handoff管理下のStory / Taskは直接編集できない。編集は変更前後とともにChange Logへ残り、「最近の変更」で確認できる。
-- administrator以上はProject情報、Agent Grant、Credentialを管理する。ownerはMember招待・権限変更とProject archiveを行う。
+- Workspace Selectorから、Workspaceを作成・切り替える。WorkspaceにMission・Vision・Principles・Constraintsを登録し、「Project」から所属Projectを追加する（name・説明・Repositories・Resources）。
+- Workspaceの「概要」「方向」で現在地・要対応・Intent・Outcome・Target別のWork・Evidence・Evaluation・Direction Decisionを確認する。Intent・Outcome・固定成功条件の登録・編集画面は所属Projectの画面（`/projects/:projectId/intents/…`）から開き、保存先は所属Workspaceになる。Target ProjectはStrategistがMCPで設定し、Web UIは参照だけを提供する。
+- Workspaceの「記録」でDirectionの判断の履歴、Projectの「記録」でStory・Task等の履歴を確認する。
+- Projectのeditor以上はStory / Taskの手動起票・編集、Taskの受入・差戻し・取消・Commentを行う。Outcome handoff管理下のStory / Taskは直接編集できない。編集は変更前後とともにChange Logへ残り、「最近の変更」で確認できる。
+- Workspaceのadministrator以上はWorkspaceの「設定」でDirection Role（Strategist・Researcher・Evaluator）のGrant・Workspace Credentialを、Projectのadministrator以上はProjectの「設定」でAgent Grant（Manager・Worker・Reviewer）・Project Credentialを管理する。memberの一覧はviewer以上が参照できる。
+- Workspaceのownerは「設定」でmemberの追加・Role変更・取消を、Projectのownerは「設定」でMember招待・Role変更・取消を行う。Workspace / Projectのarchiveもそれぞれのownerだけが行う。WorkspaceとProjectの権限は互いに継承しない。
 
-archived Projectは参照専用です。復帰・物理削除は提供していません。通常操作にCLIやDBの直接編集は使いません。
+archived Workspace / Projectは参照専用です。WorkspaceのarchiveはSelectorの一覧から外し、所属Projectをarchiveしません。Projectのarchiveは所属Workspaceを変えません。復帰・物理削除は提供していません。通常操作にCLIやDBの直接編集は使いません。
 
 ## Agentの接続
 
-Project詳細でAgent名にManager・Worker・ReviewerのRole Grantを付け、同じAgent名のAgent Credentialを発行します。発行直後に一度だけ表示されるtokenをMCP clientへ渡します。
+Projectの「設定」でAgent名にManager・Worker・ReviewerのRole Grantを付け、同じAgent名のAgent Credentialを発行します。発行直後に一度だけ表示されるtokenをMCP clientへ渡します。
 
 ```bash
 export COMPASS_AGENT_TOKEN="cmp_agent.<id>.<secret>"
@@ -78,7 +79,7 @@ MCP endpointは`http://localhost:51800/mcp`、認証headerは`Authorization: Bea
 
 現在のRoleは`strategist` / `researcher` / `manager` / `worker` / `reviewer` / `evaluator`。`get_role_instructions({ role, includeShared: true })`でInstructionを取得できます。Grant発行だけではAgentは起動しません。新規Project GrantはManager・Worker・Reviewerと、trusted-localのOrchestrator用`runtime`（CLI・Web API）だけを許可し、Direction Roleは400 `VALIDATION_ERROR`で拒否します。DirectionのWorkspace Grant（Strategist・Researcher・Evaluator）とWorkspace Credentialは、Web UIのWorkspace「設定」（`/workspaces/:workspaceId/settings`。Web API `/api/workspaces/:workspaceId/grants`・`/credentials`）で一覧・付与・取消・発行し、WorkspaceのAgent画面でもGrant・Credential・Claimを区別して参照できます。付与・取消・発行はWorkspaceのadministrator以上で、Project Roleからは継承しません。Direction toolはWorkspace Grantを持つWorkspace Agent Credentialで認可し、Workspace CredentialはProjectのWorkに使えません。保存済みの旧Project Direction Grantは参照・取消できますが、WorkのTask・Story・Comment・Change Log参照には使えません。
 
-Intent/Outcome/Research/Decision/Evaluation/Runtime eventの保存と応答はWorkspace所有（`workspaceId`）です。Direction（Intent/Outcome/Research/Decision/ADR/Evaluation/Runtime event）のWeb APIは`/api/workspaces/:workspaceId/…`、MCP toolは`workspaceId`を受け取り、Workspace Membership（Human）・Workspace Role Grant（Agent）・Workspace Runtime Credential（Runtime event）で認可します。Project配下の旧経路と`projectId`入力は無く、Project IDをWorkspace IDとして渡すことはできません。Project画面はProjectの所属Workspaceを解決してDirectionを表示します。ADR依頼/参照もWorkspace所有で、対象artifactのProject/Repository参照を保持します。Execution Summary/Evidenceは`workspaceId`と発生元`projectId`を返し、Outcome・Projectごとに還流状態を保持します。Runtime eventはversion 2で`workspaceId`を返し、`projectId`は持ちません。配送結果にも`workspaceId`を含めます。Outcomeの評価は全Target ProjectのSummary・Evidenceから行い、全Targetが還流し`incomplete`が無い場合だけ評価可能です。Workspace Role Grantの付与UI・OrchestratorのWorkspace dispatchは後続Taskです。旧Project scopeのDirection schemaは変換せず、開発DBを再作成して起動します。テストは`COMPASS_DB_PATH=:memory: npm test`でローカルDBから隔離できます。
+Intent/Outcome/Research/Decision/Evaluation/Runtime eventの保存と応答はWorkspace所有（`workspaceId`）です。Direction（Intent/Outcome/Research/Decision/ADR/Evaluation/Runtime event）のWeb APIは`/api/workspaces/:workspaceId/…`、MCP toolは`workspaceId`を受け取り、Workspace Membership（Human）・Workspace Role Grant（Agent）・Workspace Runtime Credential（Runtime event）で認可します。Project配下の旧経路と`projectId`入力は無く、Project IDをWorkspace IDとして渡すことはできません。Project画面はProjectの所属Workspaceを解決してDirectionを表示します。ADR依頼/参照もWorkspace所有で、対象artifactのProject/Repository参照を保持します。Execution Summary/Evidenceは`workspaceId`と発生元`projectId`を返し、Outcome・Projectごとに還流状態を保持します。Runtime eventはversion 2で`workspaceId`を返し、`projectId`は持ちません。配送結果にも`workspaceId`を含めます。Outcomeの評価は全Target ProjectのSummary・Evidenceから行い、全Targetが還流し`incomplete`が無い場合だけ評価可能です。旧Project scopeのDirection schemaは変換せず、開発DBを再作成して起動します。テストは`COMPASS_DB_PATH=:memory: npm test`でローカルDBから隔離できます。
 
 Role・Skill・Knowledge・Policyはrepo直下の`roles/`・`skills/`・`knowledge/`・`policies/`にGit管理し、MCPから必要時に取得します。起動時はProject Role（manager / worker / reviewer）が`get_role_context({ projectId, role })`（ProjectのそのRoleのGrantが必要）でRole Definition・共通Policy・Roleがfrontmatterの`skills`で参照するSkillのmetadata・Project情報・所属Workspaceの要約（Mission / Vision / Principles / Constraints）・そのProjectがTargetのactiveなOutcome（Success Criteriaと関連Storyの`correlationId`）を、Workspace Role（strategist / researcher / evaluator）が`get_workspace_role_context({ workspaceId, role })`（WorkspaceのそのRoleのGrantが必要）で同じRole資産とWorkspaceのMission / Vision / Principles / Constraints・activeなProjectの要約（purposeとRepository / Resourceの参照。Story / Taskは含まない）を取得し、作業に入るときに`get_skill_context({ name })`でSkill本文とrequiredKnowledgeを取得します。`list_skills`はmetadataの一覧です。応答の`source.revision`は資産を読んだGit commit、`source.dirty`は未commit変更の有無です。Skillは認可を担わず、Roleとの対応はRole Definitionの`skills`だけで表します。Role Contextの`activity`は最近のActivityのsummaryとrefs（本文なし）で、Project向けはProject Activity、Workspace向けはWorkspace Activityだけです。
 
@@ -90,14 +91,14 @@ remote modeでは有効なCredentialが必要で、Project / IntentのHuman用�
 
 ## Runtimeの接続
 
-RuntimeにはAgentとは別のCredentialとscopeを発行します。Credentialは発行したWorkspaceまたはProjectだけで使え、互いに転用できません。現在の接続面はProject scopeで、Project Runtime Credentialを使います。
+RuntimeにはAgentとは別のCredentialとscopeを発行します。Credentialは発行したWorkspaceまたはProjectだけで使え、互いに転用できません。Workspace Runtime CredentialはWorkspaceの「設定」、Project Runtime CredentialはProjectの「設定」で発行します。
 
-| 用途 | MCP |
-| --- | --- |
-| event取得・ack | `fetch_runtime_events` / `ack_runtime_event` |
-| Executionの変更取得 | `list_changes` |
-| Evidence還流・結果参照 | `record_execution_evidence` / `get_outcome_execution_summary` |
-| Orchestrator向けの現在状態 | `get_workspace_orchestration_state`（Workspace Runtime Credential、scope `runtime:state:read`） |
+| 用途 | MCP | Credential |
+| --- | --- | --- |
+| event取得・ack | `fetch_runtime_events` / `ack_runtime_event` | Workspace Runtime Credential（`runtime:event:read` / `runtime:event:ack`） |
+| Executionの変更取得 | `list_changes` | Project Agent Credential、またはProject Runtime Credential（`execution:change:read`） |
+| Evidence還流・結果参照 | `record_execution_evidence` / `get_outcome_execution_summary` | Project Runtime Credential（`execution:evidence:write` / `execution:summary:read`） |
+| Orchestrator向けの現在状態 | `get_workspace_orchestration_state` | Workspace Runtime Credential（`runtime:state:read`） |
 
 eventの`nextCursor`はページ送り専用で、再開位置には使いません。再開は`resumeCursor`または0から行います。配送はat-least-onceで、ack再送には同じ`attemptId`を使います。Task受入をOutcome達成として扱わず、Evidenceを評価へ渡します。
 
@@ -114,4 +115,4 @@ npm run lint
 npm run build
 ```
 
-rootの`test`・`typecheck`・`lint`は各workspaceへ、`build`は`server` workspaceへ委譲します。テストは`server/tests/`（結合・API・MCP・Web UI・認証）、`packages/work/tests/`（Workの規則）、`packages/organization/tests/`（Workspace・Project）、`packages/activity/tests/`（Activity）、`orchestrator/tests/`（起動判断・重複抑止、ServerとのプロセスをまたぐOrchestratorの結合）、`ralph/tests/`（ServerとのプロセスをまたぐRalphの結合）にあり、cwdは各workspaceです。`orchestrator`の`build`は型検査、`ralph`の`build`はshell scriptの構文検査で、`npm run build --workspace orchestrator` / `ralph`で独立して実行します。`lint`は現在、TypeScriptの型チェックです。実HTTPの認証テストはテスト用OIDC providerを使い、実Googleへの接続検証ではありません。fixtureによる閉ループ検証と実Agentの自律運転を区別します。
+rootの`test`・`typecheck`・`lint`は各workspaceへ、`build`は`server` workspaceへ委譲します。テストは`server/tests/`（結合・API・MCP・Web UI・認証）、`packages/work/tests/`（Workの規則）、`packages/organization/tests/`（Workspace・Project）、`packages/activity/tests/`（Activity）、`orchestrator/tests/`（起動判断・重複抑止、ServerとのプロセスをまたぐOrchestratorの結合）、`ralph/tests/`（ServerとのプロセスをまたぐRalphの結合）にあり、cwdは各workspaceです。`orchestrator`の`build`は型検査、`ralph`の`build`はshell scriptの構文検査で、`npm run build --workspace orchestrator` / `ralph`で独立して実行します。`lint`は現在、TypeScriptの型チェックです。実HTTPの認証テストはテスト用OIDC providerを使い、実Googleへの接続検証ではありません。fixtureによる閉ループ検証と実Agentの自律運転を区別します。Workspace移行の実ブラウザ・独立起動での受入結果は[実装状況](docs/implementation-status.md#workspace移行の受入検証)に記録しています。
