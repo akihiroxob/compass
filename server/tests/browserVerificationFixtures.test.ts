@@ -24,14 +24,18 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
     assert.equal(prepared.status, 0, prepared.stderr);
     const manifest = JSON.parse(await readFile(join(data, "browser-fixtures.json"), "utf8")) as {
       headSha: string; preparationScriptSha256: string;
+      dataPreparation: { scope: string; actors: Record<string, string>; allowedTools: string[]; projectIds: string[] };
       scenarios: { scenario: string; workspaceId: string; intentId: string; outcomeId: string;
         projects: { id: string }[]; evaluationId?: string; decisionId?: string; researchRequestId?: string }[];
     };
     assert.match(manifest.headSha, /^[a-f0-9]{40}$/);
     assert.match(manifest.preparationScriptSha256, /^[a-f0-9]{64}$/);
+    assert.equal(manifest.dataPreparation.scope, "isolated-preview-only");
+    assert.ok(manifest.dataPreparation.allowedTools.includes("claim_task"));
     const database = createDatabase(join(data, "preview.db"));
     try {
-      const services = createApplicationServices(database, undefined, undefined, { initialOwnerEmail: ownerEmail });
+      let now = Date.now();
+      const services = createApplicationServices(database, undefined, () => now, { initialOwnerEmail: ownerEmail });
       const app = createApp(services, { humanAuth: { mode: "trusted-local", publicOrigin: "http://localhost" } });
       const login = async (email: string) => {
         const response = await app.request("/auth/local/login", { method: "POST", headers: { Origin: "http://localhost" }, body: new URLSearchParams({ email }) });
@@ -87,6 +91,48 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
           }, body: JSON.stringify({ mission: "unauthorized" }) })).status, 403);
         }
       }
+      // Manager can add missing preview data using the same public MCP entry as browser fetch.
+      const call = async (role: string, name: string, args: object) => {
+        assert.ok(manifest.dataPreparation.allowedTools.includes(name));
+        const response = await app.request("/mcp", { method: "POST", headers: {
+          "Content-Type": "application/json", Accept: "application/json, text/event-stream",
+          Authorization: `Bearer ${manifest.dataPreparation.actors[role]}`,
+          "X-Compass-Active-Role": role,
+        }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {
+          name, arguments: { ...args, requestId: crypto.randomUUID() },
+        } }) });
+        assert.equal(response.status, 200);
+        const line = (await response.text()).split("\n").find((line) => line.startsWith("data: "));
+        assert.ok(line);
+        const { result } = JSON.parse(line.slice(6));
+        assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent));
+        return result.structuredContent;
+      };
+      const projectIds = manifest.scenarios.find(({ scenario }) => scenario === "evaluated")!.projects.map(({ id }) => id);
+      const tasks: { id: string; claim: { claimId: string; expiresAt: number } }[] = [];
+      for (const projectId of projectIds) {
+        assert.ok(manifest.dataPreparation.projectIds.includes(projectId));
+        const story = await call("manager", "issue_story", { projectId, title: "Claim表示用Story" });
+        const task = await call("manager", "issue_task", { projectId, storyId: story.id, title: "Claim表示用Task" });
+        const claim = await call("worker", "claim_task", { taskId: task.id });
+        tasks.push({ id: task.id, claim });
+      }
+      const read = async (index: number) => {
+        const response = await app.request(`/api/projects/${projectIds[index]}/execution`, { headers: { Cookie: owner } });
+        assert.equal(response.status, 200);
+        return response.json();
+      };
+      const own = await read(0);
+      assert.ok(own.tasks.some((task: { id: string; activeClaim: { principalId: string } | null }) =>
+        task.id === tasks[0]!.id && task.activeClaim?.principalId === manifest.dataPreparation.actors.worker));
+      assert.ok(!own.tasks.some((task: { id: string }) => task.id === tasks[1]!.id));
+      now += 1_000;
+      const renewed = await call("worker", "renew_claim", { claimId: tasks[0]!.claim.claimId });
+      assert.ok(renewed.expiresAt > tasks[0]!.claim.expiresAt);
+      now = renewed.expiresAt + 1;
+      const expired = (await read(0)).tasks.find((task: { id: string }) => task.id === tasks[0]!.id);
+      assert.equal(expired.activeClaim, null);
+      assert.equal(expired.reclaimable, true);
     } finally { await database.destroy(); }
     const before = await readFile(join(data, "preview.db"));
     assert.notEqual(prepare(data).status, 0);

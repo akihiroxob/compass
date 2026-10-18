@@ -27,6 +27,47 @@ Ownerは`preview-owner@example.test`、Viewerは`preview-viewer@example.test`で
 - 内部use caseでの準備は、管理用公開APIのACを満たした証拠にはしない。Evidence・判定・Researchは画面表示のための合成データであり、実成果や実Agentの自律運転の証明には使わない。
 - 各ACに必要な状態がmanifestにない場合は、そのACの検証データを追加して検証する。データの作成成功だけでAcceptしない。
 
+## Managerによる検証データ追加の許可
+
+Managerは、Ralphが今回返した専用プレビューURL・対象SHA・専用DBを確認したうえで、その環境の公開Web API・MCPを使って検証用データを追加・変更してよい。この許可はプレビューの中だけに適用する。実行中のWacha Task・Claim、開発サーバー、運用DB、GitHub、検証対象コード、Ralphの設定・実行記録は対象外とする。
+
+初期データでACの状態が足りない場合は、すぐにblockedにせず、manifestの`dataPreparation`を読み、許可された操作で状態を作って検証する。
+
+- 接続先は`start_browser_preview`が返したURLのoriginにある`/mcp`。普段利用するWacha MCPへ検証データを作らない。
+- 利用主体はmanifestの`actors`に記載した`preview-manager`・`preview-worker`・`preview-reviewer`。`trusted-local`の専用環境だけで、`Authorization: Bearer <preview actor>`と`X-Compass-Active-Role`を指定する。これは検証用Principalであり、実行中のAgentへRoleを追加するものではない。
+- Workの準備はmanifestの`projectIds`内だけに限定する。`allowedTools`に記載したStory/Taskの作成・参照、Claim取得/更新/解放、コメント・完了・レビュー・受入を許可する。操作したID・requestId・結果を証跡へ残す。Task/Claimへの操作はそこで作成した検証用Entityだけを対象とする。
+- ログイン・Membership等の準備は専用プレビューのOwnerによるWeb UI・認証済みWeb APIで行う。権限差の検証時はOwnerで準備した後にViewer等へ切り替える。
+- SQL直接実行、schemaの変更、API応答や時刻の差し替え、Claim期限のDB直接更新、未登録のホストコマンド実行は許可しない。公開操作で作れない状態は不足する入口と必要な追加準備を具体的に示す。
+
+### 期限内Claimと期限切れの確認
+
+1. manifestからProject A/Bと既存Outcomeを選ぶ。検証用Storyを`issue_story`、そのTaskを`issue_task`で作成する。Outcomeに結びつける場合は`outcomeId`とTaskの`taskKey`も指定する。
+2. `preview-worker`で`claim_task`を実行する。取得したTask/Claim IDと`expiresAt`を記録する。別Projectにも検証用Task・Claimを用意し、自Projectの表示と混同されないことを確認できる。
+3. OwnerでProject OverviewとTask詳細を実際に開き、保持者・状態・Task導線をDesktopと狭い画面で確認する。有効期間が足りなければ同じ検証用Claimを`renew_claim`で更新する。
+4. 専用プレビューでは`COMPASS_CLAIM_TTL_MS=60000`を設定している。期限切れ確認では更新を止め、APIが返した`expiresAt`を過ぎてから表示・再読込・再取得を確認する。`release_claim`による解放を期限切れの代用にしない。実環境の有効期間は変更しない。
+
+Playwrightのページ内から呼ぶ場合は、現在のoriginが返された専用URLと一致することを最初に検査する。例えば`tools/call`は次のHTTP形式で送る。toolの入力は対象SHAの`tools/list`で確認する。
+
+```js
+// previewUrlはstart_browser_previewの戻り値。実行ContextのWacha URLは渡さない。
+const origin = new URL(previewUrl).origin;
+if (location.origin !== origin) throw new Error('Dedicated preview origin mismatch');
+const response = await fetch(new URL('/mcp', origin), {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/event-stream',
+    Authorization: 'Bearer preview-worker',
+    'X-Compass-Active-Role': 'worker',
+  },
+  body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
+    name: 'claim_task', arguments: { taskId: createdPreviewTaskId, requestId: crypto.randomUUID() },
+  } }),
+});
+const raw = await response.text();
+// SSEならid:1のdata行をJSONとして読む。result.isErrorとstructuredContentも確認する。
+```
+
 ## 手動実行
 
 検証対象Worktreeをcwdにし、新規の専用ディレクトリを用意する。

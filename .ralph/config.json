@@ -69,7 +69,8 @@
         "COMPASS_AUTH_MODE": "trusted-local",
         "COMPASS_HOST": "127.0.0.1",
         "COMPASS_PUBLIC_ORIGIN": "http://127.0.0.1:{port}",
-        "COMPASS_INITIAL_OWNER_EMAIL": "preview-owner@example.test"
+        "COMPASS_INITIAL_OWNER_EMAIL": "preview-owner@example.test",
+        "COMPASS_CLAIM_TTL_MS": "60000"
       },
       "readyPath": "/",
       "setupCommands": [

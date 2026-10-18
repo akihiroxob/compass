@@ -133,8 +133,19 @@ try {
 const scriptSha256 = createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex');
 const manifest = { schemaVersion: 1, purpose: 'browser-verification-fixtures', headSha, preparationScriptSha256: scriptSha256,
   repositoryRoot: root, databasePath, createdAt: new Date().toISOString(),
+  dataPreparation: {
+    policyPath: resolve(dirname(fileURLToPath(import.meta.url)), '../docs/browser-verification.md'),
+    scope: 'isolated-preview-only', endpointPath: '/mcp', actors: identities,
+    projectIds: scenarios.flatMap(({ projects }) => projects.map(({ id }) => id)),
+    allowedTools: ['issue_story', 'issue_task', 'get_story', 'get_task', 'list_stories', 'list_tasks',
+      'claim_task', 'claim_review', 'claim_acceptance', 'renew_claim', 'release_claim',
+      'add_task_comment', 'complete_task', 'reviewed_task', 'accept_task'],
+    claimTtlMs: Number(process.env.COMPASS_CLAIM_TTL_MS ?? 30 * 60 * 1000),
+    instructions: 'Read policyPath. Use only the dedicated preview URL and these preview actors; execution Task/Claim and operational MCP are outside this permission.',
+  },
   login: { mode: 'trusted-local', ownerEmail, viewerEmail, instructions: 'ログイン画面からemailを入力する。viewerはProject Aのみ所属し、Project Bは未所属。' },
   scenarios, limitations: ['データ準備は公開APIによる管理操作のAC検証ではない', '判定・Evidenceは表示確認用fixtureであり、実Agentの自律運転や実成果を示さない'] };
 const manifestPath = join(data, 'browser-fixtures.json');
 await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
-console.log(JSON.stringify({ manifestPath, headSha, scenarios: scenarios.map(({ scenario, workspaceId, outcomeId }) => ({ scenario, workspaceId, outcomeId })) }));
+console.log(JSON.stringify({ manifestPath, headSha, dataPreparation: manifest.dataPreparation,
+  scenarios: scenarios.map(({ scenario, workspaceId, outcomeId }) => ({ scenario, workspaceId, outcomeId })) }));
