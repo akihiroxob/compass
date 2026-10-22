@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { emptyFormValues, formValuesFromProject, type Project } from "../src/web/projectForm.ts";
+import { emptyFormValues, formValuesFromProject, type Project } from "../src/web/features/project/project.ts";
 import { emptyWorkspaceFormValues, workspaceFormValues } from "../src/web/features/workspace/workspaceForm.ts";
 
 const project: Project = {

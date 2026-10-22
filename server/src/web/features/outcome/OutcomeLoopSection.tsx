@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { directionDecisionTypeLabels, type DirectionDecision } from "../../directionDecisionForm";
 import { workspaceApiPath } from "../../paths";
+import { directionDecisionTypeLabels, type DirectionDecision } from "../decision";
 import { statusBadgeClass } from "../../statusTone";
 import {
   EvidenceList,

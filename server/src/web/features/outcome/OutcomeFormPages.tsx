@@ -1,8 +1,8 @@
 import { Link, useParams } from "react-router-dom";
 import { jsonInit, jsonPost, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { WorkspaceDirectionGate } from "../../components/WorkspaceDirectionGate";
-import { emptyOutcomeFormValues, formValuesFromOutcome, outcomeStatusLabels, type Outcome } from "../../outcomeForm";
+import { WorkspaceDirectionGate } from "../access";
+import { emptyOutcomeFormValues, formValuesFromOutcome, outcomeStatusLabels, type Outcome } from "./outcome";
 import { intentPath, outcomePath, workspaceApiPath } from "../../paths";
 import { OutcomeForm } from "./OutcomeForm";
 import { useOutcomePage } from "./useOutcomePage";

@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { classifyError, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { LinkListInput } from "../../components/ListInputs";
-import type { Project, ProjectFormValues } from "../../projectForm";
+import type { Project, ProjectFormValues } from "./project";
 
 type ProjectFormProps = {
   initial: ProjectFormValues;

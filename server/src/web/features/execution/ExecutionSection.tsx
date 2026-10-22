@@ -5,7 +5,7 @@ import { ErrorState, Loading } from "../../components/StateCard";
 import { ViewSwitch } from "../../components/ui";
 import { storyCreatePath, storyEditPath, taskCreatePath, taskPath } from "../../paths";
 import { useHashTarget } from "../../useHashTarget";
-import { useProjectOperationState } from "../../useProjectAccess";
+import { useProjectOperationState } from "../access";
 import { statusBadgeClass } from "../../statusTone";
 import {
   appendChangePage,

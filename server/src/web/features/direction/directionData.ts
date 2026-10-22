@@ -1,12 +1,10 @@
-// Workspaceの概要・方向が共有する取得。Workspace所有のDirectionはWorkspace Membership、所属ProjectのStory / TaskはProject Membershipで読む。
-import { classifyError, loadFailureMessage, request } from "../../api";
-import { splitIntents, type Intent } from "../../intentForm";
-import { splitOutcomes, type Outcome } from "../../outcomeForm";
+// Workspaceの概要・方向とProjectの概要が共有するDirectionの取得。Workspace所有のDirectionはWorkspace Membership、所属ProjectのStory / TaskはProject Membershipで読む。
+import { request, settle, type Part } from "../../api";
 import { workspaceApiPath } from "../../paths";
-import { projectsApiPath } from "../../projectArchive";
-import type { Project } from "../../projectForm";
-import type { DirectionDecision } from "../../directionDecisionForm";
+import type { DirectionDecision } from "../decision";
 import { evaluationsPath, type OutcomeEvaluation, type OutcomeExecutionRecord } from "../execution";
+import { splitIntents, type Intent } from "../intent";
+import { splitOutcomes, type Outcome } from "../outcome";
 import type { TargetExecutionRecord } from "./direction";
 import {
   buildOutcomeExecution,
@@ -21,16 +19,6 @@ import {
   type TargetExecutionsCursor,
   type TargetWork,
 } from "./overview";
-import { withProjectAccess, type WorkspaceProject } from "./workspace";
-
-/** 画面の各部分の取得結果。部分ごとに失敗を出し、取得失敗を空として表示しない。 */
-export type Part<T> = { ok: true; value: T } | { ok: false; error: string };
-
-export const settle = <T,>(promise: Promise<T>, notFound: string): Promise<Part<T>> =>
-  promise.then(
-    (value): Part<T> => ({ ok: true, value }),
-    (reason: unknown): Part<T> => ({ ok: false, error: loadFailureMessage(classifyError(reason), notFound) }),
-  );
 
 /** Active Outcomeの現在地と、その本文（成功条件等）。 */
 export type DirectionPosition = OutcomePosition & { detail: Outcome };
@@ -45,7 +33,6 @@ export type DirectionData = {
   otherOutcomes: Outcome[];
   pendingPastOutcomes: OverviewOutcome[] | null;
 };
-export type OverviewProject = { project: WorkspaceProject; canOpen: boolean };
 
 /** Active IntentのDirection Decisionが根拠にしたEvaluation（判断済みの判定に使う）。取得できなければnull。 */
 export const loadDecidedEvaluations = (workspaceId: string, intentId: string): Promise<Set<string> | null> =>
@@ -124,17 +111,6 @@ export const loadDirection = async (workspaceId: string): Promise<DirectionData>
   const [resolved, pendingPastOutcomes] = await Promise.all([Promise.all(positions), loadPendingPastOutcomes(workspaceId, past, decidedEvaluations)]);
   return { activeIntent, pastIntents, outcomes: resolved, otherOutcomes: past, pendingPastOutcomes };
 };
-
-/** 所属Project（active・archived）と、HumanがProject Membershipで開けるか。archivedのTargetも名前を引けるようにする。 */
-export const loadProjects = (workspaceId: string): Promise<OverviewProject[]> =>
-  Promise.all(
-    (["active", "archived"] as const).map((status) =>
-      Promise.all([
-        request<{ projects: WorkspaceProject[] }>(workspaceApiPath(workspaceId, `/projects${status === "archived" ? "?status=archived" : ""}`)),
-        request<{ projects: Project[] }>(projectsApiPath(status)),
-      ]).then(([workspace, member]) => withProjectAccess(workspace.projects, new Set(member.projects.map(({ id }) => id)))),
-    ),
-  ).then((lists) => lists.flat());
 
 /** Web API `GET /api/workspaces/:workspaceId/outcomes/:outcomeId/target-executions`の応答。Summary・EvidenceはTarget Project別のまま。 */
 export type TargetExecutions = {

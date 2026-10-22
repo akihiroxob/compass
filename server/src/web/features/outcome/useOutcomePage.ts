@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiError, classifyError, loadFailureMessage, request } from "../../api";
-import type { Outcome } from "../../outcomeForm";
+import type { Outcome } from "./outcome";
 import { workspaceApiPath } from "../../paths";
 
 /** サーバーのNOT_FOUNDメッセージ（先頭語がWorkspace / Intent / Outcomeで異なる）から、どれが存在しないかを区別する。 */

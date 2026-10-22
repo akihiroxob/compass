@@ -2,9 +2,8 @@ import { useEffect, useId, useReducer, useRef, useState, type ReactNode } from "
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { intentPath, researchRequestPath, taskPath } from "../../paths";
+import { intentPath, researchRequestPath, taskPath, workspaceOutcomePath, workspacePath } from "../../paths";
 import { describePrincipal, formatTime } from "../execution";
-import { workspaceOutcomePath, workspacePath } from "../workspace/workspace";
 import {
   activitiesPath,
   activityPath,

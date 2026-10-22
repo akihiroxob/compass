@@ -1,31 +1,34 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { request } from "../../api";
+import { request, settle, type Part } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { intentPath, outcomePath, researchRequestPath } from "../../paths";
-import { canOperateWorkspace } from "../../permissions";
+import { intentPath, outcomePath, projectViewPath, researchRequestPath, workspaceOutcomePath, workspacePath, workspaceProjectsPath } from "../../paths";
 import { statusBadgeClass, type StatusTone } from "../../statusTone";
+import { canOperateWorkspace } from "../access";
 import { activitiesPath, RecentActivityList, type ActivityPage, type ActivitySummary } from "../activity";
-import { formatTime } from "../execution";
-import type { HumanRole } from "../member";
-import { projectViewPath } from "../project/overview";
 import {
   attentionSummary,
   evaluationStage,
+  loadDirection,
+  loadOpenResearch,
+  noTargetNote,
   pickOpenProject,
   planWorkspaceAttention,
   projectTargetNote,
+  stageLabels,
+  WorkCounts,
   type AttentionItem,
   type AttentionKind,
   type AttentionRef,
-  type EvaluationStage,
+  type DirectionData,
   type OutcomePosition,
   type OverviewResearch,
   type TargetWork,
-} from "./overview";
-import { noTargetNote } from "./direction";
-import { loadDirection, loadOpenResearch, loadProjects, settle, type DirectionData, type OverviewProject, type Part } from "./directionData";
-import { workspaceOutcomePath, workspacePath, workspaceProjectsPath, type Workspace } from "./workspace";
+} from "../direction";
+import { formatTime } from "../execution";
+import type { HumanRole } from "../member";
+import type { Workspace } from "./workspace";
+import { loadProjects, type OverviewProject } from "./workspaceProjects";
 
 type OverviewData = {
   direction: Part<DirectionData>;
@@ -51,15 +54,6 @@ const loadOverview = async (workspaceId: string): Promise<OverviewData> => {
   return { direction, research, projects, activities, fetchedAt: Date.now() };
 };
 
-export const stageLabels: Record<EvaluationStage, { label: string; tone: StatusTone }> = {
-  decided: { label: "判断済み", tone: "done" },
-  decision_pending: { label: "評価済み・判断待ち", tone: "attention" },
-  evaluation_pending: { label: "評価待ち", tone: "waiting" },
-  no_targets: { label: "Target未設定", tone: "attention" },
-  replan_required: { label: "再計画待ち", tone: "warning" },
-  awaiting_execution: { label: "実行・還流待ち", tone: "progress" },
-};
-
 const attentionLabels: Record<AttentionKind, { label: string; tone: StatusTone }> = {
   intent: { label: "Intent未登録", tone: "attention" },
   next_direction: { label: "次の判断待ち", tone: "attention" },
@@ -77,8 +71,6 @@ const attentionLabels: Record<AttentionKind, { label: string; tone: StatusTone }
   reflection: { label: "還流待ち", tone: "waiting" },
   evaluation: { label: "評価待ち", tone: "waiting" },
 };
-
-const workCountLabels = { todo: "未着手", doing: "作業中", in_review: "レビュー待ち", wait_accept: "受入待ち", rejected: "差戻し", accepted: "受入済み" } as const;
 
 /** Project名とリンク。Project Membershipが無ければリンクにせず理由を出す。一覧を取得できなければIDだけを出す。 */
 export const ProjectName = ({ projectId, projects, view }: { projectId: string; projects: Part<OverviewProject[]>; view: "overview" | "work" }) => {
@@ -99,20 +91,6 @@ const OutcomeName = ({ workspaceId, outcome }: { workspaceId: string; outcome: O
 
 export const openProjects = (projects: Part<OverviewProject[]>) =>
   projects.ok ? projects.value.map(({ project, canOpen }) => ({ id: project.id, status: project.status, canOpen })) : [];
-
-/** Target 1件のStory件数と、状態別のTask件数（0件の状態は出さない）。 */
-export const WorkCounts = ({ work }: { work: TargetWork["work"] }) => {
-  const counts = work ? (Object.keys(workCountLabels) as (keyof typeof workCountLabels)[]).filter((key) => work.taskCounts[key] > 0) : [];
-  return (
-    <small>
-      {work === null
-        ? "Storyはまだありません"
-        : counts.length === 0 && work.taskCounts.canceled === 0
-        ? <>Story {work.storyCount}件 ・ Taskはまだありません</>
-        : <>Story {work.storyCount}件{counts.map((key) => <span key={key}> ・ {workCountLabels[key]} {work.taskCounts[key]}</span>)}</>}
-    </small>
-  );
-};
 
 export const TargetRow = ({ target, projects }: { target: TargetWork; projects: Part<OverviewProject[]> }) => (
   <li>

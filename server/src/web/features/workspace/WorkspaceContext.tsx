@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import { classifyError, loadFailureMessage, request, type FetchLike } from "../../api";
-import type { Project } from "../../projectForm";
+import type { Project } from "../project";
 import { parseShellLocation, resolveCurrentWorkspace, type ShellLocation, type Workspace } from "./workspace";
 
 const rememberedKey = "compass.workspaceId";

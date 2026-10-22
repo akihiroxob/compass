@@ -7,14 +7,14 @@
 | 責務 | 配置 |
 | --- | --- |
 | app（起動・routing・Provider・画面合成） | `app/`。`main.tsx`（起動・`BrowserRouter`）、`App.tsx`（routing）、`AppLayout.tsx`（route layout・Provider・Shellの合成）、`NotFoundPage.tsx`（未定義のURL） |
-| features（機能固有のUI・hook・API・型） | `features/<機能>/`。他Featureは`index.ts`の公開入口から使う |
+| features（機能固有のUI・hook・API・型・validation） | `features/<機能>/`。他Featureは公開入口（`index.ts`・`model.ts`）から使う |
 | 共通UI（機能に依存しない基本部品） | `components/ui/`。公開入口は`components/ui/index.ts` |
-| 共通の組合せUI | `components/`（Shell・StateCard・ProjectOperationGate等） |
-| 共通処理 | `web`直下の`.ts`（`api.ts`・`paths.ts`・`permissions.ts`等） |
+| 共通の組合せUI | `components/`（Shell・StateCard・FormErrorSummary・ListInputs・ReasonPanel） |
+| 共通処理 | `web`直下の`.ts`（`api.ts`の汎用transport・エラー分類・部分取得`settle`、`paths.ts`の画面URL・Web API path、`statusTone.ts`、`useHashTarget.ts`） |
 | style・トークン | `styles/`（`_tokens.scss` → `_base` → `_layout` → `_components` → `_features`） |
 | 検査 | `npm run check:ui`（`server/tests/uiStructure.test.ts`・`server/tests/support/uiStructure.ts`） |
 
-依存はapp → Feature → 共通層（`components/`・`web`直下）の向きだけにする。appは各Featureの公開入口と共通層を使ってよい。FeatureはappとShellの枠に依存せず、共通層はFeature・appに依存しない。`components/ui`は`react`・`react-router-dom`と同じディレクトリ内だけに依存し、Feature・app・API・業務概念を参照しない。
+依存はapp → Feature → 共通層（`components/`・`web`直下）の向きだけにする。共通層は業務の型・判定を持たず、共通UIは自身のpropsの形だけを定義する（例: `ListInputs`のリンク行）。appは各Featureの公開入口と共通層を使ってよい。FeatureはappとShellの枠に依存せず、共通層はFeature・appに依存しない。`components/ui`は`react`・`react-router-dom`と同じディレクトリ内だけに依存し、Feature・app・API・業務概念を参照しない。
 
 ## 入口・Provider・layout
 
@@ -25,9 +25,27 @@
 | Session無しの枠 | `app/AppLayout.tsx`の`PublicLayout` | Shellのheaderに`SessionMenu`（auth）だけを出す。Session復元中・接続失敗は、同じ枠（`PublicFrame`）を`AuthGate`の`layout`として渡して表示する |
 | ログイン後の枠 | `app/AppLayout.tsx`の`AuthenticatedLayout` | `AuthGate`（auth。Sessionの復元・未ログイン時のログイン画面への移動）→ `WorkspaceNavigationProvider`（workspace。URLから現在のWorkspace）→ Shellの順に合成し、Shellの`navigation`へ`WorkspaceSwitcher`・`WorkspaceNav`、`footer`へ参加中のProject、`session`へ`SessionMenu`を渡す。画面は`Outlet`へ描画する |
 | 枠の表示 | `components/Shell.tsx` | brand・sidebar・本文の配置とskip linkだけを持つ表示部品。`navigation`を渡すとsidebar、省略するとheaderだけになる |
-| 認可ゲート | `components/ProjectOperationGate.tsx`・`WorkspaceDirectionGate.tsx` | 作成・編集の画面を直接開いたときに操作できなければ、フォームの代わりに理由と戻り先を出す。枠はroute layoutが持つ |
+| 認可ゲート | `features/access/`の`ProjectOperationGate`・`WorkspaceDirectionGate` | 作成・編集の画面を直接開いたときに操作できなければ、フォームの代わりに理由と戻り先を出す。枠はroute layoutが持つ |
 
 Featureの画面は`<main>`から始まる本文だけを返し、Shell・Providerを自分で包まない。ログイン後の画面間の移動ではShellとProviderを保持し、本文だけを差し替える。
+
+## Featureと公開入口
+
+| Feature | 所有するもの |
+| --- | --- |
+| `access` | Project・Workspaceの操作可否（`permissions.ts`・`projectAccess.ts`）、取得hook（`useProjectAccess.ts`・`useWorkspaceDirection.ts`）、認可ゲート |
+| `direction` | Directionの現在地・要対応・貢献の判定（`direction.ts`・`overview.ts`）と取得（`directionData.ts`）、評価段階の表示（`DirectionStatus.tsx`）。Workspaceの概要・方向とProjectの概要が使う |
+| `project` | Projectの型・入力検証（`project.ts`）、アーカイブ（`projectArchive.ts`）、Project詳細・一覧 |
+| `intent`・`outcome`・`decision`・`research`・`adr` | 各Directionの型・入力検証・変換（`intent.ts`・`outcome.ts`・`decision.ts`・`research.ts`・`adr.ts`）と画面 |
+| `workspace` | Workspaceの型・ナビゲーション（`workspace.ts`）・入力検証（`workspaceForm.ts`）・所属Projectの取得（`workspaceProjects.ts`）と画面 |
+| `execution`・`activity`・`agent`・`grant`・`credential`・`member`・`auth` | 各機能の型・API取得・画面 |
+
+公開入口は2種類とする。
+
+- `index.ts(x)`: UIを含む入口。appと他Featureの画面が使う。
+- `model.ts`: 純粋な型・関数だけの入口。他Featureの純関数のmodule（`.ts`）が読み、`.tsx`へ推移的に依存しない。必要なFeatureだけが持つ（`access`・`credential`・`direction`・`execution`・`grant`）。`index.ts`は`model.ts`を再exportする。
+
+Feature内のfileは自身の`index`を経由せず内部fileを直接参照する。Feature間の依存は非循環にする。逆向きの連携が必要な場合は、構造型（必要な項目だけの型）で受けるか、appがslotで合成する（例: Task詳細のWorkspaceパンくずは`app/App.tsx`が`TaskDetailPage`の`workspaceCrumbs`へ`WorkspaceBreadcrumbItems`を渡す）。テストはFeatureの内部fileを直接読んでよい（`server/tests`は検査対象外）。
 
 ## 基本部品
 
@@ -53,7 +71,7 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 
 rootの`npm run check:ui`は`server`の同名scriptへ委譲し、検査自体をfixtureで確かめたうえで実際の`server/src/web`を検査する。
 
-- 依存方向（web全体の`.ts`・`.tsx`）: 共通層からFeature・app、Featureからappへの依存がない。他Featureへは`features/<機能>/index.ts(x)`の公開入口だけを使う。`import`・`export ... from`（型だけを含む）・文字列の`import()`・`require()`・`import("x")`型を、TypeScriptのbundler解決とweb tsconfigの`paths`で実際のfileへ解決して判定するため、alias・再exportの経由も検出する。web内で解決できないlocal importと文字列でない`import()`は失敗にする。app・Feature・共通層のいずれかのsourceが無い（空走査）と失敗する。
+- 依存方向（web全体の`.ts`・`.tsx`）: 共通層からFeature・app、Featureからappへの依存がない。他Featureへは`features/<機能>/index.ts(x)`・`model.ts`の公開入口だけを使う。Feature内から自身の`index`を経由しない。`model.ts`から`.tsx`へ推移的に辿れない。公開入口を経由したものを含め、Feature間の依存が循環しない（循環の各辺のimportを示す）。`import`・`export ... from`（型だけを含む）・文字列の`import()`・`require()`・`import("x")`型を、TypeScriptのbundler解決とweb tsconfigの`paths`で実際のfileへ解決して判定するため、alias・再exportの経由も検出する。web内で解決できないlocal importと文字列でない`import()`は失敗にする。app・Feature・共通層のいずれかのsourceが無い（空走査）と失敗する。
 - `components/ui`: Feature・app等への依存がない。
 - 保護対象の範囲: `<button>`、基本部品のclass（`button`・`secondary-button`・`compact`・`view-switch`・`view-switch-item`・`list-switch`）を直接付けた要素、基本部品への`className`・`style`がない。`.list-toolbar`内に`a`・`Link`・`NavLink`・`button`を直接置かず、部品はすべて同じ`size`を文字列で指定する。保護対象のfile・componentが見つからなければ失敗する。
 - SCSS: `control-size`の全宣言（補間`#{$size}`を含む）の値が`0`か`--control-*`トークンだけで、`min-height`・`padding`・`font-size`を定め、md・smのトークンが定義されている。`.view-switch`・`.view-switch-item`と`.list-toolbar`内のbutton類に外側余白・固定sizeを足さない。廃止した`.list-switch`を使わない。
@@ -66,7 +84,7 @@ rootの`npm run check:ui`は`server`の同名scriptへ委譲し、検査自体�
 | `features/workspace/WorkspacePages.tsx` | `ProjectsContent`（WorkspaceのProject一覧） |
 | `features/execution/ExecutionSection.tsx` | `TaskFilterSwitch`（Taskの絞り込み） |
 
-他Featureの内部fileへの既存の依存は、`knownCrossFeatureImports`に`from -> to`の組で個別に列挙する（Featureの公開入口の整理を所有する後続Taskで解消する）。一覧に無い依存は失敗し、解消した依存が一覧に残っていても失敗する。
+他Featureの内部fileへの依存に例外は設けない。
 
 viteの`resolve.alias`（現在は未使用）、SCSSの依存、実行時に組み立てる依存は機械的に検査しない。
 

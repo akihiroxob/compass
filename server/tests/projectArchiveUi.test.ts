@@ -6,7 +6,7 @@ import type { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/container.ts";
 import { classifyError, request } from "../src/web/api.ts";
-import type { Project } from "../src/web/projectForm.ts";
+import type { Project } from "../src/web/features/project/project.ts";
 import {
   archiveInit,
   archiveProjectPath,
@@ -16,7 +16,7 @@ import {
   projectsApiPath,
   summarizeReason,
   validateArchiveReason,
-} from "../src/web/projectArchive.ts";
+} from "../src/web/features/project/projectArchive.ts";
 import { chooseHomeWorkspace, resolveCurrentWorkspace, type Workspace } from "../src/web/features/workspace/workspace.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
@@ -29,7 +29,7 @@ type WorkspaceDirectionState = { access: string; workspaceId: string | null };
 const loadProjectWorkspaceDirection = async (projectId: string, fetchImpl: FetchLike): Promise<WorkspaceDirectionState> => {
   const web = register({ namespace: "project-archive-ui", tsconfig: fileURLToPath(new URL("../src/web/tsconfig.json", import.meta.url)) });
   try {
-    const module = await web.import("../src/web/useWorkspaceDirection.ts", import.meta.url) as {
+    const module = await web.import("../src/web/features/access/useWorkspaceDirection.ts", import.meta.url) as {
       loadProjectWorkspaceDirection: (projectId: string, fetchImpl: FetchLike) => Promise<WorkspaceDirectionState>;
     };
     return await module.loadProjectWorkspaceDirection(projectId, fetchImpl);

@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { classifyError, loadFailureMessage, request, type FetchLike } from "./api";
 import type { HumanRole } from "@compass/access/domain";
+import { classifyError, loadFailureMessage, request, type FetchLike } from "../../api";
 import { canOperateWorkspace } from "./permissions";
 import { projectOperationAccess, type ProjectOperationAccess } from "./projectAccess";
-import type { Project } from "./projectForm";
 
 export type WorkspaceDirectionState =
   | { access: "loading"; workspaceId: null }
@@ -19,7 +18,7 @@ export const workspaceDirectionAccess = (workspace: { status: "active" | "archiv
  * Directionの参照・変更はWorkspace Membershipで認可され、Project Membershipからは継承しない。
  */
 export const loadProjectWorkspaceDirection = (projectId: string, fetchImpl?: FetchLike): Promise<WorkspaceDirectionState> =>
-  request<{ project: Project }>(`/api/projects/${projectId}`, undefined, fetchImpl)
+  request<{ project: { workspaceId: string } }>(`/api/projects/${projectId}`, undefined, fetchImpl)
     .then(({ project }) =>
       request<{ workspace: { status: "active" | "archived" }; myRole: HumanRole }>(`/api/workspaces/${project.workspaceId}`, undefined, fetchImpl)
         .then(({ workspace, myRole }): WorkspaceDirectionState => ({ access: workspaceDirectionAccess(workspace, myRole), workspaceId: project.workspaceId })),

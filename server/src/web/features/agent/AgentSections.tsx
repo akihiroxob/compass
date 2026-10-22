@@ -2,17 +2,13 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { taskPath } from "../../paths";
-import { canOperate, canOperateWorkspace } from "../../permissions";
-import type { Project } from "../../projectForm";
+import { projectViewPath, taskPath, workspacePath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
-import { credentialsPath, credentialStatusTones, scopeCredentialsPath, type Credential } from "../credential/credentials";
+import { canOperate, canOperateWorkspace } from "../access";
+import { credentialsPath, credentialStatusTones, scopeCredentialsPath, type Credential } from "../credential";
 import { executionPath, formatTime, taskStatusLabels, taskStatusTones, type ExecutionOverview } from "../execution";
-import { agentRoleAnchorId, agentRoleDescriptions, grantRoleLabels, grantsPath, scopeGrantsPath } from "../grant";
-import type { AgentRole } from "../grant/grants";
+import { agentRoleAnchorId, agentRoleDescriptions, grantRoleLabels, grantsPath, scopeGrantsPath, type AgentRole } from "../grant";
 import type { HumanRole } from "../member";
-import { projectViewPath } from "../project/overview";
-import { workspacePath, type Workspace, type WorkspaceProject } from "../workspace/workspace";
 import {
   agentRolePath,
   claimsWithoutGrant,
@@ -168,7 +164,7 @@ const workspaceNotFound = "Workspaceが見つからないか、このWorkspace�
  * WorkspaceのDirection Role（Strategist・Researcher・Evaluator）。Workspace GrantとWorkspace Credentialだけから表示し、
  * Project Grantから継承しない。Direction RoleはWork Claimを持たないため、保持中のTaskを作らない。
  */
-export const WorkspaceAgentsSection = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
+export const WorkspaceAgentsSection = ({ workspace, myRole }: { workspace: { id: string }; myRole: HumanRole }) => {
   const showCredentials = canOperateWorkspace(myRole, "credential.manage");
   const { loaded, error, pending, reload } = useScopeAgents(
     `${workspace.id}/${showCredentials}`,
@@ -199,13 +195,16 @@ export const WorkspaceAgentsSection = ({ workspace, myRole }: { workspace: Works
   );
 };
 
+/** 表示に使うProjectの項目（WorkspaceのProject一覧の1件）。 */
+type AgentProject = { id: string; name: string };
+
 /** Project 1件のExecution Role。Project Membershipで読み、Credentialはそのprojectのadministrator以上にだけ出す。 */
-const ProjectAgents = ({ project }: { project: WorkspaceProject }) => {
+const ProjectAgents = ({ project }: { project: AgentProject }) => {
   const { loaded, error, pending, reload } = useScopeAgents(
     project.id,
     async (now) => {
       const [{ myRole }, { grants }, overview] = await Promise.all([
-        request<{ project: Project; myRole: HumanRole }>(`/api/projects/${project.id}`),
+        request<{ myRole: HumanRole }>(`/api/projects/${project.id}`),
         request<{ grants: ScopeGrant[] }>(grantsPath(project.id)),
         request<ExecutionOverview>(executionPath(project.id)),
       ]);
@@ -243,7 +242,7 @@ const ProjectAgents = ({ project }: { project: WorkspaceProject }) => {
  * ProjectのExecution Role（Manager・Worker・Reviewer）。Project GrantとTaskのClaimをProjectごとに出す。
  * Project詳細はProject Membershipで認可するため、Membershipの無いProjectは理由だけを出す。
  */
-export const ProjectAgentsSection = ({ projects }: { projects: { project: WorkspaceProject; canOpen: boolean }[] | null; }) => (
+export const ProjectAgentsSection = ({ projects }: { projects: { project: AgentProject; canOpen: boolean }[] | null; }) => (
   <section className="detail-section" aria-labelledby="project-execution-agents-heading">
     <h2 id="project-execution-agents-heading">ProjectのExecution Role <span className={statusBadgeClass("muted")}>Project</span></h2>
     <p className="section-note">

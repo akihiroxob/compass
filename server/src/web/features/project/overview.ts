@@ -1,7 +1,7 @@
 // Project詳細の概要（S10-03）の判定。表示から分けた純関数で、導線の表示だけを決める（拒否は常にserverが行う）。
 // Projectは実行境界で、貢献するOutcomeは所属WorkspaceのDirectionから読む。テストからも読み込むため、純関数のmodule以外をimportしない。
-import { contributionNote } from "../workspace/direction.ts";
-import { evaluationStage, type EvaluationStage, type OutcomeExecution, type OutcomePosition, type OverviewOutcome, type TargetWork } from "../workspace/overview.ts";
+import { projectViews, type ProjectView } from "../../paths.ts";
+import { contributionNote, evaluationStage, type EvaluationStage, type OutcomeExecution, type OutcomePosition, type OverviewOutcome, type TargetWork } from "../direction/model.ts";
 
 /** 判定に使うTaskの項目（Executionの`ExecutionTask`の一部）。 */
 export type OverviewTask = {
@@ -12,19 +12,13 @@ export type OverviewTask = {
 /** 概要で判定に使うProject scopeのAgentのRole。 */
 export type OverviewRole = "manager" | "worker" | "reviewer" | "runtime";
 
-// ---- Project詳細のview。`?view=`で表し、再読込・共有・戻るで同じviewへ戻る。 ----
+// ---- Project詳細のview。`?view=`で表し、再読込・共有・戻るで同じviewへ戻る（pathは`paths.ts`の`projectViewPath`）。 ----
 
-export const projectViews = ["overview", "direction", "work", "records", "settings"] as const;
-export type ProjectView = (typeof projectViews)[number];
 export const projectViewLabels: Record<ProjectView, string> = { overview: "概要", direction: "方向", work: "実行", records: "記録", settings: "設定" };
 
 /** 指定が無い・不正な値は「概要」。 */
 export const parseProjectView = (value: string | null): ProjectView =>
   projectViews.find((view) => view === value) ?? "overview";
-
-/** viewのURL。`hash`はview内の要素（Task・Role行など）のid。 */
-export const projectViewPath = (projectId: string, view: ProjectView, hash?: string) =>
-  `/projects/${projectId}?view=${view}${hash ? `#${hash}` : ""}`;
 
 // ---- 現在地のWork。各Taskをどれか1つの区分に入れる。 ----
 

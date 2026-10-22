@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { projectOperationDeniedMessage } from "../projectAccess";
-import { useProjectWorkspaceDirection } from "../useWorkspaceDirection";
-import { ErrorState, Loading } from "./StateCard";
+import { ErrorState, Loading } from "../../components/StateCard";
+import { projectOperationDeniedMessage } from "./projectAccess";
+import { useProjectWorkspaceDirection } from "./useWorkspaceDirection";
 
 /**
  * Direction（Intent・Outcome）の作成・編集の画面をURLで直接開いた場合も、所属WorkspaceのstatusとWorkspace Membershipの`myRole`で

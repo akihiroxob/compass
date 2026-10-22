@@ -195,40 +195,15 @@ const layerOf = (path: string): UiLayer => {
   const feature = /^features\/([^/]+)\//.exec(path);
   return feature ? { kind: "feature", name: feature[1] } : { kind: "common" };
 };
-/** Featureの公開入口（`features/<名前>/index.ts(x)`）。他Featureはここだけを参照する。 */
-const isPublicEntry = (path: string) => /^features\/[^/]+\/index\.tsx?$/.test(path);
+/**
+ * Featureの公開入口。`index.ts(x)`はUIを含む入口、`model.ts`は純粋な型・関数だけの入口（テスト・他Featureの純関数のmoduleが読む）。
+ * 他Featureはここだけを参照する。
+ */
+const isPublicEntry = (path: string) => /^features\/[^/]+\/(index\.tsx?|model\.ts)$/.test(path);
+const isIndexEntry = (path: string) => /^features\/[^/]+\/index\.tsx?$/.test(path);
+const isModelEntry = (path: string) => /^features\/[^/]+\/model\.ts$/.test(path);
 /** bundlerが解決するstyle・asset。依存方向の検査の対象外。 */
 const assetSpecifier = /\.(scss|sass|css|svg|png|jpe?g|webp|gif)(\?.*)?$/;
-
-/**
- * 他Featureの内部fileへの既知の依存（`from -> to`）。公開入口と循環の整理は後続Task（03 機能固有の型・hook・API・validationを
- * Featureへ集約し、公開入口を検査する）が所有する。ここに無い依存は失敗し、解消した依存が残っていても失敗する（一覧を増やさない）。
- */
-export const knownCrossFeatureImports: string[] = [
-  "features/activity/ActivitySection.tsx -> features/workspace/workspace.ts",
-  "features/agent/AgentSections.tsx -> features/credential/credentials.ts",
-  "features/agent/AgentSections.tsx -> features/grant/grants.ts",
-  "features/agent/AgentSections.tsx -> features/project/overview.ts",
-  "features/agent/AgentSections.tsx -> features/workspace/workspace.ts",
-  "features/agent/agents.ts -> features/credential/credentials.ts",
-  "features/agent/agents.ts -> features/execution/execution.ts",
-  "features/agent/agents.ts -> features/grant/grants.ts",
-  "features/execution/TaskDetailPage.tsx -> features/project/overview.ts",
-  "features/execution/TaskDetailPage.tsx -> features/workspace/WorkspaceContext.tsx",
-  "features/execution/TaskDetailPage.tsx -> features/workspace/workspace.ts",
-  "features/execution/TaskOutcomeSection.tsx -> features/workspace/workspace.ts",
-  "features/project/ProjectDetailPage.tsx -> features/workspace/workspace.ts",
-  "features/project/ProjectFormPages.tsx -> features/workspace/workspace.ts",
-  "features/project/ProjectListPage.tsx -> features/workspace/workspace.ts",
-  "features/project/ProjectOverview.tsx -> features/workspace/WorkspaceOverview.tsx",
-  "features/project/ProjectOverview.tsx -> features/workspace/directionData.ts",
-  "features/project/ProjectOverview.tsx -> features/workspace/workspace.ts",
-  "features/project/overview.ts -> features/workspace/direction.ts",
-  "features/project/overview.ts -> features/workspace/overview.ts",
-  "features/workspace/WorkspaceDirection.tsx -> features/intent/IntentFacts.tsx",
-  "features/workspace/WorkspaceOverview.tsx -> features/project/overview.ts",
-  "features/workspace/WorkspacePages.tsx -> features/project/overview.ts",
-];
 
 /** import元の指定。`import`・`export ... from`（型だけを含む）・文字列の`import()`・`require()`・`import("x")`型を読む。 */
 const moduleSpecifiers = (tree: ts.SourceFile) => {
@@ -251,7 +226,7 @@ const moduleSpecifiers = (tree: ts.SourceFile) => {
 };
 
 /** tsconfigの`paths`（`server/src/web`からの相対）。aliasを経由した依存もimport先のfileで判定する。 */
-export type UiDependencyOptions = { paths?: Record<string, string[]>; knownCrossFeatureImports?: string[] };
+export type UiDependencyOptions = { paths?: Record<string, string[]> };
 
 const virtualRoot = "/web";
 
@@ -259,9 +234,10 @@ const virtualRoot = "/web";
  * web全体の依存方向の検査。共通層からapp・Featureへ、Featureからappへ、他Featureの公開入口以外への依存を検出する。
  * importはTypeScriptのbundler解決（tsconfigの`paths`を含む）で実際のfileへ解決するため、alias・再exportの経由も同じ規則で判定する。
  * 解決できないlocal import・文字列でない`import()`は迂回になりうるため失敗にする。app・Feature・共通層のいずれかが空でも失敗する。
+ * さらに、Feature内から自身の`index`を経由しないこと、`model.ts`が`.tsx`へ推移的に依存しないこと、公開入口を経由したものを含めて
+ * Feature間の依存が循環しないことを検査する。
  */
 export const checkUiDependencies = (sources: UiSource[], options: UiDependencyOptions = {}): string[] => {
-  const known = options.knownCrossFeatureImports ?? knownCrossFeatureImports;
   const code = sources.filter((source) => /\.tsx?$/.test(source.path) && !source.path.endsWith(".d.ts"));
   const errors: string[] = [];
   for (const kind of ["app", "feature", "common"] as const)
@@ -280,7 +256,9 @@ export const checkUiDependencies = (sources: UiSource[], options: UiDependencyOp
     ...(options.paths ? { baseUrl: virtualRoot, paths: options.paths } : {}),
   };
   const aliasPrefixes = Object.keys(options.paths ?? {}).map((pattern) => pattern.split("*")[0]);
-  const used = new Set<string>();
+  /** 解決したweb内の依存（file → file）と、Feature間の依存（Feature → Feature → 根拠のfileの組）。 */
+  const graph = new Map<string, Set<string>>();
+  const featureEdges = new Map<string, Map<string, string>>();
   for (const source of code) {
     const tree = ts.createSourceFile(source.path, source.text, ts.ScriptTarget.Latest, true, source.path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
     const from = layerOf(source.path);
@@ -296,17 +274,60 @@ export const checkUiDependencies = (sources: UiSource[], options: UiDependencyOp
         continue;
       }
       const to = layerOf(target);
+      graph.set(source.path, (graph.get(source.path) ?? new Set()).add(target));
+      if (from.kind === "feature" && to.kind === "feature" && from.name !== to.name) {
+        const edges = featureEdges.get(from.name) ?? new Map<string, string>();
+        if (!edges.has(to.name)) edges.set(to.name, `${source.path} -> ${target}`);
+        featureEdges.set(from.name, edges);
+      }
+      if (from.kind === "feature" && to.kind === "feature" && from.name === to.name && isIndexEntry(target) && !isIndexEntry(source.path))
+        errors.push(`${at}: Feature内から自身の公開入口（${target}）を経由しない。内部fileを直接参照する`);
       if (from.kind === "common" && to.kind !== "common") errors.push(`${at}: 共通層から${to.kind === "app" ? "app" : "Feature"}へ依存しない（${target}）`);
       else if (from.kind === "feature" && to.kind === "app") errors.push(`${at}: Featureからappへ依存しない（${target}）。画面の合成はappのroute layoutで行う`);
-      else if (from.kind === "feature" && to.kind === "feature" && from.name !== to.name && !isPublicEntry(target)) {
-        const edge = `${source.path} -> ${target}`;
-        if (known.includes(edge)) used.add(edge);
-        else errors.push(`${at}: 他Featureの内部fileへ依存しない（${target}）。features/${to.name}/index.tsの公開入口を使う`);
-      }
+      else if (from.kind === "feature" && to.kind === "feature" && from.name !== to.name && !isPublicEntry(target))
+        errors.push(`${at}: 他Featureの内部fileへ依存しない（${target}）。features/${to.name}/index.ts（純関数のmoduleからはmodel.ts）の公開入口を使う`);
     }
   }
-  for (const edge of known) if (!used.has(edge)) errors.push(`既知の依存 ${edge} は見つからない。解消したら一覧から削除する`);
+  for (const source of code.filter((candidate) => isModelEntry(candidate.path))) {
+    const component = reachable(graph, source.path).find((path) => path.endsWith(".tsx"));
+    if (component) errors.push(`${source.path}: model.tsは純粋な公開入口のため、.tsxへ推移的に依存しない（${component}）`);
+  }
+  for (const cycle of featureCycles(featureEdges))
+    errors.push(`Featureの依存が循環する（${cycle.map(([name]) => name).join(" -> ")} -> ${cycle[0][0]}）: ${cycle.map(([, evidence]) => evidence).join(", ")}`);
   return errors;
+};
+
+/** `start`から辿れるfile（`start`を除く）。 */
+const reachable = (graph: ReadonlyMap<string, ReadonlySet<string>>, start: string): string[] => {
+  const seen = new Set<string>([start]);
+  const queue = [start];
+  while (queue.length > 0) for (const next of graph.get(queue.shift()!) ?? []) if (!seen.has(next)) { seen.add(next); queue.push(next); }
+  seen.delete(start);
+  return [...seen].sort();
+};
+
+/** Feature間の循環。同じFeatureの組の循環は1回だけ、各辺の根拠（最初に見つけたimport）とともに返す。 */
+const featureCycles = (edges: ReadonlyMap<string, ReadonlyMap<string, string>>): [string, string][][] => {
+  const cycles: [string, string][][] = [];
+  const reported = new Set<string>();
+  const done = new Set<string>();
+  const visit = (name: string, stack: string[]) => {
+    if (done.has(name)) return;
+    const index = stack.indexOf(name);
+    if (index >= 0) {
+      const members = stack.slice(index);
+      const key = [...members].sort().join(",");
+      if (!reported.has(key)) {
+        reported.add(key);
+        cycles.push(members.map((member, i) => [member, edges.get(member)!.get(members[(i + 1) % members.length])!]));
+      }
+      return;
+    }
+    for (const next of [...(edges.get(name)?.keys() ?? [])].sort()) visit(next, [...stack, name]);
+    done.add(name);
+  };
+  for (const name of [...edges.keys()].sort()) visit(name, []);
+  return cycles;
 };
 
 /** web（`server/src/web/tsconfig.json`）の`paths`。`baseUrl`が無ければtsconfigのdirectoryを基準にする。 */

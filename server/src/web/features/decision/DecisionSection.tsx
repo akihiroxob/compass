@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { directionDecisionTypeLabels, type DirectionDecision } from "../../directionDecisionForm";
+import { directionDecisionTypeLabels, type DirectionDecision } from "./decision";
 import { outcomePath, workspaceApiPath } from "../../paths";
 
 const DecisionCard = ({ projectId, decision }: { projectId: string; decision: DirectionDecision }) => (

@@ -2,11 +2,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import type { Intent } from "../../intentForm";
-import { outcomeEmptyMessage, outcomeStatusLabels, splitOutcomes, type Outcome } from "../../outcomeForm";
-import type { ProjectOperationAccess } from "../../projectAccess";
 import { outcomePath, workspaceApiPath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
+import type { ProjectOperationAccess } from "../access";
+import { outcomeEmptyMessage, outcomeStatusLabels, splitOutcomes, type Outcome } from "./outcome";
 
 // ---- Outcome（Step 3）。Evaluation・Execution・Decision・Research・Strategistは未実装のため、達成率や進行状況を表示しない。 ----
 
@@ -25,7 +24,7 @@ export const ActiveOutcomes = ({ projectId, workspaceId, intentId }: { projectId
   return <div className="outcome-block"><p className="section-label">Active Outcomes</p>{error ? <p className="unset" role="alert">Outcomeを読み込めませんでした: {error}</p> : outcomes === null ? <p className="unset" role="status">読み込み中...</p> : active.length ? <OutcomeLinks projectId={projectId} outcomes={active} /> : <p className="unset">Active Outcomeはまだありません</p>}</div>;
 };
 
-export const OutcomeSection = ({ projectId, workspaceId, intent, access }: { projectId: string; workspaceId: string; intent: Intent; access: ProjectOperationAccess | "loading" | "error" }) => {
+export const OutcomeSection = ({ projectId, workspaceId, intent, access }: { projectId: string; workspaceId: string; intent: { id: string; status: string }; access: ProjectOperationAccess | "loading" | "error" }) => {
   const readOnly = access !== "allowed";
   const { outcomes, error } = useOutcomes(workspaceId, intent.id); const { active, past } = splitOutcomes(outcomes ?? []);
   return <section className="detail-section" aria-labelledby="outcome-heading"><h2 id="outcome-heading">Outcome</h2><p className="section-note">Intentへ近づくために達成すべき、観測可能な状態です。Strategist（またはHuman）の判断結果として、成功条件とともに登録します。</p>

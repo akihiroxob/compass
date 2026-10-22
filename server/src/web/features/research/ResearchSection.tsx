@@ -9,7 +9,7 @@ import {
   researchRequestStatusLabels,
   researchRequestStatusTones,
   type ResearchRequest,
-} from "../../researchForm";
+} from "./research";
 
 export const RequestRow = ({ projectId, request: item }: { projectId: string; request: ResearchRequest }) => (
   <li>

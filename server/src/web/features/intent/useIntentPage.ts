@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiError, classifyError, loadFailureMessage, request } from "../../api";
-import type { Intent } from "../../intentForm";
+import type { Intent } from "./intent";
 import { workspaceApiPath } from "../../paths";
 
 /**

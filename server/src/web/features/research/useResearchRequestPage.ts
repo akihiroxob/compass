@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { workspaceApiPath } from "../../paths";
-import type { ResearchRequestDetail } from "../../researchForm";
-import { useProjectWorkspaceDirection } from "../../useWorkspaceDirection";
+import type { ResearchRequestDetail } from "./research";
+import { useProjectWorkspaceDirection } from "../access";
 
 /** Project画面から、所属WorkspaceのResearch Requestを読む。 */
 export const useResearchRequestPage = (projectId: string, requestId: string) => {

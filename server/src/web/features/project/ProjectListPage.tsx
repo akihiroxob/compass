@@ -3,9 +3,9 @@ import { Link, useSearchParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { ViewSwitch, type ControlSize } from "../../components/ui";
-import type { Project } from "../../projectForm";
-import { parseListStatus, projectListPath, projectsApiPath, summarizeReason, type ProjectStatus } from "../../projectArchive";
-import { workspaceCreatePath } from "../workspace/workspace";
+import { workspaceCreatePath } from "../../paths";
+import { parseListStatus, projectListPath, projectsApiPath, summarizeReason, type ProjectStatus } from "./projectArchive";
+import type { Project } from "./project";
 
 const projectListStatuses: { status: ProjectStatus; label: string }[] = [{ status: "active", label: "Active" }, { status: "archived", label: "アーカイブ済み" }];
 

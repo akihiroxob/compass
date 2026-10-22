@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, jsonInit, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { ProjectOperationGate } from "../../components/ProjectOperationGate";
-import { formValuesFromProject, type Project } from "../../projectForm";
-import { workspacePath } from "../workspace/workspace";
+import { workspacePath } from "../../paths";
+import { ProjectOperationGate } from "../access";
 import { ProjectForm } from "./ProjectForm";
+import { formValuesFromProject, type Project } from "./project";
 
 export const ProjectEditPage = () => { const { projectId = "" } = useParams(); return <ProjectOperationGate projectId={projectId} operation="project.update" back={{ to: `/projects/${projectId}`, label: "← Project詳細" }}><ProjectEditForm projectId={projectId} /></ProjectOperationGate>; };
 

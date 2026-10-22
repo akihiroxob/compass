@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { HumanProjectOperation } from "@compass/access/domain";
-import { projectOperationDeniedMessage } from "../projectAccess";
-import { useProjectOperationState } from "../useProjectAccess";
-import { ErrorState, Loading } from "./StateCard";
+import { ErrorState, Loading } from "../../components/StateCard";
+import { projectOperationDeniedMessage } from "./projectAccess";
+import { useProjectOperationState } from "./useProjectAccess";
 
 /**
  * 作成・編集の画面をURLで直接開いた場合も、Projectのstatusと`myRole`で`operation`を行えるときだけ`children`を描画する。

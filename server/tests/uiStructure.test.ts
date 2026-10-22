@@ -118,7 +118,7 @@ const allowedWeb: UiSource[] = [
   source("features/other/OtherPage.tsx", `export type OtherValue = string;\nexport const OtherPage = () => null;`),
 ];
 const withSource = (path: string, text: string) => [...allowedWeb.filter((candidate) => candidate.path !== path), source(path, text)];
-const dependencyErrors = (sources: UiSource[], options: Parameters<typeof checkUiDependencies>[1] = {}) => checkUiDependencies(sources, { knownCrossFeatureImports: [], ...options });
+const dependencyErrors = (sources: UiSource[], options: Parameters<typeof checkUiDependencies>[1] = {}) => checkUiDependencies(sources, options);
 
 test("check:ui accepts app composition, shared layers and feature public entries", () => {
   assert.deepEqual(dependencyErrors(allowedWeb), []);
@@ -162,14 +162,54 @@ test("check:ui resolves aliases and shared re-exports instead of trusting the sp
   ]);
 });
 
-test("check:ui rejects private cross-feature imports unless listed exactly, and stale known entries", () => {
-  const privateImport = withSource("features/sample/SamplePage.tsx", `import { OtherPage } from "../other/OtherPage";\nexport const SamplePage = () => <OtherPage />;`);
-  assert.deepEqual(dependencyErrors(privateImport), [
-    "features/sample/SamplePage.tsx:1: 他Featureの内部fileへ依存しない（features/other/OtherPage.tsx）。features/other/index.tsの公開入口を使う",
+test("check:ui rejects private cross-feature imports, including aliases and re-exports", () => {
+  const message = "他Featureの内部fileへ依存しない（features/other/OtherPage.tsx）。features/other/index.ts（純関数のmoduleからはmodel.ts）の公開入口を使う";
+  assert.deepEqual(dependencyErrors(withSource("features/sample/SamplePage.tsx", `import { OtherPage } from "../other/OtherPage";\nexport const SamplePage = () => <OtherPage />;`)), [
+    `features/sample/SamplePage.tsx:1: ${message}`,
   ]);
-  const edge = "features/sample/SamplePage.tsx -> features/other/OtherPage.tsx";
-  assert.deepEqual(dependencyErrors(privateImport, { knownCrossFeatureImports: [edge] }), []);
-  assert.deepEqual(dependencyErrors(allowedWeb, { knownCrossFeatureImports: [edge] }), [`既知の依存 ${edge} は見つからない。解消したら一覧から削除する`]);
+  assert.deepEqual(dependencyErrors(withSource("features/sample/SamplePage.tsx", `import { OtherPage } from "@features/other/OtherPage";\nexport const SamplePage = () => <OtherPage />;`), { paths: { "@features/*": ["features/*"] } }), [
+    `features/sample/SamplePage.tsx:1: ${message}`,
+  ]);
+  // 自Featureの公開入口で他Featureの内部を再exportすると、再exportした行が違反になる。
+  assert.deepEqual(dependencyErrors(withSource("features/sample/index.ts", `export { SamplePage } from "./SamplePage";\nexport type { OtherValue } from "../other/OtherPage";`)), [
+    `features/sample/index.ts:2: ${message}`,
+  ]);
+});
+
+/** 純粋な公開入口`model.ts`を持つFeature。他Featureの純関数のmoduleとテストはここを読む。 */
+const modelWeb = [
+  ...allowedWeb,
+  source("features/other/model.ts", `export { otherLabel } from "./other";`),
+  source("features/other/other.ts", `export const otherLabel = (value: string) => value.toUpperCase();`),
+];
+
+test("check:ui accepts a pure model entry and rejects one that reaches components", () => {
+  assert.deepEqual(dependencyErrors([...modelWeb.filter((candidate) => candidate.path !== "features/sample/SamplePage.tsx"),
+    source("features/sample/SamplePage.tsx", `import { otherLabel } from "../other/model";\nexport const SamplePage = () => <p>{otherLabel("x")}</p>;`)]), []);
+  const impure = [...modelWeb.filter((candidate) => candidate.path !== "features/other/other.ts"),
+    source("features/other/other.ts", `import { OtherPage } from "./OtherPage";\nexport const otherLabel = (value: string) => value;\nexport const page = OtherPage;`)];
+  assert.deepEqual(dependencyErrors(impure), ["features/other/model.ts: model.tsは純粋な公開入口のため、.tsxへ推移的に依存しない（features/other/OtherPage.tsx）"]);
+});
+
+test("check:ui rejects importing the own feature through its public entry", () => {
+  assert.deepEqual(dependencyErrors(withSource("features/other/OtherPage.tsx", `import type { OtherValue as Value } from "./index";\nexport type OtherValue = string;\nexport const OtherPage = (_: { value?: Value }) => null;`)), [
+    "features/other/OtherPage.tsx:1: Feature内から自身の公開入口（features/other/index.ts）を経由しない。内部fileを直接参照する",
+  ]);
+});
+
+test("check:ui detects feature cycles even through public entries", () => {
+  // sample -> other（公開入口）に加え、other -> sample（公開入口）で循環する。
+  const cycle = withSource("features/other/OtherPage.tsx", `import { SamplePage } from "../sample";\nexport type OtherValue = string;\nexport const OtherPage = () => <SamplePage />;`);
+  assert.deepEqual(dependencyErrors(cycle), [
+    "Featureの依存が循環する（other -> sample -> other）: features/other/OtherPage.tsx -> features/sample/index.ts, features/sample/SamplePage.tsx -> features/other/index.ts",
+  ]);
+  // 3つのFeatureを経由する循環も検出する。
+  const third = [
+    ...withSource("features/other/OtherPage.tsx", `import { thirdLabel } from "../third/model";\nexport type OtherValue = string;\nexport const OtherPage = () => <p>{thirdLabel}</p>;`),
+    source("features/third/model.ts", `import type { SamplePage } from "../sample";\nexport const thirdLabel = "third";\nexport type Page = typeof SamplePage;`),
+  ];
+  const errors = dependencyErrors(third);
+  assert.equal(errors.filter((error) => error.startsWith("Featureの依存が循環する（other -> third -> sample -> other）")).length, 1, errors.join("\n"));
 });
 
 test("check:ui fails when a layer is missing from the scan", () => {

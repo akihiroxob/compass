@@ -10,13 +10,14 @@ import {
   scopeRoleDescriptions,
   workspaceMemberCandidatesPath,
 } from "../src/web/features/member/members.ts";
-import { parseShellLocation, workspacePath, workspaceSectionLabels } from "../src/web/features/workspace/workspace.ts";
+import { parseShellLocation, workspaceSectionLabels } from "../src/web/features/workspace/workspace.ts";
+import { workspacePath } from "../src/web/paths.ts";
 
 /** Workspace設定（S11-03）の画面の判定とrequest。画面の描画・実ブラウザ確認はTaskの結果に記録する。 */
 
 const workspace = { kind: "workspace", id: "ws-1" } as const;
 const project = { kind: "project", id: "p-1" } as const;
-// `server/src/web/permissions.ts`の`canOperateWorkspace`と同じ判定（frontendのmoduleはserverのtsconfigで読めないためdomainの権限表を直接使う）。
+// `server/src/web/features/access/permissions.ts`の`canOperateWorkspace`と同じ判定（frontendのmoduleはserverのtsconfigで読めないためdomainの権限表を直接使う）。
 const canOperateWorkspace = (role: HumanRole, operation: keyof typeof humanWorkspacePermissions) => hasMinimumRole(role, humanWorkspacePermissions[operation]);
 
 test("Workspaceの「設定」はURLで表し、Shellのナビゲーション項目になる", () => {

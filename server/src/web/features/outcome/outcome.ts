@@ -1,5 +1,4 @@
-import type { IntentStatus } from "./intentForm.ts";
-import type { ProjectOperationAccess } from "./projectAccess.ts";
+import type { ProjectOperationAccess } from "../access/model.ts";
 
 export type OutcomeStatus = "active" | "evaluating" | "achieved" | "not_achieved" | "cancelled";
 
@@ -82,8 +81,9 @@ export const splitOutcomes = (outcomes: Outcome[]): { active: Outcome[]; past: O
 /**
  * IntentにActiveなOutcomeが無いときの案内。OutcomeはStrategistの判断で登録され、Humanの登録は登録できる場合だけ案内する。
  * Activeでない（達成・放棄した）Intentや、archivedのProjectには新しいOutcomeが登録されないため、担い手を示さない。
+ * Intentの状態は文字列で受ける（intentがoutcomeを合成するため、outcomeはintentへ依存しない）。
  */
-export const outcomeEmptyMessage = (intentStatus: IntentStatus, access: ProjectOperationAccess | "loading" | "error", hasPast: boolean): string => {
+export const outcomeEmptyMessage = (intentStatus: string, access: ProjectOperationAccess | "loading" | "error", hasPast: boolean): string => {
   const head = hasPast ? "ActiveなOutcomeはありません。" : "Outcomeはまだありません。";
   if (intentStatus !== "active" || access === "archived") return hasPast ? head : "Outcomeはありません。";
   return access === "allowed"

@@ -5,9 +5,12 @@ import { IntentCreatePage, IntentDetailPage, IntentEditPage } from "../features/
 import { OutcomeCreatePage, OutcomeDetailPage, OutcomeEditPage } from "../features/outcome";
 import { ProjectDetailPage, ProjectEditPage, ProjectListPage } from "../features/project";
 import { ResearchRequestDetailPage } from "../features/research";
-import { WorkspaceActivityPage, WorkspaceAgentsPage, WorkspaceCreatePage, WorkspaceDirectionPage, WorkspaceEditPage, WorkspaceHomePage, WorkspaceOutcomePage, WorkspaceOverviewPage, WorkspaceProjectCreatePage, WorkspaceProjectsPage, WorkspaceSettingsPage } from "../features/workspace";
+import { WorkspaceActivityPage, WorkspaceAgentsPage, WorkspaceBreadcrumbItems, WorkspaceCreatePage, WorkspaceDirectionPage, WorkspaceEditPage, WorkspaceHomePage, WorkspaceOutcomePage, WorkspaceOverviewPage, WorkspaceProjectCreatePage, WorkspaceProjectsPage, WorkspaceSettingsPage } from "../features/workspace";
 import { AuthenticatedLayout, PublicLayout } from "./AppLayout";
 import { NotFoundPage } from "./NotFoundPage";
+
+/** Task詳細のパンくずへ、workspaceが持つ現在のWorkspaceの項目を合成する。 */
+const TaskDetailRoute = () => <TaskDetailPage workspaceCrumbs={(project) => <WorkspaceBreadcrumbItems project={project} />} />;
 
 /** routing。ログイン画面・招待画面だけSession無しで開け、それ以外（未定義のURLを含む）はログイン後のlayoutで描画する。 */
 export const App = () => (
@@ -41,7 +44,7 @@ export const App = () => (
       <Route path="/projects/:projectId/stories/new" element={<StoryCreatePage />} />
       <Route path="/projects/:projectId/stories/:storyId/edit" element={<StoryEditPage />} />
       <Route path="/projects/:projectId/tasks/new" element={<TaskCreatePage />} />
-      <Route path="/projects/:projectId/tasks/:taskId" element={<TaskDetailPage />} />
+      <Route path="/projects/:projectId/tasks/:taskId" element={<TaskDetailRoute />} />
       <Route path="/projects/:projectId/tasks/:taskId/edit" element={<TaskEditPage />} />
       <Route path="*" element={<NotFoundPage />} />
     </Route>

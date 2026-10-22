@@ -1,19 +1,28 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { classifyError, loadFailureMessage, request } from "../../api";
+import { classifyError, loadFailureMessage, request, type Part } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { intentStatusLabels } from "../../intentForm";
-import { outcomeStatusLabels, type Outcome } from "../../outcomeForm";
-import { intentPath, outcomePath } from "../../paths";
+import { intentPath, outcomePath, workspaceOutcomePath, workspacePath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
-import { EvaluationCard } from "../outcome";
-import { IntentFacts } from "../intent/IntentFacts";
+import {
+  buildOutcomeExecution,
+  contributionNote,
+  evaluationStage,
+  latestCriterionVerdicts,
+  noTargetNote,
+  pickOpenProject,
+  stageLabels,
+  targetContributions,
+  WorkCounts,
+  type DirectionData,
+  type OutcomeDetailData,
+  type TargetContribution,
+} from "../direction";
 import { EvidenceList, executionPath, executionStateLabels, formatTime, StoryList, verdictLabels, verdictTones, type ExecutionOverview, type OutcomeExecutionRecord } from "../execution";
-import { contributionNote, latestCriterionVerdicts, noTargetNote, targetContributions, type TargetContribution } from "./direction";
-import type { DirectionData, OutcomeDetailData, OverviewProject, Part } from "./directionData";
-import { buildOutcomeExecution, evaluationStage, pickOpenProject } from "./overview";
-import { openProjects, ProjectName, stageLabels, TargetRow, WorkCounts } from "./WorkspaceOverview";
-import { workspaceOutcomePath, workspacePath } from "./workspace";
+import { IntentFacts, intentStatusLabels } from "../intent";
+import { EvaluationCard, outcomeStatusLabels, type Outcome } from "../outcome";
+import { openProjects, ProjectName, TargetRow } from "./WorkspaceOverview";
+import type { OverviewProject } from "./workspaceProjects";
 
 const outcomeTone = (outcome: Pick<Outcome, "status">) => (outcome.status === "active" ? "progress" : "muted");
 
