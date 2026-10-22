@@ -62,6 +62,16 @@ $breakpoint-narrow: 700px;
   --space-lg: 2rem;
   --space-xl: 3rem;
 
+  // 操作部品（components/ui）のsize契約。同じsizeのcontrolは文字・高さ・内側余白をそろえ、外側余白は持たない。
+  --control-border-width: 1px;
+  --control-line-height: 1.25;
+  --control-md-height: 3rem;
+  --control-md-padding-x: var(--space-md);
+  --control-md-font-size: 1rem;
+  --control-sm-height: 2.4rem;
+  --control-sm-padding-x: .9rem;
+  --control-sm-font-size: var(--text-note);
+
   // 角丸・影
   --radius-sm: .7rem;
   --radius-md: 1rem;

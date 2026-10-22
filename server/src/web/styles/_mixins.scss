@@ -10,6 +10,15 @@
   outline-offset: var(--focus-offset);
 }
 
+// 操作部品のsize（md・sm）。値は_tokens.scssの`--control-*`だけを使い、margin・幅は親layoutに任せる。
+@mixin control-size($size) {
+  min-height: var(--control-#{$size}-height);
+  padding: 0 var(--control-#{$size}-padding-x);
+  border-width: var(--control-border-width);
+  font-size: var(--control-#{$size}-font-size);
+  line-height: var(--control-line-height);
+}
+
 // 小さな大文字の見出しラベル（eyebrow・dt等）。
 @mixin caps-label($size: var(--text-label), $spacing: .12em) {
   color: var(--color-text-muted);

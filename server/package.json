@@ -7,6 +7,7 @@
     "build": "tsc -p src/web && vite build --config src/web/vite.config.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",
     "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "check:ui": "node --import tsx --test tests/uiStructure.test.ts",
     "lint": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json"
   },
   "dependencies": {
