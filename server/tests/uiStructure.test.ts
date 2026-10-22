@@ -65,7 +65,16 @@ test("check:ui rejects primitives that depend on features and protected scopes t
 
 const tokens: UiSource = { path: "styles/_tokens.scss", text: ":root {\n" + ["md", "sm"].flatMap((size) => ["height", "padding-x", "font-size"].map((part) => `  --control-${size}-${part}: 1rem;`)).join("\n") + "\n}\n" };
 const mixins = (body: string): UiSource => ({ path: "styles/_mixins.scss", text: `// size\n@mixin control-size($size) {\n${body}\n}\n` });
-const allowedMixin = mixins("  min-height: var(--control-#{$size}-height);\n  padding: 0 var(--control-#{$size}-padding-x);\n  font-size: var(--control-#{$size}-font-size);");
+/** 実際の`_mixins.scss`と同じく、補間`#{$size}`を含む宣言を並べる。 */
+const allowedMixin = mixins(`  min-height: var(--control-#{$size}-height);
+  padding: 0 var(--control-#{$size}-padding-x);
+  border-width: var(--control-border-width);
+  font-size: var(--control-#{$size}-font-size);
+  line-height: var(--control-line-height);`);
+const replaceInMixin = (from: string, to: string): UiSource => {
+  assert.ok(allowedMixin.text.includes(from), from);
+  return { ...allowedMixin, text: allowedMixin.text.replace(from, to) };
+};
 const components = (text: string): UiSource => ({ path: "styles/_components.scss", text });
 
 test("check:ui accepts token-based control sizes and parent-owned spacing", () => {
@@ -76,7 +85,7 @@ test("check:ui accepts token-based control sizes and parent-owned spacing", () =
 });
 
 test("check:ui rejects literal control sizes, control margins and the removed list-switch", () => {
-  assert.deepEqual(checkUiStyles([tokens, mixins("  min-height: 3rem;"), components("")]), ["styles/_mixins.scss: control-sizeのmin-heightは--control-*トークンを使う（3rem）"]);
+  assert.deepEqual(checkUiStyles([tokens, replaceInMixin("min-height: var(--control-#{$size}-height)", "min-height: 3rem"), components("")]), ["styles/_mixins.scss: control-sizeのmin-heightは--control-*トークンを使う（3rem）"]);
   assert.deepEqual(checkUiStyles([tokens, allowedMixin, components(`.view-switch { margin: 0 0 2rem; }
 .list-toolbar { .button { min-height: 2.6rem; } }
 .list-switch { display: flex; }`)]), [
@@ -84,6 +93,16 @@ test("check:ui rejects literal control sizes, control margins and the removed li
     "styles/_components.scss: .list-toolbar .button のmin-heightはcontrol-sizeのトークンで指定する（2.6rem）",
     "styles/_components.scss: 廃止した.list-switchを使わず、ViewSwitchを使う（.list-switch）",
   ]);
+});
+
+test("check:ui inspects every declaration of the control-size mixin after SCSS interpolation", () => {
+  const check = (from: string, to: string) => checkUiStyles([tokens, replaceInMixin(from, to), components("")]);
+  assert.deepEqual(check("padding: 0 var(--control-#{$size}-padding-x)", "padding: 0 99px"), ["styles/_mixins.scss: control-sizeのpaddingは--control-*トークンを使う（0 99px）"]);
+  assert.deepEqual(check("padding: 0 var(--control-#{$size}-padding-x)", "padding: 2px var(--control-#{$size}-padding-x)"), ["styles/_mixins.scss: control-sizeのpaddingは--control-*トークンを使う（2px var(--control-$size-padding-x)）"]);
+  assert.deepEqual(check("border-width: var(--control-border-width)", "border-width: 1px"), ["styles/_mixins.scss: control-sizeのborder-widthは--control-*トークンを使う（1px）"]);
+  assert.deepEqual(check("font-size: var(--control-#{$size}-font-size)", "font-size: 99px"), ["styles/_mixins.scss: control-sizeのfont-sizeは--control-*トークンを使う（99px）"]);
+  assert.deepEqual(check("line-height: var(--control-line-height)", "line-height: 1.2"), ["styles/_mixins.scss: control-sizeのline-heightは--control-*トークンを使う（1.2）"]);
+  assert.deepEqual(check("  font-size: var(--control-#{$size}-font-size);\n", ""), ["styles/_mixins.scss: control-sizeがfont-sizeを定めていない"]);
 });
 
 test("check:ui: the Web UI satisfies the shared primitive and protected toolbar rules", () => {

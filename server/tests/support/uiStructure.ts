@@ -130,9 +130,12 @@ export const checkUiSources = (sources: UiSource[], scopes: UiProtectedScope[] =
   return errors;
 };
 
-/** SCSSの宣言を、入れ子のselectorの連なりと一緒に列挙する。行コメント・ブロックコメントは除く。 */
+/**
+ * SCSSの宣言を、入れ子のselectorの連なりと一緒に列挙する。行コメント・ブロックコメントは除く。
+ * 補間`#{$size}`の波括弧をblockと誤認しないよう、補間は中身（`$size`）へ置き換えてから読む。
+ */
 const scssDeclarations = (text: string) => {
-  const stripped = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  const stripped = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1").replace(/#\{([^{}]*)\}/g, "$1");
   const stack: string[] = [];
   const declarations: { selectors: string[]; property: string; value: string }[] = [];
   let buffer = "";
@@ -148,6 +151,7 @@ const scssDeclarations = (text: string) => {
   return declarations;
 };
 
+const requiredMixinProperties = ["min-height", "padding", "font-size"];
 const sizeProperties = new Set(["min-height", "height", "padding", "padding-left", "padding-right", "font-size", "line-height", "border-width"]);
 
 /** SCSSの検査。size契約はmixinの`--control-*`トークンだけで定め、表示切替・操作列の部品へ外側余白・固定sizeを足さない。 */
@@ -155,14 +159,15 @@ export const checkUiStyles = (sources: UiSource[]): string[] => {
   const errors: string[] = [];
   const tokens = sources.find((source) => source.path.endsWith("_tokens.scss"))?.text ?? "";
   const mixins = sources.find((source) => source.path.endsWith("_mixins.scss"))?.text ?? "";
-  const mixin = /@mixin control-size\(\$size\)\s*\{([^}]*)\}/.exec(mixins);
-  if (!mixin) errors.push("styles/_mixins.scss: @mixin control-size($size) が見つからない");
+  const mixin = scssDeclarations(mixins).filter(({ selectors }) => /^@mixin control-size\(\$size\)$/.test(selectors[0]));
+  if (mixin.length === 0) errors.push("styles/_mixins.scss: @mixin control-size($size) が見つからない");
   else {
-    const body = mixin[1].split(";").map((line) => line.trim()).filter(Boolean);
-    for (const line of body) {
-      const [property, value = ""] = line.split(/:\s*/, 2);
-      if (!/var\(--control-/.test(value)) errors.push(`styles/_mixins.scss: control-sizeの${property}は--control-*トークンを使う（${value}）`);
-    }
+    // 値の各項は0か`--control-*`トークンだけ（`0 99px`等の固定値を混ぜない）。
+    for (const { property, value } of mixin)
+      if (!value.split(/\s+/).every((part) => part === "0" || /^var\(--control-[^)]*\)$/.test(part)))
+        errors.push(`styles/_mixins.scss: control-sizeの${property}は--control-*トークンを使う（${value}）`);
+    for (const property of requiredMixinProperties)
+      if (!mixin.some((declaration) => declaration.property === property)) errors.push(`styles/_mixins.scss: control-sizeが${property}を定めていない`);
     for (const size of ["md", "sm"])
       for (const part of ["height", "padding-x", "font-size"])
         if (!tokens.includes(`--control-${size}-${part}:`)) errors.push(`styles/_tokens.scss: --control-${size}-${part} が定義されていない`);

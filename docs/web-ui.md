@@ -41,7 +41,7 @@ rootの`npm run check:ui`は`server`の同名scriptへ委譲し、検査自体�
 
 - `components/ui`: Feature・app等への依存がない。
 - 保護対象の範囲: `<button>`、基本部品のclass（`button`・`secondary-button`・`compact`・`view-switch`・`view-switch-item`・`list-switch`）を直接付けた要素、基本部品への`className`・`style`がない。`.list-toolbar`内に`a`・`Link`・`NavLink`・`button`を直接置かず、部品はすべて同じ`size`を文字列で指定する。保護対象のfile・componentが見つからなければ失敗する。
-- SCSS: `control-size`がmd・smの`--control-*`トークンだけを使う。`.view-switch`・`.view-switch-item`と`.list-toolbar`内のbutton類に外側余白・固定sizeを足さない。廃止した`.list-switch`を使わない。
+- SCSS: `control-size`の全宣言（補間`#{$size}`を含む）の値が`0`か`--control-*`トークンだけで、`min-height`・`padding`・`font-size`を定め、md・smのトークンが定義されている。`.view-switch`・`.view-switch-item`と`.list-toolbar`内のbutton類に外側余白・固定sizeを足さない。廃止した`.list-switch`を使わない。
 
 保護対象（段階適用の範囲）は`uiProtectedScopes`で定める。
 
