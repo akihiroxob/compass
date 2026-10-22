@@ -2,7 +2,6 @@ import { Link, useParams } from "react-router-dom";
 import { jsonInit, jsonPost, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { WorkspaceDirectionGate } from "../../components/WorkspaceDirectionGate";
-import { Shell } from "../../components/Shell";
 import { emptyIntentFormValues, formValuesFromIntent, intentStatusLabels, type Intent } from "../../intentForm";
 import { intentPath, workspaceApiPath } from "../../paths";
 import { IntentForm } from "./IntentForm";
@@ -14,8 +13,8 @@ export const IntentEditPage = () => { const { projectId = "", intentId = "" } = 
 
 const IntentEditForm = ({ projectId, workspaceId, intentId }: { projectId: string; workspaceId: string; intentId: string }) => {
   const { intent, error } = useIntentPage(workspaceId, intentId); const back = intentPath(projectId, intentId);
-  if (error) return <Shell><main className="narrow"><Link to={`/projects/${projectId}`} className="back-link">← Project詳細</Link><ErrorState message={error} /></main></Shell>;
-  if (!intent) return <Shell><main className="narrow"><Loading /></main></Shell>;
-  if (intent.status !== "active") return <Shell><main className="narrow"><Link to={back} className="back-link">← Intent詳細</Link><ErrorState message={`${intentStatusLabels[intent.status]}のIntentは編集できません。`} /></main></Shell>;
+  if (error) return <main className="narrow"><Link to={`/projects/${projectId}`} className="back-link">← Project詳細</Link><ErrorState message={error} /></main>;
+  if (!intent) return <main className="narrow"><Loading /></main>;
+  if (intent.status !== "active") return <main className="narrow"><Link to={back} className="back-link">← Intent詳細</Link><ErrorState message={`${intentStatusLabels[intent.status]}のIntentは編集できません。`} /></main>;
   return <IntentForm projectId={projectId} initial={formValuesFromIntent(intent)} heading={{ eyebrow: "Edit intent", title: "Intentを編集", lede: "変更した内容は保存するまで反映されません。キャンセルすると保存済みの内容のままです。" }} submitLabel="変更を保存" pendingLabel="保存中..." cancelTo={back} save={async (values) => (await request<{ intent: Intent }>(workspaceApiPath(workspaceId, `/intents/${intentId}`), jsonInit("PATCH", values))).intent} />;
 };

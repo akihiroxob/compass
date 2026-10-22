@@ -1,7 +1,6 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { ApiError, onSessionLost, request, setCsrfToken } from "../../api";
-import { Shell } from "../../components/Shell";
 import { Loading } from "../../components/StateCard";
 import { loginPath, logoutPath, sessionPath, type SessionHuman, type SessionInfo } from "./auth";
 
@@ -64,8 +63,9 @@ const SessionLostBanner = ({ onRestored }: { onRestored: (session: SessionInfo) 
 /**
  * Session復元。未ログインならログイン画面へ（戻り先を保持）、通信失敗はログイン画面と区別して再試行を出す。
  * ログイン後の操作で401 / CSRF不一致を受けたら`SessionLostBanner`を重ねる。
+ * 確認中・接続失敗の表示は、appが渡す`layout`（Session無しの画面の枠）で囲む。
  */
-export const AuthGate = ({ children }: { children: ReactNode }) => {
+export const AuthGate = ({ layout: Layout, children }: { layout: ComponentType<{ children: ReactNode }>; children: ReactNode }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [state, setState] = useState<{ kind: "loading" } | { kind: "anonymous" } | { kind: "network_error" } | { kind: "ready"; human: SessionHuman }>({ kind: "loading" });
@@ -99,11 +99,11 @@ export const AuthGate = ({ children }: { children: ReactNode }) => {
     navigate("/login", { replace: true });
   }, [navigate]);
 
-  if (state.kind === "loading") return <Shell><main className="narrow"><Loading /></main></Shell>;
+  if (state.kind === "loading") return <Layout><main className="narrow"><Loading /></main></Layout>;
   if (state.kind === "anonymous") return <Navigate to={loginPath(location.pathname + location.search)} replace />;
   if (state.kind === "network_error") {
     return (
-      <Shell>
+      <Layout>
         <main className="narrow">
           <div className="state-card error" role="alert">
             <p className="error-title">サーバーに接続できませんでした。</p>
@@ -111,7 +111,7 @@ export const AuthGate = ({ children }: { children: ReactNode }) => {
             <button type="button" className="secondary-button" onClick={load}>再試行</button>
           </div>
         </main>
-      </Shell>
+      </Layout>
     );
   }
   return (

@@ -2,7 +2,6 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { classifyError, fieldId } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
-import { Shell } from "../../components/Shell";
 import { emptyCriterion, maxSuccessCriteria, type Outcome, type OutcomeFormValues } from "../../outcomeForm";
 import { intentPath, outcomePath } from "../../paths";
 
@@ -21,7 +20,7 @@ export const OutcomeForm = ({ projectId, intentId, mode, initial, heading, submi
   const updateCriterion = (index: number, changes: Partial<(typeof criteria)[number]>) => setCriteria(criteria.map((item, i) => i === index ? { ...item, ...changes } : item));
   // 保存に失敗しても入力state（上のuseState）は維持し、そのまま再送信できる。
   const submit = async (event: FormEvent) => { event.preventDefault(); setError(null); setIsSubmitting(true); try { const outcome = await save({ title, description, hypothesis, rationale, successCriteria: criteria }); navigate(outcomePath(projectId, intentId, outcome.id)); } catch (reason) { const classified = classifyError(reason); setError(classified.kind === "not_found" ? { kind: "other", message: "Project、Intent、またはOutcomeが見つかりません。削除された可能性があります。" } : classified); } finally { setIsSubmitting(false); } };
-  return <Shell><main className="narrow"><Link to={cancelTo} className="back-link">← 戻る</Link><div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div><p className="lede">{heading.lede}</p>
+  return <main className="narrow"><Link to={cancelTo} className="back-link">← 戻る</Link><div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div><p className="lede">{heading.lede}</p>
     {error && <FormErrorSummary error={error} detailTo={`/projects/${projectId}`} conflict={{ title: "この操作は現在のIntentまたはOutcomeの状態と競合しています。", action: <Link to={intentPath(projectId, intentId)} className="text-link">Intentを開く →</Link> }} />}
     <form onSubmit={submit} className="project-form"><section className="form-section"><label>タイトル <span>必須</span><small>Outcomeを一言で表す名前（100文字まで）</small><input {...fieldProps(invalid, "field-title")} required aria-required="true" maxLength={100} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
       {mode === "create" && <><label>達成すべき状態 <span>必須</span><small>Intentへ近づくために達成すべき、観測可能な状態。作成後は変更できません。</small><textarea {...fieldProps(invalid, "field-description")} required aria-required="true" maxLength={2000} rows={5} value={description} onChange={(event) => setDescription(event.target.value)} /></label></>}
@@ -34,5 +33,5 @@ export const OutcomeForm = ({ projectId, intentId, mode, initial, heading, submi
         <label>目標値<small>任意（例: = 0、100%）</small><input {...fieldProps(invalid, fieldId(`successCriteria.${index}.target`))} maxLength={200} value={criterion.target} onChange={(event) => updateCriterion(index, { target: event.target.value })} /></label>
         <button type="button" className="remove" disabled={criteria.length <= 1} aria-label={`成功条件 ${index + 1}を削除`} onClick={() => setCriteria(criteria.filter((_, i) => i !== index))}>この成功条件を削除</button></fieldset>)}
         <button type="button" className="add-row" disabled={criteria.length >= maxSuccessCriteria} onClick={() => setCriteria([...criteria, emptyCriterion])}>＋ 成功条件を追加</button></fieldset></section> : <p className="fixed-note">達成すべき状態・判断理由・成功条件は作成時に固定されており、編集できるのはタイトルと仮説だけです。</p>}
-    <div className="form-actions"><Link to={cancelTo} className="secondary-button">キャンセル</Link><button className="button" disabled={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</button></div></form></main></Shell>;
+    <div className="form-actions"><Link to={cancelTo} className="secondary-button">キャンセル</Link><button className="button" disabled={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</button></div></form></main>;
 };

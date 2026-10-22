@@ -2,7 +2,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
-import { Shell } from "../../components/Shell";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { LinkButton } from "../../components/ui";
 import { workspaceApiPath } from "../../paths";
@@ -45,23 +44,21 @@ const workspaceNotFound = "Workspaceが見つからないか、このWorkspace�
 export const WorkspaceHomePage = () => {
   const navigation = useWorkspaceNavigation();
   if (!navigation || navigation.error) {
-    return <Shell><main className="narrow"><div className="state-card error" role="alert"><p>Workspaceの一覧を読み込めませんでした: {navigation?.error ?? "不明なエラー"}</p>{navigation && <button type="button" className="secondary-button" onClick={navigation.reload}>再試行</button>}</div></main></Shell>;
+    return <main className="narrow"><div className="state-card error" role="alert"><p>Workspaceの一覧を読み込めませんでした: {navigation?.error ?? "不明なエラー"}</p>{navigation && <button type="button" className="secondary-button" onClick={navigation.reload}>再試行</button>}</div></main>;
   }
   const { workspaces, rememberedId } = navigation;
-  if (workspaces === null) return <Shell><main className="narrow"><Loading /></main></Shell>;
+  if (workspaces === null) return <main className="narrow"><Loading /></main>;
   const home = chooseHomeWorkspace(workspaces, rememberedId);
   if (home) return <Navigate to={workspacePath(home.id)} replace />;
   return (
-    <Shell>
-      <main className="narrow">
-        <div className="detail-hero"><p className="eyebrow">Workspace</p><h1>参加しているWorkspaceはありません</h1></div>
-        <div className="state-card">
-          <p>Workspaceは、Mission・Visionを共有して複数のProjectで成果を実現する単位です。Workspaceを作成するとあなたがownerになり、Projectを追加できます。</p>
-          <p>既存のWorkspaceに参加するには、そのWorkspaceのownerにMembershipの追加を依頼してください。</p>
-          <div className="action-row"><Link to={workspaceCreatePath} className="button">Workspaceを作成</Link><Link to="/projects" className="secondary-button">参加中のProject</Link></div>
-        </div>
-      </main>
-    </Shell>
+    <main className="narrow">
+      <div className="detail-hero"><p className="eyebrow">Workspace</p><h1>参加しているWorkspaceはありません</h1></div>
+      <div className="state-card">
+        <p>Workspaceは、Mission・Visionを共有して複数のProjectで成果を実現する単位です。Workspaceを作成するとあなたがownerになり、Projectを追加できます。</p>
+        <p>既存のWorkspaceに参加するには、そのWorkspaceのownerにMembershipの追加を依頼してください。</p>
+        <div className="action-row"><Link to={workspaceCreatePath} className="button">Workspaceを作成</Link><Link to="/projects" className="secondary-button">参加中のProject</Link></div>
+      </div>
+    </main>
   );
 };
 
@@ -75,28 +72,26 @@ const WorkspaceFrame = ({ section, children }: { section: WorkspaceSection; chil
   const [revision, setRevision] = useState(0);
   const { value, error } = useLoad(`${workspaceId}#${revision}`, () => request<{ workspace: Workspace; myRole: HumanRole }>(workspaceApiPath(workspaceId)), workspaceNotFound);
   return (
-    <Shell>
-      <main>
-        {error ? <ErrorState message={error} /> : !value ? <Loading /> : (
-          <>
-            <div className="detail-hero project-hero">
-              <p className="eyebrow">Workspace · {value.workspace.name}</p>
-              <h1>{section === "overview" ? value.workspace.name : workspaceSectionLabels[section]}</h1>
-              {value.workspace.status === "archived" && <p><span className="status-badge muted">アーカイブ済み</span></p>}
-              <p className="section-note">あなたのWorkspaceでのRole: {humanRoleLabels[value.myRole]}</p>
-            </div>
-            {value.workspace.status === "archived" && (
-              <section className="detail-section archive-notice" aria-labelledby="workspace-archive-heading">
-                <h2 id="workspace-archive-heading">このWorkspaceはアーカイブされています</h2>
-                <p className="section-note">参照のみできます。Workspaceの編集、Directionの変更、Projectの追加はできません。</p>
-                <dl className="intent-facts"><dt>アーカイブの理由</dt><dd>{value.workspace.archiveReason ?? <span className="unset">理由は記録されていません</span>}</dd></dl>
-              </section>
-            )}
-            <div className="view-panel">{children(value.workspace, value.myRole, () => setRevision((current) => current + 1))}</div>
-          </>
-        )}
-      </main>
-    </Shell>
+    <main>
+      {error ? <ErrorState message={error} /> : !value ? <Loading /> : (
+        <>
+          <div className="detail-hero project-hero">
+            <p className="eyebrow">Workspace · {value.workspace.name}</p>
+            <h1>{section === "overview" ? value.workspace.name : workspaceSectionLabels[section]}</h1>
+            {value.workspace.status === "archived" && <p><span className="status-badge muted">アーカイブ済み</span></p>}
+            <p className="section-note">あなたのWorkspaceでのRole: {humanRoleLabels[value.myRole]}</p>
+          </div>
+          {value.workspace.status === "archived" && (
+            <section className="detail-section archive-notice" aria-labelledby="workspace-archive-heading">
+              <h2 id="workspace-archive-heading">このWorkspaceはアーカイブされています</h2>
+              <p className="section-note">参照のみできます。Workspaceの編集、Directionの変更、Projectの追加はできません。</p>
+              <dl className="intent-facts"><dt>アーカイブの理由</dt><dd>{value.workspace.archiveReason ?? <span className="unset">理由は記録されていません</span>}</dd></dl>
+            </section>
+          )}
+          <div className="view-panel">{children(value.workspace, value.myRole, () => setRevision((current) => current + 1))}</div>
+        </>
+      )}
+    </main>
   );
 };
 

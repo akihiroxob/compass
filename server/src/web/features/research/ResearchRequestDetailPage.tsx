@@ -1,6 +1,5 @@
 import { Link, useParams } from "react-router-dom";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { Shell } from "../../components/Shell";
 import { intentPath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import {
@@ -75,71 +74,69 @@ export const ResearchRequestDetailPage = () => {
   const { projectId = "", requestId = "" } = useParams();
   const { detail, error } = useResearchRequestPage(projectId, requestId);
   return (
-    <Shell>
-      <main className="narrow">
-        <Link to={`/projects/${projectId}`} className="back-link">
-          ← Project詳細
-        </Link>
-        {error ? (
-          <ErrorState message={error} />
-        ) : !detail ? (
-          <Loading />
-        ) : (
-          <>
-            <div className="detail-hero">
-              <p className="eyebrow">Research Request</p>
-              <h1>{detail.request.question}</h1>
-              <p>
-                <span className={statusBadgeClass(researchRequestStatusTones[detail.request.status])}>{researchRequestStatusLabels[detail.request.status]}</span>{" "}
-                <span className="status-badge muted">{researchRequestKindLabels[detail.request.kind]}</span>
-              </p>
-              <time>{new Date(detail.request.updatedAt).toLocaleString("ja-JP")} 更新</time>
-            </div>
-            <section className="detail-section">
-              <dl className="intent-facts">
-                <dt>Scope</dt>
-                <dd>{detail.request.scope}</dd>
-                <dt>完了条件</dt>
-                <dd>{detail.request.completionCondition}</dd>
-                <dt>予算</dt>
-                <dd>
-                  {detail.request.budgetUsed} / {detail.request.budgetTotal}
-                </dd>
-                <dt>発端Intent</dt>
-                <dd>
-                  {detail.request.originIntentId ? (
-                    <Link to={intentPath(projectId, detail.request.originIntentId)}>{detail.request.originIntentId}</Link>
-                  ) : (
-                    <span className="unset">なし（Project Watch）</span>
-                  )}
-                </dd>
-                {detail.request.stopReason && (
-                  <>
-                    <dt>停止理由</dt>
-                    <dd>{detail.request.stopReason}</dd>
-                  </>
+    <main className="narrow">
+      <Link to={`/projects/${projectId}`} className="back-link">
+        ← Project詳細
+      </Link>
+      {error ? (
+        <ErrorState message={error} />
+      ) : !detail ? (
+        <Loading />
+      ) : (
+        <>
+          <div className="detail-hero">
+            <p className="eyebrow">Research Request</p>
+            <h1>{detail.request.question}</h1>
+            <p>
+              <span className={statusBadgeClass(researchRequestStatusTones[detail.request.status])}>{researchRequestStatusLabels[detail.request.status]}</span>{" "}
+              <span className="status-badge muted">{researchRequestKindLabels[detail.request.kind]}</span>
+            </p>
+            <time>{new Date(detail.request.updatedAt).toLocaleString("ja-JP")} 更新</time>
+          </div>
+          <section className="detail-section">
+            <dl className="intent-facts">
+              <dt>Scope</dt>
+              <dd>{detail.request.scope}</dd>
+              <dt>完了条件</dt>
+              <dd>{detail.request.completionCondition}</dd>
+              <dt>予算</dt>
+              <dd>
+                {detail.request.budgetUsed} / {detail.request.budgetTotal}
+              </dd>
+              <dt>発端Intent</dt>
+              <dd>
+                {detail.request.originIntentId ? (
+                  <Link to={intentPath(projectId, detail.request.originIntentId)}>{detail.request.originIntentId}</Link>
+                ) : (
+                  <span className="unset">なし（Project Watch）</span>
                 )}
-              </dl>
-            </section>
-            <section className="detail-section" aria-labelledby="results-heading">
-              <h2 id="results-heading">Result</h2>
-              {detail.results.length ? (
-                detail.results.map((result) => <ResultCard key={result.id} result={result} />)
-              ) : (
-                <p className="unset">Resultはまだありません。Researcherが調査結果を登録すると、ここに表示されます。</p>
+              </dd>
+              {detail.request.stopReason && (
+                <>
+                  <dt>停止理由</dt>
+                  <dd>{detail.request.stopReason}</dd>
+                </>
               )}
-            </section>
-            <section className="detail-section" aria-labelledby="syntheses-heading">
-              <h2 id="syntheses-heading">Synthesis</h2>
-              {detail.syntheses.length ? (
-                detail.syntheses.map((synthesis) => <SynthesisCard key={synthesis.id} synthesis={synthesis} />)
-              ) : (
-                <p className="unset">Synthesisはまだありません。ResearcherがResultをまとめると、ここに表示されます。</p>
-              )}
-            </section>
-          </>
-        )}
-      </main>
-    </Shell>
+            </dl>
+          </section>
+          <section className="detail-section" aria-labelledby="results-heading">
+            <h2 id="results-heading">Result</h2>
+            {detail.results.length ? (
+              detail.results.map((result) => <ResultCard key={result.id} result={result} />)
+            ) : (
+              <p className="unset">Resultはまだありません。Researcherが調査結果を登録すると、ここに表示されます。</p>
+            )}
+          </section>
+          <section className="detail-section" aria-labelledby="syntheses-heading">
+            <h2 id="syntheses-heading">Synthesis</h2>
+            {detail.syntheses.length ? (
+              detail.syntheses.map((synthesis) => <SynthesisCard key={synthesis.id} synthesis={synthesis} />)
+            ) : (
+              <p className="unset">Synthesisはまだありません。ResearcherがResultをまとめると、ここに表示されます。</p>
+            )}
+          </section>
+        </>
+      )}
+    </main>
   );
 };

@@ -76,7 +76,7 @@ DirectionとWorkは公開index（`@compass/direction`・`@compass/work`）とapp
 
 ## Web UIのShellとWorkspace Selector
 
-ログイン後の画面は共通のShell（`server/src/web/components/Shell.tsx`）に置く。Desktopは左のsidebarにWorkspace Selector・Workspaceのナビゲーション・参加中のProject・Sessionを、狭い画面（700px以下）は上端にSelector・Session、下端に固定したナビゲーションを置く。先頭に「本文へ移動」のskip linkを置く。ログイン画面・Session復元中はheaderだけを出す。
+ログイン後の画面は、appのroute layout（`server/src/web/app/AppLayout.tsx`）が表示部品のShell（`server/src/web/components/Shell.tsx`）へWorkspace Selector・ナビゲーション・Sessionを合成した枠に置く。Desktopは左のsidebarにWorkspace Selector・Workspaceのナビゲーション・参加中のProject・Sessionを、狭い画面（700px以下）は上端にSelector・Session、下端に固定したナビゲーションを置く。先頭に「本文へ移動」のskip linkを置く。ログイン画面・Session復元中はheaderだけを出す。
 
 - 現在位置はURLが正本で、再読込・共有・戻るで同じ画面へ戻る。Workspaceの画面は`/workspaces/:workspaceId`（概要）・`/direction`（方向。Outcome詳細は`/direction/intents/:intentId/outcomes/:outcomeId`で「方向」に属する）・`/projects`（Project。`?status=archived`でアーカイブ済み）・`/activity`（記録）・`/agents`（Agent）・`/settings`（設定）。Project配下（`/projects/:projectId/...`）はProjectの`workspaceId`で所属Workspaceを解決し、「Project」を選択中にする。判定は`server/src/web/features/workspace/workspace.ts`。
 - Workspace Selectorは`GET /api/workspaces`（Workspace Membershipを持つactiveなWorkspace）だけを一覧し、権限の無いWorkspaceは出さない。modal dialogで開き、名前・Missionで絞り込む。選ぶと同じ項目のURLへ移り（Project配下からはWorkspaceのProject一覧）、Escで閉じるとbuttonへfocusが戻る。

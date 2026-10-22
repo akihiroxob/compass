@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { request } from "../../api";
-import { Shell } from "../../components/Shell";
 import { Loading } from "../../components/StateCard";
 import { loginErrorMessage, methodsPath, normalizeReturnTo, readInvitationToken, type AuthMethods } from "./auth";
 
@@ -78,17 +77,15 @@ const LoginError = ({ code }: { code: string | null }) => {
 export const LoginPage = () => {
   const [params] = useSearchParams();
   return (
-    <Shell>
-      <main className="narrow">
-        <div className="detail-hero">
-          <p className="eyebrow">Sign in</p>
-          <h1>Compassにログイン</h1>
-          <p className="lede">利用できるのは、許可されたアカウントと、Projectに招待されたアカウントだけです。</p>
-        </div>
-        <LoginError code={params.get("error")} />
-        <LoginForms returnTo={normalizeReturnTo(params.get("returnTo"))} />
-      </main>
-    </Shell>
+    <main className="narrow">
+      <div className="detail-hero">
+        <p className="eyebrow">Sign in</p>
+        <h1>Compassにログイン</h1>
+        <p className="lede">利用できるのは、許可されたアカウントと、Projectに招待されたアカウントだけです。</p>
+      </div>
+      <LoginError code={params.get("error")} />
+      <LoginForms returnTo={normalizeReturnTo(params.get("returnTo"))} />
+    </main>
   );
 };
 
@@ -102,22 +99,20 @@ export const InvitePage = () => {
     if (window.location.hash) window.history.replaceState(window.history.state, "", window.location.pathname);
   }, []);
   return (
-    <Shell>
-      <main className="narrow">
-        <div className="detail-hero">
-          <p className="eyebrow">Invitation</p>
-          <h1>Projectへの招待</h1>
-          <p className="lede">招待されたメールアドレスのアカウントでログインすると、Projectに参加できます。</p>
+    <main className="narrow">
+      <div className="detail-hero">
+        <p className="eyebrow">Invitation</p>
+        <h1>Projectへの招待</h1>
+        <p className="lede">招待されたメールアドレスのアカウントでログインすると、Projectに参加できます。</p>
+      </div>
+      {token ? (
+        <LoginForms returnTo="/" invitationToken={token} />
+      ) : (
+        <div className="state-card error" role="alert">
+          <p className="error-title">招待リンクを読み取れませんでした。</p>
+          <p>受け取った招待リンクを、もう一度そのまま開いてください。ページを再読み込みした場合も、リンクから開き直す必要があります。</p>
         </div>
-        {token ? (
-          <LoginForms returnTo="/" invitationToken={token} />
-        ) : (
-          <div className="state-card error" role="alert">
-            <p className="error-title">招待リンクを読み取れませんでした。</p>
-            <p>受け取った招待リンクを、もう一度そのまま開いてください。ページを再読み込みした場合も、リンクから開き直す必要があります。</p>
-          </div>
-        )}
-      </main>
-    </Shell>
+      )}
+    </main>
   );
 };
