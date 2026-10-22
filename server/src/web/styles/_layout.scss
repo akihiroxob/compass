@@ -244,20 +244,14 @@ main {
 }
 .view-panel { animation: view-enter var(--motion-fast) ease-out; }
 
-.list-switch {
+// 一覧の上の操作列（表示切替・追加等）。部品間のgap・折返し・一覧との余白はここで持ち、部品は外側余白を持たない。
+// 同じ列の部品は同じsizeを指定する（`npm run check:ui`）。`align-items: center`で部品を行の高さへ伸ばさない。
+.list-toolbar {
   display: flex;
-  gap: .5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
   margin: 0 0 var(--space-lg);
-  a {
-    padding: .45rem 1.1rem;
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-pill);
-    color: var(--color-text-secondary);
-    font-weight: 700;
-    text-decoration: none;
-    &[aria-current="page"] { color: #fff; border-color: var(--color-text); background: var(--color-text); }
-  }
   .action-row + & { margin-top: var(--space-md); }
-  .list-switch-count { margin-left: var(--space-2xs); font-variant-numeric: tabular-nums; }
   + .section-note { margin-top: calc(var(--space-lg) * -.5); }
 }

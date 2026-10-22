@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { ViewSwitch } from "../../components/ui";
 import { storyCreatePath, storyEditPath, taskCreatePath, taskPath } from "../../paths";
 import { useHashTarget } from "../../useHashTarget";
 import { useProjectOperationState } from "../../useProjectAccess";
@@ -98,13 +99,13 @@ export const StoryList = ({ overview, empty, plan = false }: { overview: Executi
 const TaskFilterSwitch = ({ current, counts }: { current: TaskFilter; counts: Record<TaskFilter, number> }) => {
   const [searchParams] = useSearchParams();
   return (
-    <nav className="list-switch" aria-label="Taskの絞り込み">
-      {taskFilters.map((filter) => (
-        <Link key={filter} to={{ search: taskFilterSearch(searchParams, filter) }} aria-current={filter === current ? "page" : undefined}>
-          {taskFilterLabels[filter]} <span className="list-switch-count">{counts[filter]}</span>
-        </Link>
-      ))}
-    </nav>
+    <div className="list-toolbar">
+      <ViewSwitch
+        label="Taskの絞り込み"
+        size="sm"
+        items={taskFilters.map((filter) => ({ key: filter, to: { search: taskFilterSearch(searchParams, filter) }, label: taskFilterLabels[filter], current: filter === current, count: counts[filter] }))}
+      />
+    </div>
   );
 };
 

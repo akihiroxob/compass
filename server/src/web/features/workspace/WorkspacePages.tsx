@@ -4,6 +4,7 @@ import { classifyError, loadFailureMessage, request } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { Shell } from "../../components/Shell";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { LinkButton } from "../../components/ui";
 import { workspaceApiPath } from "../../paths";
 import { workspaceDirectionAccess } from "../../useWorkspaceDirection";
 import type { Project } from "../../projectForm";
@@ -204,9 +205,9 @@ const ProjectsContent = ({ workspace, myRole }: { workspace: Workspace; myRole: 
   const canCreate = workspace.status === "active" && canOperateWorkspace(myRole, "project.create");
   return (
     <>
-      <div className="action-row">
-        <ProjectListSwitch status={status} pathOf={(next) => workspaceProjectsPath(workspace.id, next)} />
-        {canCreate && <Link to={workspaceProjectCreatePath(workspace.id)} className="button">Projectを追加</Link>}
+      <div className="list-toolbar">
+        <ProjectListSwitch status={status} size="sm" pathOf={(next) => workspaceProjectsPath(workspace.id, next)} />
+        {canCreate && <LinkButton to={workspaceProjectCreatePath(workspace.id)} size="sm">Projectを追加</LinkButton>}
       </div>
       {error ? <ErrorState message={`Projectの読み込みに失敗しました: ${error}`} /> : !value ? <Loading /> : value.length === 0 ? (
         <div className="state-card">{status === "archived" ? <p>アーカイブ済みのProjectはありません。</p> : workspace.status === "archived" ? <p>このWorkspaceにactiveなProjectはありません。アーカイブ済みのWorkspaceにはProjectを追加できません。</p> : canCreate ? <><p>このWorkspaceにactiveなProjectはまだありません。Missionを実現する実行の単位としてProjectを追加します。</p><Link to={workspaceProjectCreatePath(workspace.id)} className="text-link">Projectを追加 →</Link></> : <p>このWorkspaceにactiveなProjectはありません。WorkspaceへのProjectの追加はWorkspaceのadministratorが行います。</p>}</div>
