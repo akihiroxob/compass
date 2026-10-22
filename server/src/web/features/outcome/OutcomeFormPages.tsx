@@ -2,7 +2,6 @@ import { Link, useParams } from "react-router-dom";
 import { jsonInit, jsonPost, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { WorkspaceDirectionGate } from "../../components/WorkspaceDirectionGate";
-import { Shell } from "../../components/Shell";
 import { emptyOutcomeFormValues, formValuesFromOutcome, outcomeStatusLabels, type Outcome } from "../../outcomeForm";
 import { intentPath, outcomePath, workspaceApiPath } from "../../paths";
 import { OutcomeForm } from "./OutcomeForm";
@@ -14,8 +13,8 @@ export const OutcomeEditPage = () => { const { projectId = "", intentId = "", ou
 
 const OutcomeEditForm = ({ projectId, workspaceId, intentId, outcomeId }: { projectId: string; workspaceId: string; intentId: string; outcomeId: string }) => {
   const { outcome, error } = useOutcomePage(workspaceId, intentId, outcomeId); const back = outcomePath(projectId, intentId, outcomeId);
-  if (error) return <Shell><main className="narrow"><Link to={intentPath(projectId, intentId)} className="back-link">← Intent詳細</Link><ErrorState message={error} /></main></Shell>;
-  if (!outcome) return <Shell><main className="narrow"><Loading /></main></Shell>;
-  if (outcome.status !== "active") return <Shell><main className="narrow"><Link to={back} className="back-link">← Outcome詳細</Link><ErrorState message={`${outcomeStatusLabels[outcome.status]}のOutcomeは編集できません。`} /></main></Shell>;
+  if (error) return <main className="narrow"><Link to={intentPath(projectId, intentId)} className="back-link">← Intent詳細</Link><ErrorState message={error} /></main>;
+  if (!outcome) return <main className="narrow"><Loading /></main>;
+  if (outcome.status !== "active") return <main className="narrow"><Link to={back} className="back-link">← Outcome詳細</Link><ErrorState message={`${outcomeStatusLabels[outcome.status]}のOutcomeは編集できません。`} /></main>;
   return <OutcomeForm projectId={projectId} intentId={intentId} mode="edit" initial={formValuesFromOutcome(outcome)} heading={{ eyebrow: "Edit outcome", title: "Outcomeを編集", lede: "変更した内容は保存するまで反映されません。キャンセルすると保存済みの内容のままです。" }} submitLabel="変更を保存" pendingLabel="保存中..." cancelTo={back} save={async (values) => (await request<{ outcome: Outcome }>(workspaceApiPath(workspaceId, `/intents/${intentId}/outcomes/${outcomeId}`), jsonInit("PATCH", { title: values.title, hypothesis: values.hypothesis }))).outcome} />;
 };

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { classifyError, loadFailureMessage, request, type FetchLike } from "./api";
-import type { HumanRole } from "./features/member/members";
+import type { HumanRole } from "@compass/access/domain";
 import { canOperateWorkspace } from "./permissions";
 import { projectOperationAccess, type ProjectOperationAccess } from "./projectAccess";
 import type { Project } from "./projectForm";

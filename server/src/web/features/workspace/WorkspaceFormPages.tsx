@@ -4,7 +4,6 @@ import type { HumanWorkspaceOperation } from "@compass/access/domain";
 import { classifyError, jsonInit, loadFailureMessage, request, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { TextListInput } from "../../components/ListInputs";
-import { Shell } from "../../components/Shell";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { workspaceApiPath } from "../../paths";
 import { canOperateWorkspace } from "../../permissions";
@@ -56,28 +55,26 @@ const WorkspaceForm = ({ initial, heading, submitLabel, pendingLabel, back, save
     }
   };
   return (
-    <Shell>
-      <main className="narrow">
-        <Link to={back.to} className="back-link">← {back.label}</Link>
-        <div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div>
-        <p className="lede">{heading.lede}</p>
-        {error && <FormErrorSummary error={error} detailTo={back.to} archivedScope="Workspace" />}
-        <form onSubmit={submit} className="project-form">
-          <section className="form-section">
-            <h2>Identity</h2>
-            <label>Workspace名 <span>必須</span><input {...fieldProps(invalid, "field-name")} required aria-required="true" maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /></label>
-          </section>
-          <section className="form-section">
-            <h2>Direction</h2>
-            <label>Mission <span>必須</span><small>このWorkspaceが存在する理由。所属するすべてのProjectで共有します</small><textarea {...fieldProps(invalid, "field-mission")} required aria-required="true" maxLength={2000} rows={5} value={mission} onChange={(event) => setMission(event.target.value)} /></label>
-            <label>Vision<small>最終的に実現したい状態</small><textarea {...fieldProps(invalid, "field-vision")} maxLength={2000} rows={5} value={vision} onChange={(event) => setVision(event.target.value)} /></label>
-            <TextListInput legend="Principles" name="principles" invalid={invalid} values={principles} setValues={setPrinciples} placeholder="迷ったときの判断原則" />
-            <TextListInput legend="Constraints" name="constraints" invalid={invalid} values={constraints} setValues={setConstraints} placeholder="超えてはいけない制約" />
-          </section>
-          <div className="form-actions"><Link to={back.to} className="secondary-button">キャンセル</Link><button className="button" disabled={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</button></div>
-        </form>
-      </main>
-    </Shell>
+    <main className="narrow">
+      <Link to={back.to} className="back-link">← {back.label}</Link>
+      <div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div>
+      <p className="lede">{heading.lede}</p>
+      {error && <FormErrorSummary error={error} detailTo={back.to} archivedScope="Workspace" />}
+      <form onSubmit={submit} className="project-form">
+        <section className="form-section">
+          <h2>Identity</h2>
+          <label>Workspace名 <span>必須</span><input {...fieldProps(invalid, "field-name")} required aria-required="true" maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /></label>
+        </section>
+        <section className="form-section">
+          <h2>Direction</h2>
+          <label>Mission <span>必須</span><small>このWorkspaceが存在する理由。所属するすべてのProjectで共有します</small><textarea {...fieldProps(invalid, "field-mission")} required aria-required="true" maxLength={2000} rows={5} value={mission} onChange={(event) => setMission(event.target.value)} /></label>
+          <label>Vision<small>最終的に実現したい状態</small><textarea {...fieldProps(invalid, "field-vision")} maxLength={2000} rows={5} value={vision} onChange={(event) => setVision(event.target.value)} /></label>
+          <TextListInput legend="Principles" name="principles" invalid={invalid} values={principles} setValues={setPrinciples} placeholder="迷ったときの判断原則" />
+          <TextListInput legend="Constraints" name="constraints" invalid={invalid} values={constraints} setValues={setConstraints} placeholder="超えてはいけない制約" />
+        </section>
+        <div className="form-actions"><Link to={back.to} className="secondary-button">キャンセル</Link><button className="button" disabled={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</button></div>
+      </form>
+    </main>
   );
 };
 
@@ -116,7 +113,7 @@ const WorkspaceOperationGate = ({ operation, children }: { operation: HumanWorks
   }, [key]);
   const state = stored?.key === key ? stored.state : null;
   if (state?.access === "allowed") return <>{children(state.workspace)}</>;
-  return <Shell><main className="narrow"><Link to={workspacePath(workspaceId)} className="back-link">← Workspaceの概要</Link>{state ? <ErrorState message={state.message} /> : <Loading />}</main></Shell>;
+  return <main className="narrow"><Link to={workspacePath(workspaceId)} className="back-link">← Workspaceの概要</Link>{state ? <ErrorState message={state.message} /> : <Loading />}</main>;
 };
 
 /** Mission等の編集（Workspace Membershipのadministrator以上）。 */

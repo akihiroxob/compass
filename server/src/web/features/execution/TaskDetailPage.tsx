@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router-dom";
 import { ApiError, classifyError, describeActionFailure, jsonPost, loadFailureMessage, request, type ErrorKind } from "../../api";
 import { ReasonPanel, useReasonAction, type ReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { Shell } from "../../components/Shell";
 import { taskEditPath } from "../../paths";
 import type { Project } from "../../projectForm";
 import { useProjectOperation, useProjectOperationState } from "../../useProjectAccess";
@@ -280,98 +279,96 @@ export const TaskDetailPage = () => {
   const currentNotice = notice?.key === key ? notice : null;
   const intervene = access === "allowed";
   return (
-    <Shell>
-      <main className="narrow">
-        {settled?.error ? (
-          <>
-            <Link to={projectViewPath(projectId, "work")} className="back-link">← 実行</Link>
-            <ErrorState message={settled.error} />
-          </>
-        ) : !detail || !task ? (
-          <Loading />
-        ) : (
-          <>
-            <TaskBreadcrumb projectId={projectId} project={projectState?.project ?? null} story={detail.story} task={task} />
-            <div className="detail-hero">
-              <p className="eyebrow">Task</p>
-              <h1>{task.title}</h1>
-              <p><span className={statusBadgeClass(taskTone(task))}>{taskStatusLabels[task.status]}</span></p>
-              <time>{formatTime(task.updatedAt)} 更新</time>
-              {currentNotice && <OperationNotice notice={currentNotice} />}
-              {plan && isManualEditableTask(task, detail.story) && (
-                <div className="action-row"><Link to={taskEditPath(projectId, taskId)} className="secondary-button">Taskを編集</Link></div>
-              )}
-              {intervene && <TaskOperations operations={availableTaskOperations(task)} actions={actions} />}
-              {intervene && (task.status === "in_review" || task.status === "wait_accept") && task.activeClaim && (
-                <p className="section-note">Agentが受入・レビューのClaimを持っているため、受入・差戻しはClaimの解放後にできます。</p>
-              )}
-              {access === "archived" && <p className="section-note">アーカイブ済みのProjectのため、受入・差戻し・取消・Commentはできません。</p>}
-            </div>
-            <section className="detail-section" aria-labelledby="task-facts-heading">
-              <h2 id="task-facts-heading">概要</h2>
-              <dl className="intent-facts">
-                <dt>説明</dt>
-                <dd>{task.description ?? <span className="unset">未設定</span>}</dd>
-                <dt>Story</dt>
-                <dd>{detail.story ? <><Link to={projectViewPath(projectId, "work", storyAnchorId(detail.story.id))}>{detail.story.title}</Link>（{storyStatusLabels[detail.story.status]}）</> : <span className="unset">Storyに属していません</span>}</dd>
-                {detail.story?.correlationId && <><dt>相関ID</dt><dd><code>{detail.story.correlationId}</code></dd></>}
-                {task.taskKey && <><dt>taskKey</dt><dd><code>{task.taskKey}</code></dd></>}
-                <dt>Claim</dt>
-                <dd>
-                  <ClaimFacts task={task} />
-                  <small className="claim-note">Claimは期限付きの作業権で、Agentプロセスの稼働状態を示しません。</small>
-                </dd>
-                <dt>作成</dt>
-                <dd>{formatTime(task.createdAt)}</dd>
-              </dl>
-            </section>
-            {task.rejectReason && (
-              <section className="detail-section" aria-labelledby="reject-heading">
-                <h2 id="reject-heading">差戻し理由</h2>
-                <p className="pre-wrap">{task.rejectReason}</p>
-              </section>
+    <main className="narrow">
+      {settled?.error ? (
+        <>
+          <Link to={projectViewPath(projectId, "work")} className="back-link">← 実行</Link>
+          <ErrorState message={settled.error} />
+        </>
+      ) : !detail || !task ? (
+        <Loading />
+      ) : (
+        <>
+          <TaskBreadcrumb projectId={projectId} project={projectState?.project ?? null} story={detail.story} task={task} />
+          <div className="detail-hero">
+            <p className="eyebrow">Task</p>
+            <h1>{task.title}</h1>
+            <p><span className={statusBadgeClass(taskTone(task))}>{taskStatusLabels[task.status]}</span></p>
+            <time>{formatTime(task.updatedAt)} 更新</time>
+            {currentNotice && <OperationNotice notice={currentNotice} />}
+            {plan && isManualEditableTask(task, detail.story) && (
+              <div className="action-row"><Link to={taskEditPath(projectId, taskId)} className="secondary-button">Taskを編集</Link></div>
             )}
-            {projectState ? (
-              <TaskOutcomeSection projectId={projectId} workspaceId={projectState.project?.workspaceId ?? null} task={task} story={detail.story} />
+            {intervene && <TaskOperations operations={availableTaskOperations(task)} actions={actions} />}
+            {intervene && (task.status === "in_review" || task.status === "wait_accept") && task.activeClaim && (
+              <p className="section-note">Agentが受入・レビューのClaimを持っているため、受入・差戻しはClaimの解放後にできます。</p>
+            )}
+            {access === "archived" && <p className="section-note">アーカイブ済みのProjectのため、受入・差戻し・取消・Commentはできません。</p>}
+          </div>
+          <section className="detail-section" aria-labelledby="task-facts-heading">
+            <h2 id="task-facts-heading">概要</h2>
+            <dl className="intent-facts">
+              <dt>説明</dt>
+              <dd>{task.description ?? <span className="unset">未設定</span>}</dd>
+              <dt>Story</dt>
+              <dd>{detail.story ? <><Link to={projectViewPath(projectId, "work", storyAnchorId(detail.story.id))}>{detail.story.title}</Link>（{storyStatusLabels[detail.story.status]}）</> : <span className="unset">Storyに属していません</span>}</dd>
+              {detail.story?.correlationId && <><dt>相関ID</dt><dd><code>{detail.story.correlationId}</code></dd></>}
+              {task.taskKey && <><dt>taskKey</dt><dd><code>{task.taskKey}</code></dd></>}
+              <dt>Claim</dt>
+              <dd>
+                <ClaimFacts task={task} />
+                <small className="claim-note">Claimは期限付きの作業権で、Agentプロセスの稼働状態を示しません。</small>
+              </dd>
+              <dt>作成</dt>
+              <dd>{formatTime(task.createdAt)}</dd>
+            </dl>
+          </section>
+          {task.rejectReason && (
+            <section className="detail-section" aria-labelledby="reject-heading">
+              <h2 id="reject-heading">差戻し理由</h2>
+              <p className="pre-wrap">{task.rejectReason}</p>
+            </section>
+          )}
+          {projectState ? (
+            <TaskOutcomeSection projectId={projectId} workspaceId={projectState.project?.workspaceId ?? null} task={task} story={detail.story} />
+          ) : (
+            <Loading />
+          )}
+          <section className="detail-section" aria-labelledby="comments-heading">
+            <h2 id="comments-heading">Comment</h2>
+            <p className="section-note">AgentがClaimのもとで残した引継ぎ・検証の記録と、HumanのCommentです。</p>
+            {detail.comments.length ? (
+              <ul className="grant-list">
+                {detail.comments.map((comment) => (
+                  <li key={comment.id}>
+                    <p className="pre-wrap">{comment.body}</p>
+                    <small>{describePrincipal(comment.principalId, names)} ・ {formatTime(comment.createdAt)}</small>
+                  </li>
+                ))}
+              </ul>
             ) : (
-              <Loading />
+              <p className="unset">Commentはありません</p>
             )}
-            <section className="detail-section" aria-labelledby="comments-heading">
-              <h2 id="comments-heading">Comment</h2>
-              <p className="section-note">AgentがClaimのもとで残した引継ぎ・検証の記録と、HumanのCommentです。</p>
-              {detail.comments.length ? (
-                <ul className="grant-list">
-                  {detail.comments.map((comment) => (
-                    <li key={comment.id}>
-                      <p className="pre-wrap">{comment.body}</p>
-                      <small>{describePrincipal(comment.principalId, names)} ・ {formatTime(comment.createdAt)}</small>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="unset">Commentはありません</p>
-              )}
-              {intervene && (
-                <CommentForm
-                  projectId={projectId}
-                  taskId={taskId}
-                  onAdded={() => load().catch(() => undefined)}
-                />
-              )}
-            </section>
-            <section className="detail-section" aria-labelledby="task-changes-heading">
-              <h2 id="task-changes-heading">変更履歴</h2>
-              {detail.changes.length ? (
-                <ul className="grant-list change-list">
-                  {detail.changes.map((change) => <ChangeItem key={change.cursor} change={change} projectId={projectId} humanNames={names} />)}
-                </ul>
-              ) : (
-                <p className="unset">変更はありません</p>
-              )}
-            </section>
-          </>
-        )}
-      </main>
-    </Shell>
+            {intervene && (
+              <CommentForm
+                projectId={projectId}
+                taskId={taskId}
+                onAdded={() => load().catch(() => undefined)}
+              />
+            )}
+          </section>
+          <section className="detail-section" aria-labelledby="task-changes-heading">
+            <h2 id="task-changes-heading">変更履歴</h2>
+            {detail.changes.length ? (
+              <ul className="grant-list change-list">
+                {detail.changes.map((change) => <ChangeItem key={change.cursor} change={change} projectId={projectId} humanNames={names} />)}
+              </ul>
+            ) : (
+              <p className="unset">変更はありません</p>
+            )}
+          </section>
+        </>
+      )}
+    </main>
   );
 };

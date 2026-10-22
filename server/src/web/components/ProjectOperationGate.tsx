@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import type { HumanProjectOperation } from "@compass/access/domain";
 import { projectOperationDeniedMessage } from "../projectAccess";
 import { useProjectOperationState } from "../useProjectAccess";
-import { Shell } from "./Shell";
 import { ErrorState, Loading } from "./StateCard";
 
 /**
@@ -13,5 +12,5 @@ import { ErrorState, Loading } from "./StateCard";
 export const ProjectOperationGate = ({ projectId, operation, back, children }: { projectId: string; operation: HumanProjectOperation; back: { to: string; label: string }; children: ReactNode }) => {
   const state = useProjectOperationState(projectId, operation);
   if (state.access === "allowed") return <>{children}</>;
-  return <Shell><main className="narrow"><Link to={back.to} className="back-link">{back.label}</Link>{state.access === "loading" ? <Loading /> : <ErrorState message={state.access === "error" ? state.message : projectOperationDeniedMessage(state.access)} />}</main></Shell>;
+  return <main className="narrow"><Link to={back.to} className="back-link">{back.label}</Link>{state.access === "loading" ? <Loading /> : <ErrorState message={state.access === "error" ? state.message : projectOperationDeniedMessage(state.access)} />}</main>;
 };

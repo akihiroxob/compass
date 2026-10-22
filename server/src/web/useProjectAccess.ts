@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { classifyError, loadFailureMessage, request } from "./api";
-import type { HumanRole } from "./features/member/members";
-import type { HumanProjectOperation } from "@compass/access/domain";
+import type { HumanProjectOperation, HumanRole } from "@compass/access/domain";
 import { canOperate } from "./permissions";
 import { currentProjectOperationResult, projectOperationAccess, type KeyedProjectOperationResult, type ProjectOperationAccess } from "./projectAccess";
 import type { Project } from "./projectForm";

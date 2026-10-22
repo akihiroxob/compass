@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { checkUiSources, checkUiStyles, readWebSources, type UiProtectedScope, type UiSource } from "./support/uiStructure.ts";
+import { checkUiDependencies, checkUiSources, checkUiStyles, readWebPaths, readWebSources, type UiProtectedScope, type UiSource } from "./support/uiStructure.ts";
 
 /** `npm run check:ui`の入口。検査自体をfixtureで確かめ、そのうえで実際のWeb UIを検査する。 */
 
@@ -105,8 +105,84 @@ test("check:ui inspects every declaration of the control-size mixin after SCSS i
   assert.deepEqual(check("  font-size: var(--control-#{$size}-font-size);\n", ""), ["styles/_mixins.scss: control-sizeがfont-sizeを定めていない"]);
 });
 
-test("check:ui: the Web UI satisfies the shared primitive and protected toolbar rules", () => {
-  const sources = readWebSources(fileURLToPath(new URL("../src/web", import.meta.url)));
-  assert.deepEqual(checkUiSources(sources.filter((source) => !source.path.endsWith(".scss"))), []);
-  assert.deepEqual(checkUiStyles(sources.filter((source) => source.path.endsWith(".scss"))), []);
+/** 依存方向の検査のfixture。appがFeatureを合成し、FeatureはShell等の共通層と他Featureの公開入口だけを使う。 */
+const source = (path: string, text: string): UiSource => ({ path, text });
+const allowedWeb: UiSource[] = [
+  source("app/main.tsx", `import { App } from "./App";\nimport "../styles/main.scss";\nexport const root = App;`),
+  source("app/App.tsx", `import { Shell } from "../components/Shell";\nimport { SamplePage } from "../features/sample";\nimport { OtherPage } from "../features/other/index.ts";\nexport const App = () => <Shell session={null}><SamplePage /><OtherPage /></Shell>;`),
+  source("components/Shell.tsx", `import type { ReactNode } from "react";\nimport { Link } from "react-router-dom";\nimport { formatName } from "../format";\nexport const Shell = ({ session, children }: { session: ReactNode; children: ReactNode }) => <><Link to="/">{formatName("Compass")}</Link>{session}{children}</>;`),
+  source("format.ts", `export const formatName = (name: string) => name.trim();`),
+  source("features/sample/index.ts", `export { SamplePage } from "./SamplePage";`),
+  source("features/sample/SamplePage.tsx", `import { formatName } from "../../format";\nimport { OtherPage } from "../other";\nimport type { OtherValue } from "../other/index";\nexport const SamplePage = () => { const value: OtherValue = formatName("x"); return <OtherPage key={value} />; };`),
+  source("features/other/index.ts", `export { OtherPage, type OtherValue } from "./OtherPage";`),
+  source("features/other/OtherPage.tsx", `export type OtherValue = string;\nexport const OtherPage = () => null;`),
+];
+const withSource = (path: string, text: string) => [...allowedWeb.filter((candidate) => candidate.path !== path), source(path, text)];
+const dependencyErrors = (sources: UiSource[], options: Parameters<typeof checkUiDependencies>[1] = {}) => checkUiDependencies(sources, { knownCrossFeatureImports: [], ...options });
+
+test("check:ui accepts app composition, shared layers and feature public entries", () => {
+  assert.deepEqual(dependencyErrors(allowedWeb), []);
+});
+
+test("check:ui rejects shared layers that depend on features or app", () => {
+  assert.deepEqual(dependencyErrors(withSource("components/Shell.tsx", `import { OtherPage } from "../features/other";\nimport { App } from "../app/App";\nexport const Shell = () => <><OtherPage /><App /></>;`)), [
+    "components/Shell.tsx:1: 共通層からFeatureへ依存しない（features/other/index.ts）",
+    "components/Shell.tsx:2: 共通層からappへ依存しない（app/App.tsx）",
+  ]);
+  // web直下の共通処理からFeature内部の型を読む（import type）も違反。
+  assert.deepEqual(dependencyErrors(withSource("format.ts", `import type { OtherValue } from "./features/other/OtherPage";\nexport const formatName = (name: OtherValue) => name;`)), [
+    "format.ts:1: 共通層からFeatureへ依存しない（features/other/OtherPage.tsx）",
+  ]);
+});
+
+test("check:ui rejects features that depend on app, including re-exports and dynamic imports", () => {
+  assert.deepEqual(dependencyErrors(withSource("features/sample/index.ts", `export { SamplePage } from "./SamplePage";\nexport * from "../../app/App";`)), [
+    "features/sample/index.ts:2: Featureからappへ依存しない（app/App.tsx）。画面の合成はappのroute layoutで行う",
+  ]);
+  assert.deepEqual(dependencyErrors(withSource("features/other/OtherPage.tsx", `export type OtherValue = import("../../app/App.tsx").Missing;\nexport const OtherPage = () => { void import("../../app/App"); const name = "../../app/App"; void import(name); return null; };`)), [
+    "features/other/OtherPage.tsx:1: Featureからappへ依存しない（app/App.tsx）。画面の合成はappのroute layoutで行う",
+    "features/other/OtherPage.tsx:2: Featureからappへ依存しない（app/App.tsx）。画面の合成はappのroute layoutで行う",
+    "features/other/OtherPage.tsx:2: 文字列でないimport()・require()は依存を検査できないため使わない",
+  ]);
+});
+
+test("check:ui resolves aliases and shared re-exports instead of trusting the specifier", () => {
+  const paths = { "@app/*": ["app/*"], "@shared/*": ["./*"] };
+  assert.deepEqual(dependencyErrors(withSource("features/sample/SamplePage.tsx", `import { App } from "@app/App";\nimport { formatName } from "@shared/format";\nexport const SamplePage = () => <App key={formatName("x")} />;`), { paths }), [
+    "features/sample/SamplePage.tsx:1: Featureからappへ依存しない（app/App.tsx）。画面の合成はappのroute layoutで行う",
+  ]);
+  // 共通層の再exportを経由してFeature内部・appへ迂回すると、再exportした共通層のfileが違反になる。
+  assert.deepEqual(dependencyErrors([...withSource("format.ts", `export const formatName = (name: string) => name;\nexport { OtherPage } from "./features/other/OtherPage";\nexport * from "@app/App";`)], { paths }), [
+    "format.ts:2: 共通層からFeatureへ依存しない（features/other/OtherPage.tsx）",
+    "format.ts:3: 共通層からappへ依存しない（app/App.tsx）",
+  ]);
+  assert.deepEqual(dependencyErrors(withSource("features/sample/index.ts", `export { SamplePage } from "./SamplePage";\nexport { Missing } from "@app/Missing";\nexport { Gone } from "../gone";`), { paths }), [
+    'features/sample/index.ts:2: web内で解決できないlocal import "@app/Missing"',
+    'features/sample/index.ts:3: web内で解決できないlocal import "../gone"',
+  ]);
+});
+
+test("check:ui rejects private cross-feature imports unless listed exactly, and stale known entries", () => {
+  const privateImport = withSource("features/sample/SamplePage.tsx", `import { OtherPage } from "../other/OtherPage";\nexport const SamplePage = () => <OtherPage />;`);
+  assert.deepEqual(dependencyErrors(privateImport), [
+    "features/sample/SamplePage.tsx:1: 他Featureの内部fileへ依存しない（features/other/OtherPage.tsx）。features/other/index.tsの公開入口を使う",
+  ]);
+  const edge = "features/sample/SamplePage.tsx -> features/other/OtherPage.tsx";
+  assert.deepEqual(dependencyErrors(privateImport, { knownCrossFeatureImports: [edge] }), []);
+  assert.deepEqual(dependencyErrors(allowedWeb, { knownCrossFeatureImports: [edge] }), [`既知の依存 ${edge} は見つからない。解消したら一覧から削除する`]);
+});
+
+test("check:ui fails when a layer is missing from the scan", () => {
+  assert.deepEqual(dependencyErrors([]), ["app", "feature", "common"].map((kind) => `走査対象に${kind}のsourceがない（検査の対象rootを確認する）`));
+  assert.deepEqual(dependencyErrors(allowedWeb.filter((candidate) => !candidate.path.startsWith("app/"))), ["走査対象にappのsourceがない（検査の対象rootを確認する）"]);
+});
+
+test("check:ui: the Web UI satisfies the dependency, shared primitive and protected toolbar rules", () => {
+  const webRoot = fileURLToPath(new URL("../src/web", import.meta.url));
+  const sources = readWebSources(webRoot);
+  assert.ok(sources.filter((candidate) => candidate.path.startsWith("app/")).length >= 3, "appのsourceを走査していない");
+  assert.ok(sources.filter((candidate) => candidate.path.startsWith("features/")).length >= 50, "Featureのsourceを走査していない");
+  assert.deepEqual(checkUiDependencies(sources, { paths: readWebPaths(webRoot) }), []);
+  assert.deepEqual(checkUiSources(sources.filter((candidate) => !candidate.path.endsWith(".scss"))), []);
+  assert.deepEqual(checkUiStyles(sources.filter((candidate) => candidate.path.endsWith(".scss"))), []);
 });
