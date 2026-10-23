@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useId, useCallback, useEffect, useState, type FormEvent } from "react";
 import { classifyError, loadFailureMessage, request, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { ErrorState, Loading } from "../../components/StateCard";
@@ -32,6 +32,7 @@ const AddMemberForm = ({ workspaceId, membersRevision, onAdded }: { workspaceId:
   const [error, setError] = useState<FormError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const formId = useId();
   const invalid = invalidFieldIds(error);
   const load = useCallback(
     () =>
@@ -73,16 +74,16 @@ const AddMemberForm = ({ workspaceId, membersRevision, onAdded }: { workspaceId:
         <p className="unset">追加できるHumanはいません。所属ProjectのMemberのうち、まだこのWorkspaceのMemberでない人がいません。</p>
       ) : (
         <>
-          {error && <FormErrorSummary error={error} detailTo={`/workspaces/${workspaceId}`} archivedScope="Workspace" conflict={{ title: "Memberを追加できませんでした" }} />}
+          {error && <FormErrorSummary formId={formId} error={error} detailTo={`/workspaces/${workspaceId}`} archivedScope="Workspace" conflict={{ title: "Memberを追加できませんでした" }} />}
           <form className="grant-form" onSubmit={submit} aria-labelledby="workspace-member-add-heading">
             <Field label="Human" required>
-              <Select {...fieldProps(invalid, "field-humanUserId")} required value={humanUserId} onChange={(event) => setHumanUserId(event.target.value)}>
+              <Select {...fieldProps(invalid, "field-humanUserId", formId)} required value={humanUserId} onChange={(event) => setHumanUserId(event.target.value)}>
                 <option value="">選択してください</option>
                 {candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.displayName}（{candidate.email}）</option>)}
               </Select>
             </Field>
             <Field label="Role" required>
-              <Select {...fieldProps(invalid, "field-role")} value={role} onChange={(event) => setRole(event.target.value as HumanRole)}>
+              <Select {...fieldProps(invalid, "field-role", formId)} value={role} onChange={(event) => setRole(event.target.value as HumanRole)}>
                 {humanRoleOptions.map((option) => <option key={option} value={option}>{humanRoleLabels[option]}（{workspaceHumanRoleDescriptions[option]}）</option>)}
               </Select>
             </Field>

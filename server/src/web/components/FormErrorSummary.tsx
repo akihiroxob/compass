@@ -8,16 +8,19 @@ export type FormError = Exclude<ErrorKind, { kind: "not_found" }>;
 
 type FieldProps = { id: string; "aria-invalid"?: true; "aria-describedby"?: string };
 const summaryId = "form-error-summary";
+const scopedId = (id: string, formId?: string) => formId ? `${formId}-${id}` : id;
 
 /** 入力欄のprops。issueの対象になっている欄だけ`aria-invalid`と要約への関連付けを付ける。 */
-export const fieldProps = (invalid: ReadonlySet<string>, id: string): FieldProps =>
-  invalid.has(id) ? { id, "aria-invalid": true, "aria-describedby": summaryId } : { id };
+export const fieldProps = (invalid: ReadonlySet<string>, id: string, formId?: string): FieldProps =>
+  invalid.has(id) ? { id: scopedId(id, formId), "aria-invalid": true, "aria-describedby": scopedId(summaryId, formId) } : { id: scopedId(id, formId) };
 
 export const invalidFieldIds = (error: FormError | null): ReadonlySet<string> =>
   new Set(error?.kind === "validation" ? error.issues.flatMap((issue) => (issue.fieldId ? [issue.fieldId] : [])) : []);
 
 type FormErrorSummaryProps = {
   error: FormError;
+  /** 同時表示するフォームではuseIdで生成した同じ値をfieldPropsにも渡す。 */
+  formId?: string;
   /** 409 conflictの表示。省略した場合、conflictも保存失敗として表示する。 */
   conflict?: { title: string; action?: ReactNode };
   /** archivedで拒否された場合に、内容を確認できる詳細画面への導線。 */
@@ -27,21 +30,21 @@ type FormErrorSummaryProps = {
 };
 
 /** マウント時と`error`が変わるたびにフォーカスを移す。`error`があるときだけ描画すること。 */
-export const FormErrorSummary = ({ error, conflict, detailTo, archivedScope = "Project" }: FormErrorSummaryProps) => {
+export const FormErrorSummary = ({ error, formId, conflict, detailTo, archivedScope = "Project" }: FormErrorSummaryProps) => {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.focus();
     ref.current?.scrollIntoView({ block: "center" });
   }, [error]);
   return (
-    <StateCard tone="error" role="alert" id={summaryId} tabIndex={-1} ref={ref}>
+    <StateCard tone="error" role="alert" id={scopedId(summaryId, formId)} tabIndex={-1} ref={ref}>
       {error.kind === "validation" ? (
         <>
           <p className="error-title">入力内容を確認してください</p>
           <ul>
             {error.issues.map((issue, index) => (
               <li key={index}>
-                {issue.fieldId ? <a href={`#${issue.fieldId}`}>{issue.label}</a> : issue.label}: {issue.message}
+                {issue.fieldId ? <a href={`#${scopedId(issue.fieldId, formId)}`}>{issue.label}</a> : issue.label}: {issue.message}
               </li>
             ))}
           </ul>

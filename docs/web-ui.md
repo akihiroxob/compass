@@ -87,7 +87,7 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 ### フォームの組立て
 
 - 入力の欄は`Field`で入力部品を包む。`Field`の`required`は表示だけのため、検証する入力部品にも`required`を指定する。
-- 送信の検証エラーは`components/FormErrorSummary`が持つ。入力部品へ`fieldProps(invalid, id)`を渡すと、`id`と、検証に失敗した欄の`aria-invalid="true"`・要約（`#form-error-summary`）への`aria-describedby`が付き、要約のリンクから欄へ移れる。
+- 送信の検証エラーは`components/FormErrorSummary`が持つ。入力部品へ`fieldProps(invalid, id)`を渡すと、`id`と、検証に失敗した欄の`aria-invalid="true"`・要約（`#form-error-summary`）への`aria-describedby`が付き、要約のリンクから欄へ移れる。同じ画面に複数フォームを出す設定画面（Member・Grant・Credential）では、フォームごとに`useId()`を生成し、`fieldProps(invalid, id, formId)`と`<FormErrorSummary formId={formId}>`へ同じ値を渡す。入力・要約・リンク・ARIA参照を同じprefixで分離し、APIの論理field IDは変更しない。省略形は単一フォームの画面に限る。
 - 送信ボタンは`<Button type="submit" pending={送信中}>`とし、送信中の文言は利用側が切り替える。保存の失敗時も入力stateを保持し、そのまま再送信できるようにする。
 - 複数のcheckbox等の組は`Fieldset`、可変行の入力は`components/ListInputs`（`TextListInput`・`LinkListInput`）、危険操作の確認・理由は`ReasonPanel`、入力つきの確認は`ConfirmPanel`を使う。いずれも内部で基本部品を使う。
 - 入力の検証・保存・認可はFeatureが持ち、基本部品は持たない。

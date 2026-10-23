@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useId, useCallback, useEffect, useState, type FormEvent } from "react";
 import { classifyError, describeActionFailure, loadFailureMessage, request, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { ConfirmPanel, ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
@@ -159,6 +159,7 @@ export const CredentialSection = ({ scope, readOnly = false }: { scope: Credenti
   const [error, setError] = useState<FormError | null>(null);
   const [issued, setIssued] = useState<IssuedCredential | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const formId = useId();
   const invalid = invalidFieldIds(error);
 
   const load = useCallback(
@@ -213,21 +214,21 @@ export const CredentialSection = ({ scope, readOnly = false }: { scope: Credenti
           ))}
         </ul>
       ) : <p className="unset">Credentialはありません</p>}
-      {error && !readOnly && <FormErrorSummary error={error} detailTo={`/${scope.kind === "workspace" ? "workspaces" : "projects"}/${scope.id}`} archivedScope={scopeLabel(scope)} conflict={{ title: "Credentialを発行できませんでした" }} />}
+      {error && !readOnly && <FormErrorSummary formId={formId} error={error} detailTo={`/${scope.kind === "workspace" ? "workspaces" : "projects"}/${scope.id}`} archivedScope={scopeLabel(scope)} conflict={{ title: "Credentialを発行できませんでした" }} />}
       {issued && <IssuedToken issued={issued} onDismiss={() => setIssued(null)} />}
       {!readOnly && (
         <form className="grant-form" onSubmit={submit}>
           <Field label="種別" required>
-            <Select {...fieldProps(invalid, "field-kind")} value={kind} onChange={(event) => setKind(event.target.value as CredentialKind)}>
+            <Select {...fieldProps(invalid, "field-kind", formId)} value={kind} onChange={(event) => setKind(event.target.value as CredentialKind)}>
               <option value="agent">Agent（Role割当で認可）</option>
               <option value="runtime">Runtime（scopeで認可）</option>
             </Select>
           </Field>
           <Field label={kind === "agent" ? "Agent名" : "Runtime名（consumer）"} required description={`100文字まで。大文字小文字は区別されます。${kind === "agent" ? "Role割当のAgent名と同じ名前にします。" : "ackはこの名前ごとに記録されます。"}`}>
-            <TextInput {...fieldProps(invalid, "field-principalId")} required maxLength={100} value={principalId} onChange={(event) => setPrincipalId(event.target.value)} />
+            <TextInput {...fieldProps(invalid, "field-principalId", formId)} required maxLength={100} value={principalId} onChange={(event) => setPrincipalId(event.target.value)} />
           </Field>
           {kind === "runtime" && (
-            <Fieldset legend="scope" required="1つ以上必須" {...fieldProps(invalid, "field-scopes")}>
+            <Fieldset legend="scope" required="1つ以上必須" {...fieldProps(invalid, "field-scopes", formId)}>
               {scopeOptions.map((option) => (
                 <Checkbox key={option.scope} checked={scopes.includes(option.scope)} onChange={(event) => toggleScope(option.scope, event.target.checked)}>
                   {option.label} <code>{option.scope}</code>
@@ -236,7 +237,7 @@ export const CredentialSection = ({ scope, readOnly = false }: { scope: Credenti
             </Fieldset>
           )}
           <Field label="有効期限">
-            <Select {...fieldProps(invalid, "field-expiresInDays")} value={expiresInDays} onChange={(event) => setExpiresInDays(Number(event.target.value))}>
+            <Select {...fieldProps(invalid, "field-expiresInDays", formId)} value={expiresInDays} onChange={(event) => setExpiresInDays(Number(event.target.value))}>
               {credentialExpiryOptions.map((option) => <option key={option.days} value={option.days}>{option.label}</option>)}
             </Select>
           </Field>
