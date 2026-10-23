@@ -1,0 +1,16 @@
+// 読込・失敗・空・案内の枠（StateCard・Loading・ErrorState）。
+@use "../styles/mixins" as *;
+
+.state-card {
+  margin-top: var(--space-xl);
+  padding: 2.5rem;
+  border: 1px dashed var(--color-line-strong);
+  border-radius: 1.4rem;
+  background: rgba(255, 255, 255, .45);
+  h2 { margin-top: 0; @include serif-heading(1.8rem); }
+  code { font-size: .85em; overflow-wrap: anywhere; }
+  &.error { border-style: solid; border-color: var(--color-danger-line); color: var(--color-danger); background: var(--color-danger-soft); }
+  @include narrow { margin-top: var(--space-lg); padding: 1.5rem; }
+  // 確認パネル（ConfirmPanel）の中の失敗は、パネルの余白に合わせて小さくする。
+  .abandon-panel & { margin-top: 1rem; padding: 1rem var(--space-md); }
+}

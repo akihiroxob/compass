@@ -10,6 +10,7 @@ import { DecisionSection } from "../decision";
 import { OutcomeSection } from "../outcome";
 import { IntentFacts } from "./IntentFacts";
 import { useIntentPage } from "./useIntentPage";
+import { Button, LinkButton } from "../../components/ui";
 
 export const IntentDetailPage = () => {
   const { projectId = "", intentId = "" } = useParams(); const direction = useProjectWorkspaceDirection(projectId); const { workspaceId } = direction;
@@ -24,8 +25,8 @@ export const IntentDetailPage = () => {
     <section className="detail-section"><IntentFacts intent={intent} /></section>
     <OutcomeSection projectId={projectId} workspaceId={intent.workspaceId} intent={intent} access={directionAccess} />
     <DecisionSection projectId={projectId} workspaceId={intent.workspaceId} intentId={intent.id} />
-    {intent.status === "abandoned" && <section className="detail-section"><h2>放棄</h2><p>{intent.abandonedReason ?? <span className="unset">理由は記録されていません</span>}</p><p className="section-note">放棄したIntentはActiveに戻せません。{editable ? "続ける場合は新しいIntentを登録してください。" : ""}</p>{editable && <Link to={intentPath(projectId, "new")} className="secondary-button">新しいIntentを登録</Link>}</section>}
-    {intent.status === "active" && editable && <div className="action-row"><Link to={intentPath(projectId, intent.id, "/edit")} className="button">Intentを編集</Link><button type="button" className="secondary-button danger" aria-expanded={abandon.confirming} onClick={abandon.open}>Intentを放棄</button></div>}
+    {intent.status === "abandoned" && <section className="detail-section"><h2>放棄</h2><p>{intent.abandonedReason ?? <span className="unset">理由は記録されていません</span>}</p><p className="section-note">放棄したIntentはActiveに戻せません。{editable ? "続ける場合は新しいIntentを登録してください。" : ""}</p>{editable && <LinkButton variant="secondary" to={intentPath(projectId, "new")}>新しいIntentを登録</LinkButton>}</section>}
+    {intent.status === "active" && editable && <div className="action-row"><LinkButton to={intentPath(projectId, intent.id, "/edit")}>Intentを編集</LinkButton><Button variant="secondary" tone="danger" aria-expanded={abandon.confirming} onClick={abandon.open}>Intentを放棄</Button></div>}
     {intent.status === "active" && editable && abandon.confirming && <ReasonPanel action={abandon} title="このIntentを放棄しますか？" description="放棄すると編集できず、Activeに戻せません。ActiveなOutcomeがあれば同時に取り消されます。新しいIntentを登録してやり直せます。" label="放棄の理由（任意）" confirmLabel="放棄する" pendingLabel="放棄中..." />}
   </>}</main>;
 };

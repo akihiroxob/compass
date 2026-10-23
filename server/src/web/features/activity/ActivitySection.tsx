@@ -2,7 +2,7 @@ import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { Field, Select } from "../../components/ui";
+import { Button, Field, Select } from "../../components/ui";
 import { intentPath, researchRequestPath, taskPath, workspaceOutcomePath, workspacePath } from "../../paths";
 import { describePrincipal, formatTime } from "../execution";
 import {
@@ -109,9 +109,9 @@ const ActivityItem = ({ activity, scope, resources, filtered }: { activity: Acti
       )}
       {activity.hasBody && (
         <div className="action-row">
-          <button type="button" className="secondary-button compact" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+          <Button variant="secondary" size="sm" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
             {open ? "本文を閉じる" : "本文を表示"}<span className="visually-hidden">（{activity.summary}）</span>
-          </button>
+          </Button>
         </div>
       )}
       {open && <ActivityBody scope={scope} activityId={activity.id} />}
@@ -207,9 +207,9 @@ export const ActivitySection = ({ scope, resources, related }: { scope: Activity
           {reachedEnd && <p ref={endNote} tabIndex={-1} className="unset">これより古いActivityはありません</p>}
           {nextCursor !== null && (
             <div className="action-row">
-              <button type="button" className="secondary-button" disabled={pending} onClick={() => void loadMore()}>
+              <Button variant="secondary" pending={pending} onClick={() => void loadMore()}>
                 {pending ? "読み込み中..." : "さらに古いActivity"}
-              </button>
+              </Button>
             </div>
           )}
         </>

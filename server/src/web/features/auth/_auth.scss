@@ -1,0 +1,33 @@
+// ログイン・Session（features/auth）。Shellのslotに置くSessionの表示と、ログイン画面。
+@use "../../styles/mixins" as *;
+
+.session-menu {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  font-size: var(--text-note);
+  > span:first-child { color: var(--color-text-secondary); font-weight: 700; }
+  .app-sidebar & { justify-content: flex-start; }
+  @include narrow { > span:first-child { display: none; } }
+}
+.session-menu-error { flex-basis: 100%; color: var(--color-danger); text-align: right; }
+.session-banner {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: 1rem 4vw;
+  border-bottom: 1px solid var(--color-danger-line);
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  p { margin: var(--space-2xs) 0; }
+  .action-row { margin-top: var(--space-sm); }
+}
+.login-forms {
+  display: grid;
+  gap: 1.5rem;
+  margin-top: var(--space-lg);
+  .button { min-width: 16rem; @include narrow { width: 100%; min-width: 0; } }
+}
+.local-login { padding: 1.5rem; border: 1px dashed var(--color-line-strong); border-radius: var(--radius-md); }

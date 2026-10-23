@@ -1,0 +1,78 @@
+// 画面の枠（Shell）。Session無しのheaderと、ログイン後のsidebar（狭い画面は上端のbar）・本文の配置。
+// slotの中身（Workspaceのナビゲーション・Session等）の見た目は、それを所有するFeatureのpartialが持つ。
+@use "../styles/mixins" as *;
+
+.site-header {
+  min-height: 4.5rem;
+  padding: 0 4vw;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--color-line);
+  p { color: var(--color-text-muted); font-size: var(--text-small); }
+  @include narrow { padding: 0 5vw; p { display: none; } }
+}
+.brand {
+  display: flex;
+  gap: .65rem;
+  align-items: center;
+  text-decoration: none;
+  font-weight: 750;
+  span { color: var(--color-accent); font-size: 1.4rem; }
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 16.5rem minmax(0, 1fr);
+  min-height: 100vh;
+  @include narrow { display: block; padding-bottom: 4.75rem; }
+}
+.skip-link {
+  position: absolute;
+  top: var(--space-sm);
+  left: -999px;
+  z-index: 30;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
+  color: var(--color-inverse-text);
+  background: var(--color-inverse);
+  font-weight: 700;
+  &:focus { left: var(--space-sm); }
+}
+.app-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-right: 1px solid var(--color-line);
+  background: var(--color-surface);
+  @include narrow {
+    position: static;
+    height: auto;
+    overflow: visible;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) 5vw;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-line);
+  }
+}
+.app-sidebar-footer {
+  display: grid;
+  gap: var(--space-sm);
+  margin-top: auto;
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-line-soft);
+  @include narrow { margin: 0 0 0 auto; padding: 0; border: 0; }
+}
+.app-content {
+  min-width: 0;
+  &:focus { outline: none; }
+  main { padding-top: 3.5rem; @include narrow { padding-top: 1.5rem; } }
+}

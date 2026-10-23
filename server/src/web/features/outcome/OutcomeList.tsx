@@ -6,6 +6,7 @@ import { outcomePath, workspaceApiPath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import type { ProjectOperationAccess } from "../access";
 import { outcomeEmptyMessage, outcomeStatusLabels, splitOutcomes, type Outcome } from "./outcome";
+import { LinkButton } from "../../components/ui";
 
 // ---- Outcome（Step 3）。Evaluation・Execution・Decision・Research・Strategistは未実装のため、達成率や進行状況を表示しない。 ----
 
@@ -30,7 +31,7 @@ export const OutcomeSection = ({ projectId, workspaceId, intent, access }: { pro
   return <section className="detail-section" aria-labelledby="outcome-heading"><h2 id="outcome-heading">Outcome</h2><p className="section-note">Intentへ近づくために達成すべき、観測可能な状態です。Strategist（またはHuman）の判断結果として、成功条件とともに登録します。</p>
     {error ? <ErrorState message={`Outcomeの読み込みに失敗しました: ${error}`} /> : outcomes === null ? <Loading /> : <>
       {active.length ? <OutcomeLinks projectId={projectId} outcomes={active} /> : <p className="unset">{outcomeEmptyMessage(intent.status, access, past.length > 0)}</p>}
-      {intent.status === "active" && !readOnly && <div className="action-row"><Link to={outcomePath(projectId, intent.id, "new")} className="button">Outcomeを登録</Link></div>}
+      {intent.status === "active" && !readOnly && <div className="action-row"><LinkButton to={outcomePath(projectId, intent.id, "new")}>Outcomeを登録</LinkButton></div>}
       {past.length > 0 && <details className="past-intents"><summary>取消済みなどのOutcome（{past.length}件）</summary><OutcomeLinks projectId={projectId} outcomes={past} /></details>}
     </>}</section>;
 };

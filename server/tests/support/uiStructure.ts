@@ -1,48 +1,31 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+import * as sass from "sass";
 import ts from "typescript";
 
 /**
- * Web UIの構造検査（`npm run check:ui`）。web全体のapp・Feature・共通層の依存方向と、共通の基本部品（`components/ui`）、
- * web全体の入力（`input`・`textarea`・`select`）の基本部品への集約、段階適用した保護対象のボタン・操作列を検査する。
- * 保護対象の外の画面にある既存の`.button`・`<button>`等は検査しない。適用範囲を広げるときは`uiProtectedScopes`へ追加する。
+ * Web UIの構造検査（`npm run check:ui`）。web全体（`server/src/web`）を対象に、app・Feature・共通層の依存方向、
+ * 共通の基本部品（`components/ui`）の利用、SCSSのclassの所有・上書き・Sassの入口と出力を検査する。
+ * web全体を一律に検査する。個別の例外は`uiButtonExceptions`だけで、対象が見つからなければ失敗する。
  */
 
 /** Web UIのsource（`server/src/web`からの相対path、`/`区切り）。 */
 export type UiSource = { path: string; text: string };
 
-/** 保護対象。`components`を省略するとfile全体、指定するとその名前のcomponent（変数宣言）だけを検査する。 */
-export type UiProtectedScope = { path: string; components?: string[] };
+/** `<button>`を基本部品の外で使う個別の例外。対象のfileに指定したclassの`<button>`が無ければ失敗する（無効な除外を残さない）。 */
+export type UiButtonException = { path: string; className: string; reason: string };
 
-export const uiProtectedScopes: UiProtectedScope[] = [
-  { path: "features/project/ProjectListPage.tsx" },
-  { path: "features/workspace/WorkspacePages.tsx", components: ["ProjectsContent"] },
-  { path: "features/execution/ExecutionSection.tsx", components: ["TaskFilterSwitch"] },
-  // フォーム（作成・編集、可変行入力、危険操作の理由、Credential等の一度だけの表示と管理）。
-  { path: "components/ListInputs.tsx" },
-  { path: "components/ReasonPanel.tsx" },
-  { path: "features/project/ProjectForm.tsx" },
-  { path: "features/workspace/WorkspaceFormPages.tsx", components: ["WorkspaceForm"] },
-  { path: "features/intent/IntentForm.tsx" },
-  { path: "features/outcome/OutcomeForm.tsx" },
-  { path: "features/execution/ExecutionItemFormPages.tsx", components: ["ExecutionItemForm"] },
-  { path: "features/execution/TaskDetailPage.tsx", components: ["CommentForm"] },
-  { path: "features/auth/LoginPage.tsx", components: ["LoginForms"] },
-  { path: "features/credential/CredentialSection.tsx" },
-  { path: "features/member/MembershipSection.tsx" },
-  { path: "features/member/WorkspaceMembershipSection.tsx" },
-  { path: "features/grant/GrantSection.tsx" },
-  { path: "features/grant/GrantRow.tsx" },
-  { path: "features/activity/ActivitySection.tsx", components: ["ActivityTypeFilter"] },
+export const uiButtonExceptions: UiButtonException[] = [
+  {
+    path: "features/workspace/WorkspaceSwitcher.tsx",
+    className: "workspace-switch",
+    reason: "現在のWorkspaceの名前を示すカード型のdialogの開閉。操作ボタンのsize契約を持たず、Workspace固有の表示を含む",
+  },
 ];
 
 const primitiveRoot = "components/ui/";
-const primitiveComponents = new Set(["Button", "LinkButton", "ViewSwitch", "Field", "TextInput", "TextArea", "Select", "Checkbox"]);
-/** 基本部品が持つclass。保護対象で直接付けると、部品を使わない独自実装になる。 */
-const controlClasses = new Set([
-  "button", "secondary-button", "text-button", "compact", "view-switch", "view-switch-item", "list-switch",
-  "field", "input", "textarea", "select", "checkbox",
-]);
+const primitiveComponents = new Set(["Button", "LinkButton", "ViewSwitch", "Field", "Fieldset", "TextInput", "TextArea", "Select", "Checkbox"]);
 /** 入力の基本部品だけが描画するnative要素。`components/ui`の外では使わない。 */
 const nativeInputTags = new Set(["input", "textarea", "select"]);
 const toolbarClass = "list-toolbar";
@@ -79,6 +62,8 @@ const openingElements = (node: ts.Node): ts.JsxOpeningLikeElement[] => {
 };
 
 const location = (path: string, tree: ts.SourceFile, node: ts.Node) => `${path}:${tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1}`;
+const parseSource = (source: UiSource) =>
+  ts.createSourceFile(source.path, source.text, ts.ScriptTarget.Latest, true, source.path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
 
 const checkPrimitiveImports = (source: UiSource, tree: ts.SourceFile, errors: string[]) => {
   for (const statement of tree.statements) {
@@ -90,10 +75,11 @@ const checkPrimitiveImports = (source: UiSource, tree: ts.SourceFile, errors: st
 };
 
 /**
- * web全体（`components/ui`を除く）の検査。入力のnative要素を使わず、基本部品へ`className`・`style`を渡さない。
- * 例外は`<input type="hidden">`だけ（表示・操作を持たず、form POSTの値を運ぶだけのため。ログインのreturnTo・招待token）。
+ * web全体（`components/ui`を除く`.tsx`）の検査。nativeの`<button>`・入力要素を使わず、基本部品へ`className`・`style`を渡さず、
+ * 操作列（`.list-toolbar`）の部品は同じ`size`を文字列で指定する。
+ * 入力の例外は`<input type="hidden">`だけ（表示・操作を持たず、form POSTの値を運ぶだけのため。ログインのreturnTo・招待token）。
  */
-const checkSharedPrimitives = (source: UiSource, tree: ts.SourceFile, errors: string[]) => {
+const checkSharedPrimitives = (source: UiSource, tree: ts.SourceFile, exceptions: UiButtonException[], used: Set<UiButtonException>, errors: string[]) => {
   for (const element of openingElements(tree)) {
     const tag = element.tagName.getText(tree);
     const at = location(source.path, tree, element);
@@ -101,17 +87,11 @@ const checkSharedPrimitives = (source: UiSource, tree: ts.SourceFile, errors: st
       for (const name of ["className", "style"]) if (attribute(element, name)) errors.push(`${at}: <${tag}>へ${name}を渡さない（外側余白・配置は親layoutが持つ）`);
     if (nativeInputTags.has(tag) && !(tag === "input" && literalAttribute(element, "type") === "hidden"))
       errors.push(`${at}: <${tag}>を直接使わず、components/uiの入力部品（TextInput・TextArea・Select・Checkbox）を使う`);
-  }
-};
-
-const checkProtectedNode = (source: UiSource, tree: ts.SourceFile, node: ts.Node, errors: string[]) => {
-  for (const element of openingElements(node)) {
-    const tag = element.tagName.getText(tree);
-    const at = location(source.path, tree, element);
-    if (primitiveComponents.has(tag)) continue;
-    if (tag === "button") errors.push(`${at}: <button>を直接使わず、components/uiの基本部品を使う`);
-    const own = classNames(element, tree).filter((name) => controlClasses.has(name));
-    if (own.length > 0) errors.push(`${at}: <${tag}>に基本部品のclass（${own.join(", ")}）を直接付けず、components/uiの基本部品を使う`);
+    if (tag === "button") {
+      const exception = exceptions.find((candidate) => candidate.path === source.path && literalAttribute(element, "className") === candidate.className);
+      if (exception) used.add(exception);
+      else errors.push(`${at}: <button>を直接使わず、components/uiのButtonを使う`);
+    }
     if (classNames(element, tree).includes(toolbarClass)) checkToolbar(source, tree, element, errors);
   }
 };
@@ -134,79 +114,151 @@ const checkToolbar = (source: UiSource, tree: ts.SourceFile, toolbar: ts.JsxOpen
     errors.push(`${location(source.path, tree, toolbar)}: 操作列（.${toolbarClass}）の部品のsizeが一致しない（${[...sizes].map(([size, tags]) => `${size}: ${tags.join(", ")}`).join(" / ")}）`);
 };
 
-const componentDeclarations = (tree: ts.SourceFile) => {
-  const found = new Map<string, ts.Node>();
-  for (const statement of tree.statements) {
-    if (ts.isVariableStatement(statement))
-      for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name)) found.set(declaration.name.text, declaration);
-    if (ts.isFunctionDeclaration(statement) && statement.name) found.set(statement.name.text, statement);
-  }
-  return found;
-};
-
 /** TSX・TSの検査。違反の一覧を返す（空なら成功）。 */
-export const checkUiSources = (sources: UiSource[], scopes: UiProtectedScope[] = uiProtectedScopes): string[] => {
+export const checkUiSources = (sources: UiSource[], exceptions: UiButtonException[] = uiButtonExceptions): string[] => {
   const errors: string[] = [];
-  const parsed = new Map(sources.map((source) => [source.path, ts.createSourceFile(source.path, source.text, ts.ScriptTarget.Latest, true, source.path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS)]));
+  const used = new Set<UiButtonException>();
   for (const source of sources) {
-    if (source.path.startsWith(primitiveRoot)) checkPrimitiveImports(source, parsed.get(source.path)!, errors);
-    else if (source.path.endsWith(".tsx")) checkSharedPrimitives(source, parsed.get(source.path)!, errors);
+    if (!/\.tsx?$/.test(source.path)) continue;
+    const tree = parseSource(source);
+    if (source.path.startsWith(primitiveRoot)) checkPrimitiveImports(source, tree, errors);
+    else if (source.path.endsWith(".tsx")) checkSharedPrimitives(source, tree, exceptions, used, errors);
   }
-  for (const scope of scopes) {
-    const source = sources.find((candidate) => candidate.path === scope.path);
-    const tree = parsed.get(scope.path);
-    if (!source || !tree) { errors.push(`${scope.path}: 保護対象のfileが見つからない`); continue; }
-    if (!scope.components) { checkProtectedNode(source, tree, tree, errors); continue; }
-    const declarations = componentDeclarations(tree);
-    for (const name of scope.components) {
-      const declaration = declarations.get(name);
-      if (declaration) checkProtectedNode(source, tree, declaration, errors);
-      else errors.push(`${scope.path}: 保護対象のcomponent ${name} が見つからない`);
-    }
-  }
+  for (const exception of exceptions)
+    if (!used.has(exception)) errors.push(`${exception.path}: <button className="${exception.className}">の例外の対象が見つからない（例外を削除する）`);
   return errors;
 };
 
+/** SCSSの宣言。`selectors`は入れ子と`&`を展開したselector、`at`は囲む@規則（`@media`・`@include narrow`・`@mixin`等）。 */
+type ScssDeclaration = { file: string; rule: number; selectors: string[]; at: string[]; property: string; value: string };
+type ScssSheet = { declarations: ScssDeclaration[]; topLevelSelectors: string[] };
+
+/** 括弧の外のカンマで分ける。 */
+const splitSelectorList = (text: string) => {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of text) {
+    if (char === "(" || char === "[") depth += 1;
+    if (char === ")" || char === "]") depth -= 1;
+    if (char === "," && depth === 0) { parts.push(current); current = ""; } else current += char;
+  }
+  return [...parts, current].map((part) => part.trim().replace(/\s+/g, " ")).filter(Boolean);
+};
+
+const expandSelectors = (parents: string[], header: string) =>
+  splitSelectorList(header).flatMap((child) => (parents.length === 0 ? [child] : parents.map((parent) => (child.includes("&") ? child.replaceAll("&", parent) : `${parent} ${child}`))));
+
 /**
- * SCSSの宣言を、入れ子のselectorの連なりと一緒に列挙する。行コメント・ブロックコメントは除く。
+ * SCSS（CSSを含む）を読み、入れ子を展開した宣言と最上位のselectorを返す。行コメント・ブロックコメント、`@keyframes`の中は除く。
  * 補間`#{$size}`の波括弧をblockと誤認しないよう、補間は中身（`$size`）へ置き換えてから読む。
  */
-const scssDeclarations = (text: string) => {
+const parseScss = (file: string, text: string): ScssSheet => {
   const stripped = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1").replace(/#\{([^{}]*)\}/g, "$1");
-  const stack: string[] = [];
-  const declarations: { selectors: string[]; property: string; value: string }[] = [];
+  const stack: { selectors: string[]; at: string[]; rule: number }[] = [];
+  let rules = 0;
+  const sheet: ScssSheet = { declarations: [], topLevelSelectors: [] };
+  const skipped = (at: string[]) => at.some((rule) => /^@(keyframes|mixin|function)\b/.test(rule));
   let buffer = "";
   for (const char of stripped) {
-    if (char === "{") { stack.push(buffer.trim()); buffer = ""; }
-    else if (char === "}" || char === ";") {
+    if (char === "{") {
+      const header = buffer.trim();
+      const parent = stack.at(-1) ?? { selectors: [], at: [], rule: 0 };
+      rules += 1;
+      if (header.startsWith("@")) stack.push({ selectors: parent.selectors, at: [...parent.at, header], rule: rules });
+      else {
+        const selectors = expandSelectors(parent.selectors, header);
+        if (parent.selectors.length === 0 && !skipped(parent.at)) sheet.topLevelSelectors.push(...selectors);
+        stack.push({ selectors, at: parent.at, rule: rules });
+      }
+      buffer = "";
+    } else if (char === "}" || char === ";") {
       const match = /^([a-z-]+)\s*:\s*([\s\S]+)$/.exec(buffer.trim());
-      if (match && stack.length > 0) declarations.push({ selectors: [...stack], property: match[1], value: match[2].trim() });
+      const frame = stack.at(-1);
+      if (match && frame && !frame.at.some((rule) => rule.startsWith("@keyframes")))
+        sheet.declarations.push({ file, rule: frame.rule, selectors: frame.selectors, at: frame.at, property: match[1], value: match[2].trim() });
       buffer = "";
       if (char === "}") stack.pop();
     } else buffer += char;
   }
-  return declarations;
+  return sheet;
+};
+
+/** selectorのcompound（子孫・子・兄弟の結合子で分けた単位）。属性・疑似classの引数は除く。 */
+const compounds = (selector: string) => selector.replace(/\[[^\]]*\]/g, "").replace(/\([^)]*\)/g, "").split(/\s*[>+~]\s*|\s+/).filter(Boolean);
+const classesOf = (compound: string) => [...compound.matchAll(/\.([A-Za-z_-][\w-]*)/g)].map((match) => match[1]);
+
+/** selectorが定義するclass。末尾から見て最初にclassを持つcompoundの先頭のclass。それより前にclassが無ければ文脈の無い定義（plain）。 */
+const definingClass = (selector: string) => {
+  const list = compounds(selector);
+  for (let index = list.length - 1; index >= 0; index -= 1) {
+    const found = classesOf(list[index]);
+    if (found.length > 0) return { name: found[0], plain: list.slice(0, index).every((compound) => classesOf(compound).length === 0) };
+  }
+  return null;
+};
+
+/** partial・sourceの所有者。`styles/`は共有（tokens・mixin・reset・複数の所有者が使うlayout）。 */
+type UiOwner = "ui" | "components" | "app" | "shared" | "common" | `feature:${string}`;
+const ownerOf = (path: string): UiOwner => {
+  if (path.startsWith(primitiveRoot)) return "ui";
+  if (path.startsWith("components/")) return "components";
+  if (path.startsWith("app/")) return "app";
+  if (path.startsWith("styles/")) return "shared";
+  const feature = /^features\/([^/]+)\//.exec(path);
+  return feature ? `feature:${feature[1]}` : "common";
+};
+const ownerLabel = (owner: UiOwner) =>
+  owner === "ui" ? "components/ui" : owner === "components" ? "components" : owner === "shared" ? "styles" : owner === "common" ? "web直下の共通処理" : owner === "app" ? "app" : `features/${owner.slice("feature:".length)}`;
+
+/** 各classを定義するpartial。文脈の無い定義があるpartialを優先し、無ければ文脈つきで定義するpartial。 */
+const classHomes = (sheets: Map<string, ScssSheet>) => {
+  const plain = new Map<string, Set<string>>();
+  const contextual = new Map<string, Set<string>>();
+  for (const [file, sheet] of sheets)
+    for (const { selectors, at } of sheet.declarations) {
+      if (at.some((rule) => rule.startsWith("@mixin"))) continue;
+      for (const selector of selectors) {
+        const defined = definingClass(selector);
+        if (!defined) continue;
+        const target = defined.plain ? plain : contextual;
+        target.set(defined.name, (target.get(defined.name) ?? new Set()).add(file));
+      }
+    }
+  const homes = new Map<string, Set<string>>(plain);
+  for (const [name, files] of contextual) if (!homes.has(name)) homes.set(name, files);
+  return homes;
 };
 
 const requiredMixinProperties = ["min-height", "padding", "font-size"];
 const sizeProperties = new Set(["min-height", "height", "padding", "padding-left", "padding-right", "font-size", "line-height", "border-width"]);
+/** 部品・組合せUIのpartialの外から、そのclassへ指定してよいproperty（親layoutが決める配置と字体）。部品（components/ui）へは外側余白も足さない。 */
+const placementProperties = new Set(["width", "min-width", "max-width", "flex", "flex-grow", "flex-shrink", "flex-basis", "align-self", "justify-self", "grid-column", "grid-row", "order", "font-family"]);
+const isPlacement = (property: string, home: string) => placementProperties.has(property) || (!home.startsWith(primitiveRoot) && property.startsWith("margin"));
 
 /** 外側余白を持たない基本部品のclass（入力・文字だけのボタン）。sizeをトークンだけで指定する部品は`sizedClass`。 */
 const fieldClass = /\.(field|input|textarea|select|checkbox|text-button)(?![\w-])/;
 const sizedClass = /\.(input|textarea|select|text-button|button|secondary-button)(?![\w-])/;
 /** sizeの値は`0`か`--control-*`・`--field-*`トークンだけ。 */
 const tokenSize = (value: string) => value.split(/\s+/).every((part) => part === "0" || /^var\(--(control|field)-[^)]*\)$/.test(part));
+/** 要素・全体のselector（reset・要素の既定値）を置いてよいpartial。tokensは`:root`のCSS変数だけを持つ。 */
+const globalSelectorPartials = /^styles\/_(base|tokens)\.scss$/;
 
 /**
- * SCSSの検査。size契約はmixinの`--control-*`トークンだけで定め、表示切替・操作列の部品へ外側余白・固定sizeを足さない。
- * 入力の部品（`.field`・`.input`・`.textarea`・`.select`・`.checkbox`・`.text-button`）にも外側余白を持たせず、
- * 入力・ボタンのsizeはどのselectorからもトークンだけで指定する（Featureからの上書きでsizeを崩さない）。
+ * SCSSの検査。size契約はmixinの`--control-*`トークンだけで定め、部品の内側の見た目は部品のpartialだけが持つ。
+ * - 表示切替・操作列・入力の部品（`.view-switch*`・`.field`・`.input`・`.textarea`・`.select`・`.checkbox`・`.text-button`）へ外側余白を持たせず、
+ *   入力・ボタンのsizeはどのselectorからもトークンだけで指定する。
+ * - classを定義するpartialは1つだけ。部品（components/ui）・組合せUI（components）のclassへ、そのpartialの外から指定できるのは
+ *   配置（幅・flex・grid・字体。組合せUIには外側余白も）だけ。共有layout（styles）のclassは利用側の文脈で調整してよい。
+ * - `styles/_base.scss`・`styles/_tokens.scss`以外の最上位のselectorはclassから始める（要素・全体へのselectorを各partialに置かない）。
  */
 export const checkUiStyles = (sources: UiSource[]): string[] => {
   const errors: string[] = [];
-  const tokens = sources.find((source) => source.path.endsWith("_tokens.scss"))?.text ?? "";
-  const mixins = sources.find((source) => source.path.endsWith("_mixins.scss"))?.text ?? "";
-  const mixin = scssDeclarations(mixins).filter(({ selectors }) => /^@mixin control-size\(\$size\)$/.test(selectors[0]));
+  const scss = sources.filter((source) => source.path.endsWith(".scss"));
+  if (scss.length === 0) return ["走査対象にSCSSがない（検査の対象rootを確認する）"];
+  const tokens = scss.find((source) => source.path.endsWith("_tokens.scss"))?.text ?? "";
+  const mixins = scss.find((source) => source.path.endsWith("_mixins.scss"))?.text ?? "";
+  const mixin = parseScss("styles/_mixins.scss", mixins).declarations.filter(({ at }) => /^@mixin control-size\(\$size\)$/.test(at[0] ?? ""));
   if (mixin.length === 0) errors.push("styles/_mixins.scss: @mixin control-size($size) が見つからない");
   else {
     // 値の各項は0か`--control-*`トークンだけ（`0 99px`等の固定値を混ぜない）。
@@ -219,22 +271,113 @@ export const checkUiStyles = (sources: UiSource[]): string[] => {
       for (const part of ["height", "padding-x", "font-size"])
         if (!tokens.includes(`--control-${size}-${part}:`)) errors.push(`styles/_tokens.scss: --control-${size}-${part} が定義されていない`);
   }
-  for (const source of sources) {
-    for (const { selectors, property, value } of scssDeclarations(source.text)) {
-      const chain = selectors.join(" ");
-      if (/\.list-switch(?![\w-])/.test(chain)) { errors.push(`${source.path}: 廃止した.list-switchを使わず、ViewSwitchを使う（${chain}）`); continue; }
-      const own = selectors.at(-1) ?? "";
-      const inToolbar = /\.list-toolbar(?![\w-])/.test(chain) && /\.(view-switch|view-switch-item|button|secondary-button|compact)(?![\w-])/.test(own);
-      const inSwitch = /\.view-switch(-item)?(?![\w-])/.test(own);
-      if ((inSwitch || inToolbar) && property.startsWith("margin")) errors.push(`${source.path}: ${chain} に外側余白（${property}）を持たせず、親layoutのgap・余白を使う`);
-      if ((inSwitch || inToolbar) && sizeProperties.has(property) && !value.startsWith("var(--control-"))
-        errors.push(`${source.path}: ${chain} の${property}はcontrol-sizeのトークンで指定する（${value}）`);
-      if (fieldClass.test(own) && property.startsWith("margin")) errors.push(`${source.path}: ${chain} に外側余白（${property}）を持たせず、親layoutのgap・余白を使う`);
-      if (sizedClass.test(own) && !inToolbar && sizeProperties.has(property) && !tokenSize(value))
-        errors.push(`${source.path}: ${chain} の${property}は--control-*・--field-*トークンで指定する（${value}）`);
+  const sheets = new Map(scss.map((source) => [source.path, parseScss(source.path, source.text)]));
+  const homes = classHomes(sheets);
+  for (const [name, files] of homes)
+    if (files.size > 1) errors.push(`.${name} の定義が複数のpartialにある（${[...files].sort().join(", ")}）。所有するpartialの1つへまとめる`);
+  for (const [file, sheet] of sheets) {
+    if (!globalSelectorPartials.test(file))
+      for (const selector of sheet.topLevelSelectors)
+        if (!selector.startsWith(".")) errors.push(`${file}: 最上位のselector ${selector} はclassから始める（要素・全体のselectorはstyles/_base.scssに置く）`);
+    for (const { selectors, at, property, value } of sheet.declarations) {
+      if (at.some((rule) => rule.startsWith("@mixin"))) continue;
+      for (const selector of selectors) {
+        if (/\.list-switch(?![\w-])/.test(selector)) { errors.push(`${file}: 廃止した.list-switchを使わず、ViewSwitchを使う（${selector}）`); continue; }
+        const own = compounds(selector).at(-1) ?? "";
+        const inToolbar = /\.list-toolbar(?![\w-])/.test(selector) && /\.(view-switch|view-switch-item|button|secondary-button|compact)(?![\w-])/.test(own);
+        const inSwitch = /\.view-switch(-item)?(?![\w-])/.test(own);
+        if ((inSwitch || inToolbar) && property.startsWith("margin")) errors.push(`${file}: ${selector} に外側余白（${property}）を持たせず、親layoutのgap・余白を使う`);
+        else if (fieldClass.test(own) && property.startsWith("margin")) errors.push(`${file}: ${selector} に外側余白（${property}）を持たせず、親layoutのgap・余白を使う`);
+        if ((inSwitch || inToolbar) && sizeProperties.has(property) && !value.startsWith("var(--control-"))
+          errors.push(`${file}: ${selector} の${property}はcontrol-sizeのトークンで指定する（${value}）`);
+        else if (sizedClass.test(own) && sizeProperties.has(property) && !tokenSize(value))
+          errors.push(`${file}: ${selector} の${property}は--control-*・--field-*トークンで指定する（${value}）`);
+        const defined = definingClass(selector);
+        const home = defined ? homes.get(defined.name) : undefined;
+        const homeFile = home?.size === 1 ? [...home][0] : null;
+        if (homeFile && homeFile !== file && ["ui", "components"].includes(ownerOf(homeFile)) && !isPlacement(property, homeFile))
+          errors.push(`${file}: ${selector} は${homeFile}の.${defined!.name}を外側から上書きしない（${property}）。配置以外は部品のpartialで指定する`);
+      }
     }
   }
   return errors;
+};
+
+/** classの利用を探すsourceの文字列。classNameと、JSXのattribute（spreadを含む）以外の式の文字列（class名を組み立てる関数等）を読む。 */
+const classTokens = (source: UiSource) => {
+  const tokens = new Set<string>();
+  const visit = (node: ts.Node, inOtherAttribute: boolean) => {
+    if (ts.isJsxAttribute(node)) {
+      if (node.initializer) visit(node.initializer, inOtherAttribute || node.name.getText() !== "className");
+      return;
+    }
+    if (ts.isJsxSpreadAttribute(node)) return;
+    // attributeの値に渡したJSX（slot）の中のclassNameは読む。
+    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node)) { ts.forEachChild(node, (child) => visit(child, false)); return; }
+    if (!inOtherAttribute && (ts.isStringLiteralLike(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)))
+      for (const token of node.text.split(/[^A-Za-z0-9_-]+/)) if (token) tokens.add(token);
+    ts.forEachChild(node, (child) => visit(child, inOtherAttribute));
+  };
+  visit(parseSource(source), false);
+  return tokens;
+};
+
+/**
+ * SCSSのclassの所有と利用の検査。部品（components/ui）・組合せUI（components）・Feature・appのpartialのclassは、その所有者のsourceだけが使う。
+ * `styles/`の共有classは2つ以上の所有者が使い、1つだけが使うならその所有partialへ移す。どこからも使わないclassは残さない。
+ */
+export const checkUiClassUsage = (sources: UiSource[]): string[] => {
+  const scss = sources.filter((source) => source.path.endsWith(".scss"));
+  const code = sources.filter((source) => /\.tsx?$/.test(source.path) && !source.path.endsWith(".d.ts"));
+  if (scss.length === 0 || code.length === 0) return ["走査対象にSCSS・TSXがない（検査の対象rootを確認する）"];
+  const homes = classHomes(new Map(scss.map((source) => [source.path, parseScss(source.path, source.text)])));
+  const tokens = code.map((source) => ({ path: source.path, owner: ownerOf(source.path), tokens: classTokens(source) }));
+  const errors: string[] = [];
+  for (const [name, files] of [...homes].sort(([a], [b]) => a.localeCompare(b))) {
+    if (files.size !== 1) continue;
+    const [home] = files;
+    const owner = ownerOf(home);
+    const users = tokens.filter((candidate) => candidate.tokens.has(name));
+    if (users.length === 0) { errors.push(`${home}: .${name} はどのsourceからも使われていない（未使用のstyleを削除する）`); continue; }
+    if (owner === "shared") {
+      const owners = [...new Set(users.map((user) => user.owner))];
+      if (owners.length === 1) errors.push(`${home}: .${name} は${ownerLabel(owners[0])}だけが使うため、その所有partialへ移す`);
+      continue;
+    }
+    for (const user of users)
+      if (user.owner !== owner)
+        errors.push(`${user.path}: ${ownerLabel(owner)}のclass .${name}（${home}）を直接使わない。${owner === "ui" || owner === "components" ? "その部品を使う" : "共有するならstyles/_layout.scssへ移す"}`);
+  }
+  return errors;
+};
+
+/**
+ * Sassの出力の検査。同じ@規則の中で、同じselectorの同じpropertyを別のruleで宣言しない（partialの二重出力・後のruleによる打消しを残さない）。
+ * 1つのruleの中でmixinの値を上書きする宣言（`@include caps-label; color: ...`）は対象外。
+ */
+export const checkCompiledCss = (css: string): string[] => {
+  const rules = new Map<string, Set<number>>();
+  for (const { selectors, at, property, rule } of parseScss("css", css).declarations)
+    for (const selector of selectors) {
+      const key = `${at.join(" ")}\u0000${selector}\u0000${property}`;
+      rules.set(key, (rules.get(key) ?? new Set()).add(rule));
+    }
+  return [...rules].filter(([, found]) => found.size > 1).map(([key]) => {
+    const [at, selector, property] = key.split("\u0000");
+    return `出力CSSで${selector}の${property}を複数のruleで宣言している${at ? `（${at}）` : ""}。1つのruleにまとめる`;
+  });
+};
+
+/** Sassの入口。`app/main.tsx`が読み、tokens → base → layout → 部品 → 組合せUI → app → Featureの順に`@use`する。 */
+export const uiStyleEntry = "app/main.scss";
+
+/** Sassの入口をcompileし、web内の全partialが入口から読まれること（読まれないpartialを残さない）と出力の重複を検査する。 */
+export const checkUiStyleEntry = (webRoot: string): string[] => {
+  const result = sass.compile(join(webRoot, uiStyleEntry), { style: "expanded" });
+  const loaded = new Set(result.loadedUrls.map((url) => relative(webRoot, fileURLToPath(url)).split(sep).join("/")));
+  const files = walk(webRoot).map((file) => relative(webRoot, file).split(sep).join("/")).filter((file) => file.endsWith(".scss"));
+  const errors = files.filter((file) => file !== uiStyleEntry && !loaded.has(file)).map((file) => `${file}: Sassの入口（${uiStyleEntry}）から読まれていない`);
+  return [...errors, ...checkCompiledCss(result.css)];
 };
 
 /** 依存の層。`app/`はapp、`features/<名前>/`はFeature、それ以外（`components/`・web直下の共通処理等）は共通層。 */
@@ -309,7 +452,7 @@ export const checkUiDependencies = (sources: UiSource[], options: UiDependencyOp
   const graph = new Map<string, Set<string>>();
   const featureEdges = new Map<string, Map<string, string>>();
   for (const source of code) {
-    const tree = ts.createSourceFile(source.path, source.text, ts.ScriptTarget.Latest, true, source.path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    const tree = parseSource(source);
     const from = layerOf(source.path);
     for (const { node, specifier } of moduleSpecifiers(tree)) {
       const at = location(source.path, tree, node);

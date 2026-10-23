@@ -1,0 +1,12 @@
+// Intent（features/intent）。ActiveなIntentが無いときの案内と登録導線。
+@use "../../styles/mixins" as *;
+
+.intent-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  p { margin: 0; }
+  @include narrow { flex-direction: column; align-items: stretch; }
+}

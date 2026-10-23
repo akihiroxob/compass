@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { classifyError, describeActionFailure, loadFailureMessage, request, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
-import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
+import { ConfirmPanel, ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { Button, Checkbox, Field, Select, TextInput } from "../../components/ui";
+import { Button, Checkbox, Field, Fieldset, Select, TextInput } from "../../components/ui";
 import { useHashTarget } from "../../useHashTarget";
 import { statusBadgeClass } from "../../statusTone";
 import {
@@ -109,20 +109,21 @@ const CredentialRow = ({ scope, credential, readOnly, onChanged, onRotated }: Cr
         </div>
       )}
       {rotating && !readOnly && (
-        <form className="abandon-panel" onSubmit={rotate}>
-          <h2>{credential.principalId} のCredentialをrotationしますか？</h2>
-          <p>同じ種別・Principal・scopeの新しいtokenを発行します。旧tokenは選んだ期間の後に使えなくなります。</p>
+        <ConfirmPanel
+          title={`${credential.principalId} のCredentialをrotationしますか？`}
+          description="同じ種別・Principal・scopeの新しいtokenを発行します。旧tokenは選んだ期間の後に使えなくなります。"
+          error={rotateError}
+          onSubmit={rotate}
+          onCancel={() => { setRotating(false); setRotateError(null); }}
+          submitLabel={rotatePending ? "発行中..." : "新しいtokenを発行"}
+          pending={rotatePending}
+        >
           <Field label="旧Credentialの併用期間">
             <Select id={graceId} value={graceHours} onChange={(event) => setGraceHours(Number(event.target.value))}>
               {rotationGraceOptions.map((option) => <option key={option.hours} value={option.hours}>{option.label}</option>)}
             </Select>
           </Field>
-          {rotateError && <div className="state-card error" role="alert">{rotateError}</div>}
-          <div className="form-actions">
-            <Button variant="secondary" onClick={() => { setRotating(false); setRotateError(null); }}>やめる</Button>
-            <Button type="submit" pending={rotatePending}>{rotatePending ? "発行中..." : "新しいtokenを発行"}</Button>
-          </div>
-        </form>
+        </ConfirmPanel>
       )}
       {revoke.confirming && (
         <ReasonPanel
@@ -226,14 +227,13 @@ export const CredentialSection = ({ scope, readOnly = false }: { scope: Credenti
             <TextInput {...fieldProps(invalid, "field-principalId")} required maxLength={100} value={principalId} onChange={(event) => setPrincipalId(event.target.value)} />
           </Field>
           {kind === "runtime" && (
-            <fieldset className="repeat-field scope-field" {...fieldProps(invalid, "field-scopes")}>
-              <legend>scope <span className="field-required">1つ以上必須</span></legend>
+            <Fieldset legend="scope" required="1つ以上必須" {...fieldProps(invalid, "field-scopes")}>
               {scopeOptions.map((option) => (
                 <Checkbox key={option.scope} checked={scopes.includes(option.scope)} onChange={(event) => toggleScope(option.scope, event.target.checked)}>
                   {option.label} <code>{option.scope}</code>
                 </Checkbox>
               ))}
-            </fieldset>
+            </Fieldset>
           )}
           <Field label="有効期限">
             <Select {...fieldProps(invalid, "field-expiresInDays")} value={expiresInDays} onChange={(event) => setExpiresInDays(Number(event.target.value))}>

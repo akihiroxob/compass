@@ -19,6 +19,18 @@
   line-height: var(--control-line-height);
 }
 
+// ボタン・表示切替の項目（components/uiのButton・LinkButton・ViewSwitch）の形。sizeは`control-size`、色は各部品が持つ。
+@mixin pill-control {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  border-style: solid;
+  border-radius: var(--radius-pill);
+  text-decoration: none;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 // 小さな大文字の見出しラベル（eyebrow・dt等）。
 @mixin caps-label($size: var(--text-label), $spacing: .12em) {
   color: var(--color-text-muted);
@@ -41,10 +53,10 @@
   background: var(--color-raised);
 }
 
-// 一覧の行全体がリンクの場合のhover。
-@mixin list-link {
+// 一覧の行全体がリンクの場合のhover。`display`は利用側のlayout（block・flex・grid）が指定する。
+@mixin list-link($display: block) {
   @include list-item;
-  display: block;
+  display: $display;
   text-decoration: none;
   &:hover { border-color: var(--color-accent); box-shadow: var(--shadow-hover); }
 }
@@ -64,12 +76,12 @@
 }
 
 // ナビゲーションのリンク（Workspaceのナビゲーション・Project詳細のview切替）。選択中は`aria-current="page"`で反転する。
-@mixin nav-link {
-  display: inline-flex;
+@mixin nav-link($display: inline-flex, $radius: var(--radius-pill)) {
+  display: $display;
   align-items: center;
   min-height: 2.4rem;
   padding: 0 1rem;
-  border-radius: var(--radius-pill);
+  border-radius: $radius;
   color: var(--color-text);
   text-decoration: none;
   font-weight: 700;

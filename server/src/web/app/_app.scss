@@ -1,0 +1,13 @@
+// appの画面合成（未定義のURLの画面、sidebarの参加中のProjectへのリンク）。
+@use "../styles/mixins" as *;
+
+.not-found {
+  h1 { margin: var(--space-2xs) 0 1rem; font-size: clamp(2rem, 5vw, 2.8rem); line-height: 1.15; }
+  .eyebrow { margin: 0; }
+}
+.sidebar-link {
+  color: var(--color-text-secondary);
+  font-size: var(--text-note);
+  font-weight: 700;
+  @include narrow { .app-sidebar-footer & { display: none; } }
+}

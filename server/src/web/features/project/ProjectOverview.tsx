@@ -38,6 +38,7 @@ import {
   type WorkBucket,
 } from "./overview";
 import type { Project } from "./project";
+import { Button, LinkButton } from "../../components/ui";
 
 const workBucketLabels: Record<WorkBucket, string> = { ...taskStatusLabels, reclaimable: "再取得待ち" };
 const waitingLabels: Record<WaitingKind, string> = { ...workBucketLabels, story: "Story起票待ち", decompose: "Task分解待ち", reflection: "還流待ち" };
@@ -211,7 +212,7 @@ const actionTarget = (projectId: string, action: MyAction): string => {
 /** あなたの操作 1件。実行できるものはリンク（ボタン）、できないものは依頼先の文言にする。 */
 const MyActionItem = ({ projectId, action }: { projectId: string; action: MyAction }) => (
   <li>
-    {action.allowed ? <Link to={actionTarget(projectId, action)} className="button compact">{action.label}</Link> : <span>{action.label}</span>}
+    {action.allowed ? <LinkButton size="sm" to={actionTarget(projectId, action)}>{action.label}</LinkButton> : <span>{action.label}</span>}
     {action.kind === "credential" && <small>Credentialの無いAgent: {action.principalIds.join("、")}</small>}
     {!action.allowed && "requestTo" in action && <small>{action.requestTo}</small>}
   </li>
@@ -268,7 +269,7 @@ const NextActions = ({ projectId, workspaceId, data, archived, permissions, now,
       {next.outcomeFailures > 0 && (
         <p role="alert" className="error-title">
           一部のOutcome（{next.outcomeFailures}件）の還流・評価の状態を確認できません。{" "}
-          <button type="button" className="secondary-button compact" disabled={pending} onClick={onReload}>再読込</button>
+          <Button variant="secondary" size="sm" pending={pending} onClick={onReload}>再読込</Button>
         </p>
       )}
       {data.direction !== null && !data.direction.ok && <p className="section-note">Intent・Outcomeを読み込めないため、Story起票・Task分解・還流の担当待ちは判定していません。</p>}
@@ -313,9 +314,9 @@ export const ProjectOverview = ({ project, direction, archived, permissions }: {
       <ExecutionBoundary project={project} direction={direction} />
       <div className="claim-holder-toolbar">
         <span>{data ? `${formatTime(data.fetchedAt)} 取得` : "未取得"}</span>
-        <button type="button" className="secondary-button compact" disabled={pending} onClick={() => void load()}>
+        <Button variant="secondary" size="sm" pending={pending} onClick={() => void load()}>
           {pending ? "読み込み中..." : "再読込"}
-        </button>
+        </Button>
       </div>
       {!data ? <Loading /> : (
         <>

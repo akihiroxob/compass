@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentPropsWithRef, ReactNode } from "react";
 
 export type FieldProps = {
   label: ReactNode;
@@ -31,4 +31,23 @@ export const Field = ({ label, required = false, description, labelHidden = fals
     {description !== undefined && <small className="field-description">{description}</small>}
     {children}
   </label>
+);
+
+export type FieldsetProps = Omit<ComponentPropsWithRef<"fieldset">, "className" | "style"> & {
+  legend: ReactNode;
+  /** 必須の表示。`true`は「必須」、文字列はその文言（例: 「1つ以上必須」）。検証は利用側が行う。 */
+  required?: boolean | string;
+  /** 複数の入力部品（Checkbox等）。部品間の間隔はFieldsetが持つ。 */
+  children: ReactNode;
+};
+
+/** 複数の入力をまとめる`<fieldset>`と`<legend>`。Fieldと同じlabel・必須表示を使い、外側余白を持たない。 */
+export const Fieldset = ({ legend, required = false, children, ...props }: FieldsetProps) => (
+  <fieldset {...props} className="fieldset">
+    <legend className="field-label">
+      {legend}
+      {required !== false && <> <span className="field-required">{required === true ? "必須" : required}</span></>}
+    </legend>
+    {children}
+  </fieldset>
 );

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { Button } from "../../components/ui";
 import { projectViewPath, taskPath, workspacePath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import { canOperate, canOperateWorkspace } from "../access";
@@ -45,7 +46,7 @@ const useScopeAgents = (key: string, load: (now: number) => Promise<ScopeAgents>
 const Toolbar = ({ fetchedAt, pending, onReload }: { fetchedAt: number | null; pending: boolean; onReload: () => void }) => (
   <div className="claim-holder-toolbar">
     <span>{fetchedAt === null ? "未取得" : `${formatTime(fetchedAt)} 取得`}</span>
-    <button type="button" className="secondary-button compact" disabled={pending} onClick={onReload}>{pending ? "読み込み中..." : "再読込"}</button>
+    <Button variant="secondary" size="sm" pending={pending} onClick={onReload}>{pending ? "読み込み中..." : "再読込"}</Button>
   </div>
 );
 

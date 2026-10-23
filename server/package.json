@@ -8,7 +8,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",
     "test": "node --import tsx --test \"tests/**/*.test.ts\"",
     "check:ui": "node --import tsx --test tests/uiStructure.test.ts",
-    "lint": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json"
+    "lint": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json && npm run check:ui"
   },
   "dependencies": {
     "@compass/access": "0.1.0",

@@ -1,0 +1,15 @@
+// Member（features/member）。行内のRole変更と、その失敗の表示。
+@use "../../styles/mixins" as *;
+
+.member-role-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  .select { width: auto; }
+  @include narrow { width: 100%; > * { flex: 1 1 auto; } }
+}
+.member-note {
+  flex-basis: 100%;
+  .state-card { margin: 0; }
+}

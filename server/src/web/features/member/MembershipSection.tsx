@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { classifyError, describeActionFailure, loadFailureMessage, request, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
-import { ErrorState, Loading } from "../../components/StateCard";
+import { ErrorState, Loading, StateCard } from "../../components/StateCard";
 import { Button, Field, Select, TextInput } from "../../components/ui";
 import { statusBadgeClass } from "../../statusTone";
 import {
@@ -92,7 +92,7 @@ export const MemberRow = ({ scope, member, members, isSelf, manage, onChanged }:
         </form>
       )}
       {manage && lastOwner && <p className="section-note member-note">{memberScopeLabels[scope.kind]}の最後のownerのため、Role変更と取消はできません。</p>}
-      {error && <div className="state-card error member-note" role="alert">{error}</div>}
+      {error && <div className="member-note"><StateCard tone="error" role="alert">{error}</StateCard></div>}
       {manage && revoke.confirming && (
         <ReasonPanel
           action={revoke}

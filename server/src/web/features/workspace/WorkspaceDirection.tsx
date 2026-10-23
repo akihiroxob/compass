@@ -23,6 +23,7 @@ import { IntentFacts, intentStatusLabels } from "../intent";
 import { EvaluationCard, outcomeStatusLabels, type Outcome } from "../outcome";
 import { openProjects, ProjectName, TargetRow } from "./WorkspaceOverview";
 import type { OverviewProject } from "./workspaceProjects";
+import { LinkButton } from "../../components/ui";
 
 const outcomeTone = (outcome: Pick<Outcome, "status">) => (outcome.status === "active" ? "progress" : "muted");
 
@@ -140,8 +141,8 @@ export const WorkspaceOutcomeDetail = ({ workspaceId, data, projects, canEdit }:
         {outcome.status === "cancelled" && <><h3>取消の理由</h3><p>{outcome.cancelReason}</p></>}
         {openProject ? (
           <div className="action-row">
-            <Link to={intentPath(openProject, outcome.intentId)} className="secondary-button compact">Intent詳細（Research・Direction Decision）</Link>
-            {canEdit && outcome.status === "active" && <Link to={outcomePath(openProject, outcome.intentId, outcome.id)} className="secondary-button compact">Outcomeの編集・取消</Link>}
+            <LinkButton variant="secondary" size="sm" to={intentPath(openProject, outcome.intentId)}>Intent詳細（Research・Direction Decision）</LinkButton>
+            {canEdit && outcome.status === "active" && <LinkButton variant="secondary" size="sm" to={outcomePath(openProject, outcome.intentId, outcome.id)}>Outcomeの編集・取消</LinkButton>}
           </div>
         ) : <p className="locked-note">Intentの詳細（Research・Direction Decision）とOutcomeの編集はProjectの画面から開きます。開けるProjectがありません。</p>}
       </section>
