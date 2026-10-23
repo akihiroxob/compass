@@ -1,4 +1,5 @@
 import { describeActionFailure, request } from "../../api";
+import { Button } from "../../components/ui";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { grantRoleLabels, revokeInit, revokeRecoveryNote, scopeNotFoundMessage, scopeRevokeGrantPath, type Grant, type GrantScope } from "./grants";
 
@@ -28,9 +29,9 @@ export const GrantRow = ({ scope, grant, onRevoked, readOnly = false }: GrantRow
         <small>{new Date(grant.createdAt).toLocaleString("ja-JP")} 発行</small>
       </div>
       {!readOnly && (
-        <button type="button" className="secondary-button danger" aria-expanded={revoke.confirming} onClick={revoke.open}>
+        <Button variant="secondary" size="sm" tone="danger" aria-expanded={revoke.confirming} onClick={revoke.open}>
           割当を取り消す
-        </button>
+        </Button>
       )}
       {!readOnly && revoke.confirming && (
         <ReasonPanel

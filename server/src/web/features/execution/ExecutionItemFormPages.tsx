@@ -4,6 +4,7 @@ import { ApiError, classifyError, jsonInit, jsonPost, loadFailureMessage, reques
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { ProjectOperationGate } from "../access";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { Button, Field, LinkButton, Select, TextArea, TextInput } from "../../components/ui";
 import { taskPath } from "../../paths";
 import {
   executionItemFormValues,
@@ -87,30 +88,24 @@ const ExecutionItemForm = ({
       {error && <FormErrorSummary error={error} detailTo={projectDetail(projectId)} conflict={{ title: `この${subject}は変更できない状態です。`, action: <Link to={projectDetail(projectId)} className="text-link">Project詳細で最新の状態を確認する →</Link> }} />}
       <form onSubmit={submit} className="project-form execution-form" noValidate>
         <section className="form-section">
-          <label>
-            タイトル <span>必須</span>
-            <small>{subject}を一言で表す名前（200文字まで）</small>
-            <input {...fieldProps(invalid, "field-title")} required aria-required="true" maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} />
-          </label>
-          <label>
-            説明
-            <small>{subject === "Task" ? "作業内容と完了条件。Agentはこの説明を読んで作業します（任意）。" : "このStoryで実現すること（任意）。"}</small>
-            <textarea {...fieldProps(invalid, "field-description")} maxLength={10000} rows={6} value={description} onChange={(event) => setDescription(event.target.value)} />
-          </label>
+          <Field label="タイトル" required description={`${subject}を一言で表す名前（200文字まで）`}>
+            <TextInput {...fieldProps(invalid, "field-title")} required maxLength={200} value={title} onChange={(event) => setTitle(event.target.value)} />
+          </Field>
+          <Field label="説明" description={subject === "Task" ? "作業内容と完了条件。Agentはこの説明を読んで作業します（任意）。" : "このStoryで実現すること（任意）。"}>
+            <TextArea {...fieldProps(invalid, "field-description")} maxLength={10000} rows={6} value={description} onChange={(event) => setDescription(event.target.value)} />
+          </Field>
           {storyOptions && (
-            <label>
-              対象Story
-              <small>手動起票した、完了・取消していないStoryから選びます。OutcomeからManagerが起票したStoryには追加できません。</small>
-              <select {...fieldProps(invalid, "field-storyId")} value={storyId} onChange={(event) => setStoryId(event.target.value)}>
+            <Field label="対象Story" description="手動起票した、完了・取消していないStoryから選びます。OutcomeからManagerが起票したStoryには追加できません。">
+              <Select {...fieldProps(invalid, "field-storyId")} value={storyId} onChange={(event) => setStoryId(event.target.value)}>
                 <option value="">Storyに属さないTask</option>
                 {storyOptions.map((story) => <option key={story.id} value={story.id}>{story.title}（{storyStatusLabels[story.status]}）</option>)}
-              </select>
-            </label>
+              </Select>
+            </Field>
           )}
         </section>
         <div className="form-actions">
-          <Link to={cancelTo} className="secondary-button">キャンセル</Link>
-          <button className="button" disabled={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</button>
+          <LinkButton to={cancelTo} variant="secondary">キャンセル</LinkButton>
+          <Button type="submit" pending={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</Button>
         </div>
       </form>
     </main>

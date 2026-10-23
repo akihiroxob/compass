@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { classifyError, loadFailureMessage, request, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { Button, Field, Select } from "../../components/ui";
 import { MemberRow } from "./MembershipSection";
 import {
   addWorkspaceMemberInit,
@@ -74,21 +75,19 @@ const AddMemberForm = ({ workspaceId, membersRevision, onAdded }: { workspaceId:
         <>
           {error && <FormErrorSummary error={error} detailTo={`/workspaces/${workspaceId}`} archivedScope="Workspace" conflict={{ title: "Memberを追加できませんでした" }} />}
           <form className="grant-form" onSubmit={submit} aria-labelledby="workspace-member-add-heading">
-            <label>
-              Human <span>必須</span>
-              <select {...fieldProps(invalid, "field-humanUserId")} required aria-required="true" value={humanUserId} onChange={(event) => setHumanUserId(event.target.value)}>
+            <Field label="Human" required>
+              <Select {...fieldProps(invalid, "field-humanUserId")} required value={humanUserId} onChange={(event) => setHumanUserId(event.target.value)}>
                 <option value="">選択してください</option>
                 {candidates.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.displayName}（{candidate.email}）</option>)}
-              </select>
-            </label>
-            <label>
-              Role <span>必須</span>
-              <select {...fieldProps(invalid, "field-role")} value={role} onChange={(event) => setRole(event.target.value as HumanRole)}>
+              </Select>
+            </Field>
+            <Field label="Role" required>
+              <Select {...fieldProps(invalid, "field-role")} value={role} onChange={(event) => setRole(event.target.value as HumanRole)}>
                 {humanRoleOptions.map((option) => <option key={option} value={option}>{humanRoleLabels[option]}（{workspaceHumanRoleDescriptions[option]}）</option>)}
-              </select>
-            </label>
+              </Select>
+            </Field>
             <div className="form-actions">
-              <button className="button" disabled={isSubmitting || humanUserId === ""}>{isSubmitting ? "追加中..." : "Workspaceに追加"}</button>
+              <Button type="submit" pending={isSubmitting} disabled={humanUserId === ""}>{isSubmitting ? "追加中..." : "Workspaceに追加"}</Button>
             </div>
           </form>
         </>

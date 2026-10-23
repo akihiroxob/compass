@@ -4,8 +4,8 @@ import ts from "typescript";
 
 /**
  * Web UIの構造検査（`npm run check:ui`）。web全体のapp・Feature・共通層の依存方向と、共通の基本部品（`components/ui`）、
- * 段階適用した保護対象の操作列を検査する。基本部品の検査の対象外の画面にある既存の`.button`・`<button>`等は検査しない。
- * 適用範囲を広げるときは`uiProtectedScopes`へ追加する。
+ * web全体の入力（`input`・`textarea`・`select`）の基本部品への集約、段階適用した保護対象のボタン・操作列を検査する。
+ * 保護対象の外の画面にある既存の`.button`・`<button>`等は検査しない。適用範囲を広げるときは`uiProtectedScopes`へ追加する。
  */
 
 /** Web UIのsource（`server/src/web`からの相対path、`/`区切り）。 */
@@ -18,12 +18,33 @@ export const uiProtectedScopes: UiProtectedScope[] = [
   { path: "features/project/ProjectListPage.tsx" },
   { path: "features/workspace/WorkspacePages.tsx", components: ["ProjectsContent"] },
   { path: "features/execution/ExecutionSection.tsx", components: ["TaskFilterSwitch"] },
+  // フォーム（作成・編集、可変行入力、危険操作の理由、Credential等の一度だけの表示と管理）。
+  { path: "components/ListInputs.tsx" },
+  { path: "components/ReasonPanel.tsx" },
+  { path: "features/project/ProjectForm.tsx" },
+  { path: "features/workspace/WorkspaceFormPages.tsx", components: ["WorkspaceForm"] },
+  { path: "features/intent/IntentForm.tsx" },
+  { path: "features/outcome/OutcomeForm.tsx" },
+  { path: "features/execution/ExecutionItemFormPages.tsx", components: ["ExecutionItemForm"] },
+  { path: "features/execution/TaskDetailPage.tsx", components: ["CommentForm"] },
+  { path: "features/auth/LoginPage.tsx", components: ["LoginForms"] },
+  { path: "features/credential/CredentialSection.tsx" },
+  { path: "features/member/MembershipSection.tsx" },
+  { path: "features/member/WorkspaceMembershipSection.tsx" },
+  { path: "features/grant/GrantSection.tsx" },
+  { path: "features/grant/GrantRow.tsx" },
+  { path: "features/activity/ActivitySection.tsx", components: ["ActivityTypeFilter"] },
 ];
 
 const primitiveRoot = "components/ui/";
-const primitiveComponents = new Set(["LinkButton", "ViewSwitch"]);
+const primitiveComponents = new Set(["Button", "LinkButton", "ViewSwitch", "Field", "TextInput", "TextArea", "Select", "Checkbox"]);
 /** 基本部品が持つclass。保護対象で直接付けると、部品を使わない独自実装になる。 */
-const controlClasses = new Set(["button", "secondary-button", "compact", "view-switch", "view-switch-item", "list-switch"]);
+const controlClasses = new Set([
+  "button", "secondary-button", "text-button", "compact", "view-switch", "view-switch-item", "list-switch",
+  "field", "input", "textarea", "select", "checkbox",
+]);
+/** 入力の基本部品だけが描画するnative要素。`components/ui`の外では使わない。 */
+const nativeInputTags = new Set(["input", "textarea", "select"]);
 const toolbarClass = "list-toolbar";
 const primitiveExternalImports = new Set(["react", "react-router-dom"]);
 
@@ -68,14 +89,26 @@ const checkPrimitiveImports = (source: UiSource, tree: ts.SourceFile, errors: st
   }
 };
 
+/**
+ * web全体（`components/ui`を除く）の検査。入力のnative要素を使わず、基本部品へ`className`・`style`を渡さない。
+ * 例外は`<input type="hidden">`だけ（表示・操作を持たず、form POSTの値を運ぶだけのため。ログインのreturnTo・招待token）。
+ */
+const checkSharedPrimitives = (source: UiSource, tree: ts.SourceFile, errors: string[]) => {
+  for (const element of openingElements(tree)) {
+    const tag = element.tagName.getText(tree);
+    const at = location(source.path, tree, element);
+    if (primitiveComponents.has(tag))
+      for (const name of ["className", "style"]) if (attribute(element, name)) errors.push(`${at}: <${tag}>へ${name}を渡さない（外側余白・配置は親layoutが持つ）`);
+    if (nativeInputTags.has(tag) && !(tag === "input" && literalAttribute(element, "type") === "hidden"))
+      errors.push(`${at}: <${tag}>を直接使わず、components/uiの入力部品（TextInput・TextArea・Select・Checkbox）を使う`);
+  }
+};
+
 const checkProtectedNode = (source: UiSource, tree: ts.SourceFile, node: ts.Node, errors: string[]) => {
   for (const element of openingElements(node)) {
     const tag = element.tagName.getText(tree);
     const at = location(source.path, tree, element);
-    if (primitiveComponents.has(tag)) {
-      for (const name of ["className", "style"]) if (attribute(element, name)) errors.push(`${at}: <${tag}>へ${name}を渡さない（外側余白・配置は親layoutが持つ）`);
-      continue;
-    }
+    if (primitiveComponents.has(tag)) continue;
     if (tag === "button") errors.push(`${at}: <button>を直接使わず、components/uiの基本部品を使う`);
     const own = classNames(element, tree).filter((name) => controlClasses.has(name));
     if (own.length > 0) errors.push(`${at}: <${tag}>に基本部品のclass（${own.join(", ")}）を直接付けず、components/uiの基本部品を使う`);
@@ -115,7 +148,10 @@ const componentDeclarations = (tree: ts.SourceFile) => {
 export const checkUiSources = (sources: UiSource[], scopes: UiProtectedScope[] = uiProtectedScopes): string[] => {
   const errors: string[] = [];
   const parsed = new Map(sources.map((source) => [source.path, ts.createSourceFile(source.path, source.text, ts.ScriptTarget.Latest, true, source.path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS)]));
-  for (const source of sources) if (source.path.startsWith(primitiveRoot)) checkPrimitiveImports(source, parsed.get(source.path)!, errors);
+  for (const source of sources) {
+    if (source.path.startsWith(primitiveRoot)) checkPrimitiveImports(source, parsed.get(source.path)!, errors);
+    else if (source.path.endsWith(".tsx")) checkSharedPrimitives(source, parsed.get(source.path)!, errors);
+  }
   for (const scope of scopes) {
     const source = sources.find((candidate) => candidate.path === scope.path);
     const tree = parsed.get(scope.path);
@@ -155,7 +191,17 @@ const scssDeclarations = (text: string) => {
 const requiredMixinProperties = ["min-height", "padding", "font-size"];
 const sizeProperties = new Set(["min-height", "height", "padding", "padding-left", "padding-right", "font-size", "line-height", "border-width"]);
 
-/** SCSSの検査。size契約はmixinの`--control-*`トークンだけで定め、表示切替・操作列の部品へ外側余白・固定sizeを足さない。 */
+/** 外側余白を持たない基本部品のclass（入力・文字だけのボタン）。sizeをトークンだけで指定する部品は`sizedClass`。 */
+const fieldClass = /\.(field|input|textarea|select|checkbox|text-button)(?![\w-])/;
+const sizedClass = /\.(input|textarea|select|text-button|button|secondary-button)(?![\w-])/;
+/** sizeの値は`0`か`--control-*`・`--field-*`トークンだけ。 */
+const tokenSize = (value: string) => value.split(/\s+/).every((part) => part === "0" || /^var\(--(control|field)-[^)]*\)$/.test(part));
+
+/**
+ * SCSSの検査。size契約はmixinの`--control-*`トークンだけで定め、表示切替・操作列の部品へ外側余白・固定sizeを足さない。
+ * 入力の部品（`.field`・`.input`・`.textarea`・`.select`・`.checkbox`・`.text-button`）にも外側余白を持たせず、
+ * 入力・ボタンのsizeはどのselectorからもトークンだけで指定する（Featureからの上書きでsizeを崩さない）。
+ */
 export const checkUiStyles = (sources: UiSource[]): string[] => {
   const errors: string[] = [];
   const tokens = sources.find((source) => source.path.endsWith("_tokens.scss"))?.text ?? "";
@@ -183,6 +229,9 @@ export const checkUiStyles = (sources: UiSource[]): string[] => {
       if ((inSwitch || inToolbar) && property.startsWith("margin")) errors.push(`${source.path}: ${chain} に外側余白（${property}）を持たせず、親layoutのgap・余白を使う`);
       if ((inSwitch || inToolbar) && sizeProperties.has(property) && !value.startsWith("var(--control-"))
         errors.push(`${source.path}: ${chain} の${property}はcontrol-sizeのトークンで指定する（${value}）`);
+      if (fieldClass.test(own) && property.startsWith("margin")) errors.push(`${source.path}: ${chain} に外側余白（${property}）を持たせず、親layoutのgap・余白を使う`);
+      if (sizedClass.test(own) && !inToolbar && sizeProperties.has(property) && !tokenSize(value))
+        errors.push(`${source.path}: ${chain} の${property}は--control-*・--field-*トークンで指定する（${value}）`);
     }
   }
   return errors;

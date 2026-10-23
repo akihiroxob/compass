@@ -162,7 +162,6 @@
   h2 { margin: 0; @include serif-heading(1.8rem); }
   .eyebrow { margin-bottom: var(--space-2xs); }
 }
-.workspace-search { margin-top: 0; }
 .workspace-options {
   @include unstyled-list;
   display: grid;

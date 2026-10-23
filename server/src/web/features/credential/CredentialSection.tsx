@@ -3,6 +3,7 @@ import { classifyError, describeActionFailure, loadFailureMessage, request, with
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { Button, Checkbox, Field, Select, TextInput } from "../../components/ui";
 import { useHashTarget } from "../../useHashTarget";
 import { statusBadgeClass } from "../../statusTone";
 import {
@@ -48,13 +49,12 @@ const IssuedToken = ({ issued, onDismiss }: { issued: IssuedCredential; onDismis
     <div className="invitation-link" role="status">
       <p className="error-title">{credential.principalId} の{credentialKindLabels[credential.kind]} Credentialを{issued.previous ? "rotation" : "発行"}しました</p>
       <p>このtokenは今だけ表示されます。Agent・Runtimeの設定（<code>Authorization: Bearer &lt;token&gt;</code>）へ安全な方法で渡してください。{issued.previous ? `旧Credentialは ${formatTime(issued.previous.expiresAt)} まで併用できます。` : ""}</p>
-      <label>
-        token
-        <input readOnly autoFocus value={issued.token} onFocus={(event) => event.target.select()} />
-      </label>
+      <Field label="token">
+        <TextInput readOnly autoFocus value={issued.token} onFocus={(event) => event.target.select()} />
+      </Field>
       <div className="form-actions">
-        <button type="button" className="secondary-button" onClick={onDismiss}>閉じる</button>
-        <button type="button" className="button" onClick={() => void copy()}>tokenをコピー</button>
+        <Button variant="secondary" onClick={onDismiss}>閉じる</Button>
+        <Button onClick={() => void copy()}>tokenをコピー</Button>
       </div>
       {copied && <p className="grant-notice">{copied}</p>}
     </div>
@@ -104,22 +104,23 @@ const CredentialRow = ({ scope, credential, readOnly, onChanged, onRotated }: Cr
       </div>
       {status === "active" && (
         <div className="action-row">
-          {!readOnly && <button type="button" className="secondary-button compact" aria-expanded={rotating} onClick={() => setRotating(true)}>rotation</button>}
-          <button type="button" className="secondary-button compact danger" aria-expanded={revoke.confirming} onClick={revoke.open}>取り消す</button>
+          {!readOnly && <Button variant="secondary" size="sm" aria-expanded={rotating} onClick={() => setRotating(true)}>rotation</Button>}
+          <Button variant="secondary" size="sm" tone="danger" aria-expanded={revoke.confirming} onClick={revoke.open}>取り消す</Button>
         </div>
       )}
       {rotating && !readOnly && (
         <form className="abandon-panel" onSubmit={rotate}>
           <h2>{credential.principalId} のCredentialをrotationしますか？</h2>
           <p>同じ種別・Principal・scopeの新しいtokenを発行します。旧tokenは選んだ期間の後に使えなくなります。</p>
-          <label htmlFor={graceId}>旧Credentialの併用期間</label>
-          <select id={graceId} value={graceHours} onChange={(event) => setGraceHours(Number(event.target.value))}>
-            {rotationGraceOptions.map((option) => <option key={option.hours} value={option.hours}>{option.label}</option>)}
-          </select>
+          <Field label="旧Credentialの併用期間">
+            <Select id={graceId} value={graceHours} onChange={(event) => setGraceHours(Number(event.target.value))}>
+              {rotationGraceOptions.map((option) => <option key={option.hours} value={option.hours}>{option.label}</option>)}
+            </Select>
+          </Field>
           {rotateError && <div className="state-card error" role="alert">{rotateError}</div>}
           <div className="form-actions">
-            <button type="button" className="secondary-button" onClick={() => { setRotating(false); setRotateError(null); }}>やめる</button>
-            <button className="button" disabled={rotatePending}>{rotatePending ? "発行中..." : "新しいtokenを発行"}</button>
+            <Button variant="secondary" onClick={() => { setRotating(false); setRotateError(null); }}>やめる</Button>
+            <Button type="submit" pending={rotatePending}>{rotatePending ? "発行中..." : "新しいtokenを発行"}</Button>
           </div>
         </form>
       )}
@@ -215,37 +216,32 @@ export const CredentialSection = ({ scope, readOnly = false }: { scope: Credenti
       {issued && <IssuedToken issued={issued} onDismiss={() => setIssued(null)} />}
       {!readOnly && (
         <form className="grant-form" onSubmit={submit}>
-          <label>
-            種別 <span>必須</span>
-            <select {...fieldProps(invalid, "field-kind")} value={kind} onChange={(event) => setKind(event.target.value as CredentialKind)}>
+          <Field label="種別" required>
+            <Select {...fieldProps(invalid, "field-kind")} value={kind} onChange={(event) => setKind(event.target.value as CredentialKind)}>
               <option value="agent">Agent（Role割当で認可）</option>
               <option value="runtime">Runtime（scopeで認可）</option>
-            </select>
-          </label>
-          <label>
-            {kind === "agent" ? "Agent名" : "Runtime名（consumer）"} <span>必須</span>
-            <small>100文字まで。大文字小文字は区別されます。{kind === "agent" ? "Role割当のAgent名と同じ名前にします。" : "ackはこの名前ごとに記録されます。"}</small>
-            <input {...fieldProps(invalid, "field-principalId")} required aria-required="true" maxLength={100} value={principalId} onChange={(event) => setPrincipalId(event.target.value)} />
-          </label>
+            </Select>
+          </Field>
+          <Field label={kind === "agent" ? "Agent名" : "Runtime名（consumer）"} required description={`100文字まで。大文字小文字は区別されます。${kind === "agent" ? "Role割当のAgent名と同じ名前にします。" : "ackはこの名前ごとに記録されます。"}`}>
+            <TextInput {...fieldProps(invalid, "field-principalId")} required maxLength={100} value={principalId} onChange={(event) => setPrincipalId(event.target.value)} />
+          </Field>
           {kind === "runtime" && (
             <fieldset className="repeat-field scope-field" {...fieldProps(invalid, "field-scopes")}>
-              <legend>scope <span>1つ以上必須</span></legend>
+              <legend>scope <span className="field-required">1つ以上必須</span></legend>
               {scopeOptions.map((option) => (
-                <label key={option.scope} className="checkbox-label">
-                  <input type="checkbox" checked={scopes.includes(option.scope)} onChange={(event) => toggleScope(option.scope, event.target.checked)} />
+                <Checkbox key={option.scope} checked={scopes.includes(option.scope)} onChange={(event) => toggleScope(option.scope, event.target.checked)}>
                   {option.label} <code>{option.scope}</code>
-                </label>
+                </Checkbox>
               ))}
             </fieldset>
           )}
-          <label>
-            有効期限
-            <select {...fieldProps(invalid, "field-expiresInDays")} value={expiresInDays} onChange={(event) => setExpiresInDays(Number(event.target.value))}>
+          <Field label="有効期限">
+            <Select {...fieldProps(invalid, "field-expiresInDays")} value={expiresInDays} onChange={(event) => setExpiresInDays(Number(event.target.value))}>
               {credentialExpiryOptions.map((option) => <option key={option.days} value={option.days}>{option.label}</option>)}
-            </select>
-          </label>
+            </Select>
+          </Field>
           <div className="form-actions">
-            <button className="button" disabled={isSubmitting}>{isSubmitting ? "発行中..." : "Credentialを発行"}</button>
+            <Button type="submit" pending={isSubmitting}>{isSubmitting ? "発行中..." : "Credentialを発行"}</Button>
           </div>
         </form>
       )}

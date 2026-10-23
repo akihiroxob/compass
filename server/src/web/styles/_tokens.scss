@@ -71,6 +71,16 @@ $breakpoint-narrow: 700px;
   --control-sm-height: 2.4rem;
   --control-sm-padding-x: .9rem;
   --control-sm-font-size: var(--text-note);
+  // 入力部品（components/uiのTextInput・TextArea・Select）。高さ・左右padding・文字は上の`--control-*`を共有し、枠・状態をここで定める。
+  --field-gap: .55rem;
+  --field-radius: .65rem;
+  --field-padding-y: .75rem;
+  --field-line-height: 1.6;
+  --field-border-color: var(--color-line-input);
+  --field-invalid-color: var(--color-danger);
+  --field-disabled-background: var(--color-subtle);
+  --field-readonly-background: var(--color-note);
+  --control-disabled-opacity: .55;
 
   // 角丸・影
   --radius-sm: .7rem;

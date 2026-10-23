@@ -137,7 +137,7 @@ const ManageSection = ({ workspace, myRole, reload }: { workspace: Workspace; my
         {canUpdate && <Link to={workspaceEditPath(workspace.id)} className="button">Workspaceを編集</Link>}
         {canArchive && <button type="button" className="secondary-button danger" aria-expanded={archive.confirming} onClick={archive.open}>アーカイブ</button>}
       </div>
-      {canArchive && archive.confirming && <ReasonPanel action={archive} title="このWorkspaceをアーカイブしますか？" description="アーカイブすると、Workspaceの編集、Intent・Outcome等のDirectionの変更、Projectの追加ができなくなり、Workspaceの一覧から外れます。内容と履歴は参照できます。所属Projectはアーカイブされません。" label={<>アーカイブの理由 <span>必須</span></>} required confirmLabel="アーカイブする" pendingLabel="アーカイブ中..." />}
+      {canArchive && archive.confirming && <ReasonPanel action={archive} title="このWorkspaceをアーカイブしますか？" description="アーカイブすると、Workspaceの編集、Intent・Outcome等のDirectionの変更、Projectの追加ができなくなり、Workspaceの一覧から外れます。内容と履歴は参照できます。所属Projectはアーカイブされません。" label="アーカイブの理由" required confirmLabel="アーカイブする" pendingLabel="アーカイブ中..." />}
     </section>
   );
 };

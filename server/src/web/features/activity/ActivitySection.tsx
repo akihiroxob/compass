@@ -1,7 +1,8 @@
-import { useEffect, useId, useReducer, useRef, useState, type ReactNode } from "react";
+import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { Field, Select } from "../../components/ui";
 import { intentPath, researchRequestPath, taskPath, workspaceOutcomePath, workspacePath } from "../../paths";
 import { describePrincipal, formatTime } from "../execution";
 import {
@@ -120,23 +121,23 @@ const ActivityItem = ({ activity, scope, resources, filtered }: { activity: Acti
 
 /** 種別の絞り込み。URLの`?type=`を置き換え、`view`等の他のqueryは残す。一覧に無い種別（明示記録）で絞り込み中ならその種別も選択肢に出す。 */
 const ActivityTypeFilter = ({ scope, current }: { scope: ActivityScope; current: string | null }) => {
-  const id = useId();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const groups = activityTypeGroups[scope.kind];
   const known = current === null || activityTypeLabel(scope.kind, current) !== null;
   return (
     <div className="activity-filter">
-      <label htmlFor={id}>種別</label>
-      <select id={id} value={current ?? ""} onChange={(event) => navigate({ search: activityTypeSearch(searchParams, event.target.value || null) })}>
-        <option value="">すべて</option>
-        {groups.map((group) => (
-          <optgroup key={group.label} label={group.label}>
-            {group.types.map((item) => <option key={item.type} value={item.type}>{item.label}</option>)}
-          </optgroup>
-        ))}
-        {!known && <optgroup label="記録"><option value={current}>{current}</option></optgroup>}
-      </select>
+      <Field label="種別" layout="inline">
+        <Select size="sm" value={current ?? ""} onChange={(event) => navigate({ search: activityTypeSearch(searchParams, event.target.value || null) })}>
+          <option value="">すべて</option>
+          {groups.map((group) => (
+            <optgroup key={group.label} label={group.label}>
+              {group.types.map((item) => <option key={item.type} value={item.type}>{item.label}</option>)}
+            </optgroup>
+          ))}
+          {!known && <optgroup label="記録"><option value={current}>{current}</option></optgroup>}
+        </Select>
+      </Field>
     </div>
   );
 };

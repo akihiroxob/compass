@@ -5,6 +5,7 @@ import { classifyError, jsonInit, loadFailureMessage, request, withNotFoundMessa
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { TextListInput } from "../../components/ListInputs";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { Button, Field, LinkButton, TextArea, TextInput } from "../../components/ui";
 import { workspaceApiPath, workspacePath, workspaceProjectsPath } from "../../paths";
 import { canOperateWorkspace, projectOperationAccess, projectOperationDeniedMessage } from "../access";
 import type { HumanRole } from "../member";
@@ -61,16 +62,16 @@ const WorkspaceForm = ({ initial, heading, submitLabel, pendingLabel, back, save
       <form onSubmit={submit} className="project-form">
         <section className="form-section">
           <h2>Identity</h2>
-          <label>Workspace名 <span>必須</span><input {...fieldProps(invalid, "field-name")} required aria-required="true" maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /></label>
+          <Field label="Workspace名" required><TextInput {...fieldProps(invalid, "field-name")} required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /></Field>
         </section>
         <section className="form-section">
           <h2>Direction</h2>
-          <label>Mission <span>必須</span><small>このWorkspaceが存在する理由。所属するすべてのProjectで共有します</small><textarea {...fieldProps(invalid, "field-mission")} required aria-required="true" maxLength={2000} rows={5} value={mission} onChange={(event) => setMission(event.target.value)} /></label>
-          <label>Vision<small>最終的に実現したい状態</small><textarea {...fieldProps(invalid, "field-vision")} maxLength={2000} rows={5} value={vision} onChange={(event) => setVision(event.target.value)} /></label>
+          <Field label="Mission" required description="このWorkspaceが存在する理由。所属するすべてのProjectで共有します"><TextArea {...fieldProps(invalid, "field-mission")} required maxLength={2000} rows={5} value={mission} onChange={(event) => setMission(event.target.value)} /></Field>
+          <Field label="Vision" description="最終的に実現したい状態"><TextArea {...fieldProps(invalid, "field-vision")} maxLength={2000} rows={5} value={vision} onChange={(event) => setVision(event.target.value)} /></Field>
           <TextListInput legend="Principles" name="principles" invalid={invalid} values={principles} setValues={setPrinciples} placeholder="迷ったときの判断原則" />
           <TextListInput legend="Constraints" name="constraints" invalid={invalid} values={constraints} setValues={setConstraints} placeholder="超えてはいけない制約" />
         </section>
-        <div className="form-actions"><Link to={back.to} className="secondary-button">キャンセル</Link><button className="button" disabled={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</button></div>
+        <div className="form-actions"><LinkButton to={back.to} variant="secondary">キャンセル</LinkButton><Button type="submit" pending={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</Button></div>
       </form>
     </main>
   );

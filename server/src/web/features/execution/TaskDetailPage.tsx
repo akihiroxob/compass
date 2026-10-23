@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { ApiError, classifyError, describeActionFailure, jsonPost, loadFailureMessage, request, type ErrorKind } from "../../api";
 import { ReasonPanel, useReasonAction, type ReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { Button, Field, TextArea } from "../../components/ui";
 import { projectViewPath, taskEditPath } from "../../paths";
 import { useProjectOperation, useProjectOperationState } from "../access";
 import { membersPath, type Member } from "../member";
@@ -112,7 +113,7 @@ const TaskOperations = ({ operations, actions }: { operations: TaskOperation[]; 
             action={actions[opened]}
             title={panel.title}
             description={panel.description}
-            {...(panel.label ? { label: <>{panel.label} <span>必須</span></>, required: true } : {})}
+            {...(panel.label ? { label: panel.label, required: true } : {})}
             confirmLabel={panel.confirm}
             pendingLabel={panel.pending}
             danger={panel.danger}
@@ -188,26 +189,24 @@ const CommentForm = ({ projectId, taskId, onAdded }: { projectId: string; taskId
   };
   return (
     <form className="grant-form" onSubmit={submit} noValidate>
-      <label htmlFor="task-comment-body">
-        Commentを追加 <span>必須</span>
-      </label>
-      <textarea
-        id="task-comment-body"
-        required
-        aria-required
-        maxLength={10000}
-        rows={3}
-        value={body}
-        {...(error ? { "aria-invalid": true, "aria-describedby": "task-comment-error" } : {})}
-        onChange={(event) => { setBody(event.target.value); setAdded(false); }}
-      />
+      <Field label="Commentを追加" required>
+        <TextArea
+          id="task-comment-body"
+          required
+          maxLength={10000}
+          rows={3}
+          value={body}
+          {...(error ? { "aria-invalid": true, "aria-describedby": "task-comment-error" } : {})}
+          onChange={(event) => { setBody(event.target.value); setAdded(false); }}
+        />
+      </Field>
       {error && (
         <div ref={errorRef} tabIndex={-1} id="task-comment-error" className="state-card error" role="alert">
           {error}
         </div>
       )}
       <div className="form-actions">
-        <button className="button" disabled={pending}>{pending ? "追加中..." : "Commentを追加"}</button>
+        <Button type="submit" pending={pending}>{pending ? "追加中..." : "Commentを追加"}</Button>
       </div>
       {added && <p className="grant-notice" role="status">{taskOperationNotices.comment}</p>}
     </form>
