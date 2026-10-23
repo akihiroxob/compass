@@ -105,6 +105,81 @@ test("check:ui inspects every declaration of the control-size mixin after SCSS i
   assert.deepEqual(check("  font-size: var(--control-#{$size}-font-size);\n", ""), ["styles/_mixins.scss: control-sizeがfont-sizeを定めていない"]);
 });
 
+/** 入力の基本部品を使うフォームのfixture。保護対象の`SampleForm`と、保護対象外の`Other`を持つ。 */
+const formScopes: UiProtectedScope[] = [{ path: "features/sample/SampleForm.tsx", components: ["SampleForm"] }];
+const formFeature = (body: string, other = "export const Other = () => null;"): UiSource => ({
+  path: "features/sample/SampleForm.tsx",
+  text: `import { Link } from "react-router-dom";\nimport { Button, Field, LinkButton, Select, TextArea, TextInput } from "../../components/ui";\n${body}\n${other}\n`,
+});
+const inputPrimitive: UiSource = { path: "components/ui/FormControls.tsx", text: `export const TextInput = () => <input className="input" />;\nexport const Select = () => <select className="select" />;\n` };
+const allowedForm = `export const SampleForm = () => (
+  <form>
+    <input type="hidden" name="returnTo" value="/" />
+    <Field label="名前" required><TextInput id="field-name" required maxLength={100} /></Field>
+    <Field label="説明"><TextArea rows={3} /></Field>
+    <Field label="種別" layout="inline"><Select size="sm"><option value="a">A</option></Select></Field>
+    <div className="form-actions"><LinkButton to="/" variant="secondary">キャンセル</LinkButton><Button type="submit" pending={false}>保存</Button></div>
+  </form>
+);`;
+
+test("check:ui accepts forms built from the input primitives and a hidden input", () => {
+  assert.deepEqual(checkUiSources([inputPrimitive, formFeature(allowedForm)], formScopes), []);
+});
+
+test("check:ui rejects native inputs outside components/ui, even in unprotected components", () => {
+  const errors = checkUiSources([inputPrimitive, formFeature(allowedForm, `export const Other = () => (
+  <>
+    <input type="text" />
+    <textarea />
+    <select><option>x</option></select>
+    <input type={"hidden"} name="ok" />
+  </>
+);`)], formScopes);
+  assert.deepEqual(errors, [
+    "features/sample/SampleForm.tsx:14: <input>を直接使わず、components/uiの入力部品（TextInput・TextArea・Select・Checkbox）を使う",
+    "features/sample/SampleForm.tsx:15: <textarea>を直接使わず、components/uiの入力部品（TextInput・TextArea・Select・Checkbox）を使う",
+    "features/sample/SampleForm.tsx:16: <select>を直接使わず、components/uiの入力部品（TextInput・TextArea・Select・Checkbox）を使う",
+  ]);
+});
+
+test("check:ui rejects className and style on primitives anywhere and hand-made buttons in a protected form", () => {
+  const outside = checkUiSources([inputPrimitive, formFeature(allowedForm, `export const Other = () => <TextInput className="wide" style={{ height: 40 }} />;`)], formScopes);
+  assert.deepEqual(outside, [
+    "features/sample/SampleForm.tsx:12: <TextInput>へclassNameを渡さない（外側余白・配置は親layoutが持つ）",
+    "features/sample/SampleForm.tsx:12: <TextInput>へstyleを渡さない（外側余白・配置は親layoutが持つ）",
+  ]);
+  const handMade = checkUiSources([inputPrimitive, formFeature(allowedForm
+    .replace('<LinkButton to="/" variant="secondary">キャンセル</LinkButton>', '<Link to="/" className="secondary-button">キャンセル</Link>')
+    .replace('<Button type="submit" pending={false}>保存</Button>', '<button className="button">保存</button>')
+    .replace('<Field label="説明">', '<label className="field">'))], formScopes);
+  assert.equal(handMade.length, 4, handMade.join("\n"));
+  assert.match(handMade[0], /<label>に基本部品のclass（field）/);
+  assert.match(handMade[1], /<Link>に基本部品のclass（secondary-button）/);
+  assert.match(handMade[2], /<button>を直接使わず/);
+  assert.match(handMade[3], /<button>に基本部品のclass（button）/);
+});
+
+test("check:ui keeps input sizes on tokens and spacing on the parent layout", () => {
+  assert.deepEqual(checkUiStyles([tokens, allowedMixin, components(`.form-section { display: grid; gap: var(--space-md); }
+.field { display: grid; gap: var(--field-gap); }
+.input, .select { @include control-size(md); &.compact { @include control-size(sm); } }
+.textarea { padding: var(--field-padding-y) var(--control-md-padding-x); font-size: var(--control-md-font-size); line-height: var(--field-line-height); }
+.text-button { min-height: var(--control-sm-height); padding: 0; }
+.criterion-row .field { font-size: .85rem; }
+.invitation-link .input { font-family: monospace; }`)]), []);
+  assert.deepEqual(checkUiStyles([tokens, allowedMixin, components(`.field { margin-top: 1.25rem; }
+.invitation-link { .input { font-size: .85rem; } }
+.textarea { padding: .85rem 1rem; }
+.repeat-row .text-button { margin-bottom: .5rem; }
+.grant-list { .secondary-button { min-height: 2.4rem; } }`)]), [
+    "styles/_components.scss: .field に外側余白（margin-top）を持たせず、親layoutのgap・余白を使う",
+    "styles/_components.scss: .invitation-link .input のfont-sizeは--control-*・--field-*トークンで指定する（.85rem）",
+    "styles/_components.scss: .textarea のpaddingは--control-*・--field-*トークンで指定する（.85rem 1rem）",
+    "styles/_components.scss: .repeat-row .text-button に外側余白（margin-bottom）を持たせず、親layoutのgap・余白を使う",
+    "styles/_components.scss: .grant-list .secondary-button のmin-heightは--control-*・--field-*トークンで指定する（2.4rem）",
+  ]);
+});
+
 /** 依存方向の検査のfixture。appがFeatureを合成し、FeatureはShell等の共通層と他Featureの公開入口だけを使う。 */
 const source = (path: string, text: string): UiSource => ({ path, text });
 const allowedWeb: UiSource[] = [

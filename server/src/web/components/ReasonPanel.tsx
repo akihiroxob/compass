@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { classifyError, type ErrorKind } from "../api";
+import { Button, Field, TextArea } from "./ui";
 
 /** 理由を添えて取り返しのつかない操作（放棄・取消）を確認するパネルの状態。 */
 export const useReasonAction = (run: (reason: string) => Promise<void>, describeFailure: (classified: ErrorKind) => string) => {
@@ -33,7 +34,7 @@ type ReasonPanelProps = {
   action: ReasonAction;
   title: string;
   description: string;
-  /** 理由欄のラベル。必須なら`<span>必須</span>`を含める。省略すると理由欄を出さず、確認だけを求める。 */
+  /** 理由欄のラベル。必須の表示は`required`で付く。省略すると理由欄を出さず、確認だけを求める。 */
   label?: ReactNode;
   required?: boolean;
   confirmLabel: string;
@@ -54,17 +55,16 @@ export const ReasonPanel = ({ action, title, description, label, required = fals
     <h2 ref={heading} tabIndex={-1}>{title}</h2>
     <p>{description}</p>
     {label !== undefined && (
-      <label>
-        {label}
-        <textarea
+      <Field label={label} required={required}>
+        <TextArea
           autoFocus
-          {...(required ? { required: true, "aria-required": true } : {})}
+          required={required}
           maxLength={2000}
           rows={3}
           value={action.reason}
           onChange={(event) => action.setReason(event.target.value)}
         />
-      </label>
+      </Field>
     )}
     {action.error && (
       <div className="state-card error" role="alert">
@@ -72,12 +72,12 @@ export const ReasonPanel = ({ action, title, description, label, required = fals
       </div>
     )}
     <div className="form-actions">
-      <button type="button" className="secondary-button" onClick={action.cancel}>
+      <Button variant="secondary" onClick={action.cancel}>
         やめる
-      </button>
-      <button className={danger ? "button danger" : "button"} disabled={action.isPending}>
+      </Button>
+      <Button type="submit" tone={danger ? "danger" : undefined} pending={action.isPending}>
         {action.isPending ? pendingLabel : confirmLabel}
-      </button>
+      </Button>
     </div>
   </form>
   );

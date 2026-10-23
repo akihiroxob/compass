@@ -23,6 +23,6 @@ export const OutcomeDetailPage = () => {
     <OutcomeLoopSection projectId={projectId} workspaceId={outcome.workspaceId} intentId={intentId} outcomeId={outcome.id} />
     {outcome.status === "cancelled" && <section className="detail-section"><h2>取消</h2><p>{outcome.cancelReason}</p><p className="section-note">取り消したOutcomeはActiveに戻せません。{editable ? "続ける場合は新しいOutcomeを登録してください。" : ""}</p></section>}
     {outcome.status === "active" && editable && <div className="action-row"><Link to={outcomePath(projectId, intentId, outcome.id, "/edit")} className="button">タイトル・仮説を編集</Link><button type="button" className="secondary-button danger" aria-expanded={cancel.confirming} onClick={cancel.open}>Outcomeを取消</button></div>}
-    {outcome.status === "active" && editable && cancel.confirming && <ReasonPanel action={cancel} title="このOutcomeを取り消しますか？" description="取り消すと編集できず、Activeに戻せません。成功条件を変えたい場合は、新しいOutcomeを登録してやり直せます。" label={<>取消の理由 <span>必須</span></>} required confirmLabel="取り消す" pendingLabel="取消中..." />}
+    {outcome.status === "active" && editable && cancel.confirming && <ReasonPanel action={cancel} title="このOutcomeを取り消しますか？" description="取り消すと編集できず、Activeに戻せません。成功条件を変えたい場合は、新しいOutcomeを登録してやり直せます。" label="取消の理由" required confirmLabel="取り消す" pendingLabel="取消中..." />}
   </>}</main>;
 };

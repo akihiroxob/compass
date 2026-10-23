@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { Field, TextInput } from "../../components/ui";
 import { workspaceCreatePath, workspacePath, workspaceProjectsPath, workspaceSections } from "../../paths";
 import { useWorkspaceNavigation } from "./WorkspaceContext";
 import { currentSection, filterWorkspaces, switchWorkspacePath, workspaceSectionLabels } from "./workspace";
@@ -61,10 +62,9 @@ export const WorkspaceSwitcher = () => {
             </div>
           ) : (
             <>
-              <label className="workspace-search">
-                Workspaceを絞り込む
-                <input ref={search} type="text" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="名前・Mission" />
-              </label>
+              <Field label="Workspaceを絞り込む">
+                <TextInput ref={search} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="名前・Mission" />
+              </Field>
               {shown.length === 0 ? (
                 <p className="unset" role="status">「{query.trim()}」に一致するWorkspaceはありません。</p>
               ) : (

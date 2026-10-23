@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { classifyError, loadFailureMessage, request, withNotFoundMessage } from "../../api";
+import { Button, Field, TextInput } from "../../components/ui";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { useHashTarget } from "../../useHashTarget";
@@ -55,13 +56,11 @@ const GrantForm = ({ scope, role, onGranted }: { scope: GrantScope; role: AgentR
     <>
       {error && <FormErrorSummary error={error} detailTo={scopePath(scope)} conflict={{ title: `${label}に割り当てられませんでした` }} />}
       <form className="grant-form" onSubmit={submit}>
-        <label>
-          Agent名 <span>必須</span>
-          <small>100文字まで。大文字小文字は区別されます。</small>
-          <input {...fieldProps(invalid, "field-principalId")} required aria-required="true" maxLength={100} value={principalId} onChange={(event) => setPrincipalId(event.target.value)} />
-        </label>
+        <Field label="Agent名" required description="100文字まで。大文字小文字は区別されます。">
+          <TextInput {...fieldProps(invalid, "field-principalId")} required maxLength={100} value={principalId} onChange={(event) => setPrincipalId(event.target.value)} />
+        </Field>
         <div className="form-actions">
-          <button className="button" disabled={isSubmitting}>{isSubmitting ? "割当中..." : `${label}に割り当てる`}</button>
+          <Button type="submit" pending={isSubmitting}>{isSubmitting ? "割当中..." : `${label}に割り当てる`}</Button>
         </div>
       </form>
       {notice && <p className="grant-notice" role="status">{notice}</p>}

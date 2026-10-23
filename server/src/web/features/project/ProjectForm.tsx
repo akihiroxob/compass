@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { classifyError, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { LinkListInput } from "../../components/ListInputs";
+import { Button, Field, LinkButton, TextArea, TextInput } from "../../components/ui";
 import type { Project, ProjectFormValues } from "./project";
 
 type ProjectFormProps = {
@@ -31,7 +32,7 @@ export const ProjectForm = ({ initial, heading, submitLabel, pendingLabel, back,
   // 保存に失敗しても入力state（上のuseState）は維持し、そのまま再送信できる。
   const submit = async (event: FormEvent) => { event.preventDefault(); setError(null); setIsSubmitting(true); try { const project = await save({ name, description, repositories, resources }); navigate(`/projects/${project.id}`); } catch (reason) { setError(withNotFoundMessage(classifyError(reason), notFound)); } finally { setIsSubmitting(false); } };
   return <main className="narrow"><Link to={back.to} className="back-link">← {back.label}</Link><div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div><p className="lede">{heading.lede}</p>{error && <FormErrorSummary error={error} detailTo={back.to} archivedScope={archivedScope} />}<form onSubmit={submit} className="project-form">
-    <section className="form-section"><h2>Identity</h2><label>Project名 <span>必須</span><input {...fieldProps(invalid, "field-name")} required aria-required="true" maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /></label><label>説明<small>このProjectが担う実行の範囲</small><textarea {...fieldProps(invalid, "field-description")} maxLength={1000} rows={3} value={description} onChange={(event) => setDescription(event.target.value)} /></label></section>
+    <section className="form-section"><h2>Identity</h2><Field label="Project名" required><TextInput {...fieldProps(invalid, "field-name")} required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /></Field><Field label="説明" description="このProjectが担う実行の範囲"><TextArea {...fieldProps(invalid, "field-description")} maxLength={1000} rows={3} value={description} onChange={(event) => setDescription(event.target.value)} /></Field></section>
     <section className="form-section"><h2>References</h2><LinkListInput legend="Repositories" name="repositories" invalid={invalid} values={repositories} setValues={setRepositories} /><LinkListInput legend="Resources" name="resources" invalid={invalid} values={resources} setValues={setResources} withKind /></section>
-    <div className="form-actions"><Link to={back.to} className="secondary-button">キャンセル</Link><button className="button" disabled={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</button></div></form></main>;
+    <div className="form-actions"><LinkButton to={back.to} variant="secondary">キャンセル</LinkButton><Button type="submit" pending={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</Button></div></form></main>;
 };

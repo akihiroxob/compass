@@ -3,6 +3,7 @@ import { classifyError, describeActionFailure, loadFailureMessage, request, with
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { Button, Field, Select, TextInput } from "../../components/ui";
 import { statusBadgeClass } from "../../statusTone";
 import {
   changeRoleInit,
@@ -81,12 +82,13 @@ export const MemberRow = ({ scope, member, members, isSelf, manage, onChanged }:
       </div>
       {manage && (
         <form className="member-role-form" onSubmit={changeRole}>
-          <label htmlFor={selectId} className="visually-hidden">{human.displayName}のRole</label>
-          <select id={selectId} value={role} disabled={lastOwner} onChange={(event) => setRole(event.target.value as HumanRole)}>
-            {humanRoleOptions.map((option) => <option key={option} value={option}>{humanRoleLabels[option]}</option>)}
-          </select>
-          <button className="secondary-button compact" disabled={lastOwner || pending || role === membership.role}>{pending ? "変更中..." : "Roleを変更"}</button>
-          <button type="button" className="secondary-button compact danger" disabled={lastOwner} aria-expanded={revoke.confirming} onClick={revoke.open}>取り消す</button>
+          <Field label={`${human.displayName}のRole`} labelHidden>
+            <Select id={selectId} size="sm" value={role} disabled={lastOwner} onChange={(event) => setRole(event.target.value as HumanRole)}>
+              {humanRoleOptions.map((option) => <option key={option} value={option}>{humanRoleLabels[option]}</option>)}
+            </Select>
+          </Field>
+          <Button type="submit" variant="secondary" size="sm" pending={pending} disabled={lastOwner || role === membership.role}>{pending ? "変更中..." : "Roleを変更"}</Button>
+          <Button variant="secondary" size="sm" tone="danger" disabled={lastOwner} aria-expanded={revoke.confirming} onClick={revoke.open}>取り消す</Button>
         </form>
       )}
       {manage && lastOwner && <p className="section-note member-note">{memberScopeLabels[scope.kind]}の最後のownerのため、Role変更と取消はできません。</p>}
@@ -117,7 +119,7 @@ const InvitationRow = ({ projectId, invitation, manage, onChanged }: { projectId
         <small>{humanRoleLabels[invitation.role]}・{formatTime(invitation.createdAt)} 発行・{formatTime(invitation.expiresAt)} まで有効</small>
       </div>
       {manage && status === "pending" && (
-        <button type="button" className="secondary-button compact danger" aria-expanded={revoke.confirming} onClick={revoke.open}>招待を取り消す</button>
+        <Button variant="secondary" size="sm" tone="danger" aria-expanded={revoke.confirming} onClick={revoke.open}>招待を取り消す</Button>
       )}
       {manage && revoke.confirming && (
         <ReasonPanel
@@ -147,13 +149,12 @@ const IssuedInvitation = ({ issued, onDismiss }: { issued: InvitationResponse; o
     <div className="invitation-link" role="status">
       <p className="error-title">{issued.invitation.email} への招待リンクを発行しました</p>
       <p>このリンクは今だけ表示されます。相手へ安全な方法で渡してください。招待されたメールアドレスのアカウントでログインしたときだけ参加できます。</p>
-      <label>
-        招待リンク
-        <input readOnly autoFocus value={issued.invitationUrl} onFocus={(event) => event.target.select()} />
-      </label>
+      <Field label="招待リンク">
+        <TextInput readOnly autoFocus value={issued.invitationUrl} onFocus={(event) => event.target.select()} />
+      </Field>
       <div className="form-actions">
-        <button type="button" className="secondary-button" onClick={onDismiss}>閉じる</button>
-        <button type="button" className="button" onClick={() => void copy()}>リンクをコピー</button>
+        <Button variant="secondary" onClick={onDismiss}>閉じる</Button>
+        <Button onClick={() => void copy()}>リンクをコピー</Button>
       </div>
       {copied && <p className="grant-notice">{copied}</p>}
     </div>
@@ -210,25 +211,21 @@ const InvitationSection = ({ projectId, readOnly }: { projectId: string; readOnl
       {issued && !readOnly && <IssuedInvitation issued={issued} onDismiss={() => setIssued(null)} />}
       {!readOnly && (
         <form className="grant-form" onSubmit={submit}>
-          <label>
-            メールアドレス <span>必須</span>
-            <small>招待する相手がログインに使うアカウントのメールアドレス。</small>
-            <input {...fieldProps(invalid, "field-email")} type="email" required aria-required="true" maxLength={320} autoComplete="off" value={email} onChange={(event) => setEmail(event.target.value)} />
-          </label>
-          <label>
-            Role <span>必須</span>
-            <select {...fieldProps(invalid, "field-role")} value={role} onChange={(event) => setRole(event.target.value as HumanRole)}>
+          <Field label="メールアドレス" required description="招待する相手がログインに使うアカウントのメールアドレス。">
+            <TextInput {...fieldProps(invalid, "field-email")} type="email" required maxLength={320} autoComplete="off" value={email} onChange={(event) => setEmail(event.target.value)} />
+          </Field>
+          <Field label="Role" required>
+            <Select {...fieldProps(invalid, "field-role")} value={role} onChange={(event) => setRole(event.target.value as HumanRole)}>
               {humanRoleOptions.map((option) => <option key={option} value={option}>{humanRoleLabels[option]}（{humanRoleDescriptions[option]}）</option>)}
-            </select>
-          </label>
-          <label>
-            有効期限
-            <select {...fieldProps(invalid, "field-expiresInHours")} value={expiresInHours} onChange={(event) => setExpiresInHours(Number(event.target.value))}>
+            </Select>
+          </Field>
+          <Field label="有効期限">
+            <Select {...fieldProps(invalid, "field-expiresInHours")} value={expiresInHours} onChange={(event) => setExpiresInHours(Number(event.target.value))}>
               {invitationExpiryOptions.map((option) => <option key={option.hours} value={option.hours}>{option.label}</option>)}
-            </select>
-          </label>
+            </Select>
+          </Field>
           <div className="form-actions">
-            <button className="button" disabled={isSubmitting}>{isSubmitting ? "発行中..." : "招待リンクを発行"}</button>
+            <Button type="submit" pending={isSubmitting}>{isSubmitting ? "発行中..." : "招待リンクを発行"}</Button>
           </div>
         </form>
       )}
