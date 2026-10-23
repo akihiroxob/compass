@@ -20,7 +20,9 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "check:ui": "npm run check:ui --workspace server"
+    "check:ui": "npm run check:ui --workspace server",
+    "catalog:dev": "npm run catalog:dev --workspace server",
+    "catalog:build": "npm run catalog:build --workspace server"
   },
   "devDependencies": {
     "npm-run-all": "^4.1.5"

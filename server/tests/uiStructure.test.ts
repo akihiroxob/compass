@@ -413,3 +413,23 @@ test("check:ui: the whole Web UI satisfies the dependency, primitive, style owne
   assert.deepEqual(checkUiClassUsage(sources), []);
   assert.deepEqual(checkUiStyleEntry(webRoot), []);
 });
+
+
+test("カタログは型importだけを許可し、基本部品・依存の検査を維持する", () => {
+  const story = (body: string) => source("components/ui/Button.stories.tsx", body);
+  assert.deepEqual(checkUiSources([story('import type { Meta } from "@storybook/react-vite"; import { Button } from "./index"; export const Example = () => <Button>保存</Button>;')], []), []);
+  assert.ok(checkUiSources([story('import { anything } from "@storybook/react-vite";')], []).length > 0);
+  assert.ok(checkUiSources([story('import type { Secret } from "../../features/auth";')], []).length > 0);
+  assert.ok(checkUiSources([story('export const Bad = () => <button>保存</button>;')], []).length > 0);
+  assert.ok(checkUiSources([story('export const Bad = () => <input />;')], []).length > 0);
+  assert.ok(checkUiSources([story('export const Bad = () => <Button style={{color: "red"}}>保存</Button>;')], []).length > 0);
+  const sources = [source("app/main.tsx", 'import "../components/ui/Button.stories";'), source("features/sample/index.ts", "export {};"), story("export const Example = {}; ")];
+  assert.ok(checkUiDependencies(sources).some((error) => error.includes("製品sourceからカタログstory")));
+  const dependencyBase = [source("app/main.tsx", "export {};"), source("features/sample/index.ts", "export {};")];
+  for (const [path, statement] of [
+    ["components/Leak.ts", 'import type { Meta } from "@storybook/react-vite";'],
+    ["components/Leak.stories.tsx", 'import { something } from "@storybook/react-vite";'],
+    ["components/Leak.stories.tsx", 'import type { Something } from "@storybook/other";'],
+  ]) assert.ok(checkUiDependencies([...dependencyBase, source(path, statement)]).some((error) => error.includes("Storybookはstory")));
+  assert.deepEqual(checkUiDependencies([...dependencyBase, source("components/Valid.stories.tsx", 'import type { Meta } from "@storybook/react-vite";')]), []);
+});

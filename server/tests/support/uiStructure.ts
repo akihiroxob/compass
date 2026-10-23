@@ -7,7 +7,8 @@ import ts from "typescript";
 /**
  * Web UIの構造検査（`npm run check:ui`）。web全体（`server/src/web`）を対象に、app・Feature・共通層の依存方向、
  * 共通の基本部品（`components/ui`）の利用、SCSSのclassの所有・上書き・Sassの入口と出力を検査する。
- * web全体を一律に検査する。個別の例外は`uiButtonExceptions`だけで、対象が見つからなければ失敗する。
+ * web全体を一律に検査する。native buttonの個別例外は`uiButtonExceptions`だけで、対象が無ければ失敗する。
+ * storyのStorybook型importだけを許可し、製品からstoryへの依存は禁止する。
  */
 
 /** Web UIのsource（`server/src/web`からの相対path、`/`区切り）。 */
@@ -29,6 +30,7 @@ const primitiveComponents = new Set(["Button", "LinkButton", "ViewSwitch", "Fiel
 /** 入力の基本部品だけが描画するnative要素。`components/ui`の外では使わない。 */
 const nativeInputTags = new Set(["input", "textarea", "select"]);
 const toolbarClass = "list-toolbar";
+const isCatalogStory = (path: string) => path.endsWith(".stories.tsx");
 const primitiveExternalImports = new Set(["react", "react-router-dom"]);
 
 const attribute = (element: ts.JsxOpeningLikeElement, name: string) =>
@@ -69,7 +71,8 @@ const checkPrimitiveImports = (source: UiSource, tree: ts.SourceFile, errors: st
   for (const statement of tree.statements) {
     if (!(ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)) || !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
     const specifier = statement.moduleSpecifier.text;
-    if (!(specifier.startsWith("./") || primitiveExternalImports.has(specifier)))
+    const catalogTypeImport = isCatalogStory(source.path) && ts.isImportDeclaration(statement) && statement.importClause?.isTypeOnly && specifier === "@storybook/react-vite";
+    if (!(specifier.startsWith("./") || primitiveExternalImports.has(specifier) || catalogTypeImport))
       errors.push(`${location(source.path, tree, statement)}: 基本部品は機能・画面・他の層に依存しない（import "${specifier}"）`);
   }
 };
@@ -122,7 +125,7 @@ export const checkUiSources = (sources: UiSource[], exceptions: UiButtonExceptio
     if (!/\.tsx?$/.test(source.path)) continue;
     const tree = parseSource(source);
     if (source.path.startsWith(primitiveRoot)) checkPrimitiveImports(source, tree, errors);
-    else if (source.path.endsWith(".tsx")) checkSharedPrimitives(source, tree, exceptions, used, errors);
+    if (source.path.endsWith(".tsx") && (!source.path.startsWith(primitiveRoot) || isCatalogStory(source.path))) checkSharedPrimitives(source, tree, exceptions, used, errors);
   }
   for (const exception of exceptions)
     if (!used.has(exception)) errors.push(`${exception.path}: <button className="${exception.className}">の例外の対象が見つからない（例外を削除する）`);
@@ -457,6 +460,9 @@ export const checkUiDependencies = (sources: UiSource[], options: UiDependencyOp
     for (const { node, specifier } of moduleSpecifiers(tree)) {
       const at = location(source.path, tree, node);
       if (specifier === null) { errors.push(`${at}: 文字列でないimport()・require()は依存を検査できないため使わない`); continue; }
+      if ((specifier === "storybook" || specifier.startsWith("@storybook/")) &&
+          !(isCatalogStory(source.path) && specifier === "@storybook/react-vite" && ts.isImportDeclaration(node) && node.importClause?.isTypeOnly))
+        errors.push(`${at}: Storybookはstoryの@storybook/react-vite型importだけを使う`);
       if (assetSpecifier.test(specifier)) continue;
       const resolved = ts.resolveModuleName(specifier, `${virtualRoot}/${source.path}`, compilerOptions, host).resolvedModule?.resolvedFileName;
       const target = resolved?.startsWith(`${virtualRoot}/`) && files.has(resolved) ? resolved.slice(virtualRoot.length + 1) : null;
@@ -465,6 +471,8 @@ export const checkUiDependencies = (sources: UiSource[], options: UiDependencyOp
           errors.push(`${at}: web内で解決できないlocal import "${specifier}"`);
         continue;
       }
+      if (isCatalogStory(target) && !isCatalogStory(source.path))
+        errors.push(`${at}: 製品sourceからカタログstoryへ依存しない（${target}）`);
       const to = layerOf(target);
       graph.set(source.path, (graph.get(source.path) ?? new Set()).add(target));
       if (from.kind === "feature" && to.kind === "feature" && from.name !== to.name) {

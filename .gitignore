@@ -185,3 +185,6 @@ apm_modules/
 /.ralph/runtime/
 # Agent実行結果
 .ralph-result.json
+
+# Storybook generated catalog
+storybook-static/
