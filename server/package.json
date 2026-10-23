@@ -8,7 +8,9 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",
     "test": "node --import tsx --test \"tests/**/*.test.ts\"",
     "check:ui": "node --import tsx --test tests/uiStructure.test.ts",
-    "lint": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json && npm run check:ui"
+    "lint": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json && npm run check:ui",
+    "catalog:dev": "storybook dev -p 6006 --host 127.0.0.1 --no-open --disable-telemetry",
+    "catalog:build": "storybook build --disable-telemetry"
   },
   "dependencies": {
     "@compass/access": "0.1.0",
@@ -29,12 +31,15 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@storybook/addon-docs": "10.6.3",
+    "@storybook/react-vite": "10.6.3",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^5.0.0",
     "sass": "^1.105.1",
+    "storybook": "10.6.3",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vite": "^7.1.0"

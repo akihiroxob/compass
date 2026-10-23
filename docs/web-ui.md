@@ -144,3 +144,10 @@ rootの`npm run check:ui`は`server`の同名scriptへ委譲し、検査自体�
 | ボタン風のリンク | 独自のclassで`Link`・`a`をボタンに見せると、部品のclassを使わない限り検出できない | 操作の見た目の`Link`は`LinkButton`を使う。カード・一覧のリンクのclassをボタンの見た目にしていないかを差分で確認する |
 | `nav`・`details`等の意味の選択 | 遷移・ナビゲーション・開閉の区別は要件による | 上記の「操作の部品の選び方」に照らしてレビューする |
 | 実際の描画寸法・折返し・見た目 | 検査は字句から読める`className`・文字列の`size`・SCSSの宣言を対象とする | 実ブラウザでDesktop（1280px）・狭い画面（390px）の画像と寸法を確認する（[ブラウザ検証](browser-verification.md)。代表的な経路と確認項目は[UI構成の統合検証](implementation-status.md#ui構成の統合検証)） |
+
+
+## UIカタログ
+
+[UIカタログ](ui-catalog.md)で製品の実部品・同じ`app/main.scss`・現行tokenを確認できる。`npm run catalog:dev`・`npm run catalog:build`をRepository rootで実行する。基本部品は`components/ui`近傍のstoryから同じ公開入口を使い、組合せとtokenも近傍のstoryに置く。previewは`MemoryRouter`だけを供給し、実運用サービスを使わない。
+
+`check:ui`はstoryを含む全sourceを検査する。`components/ui/*.stories.tsx`のStorybook型importだけを限定的に許可し、storyのnative基本部品・基本部品のstyle上書き・操作列sizeも検査する。製品からstoryへの依存は禁止する。部品・SCSSの例外を増やすためにstoryを使わない。
