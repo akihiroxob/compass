@@ -1,12 +1,14 @@
 import type { Kysely } from "kysely";
 import { initializeAccessSchema } from "@compass/access";
 import { initializeActivitySchema } from "@compass/activity";
+import { initializeCollaborationSchema } from "@compass/collaboration";
 import { initializeDirectionSchema } from "@compass/direction";
 import { initializeOrganizationSchema } from "@compass/organization";
 import { initializeWorkSchema } from "@compass/work";
 import {
   asAccessDatabase,
   asActivityDatabase,
+  asCollaborationDatabase,
   asDirectionDatabase,
   asOrganizationDatabase,
   asWorkDatabase,
@@ -23,4 +25,5 @@ export const initializeSchema = async (database: Kysely<Database>): Promise<void
   await initializeWorkSchema(asWorkDatabase(database));
   await initializeAccessSchema(asAccessDatabase(database));
   await initializeActivitySchema(asActivityDatabase(database));
+  await initializeCollaborationSchema(asCollaborationDatabase(database));
 };

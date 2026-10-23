@@ -435,6 +435,32 @@ export const createApp = (
   app.get("/api/projects/:projectId/activities/:activityId", async (c) =>
     c.json(await human.getActivity.execute(await actorOf(c), c.req.param("projectId"), c.req.param("activityId"))),
   );
+  // Project相談（判断待ち）。Membershipで認可し（参照はviewer、返信はeditor、明示決定・取消はadministrator以上）、MCPと同じuse caseへ委譲する。
+  // 記録主体はSessionのHumanから導出し、本文では受け取らない。相談の作成・Agentの応答leaseはMCPだけ。
+  const consultationsPath = "/api/projects/:projectId/consultations";
+  const consultationPath = `${consultationsPath}/:consultationId`;
+  app.get(consultationsPath, async (c) => {
+    const status = c.req.query("status");
+    return c.json(await human.listConsultations.execute(await actorOf(c), c.req.param("projectId"), status === undefined ? {} : { status }));
+  });
+  app.get(consultationPath, async (c) =>
+    c.json(await human.getConsultation.execute(await actorOf(c), c.req.param("projectId"), c.req.param("consultationId"))),
+  );
+  app.post(`${consultationPath}/messages`, async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Consultation message");
+    return c.json(await human.replyConsultation.execute(actor, c.req.param("projectId"), c.req.param("consultationId"), input), 201);
+  });
+  app.post(`${consultationPath}/resolution`, async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Consultation resolution");
+    return c.json(await human.decideConsultation.execute(actor, c.req.param("projectId"), c.req.param("consultationId"), input), 201);
+  });
+  app.post(`${consultationPath}/cancel`, async (c) => {
+    const actor = await actorOf(c);
+    const input = await readJsonBody(c.req.raw, "Consultation cancel");
+    return c.json(await human.cancelConsultation.execute(actor, c.req.param("projectId"), c.req.param("consultationId"), input));
+  });
   // Execution介入（Task 46。U3）。Membershipのeditor以上＝`execution.intervene`。操作者はSessionのHumanから導出し、本文では受け取らない。
   const taskPath = "/api/projects/:projectId/tasks/:taskId";
   app.post(`${taskPath}/accept`, async (c) =>

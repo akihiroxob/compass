@@ -243,7 +243,7 @@ export const decideRegistration = (facts: RegistrationFacts): RegistrationDecisi
  * Project作成・一覧・Session取得はMembershipを要しない（認証済みであればよい）ため、ここに含めない。
  */
 export const humanProjectPermissions = {
-  /** Project・Intent・Outcome・Research・Direction Decision・ADR参照・Execution Summary・Evaluation・Execution（Story / Task / Comment / Change Log）の参照。archivedでも参照できる。 */
+  /** Project・Intent・Outcome・Research・Direction Decision・ADR参照・Execution Summary・Evaluation・Execution（Story / Task / Comment / Change Log）・相談の参照。archivedでも参照できる。 */
   "project.read": "viewer",
   "grant.read": "viewer",
   "member.read": "viewer",
@@ -252,7 +252,11 @@ export const humanProjectPermissions = {
   "execution.intervene": "editor",
   /** Execution Story・Taskの手動起票・編集（Task 47）。Outcome handoffのStory・Taskは対象外。archivedでは拒否する。 */
   "execution.plan": "editor",
+  /** Project相談への返信（会話）。相談・会話・結論の参照は`project.read`。archivedでは拒否する。 */
+  "consultation.reply": "editor",
   "project.update": "administrator",
+  /** Project相談の明示決定（結論の記録と解決）と理由付きの取消。 */
+  "consultation.decide": "administrator",
   "grant.manage": "administrator",
   /** Agent / Runtime Credentialの発行・rotation・取消・一覧（Task 37）。 */
   "credential.manage": "administrator",

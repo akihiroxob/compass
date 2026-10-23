@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 import { InvitePage, LoginPage } from "../features/auth";
+import { ConsultationDetailPage } from "../features/consultation";
 import { StoryCreatePage, StoryEditPage, TaskCreatePage, TaskDetailPage, TaskEditPage } from "../features/execution";
 import { IntentCreatePage, IntentDetailPage, IntentEditPage } from "../features/intent";
 import { OutcomeCreatePage, OutcomeDetailPage, OutcomeEditPage } from "../features/outcome";
@@ -41,6 +42,7 @@ export const App = () => (
       <Route path="/projects/:projectId/intents/:intentId/outcomes/:outcomeId" element={<OutcomeDetailPage />} />
       <Route path="/projects/:projectId/intents/:intentId/outcomes/:outcomeId/edit" element={<OutcomeEditPage />} />
       <Route path="/projects/:projectId/research/:requestId" element={<ResearchRequestDetailPage />} />
+      <Route path="/projects/:projectId/consultations/:consultationId" element={<ConsultationDetailPage />} />
       <Route path="/projects/:projectId/stories/new" element={<StoryCreatePage />} />
       <Route path="/projects/:projectId/stories/:storyId/edit" element={<StoryEditPage />} />
       <Route path="/projects/:projectId/tasks/new" element={<TaskCreatePage />} />

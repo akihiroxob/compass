@@ -5,6 +5,7 @@ import { agentPrincipalOf, ProjectRole, projectRoles, workspaceRoles, type Calle
 import type { AuthMode } from "../auth/humanAuthConfig.ts";
 import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
 import { registerActivityTools } from "./registerActivityTools.ts";
+import { registerConsultationTools } from "./registerConsultationTools.ts";
 import { registerExecutionTools } from "./registerExecutionTools.ts";
 import { withActivityActor } from "../application/activityActor.ts";
 import { skillStatuses } from "../application/agentContext/AgentAssets.ts";
@@ -1105,6 +1106,7 @@ export const createMcpServer = (
 
   registerExecutionTools(server, services, caller);
   registerActivityTools(server, services, caller);
+  registerConsultationTools(server, services, caller);
 
   return server;
 };

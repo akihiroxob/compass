@@ -2,7 +2,7 @@ import { ForbiddenError, UnauthenticatedError } from "@compass/shared";
 import type { ProjectRole } from "../domain/ProjectRole.ts";
 import type { ProjectGrantRepository } from "../domain/ProjectGrantRepository.ts";
 import type { WorkspaceGrantRepository } from "../domain/WorkspaceGrant.ts";
-import { isRoleInScope, type RoleScope, type WorkspaceRole } from "../domain/RoleScope.ts";
+import { executionRoles, isRoleInScope, workspaceRoles, type RoleScope, type WorkspaceRole } from "../domain/RoleScope.ts";
 import type { Principal } from "./ProjectAuthorizationService.ts";
 
 const scopeDetails = (scope: RoleScope) => scope.kind === "workspace"
@@ -47,6 +47,22 @@ export class RoleScopeAuthorizationService {
       : await this.projectGrants.hasAnyRole(scope.id, principal);
     if (!granted) throw new ForbiddenError("Principal does not have any Role Grant in this scope", scopeDetails(scope));
     return principal;
+  }
+
+  /**
+   * scopeが受け付けるRole（WorkspaceはDirection Role、ProjectはExecution Role）のいずれかのGrantを要求し、保持するRoleを返す
+   * （activeRoleの指定時はそのRole）。旧Project Direction Grantなどscope外のGrantでは認可しない。Grant無しはFORBIDDEN。
+   */
+  async requireScopedRole(principal: Principal, scope: RoleScope): Promise<{ principalId: string; role: ProjectRole }> {
+    if (principal === null) throw new UnauthenticatedError();
+    if (this.activeRole !== null) return { principalId: await this.requireRole(principal, scope, this.activeRole), role: this.activeRole };
+    for (const role of scope.kind === "workspace" ? workspaceRoles : executionRoles) {
+      const granted = scope.kind === "workspace"
+        ? await this.workspaceGrants.hasRole(scope.id, principal, role as WorkspaceRole)
+        : await this.projectGrants.hasRole(scope.id, principal, role);
+      if (granted) return { principalId: principal, role };
+    }
+    throw new ForbiddenError("Principal does not have any Role Grant of this scope", scopeDetails(scope));
   }
 
   /**

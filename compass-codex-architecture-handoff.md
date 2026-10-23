@@ -42,6 +42,7 @@ compass/
 │  ├─ work/
 │  ├─ activity/
 │  ├─ access/
+│  ├─ collaboration/
 │  └─ shared/
 │
 ├─ infra/
@@ -837,6 +838,8 @@ Role Policy だけでは表現できないルール、
 
 等は `packages/work` の Domain / Application で強制する。
 
+相談の状態遷移・版の照合・応答 lease・結論の根拠は `packages/collaboration` で強制する。
+
 Authorization と Domain invariant を混同しない。
 
 ---
@@ -1226,9 +1229,23 @@ Direction
 Work
 Activity
 Access
+Collaboration
 ```
 
 を主要境界とする。Organization は Workspace / Project / ProjectResource を所有する。
+
+Collaboration（`packages/collaboration`）は Agent から Human への相談を所有する（[ADR 0002](docs/adr/0002-collaboration-context.md)）。
+
+```text
+Consultation（Project scope。所属 Workspace と Project を保持）
+ConsultationMessage（会話。追記のみ）
+ConsultationResolution（結論。判断の由来 human_decision / agent_summary と記録主体）
+応答 lease（相談 ID と入力版ごと。Task の Claim とは別）
+```
+
+- 会話と結論を分け、Human の発言と Agent の発言・要約を記録主体で区別する。判断の由来は入口（Human は Web API、Agent は MCP）で決め、Agent が Human の明示決定を記録する入口は作らない。
+- 状態遷移・版・応答 lease・根拠の規則は Collaboration が強制し、認可（Membership / Execution Role Grant）は Access が持つ。
+- Work は Task の相談待ち・再開を所有し、相談の会話・結論を複製しない。Direction Decision は Intent の戦略判断のまま維持する。
 
 以下のようにはまだ分けない。
 
@@ -1373,6 +1390,12 @@ compass/
 │  │     └─ infrastructure/
 │  │
 │  ├─ access/
+│  │  └─ src/
+│  │     ├─ domain/
+│  │     ├─ application/
+│  │     └─ infrastructure/
+│  │
+│  ├─ collaboration/
 │  │  └─ src/
 │  │     ├─ domain/
 │  │     ├─ application/
