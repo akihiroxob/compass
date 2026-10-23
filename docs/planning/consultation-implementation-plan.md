@@ -1,6 +1,6 @@
-# 人への相談・判断待ちの実装案
+# 人への相談・判断待ちの実装計画
 
-確認用の設計案。Wachaへの起票・製品コードの実装は、この案の確認後に行う。
+人への相談・判断待ちの実装範囲と分割を示す。Wachaへの登録は実装完了を意味しない。製品コード・DB・設定・実行時のRole文書・正本仕様の変更は、登録した実装Taskで行う。
 
 ## 目的と対象
 
@@ -73,7 +73,7 @@ Humanが明確に方針を決めた場合に追加確認を要求しない。UI�
 | Agentの相談作成・参照・返信 | 許可されたProject Execution Role | 許可されたWorkspace Direction Role |
 | Agentの結論整理・取消 | manager | strategist |
 
-上記は確認用の権限案。既存AccessのRoleとscopeの分離に合わせ、新しい操作を権限表へ追加する。Humanの決定操作とAgentの結論整理は別入口にし、AgentがHumanの決定主体を指定して偽装できないようにする。
+既存AccessのRoleとscopeの分離に合わせ、上記の新しい操作を権限表へ追加する。Humanの決定操作とAgentの結論整理は別入口にし、AgentがHumanの決定主体を指定して偽装できないようにする。
 
 横断一覧でも各相談の所属権限を検証する。Project権限からWorkspaceの相談を、Workspace権限から未所属Projectの相談を参照できるようにはしない。権限のない関連先は本文や件数から漏らさない。
 
@@ -137,7 +137,7 @@ Agent/Runtime向けMCPの操作案:
 
 ## 実装の分割案
 
-1 Story内の5つの検証可能な増分とする案。登録時に実際のTask IDと必要な到達状態を本文へ記載する。
+1 Story内の5つの検証可能な増分とする。各Task本文に先行Taskの実IDと必要なAccepted状態を記載する。番号やsortOrderによるサーバーの依存制御は前提にしない。
 
 | 増分 | 完成させる成果 | 受入境界 |
 | --- | --- | --- |
@@ -168,4 +168,18 @@ Agent/Runtime向けMCPの操作案:
 - `orchestrator/`、Compass製品側`ralph/`、移行に必要なagent-foundation側adapter。
 - Role/Skill/Knowledge、統合Architecture Handoff、Context追加のADR、API・認可・実装状況・運用文書。
 
-WachaへのStory追加はこの案の確認後。現時点では変更案の文書化のみとする。
+## Wacha登録先
+
+Project: `45186ac4-9c0a-4bf5-8fb3-0f4ab9d4e7c3`。
+
+Story: `92f8713f-cc83-4176-96ee-a204bfc2dab5`「Agentの相談をHumanの判断・Task再開・ADR反映へつなぐ」。
+
+| Task | ID | 先行条件 |
+| --- | --- | --- |
+| 01 Project相談・会話・結論 | `9c32f90e-d2ba-4a17-9ef7-1f584abd8ec5` | このStory内の先行Taskなし |
+| 02 Task待機・Agent再判断・自動再開 | `37a47089-2284-43ab-b101-b80cfe3224c9` | 01がAccepted、merge済み |
+| 03 Workspace・横断一覧 | `d2c46d4c-6c6c-4a63-b960-f21334ea0602` | 02がAccepted、merge済み |
+| 04 仕様・Policy・ADR反映 | `0eb6580c-b328-47f0-b02c-f08bbe6c9f8e` | 03がAccepted、merge済み |
+| 05 統合検証・運用・Role手順 | `73f57715-d847-4f67-9e30-8f27025a02cb` | 04がAccepted、merge済み |
+
+実行時のTask状態と実装結果はWachaで確認する。
