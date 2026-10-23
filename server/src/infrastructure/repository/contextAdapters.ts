@@ -19,6 +19,7 @@ import {
   type ActivityScopeReader,
   type ActivityTarget,
 } from "@compass/activity";
+import type { ConsultationAgentAuthorization, ConsultationScopeReader } from "@compass/collaboration";
 import {
   findAdrReferencedRepositoryId,
   isOutcomeTargetProject,
@@ -54,6 +55,7 @@ import {
   asActivityDatabase,
   asDirectionDatabase,
   asOrganizationDatabase,
+  asWorkDatabase,
 } from "../../bootstrap/database/contextDatabase.ts";
 import { currentActivityActor, systemActivityActor } from "../../application/activityActor.ts";
 
@@ -297,5 +299,56 @@ export const activityAuthorization = (
       if (projectAuthorization.activeRole === null) return null;
       return { principalId: await requireReader(principal, target), role: projectAuthorization.activeRole };
     },
+  };
+};
+
+/**
+ * 相談（Collaboration）が書込と同じtransactionで読む、Projectの状態・所属Workspace・Resource（Organization）と、
+ * 参照先のTask・Story（Work）の所属。Collaborationは他Contextのtableを直接読まない。
+ */
+export const consultationScopeReader = (executor: Parameters<typeof asOrganizationDatabase>[0]): ConsultationScopeReader => {
+  const projects = new SQLiteProjectRepository(asOrganizationDatabase(executor), projectRepositoryReferenceFinder);
+  const work = asWorkDatabase(executor);
+  return {
+    findProject: async (projectId) => {
+      const project = await projects.findById(projectId);
+      if (!project) return null;
+      return {
+        workspaceId: project.workspaceId,
+        archived: project.status === "archived",
+        resourceIds: [...project.repositories, ...project.resources].map(({ id }) => id),
+      };
+    },
+    workItemExists: async (projectId, kind, id) => {
+      const row = kind === "task"
+        ? await work.selectFrom("task").select("id").where("id", "=", id).where("project_id", "=", projectId).executeTakeFirst()
+        : await work.selectFrom("story").select("id").where("id", "=", id).where("project_id", "=", projectId).executeTakeFirst();
+      return row !== undefined;
+    },
+  };
+};
+
+/**
+ * 相談のAgent認可（activeRoleの固定を含む）。ProjectのExecution Role（manager / worker / reviewer）のGrantだけで認可し、
+ * Workspace Direction Role・旧Project Direction Grant・他ProjectのGrantでは参照・記録させない。
+ */
+export const consultationAgentAuthorization = (roleScopeAuthorization: RoleScopeAuthorizationService): ConsultationAgentAuthorization => {
+  const scope = (projectId: string) => ({ kind: "project" as const, id: projectId });
+  return {
+    requireReader: async (principal, projectId) => (await roleScopeAuthorization.requireScopedRole(principal, scope(projectId))).principalId,
+    resolveActor: async (principal, projectId, role) => {
+      const actorRole = role ?? roleScopeAuthorization.activeRole;
+      if (actorRole === null || actorRole === undefined) return null;
+      if (!isProjectRole(actorRole)) {
+        throw new ValidationError("Consultation input is invalid", [{ path: "role", message: `role must be one of ${projectRoles.join(", ")}` }]);
+      }
+      const principalId = await roleScopeAuthorization.requireRole(principal, scope(projectId), actorRole);
+      return { kind: "agent", principalId, role: actorRole };
+    },
+    requireManager: async (principal, projectId) => ({
+      kind: "agent",
+      principalId: await roleScopeAuthorization.requireRole(principal, scope(projectId), "manager"),
+      role: "manager",
+    }),
   };
 };

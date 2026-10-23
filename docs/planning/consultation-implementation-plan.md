@@ -36,7 +36,7 @@ Humanが明確に方針を決めた場合に追加確認を要求しない。UI�
 
 ## 所有するデータと境界
 
-`packages/collaboration`を相談の所有Contextとして追加する案。最初のuse caseと実装を同時に追加し、空のpackageだけを先に作らない。
+`packages/collaboration`を相談の所有Contextとする（[ADR 0002](../adr/0002-collaboration-context.md)）。Project相談の現行契約は[Project相談](../consultation-design.md)。
 
 | 保存対象 | 最小の内容 |
 | --- | --- |

@@ -13,6 +13,9 @@ export const outcomePath = (projectId: string, intentId: string, outcomeId?: str
 export const researchRequestPath = (projectId: string, requestId: string) =>
   `/projects/${projectId}/research/${requestId}`;
 
+/** Project相談の詳細画面。一覧はProject詳細の「判断待ち」view。 */
+export const consultationPath = (projectId: string, consultationId: string) => `/projects/${projectId}/consultations/${consultationId}`;
+
 export const taskPath = (projectId: string, taskId: string) => `/projects/${projectId}/tasks/${taskId}`;
 export const taskEditPath = (projectId: string, taskId: string) => `${taskPath(projectId, taskId)}/edit`;
 export const taskCreatePath = (projectId: string, storyId?: string) =>
@@ -41,7 +44,7 @@ export const workspaceProjectsPath = (workspaceId: string, status: "active" | "a
   `${workspacePath(workspaceId, "projects")}${status === "archived" ? "?status=archived" : ""}`;
 
 /** Project詳細のview。`?view=`で表し、再読込・共有・戻るで同じviewへ戻る。 */
-export const projectViews = ["overview", "direction", "work", "records", "settings"] as const;
+export const projectViews = ["overview", "direction", "work", "consultations", "records", "settings"] as const;
 export type ProjectView = (typeof projectViews)[number];
 
 /** viewのURL。`hash`はview内の要素（Task・Role行など）のid。 */

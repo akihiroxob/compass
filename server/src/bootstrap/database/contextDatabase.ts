@@ -1,6 +1,7 @@
 import type { Kysely, Transaction } from "kysely";
 import type { AccessDatabase } from "@compass/access";
 import type { ActivityDatabase } from "@compass/activity";
+import type { CollaborationDatabase } from "@compass/collaboration";
 import type { DirectionDatabase } from "@compass/direction";
 import type { OrganizationDatabase } from "@compass/organization";
 import type { WorkDatabase } from "@compass/work";
@@ -13,7 +14,8 @@ type AnyDatabase =
   | Kysely<DirectionDatabase>
   | Kysely<WorkDatabase>
   | Kysely<AccessDatabase>
-  | Kysely<ActivityDatabase>;
+  | Kysely<ActivityDatabase>
+  | Kysely<CollaborationDatabase>;
 
 /**
  * 単一SQLite fileの接続（またはtransaction）を、各Contextが所有するtableだけの型で渡す。
@@ -32,6 +34,9 @@ export const asAccessDatabase = (database: AnyDatabase): Kysely<AccessDatabase> 
 
 export const asActivityDatabase = (database: AnyDatabase): Kysely<ActivityDatabase> =>
   database as unknown as Kysely<ActivityDatabase>;
+
+export const asCollaborationDatabase = (database: AnyDatabase): Kysely<CollaborationDatabase> =>
+  database as unknown as Kysely<CollaborationDatabase>;
 
 /** Contextが渡した接続・transactionを、server（全table）の型へ戻す。同じ接続・transactionのまま読み書きする。 */
 export const asApplicationDatabase = (database: AnyDatabase): Kysely<Database> => database as unknown as Kysely<Database>;

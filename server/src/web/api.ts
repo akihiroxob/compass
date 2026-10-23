@@ -169,6 +169,9 @@ const conflictMessages: Record<string, string> = {
   INVALID_TASK_STATUS: "Taskの状態がこの操作に対応していません。",
   HANDOFF_MANAGED: "OutcomeからManagerが起票したStory・Taskは、Humanが編集・Task追加できません。",
   STORY_CLOSED: "完了・取消済みのStoryは編集・Task追加できません。",
+  STALE_REVISION: "表示後に相談が更新されました。最新の会話を読み込んでから、もう一度操作してください。",
+  CONSULTATION_CLOSED: "この相談は解決済みまたは取消済みです。方針を変える場合は新しい相談として扱います。",
+  IDEMPOTENCY_CONFLICT: "同じ操作が別の内容で送信済みです。画面を再読込して状態を確認してください。",
 };
 
 export const classifyError = (error: unknown): ErrorKind => {

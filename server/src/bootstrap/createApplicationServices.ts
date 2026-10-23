@@ -158,10 +158,24 @@ import {
   RecordActivityUseCase,
   type ActivityUnitOfWork,
 } from "@compass/activity";
+import {
+  AcquireConsultationLeaseUseCase,
+  AddConsultationMessageUseCase,
+  AgentConsultationUseCases,
+  CancelConsultationUseCase,
+  CreateConsultationUseCase,
+  GetConsultationUseCase,
+  KyselyConsultationStore,
+  ListConsultationsUseCase,
+  ResolveConsultationUseCase,
+  type ConsultationActor,
+  type ConsultationUnitOfWork,
+} from "@compass/collaboration";
 import type { Kysely } from "kysely";
 import {
   asAccessDatabase,
   asActivityDatabase,
+  asCollaborationDatabase,
   asDirectionDatabase,
   asOrganizationDatabase,
   asWorkDatabase,
@@ -172,6 +186,8 @@ import {
   accessWorkspaceReaders,
   activityAuthorization,
   activityScopeReader,
+  consultationAgentAuthorization,
+  consultationScopeReader,
   directionChangeObserver,
   directionProjectReaders,
   directionWorkspaceReaders,
@@ -285,6 +301,22 @@ export const createApplicationServices = (
     execute: (work) => applicationDatabase.transaction().execute((transaction) =>
       work(new KyselyActivityStore(asActivityDatabase(transaction)), activityScopeReader(transaction)),
     ),
+  };
+  // 相談（Collaboration）。照合・追記・受付記録と、Project状態・参照先Task/Storyの読取りを同じtransactionで行う。
+  // Web API（Human）とMCP（Agent）は同じuse caseへ委譲し、記録主体と判断の由来は入口が決める。
+  const consultationUnitOfWork: ConsultationUnitOfWork = {
+    execute: (work) => applicationDatabase.transaction().execute((transaction) =>
+      work(new KyselyConsultationStore(asCollaborationDatabase(transaction)), consultationScopeReader(transaction)),
+    ),
+  };
+  const consultations = {
+    create: new CreateConsultationUseCase(consultationUnitOfWork, clock),
+    list: new ListConsultationsUseCase(consultationUnitOfWork),
+    get: new GetConsultationUseCase(consultationUnitOfWork, clock),
+    acquireLease: new AcquireConsultationLeaseUseCase(consultationUnitOfWork, clock),
+    addMessage: new AddConsultationMessageUseCase(consultationUnitOfWork, clock),
+    resolve: new ResolveConsultationUseCase(consultationUnitOfWork, clock),
+    cancel: new CancelConsultationUseCase(consultationUnitOfWork, clock),
   };
   // Execution（旧Wachaから移植）。同じDB・同じプロセスの中で動き、Directionの参照は読取専用ポートだけを通す。
   // 重要な状態変更は、同じtransactionでcanonical Activityへ投影する。
@@ -444,6 +476,8 @@ export const createApplicationServices = (
         getWorkspaceActivityUseCase,
       ),
       getStrategistContextUseCase: workspaceRoleContext(DirectionAgentRole.STRATEGIST, workspaceContexts.getStrategistContextUseCase),
+      // Project相談のAgent入口（MCP）。Project Execution Role Grantで認可し、結論は`agent_summary`として記録する。
+      agentConsultationUseCases: new AgentConsultationUseCases(consultationAgentAuthorization(roleScopeAuthorization), consultations),
     };
   };
   const services = {
@@ -567,6 +601,16 @@ export const createApplicationServices = (
   const workspaceDirectionWrite = <Args extends unknown[], Result>(
     useCase: { execute(workspaceId: string, ...args: Args): Promise<Result> },
   ) => asOperator(workspaceAuthorized("direction.write", useCase));
+  // 相談へのHumanの記録。Membershipで認可し、記録主体を認証済みHuman（`human:{humanUserId}`、立場operator）に固定する。
+  const humanConsultation = <Args extends unknown[], Result>(
+    operation: HumanProjectOperation,
+    useCase: { execute(projectId: string, consultationId: string, actor: ConsultationActor, ...args: Args): Promise<Result> },
+  ) => ({
+    execute: async (actor: HumanActor, projectId: string, consultationId: string, ...args: Args): Promise<Result> => {
+      await humanProjectAuthorizationService.authorize(actor, projectId, operation);
+      return useCase.execute(projectId, consultationId, { kind: "human", principalId: humanOperatorPrincipalId(actor), role: "operator" }, ...args);
+    },
+  });
   // Human向けWeb APIの入口。Membershipの認可（domainの権限表）を通してから、MCPと共通のuse caseへ委譲する。
   // Runtime向け（runtime-events・execution-evidence）はHuman向けではないため含めない。
   const human = {
@@ -632,6 +676,13 @@ export const createApplicationServices = (
     editExecutionStory: operator("execution.plan", new EditExecutionStoryUseCase(taskCoordinationService)),
     createExecutionTask: operator("execution.plan", new CreateExecutionTaskUseCase(taskCoordinationService)),
     editExecutionTask: operator("execution.plan", new EditExecutionTaskUseCase(taskCoordinationService)),
+    // Project相談（判断待ち）。参照はviewer以上、返信はeditor以上、明示決定・取消はadministrator以上。相談の作成はAgentのMCPだけ。
+    // 明示決定は`human_decision`として記録し、MCPへは公開しない（AgentはHumanの返信を根拠に`agent_summary`を記録する）。
+    listConsultations: authorized("project.read", consultations.list),
+    getConsultation: authorized("project.read", consultations.get),
+    replyConsultation: humanConsultation("consultation.reply", consultations.addMessage),
+    decideConsultation: humanConsultation("consultation.decide", consultations.resolve),
+    cancelConsultation: humanConsultation("consultation.decide", consultations.cancel),
     // Workspace（Workspace Membershipで認可）。作成・参照・更新・archive・既存WorkspaceへのProject作成はWeb APIへ接続済み。
     // 作成は認証済みであればよく、作成者を同一transactionでowner Membershipにする。
     createWorkspace: new CreateWorkspaceUseCase(workspaceRepository),

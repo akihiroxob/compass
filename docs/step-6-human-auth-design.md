@@ -55,9 +55,9 @@ Role順序はowner > administrator > editor > viewer。
 | --- | --- |
 | Project作成 | ログイン済み。作成者がownerになる |
 | Project一覧 | 有効なMembershipを持つProjectのみ |
-| Project・Execution・Execution Summary・Activity・Member・Grant参照 | viewer |
-| Story / Task手動起票・編集、Task介入・Comment | editor |
-| Project更新、Agent Grant、Credential管理 | administrator |
+| Project・Execution・Execution Summary・Activity・相談・Member・Grant参照 | viewer |
+| Story / Task手動起票・編集、Task介入・Comment、相談への返信 | editor |
+| Project更新、Agent Grant、Credential管理、相談の明示決定・取消 | administrator |
 | archive、招待、Membership変更・取消 | owner |
 
 Workspace MembershipはProject Membershipとは別で、相互に継承しない。Human向けのWeb API（作成`POST /api/workspaces`、参照`GET /api/workspaces`・`GET /api/workspaces/:workspaceId`・`GET /api/workspaces/:workspaceId/projects`、更新`PATCH /api/workspaces/:workspaceId`、Project作成`POST /api/workspaces/:workspaceId/projects`、archive`POST /api/workspaces/:workspaceId/archive`）はWeb SessionとWorkspace Membershipによる認可まで接続済み。所属Project一覧ではpurpose・Repository・Resourceを参照できるが、Project詳細・Workの参照には別途Project Membershipが必要。Projectの応答は所属`workspaceId`を含む。Web UIはWorkspace Selector・Shellと、Workspaceの作成・編集・Project追加・archiveの導線を接続し、Selectorは閲覧できるWorkspaceだけを出す。Projectの更新ではMission等を受け取らず、Project RoleでWorkspaceの戦略値を変更できない。Workspace member管理のWeb API（一覧`GET /api/workspaces/:workspaceId/members`はviewer以上、追加候補`GET .../member-candidates`・追加`POST .../members`・Role変更`PATCH .../members/:membershipId`・取消`DELETE .../members/:membershipId`はowner）とWeb UIのWorkspace「設定」を接続済み。追加できるのは所属ProjectのMemberで、このWorkspaceのMemberでないHumanだけで、候補一覧はownerだけが読める（emailでのHuman検索は公開しない）。追加・Role変更・取消はProject Membershipを変えない。Workspace管理のMCPは無い。

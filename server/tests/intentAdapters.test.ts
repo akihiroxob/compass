@@ -189,6 +189,9 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
       // Activity（意味のある履歴）。
       "record_activity", "list_activities", "get_activity",
       "record_workspace_activity", "list_workspace_activities", "get_workspace_activity",
+      // Project相談（Collaboration）。Humanの明示決定はWeb UI専用でMCPには無い。
+      "create_consultation", "list_consultations", "get_consultation", "acquire_consultation_lease",
+      "reply_consultation", "resolve_consultation", "cancel_consultation",
     ],
   );
 

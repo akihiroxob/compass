@@ -1,17 +1,6 @@
 // Execution（features/execution）。長い相関ID・URI・commit SHAは狭い画面で折り返す。
 @use "../../styles/mixins" as *;
 
-// Task詳細の現在位置（Workspace → Project → Story → Task）。長い名前は折り返し、狭い画面でも横にはみ出さない。
-.breadcrumb {
-  margin-bottom: var(--space-xl);
-  font-size: var(--text-small);
-  ol { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2xs) var(--space-xs); @include unstyled-list; }
-  li { min-width: 0; overflow-wrap: anywhere; color: var(--color-text-muted); }
-  li + li::before { content: "›"; margin-right: var(--space-xs); color: var(--color-text-muted); }
-  a { color: var(--color-accent); font-weight: 700; text-decoration: none; }
-  [aria-current="page"] { color: var(--color-text-secondary); }
-  @include narrow { margin-bottom: 1.5rem; }
-}
 .execution-story {
   scroll-margin-top: 1rem;
   + .execution-story { margin-top: 1rem; }

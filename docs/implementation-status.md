@@ -9,11 +9,12 @@ Workspace・Project・Projectの Repository / Resourceは`packages/organization`
 | 領域 | 現在の構成・機能 |
 | --- | --- |
 | 起動 | npm workspaces。`orchestrator/`（`@compass/orchestrator`）はServerと別に実行するBatch、`ralph/`（`@compass/ralph`。bash実装でnpm workspaceはテスト・構文検査用）はServerと別に実行するLoop。`server/`（`@compass/server`）がWeb UI（`server/src/web`、build出力`server/public/`）・`/api`・`/mcp`をHonoで同一portに提供。rootの`npm start`等はroot cwdのまま`server/`のentryを起動 |
-| 構成 | `packages/organization`（`@compass/organization`。Workspace・Project・Repository / Resourceのmodel・use case・保存）・`packages/direction`（`@compass/direction`）・`packages/work`（`@compass/work`）・`packages/access`（`@compass/access`。Principal・Role Grant・Credential・Membership・Human認証のuse case・規則）・`packages/activity`（`@compass/activity`。Activityのmodel・use case・保存）・`packages/shared`（`@compass/shared`。汎用errorと入力検証の部品）。transport（OIDC adapter・Cookie・Bearer解決）・DIは`server/src`にある。packageは`src/index.ts`で公開し、serverが配線する |
-| 保存 | 単一SQLite file / Kysely。table型・DDLはOrganization・Direction・Work・Access・Activityが各packageに持ち、serverの`Database`型と`initializeSchema`が合成する |
+| 構成 | `packages/organization`（`@compass/organization`。Workspace・Project・Repository / Resourceのmodel・use case・保存）・`packages/direction`（`@compass/direction`）・`packages/work`（`@compass/work`）・`packages/access`（`@compass/access`。Principal・Role Grant・Credential・Membership・Human認証のuse case・規則）・`packages/activity`（`@compass/activity`。Activityのmodel・use case・保存）・`packages/collaboration`（`@compass/collaboration`。Project相談のmodel・use case・保存）・`packages/shared`（`@compass/shared`。汎用errorと入力検証の部品）。transport（OIDC adapter・Cookie・Bearer解決）・DIは`server/src`にある。packageは`src/index.ts`で公開し、serverが配線する |
+| 保存 | 単一SQLite file / Kysely。table型・DDLはOrganization・Direction・Work・Access・Activity・Collaborationが各packageに持ち、serverの`Database`型と`initializeSchema`が合成する |
 | Organization | Workspace（公開入口はHuman向けWeb APIの作成・参照・更新・archive・Project作成）・Project・Repository / Resource。Project作成（専用Workspaceと同時、または既存Workspaceへ）・更新・archive・参照・一覧のuse case |
 | Direction | Workspace所有のIntent・Outcome・固定成功条件。Research・Decision・ADR依頼/参照もWorkspace scope（ADR artifactのProject/Repositoryを明示）。EvaluationとRuntime eventもWorkspace scope。Execution Summary/EvidenceはWorkspace所有で発生元Projectを保持し、Target Projectだけが還流してProject別にOutcomeへ集約する。OutcomeTargetProject（Outcomeを担当する同じWorkspaceのProject）の設定・解除・一覧。OrganizationのWorkspace/Project状態・参照はserverが渡すreaderで読む |
 | Execution | Story・Task・Claim・Comment・Change Log・Review・Acceptance |
+| Collaboration | Project scopeの相談（Consultation・会話・結論・応答lease・`requestId`の受付記録）。AgentのMCPでの作成・参照・回答・結論整理（manager）・取消（manager）、HumanのWeb API・Web UI（Project詳細の「判断待ち」・相談詳細）での参照・返信（editor以上）・明示決定・取消（administrator以上）。契約は[Project相談](consultation-design.md) |
 | Human | Google OIDC・Web Session・Project Membership・招待・Web UIでの操作。Workspace Membershipは保存・認可・use caseと、Workspace参照・member管理のWeb API・Web UI（Selector・Shell・Workspace「設定」） |
 | Agent | Workspace / Projectの明示scopeを持つCredential・Project Role Grant・Workspace Role Grantと明示scope認可（内部applicationまで）・Git管理の`roles/`・`policies/`・`skills/`・`knowledge/`からのRole / Skill Context配信 |
 | Activity | system / workspace / projectのscopeとID制約。Direction canonicalはWorkspace、Work・Project archive・明示記録は所属Workspace付きProject。Project ActivityのMCP・Web API・Web UI・Project Role Context接続、Workspace ActivityのMCP・Web API・Workspace Role Context・Web UI（Workspaceの「記録」）接続 |
@@ -101,7 +102,7 @@ Workspaceの「設定」（`/workspaces/:workspaceId/settings`。`features/works
 
 ## Project詳細（Web UI）
 
-Project詳細は`?view=`で「概要」（`overview`。既定・不正値も概要）・「方向」（`direction`）・「実行」（`work`）・「記録」（`records`）・「設定」（`settings`）に分け、表示中のviewのsectionだけを読み込む。Hero（名前・状態・自分のRole）とarchivedの通知は全viewに出し、view切替（`nav`、選択中に`aria-current="page"`）は上端へstickyにする。他viewのTask・Role行へは`?view=work#execution-task-…`・`?view=settings#agent-role-…`で辿り、読込後に移動してfocusする。decodeできないhash（例 `#%`）は無視し、viewを通常どおり表示する。
+Project詳細は`?view=`で「概要」（`overview`。既定・不正値も概要）・「方向」（`direction`）・「実行」（`work`）・「判断待ち」（`consultations`）・「記録」（`records`）・「設定」（`settings`）に分け、表示中のviewのsectionだけを読み込む。Hero（名前・状態・自分のRole）とarchivedの通知は全viewに出し、view切替（`nav`、選択中に`aria-current="page"`）は上端へstickyにする。他viewのTask・Role行へは`?view=work#execution-task-…`・`?view=settings#agent-role-…`で辿り、読込後に移動してfocusする。decodeできないhash（例 `#%`）は無視し、viewを通常どおり表示する。
 
 - 概要（S10-03。`features/project/ProjectOverview.tsx`、判定は`overview.ts`）: Projectを実行境界として、実行境界・貢献するOutcome・実行状況・次の行動・Claim保持中・最近の記録を出す。部分ごとに取得失敗・空・閲覧不可を区別し、取得時刻と再読込を出す。HeroのPurpose（description）は概要では実行境界へ移す。
   - 実行境界: Purpose（未設定ならProjectの編集への案内）と、Repository・Resourceの外部リンク。Mission等とIntent・Outcomeは所属Workspaceのものと示し、Workspace Membershipで閲覧できれば所属Workspaceの方向へのリンクを出す。
@@ -112,6 +113,7 @@ Project詳細は`?view=`で「概要」（`overview`。既定・不正値も概�
 - 方向: Mission・Vision、Intent（Active Outcome・過去のIntent）、Principles・Constraints。
 - 実行（S10-04。`features/execution/ExecutionSection.tsx`、判定は`execution.ts`）: Story・Task一覧、起票の導線、最近の変更。Taskが1件以上あれば「すべて」と「Humanの判断待ち」（Task詳細の受入・差戻し導線と同じ判定。レビュー待ち・受入待ちで期限内Claimが無いTask）の絞り込みを件数付きで出し、`?tasks=decision`で表す（再読込・共有・戻るで同じ一覧）。該当が無ければその旨を出す。
 - Task詳細（S10-04。`features/execution/TaskDetailPage.tsx`・`TaskOutcomeSection.tsx`）: 現在位置（Workspaceを閲覧できる場合はWorkspace・WorkspaceのProject一覧、Project、「実行」viewの該当Task、Storyの該当card）を出す。Claimは保持者・期限（相対表示）と、期限付きの作業権でありAgentプロセスの稼働状態を示さない旨を出す。「Task受入とOutcome評価」でTaskの状態（Project）とStoryのOutcomeの評価（Workspace）を分けて出し、Taskの受入をOutcomeの達成として示さない。Outcome名は所属WorkspaceのIntent配下から探してWorkspaceのOutcome詳細へ辿り、評価の段階は`outcomeLoopStage`（未還流・未評価・評価済みの結果）で出す。Evidenceは、このProjectからそのOutcomeへ還流したExecution SummaryとEvidence参照（`execution-summary`。Project Membership）で、Task単位ではないと示す。評価・Outcome名は、Workspace Membershipが無い場合は閲覧不可、取得に失敗した場合は失敗として出し、未評価として扱わない。Outcomeを参照しない（手動起票の）TaskはOutcome評価の対象外と示す。受入・差戻し・取消・Commentは既存のWeb API（`/api/projects/:projectId/tasks/:taskId/…`）とUse Caseで行い、成功後はserverから読み直す。受入の通知で、Outcomeの達成は別途評価されることを示す。
+- 判断待ち（`features/consultation/ConsultationSection.tsx`、判定は`consultation.ts`）: AgentがMCPで登録したProject相談の一覧。`?status=`で状態を絞り込み（既定はHumanの判断待ち。Agentの応答待ち・解決済み・取消・すべて）、再読込の導線を出す。相談詳細（`/projects/:projectId/consultations/:consultationId`。`ConsultationDetailPage.tsx`）は質問・進めない理由・選択肢・推奨・影響・参照・方針変更元、結論（判断の由来・根拠の会話・記録主体）または取消の理由、会話（Humanの発言とAgentの発言を帯の色と文言で区別）を出し、editor以上に返信、administrator以上に「この方針で決定」・取消の導線を出す（archived・解決済みでは出さない）。開いている間は15秒ごとに読み直す。
 - 記録: Activity（種別の絞り込み・所属Workspaceの記録への導線。[Activityの現行契約](#activityの現行契約)）、Research、ADR参照、Repositories・Resources。
 - 設定: Agent（6 Roleを1つの一覧にし、行を開くと割当・取消。administratorには割当済みAgentのCredentialの有無）、Credential（administratorのみ）、Member・招待、Projectの編集・アーカイブ。
 
@@ -164,6 +166,8 @@ Execution Summary/EvidenceのTarget別還流: `record_execution_evidence`はProj
 - 起動したAgentはすべて記録だけを行うshellのfixtureで、manager・Worker・Reviewerの判断や実Agentの自律運転は検証していない。Evidence・Evaluation・Research・Decisionは準備スクリプトが内部use caseで作った表示用データで、実成果ではない。remote mode・実Googleは対象外。
 
 ## 未実装・未接続・未検証
+
+- Project相談はProject scopeの作成・会話・結論・取消まで。Taskの相談待ち・Claim取得からの除外・自動再開、OrchestratorによるManagerの応答起動（応答leaseの自動取得）、Workspace scopeの相談と横断一覧、結論からの文書反映Task・成果物参照は未実装（[実装計画](planning/consultation-implementation-plan.md)の後続増分）。Agentの応答は検証者・AgentがMCPを直接操作して行う。Role文書・Skillへの相談toolの手順の追加は未実施。実Agentが自律的に相談を作成・応答することは未検証。
 
 - OutcomeTargetProjectは保存・設定操作、Strategist Contextでの提示、Story作成時のTarget検査、Target別Work要約の参照（MCP・Web API）、Target別のExecution還流とOutcomeへのProject別集約の参照（MCP・Web API）までで、全Targetの評価可能性・Evaluator Context・全Target snapshotでの評価（S05-02）までで、Orchestratorのdispatch規則（Targetなし・未完了archived Target→Strategist、Storyの無いactive Target→そのProjectのManager、全Target評価可能→Evaluator）は`planWorkspaceDispatches`（S08-02）で実装し、Orchestratorの周回へ接続済み（S08-03）。Web UIはWorkspaceの概要・方向でTarget別Work・評価可能性を、WorkspaceのOutcome詳細でTarget別のStory・Task・Evidence・Evaluationを表示する（S10-02）。Project詳細の概要は、そのProjectがTargetのOutcomeとそのProjectのWorkだけを表示する（S10-03）。実AgentのStrategistがContextからTargetを判断・設定する運用は未検証。
 

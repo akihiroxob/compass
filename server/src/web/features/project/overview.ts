@@ -14,7 +14,7 @@ export type OverviewRole = "manager" | "worker" | "reviewer" | "runtime";
 
 // ---- Project詳細のview。`?view=`で表し、再読込・共有・戻るで同じviewへ戻る（pathは`paths.ts`の`projectViewPath`）。 ----
 
-export const projectViewLabels: Record<ProjectView, string> = { overview: "概要", direction: "方向", work: "実行", records: "記録", settings: "設定" };
+export const projectViewLabels: Record<ProjectView, string> = { overview: "概要", direction: "方向", work: "実行", consultations: "判断待ち", records: "記録", settings: "設定" };
 
 /** 指定が無い・不正な値は「概要」。 */
 export const parseProjectView = (value: string | null): ProjectView =>
