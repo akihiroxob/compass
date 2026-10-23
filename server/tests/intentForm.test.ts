@@ -6,7 +6,7 @@ import {
   formValuesFromIntent,
   splitIntents,
   type Intent,
-} from "../src/web/intentForm.ts";
+} from "../src/web/features/intent/intent.ts";
 
 const intent = (overrides: Partial<Intent>): Intent => ({
   id: "i1",

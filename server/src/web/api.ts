@@ -220,6 +220,16 @@ export const jsonPost = (body?: unknown): RequestInit => (body === undefined ? {
 export const loadFailureMessage = (classified: ErrorKind, notFound: string): string =>
   classified.kind === "not_found" ? notFound : classified.kind === "validation" ? "URLの指定が正しくありません。一覧からもう一度開いてください。" : classified.message;
 
+/** 画面の各部分の取得結果。部分ごとに失敗を出し、取得失敗を空として表示しない。 */
+export type Part<T> = { ok: true; value: T } | { ok: false; error: string };
+
+/** 取得を`Part`へ変換する。失敗は`loadFailureMessage`の文言を持つ。 */
+export const settle = <T,>(promise: Promise<T>, notFound: string): Promise<Part<T>> =>
+  promise.then(
+    (value): Part<T> => ({ ok: true, value }),
+    (reason: unknown): Part<T> => ({ ok: false, error: loadFailureMessage(classifyError(reason), notFound) }),
+  );
+
 /** フォーム送信の失敗表示用。not_foundは、入力を保持したまま再試行できる文言付きの`other`へ変換する。 */
 export const withNotFoundMessage = (classified: ErrorKind, notFound: string): Exclude<ErrorKind, { kind: "not_found" }> =>
   classified.kind === "not_found" ? { kind: "other", message: notFound } : classified;

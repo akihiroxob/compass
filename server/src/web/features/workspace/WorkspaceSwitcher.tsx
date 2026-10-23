@@ -1,7 +1,8 @@
 import { useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { workspaceCreatePath, workspacePath, workspaceProjectsPath, workspaceSections } from "../../paths";
 import { useWorkspaceNavigation } from "./WorkspaceContext";
-import { currentSection, filterWorkspaces, switchWorkspacePath, workspaceCreatePath, workspacePath, workspaceSectionLabels, workspaceSections } from "./workspace";
+import { currentSection, filterWorkspaces, switchWorkspacePath, workspaceSectionLabels } from "./workspace";
 
 /**
  * Workspace Selector。現在のWorkspaceを示すbuttonから、閲覧できるWorkspaceの一覧（modal dialog）を開く。
@@ -108,5 +109,21 @@ export const WorkspaceNav = () => {
         ))}
       </ul>
     </nav>
+  );
+};
+
+/**
+ * Project配下の画面のパンくずの先頭（Workspace → Project一覧）。Projectの所属Workspaceが現在のWorkspaceとして閲覧できる場合だけ出す。
+ * 親の`<ol>`に置く`<li>`を返す。
+ */
+export const WorkspaceBreadcrumbItems = ({ project }: { project: { workspaceId: string; status: "active" | "archived" } }) => {
+  const navigation = useWorkspaceNavigation();
+  const workspace = navigation?.current?.id === project.workspaceId ? navigation.current : null;
+  if (!workspace) return null;
+  return (
+    <>
+      <li><Link to={workspacePath(workspace.id)}>{workspace.name}</Link></li>
+      <li><Link to={workspaceProjectsPath(workspace.id, project.status)}>Project</Link></li>
+    </>
   );
 };

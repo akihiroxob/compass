@@ -1,4 +1,4 @@
-import type { StatusTone } from "./statusTone.ts";
+import type { StatusTone } from "../../statusTone.ts";
 export type ResearchRequestKind = "project_watch" | "decision";
 
 export type ResearchRequestStatus =

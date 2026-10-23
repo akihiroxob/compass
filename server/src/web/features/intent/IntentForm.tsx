@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { classifyError } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
-import type { Intent, IntentFormValues } from "../../intentForm";
+import type { Intent, IntentFormValues } from "./intent";
 import { intentPath } from "../../paths";
 
 type IntentFormProps = { projectId: string; initial: IntentFormValues; heading: { eyebrow: string; title: string; lede: string }; submitLabel: string; pendingLabel: string; cancelTo: string; save: (values: IntentFormValues) => Promise<Intent> };

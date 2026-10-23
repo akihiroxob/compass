@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiError, classifyError, jsonInit, jsonPost, loadFailureMessage, request, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
-import { ProjectOperationGate } from "../../components/ProjectOperationGate";
+import { ProjectOperationGate } from "../access";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { taskPath } from "../../paths";
 import {

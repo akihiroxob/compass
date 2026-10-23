@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { contributionNote, latestCriterionVerdicts, noTargetNote, targetContributions } from "../src/web/features/workspace/direction.ts";
-import { buildOutcomeExecution, evaluationStage, type Evaluability, type TargetWork } from "../src/web/features/workspace/overview.ts";
+import { contributionNote, latestCriterionVerdicts, noTargetNote, targetContributions } from "../src/web/features/direction/direction.ts";
+import { buildOutcomeExecution, evaluationStage, type Evaluability, type TargetWork } from "../src/web/features/direction/overview.ts";
 
 /** Workspaceの方向（S10-02）のOutcome → Target Project → Story / Evidence → 評価根拠の接続。画面の描画・実ブラウザ確認はTaskの結果に記録する。 */
 

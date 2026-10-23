@@ -10,7 +10,7 @@ import {
 } from "../src/web/features/credential/credentials.ts";
 import { hasMinimumRole, humanProjectPermissions, runtimeScopes, type HumanRole } from "@compass/access";
 
-// `server/src/web/permissions.ts`の`canOperate`と同じ判定（frontendのmoduleはserverのtsconfigで読めないためdomainの権限表を直接使う）。
+// `server/src/web/features/access/permissions.ts`の`canOperate`と同じ判定（frontendのmoduleはserverのtsconfigで読めないためdomainの権限表を直接使う）。
 const canOperate = (role: HumanRole | null, operation: keyof typeof humanProjectPermissions) =>
   role !== null && hasMinimumRole(role, humanProjectPermissions[operation]);
 

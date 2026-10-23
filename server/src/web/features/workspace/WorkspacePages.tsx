@@ -1,27 +1,24 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
-import { classifyError, loadFailureMessage, request } from "../../api";
+import { classifyError, loadFailureMessage, request, settle } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { LinkButton } from "../../components/ui";
-import { workspaceApiPath } from "../../paths";
-import { workspaceDirectionAccess } from "../../useWorkspaceDirection";
-import type { Project } from "../../projectForm";
-import { canOperateWorkspace } from "../../permissions";
-import { archiveInit, describeArchiveFailure, parseListStatus, projectsApiPath, summarizeReason, validateArchiveReason, type ProjectStatus } from "../../projectArchive";
+import { projectViewPath, workspaceApiPath, workspaceCreatePath, workspaceEditPath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath, type WorkspaceSection } from "../../paths";
+import { canOperateWorkspace, workspaceDirectionAccess } from "../access";
 import { ActivitySection } from "../activity";
 import { ProjectAgentsSection, WorkspaceAgentsSection } from "../agent";
 import { useSession } from "../auth";
 import { CredentialSection } from "../credential";
+import { loadDirection, loadOutcomeDetail } from "../direction";
 import { AgentSettingsSection } from "../grant";
 import { humanRoleLabels, WorkspaceMembershipSection, type HumanRole } from "../member";
-import { projectViewPath } from "../project/overview";
-import { ProjectListSwitch } from "../project";
+import { archiveInit, describeArchiveFailure, parseListStatus, projectsApiPath, ProjectListSwitch, summarizeReason, validateArchiveReason, type Project, type ProjectStatus } from "../project";
 import { useWorkspaceNavigation } from "./WorkspaceContext";
-import { loadDirection, loadOutcomeDetail, loadProjects, settle } from "./directionData";
 import { DirectionIntents, WorkspaceOutcomeDetail } from "./WorkspaceDirection";
 import { WorkspaceOverview } from "./WorkspaceOverview";
-import { chooseHomeWorkspace, withProjectAccess, workspaceCreatePath, workspaceEditPath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath, workspaceSectionLabels, type Workspace, type WorkspaceProject, type WorkspaceSection } from "./workspace";
+import { chooseHomeWorkspace, withProjectAccess, workspaceSectionLabels, type Workspace, type WorkspaceProject } from "./workspace";
+import { loadProjects } from "./workspaceProjects";
 
 /** 読込の状態。`key`は取得対象（URLのID・status）で、入力が変わった最初のrenderから前の結果を出さない。 */
 type Loaded<T> = { key: string; value: T | null; error: string | null };

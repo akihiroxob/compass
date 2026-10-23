@@ -1,5 +1,6 @@
 // Workspace Selector・Shellのナビゲーション（S09-02）。現在位置はURLだけで表し、再読込・共有・戻るで同じ画面へ戻る。
-// テストからも読み込むため、他moduleをimportしない純関数だけを置く。
+// テストからも読み込むため、純関数のmodule以外をimportしない。Workspaceの画面のpathは`paths.ts`。
+import { workspacePath, workspaceSections, type WorkspaceSection } from "../../paths.ts";
 
 /** Web API `GET /api/workspaces`・`GET /api/workspaces/:workspaceId`のWorkspace。 */
 export type Workspace = {
@@ -31,8 +32,6 @@ export type WorkspaceProject = {
   archiveReason: string | null;
 };
 
-export const workspaceSections = ["overview", "direction", "projects", "activity", "agents", "settings"] as const;
-export type WorkspaceSection = (typeof workspaceSections)[number];
 export const workspaceSectionLabels: Record<WorkspaceSection, string> = {
   overview: "概要",
   direction: "方向",
@@ -41,23 +40,6 @@ export const workspaceSectionLabels: Record<WorkspaceSection, string> = {
   agents: "Agent",
   settings: "設定",
 };
-
-/** Workspaceの画面のpath。概要はWorkspaceのpathそのもの。 */
-export const workspacePath = (workspaceId: string, section: WorkspaceSection = "overview") =>
-  `/workspaces/${workspaceId}${section === "overview" ? "" : `/${section}`}`;
-
-/** Workspaceの作成・編集、既存WorkspaceへのProject追加の画面。 */
-export const workspaceCreatePath = "/workspaces/new";
-export const workspaceEditPath = (workspaceId: string) => `${workspacePath(workspaceId)}/edit`;
-export const workspaceProjectCreatePath = (workspaceId: string) => `${workspacePath(workspaceId, "projects")}/new`;
-
-/** Workspaceの方向のOutcome詳細。Outcomeは所属Intentとともに指す（Web APIのpathと同じ）。 */
-export const workspaceOutcomePath = (workspaceId: string, intentId: string, outcomeId: string) =>
-  `${workspacePath(workspaceId, "direction")}/intents/${intentId}/outcomes/${outcomeId}`;
-
-/** WorkspaceのProject一覧。activeは既定のためqueryを付けない。 */
-export const workspaceProjectsPath = (workspaceId: string, status: "active" | "archived" = "active") =>
-  `${workspacePath(workspaceId, "projects")}${status === "archived" ? "?status=archived" : ""}`;
 
 /**
  * URLから現在位置を読む。Workspaceの画面はWorkspace IDと項目、Project配下の画面はProject ID（所属Workspaceは取得して解決する）。

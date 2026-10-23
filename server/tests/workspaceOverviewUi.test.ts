@@ -12,7 +12,7 @@ import {
   type OutcomeExecution,
   type OutcomePosition,
   type TargetWork,
-} from "../src/web/features/workspace/overview.ts";
+} from "../src/web/features/direction/overview.ts";
 
 /** Workspaceの概要（S10-01）の現在地・要対応の判定。画面の描画・実ブラウザ確認はTaskの結果に記録する。 */
 

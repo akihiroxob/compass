@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { classifyError, loadFailureMessage, request } from "../../api";
+import { request, settle, type Part } from "../../api";
 import { Loading } from "../../components/StateCard";
-import { workspaceApiPath } from "../../paths";
+import { workspaceApiPath, workspaceOutcomePath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
-import { workspaceOutcomePath } from "../workspace/workspace";
 import { EvidenceList } from "./EvidenceList";
 import {
   evaluationResultLabels,
@@ -26,13 +25,6 @@ import {
   type TaskOutcomeRef,
 } from "./execution";
 
-/** 部分ごとの取得結果。取得失敗を空（未還流・未評価）として表示しない。 */
-type Part<T> = { ok: true; value: T } | { ok: false; error: string };
-const settle = <T,>(promise: Promise<T>, notFound: string): Promise<Part<T>> =>
-  promise.then(
-    (value): Part<T> => ({ ok: true, value }),
-    (reason: unknown): Part<T> => ({ ok: false, error: loadFailureMessage(classifyError(reason), notFound) }),
-  );
 const workspaceUnavailable = "所属Workspaceを閲覧する権限がないため表示できません（Workspace Membershipが必要です）。";
 
 type OutcomeData = {

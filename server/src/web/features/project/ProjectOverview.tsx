@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { request } from "../../api";
+import { request, settle, type Part } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import type { Project } from "../../projectForm";
+import { projectViewPath, workspaceOutcomePath, workspacePath } from "../../paths";
 import { statusBadgeClass, type StatusTone } from "../../statusTone";
 import { activitiesPath, RecentActivityList, type ActivityPage, type ActivitySummary } from "../activity";
 import { credentialSectionId, credentialStatus, credentialsPath, type Credential } from "../credential";
@@ -20,9 +20,7 @@ import {
   type ExecutionStory,
 } from "../execution";
 import { agentRoleAnchorId, grantRoleLabels, grantsPath, type Grant } from "../grant";
-import { loadDirection, settle, type DirectionData, type Part } from "../workspace/directionData";
-import { stageLabels, WorkCounts } from "../workspace/WorkspaceOverview";
-import { workspaceOutcomePath, workspacePath } from "../workspace/workspace";
+import { loadDirection, stageLabels, WorkCounts, type DirectionData } from "../direction";
 import {
   agentsWithoutCredential,
   contributionStage,
@@ -32,7 +30,6 @@ import {
   planNextActions,
   projectContributionNote,
   projectContributions,
-  projectViewPath,
   type MyAction,
   type OverviewPermissions,
   type ProjectContribution,
@@ -40,6 +37,7 @@ import {
   type WaitingKind,
   type WorkBucket,
 } from "./overview";
+import type { Project } from "./project";
 
 const workBucketLabels: Record<WorkBucket, string> = { ...taskStatusLabels, reclaimable: "再取得待ち" };
 const waitingLabels: Record<WaitingKind, string> = { ...workBucketLabels, story: "Story起票待ち", decompose: "Task分解待ち", reflection: "還流待ち" };

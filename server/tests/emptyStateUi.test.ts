@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { storyEmptyMessage } from "../src/web/features/execution/execution.ts";
-import { outcomeEmptyMessage } from "../src/web/outcomeForm.ts";
-import { registrationUnavailableNote } from "../src/web/projectAccess.ts";
+import { outcomeEmptyMessage } from "../src/web/features/outcome/outcome.ts";
+import { registrationUnavailableNote } from "../src/web/features/access/projectAccess.ts";
 
 /** 空状態の案内（Task 05）。画面の描画・実ブラウザ確認はTaskの作業コメントに記録する。 */
 

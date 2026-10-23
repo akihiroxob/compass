@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { classifyError, fieldId } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
-import { emptyCriterion, maxSuccessCriteria, type Outcome, type OutcomeFormValues } from "../../outcomeForm";
+import { emptyCriterion, maxSuccessCriteria, type Outcome, type OutcomeFormValues } from "./outcome";
 import { intentPath, outcomePath } from "../../paths";
 
 type OutcomeFormProps = { projectId: string; intentId: string; mode: "create" | "edit"; initial: OutcomeFormValues; heading: { eyebrow: string; title: string; lede: string }; submitLabel: string; pendingLabel: string; cancelTo: string; save: (values: OutcomeFormValues) => Promise<Outcome> };

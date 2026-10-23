@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { currentProjectOperationResult, projectOperationAccess, projectOperationDeniedMessage } from "../src/web/projectAccess.ts";
+import { currentProjectOperationResult, projectOperationAccess, projectOperationDeniedMessage } from "../src/web/features/access/projectAccess.ts";
 import { classifyError, onSessionLost, request, setCsrfToken, withCsrf } from "../src/web/api.ts";
 import {
   loginErrorMessage,
@@ -152,7 +152,7 @@ test("招待tokenはURL fragmentからだけ読み、形式が不正なら読ま
   assert.equal(readInvitationToken(`#${token}&x=1`), null);
 });
 
-// `server/src/web/useProjectAccess.ts`と同じ組み合わせ（`canOperate`はdomainの権限表を使うが、serverのtsconfigで読めないため直接使う）。
+// `server/src/web/features/access/useProjectAccess.ts`と同じ組み合わせ（`canOperate`はdomainの権限表を使うが、serverのtsconfigで読めないため直接使う）。
 const access = (project: { status: "active" | "archived" }, myRole: HumanRole | null, operation: keyof typeof humanProjectPermissions) =>
   projectOperationAccess(project, myRole !== null && hasMinimumRole(myRole, humanProjectPermissions[operation]));
 

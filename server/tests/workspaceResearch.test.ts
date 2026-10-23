@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { createElement, type ComponentType } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { register } from "tsx/esm/api";
-import type { ResearchRequest, ResearchRequestDetail } from "../src/web/researchForm.ts";
+import type { ResearchRequest, ResearchRequestDetail } from "../src/web/features/research/research.ts";
 import { sql } from "kysely";
 import { CreateWorkspaceProjectUseCase, CreateWorkspaceUseCase, SQLiteProjectRepository, SQLiteWorkspaceRepository } from "@compass/organization";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";

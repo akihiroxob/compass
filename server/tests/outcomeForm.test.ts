@@ -8,7 +8,7 @@ import {
   maxSuccessCriteria,
   splitOutcomes,
   type Outcome,
-} from "../src/web/outcomeForm.ts";
+} from "../src/web/features/outcome/outcome.ts";
 
 const outcome = (overrides: Partial<Outcome>): Outcome => ({
   id: "o1",

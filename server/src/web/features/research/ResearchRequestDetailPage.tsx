@@ -9,7 +9,7 @@ import {
   type ResearchFinding,
   type ResearchResult,
   type ResearchSynthesis,
-} from "../../researchForm";
+} from "./research";
 import { useResearchRequestPage } from "./useResearchRequestPage";
 
 const FindingItem = ({ finding }: { finding: ResearchFinding }) => (

@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
-import { classifyError, loadFailureMessage, request } from "./api";
 import type { HumanProjectOperation, HumanRole } from "@compass/access/domain";
+import { classifyError, loadFailureMessage, request } from "../../api";
 import { canOperate } from "./permissions";
 import { currentProjectOperationResult, projectOperationAccess, type KeyedProjectOperationResult, type ProjectOperationAccess } from "./projectAccess";
-import type { Project } from "./projectForm";
 
 export type ProjectOperationState = { access: ProjectOperationAccess | "loading" } | { access: "error"; message: string };
 
@@ -17,7 +16,7 @@ export const useProjectOperationState = (projectId: string, operation: HumanProj
   useEffect(() => {
     let current = true;
     const settle = (result: ProjectOperationState) => { if (current) setStored({ projectId, operation, result }); };
-    request<{ project: Project; myRole: HumanRole }>(`/api/projects/${projectId}`)
+    request<{ project: { status: "active" | "archived" }; myRole: HumanRole }>(`/api/projects/${projectId}`)
       .then(({ project, myRole }) => settle({ access: projectOperationAccess(project, canOperate(myRole, operation)) }))
       .catch((reason: unknown) => settle({ access: "error", message: loadFailureMessage(classifyError(reason), "Projectが見つかりません。") }));
     return () => { current = false; };

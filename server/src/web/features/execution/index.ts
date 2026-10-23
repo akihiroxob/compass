@@ -1,8 +1,9 @@
+export * from "./model.ts";
 export { ClaimHolderSection } from "./ClaimHolderSection";
 export { EvidenceList } from "./EvidenceList";
 export { ExecutionSection, StoryList } from "./ExecutionSection";
 export { StoryCreatePage, StoryEditPage, TaskCreatePage, TaskEditPage } from "./ExecutionItemFormPages";
-export { TaskDetailPage } from "./TaskDetailPage";
+export { TaskDetailPage, type TaskProject, type WorkspaceCrumbs } from "./TaskDetailPage";
 export {
   evaluationResultLabels,
   evaluationResultTones,
@@ -25,7 +26,6 @@ export {
   verdictTones,
   type ExecutionOverview,
   type ExecutionStory,
-  type ExecutionTask,
   type LoopStage,
   type OutcomeEvaluation,
   type OutcomeExecutionRecord,

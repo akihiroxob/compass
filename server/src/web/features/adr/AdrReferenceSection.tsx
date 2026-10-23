@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { classifyError, loadFailureMessage, request } from "../../api";
-import type { AdrReference } from "../../adrReferenceForm";
+import type { AdrReference } from "./adr";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { workspaceApiPath } from "../../paths";
 

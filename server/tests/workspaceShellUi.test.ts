@@ -8,15 +8,10 @@ import {
   resolveCurrentWorkspace,
   switchWorkspacePath,
   withProjectAccess,
-  workspaceCreatePath,
-  workspaceEditPath,
-  workspaceOutcomePath,
-  workspacePath,
-  workspaceProjectCreatePath,
-  workspaceProjectsPath,
   type Workspace,
   type WorkspaceProject,
 } from "../src/web/features/workspace/workspace.ts";
+import { workspaceCreatePath, workspaceEditPath, workspaceOutcomePath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath } from "../src/web/paths.ts";
 
 /** Workspace Selector・Shellのナビゲーション（S09-02）。画面の描画・実ブラウザ確認はTaskの結果に記録する。 */
 

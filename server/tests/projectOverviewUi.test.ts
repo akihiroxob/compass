@@ -12,10 +12,10 @@ import {
   planNextActions,
   projectContributionNote,
   projectContributions,
-  projectViewPath,
   type NextActionInput,
 } from "../src/web/features/project/overview.ts";
-import type { Evaluability, OutcomeExecution, OutcomePosition, TargetWork } from "../src/web/features/workspace/overview.ts";
+import type { Evaluability, OutcomeExecution, OutcomePosition, TargetWork } from "../src/web/features/direction/overview.ts";
+import { projectViewPath } from "../src/web/paths.ts";
 import { hashTargetId } from "../src/web/useHashTarget.ts";
 
 /** Project詳細の概要（S10-03）の判定。画面の描画・実ブラウザ確認はTaskの結果に記録する。 */

@@ -1,4 +1,4 @@
-import type { ProjectOperationAccess } from "../../projectAccess.ts";
+import type { ProjectOperationAccess } from "../access/model.ts";
 import type { StatusTone } from "../../statusTone.ts";
 import type {
   CriterionVerdict,

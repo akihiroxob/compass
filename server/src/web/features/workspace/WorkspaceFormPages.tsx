@@ -5,14 +5,12 @@ import { classifyError, jsonInit, loadFailureMessage, request, withNotFoundMessa
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { TextListInput } from "../../components/ListInputs";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { workspaceApiPath } from "../../paths";
-import { canOperateWorkspace } from "../../permissions";
-import { projectOperationAccess, projectOperationDeniedMessage } from "../../projectAccess";
-import { emptyFormValues, type Project } from "../../projectForm";
+import { workspaceApiPath, workspacePath, workspaceProjectsPath } from "../../paths";
+import { canOperateWorkspace, projectOperationAccess, projectOperationDeniedMessage } from "../access";
 import type { HumanRole } from "../member";
-import { ProjectForm } from "../project";
+import { emptyFormValues, ProjectForm, type Project } from "../project";
 import { useWorkspaceNavigation } from "./WorkspaceContext";
-import { workspacePath, workspaceProjectsPath, type Workspace } from "./workspace";
+import type { Workspace } from "./workspace";
 import { emptyWorkspaceFormValues, workspaceFormValues, type WorkspaceFormValues } from "./workspaceForm";
 
 const workspaceNotFound = "Workspaceが見つからないか、このWorkspaceを閲覧する権限がありません。";

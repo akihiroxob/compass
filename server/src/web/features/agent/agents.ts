@@ -1,8 +1,8 @@
 // WorkspaceのAgent画面（S11-02）。Grant（担当できるRole）・Credential（接続の資格）・Claim（保持中のTask）を別の状態として扱い、
 // いずれからもAgentプロセスの稼働を推測しない。テストからも読み込むため、純関数のmodule以外をimportしない。
-import { credentialStatus, type Credential, type CredentialStatus } from "../credential/credentials.ts";
-import type { ClaimHolderStatus, ExecutionTask } from "../execution/execution.ts";
-import type { AgentRole } from "../grant/grants.ts";
+import { credentialStatus, type Credential, type CredentialStatus } from "../credential/model.ts";
+import type { ClaimHolderStatus, ExecutionTask } from "../execution/model.ts";
+import type { AgentRole } from "../grant/model.ts";
 
 /** Workspace Direction Role。Workspace Grantで担い、Work Claimを持たない。 */
 export const workspaceAgentRoles = ["strategist", "researcher", "evaluator"] as const satisfies readonly AgentRole[];
