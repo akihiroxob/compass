@@ -26,6 +26,7 @@ import {
   manualTaskStoryOptions,
   storiesApiPath,
   tasksApiPath,
+  executionViewPath,
   storyAnchorId,
   outcomeLoopStage,
   loopStageTone,
@@ -117,6 +118,9 @@ test("Web APIとrouteのpath", () => {
   assert.equal(changesPath("p1"), "/api/projects/p1/changes?limit=20");
   assert.equal(changesPath("p1", 12, 5), "/api/projects/p1/changes?limit=5&beforeCursor=12");
   assert.equal(taskPath("p1", "t1"), "/projects/p1/tasks/t1");
+  // Story・Taskの起票・編集の戻り先と保存後の遷移先は「実行」view（概要viewには該当のanchorが無い）。
+  assert.equal(executionViewPath("p1"), "/projects/p1?view=work");
+  assert.equal(executionViewPath("p1", "s1"), `/projects/p1?view=work#${storyAnchorId("s1")}`);
 });
 
 test("閉ループの現在地は未接続・未還流・未評価を成功扱いせず区別し、最新の評価結果を出す", () => {

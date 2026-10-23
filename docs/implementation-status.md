@@ -163,6 +163,19 @@ Execution Summary/EvidenceのTarget別還流: `record_execution_evidence`はProj
 - 独立build/start: `npm run build`（Server）・`npm run build --workspace orchestrator`・`npm run build --workspace ralph`をそれぞれ実行した。起動中のServerへ、OrchestratorはWeb UIで発行したWorkspace Runtime Credentialで`--once`実行し、一部未着手のWorkspaceでStoryの無いTarget Project Bのmanagerだけを起動し、2回目は起動しなかった。Ralphは`run worker --once`でTaskを検出してAgentを起動し（AgentにはWorkerのtokenだけが渡る）、`run reviewer --once`は候補なしで終了した。
 - 起動したAgentはすべて記録だけを行うshellのfixtureで、manager・Worker・Reviewerの判断や実Agentの自律運転は検証していない。Evidence・Evaluation・Research・Decisionは準備スクリプトが内部use caseで作った表示用データで、実成果ではない。remote mode・実Googleは対象外。
 
+## UI構成の統合検証
+
+`main`の`eb7dbeb`（UI構成の整理01〜05を統合した時点）に、下記の修正を加えた作業ツリーで、共通部品・layoutの移行で壊れうる代表的な経路を実ブラウザで確認した。配置・部品・検査の正本は[Web UIの構成](web-ui.md)、データ準備は[ブラウザ検証データ](browser-verification.md)。
+
+- データとRole: `scripts/prepare-browser-verification.mjs`の専用`preview.db`（3 Workspace、owner・viewer）に、ownerがWeb UIで空のWorkspace、そのactive / archived Project、手動Story・Taskを作り、Project招待で受諾したHumanをWorkspaceのadministratorに追加した。owner・administrator・viewer、Workspace未所属（Projectだけのviewer）を切り替えて確認した。
+- 経路（Desktop 1280px・狭い画面390px）: Workspaceの作成（必須欄の検証）・Selectorでの切替と絞り込み・再読込・戻る、WorkspaceのProject一覧（空・Active・アーカイブ済み）→Project追加（サーバー検証の400で要約・入力保持）→Project概要・方向・実行・設定、参加中のProject（Active・アーカイブ済み）、Projectのarchive（理由の必須・確認パネル）、Intent詳細・編集の保存と、Active Intentの重複登録の409（要約・入力保持・再送信可）、Story起票（400の要約）→実行viewの該当Story→Task起票（Storyの選択済み）→Task詳細・取消パネル・Comment（空の拒否・保存）、Workspace「設定」のmember追加・Credential発行（一度だけの表示）。
+- 権限: administratorは編集・Project追加・Direction Agent・Credentialの管理だけを出し、member管理とWorkspaceのarchiveを出さない。viewerは操作の導線を出さず、作成・編集のURLを直接開くと理由と戻り先を出す。Project Membershipの無いProjectはカードをリンクにせず、未所属のWorkspace・Projectは閲覧できない旨を出す。archivedのProjectは管理・編集の導線を出さない。
+- 寸法: Project一覧の操作列（`.list-toolbar`、`size="sm"`）の`ViewSwitch`・`LinkButton`は、全状態・両幅で高さ38.39px（`--control-sm-height` 2.4rem = 38.4px）・padding 14.4px・文字14.4px・margin 0で、1行に収まり横スクロール・文字切れが無い。Task詳細・確認パネルの`md`のButton・LinkButtonは48px（`--control-md-height` 3rem）、Project詳細のview切替は38.4px。
+- 修正した不具合: Story・Taskの起票・編集の保存後と戻り先がProject詳細の概要view（該当のanchorが無い）だったため、実行view（`?view=work`、Storyはそのcard）にした（`executionViewPath`）。送信の失敗の要約とフォームの区画が接していたため、間を`--space-md`にした。`.detail-section`の字下げが行カードの一覧（Outcome・Member・最近の変更等）に効いて見出しとずれていたため、classの無い箇条書きだけに付け、一覧ごとの打消しを除いた。
+- console・失敗リクエスト: 意図した検証の400・権限の404・重複の409だけで、5xx・JavaScriptの例外・warningは無かった。
+- 未検証: 送信中（`pending`）の表示はローカルの応答が速く画面で観測できず、部品の単体テストに依る。Workspaceのarchive、Grantの付与・取消、Credentialのrotation・取消、Taskの受入・差戻しは今回の経路で操作していない。実Google認証・remote mode・実Agentの自律運転は対象外。
+- 既知の不具合（未修正）: 1画面に同じフォームが複数ある（Workspace「設定」のRole割当3件とCredential発行）と入力のidが重複し（`field-principalId`）、送信エラーの要約のリンクが別のフォームの欄へ移る。確認パネルを「やめる」で閉じるとfocusが開いたボタンへ戻らない。
+
 ## 未実装・未接続・未検証
 
 - OutcomeTargetProjectは保存・設定操作、Strategist Contextでの提示、Story作成時のTarget検査、Target別Work要約の参照（MCP・Web API）、Target別のExecution還流とOutcomeへのProject別集約の参照（MCP・Web API）までで、全Targetの評価可能性・Evaluator Context・全Target snapshotでの評価（S05-02）までで、Orchestratorのdispatch規則（Targetなし・未完了archived Target→Strategist、Storyの無いactive Target→そのProjectのManager、全Target評価可能→Evaluator）は`planWorkspaceDispatches`（S08-02）で実装し、Orchestratorの周回へ接続済み（S08-03）。Web UIはWorkspaceの概要・方向でTarget別Work・評価可能性を、WorkspaceのOutcome詳細でTarget別のStory・Task・Evidence・Evaluationを表示する（S10-02）。Project詳細の概要は、そのProjectがTargetのOutcomeとそのProjectのWorkだけを表示する（S10-03）。実AgentのStrategistがContextからTargetを判断・設定する運用は未検証。

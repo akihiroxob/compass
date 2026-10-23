@@ -20,7 +20,7 @@
 - [Project archive](step-5-project-archive-design.md)
 - [Human認証・Membership・Credential](step-6-human-auth-design.md)
 - [Web UIの構成](web-ui.md): 配置と依存、共通の基本部品（`components/ui`）のAPI・size契約、SCSSのpartialの所有、`npm run check:ui`の検査範囲と機械的に保証しない範囲。
-- [実装状況](implementation-status.md): 公開入口・検証範囲・未接続の現況。[Workspace移行の受入検証](implementation-status.md#workspace移行の受入検証)に新規DB・実ブラウザ・独立起動で確認した範囲とfixtureの限界を記す。
+- [実装状況](implementation-status.md): 公開入口・検証範囲・未接続の現況。[Workspace移行の受入検証](implementation-status.md#workspace移行の受入検証)に新規DB・実ブラウザ・独立起動で確認した範囲とfixtureの限界を記す。[UI構成の統合検証](implementation-status.md#ui構成の統合検証)に共通部品・layoutの代表的な経路・権限・寸法の確認範囲と未検証を記す。
 
 ## Wachaへの引き継ぎ
 

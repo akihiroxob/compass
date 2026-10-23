@@ -6,7 +6,6 @@
   display: grid;
   gap: .6rem;
   margin-top: var(--space-md);
-  .detail-section & { padding-left: 0; }
 }
 .agent-role {
   @include list-item;
