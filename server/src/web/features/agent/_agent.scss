@@ -4,7 +4,6 @@
 .agent-role-cards, .agent-principals, .role-skills, .agent-principal-claims {
   @include unstyled-list;
   display: grid;
-  .detail-section & { padding-left: 0; }
 }
 .agent-role-cards, .agent-principals { gap: .6rem; }
 .agent-role-cards > li, .agent-principals > li { @include list-item; padding: .9rem 1rem; overflow-wrap: anywhere; }

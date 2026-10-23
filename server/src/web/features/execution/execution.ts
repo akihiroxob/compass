@@ -1,4 +1,5 @@
 import type { ProjectOperationAccess } from "../access/model.ts";
+import { projectViewPath } from "../../paths.ts";
 import type { StatusTone } from "../../statusTone.ts";
 import type {
   CriterionVerdict,
@@ -165,6 +166,9 @@ export const changeTarget = (change: Pick<ExecutionChange, "type" | "entityId">,
 export const storyAnchorId = (storyId: string) => `execution-story-${storyId}`;
 /** Project詳細のTask行のanchor。概要の「次の行動」から「実行」viewの該当Taskへ辿る。 */
 export const taskAnchorId = (taskId: string) => `execution-task-${taskId}`;
+/** Project詳細の「実行」view。Storyを渡すとそのStory cardへ辿る。Story・Taskの起票・編集の戻り先と保存後の遷移先。 */
+export const executionViewPath = (projectId: string, storyId?: string) =>
+  projectViewPath(projectId, "work", storyId ? storyAnchorId(storyId) : undefined);
 
 const editedFieldLabels: Record<string, string> = { title: "タイトル", description: "説明", sortOrder: "並び順" };
 

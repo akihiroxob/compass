@@ -154,13 +154,18 @@
   > h2:first-child, > .claim-holder-toolbar:first-child h2 { margin-bottom: 1rem; }
   h2 .status-badge { margin-left: var(--space-xs); font-family: var(--font-sans); }
   h3 { margin: 1.75rem 0 .9rem; @include serif-heading(1.25rem); }
-  ul { padding-left: 1.3rem; line-height: 1.8; }
+  ul { line-height: 1.8; }
+  // 字下げは本文の箇条書き（classの無いlist）だけ。classを持つ一覧は自身の余白を持つ。
+  // `:where`で詳細度を`.detail-section ul`と同じに保ち、後に書く区画内の一覧（`.past-intents ul`等）の指定を優先する。
+  ul:where(:not([class])) { padding-left: 1.3rem; }
   code { font-size: .85em; overflow-wrap: anywhere; }
   > .intent-facts { margin: 0; }
   > .intent-card + .intent-card { margin-top: 1rem; }
 }
 // 作成・編集フォームの区画の並び。
 .project-form { display: grid; gap: var(--space-md); }
+// 送信の失敗の要約（StateCard）とフォームの間。
+.state-card + .project-form { margin-top: var(--space-md); }
 // 区画の中の小さなフォーム（Grant・Credential・Member・ログイン・Comment）。
 .grant-form {
   display: grid;
@@ -320,7 +325,6 @@
 
 // Outcomeごとの担当Projectと進み具合（Workspaceの概要・方向、Project詳細の概要の貢献Outcome）。
 .outcome-positions, .target-works { @include unstyled-list; display: grid; }
-.detail-section .outcome-positions, .detail-section .target-works, .detail-section .next-action-list { padding-left: 0; }
 .outcome-positions {
   gap: .6rem;
   margin-bottom: var(--space-md);

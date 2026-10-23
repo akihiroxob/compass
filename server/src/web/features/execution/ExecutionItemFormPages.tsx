@@ -9,12 +9,12 @@ import { taskPath } from "../../paths";
 import {
   executionItemFormValues,
   executionPath,
+  executionViewPath,
   initialTaskStoryId,
   isManualEditableTask,
   isManualOpenStory,
   manualTaskStoryOptions,
   storiesApiPath,
-  storyAnchorId,
   storyStatusLabels,
   taskDetailApiPath,
   tasksApiPath,
@@ -30,9 +30,6 @@ import {
 
 type Heading = { eyebrow: string; title: string; lede: string };
 type Saved = { to: string };
-
-const projectDetail = (projectId: string) => `/projects/${projectId}`;
-const storyAnchor = (projectId: string, storyId: string) => `${projectDetail(projectId)}#${storyAnchorId(storyId)}`;
 
 /** Story・Task共通のフォーム。保存に失敗しても入力は残し、そのまま再送信できる。 */
 const ExecutionItemForm = ({
@@ -85,7 +82,7 @@ const ExecutionItemForm = ({
       <Link to={cancelTo} className="back-link">← 戻る</Link>
       <div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div>
       <p className="lede">{heading.lede}</p>
-      {error && <FormErrorSummary error={error} detailTo={projectDetail(projectId)} conflict={{ title: `この${subject}は変更できない状態です。`, action: <Link to={projectDetail(projectId)} className="text-link">Project詳細で最新の状態を確認する →</Link> }} />}
+      {error && <FormErrorSummary error={error} detailTo={executionViewPath(projectId)} conflict={{ title: `この${subject}は変更できない状態です。`, action: <Link to={executionViewPath(projectId)} className="text-link">実行で最新の状態を確認する →</Link> }} />}
       <form onSubmit={submit} className="project-form execution-form" noValidate>
         <section className="form-section">
           <Field label="タイトル" required description={`${subject}を一言で表す名前（200文字まで）`}>
@@ -133,7 +130,7 @@ const projectNotFound = (reason: unknown) => loadFailureMessage(classifyError(re
 
 export const StoryCreatePage = () => {
   const { projectId = "" } = useParams();
-  const back = { to: projectDetail(projectId), label: "← Project詳細" };
+  const back = { to: executionViewPath(projectId), label: "← 実行" };
   return (
     <ProjectOperationGate projectId={projectId} operation="execution.plan" back={back}>
       <ExecutionItemForm
@@ -146,7 +143,7 @@ export const StoryCreatePage = () => {
         cancelTo={back.to}
         save={async ({ title, description }) => {
           const { story } = await request<{ story: ExecutionStory }>(storiesApiPath(projectId), jsonPost({ title, description }));
-          return { to: storyAnchor(projectId, story.id) };
+          return { to: executionViewPath(projectId, story.id) };
         }}
       />
     </ProjectOperationGate>
@@ -155,7 +152,7 @@ export const StoryCreatePage = () => {
 
 const StoryEditForm = ({ projectId, storyId }: { projectId: string; storyId: string }) => {
   const loaded = useLoaded<ExecutionOverview>(executionPath(projectId), projectNotFound);
-  const back = { to: storyAnchor(projectId, storyId), label: "← Project詳細" };
+  const back = { to: executionViewPath(projectId, storyId), label: "← 実行" };
   if (!loaded) return <Blocked back={back}><Loading /></Blocked>;
   if (loaded.error || !loaded.value) return <Blocked back={back}><ErrorState message={loaded.error ?? "Storyが見つかりません。"} /></Blocked>;
   const story = loaded.value.stories.find((candidate) => candidate.id === storyId);
@@ -174,7 +171,7 @@ const StoryEditForm = ({ projectId, storyId }: { projectId: string; storyId: str
       cancelTo={back.to}
       save={async ({ title, description }) => {
         await request(storiesApiPath(projectId, storyId), jsonInit("PATCH", { title, description }));
-        return { to: storyAnchor(projectId, storyId) };
+        return { to: executionViewPath(projectId, storyId) };
       }}
     />
   );
@@ -183,7 +180,7 @@ const StoryEditForm = ({ projectId, storyId }: { projectId: string; storyId: str
 export const StoryEditPage = () => {
   const { projectId = "", storyId = "" } = useParams();
   return (
-    <ProjectOperationGate projectId={projectId} operation="execution.plan" back={{ to: projectDetail(projectId), label: "← Project詳細" }}>
+    <ProjectOperationGate projectId={projectId} operation="execution.plan" back={{ to: executionViewPath(projectId), label: "← 実行" }}>
       <StoryEditForm key={`${projectId}/${storyId}`} projectId={projectId} storyId={storyId} />
     </ProjectOperationGate>
   );
@@ -191,7 +188,7 @@ export const StoryEditPage = () => {
 
 const TaskCreateForm = ({ projectId, requestedStoryId }: { projectId: string; requestedStoryId: string | null }) => {
   const loaded = useLoaded<ExecutionOverview>(executionPath(projectId), projectNotFound);
-  const back = { to: requestedStoryId ? storyAnchor(projectId, requestedStoryId) : projectDetail(projectId), label: "← Project詳細" };
+  const back = { to: executionViewPath(projectId, requestedStoryId ?? undefined), label: "← 実行" };
   if (!loaded) return <Blocked back={back}><Loading /></Blocked>;
   if (loaded.error || !loaded.value) return <Blocked back={back}><ErrorState message={loaded.error ?? "Projectが見つかりません。"} /></Blocked>;
   const options = manualTaskStoryOptions(loaded.value.stories);
@@ -224,7 +221,7 @@ export const TaskCreatePage = () => {
   const { projectId = "" } = useParams();
   const [search] = useSearchParams();
   return (
-    <ProjectOperationGate projectId={projectId} operation="execution.plan" back={{ to: projectDetail(projectId), label: "← Project詳細" }}>
+    <ProjectOperationGate projectId={projectId} operation="execution.plan" back={{ to: executionViewPath(projectId), label: "← 実行" }}>
       <TaskCreateForm key={projectId} projectId={projectId} requestedStoryId={search.get("storyId")} />
     </ProjectOperationGate>
   );

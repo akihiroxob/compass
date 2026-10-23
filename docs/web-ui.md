@@ -88,7 +88,7 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 ### フォームの組立て
 
 - 入力の欄は`Field`で入力部品を包む。`Field`の`required`は表示だけのため、検証する入力部品にも`required`を指定する。
-- 送信の検証エラーは`components/FormErrorSummary`が持つ。入力部品へ`fieldProps(invalid, id)`を渡すと、`id`と、検証に失敗した欄の`aria-invalid="true"`・要約（`#form-error-summary`）への`aria-describedby`が付き、要約のリンクから欄へ移れる。
+- 送信の検証エラーは`components/FormErrorSummary`が持つ。入力部品へ`fieldProps(invalid, id)`を渡すと、`id`と、検証に失敗した欄の`aria-invalid="true"`・要約（`#form-error-summary`）への`aria-describedby`が付き、要約のリンクから欄へ移れる。同じ画面に複数フォームを出す設定画面（Member・Grant・Credential）では、フォームごとに`useId()`を生成し、`fieldProps(invalid, id, formId)`と`<FormErrorSummary formId={formId}>`へ同じ値を渡す。入力・要約・リンク・ARIA参照を同じprefixで分離し、APIの論理field IDは変更しない。省略形は単一フォームの画面に限る。
 - 送信ボタンは`<Button type="submit" pending={送信中}>`とし、送信中の文言は利用側が切り替える。保存の失敗時も入力stateを保持し、そのまま再送信できるようにする。
 - 複数のcheckbox等の組は`Fieldset`、可変行の入力は`components/ListInputs`（`TextListInput`・`LinkListInput`）、危険操作の確認・理由は`ReasonPanel`、入力つきの確認は`ConfirmPanel`を使う。いずれも内部で基本部品を使う。
 - 入力の検証・保存・認可はFeatureが持ち、基本部品は持たない。
@@ -104,7 +104,7 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 
 入力（`.input`・`.select`）も同じ`control-size`を使い、`TextArea`は`--control-md-padding-x`・`--control-md-font-size`と`--field-padding-y`・`--field-line-height`を使う。入力の枠・角丸・label内の間隔・エラー・無効・読取専用の表示は`_tokens.scss`の`--field-*`（`--field-gap`・`--field-radius`・`--field-border-color`・`--field-invalid-color`・`--field-disabled-background`・`--field-readonly-background`）と、ボタンと共通の`--control-disabled-opacity`で定める。Featureのstyleは部品の見た目・sizeを上書きせず、配置（幅・flex・grid）と字体（例: tokenの等幅表示）だけを指定する。
 
-部品間のgap・折返し・一覧との余白は親layoutが持つ。フォームでは`.form-section`（grid・gap `--space-md`）・`.grant-form`（grid・gap `--space-md`）・`.criterion-row`・`.fieldset`等のgapが欄の上下の間隔を持ち、`Field`・入力部品は外側余白を持たない。一覧の上の操作列は`.list-toolbar`（flex・折返し・`align-items: center`・gap `--space-sm`・下余白`--space-lg`）を使い、列内の部品は同じ`size`を指定する。切替だけを置く一覧でも、下余白は`.list-toolbar`が持つ。
+部品間のgap・折返し・一覧との余白は親layoutが持つ。フォームでは`.form-section`（grid・gap `--space-md`）・`.grant-form`（grid・gap `--space-md`）・`.criterion-row`・`.fieldset`等のgapが欄の上下の間隔を持ち、`Field`・入力部品は外側余白を持たない。一覧の上の操作列は`.list-toolbar`（flex・折返し・`align-items: center`・gap `--space-sm`・下余白`--space-lg`）を使い、列内の部品は同じ`size`を指定する。切替だけを置く一覧でも、下余白は`.list-toolbar`が持つ。送信の失敗の要約（`FormErrorSummary`）と作成・編集フォーム（`.project-form`）の間は`.state-card + .project-form`が持つ。`.detail-section`の字下げ（`padding-left`）はclassの無い本文の箇条書きにだけ付け、classを持つ一覧（`.outcome-list`・`.grant-list`等の行カード）は自身の余白で区画の見出しと左端を揃える。
 
 ## style
 
@@ -129,7 +129,7 @@ rootの`npm run check:ui`は`server`の同名scriptへ委譲し、検査自体�
 - 依存方向（web全体の`.ts`・`.tsx`）: 共通層からFeature・app、Featureからappへの依存がない。他Featureへは`features/<機能>/index.ts(x)`・`model.ts`の公開入口だけを使う。Feature内から自身の`index`を経由しない。`model.ts`から`.tsx`へ推移的に辿れない。公開入口を経由したものを含め、Feature間の依存が循環しない（循環の各辺のimportを示す）。`import`・`export ... from`（型だけを含む）・文字列の`import()`・`require()`・`import("x")`型を、TypeScriptのbundler解決とweb tsconfigの`paths`で実際のfileへ解決して判定するため、alias・再exportの経由も検出する。web内で解決できないlocal importと文字列でない`import()`は失敗にする。app・Feature・共通層のいずれかのsourceが無い（空走査）と失敗する。
 - `components/ui`: Feature・app等への依存がない。
 - 操作・入力（`components/ui`を除くweb全体の`.tsx`）: nativeの`<button>`・`<input>`・`<textarea>`・`<select>`を使わない。例外は`<input type="hidden">`（ログインのform POSTで`returnTo`・招待tokenを運ぶ）と、上記の`<button className="workspace-switch">`だけで、例外の対象が見つからなければ失敗する。基本部品へ`className`・`style`を渡さない。`.list-toolbar`内に`a`・`Link`・`NavLink`・`button`を直接置かず、部品はすべて同じ`size`を文字列で指定する。
-- size契約（SCSS）: `control-size`の全宣言（補間`#{$size}`を含む）の値が`0`か`--control-*`トークンだけで、`min-height`・`padding`・`font-size`を定め、md・smのトークンが定義されている。表示切替・入力・文字だけのボタンの部品と`.list-toolbar`内のbutton類に外側余白を持たせない。`.input`・`.textarea`・`.select`・`.text-button`・`.button`・`.secondary-button`のsizeは、どのselectorからも`0`か`--control-*`・`--field-*`トークンだけで指定する。廃止した`.list-switch`を使わない。
+- size契約（SCSS）: `control-size`の全宣言（補間`#{$size}`を含む）の値が`0`か`--control-*`トークンだけで、`min-height`・`padding`・`font-size`を定め、md・smのトークンが定義されている。表示切替・入力・文字だけのボタンの部品と`.list-toolbar`内のbutton類に外側余白を持たせない。`.input`・`.textarea`・`.select`・`.text-button`・`.button`・`.secondary-button`のsizeは、どのselectorからも`0`か`--control-*`・`--field-*`トークンだけで指定する。`.list-switch`のselectorを使わない（表示切替は`ViewSwitch`）。
 - classの所有（SCSSとTSX）: 入れ子と`&`を展開したselectorが定義するclassごとに、定義するpartialは1つだけ。部品・組合せUIのclassへ所有partialの外から指定できるのは配置（幅・flex・grid・字体。組合せUIには外側余白も）だけ。`styles/_base.scss`・`_tokens.scss`以外の最上位のselectorはclassから始める。部品・組合せUI・app・Featureのpartialのclassはその所有者のsource（`className`と、class名を組み立てる式の文字列。attributeに渡したslotのJSXを含む）だけが使い、`styles/`の共有classは2つ以上の所有者が使う。どこからも使わないclassを残さない。
 - Sassの入口: `app/main.scss`をcompileし、web内の全partialが入口から読まれている。出力CSSで、同じ@規則の中の同じselectorの同じpropertyを別のruleで宣言しない（partialの二重出力・後のruleによる打消し）。
 
@@ -143,4 +143,4 @@ rootの`npm run check:ui`は`server`の同名scriptへ委譲し、検査自体�
 | SCSSの`@use`の依存方向・計算で組み立てるclass名 | class名は字句から読める文字列だけを対象にする | partialの`@use`は`styles/`の共有だけにする。`className`へ渡す値を組み立てる関数は、文字列リテラルで全候補を書く |
 | ボタン風のリンク | 独自のclassで`Link`・`a`をボタンに見せると、部品のclassを使わない限り検出できない | 操作の見た目の`Link`は`LinkButton`を使う。カード・一覧のリンクのclassをボタンの見た目にしていないかを差分で確認する |
 | `nav`・`details`等の意味の選択 | 遷移・ナビゲーション・開閉の区別は要件による | 上記の「操作の部品の選び方」に照らしてレビューする |
-| 実際の描画寸法・折返し・見た目 | 検査は字句から読める`className`・文字列の`size`・SCSSの宣言を対象とする | 実ブラウザでDesktop（1280px）・狭い画面（390px）の画像と寸法を確認する（[ブラウザ検証](browser-verification.md)） |
+| 実際の描画寸法・折返し・見た目 | 検査は字句から読める`className`・文字列の`size`・SCSSの宣言を対象とする | 実ブラウザでDesktop（1280px）・狭い画面（390px）の画像と寸法を確認する（[ブラウザ検証](browser-verification.md)。代表的な経路と確認項目は[UI構成の統合検証](implementation-status.md#ui構成の統合検証)） |

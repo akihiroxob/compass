@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useId, useCallback, useEffect, useState, type FormEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { classifyError, loadFailureMessage, request, withNotFoundMessage } from "../../api";
 import { Button, Field, TextInput } from "../../components/ui";
@@ -35,6 +35,7 @@ const GrantForm = ({ scope, role, onGranted }: { scope: GrantScope; role: AgentR
   const [error, setError] = useState<FormError | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const formId = useId();
   const invalid = invalidFieldIds(error);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -54,10 +55,10 @@ const GrantForm = ({ scope, role, onGranted }: { scope: GrantScope; role: AgentR
   };
   return (
     <>
-      {error && <FormErrorSummary error={error} detailTo={scopePath(scope)} conflict={{ title: `${label}に割り当てられませんでした` }} />}
+      {error && <FormErrorSummary formId={formId} error={error} detailTo={scopePath(scope)} conflict={{ title: `${label}に割り当てられませんでした` }} />}
       <form className="grant-form" onSubmit={submit}>
         <Field label="Agent名" required description="100文字まで。大文字小文字は区別されます。">
-          <TextInput {...fieldProps(invalid, "field-principalId")} required maxLength={100} value={principalId} onChange={(event) => setPrincipalId(event.target.value)} />
+          <TextInput {...fieldProps(invalid, "field-principalId", formId)} required maxLength={100} value={principalId} onChange={(event) => setPrincipalId(event.target.value)} />
         </Field>
         <div className="form-actions">
           <Button type="submit" pending={isSubmitting}>{isSubmitting ? "割当中..." : `${label}に割り当てる`}</Button>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useId, useCallback, useEffect, useState, type FormEvent } from "react";
 import { classifyError, describeActionFailure, loadFailureMessage, request, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
@@ -170,6 +170,7 @@ const InvitationSection = ({ projectId, readOnly }: { projectId: string; readOnl
   const [error, setError] = useState<FormError | null>(null);
   const [issued, setIssued] = useState<InvitationResponse | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const formId = useId();
   const invalid = invalidFieldIds(error);
 
   const load = useCallback(
@@ -207,20 +208,20 @@ const InvitationSection = ({ projectId, readOnly }: { projectId: string; readOnl
           {invitations.map((invitation) => <InvitationRow key={invitation.id} projectId={projectId} invitation={invitation} manage={!readOnly} onChanged={() => void load()} />)}
         </ul>
       ) : <p className="unset">招待はありません</p>}
-      {error && !readOnly && <FormErrorSummary error={error} detailTo={`/projects/${projectId}`} conflict={{ title: "招待を発行できませんでした" }} />}
+      {error && !readOnly && <FormErrorSummary formId={formId} error={error} detailTo={`/projects/${projectId}`} conflict={{ title: "招待を発行できませんでした" }} />}
       {issued && !readOnly && <IssuedInvitation issued={issued} onDismiss={() => setIssued(null)} />}
       {!readOnly && (
         <form className="grant-form" onSubmit={submit}>
           <Field label="メールアドレス" required description="招待する相手がログインに使うアカウントのメールアドレス。">
-            <TextInput {...fieldProps(invalid, "field-email")} type="email" required maxLength={320} autoComplete="off" value={email} onChange={(event) => setEmail(event.target.value)} />
+            <TextInput {...fieldProps(invalid, "field-email", formId)} type="email" required maxLength={320} autoComplete="off" value={email} onChange={(event) => setEmail(event.target.value)} />
           </Field>
           <Field label="Role" required>
-            <Select {...fieldProps(invalid, "field-role")} value={role} onChange={(event) => setRole(event.target.value as HumanRole)}>
+            <Select {...fieldProps(invalid, "field-role", formId)} value={role} onChange={(event) => setRole(event.target.value as HumanRole)}>
               {humanRoleOptions.map((option) => <option key={option} value={option}>{humanRoleLabels[option]}（{humanRoleDescriptions[option]}）</option>)}
             </Select>
           </Field>
           <Field label="有効期限">
-            <Select {...fieldProps(invalid, "field-expiresInHours")} value={expiresInHours} onChange={(event) => setExpiresInHours(Number(event.target.value))}>
+            <Select {...fieldProps(invalid, "field-expiresInHours", formId)} value={expiresInHours} onChange={(event) => setExpiresInHours(Number(event.target.value))}>
               {invitationExpiryOptions.map((option) => <option key={option.hours} value={option.hours}>{option.label}</option>)}
             </Select>
           </Field>

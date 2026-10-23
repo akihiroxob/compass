@@ -6,7 +6,6 @@
   display: grid;
   gap: .6rem;
   margin-bottom: var(--space-md);
-  .detail-section & { padding-left: 0; }
   li { @include list-item; padding: .7rem 1rem; overflow-wrap: anywhere; }
   small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 }

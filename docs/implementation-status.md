@@ -165,6 +165,20 @@ Execution Summary/EvidenceのTarget別還流: `record_execution_evidence`はProj
 - 独立build/start: `npm run build`（Server）・`npm run build --workspace orchestrator`・`npm run build --workspace ralph`をそれぞれ実行した。起動中のServerへ、OrchestratorはWeb UIで発行したWorkspace Runtime Credentialで`--once`実行し、一部未着手のWorkspaceでStoryの無いTarget Project Bのmanagerだけを起動し、2回目は起動しなかった。Ralphは`run worker --once`でTaskを検出してAgentを起動し（AgentにはWorkerのtokenだけが渡る）、`run reviewer --once`は候補なしで終了した。
 - 起動したAgentはすべて記録だけを行うshellのfixtureで、manager・Worker・Reviewerの判断や実Agentの自律運転は検証していない。Evidence・Evaluation・Research・Decisionは準備スクリプトが内部use caseで作った表示用データで、実成果ではない。remote mode・実Googleは対象外。
 
+## UI構成の統合検証
+
+共通部品・layoutの移行で壊れうる代表的な経路を実ブラウザで確認する。配置・部品・検査の正本は[Web UIの構成](web-ui.md)、データ準備は[ブラウザ検証データ](browser-verification.md)。対象revision・操作・画像・検証ログはTaskのClaimコメントに記録する。
+
+- データとRole: `scripts/prepare-browser-verification.mjs`の専用`preview.db`（3 Workspace、owner・viewer）に、ownerがWeb UIで空のWorkspace、そのactive / archived Project、手動Story・Taskを作り、Project招待で受諾したHumanをWorkspaceのadministratorに追加した。owner・administrator・viewer、Workspace未所属（Projectだけのviewer）を切り替えて確認した。
+- 経路（Desktop 1280px・狭い画面390px）: Workspaceの作成（必須欄の検証）・Selectorでの切替と絞り込み・再読込・戻る、WorkspaceのProject一覧（空・Active・アーカイブ済み）→Project追加（サーバー検証の400で要約・入力保持）→Project概要・方向・実行・設定、参加中のProject（Active・アーカイブ済み）、Projectのarchive（理由の必須・確認パネル）、Intent詳細・編集の保存と、Active Intentの重複登録の409（要約・入力保持・再送信可）、Story起票（400の要約）→実行viewの該当Story→Task起票（Storyの選択済み）→Task詳細・取消パネル・Comment（空の拒否・保存）、Workspace「設定」のmember追加・Credential発行（一度だけの表示）、owner・administratorのGrant付与・確認パネルからの取消（再読込後の反映）。
+- 権限: administratorは編集・Project追加・Direction Agent・Credentialの管理だけを出し、member管理とWorkspaceのarchiveを出さない。viewerは操作の導線を出さず、作成・編集のURLを直接開くと理由と戻り先を出す。Project Membershipの無いProjectはカードをリンクにせず、未所属のWorkspace・Projectは閲覧できない旨を出す。archivedのProjectは管理・編集の導線を出さない。
+- 寸法: Project一覧の操作列（`.list-toolbar`、`size="sm"`）の`ViewSwitch`・`LinkButton`は、全状態・両幅で高さ38.39px（`--control-sm-height` 2.4rem = 38.4px）・padding 14.4px・文字14.4px・margin 0で、1行に収まり横スクロール・文字切れが無い。Task詳細・確認パネルの`md`のButton・LinkButtonは48px（`--control-md-height` 3rem）、Project詳細のview切替は38.4px。
+- 遷移・余白: Story・Taskの起票・編集の保存後と戻り先はProject詳細の実行view（`?view=work`、Storyはそのcard）を使う。送信失敗の要約とフォームの間は`--space-md`を取る。`.detail-section`の字下げはclassの無い箇条書きだけに適用し、行カードの一覧は見出しと左端を揃える。
+- 入力エラー・送信中: 設定画面の複数RoleフォームとCredentialフォームは、エラー要約から各フォームの入力へfocusを移し、対応する要約だけをARIAで参照する。代表のGrantフォームは実通信中に`pending`の文言・`disabled`・`aria-busy`を表示し、追加クリックでPOSTを重複させない（Desktop・狭い画面）。
+- console・失敗リクエスト: 検証用の400・認可の403/404・重複の409を区別する。ViewerのGrant付与・取消はCSRF付き公開Web APIでも`403 FORBIDDEN`になる。確認範囲に5xx・JavaScript例外・warningは無い。
+- 未検証: Workspaceのarchive、Credentialのrotation・取消、Taskの受入・差戻しはこのUI統合検証の経路で操作していない。実Google認証・remote mode・実Agentの自律運転は対象外。
+- 既知の不具合（未修正）: 確認パネルを「やめる」で閉じるとfocusが開いたボタンへ戻らない。
+
 ## 未実装・未接続・未検証
 
 - Project相談はProject scopeの作成・会話・結論・取消まで。Taskの相談待ち・Claim取得からの除外・自動再開、OrchestratorによるManagerの応答起動（応答leaseの自動取得）、Workspace scopeの相談と横断一覧、結論からの文書反映Task・成果物参照は未実装（[実装計画](planning/consultation-implementation-plan.md)の後続増分）。Agentの応答は検証者・AgentがMCPを直接操作して行う。Role文書・Skillへの相談toolの手順の追加は未実施。実Agentが自律的に相談を作成・応答することは未検証。
