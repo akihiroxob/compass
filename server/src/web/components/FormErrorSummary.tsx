@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { ErrorKind } from "../api";
+import { StateCard } from "./StateCard";
 
 /** フォーム送信の失敗。not_foundは各フォームが文言付きの`other`へ変換してから保持する。 */
 export type FormError = Exclude<ErrorKind, { kind: "not_found" }>;
@@ -33,7 +34,7 @@ export const FormErrorSummary = ({ error, conflict, detailTo, archivedScope = "P
     ref.current?.scrollIntoView({ block: "center" });
   }, [error]);
   return (
-    <div className="state-card error" role="alert" id={summaryId} tabIndex={-1} ref={ref}>
+    <StateCard tone="error" role="alert" id={summaryId} tabIndex={-1} ref={ref}>
       {error.kind === "validation" ? (
         <>
           <p className="error-title">入力内容を確認してください</p>
@@ -63,6 +64,6 @@ export const FormErrorSummary = ({ error, conflict, detailTo, archivedScope = "P
           <p>{error.message}</p>
         </>
       )}
-    </div>
+    </StateCard>
   );
 };

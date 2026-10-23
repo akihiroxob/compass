@@ -1,0 +1,23 @@
+// Web UIのstyle入口（app/main.tsxが読む）。共有のtokens・reset・layout → 基本部品 → 組合せUI → app → 各Featureの順に読み込む。
+// 各partialは自分の所有するclassだけを定義する（`npm run check:ui`）。
+@use "../styles/tokens";
+@use "../styles/base";
+@use "../styles/layout";
+@use "../components/ui/button";
+@use "../components/ui/view-switch";
+@use "../components/ui/field";
+@use "../components/shell";
+@use "../components/state-card";
+@use "../components/reason-panel";
+@use "../components/list-inputs";
+@use "app";
+@use "../features/activity/activity";
+@use "../features/agent/agent";
+@use "../features/auth/auth";
+@use "../features/execution/execution";
+@use "../features/grant/grant";
+@use "../features/intent/intent";
+@use "../features/member/member";
+@use "../features/outcome/outcome";
+@use "../features/project/project";
+@use "../features/workspace/workspace";

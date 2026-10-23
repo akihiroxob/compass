@@ -1,0 +1,74 @@
+// WorkspaceのAgent画面（features/agent）。Grant・Credential・Claimを別の項目で並べ、狭い画面では縦に積む。
+@use "../../styles/mixins" as *;
+
+.agent-role-cards, .agent-principals, .role-skills, .agent-principal-claims {
+  @include unstyled-list;
+  display: grid;
+  .detail-section & { padding-left: 0; }
+}
+.agent-role-cards, .agent-principals { gap: .6rem; }
+.agent-role-cards > li, .agent-principals > li { @include list-item; padding: .9rem 1rem; overflow-wrap: anywhere; }
+.agent-role-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2xs) .9rem;
+  strong { min-width: 7rem; }
+  span { color: var(--color-text-secondary); font-size: var(--text-note); }
+}
+.agent-role-card-agents { margin: var(--space-xs) 0 0; font-size: var(--text-note); }
+.role-definition {
+  margin-top: var(--space-xs);
+  > summary { width: fit-content; border-radius: var(--radius-sm); color: var(--color-accent); cursor: pointer; font-size: var(--text-note); font-weight: 700; }
+  > summary::marker { color: var(--color-accent); }
+  h4 { margin: var(--space-sm) 0 var(--space-xs); font-size: var(--text-note); }
+  .section-note { margin: var(--space-sm) 0 0; }
+}
+.role-definition-source { margin: var(--space-xs) 0 0; color: var(--color-text-muted); font-size: var(--text-small); overflow-wrap: anywhere; }
+.role-skills {
+  gap: var(--space-xs);
+  li { padding: .55rem .9rem; border-left: 3px solid var(--color-line-soft); }
+  p { margin: var(--space-2xs) 0; font-size: var(--text-note); }
+  small { color: var(--color-text-muted); }
+}
+.role-definition-body {
+  margin-top: var(--space-sm);
+  > summary { width: fit-content; border-radius: var(--radius-sm); cursor: pointer; font-size: var(--text-note); font-weight: 700; }
+  .pre-wrap { margin-top: var(--space-xs); padding: var(--space-sm) 1rem; border-radius: var(--radius-sm); background: var(--color-note); font-size: var(--text-note); }
+}
+.agent-principal-id { .detail-section & { margin: 0; font-weight: 700; code { font-size: 1rem; } } }
+.agent-principal-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-sm) var(--space-md);
+  margin: var(--space-sm) 0 0;
+  dt { @include caps-label; }
+  dd { margin: var(--space-2xs) 0 0; line-height: 1.6; }
+  small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+  @include narrow { grid-template-columns: 1fr; }
+}
+.agent-principal-roles { display: flex; flex-wrap: wrap; gap: var(--space-2xs); }
+.agent-principal-claims { gap: var(--space-xs); line-height: 1.5; }
+.agent-principal-warning { .agent-principal-facts & { color: var(--color-danger); } }
+.agent-projects { display: grid; gap: var(--space-md); margin-top: var(--space-md); }
+.agent-project {
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-line-soft);
+  &.locked h3 { margin: 0 0 var(--space-xs); }
+}
+.agent-project-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-xs) 1rem;
+  h3 { margin: 0; }
+}
+.agent-project-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-md);
+  margin: var(--space-sm) 0;
+  font-size: var(--text-note);
+  > span { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2xs) var(--space-xs); }
+}

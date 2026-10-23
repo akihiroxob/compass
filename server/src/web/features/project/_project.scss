@@ -1,0 +1,38 @@
+// Project詳細（features/project）。view切替・方向・概要の進み具合。
+@use "../../styles/mixins" as *;
+
+// viewの切替。ナビゲーションのリンク（選択中は`aria-current="page"`）で、表示切替の部品（ViewSwitch）とは別のnavとして扱う。
+.project-view-nav {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0 0 var(--space-md);
+  padding: .6rem 0;
+  border-bottom: 1px solid var(--color-line);
+  background: var(--color-paper);
+  overflow-x: auto;
+  ul { display: flex; gap: var(--space-xs); @include unstyled-list; white-space: nowrap; }
+  a { @include nav-link; }
+  @include narrow { margin-left: -4vw; margin-right: -4vw; padding-left: 4vw; padding-right: 4vw; }
+}
+.direction-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-radius: 1.4rem;
+  color: var(--color-inverse-text);
+  background: var(--color-inverse);
+  overflow: hidden;
+  > div { padding: 2.2rem; }
+  > div + div { border-left: 1px solid var(--color-inverse-line); }
+  p:last-child { margin: 0; font-family: var(--font-serif); font-size: 1.4rem; line-height: 1.6; }
+  .unset { color: var(--color-inverse-muted); }
+  @include narrow { grid-template-columns: 1fr; > div + div { border-top: 1px solid var(--color-inverse-line); border-left: 0; } }
+}
+.position-work {
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs) var(--space-sm);
+  margin: 0 0 var(--space-md);
+}
+.waiting-unassigned { color: var(--color-danger); }

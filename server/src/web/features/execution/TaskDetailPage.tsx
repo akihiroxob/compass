@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link, useParams } from "react-router-dom";
 import { ApiError, classifyError, describeActionFailure, jsonPost, loadFailureMessage, request, type ErrorKind } from "../../api";
 import { ReasonPanel, useReasonAction, type ReasonAction } from "../../components/ReasonPanel";
-import { ErrorState, Loading } from "../../components/StateCard";
-import { Button, Field, TextArea } from "../../components/ui";
+import { ErrorState, Loading, StateCard } from "../../components/StateCard";
+import { Button, Field, LinkButton, TextArea } from "../../components/ui";
 import { projectViewPath, taskEditPath } from "../../paths";
 import { useProjectOperation, useProjectOperationState } from "../access";
 import { membersPath, type Member } from "../member";
@@ -94,15 +94,15 @@ const TaskOperations = ({ operations, actions }: { operations: TaskOperation[]; 
     <>
       <div className="action-row">
         {operations.map((operation) => (
-          <button
+          <Button
             key={operation}
-            type="button"
-            className={operationPanels[operation].danger ? "secondary-button danger" : "button"}
+            variant={operationPanels[operation].danger ? "secondary" : "primary"}
+            tone={operationPanels[operation].danger ? "danger" : undefined}
             aria-expanded={actions[operation].confirming}
             onClick={() => open(operation)}
           >
             {operationPanels[operation].button}
-          </button>
+          </Button>
         ))}
       </div>
       {opened && (() => {
@@ -201,9 +201,9 @@ const CommentForm = ({ projectId, taskId, onAdded }: { projectId: string; taskId
         />
       </Field>
       {error && (
-        <div ref={errorRef} tabIndex={-1} id="task-comment-error" className="state-card error" role="alert">
+        <StateCard ref={errorRef} tabIndex={-1} id="task-comment-error" tone="error" role="alert">
           {error}
-        </div>
+        </StateCard>
       )}
       <div className="form-actions">
         <Button type="submit" pending={pending}>{pending ? "追加中..." : "Commentを追加"}</Button>
@@ -292,7 +292,7 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
             <time>{formatTime(task.updatedAt)} 更新</time>
             {currentNotice && <OperationNotice notice={currentNotice} />}
             {plan && isManualEditableTask(task, detail.story) && (
-              <div className="action-row"><Link to={taskEditPath(projectId, taskId)} className="secondary-button">Taskを編集</Link></div>
+              <div className="action-row"><LinkButton variant="secondary" to={taskEditPath(projectId, taskId)}>Taskを編集</LinkButton></div>
             )}
             {intervene && <TaskOperations operations={availableTaskOperations(task)} actions={actions} />}
             {intervene && (task.status === "in_review" || task.status === "wait_accept") && task.activeClaim && (

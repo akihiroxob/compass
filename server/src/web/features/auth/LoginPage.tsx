@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { request } from "../../api";
-import { Loading } from "../../components/StateCard";
+import { Loading, StateCard } from "../../components/StateCard";
 import { Button, Field, TextInput } from "../../components/ui";
 import { loginErrorMessage, methodsPath, normalizeReturnTo, readInvitationToken, type AuthMethods } from "./auth";
 
@@ -19,11 +19,11 @@ const LoginForms = ({ returnTo, invitationToken }: { returnTo: string; invitatio
   useEffect(load, [load]);
   if (failed) {
     return (
-      <div className="state-card error" role="alert">
+      <StateCard tone="error" role="alert">
         <p className="error-title">サーバーに接続できませんでした。</p>
         <p>通信状況を確認して、もう一度お試しください。</p>
         <Button variant="secondary" onClick={load}>再試行</Button>
-      </div>
+      </StateCard>
     );
   }
   if (!methods) return <Loading />;
@@ -54,7 +54,7 @@ const LoginForms = ({ returnTo, invitationToken }: { returnTo: string; invitatio
         </form>
       )}
       {!methods.google && !methods.local && (
-        <div className="state-card error" role="alert">ログイン方法が設定されていません。サーバーの設定を確認してください。</div>
+        <StateCard tone="error" role="alert">ログイン方法が設定されていません。サーバーの設定を確認してください。</StateCard>
       )}
     </div>
   );
@@ -67,10 +67,10 @@ const LoginError = ({ code }: { code: string | null }) => {
   useEffect(() => ref.current?.focus(), [code]);
   if (!message) return null;
   return (
-    <div className="state-card error" role="alert" tabIndex={-1} ref={ref}>
+    <StateCard tone="error" role="alert" tabIndex={-1} ref={ref}>
       <p className="error-title">{message.title}</p>
       <p>{message.detail}</p>
-    </div>
+    </StateCard>
   );
 };
 
@@ -108,10 +108,10 @@ export const InvitePage = () => {
       {token ? (
         <LoginForms returnTo="/" invitationToken={token} />
       ) : (
-        <div className="state-card error" role="alert">
+        <StateCard tone="error" role="alert">
           <p className="error-title">招待リンクを読み取れませんでした。</p>
           <p>受け取った招待リンクを、もう一度そのまま開いてください。ページを再読み込みした場合も、リンクから開き直す必要があります。</p>
-        </div>
+        </StateCard>
       )}
     </main>
   );

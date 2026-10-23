@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useSession } from "./SessionContext";
+import { Button } from "../../components/ui";
 
 /** ログイン中だけ、Humanの表示名とlogoutを出す。logoutの失敗はその場に表示する。 */
 export const SessionMenu = () => {
@@ -20,9 +21,9 @@ export const SessionMenu = () => {
   return (
     <div className="session-menu">
       <span title={session.human.email}>{session.human.displayName}</span>
-      <button type="button" className="secondary-button compact" disabled={pending} onClick={() => void logout()}>
+      <Button variant="secondary" size="sm" pending={pending} onClick={() => void logout()}>
         {pending ? "ログアウト中..." : "ログアウト"}
-      </button>
+      </Button>
       {error && <span role="alert" className="session-menu-error">{error}</span>}
     </div>
   );

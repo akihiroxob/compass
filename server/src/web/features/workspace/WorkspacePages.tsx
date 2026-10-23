@@ -2,8 +2,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, request, settle } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
-import { ErrorState, Loading } from "../../components/StateCard";
-import { LinkButton } from "../../components/ui";
+import { ErrorState, Loading, StateCard } from "../../components/StateCard";
+import { Button, LinkButton } from "../../components/ui";
 import { projectViewPath, workspaceApiPath, workspaceCreatePath, workspaceEditPath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath, type WorkspaceSection } from "../../paths";
 import { canOperateWorkspace, workspaceDirectionAccess } from "../access";
 import { ActivitySection } from "../activity";
@@ -41,7 +41,7 @@ const workspaceNotFound = "Workspaceが見つからないか、このWorkspace�
 export const WorkspaceHomePage = () => {
   const navigation = useWorkspaceNavigation();
   if (!navigation || navigation.error) {
-    return <main className="narrow"><div className="state-card error" role="alert"><p>Workspaceの一覧を読み込めませんでした: {navigation?.error ?? "不明なエラー"}</p>{navigation && <button type="button" className="secondary-button" onClick={navigation.reload}>再試行</button>}</div></main>;
+    return <main className="narrow"><StateCard tone="error" role="alert"><p>Workspaceの一覧を読み込めませんでした: {navigation?.error ?? "不明なエラー"}</p>{navigation && <Button variant="secondary" onClick={navigation.reload}>再試行</Button>}</StateCard></main>;
   }
   const { workspaces, rememberedId } = navigation;
   if (workspaces === null) return <main className="narrow"><Loading /></main>;
@@ -50,11 +50,11 @@ export const WorkspaceHomePage = () => {
   return (
     <main className="narrow">
       <div className="detail-hero"><p className="eyebrow">Workspace</p><h1>参加しているWorkspaceはありません</h1></div>
-      <div className="state-card">
+      <StateCard>
         <p>Workspaceは、Mission・Visionを共有して複数のProjectで成果を実現する単位です。Workspaceを作成するとあなたがownerになり、Projectを追加できます。</p>
         <p>既存のWorkspaceに参加するには、そのWorkspaceのownerにMembershipの追加を依頼してください。</p>
-        <div className="action-row"><Link to={workspaceCreatePath} className="button">Workspaceを作成</Link><Link to="/projects" className="secondary-button">参加中のProject</Link></div>
-      </div>
+        <div className="action-row"><LinkButton to={workspaceCreatePath}>Workspaceを作成</LinkButton><LinkButton variant="secondary" to="/projects">参加中のProject</LinkButton></div>
+      </StateCard>
     </main>
   );
 };
@@ -134,8 +134,8 @@ const ManageSection = ({ workspace, myRole, reload }: { workspace: Workspace; my
       <h2 id="workspace-manage-heading">Workspaceの管理</h2>
       <p className="section-note">名前・Mission・Vision・Principles・Constraintsの編集と、Workspaceのアーカイブです。</p>
       <div className="action-row">
-        {canUpdate && <Link to={workspaceEditPath(workspace.id)} className="button">Workspaceを編集</Link>}
-        {canArchive && <button type="button" className="secondary-button danger" aria-expanded={archive.confirming} onClick={archive.open}>アーカイブ</button>}
+        {canUpdate && <LinkButton to={workspaceEditPath(workspace.id)}>Workspaceを編集</LinkButton>}
+        {canArchive && <Button variant="secondary" tone="danger" aria-expanded={archive.confirming} onClick={archive.open}>アーカイブ</Button>}
       </div>
       {canArchive && archive.confirming && <ReasonPanel action={archive} title="このWorkspaceをアーカイブしますか？" description="アーカイブすると、Workspaceの編集、Intent・Outcome等のDirectionの変更、Projectの追加ができなくなり、Workspaceの一覧から外れます。内容と履歴は参照できます。所属Projectはアーカイブされません。" label="アーカイブの理由" required confirmLabel="アーカイブする" pendingLabel="アーカイブ中..." />}
     </section>
@@ -202,7 +202,7 @@ const ProjectsContent = ({ workspace, myRole }: { workspace: Workspace; myRole: 
         {canCreate && <LinkButton to={workspaceProjectCreatePath(workspace.id)} size="sm">Projectを追加</LinkButton>}
       </div>
       {error ? <ErrorState message={`Projectの読み込みに失敗しました: ${error}`} /> : !value ? <Loading /> : value.length === 0 ? (
-        <div className="state-card">{status === "archived" ? <p>アーカイブ済みのProjectはありません。</p> : workspace.status === "archived" ? <p>このWorkspaceにactiveなProjectはありません。アーカイブ済みのWorkspaceにはProjectを追加できません。</p> : canCreate ? <><p>このWorkspaceにactiveなProjectはまだありません。Missionを実現する実行の単位としてProjectを追加します。</p><Link to={workspaceProjectCreatePath(workspace.id)} className="text-link">Projectを追加 →</Link></> : <p>このWorkspaceにactiveなProjectはありません。WorkspaceへのProjectの追加はWorkspaceのadministratorが行います。</p>}</div>
+        <StateCard>{status === "archived" ? <p>アーカイブ済みのProjectはありません。</p> : workspace.status === "archived" ? <p>このWorkspaceにactiveなProjectはありません。アーカイブ済みのWorkspaceにはProjectを追加できません。</p> : canCreate ? <><p>このWorkspaceにactiveなProjectはまだありません。Missionを実現する実行の単位としてProjectを追加します。</p><Link to={workspaceProjectCreatePath(workspace.id)} className="text-link">Projectを追加 →</Link></> : <p>このWorkspaceにactiveなProjectはありません。WorkspaceへのProjectの追加はWorkspaceのadministratorが行います。</p>}</StateCard>
       ) : (
         <section className="project-grid" aria-label={`${value.length}件のProject`}>
           {value.map(({ project, canOpen }) => {

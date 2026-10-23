@@ -1,0 +1,21 @@
+// Activity（features/activity）。概要の最近の記録と、Activity一覧の参照・絞り込み。
+@use "../../styles/mixins" as *;
+
+.recent-activities {
+  @include unstyled-list;
+  display: grid;
+  gap: .6rem;
+  margin-bottom: var(--space-md);
+  .detail-section & { padding-left: 0; }
+  li { @include list-item; padding: .7rem 1rem; overflow-wrap: anywhere; }
+  small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+}
+.activity-refs { margin: .45rem 0 0; padding-left: 1.1rem; font-size: var(--text-small); li { margin: .15rem 0; } }
+.activity-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  margin-top: var(--space-md);
+  @include narrow { .field, .select { flex: 1 1 100%; } }
+}

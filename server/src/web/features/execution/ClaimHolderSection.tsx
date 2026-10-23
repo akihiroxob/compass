@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
+import { Button } from "../../components/ui";
 import { taskPath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import {
@@ -59,9 +60,9 @@ export const ClaimHolderSection = ({ projectId }: { projectId: string }) => {
       </p>
       <div className="claim-holder-toolbar">
         <span>{loaded ? `${formatTime(loaded.fetchedAt)} 取得` : "未取得"}</span>
-        <button type="button" className="secondary-button compact" disabled={pending} onClick={() => void load()}>
+        <Button variant="secondary" size="sm" pending={pending} onClick={() => void load()}>
           {pending ? "読み込み中..." : "再読込"}
-        </button>
+        </Button>
       </div>
       {error ? (
         <ErrorState message={`Claimの読み込みに失敗しました: ${error}`} />

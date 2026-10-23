@@ -1,0 +1,11 @@
+// 確認・中止などの注意区画（ConfirmPanel・ReasonPanel）。
+@use "../styles/mixins" as *;
+
+.abandon-panel {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-danger-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-danger-softer);
+  h2 { margin: 0 0 .6rem; @include serif-heading(1.5rem); }
+}

@@ -1,223 +1,30 @@
-// Shell（Workspaceのsidebar・狭い画面の上下のbar・header・main）とページ見出し、Project詳細のview切替。
+// 複数のFeature・appが共有するlayout（見出し・区画・操作列・一覧・カード）と文字の型。
+// 1つのFeatureだけが使うstyleはそのFeatureのpartial、部品の見た目は部品のpartialに置く（`npm run check:ui`）。
+// 部品（components/ui）の内側の見た目はここから上書きせず、部品間のgap・折返し・幅だけを持つ。
 @use "mixins" as *;
 
-.site-header {
-  min-height: 4.5rem;
-  padding: 0 4vw;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--color-line);
-  p { color: var(--color-text-muted); font-size: var(--text-small); }
-  @include narrow { padding: 0 5vw; p { display: none; } }
-}
-.brand {
-  display: flex;
-  gap: .65rem;
-  align-items: center;
-  text-decoration: none;
-  font-weight: 750;
-  span { color: var(--color-accent); font-size: 1.4rem; }
-}
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
-.session-menu {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-sm);
-  font-size: var(--text-note);
-  > span:first-child { color: var(--color-text-secondary); font-weight: 700; }
-  @include narrow { > span:first-child { display: none; } }
-}
-.session-menu-error { flex-basis: 100%; color: var(--color-danger); text-align: right; }
-.session-banner {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  padding: 1rem 4vw;
-  border-bottom: 1px solid var(--color-danger-line);
-  color: var(--color-danger);
-  background: var(--color-danger-soft);
-  p { margin: var(--space-2xs) 0; }
-  .action-row { margin-top: var(--space-sm); }
-}
-
-// Workspaceの中の画面。Desktopは左のsidebar、狭い画面は上端のbarと下端に固定したナビゲーション。
-.app-shell {
-  display: grid;
-  grid-template-columns: 16.5rem minmax(0, 1fr);
-  min-height: 100vh;
-  @include narrow { display: block; padding-bottom: 4.75rem; }
-}
-.skip-link {
-  position: absolute;
-  top: var(--space-sm);
-  left: -999px;
-  z-index: 30;
-  padding: var(--space-xs) var(--space-sm);
-  border-radius: var(--radius-sm);
-  color: var(--color-inverse-text);
-  background: var(--color-inverse);
-  font-weight: 700;
-  &:focus { left: var(--space-sm); }
-}
-.app-sidebar {
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-md);
-  padding: var(--space-md);
-  border-right: 1px solid var(--color-line);
-  background: var(--color-surface);
-  .session-menu { justify-content: flex-start; }
-  @include narrow {
-    position: static;
-    height: auto;
-    overflow: visible;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-sm);
-    padding: var(--space-sm) 5vw;
-    border-right: 0;
-    border-bottom: 1px solid var(--color-line);
-  }
-}
-.app-sidebar-footer {
-  display: grid;
-  gap: var(--space-sm);
-  margin-top: auto;
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--color-line-soft);
-  @include narrow { margin: 0 0 0 auto; padding: 0; border: 0; .sidebar-link { display: none; } }
-}
-.sidebar-link { color: var(--color-text-secondary); font-size: var(--text-note); font-weight: 700; }
-.app-content {
-  min-width: 0;
-  &:focus { outline: none; }
-}
-.workspace-switch {
-  display: grid;
-  gap: var(--space-2xs);
-  justify-items: start;
-  width: 100%;
-  padding: var(--space-sm) var(--space-md);
-  border: 1px solid var(--color-line-input);
-  border-radius: var(--radius-md);
-  color: var(--color-text);
-  background: var(--color-raised);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
-  &:hover { border-color: var(--color-accent); box-shadow: var(--shadow-hover); }
-  small { @include caps-label; }
-  strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  @include narrow { flex: 1 1 10rem; width: auto; min-width: 0; padding: var(--space-xs) var(--space-sm); }
-}
-.workspace-nav {
-  ul { @include unstyled-list; display: grid; gap: var(--space-2xs); }
-  a { @include nav-link; display: flex; border-radius: var(--radius-sm); }
-  @include narrow {
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 20;
-    padding: var(--space-xs) 2vw calc(var(--space-xs) + env(safe-area-inset-bottom));
-    border-top: 1px solid var(--color-line);
-    background: var(--color-surface);
-    // 項目数に合わせて等分する（項目を増やしても列数を書き換えない）。
-    ul { grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; }
-    a { justify-content: center; min-height: 2.75rem; padding: 0 var(--space-2xs); font-size: var(--text-small); }
-  }
-}
-.workspace-dialog {
-  width: min(36rem, calc(100vw - 2rem));
-  max-height: min(42rem, calc(100vh - 2rem));
-  padding: 0;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-lg);
-  color: var(--color-text);
-  background: var(--color-surface);
-  box-shadow: var(--shadow-lift);
-  &::backdrop { background: rgba(36, 34, 31, .45); }
-  &[open] { animation: view-enter var(--motion-fast) ease-out; }
-}
-.workspace-dialog-body {
-  display: grid;
-  gap: var(--space-md);
-  padding: var(--space-lg);
-  @include narrow { padding: var(--space-md); }
-  .section-note { margin: 0; }
-}
-.workspace-dialog-title {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-md);
-  h2 { margin: 0; @include serif-heading(1.8rem); }
-  .eyebrow { margin-bottom: var(--space-2xs); }
-}
-.workspace-options {
-  @include unstyled-list;
-  display: grid;
-  gap: var(--space-xs);
-  a {
-    @include list-link;
-    display: grid;
-    gap: var(--space-2xs);
-    padding: var(--space-sm) var(--space-md);
-    transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
-    &[aria-current="true"] { border-color: var(--color-accent); }
-  }
-  small { color: var(--color-text-muted); overflow-wrap: anywhere; }
-  .status-badge { justify-self: start; }
-}
-
-main {
-  width: min(1120px, calc(100% - 8vw));
-  margin: 0 auto;
-  padding: 5rem 0 7rem;
-  &.narrow { width: min(820px, calc(100% - 8vw)); }
-  .app-content & { padding-top: 3.5rem; }
-  @include narrow { padding-top: 1.5rem; .app-content & { padding-top: 1.5rem; } }
-}
-
+// ページ見出し
 .page-heading {
   display: flex;
   gap: var(--space-lg);
   align-items: flex-end;
   justify-content: space-between;
-  @include narrow { align-items: flex-start; flex-direction: column; .button { width: 100%; } }
+  @include narrow { align-items: flex-start; flex-direction: column; }
 }
 .eyebrow, .card-label, .section-label { margin: 0 0 .7rem; @include caps-label($spacing: .18em); color: var(--color-accent); }
 .lede { max-width: 700px; margin: 1.5rem 0 var(--space-xl); color: var(--color-text-muted); font-size: 1.08rem; line-height: 1.8; }
+.text-link, .back-link { color: var(--color-accent); font-weight: 700; }
 .back-link { display: inline-block; margin-bottom: var(--space-xl); text-decoration: none; @include narrow { margin-bottom: 1.5rem; } }
-// 現在位置（Workspace → Project → … → 現在の画面）。長い名前は折り返し、狭い画面でも横にはみ出さない。
-.breadcrumb {
-  margin-bottom: var(--space-xl);
-  font-size: var(--text-small);
-  ol { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2xs) var(--space-xs); @include unstyled-list; }
-  li { min-width: 0; overflow-wrap: anywhere; color: var(--color-text-muted); }
-  li + li::before { content: "›"; margin-right: var(--space-xs); color: var(--color-text-muted); }
-  a { color: var(--color-accent); font-weight: 700; text-decoration: none; }
-  [aria-current="page"] { color: var(--color-text-secondary); }
-  @include narrow { margin-bottom: 1.5rem; }
-}
 
 .detail-hero {
   padding-bottom: var(--space-xl);
   h1 { font-size: clamp(2.2rem, 5vw, 3.6rem); line-height: 1.08; overflow-wrap: anywhere; }
   .lede { margin-bottom: 1rem; }
   time { margin-top: 1rem; color: var(--color-text-muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
-  .button { display: flex; width: fit-content; margin-top: var(--space-md); }
-  // 操作列・確認パネルでは、見出し下の単独ボタン用の余白・幅を使わない（Task詳細の介入）。
-  .action-row .button, .form-actions .button { margin-top: 0; width: auto; }
 }
+// WorkspaceとProjectの詳細の見出し（名前・説明・状態）。
 .project-hero {
   margin-bottom: var(--space-2xs);
   padding-bottom: 1.5rem;
@@ -227,22 +34,16 @@ main {
   .section-note { margin: var(--space-2xs) 0 0; }
   @include narrow { padding-bottom: var(--space-sm); .lede { margin-top: var(--space-sm); font-size: 1rem; } }
 }
-
-.project-view-nav {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  margin: 0 0 var(--space-md);
-  padding: .6rem 0;
-  border-bottom: 1px solid var(--color-line);
-  background: var(--color-paper);
-  overflow-x: auto;
-  ul { display: flex; gap: var(--space-xs); @include unstyled-list; white-space: nowrap; }
-  a { @include nav-link; }
-  @include narrow { margin-left: -4vw; margin-right: -4vw; padding-left: 4vw; padding-right: 4vw; }
-}
 .view-panel { animation: view-enter var(--motion-fast) ease-out; }
 
+// 操作の並び。部品間のgap・折返しを持ち、狭い画面では縦に積んで幅をそろえる。
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  @include narrow { flex-direction: column; > * { width: 100%; } }
+}
 // 一覧の上の操作列（表示切替・追加等）。部品間のgap・折返し・一覧との余白はここで持ち、部品は外側余白を持たない。
 // 同じ列の部品は同じsizeを指定する（`npm run check:ui`）。`align-items: center`で部品を行の高さへ伸ばさない。
 .list-toolbar {
@@ -253,4 +54,288 @@ main {
   margin: 0 0 var(--space-lg);
   .action-row + & { margin-top: var(--space-md); }
   + .section-note { margin-top: calc(var(--space-lg) * -.5); }
+}
+// 区画の見出しと取得時刻・再読込の並び。
+.claim-holder-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  color: var(--color-text-muted);
+  font-size: var(--text-note);
+  font-variant-numeric: tabular-nums;
+}
+// フォームの送信・取消の並び。
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: 1rem;
+  @include narrow { flex-direction: column-reverse; }
+}
+
+// 文字の型
+.error-title { font-weight: 700; }
+.unset { color: var(--color-text-muted); }
+.section-note { margin: -.6rem 0 1.4rem; color: var(--color-text-muted); font-size: var(--text-note); line-height: 1.6; }
+.fixed-note { margin: 0 0 var(--space-md); padding: .9rem 1.1rem; border: 1px solid var(--color-line-soft); border-radius: .8rem; color: var(--color-text-secondary); background: var(--color-note); font-size: var(--text-note); line-height: 1.6; }
+.pre-wrap { margin: 0; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.locked-note { color: var(--color-text-secondary); font-size: var(--text-note); line-height: 1.6; }
+.execution-meta { margin: 0 0 .9rem; color: var(--color-text-muted); font-size: .82rem; line-height: 1.6; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.claim-holder-reclaimable { margin: 1rem 0 0; color: var(--color-text-secondary); }
+
+// 状態badge（statusTone.ts）。色だけに頼らずラベル文字を併記する。
+.status-badge {
+  display: inline-block;
+  max-width: 100%;
+  flex-shrink: 0;
+  padding: .15rem .6rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  color: var(--tone-attention-fg);
+  background: var(--tone-attention-bg);
+  font-size: var(--text-label);
+  font-weight: 800;
+  letter-spacing: .08em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+  vertical-align: .1em;
+  transition: color var(--motion-fast), background-color var(--motion-fast), border-color var(--motion-fast);
+  &.tone-waiting { color: var(--tone-waiting-fg); border-color: var(--tone-waiting-border); background: transparent; }
+  &.tone-progress { color: var(--tone-progress-fg); background: var(--tone-progress-bg); }
+  &.tone-done { color: var(--tone-done-fg); background: var(--tone-done-bg); }
+  &.muted, &.tone-muted { color: var(--tone-muted-fg); background: var(--tone-muted-bg); }
+  &.tone-warning { color: var(--tone-warning-fg); border-color: var(--tone-warning-border); background: var(--tone-warning-bg); }
+}
+
+// 区画
+// detail-section内では.detail-section h3の見出しを優先するため、先に定義する。
+.detail-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-md);
+  margin: var(--space-md) 0;
+  @include narrow { grid-template-columns: 1fr; }
+}
+.intent-card {
+  padding: 1.5rem;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-raised);
+  h3 { margin: .6rem 0 1rem; @include serif-heading(1.5rem); }
+  h4 { margin: .2rem 0 .8rem; font-size: 1rem; overflow-wrap: anywhere; }
+}
+.form-section, .detail-section {
+  @include panel;
+  @include narrow { padding: 1.4rem 1.1rem; }
+  h2 { margin: 0 0 1.5rem; @include serif-heading(1.65rem); }
+}
+// フォームの区画。入力欄・入力行の上下の間隔はgapで持つ（見出しの下余白と合わせて1.5rem）。
+.form-section {
+  display: grid;
+  gap: var(--space-md);
+  > h2 { margin-bottom: var(--space-2xs); }
+}
+.detail-section {
+  margin-top: var(--space-md);
+  > h2:first-child, > .claim-holder-toolbar:first-child h2 { margin-bottom: 1rem; }
+  h2 .status-badge { margin-left: var(--space-xs); font-family: var(--font-sans); }
+  h3 { margin: 1.75rem 0 .9rem; @include serif-heading(1.25rem); }
+  ul { padding-left: 1.3rem; line-height: 1.8; }
+  code { font-size: .85em; overflow-wrap: anywhere; }
+  > .intent-facts { margin: 0; }
+  > .intent-card + .intent-card { margin-top: 1rem; }
+}
+// 作成・編集フォームの区画の並び。
+.project-form { display: grid; gap: var(--space-md); }
+// 区画の中の小さなフォーム（Grant・Credential・Member・ログイン・Comment）。
+.grant-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-md);
+  margin-top: var(--space-md);
+  .form-actions { justify-content: flex-start; margin-top: 0; }
+}
+.grant-notice { margin: var(--space-sm) 0 0; color: var(--color-text-secondary); font-size: var(--text-note); }
+// 一度だけ表示するtoken・招待リンク。
+.invitation-link {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  border: 1px solid var(--color-line-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-raised);
+  .input { font-family: var(--font-mono); }
+}
+// アーカイブの通知（Workspace・Project）。
+.archive-notice { border-left: 4px solid var(--color-accent); padding-left: 1.5rem; }
+.archive-preview { margin-top: var(--space-sm); }
+
+// 説明つき項目（dl）
+.intent-facts {
+  margin: 0 0 var(--space-md);
+  dt { margin-top: .9rem; @include caps-label; }
+  dd { margin: .3rem 0 0; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+}
+
+// 一覧（行カード）
+.outcome-list, .grant-list, .next-action-list { @include unstyled-list; display: grid; gap: .6rem; }
+.outcome-list {
+  margin-top: var(--space-md);
+  a { @include list-link; padding: .9rem 1rem; overflow-wrap: anywhere; }
+  small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  code { font-size: .85em; overflow-wrap: anywhere; }
+}
+.link-list {
+  display: grid;
+  gap: .65rem;
+  a {
+    @include list-link(flex);
+    padding: 1rem;
+    justify-content: space-between;
+    gap: 1rem;
+    @include narrow { align-items: flex-start; flex-direction: column; }
+  }
+  span { font-weight: 700; }
+  small { color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+}
+.grant-list {
+  margin-top: var(--space-md);
+  li {
+    @include list-item;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-sm);
+    padding: .9rem 1rem;
+    overflow-wrap: anywhere;
+    > .pre-wrap, > .evidence-uri { flex-basis: 100%; }
+  }
+  small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  li small + small { margin-top: .15rem; }
+  code { font-size: .85em; overflow-wrap: anywhere; }
+  .action-row { margin-top: 0; }
+}
+.outcome-list a, .link-list a, .past-intents a, .grant-list li, .next-action-list li {
+  transition: border-color var(--motion-fast), background-color var(--motion-fast), box-shadow var(--motion-fast);
+}
+// 変更・Activityの一覧（grant-listの行に本文・参照を重ねる）。
+.change-list {
+  li { display: block; }
+  li small { display: block; margin-top: .35rem; }
+  .section-note { margin: .5rem 0 0; }
+  .pre-wrap { margin-top: .5rem; }
+}
+// 過去のIntent・取り消したOutcome等の開閉する一覧。
+.past-intents {
+  margin-top: var(--space-md);
+  summary { border-radius: var(--radius-sm); cursor: pointer; font-weight: 700; }
+  summary::marker { color: var(--color-accent); }
+  ul { @include unstyled-list; margin-top: .8rem; display: grid; gap: .5rem; }
+  a { @include list-link; padding: .8rem 1rem; }
+}
+// 成功条件の一覧（Outcome詳細・Workspaceの方向）。
+.criteria-list {
+  @include unstyled-list;
+  display: grid;
+  gap: .8rem;
+  counter-reset: criterion;
+  li {
+    @include list-item;
+    position: relative;
+    padding: 1rem 1rem 1rem 3.2rem;
+    border-radius: .8rem;
+    counter-increment: criterion;
+    &::before {
+      content: counter(criterion);
+      position: absolute;
+      left: 1rem;
+      top: 1rem;
+      width: 1.6rem;
+      height: 1.6rem;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: #fff;
+      background: var(--color-accent);
+      font-size: .75rem;
+      font-weight: 800;
+    }
+  }
+  p { margin: 0; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .criterion-title { font-weight: 700; }
+  dl { margin: .5rem 0 0; }
+  dt { margin-top: .5rem; @include caps-label(.7rem, .1em); }
+  dd { margin: .2rem 0 0; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+}
+
+// Projectのカード一覧（参加中のProject・WorkspaceのProject一覧）。
+.project-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+  @include narrow { grid-template-columns: 1fr; }
+}
+.project-card {
+  min-height: 310px;
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  text-decoration: none;
+  transition: transform .15s, box-shadow .15s;
+  &:hover { transform: translateY(-3px); box-shadow: var(--shadow-lift); }
+  h2 { margin: 0 0 .8rem; @include serif-heading(2rem); }
+  > p:not(.card-label) { color: var(--color-text-muted); line-height: 1.55; }
+  time { margin-top: 1rem; color: var(--color-text-muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
+  @media (prefers-reduced-motion: reduce) { &:hover { transform: none; } }
+  // Membershipの無いProject（Workspaceの一覧）。リンクにしないため、hoverで持ち上げない。
+  &.locked {
+    border-style: dashed;
+    &:hover { transform: none; box-shadow: none; }
+  }
+}
+.mission-preview {
+  margin-top: auto;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--color-subtle);
+  line-height: 1.6;
+  span { display: block; margin-bottom: .35rem; @include caps-label(.7rem); }
+}
+
+// Outcomeごとの担当Projectと進み具合（Workspaceの概要・方向、Project詳細の概要の貢献Outcome）。
+.outcome-positions, .target-works { @include unstyled-list; display: grid; }
+.detail-section .outcome-positions, .detail-section .target-works, .detail-section .next-action-list { padding-left: 0; }
+.outcome-positions {
+  gap: .6rem;
+  margin-bottom: var(--space-md);
+  > li { @include list-item; padding: 1rem; overflow-wrap: anywhere; }
+  .section-label { margin: var(--space-sm) 0 var(--space-xs); }
+  p { margin: 0; }
+}
+.outcome-position-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs) 1rem; font-weight: 700; }
+.target-works {
+  gap: var(--space-xs);
+  li { padding: .55rem .9rem; border-left: 3px solid var(--color-line-soft); }
+  small { display: block; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+}
+// 次の操作・担当待ちの一覧（Workspace・Projectの概要）。
+.next-action-summary { margin: 0 0 1rem; font-weight: 700; }
+.next-action-list {
+  margin-bottom: var(--space-md);
+  li {
+    @include list-item;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-xs) .9rem;
+    padding: .8rem 1rem;
+    font-variant-numeric: tabular-nums;
+  }
+  small { color: var(--color-text-muted); }
+  &.waiting { gap: var(--space-xs); li { padding: .55rem .9rem; line-height: 1.6; } }
 }

@@ -29,6 +29,7 @@ import { formatTime } from "../execution";
 import type { HumanRole } from "../member";
 import type { Workspace } from "./workspace";
 import { loadProjects, type OverviewProject } from "./workspaceProjects";
+import { Button, LinkButton } from "../../components/ui";
 
 type OverviewData = {
   direction: Part<DirectionData>;
@@ -153,7 +154,7 @@ const HumanAction = ({ item, intentId, projectId, canWrite }: { item: AttentionI
   if (!canWrite) return <small>Workspace Editor以上へ依頼</small>;
   if (!projectId) return <small>登録画面を開けるProjectがありません（Project Membershipが必要です）</small>;
   const to = item.kind === "intent" ? intentPath(projectId, "new") : intentId ? outcomePath(projectId, intentId, "new") : null;
-  return to ? <Link to={to} className="button compact">{item.kind === "intent" ? "Intentを登録" : "Outcomeを登録"}</Link> : null;
+  return to ? <LinkButton size="sm" to={to}>{item.kind === "intent" ? "Intentを登録" : "Outcomeを登録"}</LinkButton> : null;
 };
 
 const Attention = ({ workspace, myRole, direction, research, projects }: { workspace: Workspace; myRole: HumanRole; direction: DirectionData; research: Part<OverviewResearch[]>; projects: Part<OverviewProject[]> }) => {
@@ -247,7 +248,7 @@ export const WorkspaceOverview = ({ workspace, myRole }: { workspace: Workspace;
         <h2 id="workspace-position-heading">現在地</h2>
         <div className="claim-holder-toolbar">
           <span>{formatTime(data.fetchedAt)} 取得</span>
-          <button type="button" className="secondary-button compact" disabled={pending} onClick={() => void load()}>{pending ? "読み込み中..." : "再読込"}</button>
+          <Button variant="secondary" size="sm" pending={pending} onClick={() => void load()}>{pending ? "読み込み中..." : "再読込"}</Button>
         </div>
         {data.direction.ok ? <CurrentPosition workspaceId={workspace.id} direction={data.direction.value} projects={data.projects} /> : <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${data.direction.error}`} />}
         {outcomes && outcomes.length > 0 && <p className="section-note">Taskの件数は状態だけを数えたもので、Agentの稼働やClaimの有効性を示しません。Claimの状況は各Projectの概要で確認します。</p>}

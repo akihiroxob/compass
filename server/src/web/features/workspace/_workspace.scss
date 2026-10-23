@@ -1,0 +1,93 @@
+// Workspace（features/workspace）。Shellのslotに置く切替・ナビゲーションと、Workspaceの概要・方向・Project一覧。
+@use "../../styles/mixins" as *;
+
+// 現在のWorkspaceを示し、切替のdialogを開くカード。
+.workspace-switch {
+  display: grid;
+  gap: var(--space-2xs);
+  justify-items: start;
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-line-input);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-raised);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+  &:hover { border-color: var(--color-accent); box-shadow: var(--shadow-hover); }
+  small { @include caps-label; }
+  strong { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @include narrow { flex: 1 1 10rem; width: auto; min-width: 0; padding: var(--space-xs) var(--space-sm); }
+}
+// Desktopは左のsidebar、狭い画面は下端に固定したナビゲーション。
+.workspace-nav {
+  ul { @include unstyled-list; display: grid; gap: var(--space-2xs); }
+  a { @include nav-link(flex, var(--radius-sm)); }
+  @include narrow {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 20;
+    padding: var(--space-xs) 2vw calc(var(--space-xs) + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--color-line);
+    background: var(--color-surface);
+    // 項目数に合わせて等分する（項目を増やしても列数を書き換えない）。
+    ul { grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; }
+    a { justify-content: center; min-height: 2.75rem; padding: 0 var(--space-2xs); font-size: var(--text-small); }
+  }
+}
+.workspace-dialog {
+  width: min(36rem, calc(100vw - 2rem));
+  max-height: min(42rem, calc(100vh - 2rem));
+  padding: 0;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lift);
+  &::backdrop { background: rgba(36, 34, 31, .45); }
+  &[open] { animation: view-enter var(--motion-fast) ease-out; }
+}
+.workspace-dialog-body {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  @include narrow { padding: var(--space-md); }
+  .section-note { margin: 0; }
+}
+.workspace-dialog-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-md);
+  h2 { margin: 0; @include serif-heading(1.8rem); }
+  .eyebrow { margin-bottom: var(--space-2xs); }
+}
+.workspace-options {
+  @include unstyled-list;
+  display: grid;
+  gap: var(--space-xs);
+  a {
+    @include list-link(grid);
+    gap: var(--space-2xs);
+    padding: var(--space-sm) var(--space-md);
+    transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+    &[aria-current="true"] { border-color: var(--color-accent); }
+  }
+  small { color: var(--color-text-muted); overflow-wrap: anywhere; }
+  .status-badge { justify-self: start; }
+}
+
+.workspace-project-links {
+  @include unstyled-list;
+  .detail-section & { padding-left: 0; }
+  li > p { @include list-item; display: flex; justify-content: space-between; gap: 1rem; margin: 0; padding: 1rem; @include narrow { flex-direction: column; } }
+}
+.workspace-intent { margin: 0 0 var(--space-md); font-weight: 700; overflow-wrap: anywhere; }
+.attention-refs { display: block; flex-basis: 100%; overflow-wrap: anywhere; }
+.agent-intro p { margin: 0; }
+.agent-intro p + p { margin-top: var(--space-2xs); }
+// 方向の過去の一覧で、リンクにしない項目。
+.plain-item { .past-intents & { @include list-item; padding: .8rem 1rem; } }

@@ -1,0 +1,30 @@
+// ボタン（Button・LinkButton）。sizeは既定がmd、`compact`がsm。外側余白・幅・配置は親layoutが持つ。
+@use "../../styles/mixins" as *;
+
+.button, .secondary-button {
+  @include pill-control;
+  @include control-size(md);
+  &.compact { @include control-size(sm); }
+}
+.button { border-color: var(--color-text); color: #fff; background: var(--color-text); }
+.secondary-button { border-color: var(--color-text); background: transparent; }
+// 押せない状態と送信中（Buttonの`pending`は`aria-busy`）。
+.button, .secondary-button, .text-button {
+  &:disabled { opacity: var(--control-disabled-opacity); cursor: not-allowed; }
+  &[aria-busy="true"] { cursor: progress; }
+}
+// 取り返しのつかない操作（Buttonの`tone="danger"`）。
+.secondary-button.danger { color: var(--color-danger); border-color: var(--color-danger-line); }
+.button.danger { color: #fff; border-color: var(--color-danger); background: var(--color-danger); }
+// 枠の無い文字だけのボタン（Button `variant="text"`）。入力行の追加・削除等。
+.text-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-sm-height);
+  padding: 0;
+  border: 0;
+  color: var(--color-accent);
+  background: transparent;
+  cursor: pointer;
+  font-weight: 700;
+}

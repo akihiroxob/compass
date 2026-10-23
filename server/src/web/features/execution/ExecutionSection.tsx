@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { ViewSwitch } from "../../components/ui";
+import { Button, LinkButton, ViewSwitch } from "../../components/ui";
 import { storyCreatePath, storyEditPath, taskCreatePath, taskPath } from "../../paths";
 import { useHashTarget } from "../../useHashTarget";
 import { useProjectOperationState } from "../access";
@@ -71,8 +71,8 @@ export const StoryCard = ({ group, plan = false }: { group: StoryGroup; plan?: b
       {tasks.length ? <ul className="outcome-list">{tasks.map((task) => <TaskRow key={task.id} task={task} />)}</ul> : <p className="unset">Taskはまだありません</p>}
       {plan && isManualOpenStory(story) && (
         <div className="action-row">
-          <Link to={taskCreatePath(story.projectId, story.id)} className="secondary-button compact">このStoryにTaskを追加<span className="visually-hidden">（{story.title}）</span></Link>
-          <Link to={storyEditPath(story.projectId, story.id)} className="secondary-button compact">Storyを編集<span className="visually-hidden">（{story.title}）</span></Link>
+          <LinkButton variant="secondary" size="sm" to={taskCreatePath(story.projectId, story.id)}>このStoryにTaskを追加<span className="visually-hidden">（{story.title}）</span></LinkButton>
+          <LinkButton variant="secondary" size="sm" to={storyEditPath(story.projectId, story.id)}>Storyを編集<span className="visually-hidden">（{story.title}）</span></LinkButton>
         </div>
       )}
     </article>
@@ -186,9 +186,9 @@ const RecentChanges = ({ projectId, overview }: { projectId: string; overview: E
           {reachedEnd && <p ref={endNote} tabIndex={-1} className="unset">これより古い変更はありません</p>}
           {nextCursor !== null && (
             <div className="action-row">
-              <button type="button" className="secondary-button" disabled={pending} onClick={() => void loadMore()}>
+              <Button variant="secondary" pending={pending} onClick={() => void loadMore()}>
                 {pending ? "読み込み中..." : "さらに古い変更"}
-              </button>
+              </Button>
             </div>
           )}
         </>
@@ -231,8 +231,8 @@ export const ExecutionSection = ({ projectId }: { projectId: string }) => {
       </p>
       {plan && (
         <div className="action-row">
-          <Link to={storyCreatePath(projectId)} className="button">Storyを起票</Link>
-          <Link to={taskCreatePath(projectId)} className="secondary-button">Taskを起票</Link>
+          <LinkButton to={storyCreatePath(projectId)}>Storyを起票</LinkButton>
+          <LinkButton variant="secondary" to={taskCreatePath(projectId)}>Taskを起票</LinkButton>
         </div>
       )}
       {error ? (

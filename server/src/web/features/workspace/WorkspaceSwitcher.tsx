@@ -1,9 +1,10 @@
 import { useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Field, TextInput } from "../../components/ui";
+import { Button, Field, TextInput } from "../../components/ui";
 import { workspaceCreatePath, workspacePath, workspaceProjectsPath, workspaceSections } from "../../paths";
 import { useWorkspaceNavigation } from "./WorkspaceContext";
 import { currentSection, filterWorkspaces, switchWorkspacePath, workspaceSectionLabels } from "./workspace";
+import { StateCard } from "../../components/StateCard";
 
 /**
  * Workspace Selector。現在のWorkspaceを示すbuttonから、閲覧できるWorkspaceの一覧（modal dialog）を開く。
@@ -46,20 +47,20 @@ export const WorkspaceSwitcher = () => {
         <div className="workspace-dialog-body">
           <div className="workspace-dialog-title">
             <div><p className="eyebrow">戦略の単位を切り替える</p><h2 id={titleId}>Workspace</h2></div>
-            <button type="button" className="secondary-button compact" onClick={close}>閉じる</button>
+            <Button variant="secondary" size="sm" onClick={close}>閉じる</Button>
           </div>
           {error ? (
-            <div className="state-card error" role="alert">
+            <StateCard tone="error" role="alert">
               <p>Workspaceの一覧を読み込めませんでした: {error}</p>
-              <button type="button" className="secondary-button compact" onClick={reload}>再試行</button>
-            </div>
+              <Button variant="secondary" size="sm" onClick={reload}>再試行</Button>
+            </StateCard>
           ) : workspaces === null ? (
-            <div className="state-card" role="status">読み込み中...</div>
+            <StateCard role="status">読み込み中...</StateCard>
           ) : workspaces.length === 0 ? (
-            <div className="state-card">
+            <StateCard>
               <p>参加しているWorkspaceはありません。Workspaceを作成するとあなたがownerになります。既存のWorkspaceは、そのownerにMembershipの追加を依頼してください。</p>
               <Link to={workspaceCreatePath} className="text-link" onClick={close}>Workspaceを作成 →</Link>
-            </div>
+            </StateCard>
           ) : (
             <>
               <Field label="Workspaceを絞り込む">

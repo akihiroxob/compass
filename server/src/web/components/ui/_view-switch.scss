@@ -1,0 +1,17 @@
+// 表示切替（ViewSwitch）。選択中は`aria-current="page"`で反転する。部品間のgapだけを持ち、外側余白は親layoutが持つ。
+@use "../../styles/mixins" as *;
+
+.view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+}
+.view-switch-item {
+  @include pill-control;
+  @include control-size(md);
+  border-color: var(--color-line);
+  color: var(--color-text-secondary);
+  &.compact { @include control-size(sm); }
+  &[aria-current="page"] { color: #fff; border-color: var(--color-text); background: var(--color-text); }
+}
+.view-switch-count { margin-left: var(--space-2xs); font-variant-numeric: tabular-nums; }

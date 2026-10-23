@@ -1,8 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { ApiError, onSessionLost, request, setCsrfToken } from "../../api";
-import { Loading } from "../../components/StateCard";
+import { Loading, StateCard } from "../../components/StateCard";
 import { loginPath, logoutPath, sessionPath, type SessionHuman, type SessionInfo } from "./auth";
+import { Button, LinkButton } from "../../components/ui";
 
 type SessionState = { human: SessionHuman; logout: () => Promise<void> };
 const SessionContext = createContext<SessionState | null>(null);
@@ -51,10 +52,10 @@ const SessionLostBanner = ({ onRestored }: { onRestored: (session: SessionInfo) 
       <p>入力中の内容はこの画面に残っています。別タブでログインしてから「ログインを確認」を押し、もう一度実行してください。</p>
       {message && <p>{message}</p>}
       <div className="action-row">
-        <a className="button" href={loginPath(location.pathname + location.search)} target="_blank" rel="noopener">別タブでログイン</a>
-        <button type="button" className="secondary-button" disabled={checking} onClick={() => void check()}>
+        <LinkButton to={loginPath(location.pathname + location.search)} target="_blank" rel="noopener">別タブでログイン</LinkButton>
+        <Button variant="secondary" pending={checking} onClick={() => void check()}>
           {checking ? "確認中..." : "ログインを確認"}
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -105,11 +106,11 @@ export const AuthGate = ({ layout: Layout, children }: { layout: ComponentType<{
     return (
       <Layout>
         <main className="narrow">
-          <div className="state-card error" role="alert">
+          <StateCard tone="error" role="alert">
             <p className="error-title">サーバーに接続できませんでした。</p>
             <p>通信状況を確認して、もう一度お試しください。</p>
-            <button type="button" className="secondary-button" onClick={load}>再試行</button>
-          </div>
+            <Button variant="secondary" onClick={load}>再試行</Button>
+          </StateCard>
         </main>
       </Layout>
     );

@@ -1,0 +1,38 @@
+// Execution（features/execution）。長い相関ID・URI・commit SHAは狭い画面で折り返す。
+@use "../../styles/mixins" as *;
+
+// Task詳細の現在位置（Workspace → Project → Story → Task）。長い名前は折り返し、狭い画面でも横にはみ出さない。
+.breadcrumb {
+  margin-bottom: var(--space-xl);
+  font-size: var(--text-small);
+  ol { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2xs) var(--space-xs); @include unstyled-list; }
+  li { min-width: 0; overflow-wrap: anywhere; color: var(--color-text-muted); }
+  li + li::before { content: "›"; margin-right: var(--space-xs); color: var(--color-text-muted); }
+  a { color: var(--color-accent); font-weight: 700; text-decoration: none; }
+  [aria-current="page"] { color: var(--color-text-secondary); }
+  @include narrow { margin-bottom: 1.5rem; }
+}
+.execution-story {
+  scroll-margin-top: 1rem;
+  + .execution-story { margin-top: 1rem; }
+  .action-row + & { margin-top: var(--space-md); }
+  h3 { overflow-wrap: anywhere; }
+  > h3:first-child { margin-top: 0; }
+  &:focus-visible, &:target { @include focus-ring; }
+}
+.execution-changes { margin-top: 1.75rem; }
+// Task詳細のClaimの注記と、Task受入（Project）とOutcome評価（Workspace）を並べる区画。
+.claim-note { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-size: var(--text-small); }
+.task-outcome-columns {
+  margin-top: 0;
+  > div { min-width: 0; overflow-wrap: anywhere; }
+  p { margin: 0 0 var(--space-xs); }
+}
+.evidence-uri { color: var(--color-accent); font-weight: 700; overflow-wrap: anywhere; }
+.claim-holder-group {
+  h3 { margin: var(--space-md) 0 0; font-size: 1rem; font-variant-numeric: tabular-nums; }
+  .outcome-list { margin-top: .6rem; padding-left: 0; }
+  small { font-variant-numeric: tabular-nums; }
+}
+.claim-holder-agent { font-family: var(--font-mono); font-size: .9em; font-weight: 700; overflow-wrap: anywhere; }
+.claim-holder-stale { margin: 1rem 0 0; padding: var(--space-sm) 1rem; border: 1px solid var(--color-danger-line); border-radius: var(--radius-sm); color: var(--color-danger); background: var(--color-danger-soft); }

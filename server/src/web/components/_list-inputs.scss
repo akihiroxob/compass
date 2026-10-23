@@ -1,0 +1,15 @@
+// 可変行の入力（TextListInput・LinkListInput）。行の追加・削除はButton `variant="text"`。
+@use "../styles/mixins" as *;
+
+.repeat-field {
+  legend { margin-bottom: .8rem; font-weight: 700; }
+}
+.repeat-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: .6rem;
+  margin-bottom: .6rem;
+  &.links { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  @include narrow { &, &.links { grid-template-columns: 1fr; } }
+  > .text-button { justify-self: start; }
+}
