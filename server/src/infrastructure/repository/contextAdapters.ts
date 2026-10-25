@@ -1,3 +1,4 @@
+import { KyselyConsultationStore } from "@compass/collaboration";
 import {
   listGrantedRoles,
   projectRoles,
@@ -51,6 +52,7 @@ import { ConflictError, ValidationError } from "@compass/shared";
 import type { WorkChangeObserver, WorkExternalReaders } from "@compass/work";
 import {
   asAccessDatabase,
+  asCollaborationDatabase,
   asAccessTransaction,
   asActivityDatabase,
   asDirectionDatabase,
@@ -72,7 +74,16 @@ export const workExternalReaders: WorkExternalReaders = (executor) => {
   const access = asAccessDatabase(executor);
   const organization = asOrganizationDatabase(executor);
   const direction = asDirectionDatabase(executor);
+  const collaboration = new KyselyConsultationStore(asCollaborationDatabase(executor));
   return {
+    consultations: {
+      find: async (projectId, consultationId) => {
+        const consultation = await collaboration.findConsultation(projectId, consultationId);
+        if (!consultation) return null;
+        const resolution = await collaboration.findResolution(consultationId);
+        return { id: consultation.id, status: consultation.status, revision: consultation.revision, resolutionId: resolution?.id ?? null };
+      },
+    },
     grants: {
       listRoles: (projectId, principalId) => listGrantedRoles(access, projectId, principalId),
     },

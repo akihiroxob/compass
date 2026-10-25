@@ -35,6 +35,34 @@ export const registerExecutionTools = (server: McpServer, services: OperationSer
       return operation(principal);
     });
 
+  const runtime = z.strictObject({ worktreePath: z.string().min(1), contextPath: z.string().min(1),
+    headSha: z.string(), sourceFingerprint: z.string().min(1), pullRequest: z.string().nullable(), verificationRefs: z.array(z.string()) });
+  server.registerTool("wait_for_consultation", {
+    title: "Wait for Consultation",
+    description: "Current Claim owner only. Save artifacts and Runtime Context on disk first. Reserve this Task for all listed open Consultations, retaining its phase and status, then release its Claim atomically. Other Tasks keep running.",
+    inputSchema: { taskId: z.string(), claimId: claimIdSchema, consultationIds: z.array(z.string()).min(1), reason: z.string(), runtime, requestId: requestIdSchema },
+  }, ({ requestId, ...input }) => asPrincipal((principalId) => coordination.waitForConsultations(principalId, input, requestId)));
+  server.registerTool("list_consultation_resumptions", {
+    title: "List Consultation Resumptions",
+    description: "Reconcile all Consultations and current requirements of the caller's saved Task executions. Ready Tasks require resume_consultation_task. Cancellation alone never resumes. Read current conclusions, requirements and PR/SHA before continuing.",
+    inputSchema: { projectId: z.string() },
+  }, ({ projectId }) => asPrincipal((principalId) => coordination.reconcileConsultationWaits(principalId, projectId)));
+  server.registerTool("resume_consultation_task", {
+    title: "Resume Consultation Task",
+    description: "Reacquire the saved execution phase Claim after checking every Consultation and the actual persisted worktree/Context, PR, HEAD and source fingerprint. Only the original Principal/Role can resume. Never resubmit an old blocked result.",
+    inputSchema: { taskId: z.string(), runtime, requestId: requestIdSchema },
+  }, ({ taskId, runtime: savedRuntime, requestId }) => asPrincipal((principalId) => coordination.resumeConsultationTask(principalId, taskId, savedRuntime, requestId)));
+  server.registerTool("confirm_consultation_continuation", {
+    title: "Confirm Consultation Continuation",
+    description: "Manager only. Confirm cancellation reasons and current continuation policy against the current Task requirementVersion and every Consultation revision. Does not replace resolution of open Consultations.",
+    inputSchema: { taskId: z.string(), expectedRequirementVersion: z.string(), consultationRevisions: z.array(z.object({ id: z.string(), revision: z.number().int() })), reason: z.string(), requestId: requestIdSchema },
+  }, ({ taskId, expectedRequirementVersion, consultationRevisions, reason, requestId }) => asPrincipal((principalId) => coordination.confirmConsultationContinuation(principalId, taskId, expectedRequirementVersion, consultationRevisions, reason, requestId)));
+  server.registerTool("get_project_consultation_state", {
+    title: "Get Project Consultation State",
+    description: "Project Runtime Credential with runtime:state:read only. Read unprocessed Human input revisions for Manager dispatch. Returns IDs and revisions without conversation text; responses require the Manager's own Agent Credential and response lease.",
+    inputSchema: { projectId: z.string() },
+  }, ({ projectId }) => execute(() => services.getProjectConsultationStateUseCase.execute(caller, projectId)));
+
   server.registerTool(
     "list_stories",
     {

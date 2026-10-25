@@ -12,3 +12,5 @@ export * from "./application/TaskCoordinationService.ts";
 export * from "./infrastructure/initializeWorkSchema.ts";
 export * from "./infrastructure/KyselyWorkStore.ts";
 export * from "./infrastructure/schema.ts";
+
+export * from "./application/port/ConsultationReadinessPort.ts";

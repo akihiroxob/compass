@@ -1,6 +1,6 @@
 # Project相談（Collaboration）
 
-Agentが既存の要件・方針・権限の範囲で決められない設計・要件の問題を、Project scopeの相談としてHumanへ問い、会話と結論をCompassへ残す。所有Contextは`packages/collaboration`（[ADR 0002](adr/0002-collaboration-context.md)）。Task単位の相談待ち・自動再開、Workspace scopeの相談、横断一覧、文書反映Taskは含まない（[実装計画](planning/consultation-implementation-plan.md)の後続増分）。
+Agentが既存の要件・方針・権限の範囲で決められない設計・要件の問題を、Project scopeの相談としてHumanへ問い、会話と結論をCompassへ残す。所有Contextは`packages/collaboration`（[ADR 0002](adr/0002-collaboration-context.md)）。ProjectのTask単位の相談待ち・Manager応答起動・自動再開までを接続する。Workspace scopeの相談、横断一覧、文書反映Taskは含まない（[実装計画](planning/consultation-implementation-plan.md)の後続増分）。
 
 ## 保存するもの
 
@@ -34,7 +34,7 @@ Agentが既存の要件・方針・権限の範囲で決められない設計・
 3. `reply_consultation`（回答・追加質問）または`resolve_consultation`（managerだけ）へ`leaseId`と`expectedRevision`を渡す。応答中にHumanが追加で返信すると版が進み、古い版の応答・解決は`STALE_REVISION`で拒否される。期限切れは`LEASE_EXPIRED`、leaseを持たない・使用済みは`LEASE_NOT_HELD`。応答を保存するとleaseを解放する。
 4. `requestId`は主体・操作ごとに一意にする。同じ`requestId`・同じ入力の再送は、その後に状態が変わっていても保存済みの結果を返し、別の入力での再利用は`IDEMPOTENCY_CONFLICT`。
 
-拒否はいずれも`CONFLICT`で、`conflict`・`consultationId`・`currentRevision`・`consultationStatus`を返す。自動dispatch（Orchestratorの起動）はまだ無く、検証者・AgentはMCPを直接操作して応答できる。
+拒否はいずれも`CONFLICT`で、`conflict`・`consultationId`・`currentRevision`・`consultationStatus`を返す。OrchestratorはProject Runtime Credentialで`get_project_consultation_state`を読み、相談ID・入力版ごとにManagerを起動する。応答leaseは起動されたManagerが自身のAgent Credentialで取得する。processの正常終了だけでは返信を処理済みにせず、同じ入力版が未処理なら既存backoff・試行上限で再試行する。
 
 ## 結論と判断の由来
 
@@ -85,3 +85,23 @@ Web UI: Project詳細の「判断待ち」view（`?view=consultations`。`?statu
 6. viewerの書込拒否、未所属・別Projectの404、古い版・他Principalのlease・期限切れの拒否、同じ`requestId`の再送を確認する。Desktopと狭い画面の画像を保存し、空・読込・通信失敗・権限不足を確認する。読込遅延や通信失敗の模擬は表示検査だけに用い、保存・認可の成功の証拠にはしない。
 
 回帰テストは`node --import tsx --test packages/collaboration/tests/consultation.test.ts server/tests/consultation.test.ts server/tests/consultationUi.test.ts`、UI構造検査は`npm run check:ui`。テスト内の時刻差し替えでlease境界を検査することと、実環境で期限を待つ確認は区別する。専用serverは確認後に停止する。
+
+## Taskの待機と自動再開
+
+Workが`task_consultation_wait`にTaskごとの待機相談参照（ID・版・結論ID）、元の`work` / `review` / `acceptance`段階、Principal・Role、要件版、保存済みRuntime情報、`waiting` / `ready` / `resuming`と失敗理由を保持する。会話・結論本文はCollaborationだけに置く。相談の準備状態はserverが同じtransactionで配線する`ConsultationReadinessPort`から読み、WorkはCollaborationのtableを読まない。
+
+| MCP | 認可・契約 |
+| --- | --- |
+| `wait_for_consultation` | 現在Claim所有者と段階のProject Role。`taskId`・`claimId`・`consultationIds`・`reason`・`runtime`・`requestId`。同じProjectの未解決相談だけ。Runtime情報を保存後、statusを保持したままClaimを解放する |
+| `list_consultation_resumptions` | Project Execution Role。自身のPrincipal/activeRoleが保持する保存済み実行だけを全件照合。全相談の解決/取消確認・現在要件版を確かめて再開候補を返す |
+| `resume_consultation_task` | 元Principal・Role。実際の`runtime`を指定し、保存時のworktree/Context・PR・HEAD・fingerprintと一致することを確認。元段階の新Claimを排他的に取得する |
+| `confirm_consultation_continuation` | manager。取消の不要理由/継続方針、現在の`expectedRequirementVersion`と全相談の`consultationRevisions`を確認。未解決相談は解決扱いにしない |
+| `get_project_consultation_state` | Project Runtime Credentialの`runtime:state:read`（trusted-localは既存runtime Grantも可）。相談ID・未処理入力版だけ。会話本文を返さず、Workspace Credentialから継承しない |
+
+`runtime`は`worktreePath`・`contextPath`・`headSha`・`sourceFingerprint`・`pullRequest`（null可）・`verificationRefs`。外部成果物はRuntimeが先に保存する。要件版はTask本文・段階・差し戻し理由・Storyの要件/snapshotから作り、ソート変更や待機照合で変えない。
+
+待機関係があるTaskは`availableFor`と直接Claimの双方から除く。別Workerによる取得を防ぎ、他Task/Roleの実行を継続する。Human返信だけではTaskを再開しない。全相談の解決を照合し、取消はManagerが理由・継続方針を確認するまで保持する。要件変更にもManagerの現在版の確認が必要。版の古い確認を拒否する。
+
+製品Ralphは同じ`projectRoot`でpollingし、保存済みContextと未commit/未追跡成果物を検査する。OSのworktree lockを保持し、元段階のClaim再取得後にAgentを起動する。Runner停止時も旧Agentが持つlockが残るため同時起動しない。再開したAgentは結論・現在要件・PR/SHAを再読込し、旧blocked結果を再送せず、古い検証を変更後のSHAへ無条件適用しない。成果物版の照合が失敗した場合は破棄せず失敗理由を報告する。Task詳細は待機/再開状態・元段階・相談導線・失敗理由を表示する。
+
+設定・運用は[Orchestrator](../orchestrator/README.md)と[Ralph](../ralph/README.md)。実行手順はRoleから参照する`skills/consultation-task-resumption.md`を正本とする。稼働中agent-foundation版Ralph/Wachaは開発系の別実行システムで、本契約はCompass製品の`/mcp`と製品側`ralph/`が所有する。

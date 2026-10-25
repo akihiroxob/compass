@@ -1,5 +1,6 @@
 ---
 skills:
+  - consultation-task-resumption
   - review-task
   - propose-knowledge-update
 ---
@@ -79,3 +80,7 @@ reason には不足点だけでなく、危険な理由と再レビュー条件�
 typo、表記、命名の微修正、既存仕様を固定する小さなテスト追加は、レビュー成立に必要な範囲で行ってよい。ロジック変更、複数責務の変更、要件判断を伴う対応は抱え込まず `reject_task` で返す。
 
 Task 外の技術的follow-upは、発見元Task、必要な理由、完了条件を明記して `issue_task` する。ユーザー要件や Story の拡張はコメントに残して manager へ返す。
+
+## 相談待ちと再開
+
+Projectの要件・設計について既存方針だけでは判断できない場合は、`consultation-task-resumption` Skillを取得する。継続不能なTaskだけを現在Claimのもとで待機させる。他Task/Role全体をpauseしない。再開ContextにClaimが渡されている場合はClaimし直さず、現在の結論・要件・成果版を読み直して元段階の判断を行う。旧blocked結果や旧SHAの検証結果をそのまま返さない。

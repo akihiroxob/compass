@@ -15,11 +15,11 @@ Agentが既存の要件・方針・権限では決められない設計・要件
 - 記録主体（Human / Agent）と判断の由来（`human_decision` / `agent_summary`）を区別する。由来は入口と記録主体から決め、入力で指定させない。Humanの明示決定はWeb API専用で、MCPへは公開しない。
 - Agentの応答は相談ID・入力版ごとの短い応答leaseと`expectedRevision`・`requestId`で直列化・冪等化する。leaseはTaskのClaimと別のもの。
 - 認可はAccessが持つ。HumanはProject Membershipの権限表（参照viewer・返信editor・決定/取消administrator）、AgentはProject Execution Role Grant（参照・作成・返信はmanager / worker / reviewer、結論整理・取消はmanager）で検査する。状態遷移・版・lease・根拠の規則はCollaborationのDomain / Applicationで強制する。
-- Collaborationは他Contextのtableを直接読まない。Projectの状態・Resource（Organization）と参照先Task・Story（Work）は、serverが同じtransactionで読むreader portとして渡す。WorkはTaskの相談待ち・再開を所有し、相談の会話・結論を複製しない（相談待ち・再開は後続で接続する）。
+- Collaborationは他Contextのtableを直接読まない。Projectの状態・Resource（Organization）と参照先Task・Story（Work）は、serverが同じtransactionで読むreader portとして渡す。WorkはTaskの相談待ち・再開を所有し、相談の会話・結論を複製しない（現在の接続契約は[Project相談](../consultation-design.md)）。
 - Direction DecisionはIntentに関する戦略判断のまま維持し、相談由来の結論をDirection Decisionとして作らない。Activityへ会話全文を二重保存しない。
 
 ## 影響
 
 - serverは`collaboration`のschemaを合成し、Web API（Human）とMCP（Agent）を同じuse caseへ委譲する。Web UIはProject詳細の「判断待ち」viewと相談詳細を持つ。
-- Task待機・自動再開・Orchestratorの応答起動・Workspace相談・横断一覧・文書反映Taskはこの決定の範囲外で、[実装計画](../planning/consultation-implementation-plan.md)の後続増分が接続する。
+- Task待機・自動再開はWork / Runtime、応答起動はOrchestratorが所有する。Workspace相談・横断一覧・文書反映Taskは[実装計画](../planning/consultation-implementation-plan.md)の後続増分が接続する。
 - 現行の契約は[Project相談](../consultation-design.md)に記す。

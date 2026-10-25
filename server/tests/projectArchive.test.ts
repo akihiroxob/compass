@@ -448,7 +448,7 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
 
   const listed = await readData(await rpc(app, { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }));
   const tools = listed.result.tools as { name: string; inputSchema: { properties?: object } }[];
-  assert.equal(tools.filter(({ name }) => /archive|delete|remove|restore|unarchive|resume/i.test(name.replace("abandon_intent", ""))).length, 0);
+  assert.equal(tools.filter(({ name }) => /archive|delete|remove|restore|unarchive|resume/i.test(name.replace("abandon_intent", "").replace("resume_consultation_task", ""))).length, 0);
   assert.deepEqual(
     tools.map(({ name }) => name).sort(),
     [
@@ -469,6 +469,7 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       "get_activity", "list_activities", "record_activity",
       "get_workspace_activity", "list_workspace_activities", "record_workspace_activity",
       // 相談は会話・結論の追記と取消（理由付き）だけで、削除・書換のtoolは無い。
+      "wait_for_consultation", "list_consultation_resumptions", "resume_consultation_task", "confirm_consultation_continuation", "get_project_consultation_state",
       "acquire_consultation_lease", "cancel_consultation", "create_consultation", "get_consultation", "list_consultations",
       "reply_consultation", "resolve_consultation",
     ].sort(),

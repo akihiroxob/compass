@@ -1,3 +1,4 @@
+import { consultationRuntimeSchema, waitForConsultationsSchema, taskRequirementVersion, type ConsultationWaitReference } from "./consultationWaitSchema.ts";
 import { outcomeCorrelationId } from "@compass/direction";
 import { ProjectArchivedError } from "@compass/organization";
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
@@ -469,14 +470,16 @@ export class TaskCoordinationService {
     limit?: number,
   ) {
     const now = this.clock();
-    const [tasks, stories, claims, grantedRoles, completionChanges, archived] = await Promise.all([
+    const [tasks, stories, claims, grantedRoles, completionChanges, archived, consultationWaits] = await Promise.all([
       this.store.listTasks(projectId),
       this.store.listStories(projectId),
       this.store.listActiveClaims(projectId),
       principalId === null ? Promise.resolve([]) : this.grantedRoles(this.store, projectId, principalId),
       this.store.listCompletions(projectId),
       filter?.availableFor ? this.store.projects.isArchived(projectId) : Promise.resolve(false),
+      this.store.listConsultationWaits(projectId),
     ]);
+    const waits = new Map(consultationWaits.map((wait) => [wait.task_id, wait]));
     const storyOrders = new Map(stories.map((story) => [story.id, story.sort_order]));
     const activeClaims = new Map(claims.map((claim) => [claim.task_id, claim]));
     const roles = new Set<string>(grantedRoles);
@@ -495,7 +498,7 @@ export class TaskCoordinationService {
 
     const isAvailable = (task: (typeof tasks)[number]) => {
       // archivedのProjectでは新しいClaimを取得できないため、どの工程の候補も返さない。
-      if (filter?.availableFor && archived) return false;
+      if (filter?.availableFor && (archived || waits.has(task.id))) return false;
       const claim = activeClaims.get(task.id);
       const hasUnexpiredClaim = claim !== undefined && claim.expires_at > now;
       switch (filter?.availableFor) {
@@ -549,6 +552,12 @@ export class TaskCoordinationService {
         updatedAt: task.updated_at,
         sortOrder: task.sort_order,
         taskKey: task.task_key,
+        requirementVersion: taskRequirementVersion(task, stories.find((story) => story.id === task.story_id) ?? null),
+        consultationWait: waits.has(task.id) ? {
+          state: waits.get(task.id)!.state, phase: waits.get(task.id)!.phase,
+          consultations: JSON.parse(waits.get(task.id)!.consultations) as ConsultationWaitReference[],
+          failureReason: waits.get(task.id)!.failure_reason,
+        } : null,
         activeClaim: unexpiredClaim
           ? {
               claimId: unexpiredClaim.id,
@@ -556,7 +565,7 @@ export class TaskCoordinationService {
               expiresAt: unexpiredClaim.expires_at,
             }
           : null,
-        reclaimable: task.status === TaskStatus.DOING && claim !== undefined && claim.expires_at <= now,
+        reclaimable: !waits.has(task.id) && task.status === TaskStatus.DOING && claim !== undefined && claim.expires_at <= now,
       };
     });
 
@@ -586,6 +595,7 @@ export class TaskCoordinationService {
         const task = await this.getTask(store, taskId);
         await this.requireRole(store, task.project_id, principalId, WorkRole.WORKER);
         await this.assertProjectActive(store, task.project_id);
+        await this.assertNotConsultationWaiting(store, taskId);
         const currentClaim = await this.getActiveClaim(store, taskId);
         let reclaimingExpiredWork = false;
         if (currentClaim) {
@@ -653,6 +663,7 @@ export class TaskCoordinationService {
         const task = await this.getTask(store, taskId);
         await this.requireRole(store, task.project_id, principalId, WorkRole.REVIEWER);
         await this.assertProjectActive(store, task.project_id);
+        await this.assertNotConsultationWaiting(store, taskId);
         const currentClaim = await this.getActiveClaim(store, taskId);
         if (currentClaim) {
           if (currentClaim.expires_at > now) {
@@ -700,6 +711,7 @@ export class TaskCoordinationService {
       await this.requireRole(store, task.project_id, principalId, WorkRole.MANAGER);
     }
     await this.assertProjectActive(store, task.project_id);
+    await this.assertNotConsultationWaiting(store, taskId);
     const currentClaim = await this.getActiveClaim(store, taskId);
     if (currentClaim) {
       if (currentClaim.expires_at > now) {
@@ -778,6 +790,144 @@ export class TaskCoordinationService {
     return claim;
   }
 
+  private async assertNotConsultationWaiting(store: WorkStore, taskId: string) {
+    if (await store.findConsultationWait(taskId)) {
+      throw new CoordinationError("TASK_NOT_CLAIMABLE", `Task ${taskId} is reserved for Consultation resumption`);
+    }
+  }
+
+  /** 保存済みRuntime情報と待機関係を確定した後、statusを保持してClaimだけを解放する。 */
+  async waitForConsultations(principalId: string, raw: unknown, requestId: string) {
+    const parsed = waitForConsultationsSchema.safeParse(raw);
+    if (!parsed.success) throw new CoordinationError("INVALID_INPUT", parsed.error.message);
+    const input = parsed.data;
+    return this.store.transaction((store) => this.withReceipt(store, principalId, "wait_for_consultation", requestId, input, async () => {
+      const task = await this.getTask(store, input.taskId);
+      await this.assertCurrentClaim(store, principalId, task.id, input.claimId);
+      await this.assertProjectActive(store, task.project_id);
+      const phase = task.status === "doing" ? "work" : task.status === "in_review" ? "review" : task.status === "wait_accept" ? "acceptance" : null;
+      if (!phase) throw new CoordinationError("INVALID_TASK_STATUS", "Only an executing Task can wait");
+      const role = phase === "work" ? "worker" : phase === "review" ? "reviewer" : "manager";
+      await this.requireRole(store, task.project_id, principalId, role);
+      const refs: ConsultationWaitReference[] = [];
+      for (const id of new Set(input.consultationIds)) {
+        const consultation = await store.consultations.find(task.project_id, id);
+        if (!consultation || consultation.status === "resolved" || consultation.status === "canceled") {
+          throw new CoordinationError("INVALID_INPUT", "An open Consultation in the Task Project is required");
+        }
+        refs.push({ id, revision: consultation.revision, resolutionId: null });
+      }
+      const now = this.clock();
+      const story = task.story_id ? await store.findStory(task.story_id) : null;
+      await store.saveConsultationWait({ task_id: task.id, project_id: task.project_id, principal_id: principalId,
+        role, phase, consultations: JSON.stringify(refs), requirement_version: taskRequirementVersion(task, story),
+        runtime: JSON.stringify(input.runtime), state: "waiting", failure_reason: null, created_at: now, updated_at: now });
+      await store.updateClaim(input.claimId, { state: "released", released_at: now, release_reason: "consultation_wait" });
+      await this.appendChange(store, { projectId: task.project_id, type: "TASK_CONSULTATION_WAITING", entityId: task.id,
+        principalId, claimId: input.claimId, payload: { actorRole: role, phase, consultationIds: refs.map((ref) => ref.id), reason: input.reason }, occurredAt: now });
+      return { taskId: task.id, status: task.status, state: "waiting" as const, phase };
+    }));
+  }
+
+  /** 現在の相談を全件読む。解決・取消のimmutableな版と要件版を照合し、途中停止後も同じ状態へ収束する。 */
+  async reconcileConsultationWaits(principalId: string, projectId: string) {
+    return this.store.transaction(async (store) => {
+      await this.requireAnyRole(store, projectId, principalId);
+      const results = [];
+      for (const wait of await store.listConsultationWaits(projectId)) {
+        if (wait.principal_id !== principalId || (this.activeRole !== null && wait.role !== this.activeRole)) continue;
+        const task = await this.getTask(store, wait.task_id);
+        const story = task.story_id ? await store.findStory(task.story_id) : null;
+        const refs = JSON.parse(wait.consultations) as ConsultationWaitReference[];
+        let reason: string | null = null;
+        for (const ref of refs) {
+          const current = await store.consultations.find(projectId, ref.id);
+          if (!current) { reason = "Consultation not found"; break; }
+          if (current.status === "resolved" && current.resolutionId) {
+            ref.revision = current.revision; ref.resolutionId = current.resolutionId;
+          } else if (current.status !== "canceled" || !ref.confirmedCancellation || ref.revision !== current.revision) {
+            reason = current.status === "canceled" ? "Manager must confirm cancellation and continuation" : `Consultation is ${current.status}`;
+          }
+        }
+        if (taskRequirementVersion(task, story) !== wait.requirement_version) reason = "Requirements changed; Manager must confirm continuation";
+        const claim = await store.findActiveClaim(task.id);
+        const state = claim && claim.expires_at > this.clock() ? "resuming" : reason ? "waiting" : "ready";
+        const updated = { ...wait, consultations: JSON.stringify(refs), state, failure_reason: reason, updated_at: this.clock() } as const;
+        await store.saveConsultationWait(updated);
+        results.push({ taskId: task.id, phase: wait.phase, state, failureReason: reason,
+          runtime: JSON.parse(wait.runtime) as import("zod").infer<typeof consultationRuntimeSchema>,
+          requirementVersion: wait.requirement_version, consultations: refs });
+      }
+      return { resumptions: results };
+    });
+  }
+
+  /** 取消・要件変更を自動判断せずManagerが現在状態の継続方針を確認する。 */
+  async confirmConsultationContinuation(principalId: string, taskId: string, expectedRequirementVersion: string,
+    consultationRevisions: { id: string; revision: number }[], reason: string, requestId: string) {
+    return this.store.transaction((store) => this.withReceipt(store, principalId, "confirm_consultation_continuation", requestId,
+      { taskId, expectedRequirementVersion, consultationRevisions, reason }, async () => {
+        const task = await this.getTask(store, taskId);
+        await this.requireRole(store, task.project_id, principalId, "manager");
+        await this.assertProjectActive(store, task.project_id);
+        if (!reason.trim()) throw new CoordinationError("INVALID_INPUT", "Continuation reason is required");
+        const wait = await store.findConsultationWait(taskId);
+        if (!wait) throw new CoordinationError("INVALID_TASK_STATUS", "Task is not waiting");
+        const version = taskRequirementVersion(task, task.story_id ? await store.findStory(task.story_id) : null);
+        if (version !== expectedRequirementVersion) throw new CoordinationError("IDEMPOTENCY_CONFLICT", "Requirements changed; read current Task again");
+        const refs = JSON.parse(wait.consultations) as ConsultationWaitReference[];
+        for (const ref of refs) {
+          const current = await store.consultations.find(task.project_id, ref.id);
+          if (!current || !consultationRevisions.some((value) => value.id === ref.id && value.revision === current.revision)) {
+            throw new CoordinationError("IDEMPOTENCY_CONFLICT", "Every current Consultation revision must be confirmed");
+          }
+          ref.revision = current.revision;
+          if (current.status === "canceled") ref.confirmedCancellation = reason.trim();
+        }
+        await store.saveConsultationWait({ ...wait, requirement_version: version, consultations: JSON.stringify(refs), state: "waiting", failure_reason: null, updated_at: this.clock() });
+        return { taskId, requirementVersion: version };
+      }));
+  }
+
+  /** 同じPrincipal/Roleだけが保存済み成果物を照合して元段階のClaimを再取得できる。 */
+  async resumeConsultationTask(principalId: string, taskId: string, rawRuntime: unknown, requestId: string) {
+    const parsed = consultationRuntimeSchema.safeParse(rawRuntime);
+    if (!parsed.success) throw new CoordinationError("INVALID_INPUT", parsed.error.message);
+    // 再開前の再照合とClaim取得はそれぞれ現在状態を読み、取得transactionでも全件を確認する。
+    return this.store.transaction((store) => this.withReceipt(store, principalId, "resume_consultation_task", requestId,
+      { taskId, runtime: parsed.data }, async () => {
+        const task = await this.getTask(store, taskId);
+        const wait = await store.findConsultationWait(taskId);
+        if (!wait || wait.principal_id !== principalId) throw new CoordinationError("CLAIM_NOT_OWNED", "No saved resumption belongs to this Principal");
+        await this.requireRole(store, task.project_id, principalId, wait.role);
+        await this.assertProjectActive(store, task.project_id);
+        if (taskRequirementVersion(task, task.story_id ? await store.findStory(task.story_id) : null) !== wait.requirement_version) {
+          throw new CoordinationError("INVALID_TASK_STATUS", "Requirements changed; Manager confirmation is required");
+        }
+        if (JSON.stringify(parsed.data) !== JSON.stringify(consultationRuntimeSchema.parse(JSON.parse(wait.runtime)))) {
+          throw new CoordinationError("INVALID_INPUT", "Worktree, Context, PR, HEAD or source fingerprint changed; preserve and reassess artifacts");
+        }
+        const refs = JSON.parse(wait.consultations) as ConsultationWaitReference[];
+        for (const ref of refs) {
+          const current = await store.consultations.find(task.project_id, ref.id);
+          if (!current || (current.status !== "resolved" && !(current.status === "canceled" && ref.confirmedCancellation && ref.revision === current.revision))) {
+            throw new CoordinationError("TASK_NOT_CLAIMABLE", "Every Consultation must be resolved or its cancellation confirmed");
+          }
+          if (current.status === "resolved") { ref.revision = current.revision; ref.resolutionId = current.resolutionId; }
+        }
+        const now = this.clock();
+        const currentClaim = await store.findActiveClaim(taskId);
+        if (currentClaim && currentClaim.expires_at > now) throw new CoordinationError("CLAIM_CONFLICT", "Resumption already has a live Claim");
+        if (currentClaim) await this.expireClaim(store, currentClaim, task.project_id, principalId, wait.role, now);
+        const claim = await this.insertClaim(store, taskId, principalId, now);
+        await store.saveConsultationWait({ ...wait, consultations: JSON.stringify(refs), state: "resuming", failure_reason: null, updated_at: now });
+        await this.appendChange(store, { projectId: task.project_id, type: "TASK_CONSULTATION_RESUMING", entityId: taskId,
+          principalId, claimId: claim.id, payload: { actorRole: wait.role, phase: wait.phase }, occurredAt: now });
+        return { ...this.claimResult(claim, task.status), projectId: task.project_id, phase: wait.phase, runtime: parsed.data,
+          consultations: refs, task: { title: task.title, description: task.description }, requiredNextTool: "get_consultation" };
+      }));
+  }
+
   async renewClaim(principalId: string, claimId: string) {
     return this.store.transaction(async (store) => {
       const claim = await store.findClaim(claimId);
@@ -823,6 +973,7 @@ export class TaskCoordinationService {
               updated_at: now,
             });
         }
+        await store.deleteConsultationWait(task.id);
         await store.updateClaim(claimId, { state: "released", released_at: now, release_reason: trimmedReason });
         await this.appendChange(store, {
           projectId: task.project_id,
@@ -920,6 +1071,7 @@ export class TaskCoordinationService {
             resume_source_status: null,
             updated_at: now,
           });
+        await store.deleteConsultationWait(taskId);
         await store.updateClaim(claim.id, { state: "completed", released_at: now, release_reason: "task_completed" });
         await this.appendChange(store, {
           projectId: task.project_id,
@@ -946,6 +1098,7 @@ export class TaskCoordinationService {
         }
         const now = this.clock();
         await store.updateTask(taskId, { status: TaskStatus.WAIT_ACCEPT, updated_at: now });
+        await store.deleteConsultationWait(taskId);
         await store.updateClaim(claimId, { state: "completed", released_at: now, release_reason: "task_reviewed" });
         await this.appendChange(store, {
           projectId: task.project_id,
@@ -1004,6 +1157,7 @@ export class TaskCoordinationService {
         resume_source_status: null,
         updated_at: now,
       });
+    await store.deleteConsultationWait(taskId);
     await store.updateClaim(claimId, { state: "completed", released_at: now, release_reason: "task_accepted" });
     await this.appendChange(store, {
       projectId: task.project_id,
@@ -1094,6 +1248,7 @@ export class TaskCoordinationService {
         resume_source_status: null,
         updated_at: now,
       });
+    await store.deleteConsultationWait(taskId);
     await store.updateClaim(claimId, { state: "completed", released_at: now, release_reason: "task_rejected" });
     await this.appendChange(store, {
       projectId: task.project_id,
@@ -1127,6 +1282,7 @@ export class TaskCoordinationService {
     if (claim) {
       await store.updateClaim(claim.id, { state: "released", released_at: now, release_reason: "task_canceled" });
     }
+    await store.deleteConsultationWait(taskId);
     await store.updateTask(taskId, {
         status: TaskStatus.CANCELED,
         assignee: null,

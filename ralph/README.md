@@ -9,7 +9,7 @@ Compass の Work（Story / Task）の現在状態を監視し、Claude Code ま�
 - 起動された Agent: `get_role_context` で Role Context を取得し、その指示に従って Task を処理し、Task Comment と状態遷移で結果を Compass へ返す
 - Agent provider（`providers/`）: Claude Code・Codex 固有の起動処理
 
-Ralph は Role の手順・Skill 本文を持ちません。`prompts/` は対象 Project と Role Context の取得を指示するだけの起動指示です。Role 本文は repo の `roles/` を正本として MCP から取得されます。Story への分解や最終受入（manager）は Ralph の対象外です。
+Ralph は Role の手順・Skill 本文を持ちません。`prompts/` は対象 Project と Role Context の取得を指示するだけの起動指示です。Role 本文は repo の `roles/` を正本として MCP から取得されます。Storyへの分解はOrchestratorが起動するManagerの責務です。受入段階の保存済み実行は任意の`manager`設定で再開できます。
 
 ## Principal と Credential
 
@@ -96,3 +96,19 @@ Orchestrator と接続した Workspace 境界の E2E（`orchestrator/tests/integ
 - 実 Agent（Claude Code・Codex）が Compass の Task を処理するループは未検証。実 CLI については、`--mcp-config` の `${COMPASS_RALPH_TOKEN}` 展開（Claude Code）と `bearer_token_env_var`・`http_headers`（Codex）で Authorization・`X-Compass-Active-Role` が送られることだけを手動で確認した
 - 同じ Project を複数の Ralph で監視した場合の Agent の重複起動は抑止しない（Task の排他は Server の Claim が保証する）
 - remote mode の Server と Agent Credential での接続は自動テストの対象外
+
+## 相談待ちと保存済み実行の再開
+
+現在Claimの担当が`consultation-task-resumption` Skillに従い、未commit/未追跡成果物と前回Contextを先に保存して`wait_for_consultation`を呼ぶと、Taskのstatusと段階を保持してClaimだけが解放されます。会話・結論はCompass Serverが所有し、Workは参照と待機情報だけを保存します。稼働中のagent-foundation版Ralph・Wachaの開発Task保留とは別の、Compass製品の契約です。
+
+Ralphは`list_consultation_resumptions`をpollingし、同じ`projectRoot`の`ready`実行を優先します。`runtime/consultation-context.mjs`が保存済みContext・HEAD・未commit差分・未追跡成果物を検査し、`resume_consultation_task`で元段階のClaimを取得してAgentへ渡します。手動`ralph resume`は不要です。通常Taskは引き続きAgentが選択・Claimします。Serverが保存した絶対pathと同じ`projectRoot`を指定し、移動・削除せず保持してください。
+
+```sh
+node /path/to/compass/ralph/runtime/consultation-context.mjs /path/to/runtime.json
+```
+
+`runtime.json`には`worktreePath`・`contextPath`・`pullRequest`（null可）・`verificationRefs`を指定します。出力された`runtime`を待機操作に使います。Context保存後に計算し、待機中はその成果物を変更しません。照合失敗では成果物を破棄せず失敗理由を記録します。再開Agentは全相談の結論・現在要件・PR/SHAを読み、旧blocked結果や古い検証を再送しません。Claim再取得の応答が消失した場合は期限まで再起動せず、次のpollingで再照合します。
+
+同じworktreeのRunnerは`runtime/worktree-lock.py`のOS lockで排他化します。Runner停止後も旧Agentへ継承したfdがlockを保持し、旧Agentが終了するまで新Runnerを拒否します。adapterから同じworktreeを起動する場合もこのlock契約を使います。別Task/Role全体をpauseする仕組みはありません。Python 3（POSIXの`fcntl`）・Node.js・gitを使用します。
+
+受入段階の相談再開には、任意の`roles.manager`設定（`tokenEnv`・provider・command）と`ralph run manager --config <path>`を使います。Manager自身のPrincipal/Project Credentialで元の`acceptance` Claimを取得し、Role Contextに従って判断します。`auto`の通常順は従来どおりReviewer→Workerで、Managerを自動的に追加しません。

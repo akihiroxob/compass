@@ -1,5 +1,6 @@
 ---
 skills:
+  - consultation-task-resumption
   - decompose-story
   - accept-task
   - design-review
@@ -174,3 +175,7 @@ reason には期待との差分と、再受入に必要な条件を書く。
 - Task 操作権が不要なら Claim を保持し続けない
 - 再接続後は `list_changes` と Task Comment から作業状態を復元する
 - `afterCursor` は Console または外部オーケストレーター側で保持する
+
+## 相談待ちと再開
+
+Projectの要件・設計について既存方針だけでは判断できない場合は、`consultation-task-resumption` Skillを取得する。継続不能なTaskだけを現在Claimのもとで待機させる。他Task/Role全体をpauseしない。再開ContextにClaimが渡されている場合はClaimし直さず、現在の結論・要件・成果版を読み直して元段階の判断を行う。旧blocked結果や旧SHAの検証結果をそのまま返さない。

@@ -40,6 +40,8 @@ export type ExecutionTask = {
   /** 期限内のClaimだけ。期限切れのClaimは`null`で、`reclaimable`が立つ。 */
   activeClaim: { claimId: string; principalId: string; expiresAt: number } | null;
   reclaimable: boolean;
+  consultationWait?: { state: "waiting" | "ready" | "resuming"; phase: "work" | "review" | "acceptance";
+    consultations: { id: string; revision: number; resolutionId: string | null }[]; failureReason: string | null } | null;
 };
 
 export type ExecutionChange = {
@@ -105,6 +107,8 @@ export const changeTypeLabels: Record<string, string> = {
   STORY_EDITED: "Story編集",
   TASK_CREATED: "Task作成",
   TASK_CLAIMED: "Claim取得",
+  TASK_CONSULTATION_WAITING: "相談待ち",
+  TASK_CONSULTATION_RESUMING: "相談から再開",
   TASK_COMPLETED: "作業完了",
   TASK_REVIEWED: "レビュー承認",
   TASK_ACCEPTED: "受入",

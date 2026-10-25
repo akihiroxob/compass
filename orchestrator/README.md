@@ -31,7 +31,7 @@ Server の `get_workspace_orchestration_state` の応答に対して次の規則
 
 - 同じ `stateDir` で動く Orchestrator は1つだけ（`orchestrator.lock`）。2つ目は起動を拒否して終了する。停止したプロセスの lock は引き継ぐ
 - 実行中（lease 内で、Orchestrator または起動した Agent のプロセスが生存）の key は起動しない。Orchestrator を再起動しても、動き続けている Agent を重複起動しない
-- 成功（exit 0）した key は同じ状態で再起動しない。Agent が状態を変えずに終えた場合も同じ
+- 成功（exit 0）したkeyは同じ状態で再起動しない。ただしProject相談は、同じ入力版が未処理なら応答失敗として再試行する
 - 失敗（exit 0 以外・timeout）は `retryBackoffMs × 2^(試行回数-1)` 待って `maxAttempts` まで再試行し、上限後は同じ状態で起動しない
 - lease（`leaseMs`）を過ぎた Agent は process group ごと SIGTERM で停止させ、`terminateGraceMs` 後も残れば SIGKILL する。停止を確認してから失敗した試行として扱う
 - Orchestrator が停止（SIGKILL 等）して Agent だけが残った場合も、lease を過ぎた後の周回で旧 Agent の停止を求め（猶予後は SIGKILL）、停止を確認するまで同じ key を起動しない。Orchestrator と Agent がともに停止した実行中の記録は、次の起動時に失敗した試行として回収する
@@ -145,3 +145,25 @@ npm run typecheck --workspace orchestrator
 - 複数ホストでの並行実行の重複抑止はない（`stateDir` を共有する1台を前提とする）
 - 旧 Agent の生存は記録した PID の process group で判定する。Orchestrator の停止中に旧 Agent が終わり、同じ PID が別の process group leader に再利用された場合は、その group を旧 Agent とみなして停止し得る
 - Windows では process group と開始合図を使わず、shell 経由で起動した孫プロセスの停止・生存確認と、PID 記録前に停止した場合の重複抑止は保証しない
+
+## Project相談へのManager応答
+
+Project相談はWorkspace Direction dispatch・Intent・Outcomeから独立して設定できます。
+
+```json
+{
+  "serverUrl": "http://localhost:51800",
+  "consultationProjects": [{
+    "projectId": "<Project ID>",
+    "tokenEnv": "PROJECT_RUNTIME_TOKEN",
+    "agentEnv": { "MANAGER_MCP_CONFIG": "/path/to/project-manager-config.json" }
+  }],
+  "roles": { "manager": { "command": "<Manager Agent command>" } }
+}
+```
+
+`PROJECT_RUNTIME_TOKEN`は対象ProjectのRuntime Credential（`runtime:state:read`）。起動されるManagerへは渡さず、Manager自身のProject Agent Credentialを`agentEnv`のMCP設定で渡します。既存の`workspaces[].projects[]`へ`tokenEnv`を加える構成も利用できます。同じProjectを両方へ登録しないでください。
+
+`get_project_consultation_state`は未処理の相談ID・入力版だけを返し、`<workspaceId>:<projectId>:manager:consultation:<id>:<inputRevision>`をkeyに起動します。`COMPASS_INPUT_REVISION`と起動Contextを渡し、応答lease・`expectedRevision`の操作と意味の判断はManagerへ委ねます。Humanが追加返信すれば新しい入力版になります。正常終了しても同じ入力版が未処理なら成功扱いにせず、backoff・試行上限で再試行し、失敗理由をOperational Logとdispatch記録へ残します。上限に達してもServerの未処理入力は消しません。
+
+結論後のTask再開は製品Ralphが所有します。OrchestratorはTaskをtodoへ戻したりClaimを取得したりしません。Workspace scopeの相談dispatchは含みません。
