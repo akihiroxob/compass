@@ -442,7 +442,14 @@ while true; do
   backend_print_status "$role" "$summary"
   if [[ "$mode" != auto ]]; then prepare_role "$role"; fi
   if ! backend_prepare_consultation_resumption "$summary"; then
-    wait_before_retry "${role}の相談再開に失敗しました。成果物・Contextと現在の要件を確認してください。"
+    retry_reason="${role}の相談再開に失敗しました。成果物・Contextと現在の要件を確認してください。"
+    if [[ "$mode" == auto && "$RUN_ONCE" != true ]]; then
+      auto_set_role_retry_at "$role" "$(($(date +%s) + RETRY_INITIAL_SECONDS))"
+      ralph_log_error '%s %d秒間このRoleを待機し、次のRoleを確認します。\n' \
+        "$retry_reason" "$RETRY_INITIAL_SECONDS"
+    else
+      wait_before_retry "$retry_reason"
+    fi
     continue
   fi
   ralph_log '%sを起動します。\n' "$role"

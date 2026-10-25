@@ -107,7 +107,7 @@ Ralphは`list_consultation_resumptions`をpollingし、同じ`projectRoot`の`re
 node /path/to/compass/ralph/runtime/consultation-context.mjs /path/to/runtime.json
 ```
 
-`runtime.json`には`worktreePath`・`contextPath`・`pullRequest`（null可）・`verificationRefs`を指定します。出力された`runtime`を待機操作に使います。Context保存後に計算し、待機中はその成果物を変更しません。照合失敗では成果物を破棄せず、対象Task IDと失敗理由を記録して後続の`ready`候補を照合します。再開できる候補がなくても通常TaskがあればAgentの選択へ進み、全候補が失敗した場合だけ再試行を待ちます。再開Agentは全相談の結論・現在要件・PR/SHAを読み、旧blocked結果や古い検証を再送しません。Claim再取得の応答が消失した場合は期限まで再起動せず、次のpollingで再照合します。
+`runtime.json`には`worktreePath`・`contextPath`・`pullRequest`（null可）・`verificationRefs`を指定します。出力された`runtime`を待機操作に使います。Context保存後に計算し、待機中はその成果物を変更しません。照合失敗では成果物を破棄せず、対象Task IDと失敗理由を記録して後続の`ready`候補を照合します。再開できる候補がなくても通常TaskがあればAgentの選択へ進み、全候補が失敗した場合だけ再試行を待ちます。継続実行の`auto`では失敗したRoleだけを`retry.initialSeconds`待機させ、直ちに別Roleの候補を確認します。単独Roleは従来どおり再試行を待ち、`--once`は再開失敗を終了コード`1`で返します。再開Agentは全相談の結論・現在要件・PR/SHAを読み、旧blocked結果や古い検証を再送しません。Claim再取得の応答が消失した場合は期限まで再起動せず、次のpollingで再照合します。
 
 同じworktreeのRunnerは`runtime/worktree-lock.py`のOS lockで排他化します。Runner停止後も旧Agentへ継承した専用fd（9以上。logging用の3/4とは分離）がlogging/providerを通してlockを保持し、旧Agentが終了するまで新Runnerを拒否します。adapterから同じworktreeを起動する場合もこのlock契約を使います。別Task/Role全体をpauseする仕組みはありません。Python 3（POSIXの`fcntl`）・Node.js・gitを使用します。
 

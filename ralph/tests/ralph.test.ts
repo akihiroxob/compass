@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -62,6 +63,106 @@ const waitFor = async (check: () => boolean | Promise<boolean>, what: string, ti
 };
 
 type AgentLaunch = { pid: number; role: string; action: string; provider: string; authorization: string; prompt: string; visibleTokenEnv: string[] };
+
+// MCPの失敗fixtureと実loop/providerを組み合わせる。実Agent運転の証拠ではない。
+for (const failure of ["missing-context", "stale-artifact"] as const) {
+  test(`autoはReviewerの${failure}で全Roleを止めず、Workerを実行して失敗Taskの成果物を保持する`, { skip: loopbackSkip }, async () => {
+    const directory = await mkdtemp(join(tmpdir(), "compass-ralph-auto-resumption-"));
+    const runtimeDirectory = join(directory, ".compass-ralph");
+    const agentLog = join(runtimeDirectory, "agent.log");
+    const calls: { role: string; name: string; arguments: Record<string, any> }[] = [];
+    let loop: ChildProcess | undefined;
+    let loopExit: ReturnType<typeof exited> | undefined;
+    const server = createHttpServer(async (request, response) => {
+      try {
+        let body = "";
+        for await (const chunk of request) body += chunk;
+        const { id, params } = JSON.parse(body);
+        const role = String(request.headers["x-compass-active-role"]);
+        calls.push({ role, ...params });
+        let structuredContent: Record<string, unknown> = {};
+        let isError = false;
+        switch (params.name) {
+          case "list_tasks":
+            structuredContent = { summary: { byStatus: { todo: 1, in_review: 1 } },
+              tasks: role === "worker" && !existsSync(agentLog) ? [{ id: "normal-worker", status: "todo" }] : [] };
+            break;
+          case "list_consultation_resumptions":
+            structuredContent = { resumptions: role === "reviewer" ? [{ taskId: "broken-reviewer", state: "ready", runtime: {
+              worktreePath: directory,
+              contextPath: join(runtimeDirectory, failure === "missing-context" ? "missing.json" : "context.json"),
+              headSha: execFileSync("git", ["-C", directory, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+              sourceFingerprint: "stale", pullRequest: "https://example.test/pr/1", verificationRefs: ["saved-verification@sha"],
+            } }] : [] };
+            break;
+          case "resume_consultation_task":
+            isError = true;
+            structuredContent = { error: "artifact version mismatch" };
+            break;
+          default:
+            throw new Error(`Unexpected fixture call: ${params.name}`);
+        }
+        response.writeHead(200, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ jsonrpc: "2.0", id, result: { structuredContent, ...(isError ? { isError } : {}) } }));
+      } catch (error) {
+        response.writeHead(500);
+        response.end(String(error));
+      }
+    });
+    try {
+      execFileSync("git", ["init", directory], { stdio: "ignore" });
+      await writeFile(join(directory, "artifact.txt"), "committed artifact");
+      execFileSync("git", ["-C", directory, "add", "artifact.txt"]);
+      execFileSync("git", ["-C", directory, "-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "-m", "fixture"], { stdio: "ignore" });
+      await writeFile(join(directory, "artifact.txt"), "uncommitted artifact");
+      await writeFile(join(directory, "evidence.txt"), "untracked evidence");
+      await mkdir(runtimeDirectory);
+      const context = JSON.stringify({ decision: "blocked", pullRequest: "https://example.test/pr/1", verificationRefs: ["saved-verification@sha"] });
+      await writeFile(join(runtimeDirectory, "context.json"), context);
+      const fakeCommand = join(runtimeDirectory, "fake-agent");
+      await writeFile(fakeCommand, '#!/bin/sh\nprintf "%s\\n" "$COMPASS_RALPH_TOKEN" >>"$TEST_AGENT_LOG"\n');
+      await chmod(fakeCommand, 0o755);
+      await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+      const port = (server.address() as { port: number }).port;
+      const configPath = join(runtimeDirectory, "ralph.json");
+      await writeFile(configPath, JSON.stringify({ serverUrl: `http://127.0.0.1:${port}`, projectId: "fixture-project", projectRoot: directory,
+        pollIntervalSeconds: 1, retry: { initialSeconds: 60 }, roles: {
+          worker: { tokenEnv: "WORKER_TOKEN", agentProvider: "claude", command: fakeCommand },
+          reviewer: { tokenEnv: "REVIEWER_TOKEN", agentProvider: "codex", command: fakeCommand },
+        } }));
+      loop = spawn(ralph, ["run", "auto", "--config", configPath], { cwd: directory,
+        env: isolatedEnv({ WORKER_TOKEN: "worker-1", REVIEWER_TOKEN: "reviewer-1", TEST_AGENT_LOG: agentLog }), stdio: ["ignore", "pipe", "pipe"] });
+      loopExit = exited(loop);
+      await waitFor(() => existsSync(agentLog), "Worker execution despite broken Reviewer resumption", 10_000);
+      loop.kill("SIGTERM");
+      const result = await loopExit;
+      assert.equal(result.code, 143, result.stderr);
+      assert.equal(readFileSync(agentLog, "utf8"), "worker-1\n");
+      assert.match(result.stderr, /broken-reviewer/);
+      assert.match(result.stderr, /reviewerの相談再開に失敗.*60秒間このRoleを待機/);
+      assert.match(result.stderr, failure === "missing-context" ? /Saved Context is missing/ : /artifact version mismatch/);
+      // 待機中のRoleも状態取得するが、再開処理は再試行時刻まで繰り返さない。
+      assert.equal((result.stderr.match(/Task broken-reviewerの相談再開に失敗/g) ?? []).length, 1);
+      assert.ok(calls.some((call) => call.role === "worker" && call.name === "list_tasks"));
+      const resumeCalls = calls.filter((call) => call.name === "resume_consultation_task");
+      assert.equal(resumeCalls.length, failure === "missing-context" ? 0 : 1);
+      if (failure === "stale-artifact") {
+        assert.equal(resumeCalls[0]!.arguments.taskId, "broken-reviewer");
+        assert.notEqual(resumeCalls[0]!.arguments.runtime.sourceFingerprint, "stale");
+      }
+      assert.equal(readFileSync(join(directory, "artifact.txt"), "utf8"), "uncommitted artifact");
+      assert.equal(readFileSync(join(directory, "evidence.txt"), "utf8"), "untracked evidence");
+      assert.equal(readFileSync(join(runtimeDirectory, "context.json"), "utf8"), context);
+      assert.equal(existsSync(join(runtimeDirectory, "missing.json")), false);
+    } finally {
+      loop?.kill("SIGTERM");
+      if (loopExit) await loopExit;
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+}
 
 const setup = async (options: { claimTtlMs?: number } = {}) => {
   const directory = await mkdtemp(join(tmpdir(), "compass-ralph-it-"));
