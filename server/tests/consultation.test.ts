@@ -439,3 +439,40 @@ test("Message・結論は同じschemaでの再起動後も保持される", asyn
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("MCP相談待ち→Human返信→Manager結論→元WorkerのClaim再取得を公開入口で接続する", async () => {
+  const kit = await open();
+  try {
+    const { project, as } = await seed(kit);
+    const task = ok(await callTool(kit.app, "issue_task", { projectId: project.id, title: "相談して続ける", requestId: next("task") }, "worker-a", "worker"));
+    const claimed = ok(await callTool(kit.app, "claim_task", { taskId: task.id, requestId: next("claim") }, "worker-a", "worker"));
+    const created = ok(await create(kit, project.id, "worker-a", { refs: [{ kind: "task", id: task.id }] }));
+    const id = created.consultation.id;
+    const runtime = { worktreePath: "/tmp/saved-worktree", contextPath: "/tmp/saved-context.json", headSha: "a".repeat(40), sourceFingerprint: "dirty-worktree-and-context", pullRequest: null, verificationRefs: ["test-log"] };
+    const waited = ok(await callTool(kit.app, "wait_for_consultation", { taskId: task.id, claimId: claimed.claimId, consultationIds: [id], reason: "仕様の判断が必要", runtime, requestId: next("wait") }, "worker-a", "worker"));
+    assert.equal(waited.status, "doing");
+    assert.equal(failure(await callTool(kit.app, "claim_task", { taskId: task.id, requestId: next("steal") }, "worker-a", "worker")).code, "TASK_NOT_CLAIMABLE");
+    const detail = await json(await as("viewer")(`/api/projects/${project.id}/tasks/${task.id}`));
+    assert.equal(detail.task.consultationWait.state, "waiting");
+    assert.equal(detail.task.reclaimable, false);
+    assert.equal(detail.task.consultationWait.consultations[0].id, id);
+    const reply = await json(await as("editor")(`/api/projects/${project.id}/consultations/${id}/messages`, post({ body: "案Aで実装してください", requestId: next("reply") })));
+    const pending = ok(await callTool(kit.app, "list_consultation_resumptions", { projectId: project.id }, "worker-a", "worker"));
+    assert.equal(pending.resumptions[0].state, "waiting");
+    const leased = ok(await callTool(kit.app, "acquire_consultation_lease", { projectId: project.id, consultationId: id, inputRevision: reply.consultation.revision, requestId: next("lease") }, "manager-a", "manager"));
+    ok(await callTool(kit.app, "resolve_consultation", { projectId: project.id, consultationId: id, leaseId: leased.lease.id, expectedRevision: reply.consultation.revision,
+      conclusion: "案Aで進める", rationale: "Humanの明確な回答に従う", basisMessageIds: [reply.message.id], requestId: next("resolve") }, "manager-a", "manager"));
+    const ready = ok(await callTool(kit.app, "list_consultation_resumptions", { projectId: project.id }, "worker-a", "worker"));
+    assert.equal(ready.resumptions[0].state, "ready");
+    assert.ok(ready.resumptions[0].consultations[0].resolutionId);
+    assert.equal(ok(await callTool(kit.app, "list_consultation_resumptions", { projectId: project.id }, "reviewer-a", "reviewer")).resumptions.length, 0);
+    const resumed = ok(await callTool(kit.app, "resume_consultation_task", { taskId: task.id, runtime, requestId: next("resume") }, "worker-a", "worker"));
+    assert.equal(resumed.phase, "work");
+    assert.equal(resumed.taskStatus, "doing");
+    assert.notEqual(resumed.claimId, claimed.claimId);
+    assert.equal(resumed.task.title, "相談して続ける");
+    assert.equal(failure(await callTool(kit.app, "renew_claim", { claimId: claimed.claimId }, "worker-a", "worker")).code, "CLAIM_EXPIRED");
+    // Runtime読取はAgent Credentialとは分離。Roleを足してもRuntimeに昇格しない。
+    assert.equal(failure(await callTool(kit.app, "get_project_consultation_state", { projectId: project.id }, "worker-a", "worker")).code, "FORBIDDEN");
+  } finally { await kit.database.destroy(); }
+});

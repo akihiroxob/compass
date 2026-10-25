@@ -4,7 +4,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-使い方: ralph-loop [--config PATH] [--once] <auto|worker|reviewer>
+使い方: ralph-loop [--config PATH] [--once] <auto|worker|reviewer|manager>
 EOF
   exit 1
 }
@@ -102,7 +102,7 @@ while [[ $# -gt 0 ]]; do
       RUN_ONCE=true
       shift
       ;;
-    auto | worker | reviewer)
+    auto | worker | reviewer | manager)
       [[ -z "$mode" ]] || usage
       mode="$1"
       shift
@@ -159,6 +159,13 @@ fi
   exit 1
 }
 PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
+require_command python3
+if [[ "${COMPASS_RALPH_WORKTREE_LOCKED:-}" != "$PROJECT_ROOT" ]]; then
+  export COMPASS_RALPH_WORKTREE_LOCKED="$PROJECT_ROOT"
+  lock_args=(--config "$CONFIG_PATH")
+  [[ "$RUN_ONCE" != true ]] || lock_args+=(--once)
+  exec python3 "$RALPH_ROOT/runtime/worktree-lock.py" "$PROJECT_ROOT/.compass-ralph/worktree.lock" "$SCRIPT_DIR/ralph-loop" "${lock_args[@]}" "$mode"
+fi
 
 if ! COMPASS_PROJECT_ID="$(config_string '.projectId')"; then
   ralph_log_error 'projectIdを設定してください: %s\n' "$CONFIG_PATH"
@@ -179,13 +186,14 @@ export RALPH_CONFIG_PATH="$CONFIG_PATH"
 # 読み込んだ後はRalphの環境変数から消す。起動するAgentへは、そのRoleのtokenだけをCOMPASS_RALPH_TOKENで渡す。
 RALPH_WORKER_TOKEN=""
 RALPH_REVIEWER_TOKEN=""
+RALPH_MANAGER_TOKEN=""
 load_role_tokens() {
   local candidate token_env token
   local -a token_envs=()
-  for candidate in worker reviewer; do
+  for candidate in worker reviewer manager; do
     token_env="$(config_optional_string ".roles.${candidate}.tokenEnv")"
     if [[ -z "$token_env" ]]; then
-      if [[ "$mode" == auto || "$mode" == "$candidate" ]]; then
+      if [[ ("$mode" == auto && "$candidate" != manager) || "$mode" == "$candidate" ]]; then
         ralph_log_error 'roles.%s.tokenEnvを設定してください: %s\n' "$candidate" "$CONFIG_PATH"
         exit 1
       fi
@@ -196,13 +204,14 @@ load_role_tokens() {
       exit 1
     }
     token="$(printenv "$token_env" || true)"
-    if [[ -z "$token" && ("$mode" == auto || "$mode" == "$candidate") ]]; then
+    if [[ -z "$token" && (("$mode" == auto && "$candidate" != manager) || "$mode" == "$candidate") ]]; then
       ralph_log_error '%sのCredentialを環境変数%sに設定してください。\n' "$candidate" "$token_env"
       exit 1
     fi
     case "$candidate" in
       worker) RALPH_WORKER_TOKEN="$token" ;;
       reviewer) RALPH_REVIEWER_TOKEN="$token" ;;
+      manager) RALPH_MANAGER_TOKEN="$token" ;;
     esac
     token_envs+=("$token_env")
   done
@@ -253,6 +262,7 @@ set_role_identity() {
   case "$1" in
     worker) RALPH_ROLE_TOKEN="$RALPH_WORKER_TOKEN" ;;
     reviewer) RALPH_ROLE_TOKEN="$RALPH_REVIEWER_TOKEN" ;;
+    manager) RALPH_ROLE_TOKEN="$RALPH_MANAGER_TOKEN" ;;
   esac
   RALPH_ACTIVE_ROLE="$1"
   backend_set_identity
@@ -430,9 +440,21 @@ while true; do
     prepare_role "$role" "$priority_status"
   fi
   backend_print_status "$role" "$summary"
+  if [[ "$mode" != auto ]]; then prepare_role "$role"; fi
+  if ! backend_prepare_consultation_resumption "$summary"; then
+    retry_reason="${role}の相談再開に失敗しました。成果物・Contextと現在の要件を確認してください。"
+    if [[ "$mode" == auto && "$RUN_ONCE" != true ]]; then
+      auto_set_role_retry_at "$role" "$(($(date +%s) + RETRY_INITIAL_SECONDS))"
+      ralph_log_error '%s %d秒間このRoleを待機し、次のRoleを確認します。\n' \
+        "$retry_reason" "$RETRY_INITIAL_SECONDS"
+    else
+      wait_before_retry "$retry_reason"
+    fi
+    continue
+  fi
   ralph_log '%sを起動します。\n' "$role"
   # Agentの実行中にSIGTERMを受けた場合は、Agentの終了を待ってから次を起動せずに終了する。
-  if provider_run "$rendered_prompt" "$PROJECT_ROOT"; then
+  if provider_run "$rendered_prompt" "$RALPH_EXECUTION_ROOT"; then
     provider_status=0
   else
     provider_status=$?

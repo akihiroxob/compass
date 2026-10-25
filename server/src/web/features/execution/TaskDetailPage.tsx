@@ -4,7 +4,7 @@ import { ApiError, classifyError, describeActionFailure, jsonPost, loadFailureMe
 import { ReasonPanel, useReasonAction, type ReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading, StateCard } from "../../components/StateCard";
 import { Button, Field, LinkButton, TextArea } from "../../components/ui";
-import { projectViewPath, taskEditPath } from "../../paths";
+import { consultationPath, projectViewPath, taskEditPath } from "../../paths";
 import { useProjectOperation, useProjectOperationState } from "../access";
 import { membersPath, type Member } from "../member";
 import { TaskOutcomeSection } from "./TaskOutcomeSection";
@@ -318,6 +318,18 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
               <dd>{formatTime(task.createdAt)}</dd>
             </dl>
           </section>
+          {task.consultationWait && (
+            <section className="detail-section" aria-labelledby="consultation-wait-heading">
+              <h2 id="consultation-wait-heading">相談待ち・再開</h2>
+              <p><span className={statusBadgeClass(task.consultationWait.state === "resuming" ? "progress" : "waiting")}>
+                {{ waiting: "相談の結論待ち", ready: "再開待ち", resuming: "再開中" }[task.consultationWait.state]}
+              </span> — {{ work: "作業", review: "レビュー", acceptance: "受入" }[task.consultationWait.phase]}の段階を保持しています</p>
+              <ul>{task.consultationWait.consultations.map((ref) => (
+                <li key={ref.id}><Link to={consultationPath(projectId, ref.id)}>相談 {ref.id.slice(0, 8)}</Link>（版 {ref.revision}）</li>
+              ))}</ul>
+              {task.consultationWait.failureReason && <p role="status" className="pre-wrap">{task.consultationWait.failureReason}</p>}
+            </section>
+          )}
           {task.rejectReason && (
             <section className="detail-section" aria-labelledby="reject-heading">
               <h2 id="reject-heading">差戻し理由</h2>

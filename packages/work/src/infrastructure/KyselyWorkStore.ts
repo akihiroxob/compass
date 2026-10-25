@@ -1,3 +1,4 @@
+import type { ConsultationReadinessPort, TaskConsultationWait } from "../application/port/ConsultationReadinessPort.ts";
 import type { Kysely, Transaction } from "kysely";
 import type { StoryStatus } from "../domain/StoryStatus.ts";
 import { TaskStatus } from "../domain/TaskStatus.ts";
@@ -24,6 +25,7 @@ type Executor = Kysely<WorkDatabase> | Transaction<WorkDatabase>;
  * Work自身はproject・project_grant・outcome_target_projectのtableを扱わない。
  */
 export type WorkExternalReaders = (executor: Executor) => {
+  consultations?: ConsultationReadinessPort;
   grants: ProjectGrantReader;
   projects: ProjectStateReader;
   outcomeTargets: OutcomeTargetReader;
@@ -42,6 +44,7 @@ const toChange = (row: { cursor: number | bigint } & Omit<ChangeRecord, "cursor"
 
 /** `WorkStore`のKysely（SQLite）実装。`transaction`の中では、外部readerも同じtransactionで読む。 */
 export class KyselyWorkStore implements WorkStore {
+  readonly consultations: ConsultationReadinessPort;
   readonly grants: ProjectGrantReader;
   readonly projects: ProjectStateReader;
   readonly outcomeTargets: OutcomeTargetReader;
@@ -52,6 +55,7 @@ export class KyselyWorkStore implements WorkStore {
     private readonly changeObserver: WorkChangeObserver | null = null,
   ) {
     const readers = externalReaders(db);
+    this.consultations = readers.consultations ?? { find: async () => null };
     this.grants = readers.grants;
     this.projects = readers.projects;
     this.outcomeTargets = readers.outcomeTargets;
@@ -61,6 +65,23 @@ export class KyselyWorkStore implements WorkStore {
     return this.db.transaction().execute((transaction) =>
       work(new KyselyWorkStore(transaction, this.externalReaders, this.changeObserver)),
     );
+  }
+
+  async findConsultationWait(taskId: string): Promise<TaskConsultationWait | null> {
+    return (await this.db.selectFrom("task_consultation_wait").selectAll().where("task_id", "=", taskId).executeTakeFirst()) ?? null;
+  }
+
+  listConsultationWaits(projectId: string): Promise<TaskConsultationWait[]> {
+    return this.db.selectFrom("task_consultation_wait").selectAll().where("project_id", "=", projectId).execute();
+  }
+
+  async saveConsultationWait(wait: TaskConsultationWait): Promise<void> {
+    await this.db.insertInto("task_consultation_wait").values(wait)
+      .onConflict((conflict) => conflict.column("task_id").doUpdateSet(wait)).execute();
+  }
+
+  async deleteConsultationWait(taskId: string): Promise<void> {
+    await this.db.deleteFrom("task_consultation_wait").where("task_id", "=", taskId).execute();
   }
 
   async findStory(storyId: string): Promise<StoryRecord | null> {

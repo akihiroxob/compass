@@ -131,8 +131,8 @@ test("repoの資産: RoleだけがSkillを参照し、SkillはallowRolesを持�
     }
   }
   assert.deepEqual([...referenced].sort(), [...skillNames].sort(), "どのRoleからも参照されないSkillは無い");
-  assert.deepEqual((await repository.getRole("worker")).skills, ["implement-task", "propose-knowledge-update"]);
-  assert.deepEqual((await repository.getRole("reviewer")).skills, ["review-task", "propose-knowledge-update"]);
+  assert.deepEqual((await repository.getRole("worker")).skills, ["consultation-task-resumption", "implement-task", "propose-knowledge-update"]);
+  assert.deepEqual((await repository.getRole("reviewer")).skills, ["consultation-task-resumption", "review-task", "propose-knowledge-update"]);
   assert.ok((await repository.getRole("manager")).skills.includes("accept-task"));
 
   const { app, database } = await setup();
@@ -169,7 +169,7 @@ test("get_role_contextはRole・Policy・Skill metadata・Project情報・Resour
   const roleFile = await readFile(new URL("roles/worker.md", repoRoot), "utf-8");
   assert.equal(context.role.name, "worker");
   assert.equal(context.role.path, "roles/worker.md");
-  assert.deepEqual(context.role.skills, ["implement-task", "propose-knowledge-update"]);
+  assert.deepEqual(context.role.skills, ["consultation-task-resumption", "implement-task", "propose-knowledge-update"]);
   assert.ok(context.role.content.startsWith("# Worker Role"));
   assert.ok(roleFile.endsWith(`${context.role.content}\n`));
   assert.deepEqual(
@@ -179,7 +179,7 @@ test("get_role_contextはRole・Policy・Skill metadata・Project情報・Resour
   assert.equal(context.policies[0].content, await readFile(new URL("policies/role-policy.md", repoRoot), "utf-8"));
   assert.deepEqual(
     context.skills.map((skill: { name: string }) => skill.name),
-    ["implement-task", "propose-knowledge-update"],
+    ["consultation-task-resumption", "implement-task", "propose-knowledge-update"],
   );
   for (const skill of context.skills) {
     assert.deepEqual(Object.keys(skill).sort(), ["description", "name", "path", "requiredKnowledge", "requiredTools", "status", "version"]);
@@ -429,7 +429,7 @@ test("list_skillsはmetadataだけを返し、roleはRole Definitionの参照で
   for (const skill of all.skills) assert.equal("content" in skill, false);
 
   const forReviewer = (await callTool(app, "list_skills", { role: "reviewer" })).structuredContent;
-  assert.deepEqual(forReviewer.skills.map((skill: { name: string }) => skill.name), ["propose-knowledge-update", "review-task"]);
+  assert.deepEqual(forReviewer.skills.map((skill: { name: string }) => skill.name), ["consultation-task-resumption", "propose-knowledge-update", "review-task"]);
   assert.deepEqual((await callTool(app, "list_skills", { role: "strategist" })).structuredContent.skills, []);
   assert.deepEqual((await callTool(app, "list_skills", { status: "deprecated" })).structuredContent.skills, []);
 

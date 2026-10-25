@@ -1,3 +1,4 @@
+import type { ConsultationReadinessPort, TaskConsultationWait } from "./ConsultationReadinessPort.ts";
 import type { StoryStatus } from "../../domain/StoryStatus.ts";
 import type { TaskStatus } from "../../domain/TaskStatus.ts";
 
@@ -142,6 +143,12 @@ export interface OutcomeTargetReader {
  */
 export interface WorkStore {
   transaction<T>(work: (store: WorkStore) => Promise<T>): Promise<T>;
+
+  readonly consultations: ConsultationReadinessPort;
+  findConsultationWait(taskId: string): Promise<TaskConsultationWait | null>;
+  listConsultationWaits(projectId: string): Promise<TaskConsultationWait[]>;
+  saveConsultationWait(wait: TaskConsultationWait): Promise<void>;
+  deleteConsultationWait(taskId: string): Promise<void>;
 
   readonly grants: ProjectGrantReader;
   readonly projects: ProjectStateReader;

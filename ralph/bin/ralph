@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Compass Ralphの入口。`ralph run [auto|worker|reviewer] [--config PATH] [--once]`をralph-loopへ渡す。
+# Compass Ralphの入口。`ralph run [auto|worker|reviewer|manager] [--config PATH] [--once]`をralph-loopへ渡す。
 set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-使い方: ralph run [auto|worker|reviewer] [--config PATH] [--once]
+使い方: ralph run [auto|worker|reviewer|manager] [--config PATH] [--once]
   --config PATH  Ralph設定file（省略時はCOMPASS_RALPH_CONFIG）
   --once         対象があれば1回だけAgentを起動し、終了を待って終了する
 EOF
@@ -19,7 +19,7 @@ role=auto
 args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    auto | worker | reviewer)
+    auto | worker | reviewer | manager)
       role="$1"
       shift
       ;;

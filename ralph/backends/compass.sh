@@ -54,18 +54,22 @@ mcp_call() {
 
 backend_get_task_summary() {
   local role="$1"
-  local availability tasks
+  local availability tasks resumptions
   case "$role" in
     worker) availability="work" ;;
     reviewer) availability="review" ;;
+    manager) availability="acceptance" ;;
   esac
   tasks="$(mcp_call 'list_tasks' "$(jq -cn \
     --arg project_id "$COMPASS_PROJECT_ID" \
     --arg availability "$availability" \
     '{projectId: $project_id, filter: {availableFor: $availability}}')")" || return 1
-  jq -e '{
+  resumptions="$(mcp_call 'list_consultation_resumptions' "$(jq -cn --arg project_id "$COMPASS_PROJECT_ID" '{projectId: $project_id}')")" || return 1
+  jq -e --arg root "$PROJECT_ROOT" --argjson resumptions "$(jq '.result.structuredContent.resumptions // []' <<<"$resumptions")" '($resumptions | map(select(.runtime.worktreePath == $root))) as $resumptions | {
+    resumptions: $resumptions,
+    readyCount: ($resumptions | map(select(.state == "ready")) | length),
     byStatus: .result.structuredContent.summary.byStatus,
-    availableCount: ((.result.structuredContent.tasks // []) | length),
+    availableCount: (((.result.structuredContent.tasks // []) | length) + ($resumptions | map(select(.state == "ready")) | length)),
     availableRejected: ((.result.structuredContent.tasks // []) | map(select(.status == "rejected")) | length)
   }' <<<"$tasks"
 }
@@ -75,8 +79,10 @@ backend_format_status() {
   local summary="$2"
   if [[ "$role" == worker ]]; then
     jq -r '"Worker対象: todo=\(.byStatus.todo // 0) rejected=\(.byStatus.rejected // 0) doing=\(.byStatus.doing // 0) available=\(.availableCount // 0)"' <<<"$summary"
-  else
+  elif [[ "$role" == reviewer ]]; then
     jq -r '"Reviewer対象: in_review=\(.byStatus.in_review // 0) available=\(.availableCount // 0)"' <<<"$summary"
+  else
+    jq -r '"Manager対象: wait_accept=\(.byStatus.wait_accept // 0) available=\(.availableCount // 0)"' <<<"$summary"
   fi
 }
 
@@ -93,4 +99,32 @@ backend_pending_count() {
   local summary="$2"
   : "$role"
   jq -r '.availableCount // 0' <<<"$summary"
+}
+
+# 呼出側はworktree lockを保持してからproviderを起動する。再開Claimは実際の成果物照合後に取得する。
+backend_prepare_consultation_resumption() {
+  local summary="$1"
+  local saved actual response task_id
+  RALPH_EXECUTION_ROOT="$PROJECT_ROOT"
+  [[ "$(jq '[.resumptions[]? | select(.state == "ready")] | length' <<<"$summary")" -gt 0 ]] || return 0
+  while IFS= read -r saved; do
+    task_id="$(jq -r '.taskId' <<<"$saved")"
+    jq '.runtime' <<<"$saved" >"$RALPH_TMP_DIR/resumption-runtime.json"
+    if ! actual="$(node "$RALPH_ROOT/runtime/consultation-context.mjs" "$RALPH_TMP_DIR/resumption-runtime.json")"; then
+      ralph_log_error 'Task %sの相談再開に失敗しました（保存済みContext/成果物の読込）。次の候補を確認します。\n' "$task_id"
+      continue
+    fi
+    if ! response="$(mcp_call 'resume_consultation_task' "$(jq -cn --arg taskId "$task_id" --argjson runtime "$actual" \
+      --arg requestId "resume-$task_id-$(date +%s)-$$" '{taskId: $taskId, runtime: $runtime, requestId: $requestId}')")"; then
+      ralph_log_error 'Task %sの相談再開に失敗しました（Claim取得/版照合）。次の候補を確認します。\n' "$task_id"
+      continue
+    fi
+    RALPH_EXECUTION_ROOT="$(jq -r '.worktreePath' <<<"$actual")"
+    printf '\n相談からの再開Context（Claim取得済み。Taskを選択・Claimし直さない）:\n' >>"$rendered_prompt"
+    jq '.result.structuredContent' <<<"$response" >>"$rendered_prompt"
+    printf '\n保存済みContextを読み、全相談の現在の結論・現在のTask要件・PR/SHAと照合して再判断する。旧blocked結果を再送しない。保存済み検証を変更後のSHAに流用しない。\n' >>"$rendered_prompt"
+    return 0
+  done < <(jq -c '.resumptions[]? | select(.state == "ready")' <<<"$summary")
+  # 全再開候補が失敗しても、通常候補があればAgentの選択へ進む。
+  (( $(jq '.availableCount - .readyCount' <<<"$summary") > 0 ))
 }

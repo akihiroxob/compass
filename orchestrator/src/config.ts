@@ -25,6 +25,9 @@ const configSchema = z.strictObject({
   maxConcurrent: z.number().int().min(1).max(20).default(2),
   /** lease 切れ・timeout で Agent を停止するとき、SIGTERM から SIGKILL へ切り替えるまでの猶予。 */
   terminateGraceMs: z.number().int().min(0).default(10_000),
+  consultationProjects: z.array(z.strictObject({
+    projectId: z.string().trim().min(1), tokenEnv: z.string().trim().min(1), agentEnv: agentEnvSchema,
+  })).default([]),
   workspaces: z
     .array(
       z.strictObject({
@@ -38,6 +41,8 @@ const configSchema = z.strictObject({
           .array(
             z.strictObject({
               projectId: z.string().trim().min(1),
+              /** Project相談の読取用Runtime Credential。Workspaceから継承しない。 */
+              tokenEnv: z.string().trim().min(1).optional(),
               /** その Project の manager の Agent へ加える環境変数。Project の Agent Credential を使う設定を渡す。 */
               agentEnv: agentEnvSchema,
             }),
@@ -45,7 +50,7 @@ const configSchema = z.strictObject({
           .default([]),
       }),
     )
-    .min(1),
+    .default([]),
   roles: z.partialRecord(z.enum(dispatchRoles as [DispatchRole, ...DispatchRole[]]), roleCommandSchema),
 });
 
@@ -53,9 +58,13 @@ export type RoleCommand = z.infer<typeof roleCommandSchema>;
 
 type ParsedConfig = z.infer<typeof configSchema>;
 
-export type WorkspaceConfig = ParsedConfig["workspaces"][number] & { token: string };
+export type WorkspaceConfig = Omit<ParsedConfig["workspaces"][number], "projects"> & { token: string;
+  projects: (ParsedConfig["workspaces"][number]["projects"][number] & { token?: string })[] };
 
-export type OrchestratorConfig = Omit<ParsedConfig, "workspaces"> & { workspaces: WorkspaceConfig[] };
+export type OrchestratorConfig = Omit<ParsedConfig, "workspaces" | "consultationProjects"> & {
+  workspaces: WorkspaceConfig[];
+  consultationProjects?: (ParsedConfig["consultationProjects"][number] & { token: string })[];
+};
 
 export class ConfigError extends Error {}
 
@@ -101,9 +110,24 @@ export const loadConfig = (path: string, env: NodeJS.ProcessEnv = process.env): 
   const workspaces = parsed.data.workspaces.map((workspace) => {
     const token = env[workspace.tokenEnv]?.trim();
     if (!token) throw new ConfigError(`The environment variable ${workspace.tokenEnv} for Workspace ${workspace.workspaceId} is not set`);
-    return { ...workspace, token };
+    const projects = workspace.projects.map((project) => {
+      if (!project.tokenEnv) return project;
+      const projectToken = env[project.tokenEnv]?.trim();
+      if (!projectToken) throw new ConfigError(`The environment variable ${project.tokenEnv} for Project ${project.projectId} is not set`);
+      return { ...project, token: projectToken };
+    });
+    return { ...workspace, projects, token };
   });
-  const credentialEnv = new Set(workspaces.map(({ tokenEnv }) => tokenEnv));
+  const consultationProjects = parsed.data.consultationProjects.map((project) => {
+    const token = env[project.tokenEnv]?.trim();
+    if (!token) throw new ConfigError(`The environment variable ${project.tokenEnv} for Project ${project.projectId} is not set`);
+    return { ...project, token };
+  });
+  if (!workspaces.length && !consultationProjects.length) throw new ConfigError("Configure workspaces or consultationProjects");
+  const allProjectIds = [...workspaces.flatMap((workspace) => workspace.projects.map(({ projectId }) => projectId)), ...consultationProjects.map(({ projectId }) => projectId)];
+  const duplicateProjectId = duplicated(allProjectIds);
+  if (duplicateProjectId) throw new ConfigError(`Project ${duplicateProjectId} is configured more than once`);
+  const credentialEnv = new Set([...consultationProjects.map(({ tokenEnv }) => tokenEnv), ...workspaces.flatMap((workspace) => [workspace.tokenEnv, ...workspace.projects.flatMap((project) => project.tokenEnv ? [project.tokenEnv] : [])])]);
   for (const [role, command] of Object.entries(parsed.data.roles)) assertNoCredentialEnv(credentialEnv, `roles.${role}.env`, command?.env ?? {});
   workspaces.forEach((workspace, index) => {
     assertNoCredentialEnv(credentialEnv, `workspaces[${index}].agentEnv`, workspace.agentEnv);
@@ -111,9 +135,10 @@ export const loadConfig = (path: string, env: NodeJS.ProcessEnv = process.env): 
       assertNoCredentialEnv(credentialEnv, `workspaces[${index}].projects[${projectIndex}].agentEnv`, project.agentEnv),
     );
   });
-  return { ...parsed.data, stateDir: resolve(dirname(path), parsed.data.stateDir), workspaces };
+  consultationProjects.forEach((project) => assertNoCredentialEnv(credentialEnv, `consultationProjects.${project.projectId}.agentEnv`, project.agentEnv));
+  return { ...parsed.data, consultationProjects, stateDir: resolve(dirname(path), parsed.data.stateDir), workspaces };
 };
 
 /** Agent へ渡さない Orchestrator の Credential の環境変数名（すべての Workspace の `tokenEnv`）。 */
-export const credentialEnvOf = (config: Pick<OrchestratorConfig, "workspaces">): string[] =>
-  config.workspaces.map(({ tokenEnv }) => tokenEnv);
+export const credentialEnvOf = (config: Pick<OrchestratorConfig, "workspaces" | "consultationProjects">): string[] =>
+  [...(config.consultationProjects ?? []).map(({ tokenEnv }) => tokenEnv), ...config.workspaces.flatMap((workspace) => [workspace.tokenEnv, ...workspace.projects.flatMap((project) => project.tokenEnv ? [project.tokenEnv] : [])])];

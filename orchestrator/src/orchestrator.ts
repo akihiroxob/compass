@@ -2,7 +2,7 @@ import type { CompassStateReader } from "./compassClient.ts";
 import type { OrchestratorConfig, RoleCommand, WorkspaceConfig } from "./config.ts";
 import { decideLaunch, finishRecord, type DispatchPolicy, type DispatchStore } from "./dispatchStore.ts";
 import { terminateAgent, type AgentLauncher } from "./launcher.ts";
-import { planWorkspaceDispatches, type WorkspaceDispatch } from "./plan.ts";
+import { planProjectConsultationDispatches, planWorkspaceDispatches, type WorkspaceDispatch } from "./plan.ts";
 
 /** Operational Log。stdout / stderr へ出す実行記録で、Compass の Activity・Change Log には書かない。 */
 export type OperationalLog = (event: string, fields: Record<string, unknown>) => void;
@@ -56,13 +56,42 @@ export class Orchestrator {
         this.log("state_read_failed", { workspaceId: workspace.workspaceId, error: message });
         continue;
       }
-      this.store.prune(workspace.workspaceId, planned);
+      // Project相談はIntent/Outcomeの有無から独立して読む。失敗したProjectの記録はpruneしない。
+      let projectReadFailed = false;
+      for (const project of workspace.projects) {
+        if (!project.token) continue;
+        try {
+          if (!this.reader.getProjectConsultationState) throw new Error("Project consultation state reader is unavailable");
+          const state = await this.reader.getProjectConsultationState(project.projectId, project.token);
+          if (state.workspaceId !== workspace.workspaceId || state.projectId !== project.projectId) throw new Error("Project consultation scope mismatch");
+          planned.push(...planProjectConsultationDispatches(state));
+        } catch (error) {
+          projectReadFailed = true;
+          this.log("project_consultation_state_failed", { projectId: project.projectId, error: (error as Error).message });
+          report.failedWorkspaces.push({ workspaceId: workspace.workspaceId, error: `Project ${project.projectId}: ${(error as Error).message}` });
+        }
+      }
+      if (!projectReadFailed) this.store.prune(workspace.workspaceId, planned);
       for (const dispatch of planned) {
         const skipped = this.tryLaunch(workspace, dispatch, report);
         if (skipped) {
           report.skipped.push({ key: dispatch.key, reason: skipped });
           this.log("dispatch_skipped", { key: dispatch.key, role: dispatch.role, reason: skipped });
         }
+      }
+    }
+    for (const project of this.config.consultationProjects ?? []) {
+      try {
+        if (!this.reader.getProjectConsultationState) throw new Error("Project consultation state reader is unavailable");
+        const state = await this.reader.getProjectConsultationState(project.projectId, project.token);
+        if (state.projectId !== project.projectId) throw new Error("Project consultation scope mismatch");
+        for (const dispatch of planProjectConsultationDispatches(state)) {
+          const skipped = this.tryLaunch(null, dispatch, report);
+          if (skipped) report.skipped.push({ key: dispatch.key, reason: skipped });
+        }
+      } catch (error) {
+        this.log("project_consultation_state_failed", { projectId: project.projectId, error: (error as Error).message });
+        report.failedWorkspaces.push({ workspaceId: `project:${project.projectId}`, error: (error as Error).message });
       }
     }
     return report;
@@ -77,16 +106,16 @@ export class Orchestrator {
    * 起動する Role のコマンドに scope の `agentEnv` を合わせる。manager は設定に無い Project では起動しない（Workspace の設定で代用しない）。
    * 起動しない理由を文字列で返す。
    */
-  private commandOf(workspace: WorkspaceConfig, dispatch: WorkspaceDispatch): RoleCommand | string {
+  private commandOf(workspace: WorkspaceConfig | null, dispatch: WorkspaceDispatch): RoleCommand | string {
     const command = this.config.roles[dispatch.role];
     if (!command) return `no command is configured for the ${dispatch.role} Role`;
-    if (dispatch.projectId === null) return { command: command.command, env: { ...command.env, ...workspace.agentEnv } };
-    const project = workspace.projects.find(({ projectId }) => projectId === dispatch.projectId);
+    if (dispatch.projectId === null) return { command: command.command, env: { ...command.env, ...workspace?.agentEnv } };
+    const project = (this.config.consultationProjects ?? []).find(({ projectId }) => projectId === dispatch.projectId) ?? workspace?.projects.find(({ projectId }) => projectId === dispatch.projectId);
     if (!project) return `Project ${dispatch.projectId} is not configured in workspaces[].projects`;
     return { command: command.command, env: { ...command.env, ...project.agentEnv } };
   }
 
-  private tryLaunch(workspace: WorkspaceConfig, dispatch: WorkspaceDispatch, report: TickReport): string | null {
+  private tryLaunch(workspace: WorkspaceConfig | null, dispatch: WorkspaceDispatch, report: TickReport): string | null {
     const command = this.commandOf(workspace, dispatch);
     if (typeof command === "string") return command;
     if (this.running.has(dispatch.key)) return "already running";
@@ -129,7 +158,18 @@ export class Orchestrator {
       attempt: decision.attempt,
       ...(decision.recovered ? { recovered: decision.recovered } : {}),
     });
-    const finished = launched.done.then((result) => {
+    const finished = launched.done.then(async (result) => {
+      if (result.ok && dispatch.subject.kind === "consultation") {
+        // process成功だけではHuman返信を処理済みにしない。現在状態が進んだことを確認する。
+        const project = (this.config.consultationProjects ?? []).find(({ projectId }) => projectId === dispatch.projectId) ?? workspace?.projects.find(({ projectId }) => projectId === dispatch.projectId);
+        try {
+          if (!project?.token || !this.reader.getProjectConsultationState) throw new Error("Project consultation state reader is unavailable");
+          const state = await this.reader.getProjectConsultationState(project.projectId, project.token);
+          if (state.consultations.some(({ id, inputRevision }) => id === dispatch.subject.id && inputRevision === dispatch.subject.inputRevision)) {
+            result = { ok: false, error: "Agent exited without handling the pending Human input" };
+          }
+        } catch (error) { result = { ok: false, error: (error as Error).message }; }
+      }
       this.store.set(dispatch.key, finishRecord(decision.attempt, result, this.clock(), this.policy));
       this.running.delete(dispatch.key);
       this.log(result.ok ? "dispatch_succeeded" : "dispatch_failed", {

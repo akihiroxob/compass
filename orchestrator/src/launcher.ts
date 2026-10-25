@@ -31,6 +31,11 @@ export const buildPrompt = (dispatch: WorkspaceDispatch): string =>
     ...(dispatch.projectId === null ? [] : [`projectId: ${dispatch.projectId}`]),
     `対象: ${dispatch.subject.kind} ${dispatch.subject.id}`,
     `起動理由: ${dispatch.reason}`,
+    ...(dispatch.subject.kind === "consultation" ? [
+      `相談ID: ${dispatch.subject.id}; 入力版: ${dispatch.subject.inputRevision}`,
+      "get_consultationで現在の会話・revisionを読み、acquire_consultation_leaseで応答権を取得してから回答する。追加返信による版変更・lease失効は再読込し、古い版を解決しない。",
+      "不足なら同じ相談へ追加質問し、十分ならHuman発言を根拠に結論を整理する。返信だけでTaskを再開せず、取消の場合も不要理由と継続方針を確認する。",
+    ] : []),
     `MCP の ${roleContextCall(dispatch)} で Role Context を取得し、その指示に従って対象を処理する。`,
   ].join("\n");
 
@@ -55,6 +60,7 @@ const dispatchEnvNames = [
   "COMPASS_ROLE",
   "COMPASS_SUBJECT_KIND",
   "COMPASS_SUBJECT_ID",
+  "COMPASS_INPUT_REVISION",
   "COMPASS_DISPATCH_KEY",
   "COMPASS_DISPATCH_ATTEMPT",
   "COMPASS_PROMPT",
@@ -82,6 +88,7 @@ export const buildAgentEnv = (
     COMPASS_ROLE: dispatch.role,
     COMPASS_SUBJECT_KIND: dispatch.subject.kind,
     COMPASS_SUBJECT_ID: dispatch.subject.id,
+    ...(dispatch.subject.inputRevision === undefined ? {} : { COMPASS_INPUT_REVISION: String(dispatch.subject.inputRevision) }),
     COMPASS_DISPATCH_KEY: dispatch.key,
     COMPASS_DISPATCH_ATTEMPT: String(context.attempt),
     COMPASS_PROMPT: buildPrompt(dispatch),

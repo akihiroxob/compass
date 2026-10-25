@@ -1,3 +1,4 @@
+import type { ProjectConsultationState } from "./state.ts";
 import { createHash } from "node:crypto";
 import type { OrchestrationResearchRequest, WorkspaceOrchestrationOutcome, WorkspaceOrchestrationState } from "./state.ts";
 
@@ -6,7 +7,7 @@ export type DispatchRole = "strategist" | "researcher" | "manager" | "evaluator"
 
 export const dispatchRoles: readonly DispatchRole[] = ["strategist", "researcher", "manager", "evaluator"];
 
-export type DispatchSubject = { kind: "intent" | "evaluation" | "research_request" | "outcome"; id: string };
+export type DispatchSubject = { kind: "intent" | "evaluation" | "research_request" | "outcome" | "consultation"; id: string; inputRevision?: number };
 
 const openResearchStatuses = new Set(["requested", "running"]);
 
@@ -176,3 +177,11 @@ export const planWorkspaceDispatches = (state: WorkspaceOrchestrationState): Wor
   }
   return dispatches;
 };
+
+/** 返信の入力版ごとにManagerを起動する。Human返信だけではTaskを再開しない。 */
+export const planProjectConsultationDispatches = (state: ProjectConsultationState): WorkspaceDispatch[] =>
+  state.projectStatus !== "active" ? [] : state.consultations.map(({ id, inputRevision }) => ({
+    key: `${state.workspaceId}:${state.projectId}:manager:consultation:${id}:${inputRevision}`,
+    workspaceId: state.workspaceId, projectId: state.projectId, role: "manager",
+    subject: { kind: "consultation", id, inputRevision }, reason: `Consultation is waiting_agent at input revision ${inputRevision}`,
+  }));

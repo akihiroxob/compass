@@ -69,6 +69,21 @@ export const initializeWorkSchema = async (database: Kysely<WorkDatabase>): Prom
     database,
   );
 
+  await database.schema.createTable("task_consultation_wait").ifNotExists()
+    .addColumn("task_id", "text", (column) => column.primaryKey().references("task.id").onDelete("cascade"))
+    .addColumn("project_id", "text", projectId)
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("role", "text", (column) => column.notNull().check(sql`role in ('worker','reviewer','manager')`))
+    .addColumn("phase", "text", (column) => column.notNull().check(sql`phase in ('work','review','acceptance')`))
+    .addColumn("consultations", "text", (column) => column.notNull())
+    .addColumn("requirement_version", "text", (column) => column.notNull())
+    .addColumn("runtime", "text", (column) => column.notNull())
+    .addColumn("state", "text", (column) => column.notNull().check(sql`state in ('waiting','ready','resuming')`))
+    .addColumn("failure_reason", "text")
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addColumn("updated_at", "integer", (column) => column.notNull())
+    .execute();
+
   await database.schema
     .createTable("task_comment")
     .ifNotExists()

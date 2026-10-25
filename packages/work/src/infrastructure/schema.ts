@@ -1,3 +1,4 @@
+import type { TaskConsultationWait } from "../application/port/ConsultationReadinessPort.ts";
 import type { Generated } from "kysely";
 import type {
   ChangeRecord,
@@ -18,6 +19,7 @@ export type CommandReceiptTable = CommandReceiptRecord;
 
 /** Workが所有するtable。単一SQLite fileの一部で、serverが他Contextのtableと合成する。 */
 export type WorkDatabase = {
+  task_consultation_wait: TaskConsultationWait;
   story: StoryTable;
   task: TaskTable;
   task_comment: TaskCommentTable;

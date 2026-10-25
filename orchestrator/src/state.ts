@@ -51,3 +51,12 @@ export type WorkspaceOrchestrationState = {
   openResearchRequests: OrchestrationResearchRequest[];
   observedAt: number;
 };
+
+/** Project Runtime Credentialだけで読める相談応答待ち。会話本文を含めない。 */
+export type ProjectConsultationState = {
+  projectId: string;
+  workspaceId: string;
+  projectStatus: string;
+  consultations: { id: string; inputRevision: number }[];
+  observedAt: number;
+};

@@ -244,3 +244,43 @@ test("Workspace RoleにはWorkspaceのagentEnv、managerにはTarget Projectのa
     await kit.cleanup();
   }
 });
+
+test("Project相談はWorkspace dispatchなしで入力版ごとにManagerを起動し、未処理の正常終了を再試行する", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "compass-consultation-dispatch-"));
+  let revision = 2;
+  let pending = true;
+  let now = 1_000;
+  const reader: CompassStateReader = {
+    getWorkspaceOrchestrationState: async () => assert.fail("Workspace dispatchをGivenに要求しない"),
+    getProjectConsultationState: async (projectId, token) => {
+      assert.equal(projectId, "p1"); assert.equal(token, "project-runtime");
+      return { workspaceId: "w1", projectId, projectStatus: "active", consultations: pending ? [{ id: "c1", inputRevision: revision }] : [], observedAt: now };
+    },
+  };
+  const launcher = new FakeLauncher();
+  const config: OrchestratorConfig = { serverUrl: "http://localhost:1", stateDir: directory, intervalMs: 1000,
+    leaseMs: 10000, maxAttempts: 3, retryBackoffMs: 100, maxConcurrent: 2, terminateGraceMs: 100,
+    workspaces: [], consultationProjects: [{ projectId: "p1", tokenEnv: "P_RUNTIME", token: "project-runtime", agentEnv: { MANAGER_CONFIG: "project-specific" } }],
+    roles: { manager: { command: "manager", env: {} } } };
+  const store = new DispatchStore(directory);
+  const runner = new Orchestrator(config, reader, launcher, store, () => now, () => {});
+  try {
+    const first = await runner.tick();
+    assert.equal(first.launched[0]?.subject.inputRevision, 2);
+    assert.equal(launcher.launches[0]?.command.env.MANAGER_CONFIG, "project-specific");
+    assert.equal((await runner.tick()).launched.length, 0);
+    launcher.launches[0]!.finish({ ok: true });
+    await runner.drain();
+    assert.equal(store.get(first.launched[0]!.key)?.status, "retry_wait");
+    now += 101;
+    assert.equal((await runner.tick()).launched.length, 1);
+    revision = 3; // 応答中のHuman追加返信は独立した新しい入力版。
+    launcher.launches[1]!.finish({ ok: false, error: "STALE_REVISION" });
+    await runner.drain();
+    assert.equal((await runner.tick()).launched[0]?.subject.inputRevision, 3);
+    pending = false;
+    launcher.launches[2]!.finish({ ok: true });
+    await runner.drain();
+    assert.equal((await runner.tick()).launched.length, 0);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

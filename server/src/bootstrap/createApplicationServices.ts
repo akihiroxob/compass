@@ -404,6 +404,15 @@ export const createApplicationServices = (
       projectAuthorizationService: projectAuthorization,
       roleScopeAuthorizationService: roleScopeAuthorization,
       runtimeAuthorizationService: runtimeAuthorization,
+      getProjectConsultationStateUseCase: {
+        execute: async (caller: Parameters<typeof runtimeAuthorization.requireScope>[0], projectId: string) => {
+          await runtimeAuthorization.requireScope(caller, projectId, "runtime:state:read");
+          const project = await getProjectUseCase.execute(projectId);
+          const pending = project.status === "active" ? await consultations.list.execute(projectId, { status: "waiting_agent" }) : { consultations: [] };
+          return { projectId, workspaceId: project.workspaceId, projectStatus: project.status,
+            consultations: pending.consultations.map(({ id, revision }) => ({ id, inputRevision: revision })), observedAt: clock() };
+        },
+      },
       taskCoordinationService: coordination,
       // Runtime eventはWorkspace所有。Workspace Runtime Credentialのscopeだけで認可し、Project Credentialからは継承しない。
       fetchRuntimeEventsUseCase: {

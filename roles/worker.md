@@ -1,5 +1,6 @@
 ---
 skills:
+  - consultation-task-resumption
   - implement-task
   - propose-knowledge-update
 ---
@@ -94,3 +95,7 @@ comment には、検証の根拠（実行したコマンドと結果、コミッ
 - テストや確認なしで完了にすること
 - ユーザー要件や Story を拡張する Task、優先順位を変える目的の Task を worker 判断で作成すること
 - Success Criteria や Outcome を書き換えようとすること（tool も無い）
+
+## 相談待ちと再開
+
+Projectの要件・設計について既存方針だけでは判断できない場合は、`consultation-task-resumption` Skillを取得する。継続不能なTaskだけを現在Claimのもとで待機させる。他Task/Role全体をpauseしない。再開ContextにClaimが渡されている場合はClaimし直さず、現在の結論・要件・成果版を読み直して元段階の判断を行う。旧blocked結果や旧SHAの検証結果をそのまま返さない。
