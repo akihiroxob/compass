@@ -118,7 +118,7 @@ test("Web APIとrouteのpath", () => {
   assert.equal(changesPath("p1"), "/api/projects/p1/changes?limit=20");
   assert.equal(changesPath("p1", 12, 5), "/api/projects/p1/changes?limit=5&beforeCursor=12");
   assert.equal(taskPath("p1", "t1"), "/projects/p1/tasks/t1");
-  // Story・Taskの起票・編集の戻り先と保存後の遷移先は「実行」view（概要viewには該当のanchorが無い）。
+  // Storyの保存先とTask起票の戻り先は「実行」view（概要viewには該当のanchorが無い）。Taskの保存先と編集の戻り先はTask詳細。
   assert.equal(executionViewPath("p1"), "/projects/p1?view=work");
   assert.equal(executionViewPath("p1", "s1"), `/projects/p1?view=work#${storyAnchorId("s1")}`);
 });
