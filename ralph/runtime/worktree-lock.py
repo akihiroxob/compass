@@ -13,7 +13,12 @@ with open(lock_path, "a") as lock:
     except BlockingIOError:
         print("Worktree is already running: " + lock_path, file=sys.stderr)
         sys.exit(75)
-    child = subprocess.Popen(command, start_new_session=True, pass_fds=(lock.fileno(),))
+    # fd 3/4はralph-loopのloggingが上書きする。shell/providerで保持する専用fdを使う。
+    lock_fd = fcntl.fcntl(lock, fcntl.F_DUPFD, 9)
+    try:
+        child = subprocess.Popen(command, start_new_session=True, pass_fds=(lock_fd,))
+    finally:
+        os.close(lock_fd)
 
     def stop(signum, _frame):
         try:

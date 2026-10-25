@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -73,3 +73,58 @@ test("Runnerを強制終了しても旧Agentが保持するlockで二重起動�
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+for (const failure of ["missing-context", "stale-artifact"] as const) {
+  for (const fallback of ["ready", "ordinary", "none"] as const) {
+    test(`再開候補の${failure}をTask単位で記録し、${fallback}へ進む`, async () => {
+      const dir = await mkdtemp(join(tmpdir(), "compass-resumption-queue-"));
+      try {
+        execFileSync("git", ["init", dir], { stdio: "ignore" });
+        execFileSync("git", ["-C", dir, "-c", "user.name=Test", "-c", "user.email=test@example.test", "commit", "--allow-empty", "-m", "fixture"], { stdio: "ignore" });
+        const runtimeDir = join(dir, ".compass-ralph");
+        await mkdir(runtimeDir);
+        const contextPath = join(runtimeDir, "context.json");
+        await writeFile(contextPath, "{}");
+        const metadata = join(runtimeDir, "runtime.json");
+        await writeFile(metadata, JSON.stringify({ worktreePath: dir, contextPath }));
+        const runtime = JSON.parse(execFileSync(process.execPath, [inspector, metadata], { encoding: "utf8" }));
+        const candidates = [{ taskId: "broken", state: "ready", runtime: {
+          ...runtime,
+          ...(failure === "missing-context" ? { contextPath: join(dir, "missing.json") } : { sourceFingerprint: "stale" }),
+        } }, ...(fallback === "ready" ? [{ taskId: "valid", state: "ready", runtime }] : [])];
+        const summary = { resumptions: candidates, readyCount: candidates.length, availableCount: candidates.length + (fallback === "ordinary" ? 1 : 0) };
+        const result = spawnSync("bash", ["-c", `
+          set -euo pipefail
+          source "$BACKEND"
+          ralph_log_error() { printf "$@" >&2; }
+          mcp_call() {
+            local task_id
+            task_id="$(jq -r '.taskId' <<<"$2")"
+            printf '%s\\n' "$task_id" >>"$CALLS"
+            if [[ "$(jq -r '.runtime.sourceFingerprint' <<<"$2")" != "$(jq -r --arg id "$task_id" '.resumptions[] | select(.taskId == $id) | .runtime.sourceFingerprint' <<<"$SUMMARY")" ]]; then
+              printf 'artifact version mismatch\\n' >&2
+              return 1
+            fi
+            printf '{"result":{"structuredContent":{"taskId":"valid","claimId":"new-claim"}}}\\n'
+          }
+          rendered_prompt="$PROMPT"
+          backend_prepare_consultation_resumption "$SUMMARY"
+          printf '%s' "$RALPH_EXECUTION_ROOT"
+        `], { encoding: "utf8", env: { ...process.env, BACKEND: join(root, "ralph/backends/compass.sh"),
+          COMPASS_SERVER_URL: "http://unused.test", PROJECT_ROOT: dir, RALPH_ROOT: join(root, "ralph"), RALPH_TMP_DIR: runtimeDir, SUMMARY: JSON.stringify(summary),
+          PROMPT: join(runtimeDir, "prompt.md"), CALLS: join(runtimeDir, "calls") } });
+        assert.equal(result.status, fallback === "none" ? 1 : 0, result.stderr);
+        assert.match(result.stderr, /broken/);
+        if (failure === "missing-context") assert.match(result.stderr, /Saved Context is missing/);
+        else assert.match(result.stderr, /artifact version mismatch/);
+        const calls = await readFile(join(runtimeDir, "calls"), "utf8").catch(() => "");
+        assert.deepEqual(calls.trim().split("\n").filter(Boolean), [
+          ...(failure === "stale-artifact" ? ["broken"] : []), ...(fallback === "ready" ? ["valid"] : []),
+        ]);
+        const prompt = await readFile(join(runtimeDir, "prompt.md"), "utf8").catch(() => "");
+        if (fallback === "ready") assert.match(prompt, /new-claim/);
+        else assert.equal(prompt, "");
+      } finally { await rm(dir, { recursive: true, force: true }); }
+    });
+  }
+}

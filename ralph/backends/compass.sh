@@ -106,22 +106,25 @@ backend_prepare_consultation_resumption() {
   local summary="$1"
   local saved actual response task_id
   RALPH_EXECUTION_ROOT="$PROJECT_ROOT"
-  saved="$(jq -c '[.resumptions[]? | select(.state == "ready")][0] // empty' <<<"$summary")"
-  [[ -n "$saved" ]] || return 0
-  task_id="$(jq -r '.taskId' <<<"$saved")"
-  jq '.runtime' <<<"$saved" >"$RALPH_TMP_DIR/resumption-runtime.json"
-  if ! actual="$(node "$RALPH_ROOT/runtime/consultation-context.mjs" "$RALPH_TMP_DIR/resumption-runtime.json")"; then
-    (( $(jq '.availableCount - .readyCount' <<<"$summary") > 0 )) && return 0
-    return 1
-  fi
-  response="$(mcp_call 'resume_consultation_task' "$(jq -cn --arg taskId "$task_id" --argjson runtime "$actual" \
-    --arg requestId "resume-$task_id-$(date +%s)-$$" '{taskId: $taskId, runtime: $runtime, requestId: $requestId}')")" || {
-    # このTaskの再開失敗で、同じRoleの別Taskまで止めない。
-    (( $(jq '.availableCount - .readyCount' <<<"$summary") > 0 )) && return 0
-    return 1
-  }
-  RALPH_EXECUTION_ROOT="$(jq -r '.worktreePath' <<<"$actual")"
-  printf '\n相談からの再開Context（Claim取得済み。Taskを選択・Claimし直さない）:\n' >>"$rendered_prompt"
-  jq '.result.structuredContent' <<<"$response" >>"$rendered_prompt"
-  printf '\n保存済みContextを読み、全相談の現在の結論・現在のTask要件・PR/SHAと照合して再判断する。旧blocked結果を再送しない。保存済み検証を変更後のSHAに流用しない。\n' >>"$rendered_prompt"
+  [[ "$(jq '[.resumptions[]? | select(.state == "ready")] | length' <<<"$summary")" -gt 0 ]] || return 0
+  while IFS= read -r saved; do
+    task_id="$(jq -r '.taskId' <<<"$saved")"
+    jq '.runtime' <<<"$saved" >"$RALPH_TMP_DIR/resumption-runtime.json"
+    if ! actual="$(node "$RALPH_ROOT/runtime/consultation-context.mjs" "$RALPH_TMP_DIR/resumption-runtime.json")"; then
+      ralph_log_error 'Task %sの相談再開に失敗しました（保存済みContext/成果物の読込）。次の候補を確認します。\n' "$task_id"
+      continue
+    fi
+    if ! response="$(mcp_call 'resume_consultation_task' "$(jq -cn --arg taskId "$task_id" --argjson runtime "$actual" \
+      --arg requestId "resume-$task_id-$(date +%s)-$$" '{taskId: $taskId, runtime: $runtime, requestId: $requestId}')")"; then
+      ralph_log_error 'Task %sの相談再開に失敗しました（Claim取得/版照合）。次の候補を確認します。\n' "$task_id"
+      continue
+    fi
+    RALPH_EXECUTION_ROOT="$(jq -r '.worktreePath' <<<"$actual")"
+    printf '\n相談からの再開Context（Claim取得済み。Taskを選択・Claimし直さない）:\n' >>"$rendered_prompt"
+    jq '.result.structuredContent' <<<"$response" >>"$rendered_prompt"
+    printf '\n保存済みContextを読み、全相談の現在の結論・現在のTask要件・PR/SHAと照合して再判断する。旧blocked結果を再送しない。保存済み検証を変更後のSHAに流用しない。\n' >>"$rendered_prompt"
+    return 0
+  done < <(jq -c '.resumptions[]? | select(.state == "ready")' <<<"$summary")
+  # 全再開候補が失敗しても、通常候補があればAgentの選択へ進む。
+  (( $(jq '.availableCount - .readyCount' <<<"$summary") > 0 ))
 }

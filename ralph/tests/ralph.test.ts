@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -61,7 +61,7 @@ const waitFor = async (check: () => boolean | Promise<boolean>, what: string, ti
   throw new Error(`timed out waiting for ${what}`);
 };
 
-type AgentLaunch = { role: string; action: string; provider: string; authorization: string; prompt: string; visibleTokenEnv: string[] };
+type AgentLaunch = { pid: number; role: string; action: string; provider: string; authorization: string; prompt: string; visibleTokenEnv: string[] };
 
 const setup = async (options: { claimTtlMs?: number } = {}) => {
   const directory = await mkdtemp(join(tmpdir(), "compass-ralph-it-"));
@@ -293,3 +293,55 @@ test("Agentの実行中にSIGTERMを受けると、Agentの終了を待って次
     await it.teardown();
   }
 });
+
+for (const role of ["worker", "reviewer"] as const) {
+  test(`${role}の実loop・logging・providerはRunner強制終了後も旧Agent終了までlockを保持する`, { skip: loopbackSkip }, async () => {
+    const it = await setup();
+    let loop: ChildProcess | undefined;
+    let loopExit: ReturnType<typeof exited> | undefined;
+    let closed = true;
+    let sessionPid: number | undefined;
+    try {
+      if (role === "reviewer") assert.equal((await exited(it.startRalph(["worker", "--once"]))).code, 0);
+      const before = it.launches().length;
+      loop = it.startRalph([role, "--once"], {
+        actions: { [role]: ["sleep-complete"] }, env: { FAKE_AGENT_SLEEP_MS: "3000" },
+      });
+      loopExit = exited(loop);
+      closed = false;
+      loop.once("close", () => { closed = true; });
+      await waitFor(() => it.launches().length > before, "the provider Agent to start");
+      const agent = it.launches().at(-1)!;
+      // Python Runnerが作った専用sessionのloop PIDを控え、失敗時も全子プロセスを回収する。
+      const child = execFileSync("ps", ["-axo", "pid=,ppid="], { encoding: "utf8" })
+        .trim().split("\n").map((line) => line.trim().split(/\s+/).map(Number))
+        .find(([, parent]) => parent === loop!.pid);
+      assert.ok(child?.[0]);
+      sessionPid = child[0];
+      assert.equal(agent.provider, role === "worker" ? "claude" : "codex");
+      assert.equal((await exited(it.startRalph([role, "--once"]))).code, 75);
+      loop.kill("SIGKILL");
+      // Runnerのexitと、旧loop/providerが持つstdoutのcloseを区別する。
+      await waitFor(() => loop!.signalCode === "SIGKILL", "the Runner to be killed");
+      process.kill(agent.pid, 0);
+      // loop本体も失ってから照合し、provider側への継承が失われても成功しないようにする。
+      process.kill(sessionPid, "SIGKILL");
+      assert.equal((await exited(it.startRalph([role, "--once"]))).code, 75);
+      await waitFor(() => closed, "the old execution and logging to close");
+      await loopExit;
+      assert.equal(await it.taskStatus(), role === "worker" ? "in_review" : "wait_accept");
+      assert.equal((await exited(it.startRalph([role, "--once"]))).code, 0);
+      assert.equal(it.launches().length, before + 1);
+    } finally {
+      loop?.kill("SIGTERM");
+      if (sessionPid && !closed) {
+        try { process.kill(-sessionPid, "SIGKILL"); } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+        }
+      }
+      await loopExit;
+      await waitFor(() => closed, "all execution pipes to close");
+      await it.teardown();
+    }
+  });
+}
