@@ -36,6 +36,9 @@ Managerは、Ralphが今回返した専用プレビューURL・対象SHA・専�
 - 接続先は`start_browser_preview`が返したURLのoriginにある`/mcp`。普段利用するWacha MCPへ検証データを作らない。
 - 利用主体はmanifestの`actors`に記載した`preview-manager`・`preview-worker`・`preview-reviewer`。`trusted-local`の専用環境だけで、`Authorization: Bearer <preview actor>`と`X-Compass-Active-Role`を指定する。これは検証用Principalであり、実行中のAgentへRoleを追加するものではない。
 - Workの準備はmanifestの`projectIds`内だけに限定する。`allowedTools`に記載したStory/Taskの作成・参照、Claim取得/更新/解放、コメント・完了・レビュー・受入を許可する。操作したID・requestId・結果を証跡へ残す。Task/Claimへの操作はそこで作成した検証用Entityだけを対象とする。
+- 相談の作成・参照・応答lease・返信・結論・取消と、Taskの`wait_for_consultation`・`list_consultation_resumptions`・`resume_consultation_task`・`confirm_consultation_continuation`は、manifestで公開されている操作を検証用Projectと検証用Entityに限って使用できる。Manager/Worker/Reviewerはmanifestの対応主体とactiveRoleを使い、取消後の継続確認・結論の保存はManagerが行う。既存の認可・lease・版・自己レビュー禁止を迂回しない。
+- 許可一覧は対象SHAの`tools/list`と照合して生成する。`consultationResumptionEnabled`がfalseなら、そのSHAには待機/再開の公開契約が揃っていない。別SHAのtoolやDB操作で補わない。
+- 待機・再開で必要な成果物とContextは、専用検証ディレクトリ内に対象SHAの別Git checkoutを作り、そこで保持する。そのSHAの`ralph/runtime/consultation-context.mjs`でHEAD・差分・Contextのfingerprintを取得する。実際の受入TaskのWorktree・Context・Claimを検証用に流用しない。
 - ログイン・Membership等の準備は専用プレビューのOwnerによるWeb UI・認証済みWeb APIで行う。権限差の検証時はOwnerで準備した後にViewer等へ切り替える。
 - SQL直接実行、schemaの変更、API応答や時刻の差し替え、Claim期限のDB直接更新、未登録のホストコマンド実行は許可しない。公開操作で作れない状態は不足する入口と必要な追加準備を具体的に示す。
 

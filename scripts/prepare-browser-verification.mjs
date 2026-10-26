@@ -44,6 +44,7 @@ const viewerEmail = 'preview-viewer@example.test';
 let sequence = 0;
 const key = (name) => `preview:${name}:${++sequence}`;
 const scenarios = [];
+let availableTools = [];
 try {
   await initializeSchema(database);
   const services = createApplicationServices(database, undefined, undefined, { initialOwnerEmail: ownerEmail });
@@ -52,6 +53,18 @@ try {
   const owner = { kind: 'human', humanUserId: login.session.humanUserId };
   const direction = services.workspaceDirection;
   const work = services.taskCoordinationService;
+  // Read the inspected revision's public MCP contract; never advertise absent operations.
+  const { createApp } = await targetModule('server/src/bootstrap/app.ts');
+  const app = createApp(services, { humanAuth: { mode: 'trusted-local', publicOrigin: 'http://localhost' } });
+  const listed = await app.request('/mcp', { method: 'POST', headers: {
+    'Content-Type': 'application/json', Accept: 'application/json, text/event-stream',
+    Authorization: `Bearer ${identities.manager}`, 'X-Compass-Active-Role': 'manager',
+  }, body: JSON.stringify({ jsonrpc: '2.0', id: 'preview-tools', method: 'tools/list' }) });
+  if (!listed.ok) throw new Error('Could not inspect preview MCP capabilities');
+  const raw = await listed.text();
+  const payload = JSON.parse(raw.split('\n').find((line) => line.startsWith('data: '))?.slice(6) ?? raw);
+  if (!Array.isArray(payload.result?.tools)) throw new Error('Invalid preview MCP tools/list response');
+  availableTools = payload.result.tools.map(({ name }) => name);
   const addViewer = async (workspaceId, projectId) => {
     const invitation = await services.createProjectInvitationUseCase.execute(owner, projectId, { email: viewerEmail, role: 'viewer' });
     const signedIn = await services.localDevLoginUseCase.execute({ email: viewerEmail, invitationToken: invitation.token, previousSessionToken: null });
@@ -139,7 +152,17 @@ const manifest = { schemaVersion: 1, purpose: 'browser-verification-fixtures', h
     projectIds: scenarios.flatMap(({ projects }) => projects.map(({ id }) => id)),
     allowedTools: ['issue_story', 'issue_task', 'get_story', 'get_task', 'list_stories', 'list_tasks',
       'claim_task', 'claim_review', 'claim_acceptance', 'renew_claim', 'release_claim',
-      'add_task_comment', 'complete_task', 'reviewed_task', 'accept_task'],
+      'add_task_comment', 'complete_task', 'reviewed_task', 'accept_task',
+      'create_consultation', 'list_consultations', 'get_consultation', 'acquire_consultation_lease',
+      'reply_consultation', 'resolve_consultation', 'cancel_consultation',
+      'wait_for_consultation', 'list_consultation_resumptions', 'resume_consultation_task',
+      'confirm_consultation_continuation'].filter((name) => availableTools.includes(name)),
+    consultationResumptionEnabled: ['wait_for_consultation', 'list_consultation_resumptions',
+      'resume_consultation_task', 'confirm_consultation_continuation'].every((name) => availableTools.includes(name)),
+    runtimeArtifacts: {
+      scope: 'dedicated-verification-directory-only',
+      instructions: 'Save a separate temporary Git checkout at this headSha, uncommitted artifacts and previous Context. Use the inspected revision runtime/consultation-context.mjs. Do not use or modify the actual acceptance execution Worktree/Context.',
+    },
     claimTtlMs: Number(process.env.COMPASS_CLAIM_TTL_MS ?? 30 * 60 * 1000),
     instructions: 'Read policyPath. Use only the dedicated preview URL and these preview actors; execution Task/Claim and operational MCP are outside this permission.',
   },

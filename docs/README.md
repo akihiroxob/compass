@@ -37,5 +37,6 @@
 - [Story分割・AC・検証依存の再発防止案](planning/acceptance-dependency-prevention.md): 検証可能な増分、Givenの成立確認、依存制御と停止後の自律的な回復の提案。依存制御等は未実装。
 - [Humanとの協働・自律保守・対話的開発の変更案](planning/human-collaboration-and-autonomous-maintenance.md): 判断待ちと会話、運用ログの振り返り、記録しながら進める開発に必要な追加・変更と実装順。未確定の設計案。
 - [人への相談・判断待ちの実装計画](planning/consultation-implementation-plan.md): 相談機能に絞った画面・保存・認可・会話・自動再開・ADR反映、受入境界とWacha登録先。登録と実装完了を区別する。Project相談の作成・会話・結論（01）の現行契約は[Project相談](consultation-design.md)。
+- [デザインシステムとUIカタログの実装計画](planning/design-system-implementation-plan.md): ムードボード・プロトタイプの参照、配色と視覚方向、実部品を共有するカタログ、画面適用の受入境界とWacha登録先。登録と実装完了を区別する。
 
 現行文書へ過去の案・段階別の作業記録を併記しない。過去情報はGit履歴から参照する。

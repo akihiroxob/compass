@@ -24,7 +24,7 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
     assert.equal(prepared.status, 0, prepared.stderr);
     const manifest = JSON.parse(await readFile(join(data, "browser-fixtures.json"), "utf8")) as {
       headSha: string; preparationScriptSha256: string;
-      dataPreparation: { scope: string; actors: Record<string, string>; allowedTools: string[]; projectIds: string[] };
+      dataPreparation: { scope: string; actors: Record<string, string>; allowedTools: string[]; projectIds: string[]; consultationResumptionEnabled: boolean };
       scenarios: { scenario: string; workspaceId: string; intentId: string; outcomeId: string;
         projects: { id: string }[]; evaluationId?: string; decisionId?: string; researchRequestId?: string }[];
     };
@@ -32,6 +32,14 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
     assert.match(manifest.preparationScriptSha256, /^[a-f0-9]{64}$/);
     assert.equal(manifest.dataPreparation.scope, "isolated-preview-only");
     assert.ok(manifest.dataPreparation.allowedTools.includes("claim_task"));
+    // The manifest must describe the actual inspected MCP contract, including optional newer features.
+    const hasResumption = manifest.dataPreparation.allowedTools.includes("wait_for_consultation");
+    assert.equal(manifest.dataPreparation.consultationResumptionEnabled, hasResumption);
+    if (hasResumption) {
+      for (const name of ["list_consultation_resumptions", "resume_consultation_task", "confirm_consultation_continuation"]) {
+        assert.ok(manifest.dataPreparation.allowedTools.includes(name));
+      }
+    }
     const database = createDatabase(join(data, "preview.db"));
     try {
       let now = Date.now();
