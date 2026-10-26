@@ -1,0 +1,20 @@
+// Direction（features/direction）。所属WorkspaceのMission・Visionの帯。
+@use "../../styles/mixins" as *;
+
+// MissionとVisionの帯（DirectionPanel。Workspaceの概要・方向、Projectの方向）。ブランドの濃い面で、ページの方向を本文より先に示す。
+.direction-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  margin-bottom: var(--space-md);
+  border-radius: var(--radius-lg);
+  color: var(--color-inverse-text);
+  background: var(--color-inverse);
+  overflow: hidden;
+  > div { min-width: 0; padding: var(--space-md) var(--space-lg); overflow-wrap: anywhere; }
+  > div + div { border-left: 1px solid var(--color-inverse-line); }
+  .section-label { margin-bottom: var(--space-2xs); color: var(--color-inverse-muted); }
+  p:last-child { margin: 0; font-weight: 600; line-height: var(--line-height-body); white-space: pre-wrap; }
+  > div:first-child p:last-child { font-size: var(--text-lead); }
+  .unset { color: var(--color-inverse-muted); }
+  @include narrow { grid-template-columns: 1fr; > div { padding: var(--space-md); } > div + div { border-top: 1px solid var(--color-inverse-line); border-left: 0; } }
+}

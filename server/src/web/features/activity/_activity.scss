@@ -2,11 +2,9 @@
 @use "../../styles/mixins" as *;
 
 .recent-activities {
-  @include unstyled-list;
-  display: grid;
-  gap: .6rem;
-  margin-bottom: var(--space-md);
-  li { @include list-item; padding: .7rem 1rem; overflow-wrap: anywhere; }
+  @include divided-list;
+  margin-bottom: var(--space-sm);
+  li { @include list-item; overflow-wrap: anywhere; }
   small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 }
 .activity-refs { margin: .45rem 0 0; padding-left: 1.1rem; font-size: var(--text-small); li { margin: .15rem 0; } }

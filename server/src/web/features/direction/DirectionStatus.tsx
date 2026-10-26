@@ -26,3 +26,11 @@ export const WorkCounts = ({ work }: { work: TargetWork["work"] }) => {
     </small>
   );
 };
+
+/** 所属WorkspaceのMissionとVision。ページの方向として本文より先に置く（Workspaceの概要・方向、Projectの方向）。 */
+export const DirectionPanel = ({ mission, vision }: { mission: string; vision: string | null }) => (
+  <section className="direction-panel" aria-label="MissionとVision">
+    <div><p className="section-label">Mission</p><p>{mission}</p></div>
+    <div><p className="section-label">Vision</p><p>{vision ?? <span className="unset">未設定</span>}</p></div>
+  </section>
+);

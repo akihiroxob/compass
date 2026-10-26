@@ -32,7 +32,7 @@ devはループバックだけでlistenする。終了は`Ctrl+C`。静的build�
 | preview | `server/.storybook/preview.tsx`。製品と同じ`app/main.scss`と`MemoryRouter`を使う。認証・Workspace Providerは基本部品に不要なので起動しない |
 | Foundations | `styles/Tokens.stories.tsx`。`styles/_tokens.scss?raw`から名前・値を生成し、見本は製品のCSS変数で描画。色・状態色・文字・余白・control size・角丸・影・動きの値一覧を二重管理しない |
 | Components | `components/ui/*.stories.tsx`。製品と同じ`components/ui/index.ts`からButton/LinkButton、入力、Field/Fieldset、ViewSwitchを使用 |
-| Patterns | `components/Patterns.stories.tsx`。既存の操作列・フォーム・ConfirmPanel・StateCardを使用。APIに依存せずローカル状態で入力・確認・完了を用意 |
+| Patterns | `components/Patterns.stories.tsx`。既存の操作列・フォーム・ConfirmPanel・StateCard・PageColumns・罫線区切りの一覧・Projectカードを使用。APIに依存せずローカル状態で入力・確認・完了を用意。`features/direction/DirectionPanel.stories.tsx`はMission・Visionの帯とPageColumnsの組合せ |
 
 カタログ用の部品・SCSSは持たない。Foundationsのinline styleはtoken見本の描画だけに用い、基本部品のstyleを上書きしない。状態例は対応する部品/トークンの近くに置き、製品の公開入口からexportしない。将来Contextが必要な部品を追加する場合も、必要範囲だけをpreviewで用意し、実運用APIや秘密をfixtureへ持ち込まない。
 
@@ -45,7 +45,8 @@ devはループバックだけでlistenする。終了は`Ctrl+C`。静的build�
 | `Components/LinkButton` | URL遷移のControls、primary/secondaryとmd/sm。Router Link標準属性を受ける |
 | `Components/FormControls` | TextInputのControls、md/smの入力とSelect、TextArea、必須/説明つきField、inline Field、FieldsetとCheckbox。readOnly/disabled/aria-invalid、選択済み・未選択を確認 |
 | `Components/ViewSwitch` | md/sm、件数と選択中表示。NavigationでURLとaria-currentの切替を確認 |
-| `Patterns/SharedUI` | 同sizeの操作列、標準HTML検証つきフォーム、確認の見出しfocus・キャンセル・確定、pending/error/読込/空状態 |
+| `Patterns/SharedUI` | 同sizeの操作列、標準HTML検証つきフォーム、確認の見出しfocus・キャンセル・確定、pending/error/読込/空状態。`ColumnsAndLists`で主列・補助列、罫線区切りの一覧（リンク行のhover・長い文言の折返し）、補助列の縦積み、状態badge。`Cards`でProjectカード（開ける・開けない） |
+| `Patterns/OverviewLayout` | Mission・Visionの帯（Visionの未設定・長い文言）と、帯の下のPageColumns。Desktop 2列・狭い画面1列 |
 
 各Docsに用途・Controls/props・使用コードを表示する。詳細な標準属性・部品API・部品の使い分けは[Web UIの基本部品](web-ui.md#基本部品)も参照する。hoverはポインターを重ね、focusはTab/Shift+Tabで確認する。disabled/pendingをクリックしても操作されないこと、入力ラベル・required・エラーの関連付け、ViewSwitchのリンクと選択中表示を確認する。未実装のloading等のAPIを見本だけに追加しない。
 

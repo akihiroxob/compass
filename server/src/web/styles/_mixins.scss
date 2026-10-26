@@ -34,12 +34,13 @@
 }
 
 // 小さな大文字の見出しラベル（eyebrow・dt等）。
-@mixin caps-label($size: var(--text-label), $spacing: .08em) {
+// `$transform: none`は実データ（Workspace名等）を含むラベルに使い、名前の大文字・小文字を変えない。
+@mixin caps-label($size: var(--text-label), $spacing: .08em, $transform: uppercase) {
   color: var(--color-text-muted);
   font-size: $size;
   font-weight: 700;
   letter-spacing: $spacing;
-  text-transform: uppercase;
+  text-transform: $transform;
 }
 
 // 見出しの文字（`--text-h1`〜`--text-h3`）。サンセリフの太さと行間で階層を表す。
@@ -49,11 +50,10 @@
   line-height: var(--line-height-heading);
 }
 
-// 一覧の1行・小さなカード。
+// 一覧の1行。行ごとに囲まず、区画の白い面の中で罫線で区切る（囲みは区画・カードだけが持つ）。
 @mixin list-item {
-  border: 1px solid var(--color-line-soft);
-  border-radius: var(--radius-sm);
-  background: var(--color-raised);
+  padding: var(--space-sm) var(--space-xs);
+  border-top: 1px solid var(--color-line-soft);
 }
 
 // 一覧の行全体がリンクの場合のhover。`display`は利用側のlayout（block・flex・grid）が指定する。
@@ -61,7 +61,13 @@
   @include list-item;
   display: $display;
   text-decoration: none;
-  &:hover { border-color: var(--color-brand); box-shadow: var(--shadow-hover); }
+  &:hover { background: var(--color-note); }
+}
+
+// 一覧（ul）。行は`list-item`で区切り、行間のgapを持たない。
+@mixin divided-list {
+  @include unstyled-list;
+  display: grid;
 }
 
 // 区画（form-section・detail-section等）。
@@ -78,7 +84,7 @@
   list-style: none;
 }
 
-// ナビゲーションのリンク（Workspaceのナビゲーション・Project詳細のview切替）。選択中は`aria-current="page"`でブランドの面にする。
+// ナビゲーションのリンク（Workspaceのナビゲーション）。選択中は`aria-current="page"`でブランドの面にする。
 @mixin nav-link($display: inline-flex, $radius: var(--radius-sm)) {
   display: $display;
   align-items: center;

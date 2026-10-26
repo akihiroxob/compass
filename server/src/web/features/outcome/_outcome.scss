@@ -6,12 +6,13 @@
   .outcome-list { margin-top: var(--space-xs); }
   .section-label { margin-bottom: .3rem; }
 }
+// 成功条件の入力の組。複数の入力をまとめる編集単位のため、一覧の行と違い枠で囲む。
 .criterion-row {
-  @include list-item;
   display: grid;
-  gap: .5rem;
-  margin-bottom: .9rem;
-  padding: 1rem;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-sm);
+  padding: var(--space-md);
+  border: 1px solid var(--color-line-soft);
   border-radius: var(--radius-md);
   > .text-button { justify-self: start; }
 }

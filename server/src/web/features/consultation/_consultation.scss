@@ -9,9 +9,10 @@
   margin-bottom: var(--space-md);
 }
 .consultation-message {
-  @include list-item;
-  padding: .9rem 1rem;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-line-soft);
   border-left-width: 4px;
+  border-radius: var(--radius-sm);
   overflow-wrap: anywhere;
   scroll-margin-top: 4rem;
   &.from-human { border-left-color: var(--color-brand); }
@@ -30,11 +31,9 @@
 .consultation-resolution { border-left: 4px solid var(--tone-done-bg); padding-left: 1.5rem; }
 // 判断待ちの一覧。行全体が相談詳細へのリンク。
 .consultation-list {
-  @include unstyled-list;
-  display: grid;
-  gap: .6rem;
+  @include divided-list;
   .detail-section & { padding-left: 0; }
-  a { @include list-link; padding: .9rem 1rem; overflow-wrap: anywhere; }
+  a { @include list-link; overflow-wrap: anywhere; }
   strong { overflow-wrap: anywhere; }
   small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 }

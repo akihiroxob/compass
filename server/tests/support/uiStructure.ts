@@ -355,6 +355,22 @@ export const checkUiClassUsage = (sources: UiSource[]): string[] => {
 };
 
 /**
+ * 整理済みの旧視覚表現の検査（docs/web-ui.mdの「残存する旧表現の確認」）。pill（`--radius-pill`）は状態badge（`.status-badge`）だけが使い、
+ * hoverで持ち上げる動き（`transform`）と、mixin以外での大文字変換（`text-transform: uppercase`）を使わない。
+ */
+export const checkLegacyVisuals = (sources: UiSource[]): string[] => {
+  const errors: string[] = [];
+  for (const source of sources.filter(({ path }) => path.endsWith(".scss") && path !== "styles/_tokens.scss" && path !== "styles/_mixins.scss"))
+    for (const { selectors, property, value } of parseScss(source.path, source.text).declarations) {
+      const where = `${source.path}: ${selectors.join(", ")}`;
+      if (value.includes("--radius-pill") && !selectors.every((selector) => selector.startsWith(".status-badge"))) errors.push(`${where} のpillは状態badgeだけに使う`);
+      if (property === "transform") errors.push(`${where} のtransformを使わない（hoverは面・枠の色で示す）`);
+      if (property === "text-transform" && value === "uppercase") errors.push(`${where} の大文字変換はcaps-labelのmixinだけで行う`);
+    }
+  return errors;
+};
+
+/**
  * Sassの出力の検査。同じ@規則の中で、同じselectorの同じpropertyを別のruleで宣言しない（partialの二重出力・後のruleによる打消しを残さない）。
  * 1つのruleの中でmixinの値を上書きする宣言（`@include caps-label; color: ...`）は対象外。
  */

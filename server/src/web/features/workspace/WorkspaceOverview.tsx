@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { request, settle, type Part } from "../../api";
+import { PageColumns } from "../../components/PageColumns";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { intentPath, outcomePath, projectViewPath, researchRequestPath, workspaceOutcomePath, workspacePath, workspaceProjectsPath } from "../../paths";
 import { statusBadgeClass, type StatusTone } from "../../statusTone";
@@ -225,7 +226,7 @@ const RecentActivity = ({ workspace, activities }: { workspace: Workspace; activ
  * Workspaceの概要（S10-01）。現在地（どのOutcomeをどのProjectが担当し、どこまで進んだか）・要対応・Project・Agent・最近の記録を
  * 実データから出す。部分ごとに取得失敗・空・archivedを区別し、Role割当やClaimからAgentが稼働中であるとは表示しない。
  */
-export const WorkspaceOverview = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
+export const WorkspaceOverview = ({ workspace, myRole, manage }: { workspace: Workspace; myRole: HumanRole; manage: ReactNode }) => {
   const [data, setData] = useState<OverviewData | null>(null);
   const [pending, setPending] = useState(false);
   const load = useCallback((isCurrent: () => boolean = () => true) => {
@@ -242,22 +243,31 @@ export const WorkspaceOverview = ({ workspace, myRole }: { workspace: Workspace;
   }, [load]);
   if (!data) return <Loading />;
   const outcomes = data.direction.ok ? data.direction.value.outcomes : null;
-  return (
+  // 主列は要対応 → 現在地 → 最近の記録の順に判断へ使う情報、補助列はProject・Agent・管理の参照と導線。
+  const main = (
     <>
-      <section className="detail-section workspace-overview" aria-labelledby="workspace-position-heading">
-        <h2 id="workspace-position-heading">現在地</h2>
-        <div className="claim-holder-toolbar">
-          <span>{formatTime(data.fetchedAt)} 取得</span>
-          <Button variant="secondary" size="sm" pending={pending} onClick={() => void load()}>{pending ? "読み込み中..." : "再読込"}</Button>
-        </div>
-        {data.direction.ok ? <CurrentPosition workspaceId={workspace.id} direction={data.direction.value} projects={data.projects} /> : <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${data.direction.error}`} />}
-        {outcomes && outcomes.length > 0 && <p className="section-note">Taskの件数は状態だけを数えたもので、Agentの稼働やClaimの有効性を示しません。Claimの状況は各Projectの概要で確認します。</p>}
-        <Link to={workspacePath(workspace.id, "direction")} className="text-link">方向を開く →</Link>
-      </section>
+      <div className="claim-holder-toolbar">
+        <span>{formatTime(data.fetchedAt)} 取得</span>
+        <Button variant="secondary" size="sm" pending={pending} onClick={() => void load()}>{pending ? "読み込み中..." : "再読込"}</Button>
+      </div>
       <section className="detail-section" aria-labelledby="workspace-attention-heading">
         <h2 id="workspace-attention-heading">要対応</h2>
         {data.direction.ok ? <Attention workspace={workspace} myRole={myRole} direction={data.direction.value} research={data.research} projects={data.projects} /> : <p role="alert" className="error-title">Intent・Outcomeを確認できないため、要対応を判定できません。</p>}
       </section>
+      <section className="detail-section workspace-overview" aria-labelledby="workspace-position-heading">
+        <h2 id="workspace-position-heading">現在地</h2>
+        {data.direction.ok ? <CurrentPosition workspaceId={workspace.id} direction={data.direction.value} projects={data.projects} /> : <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${data.direction.error}`} />}
+        {outcomes && outcomes.length > 0 && <p className="section-note">Taskの件数は状態だけを数えたもので、Agentの稼働やClaimの有効性を示しません。Claimの状況は各Projectの概要で確認します。</p>}
+        <Link to={workspacePath(workspace.id, "direction")} className="text-link">方向を開く →</Link>
+      </section>
+      <section className="detail-section" aria-labelledby="workspace-recent-heading">
+        <h2 id="workspace-recent-heading">最近の記録</h2>
+        <RecentActivity workspace={workspace} activities={data.activities} />
+      </section>
+    </>
+  );
+  const side = (
+    <>
       <section className="detail-section" aria-labelledby="workspace-projects-heading">
         <h2 id="workspace-projects-heading">Project</h2>
         <ProjectSummary workspace={workspace} projects={data.projects} outcomes={outcomes} />
@@ -267,10 +277,8 @@ export const WorkspaceOverview = ({ workspace, myRole }: { workspace: Workspace;
         <p className="section-note">Agentの稼働状況は、この画面では判断しません。Role割当・Credential・Claimは稼働を示さないため、担当待ちは「要対応」に、Role割当・Credential・保持中のClaimはAgent画面に出します。</p>
         <Link to={workspacePath(workspace.id, "agents")} className="text-link">Agentを開く →</Link>
       </section>
-      <section className="detail-section" aria-labelledby="workspace-recent-heading">
-        <h2 id="workspace-recent-heading">最近の記録</h2>
-        <RecentActivity workspace={workspace} activities={data.activities} />
-      </section>
+      {manage}
     </>
   );
+  return <PageColumns main={main} side={side} />;
 };

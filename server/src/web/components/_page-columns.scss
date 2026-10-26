@@ -1,0 +1,19 @@
+// 本文の2列（PageColumns）。Desktopは主列と幅を抑えた補助列、狭い画面はDOMの順に1列で積む。
+@use "../styles/mixins" as *;
+
+.page-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
+  align-items: start;
+  gap: var(--space-md);
+  @include narrow { grid-template-columns: minmax(0, 1fr); }
+}
+.page-main, .page-side {
+  display: grid;
+  gap: var(--space-md);
+  min-width: 0;
+  // 列の中の区画の間隔はgapで持つ。
+  > * { margin-top: 0; margin-bottom: 0; }
+}
+.page-main { grid-column: 1; grid-row: 1; @include narrow { grid-row: auto; } }
+.page-side { grid-column: 2; grid-row: 1; @include narrow { grid-column: 1; grid-row: auto; } }

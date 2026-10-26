@@ -34,7 +34,7 @@ Featureの画面は`<main>`から始まる本文だけを返し、Shell・Provid
 | Feature | 所有するもの |
 | --- | --- |
 | `access` | Project・Workspaceの操作可否（`permissions.ts`・`projectAccess.ts`）、取得hook（`useProjectAccess.ts`・`useWorkspaceDirection.ts`）、認可ゲート |
-| `direction` | Directionの現在地・要対応・貢献の判定（`direction.ts`・`overview.ts`）と取得（`directionData.ts`）、評価段階の表示（`DirectionStatus.tsx`）。Workspaceの概要・方向とProjectの概要が使う |
+| `direction` | Directionの現在地・要対応・貢献の判定（`direction.ts`・`overview.ts`）と取得（`directionData.ts`）、評価段階とMission・Visionの帯（`DirectionStatus.tsx`の`stageLabels`・`WorkCounts`・`DirectionPanel`）。Workspaceの概要・方向とProjectの概要・方向が使う |
 | `project` | Projectの型・入力検証（`project.ts`）、アーカイブ（`projectArchive.ts`）、Project詳細・一覧 |
 | `intent`・`outcome`・`decision`・`research`・`adr` | 各Directionの型・入力検証・変換（`intent.ts`・`outcome.ts`・`decision.ts`・`research.ts`・`adr.ts`）と画面 |
 | `workspace` | Workspaceの型・ナビゲーション（`workspace.ts`）・入力検証（`workspaceForm.ts`）・所属Projectの取得（`workspaceProjects.ts`）と画面 |
@@ -68,6 +68,7 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 
 | 部品 | 用途 |
 | --- | --- |
+| `PageColumns`（`components/PageColumns`） | 本文の主列と補助列（`main`・`side`・`sideFirst`）。Desktopは主列と幅16〜20remの補助列、狭い画面は1列。列の中の区画の間隔（gap）を持ち、区画は外側余白を持たない。`sideFirst`は狭い画面で補助列を先に積む |
 | `StateCard`（`components/StateCard`） | 読込・失敗・空・案内の枠。`tone="error"`、`role`（`alert`・`status`）・`id`・`tabIndex`・refを受け、`className`・`style`は受けない。`Loading`・`ErrorState`はこれを使う |
 | `ConfirmPanel`（`components/ReasonPanel`） | 操作の確定前の確認パネル（見出し・説明・入力・失敗・やめる/確定）。`danger`で確定ボタンを危険操作の色に、`focusHeading`で見出しへfocusを移す。Credentialのrotation等の入力つき確認 |
 | `ReasonPanel`（`components/ReasonPanel`） | `ConfirmPanel`に理由欄と`useReasonAction`の状態をつないだ、取消・放棄・アーカイブ等の確認 |
@@ -80,7 +81,7 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 | 画面へ移るボタンの見た目の導線（作成・編集・ホームへ・別タブでログイン） | `LinkButton`（`target="_blank"`等の`Link`のpropsを渡せる） |
 | 一覧の表示の切替（status・絞り込み） | `ViewSwitch` |
 | 本文・一覧・カードの中のリンク、戻る・パンくず | 通常の`Link`（`text-link`・`back-link`・`breadcrumb`・カードのclass）。ボタンにしない |
-| 画面の間のナビゲーション（Workspaceのナビゲーション・Project詳細のview） | `nav`内の`Link`と`nav-link` mixin。`aria-current="page"`で現在地を示す。表示切替の部品にしない |
+| 画面の間のナビゲーション（Workspaceのナビゲーション・Project詳細のview） | `nav`内の`Link`。Workspaceのナビゲーションは`nav-link` mixin（選択中はブランドの面）、Project詳細のviewは下線のタブ（`.project-view-nav`）。`aria-current="page"`で現在地を示す。表示切替の部品にしない |
 | 開閉する詳細（Role定義・過去のIntent等） | `details`・`summary` |
 
 `<button>`の個別の例外は、Workspaceの切替のdialogを開くカード（`features/workspace/WorkspaceSwitcher.tsx`の`workspace-switch`）だけとする。現在のWorkspaceの名前を示すWorkspace固有の表示で、操作ボタンのsize契約を持たないため。
@@ -104,11 +105,11 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 
 入力（`.input`・`.select`）も同じ`control-size`を使い、`TextArea`は`--control-md-padding-x`・`--control-md-font-size`と`--field-padding-y`・`--field-line-height`を使う。入力の枠・角丸・label内の間隔・エラー・無効・読取専用の表示は`_tokens.scss`の`--field-*`（`--field-gap`・`--field-radius`・`--field-border-color`・`--field-hover-border-color`・`--field-invalid-color`・`--field-disabled-background`・`--field-readonly-background`）と、ボタンと共通の`--control-disabled-opacity`で定める。Featureのstyleは部品の見た目・sizeを上書きせず、配置（幅・flex・grid）と字体（例: tokenの等幅表示）だけを指定する。
 
-部品間のgap・折返し・一覧との余白は親layoutが持つ。フォームでは`.form-section`（grid・gap `--space-md`）・`.grant-form`（grid・gap `--space-md`）・`.criterion-row`・`.fieldset`等のgapが欄の上下の間隔を持ち、`Field`・入力部品は外側余白を持たない。一覧の上の操作列は`.list-toolbar`（flex・折返し・`align-items: center`・gap `--space-sm`・下余白`--space-lg`）を使い、列内の部品は同じ`size`を指定する。切替だけを置く一覧でも、下余白は`.list-toolbar`が持つ。送信の失敗の要約（`FormErrorSummary`）と作成・編集フォーム（`.project-form`）の間は`.state-card + .project-form`が持つ。`.detail-section`の字下げ（`padding-left`）はclassの無い本文の箇条書きにだけ付け、classを持つ一覧（`.outcome-list`・`.grant-list`等の行カード）は自身の余白で区画の見出しと左端を揃える。
+部品間のgap・折返し・一覧との余白は親layoutが持つ。区画の間隔は`PageColumns`の列（gap `--space-md`）、区画の下端は`.detail-section`のpaddingだけが持つ（最後の子の下余白は0）。フォームでは`.form-section`（grid・gap `--space-md`）・`.grant-form`（grid・gap `--space-md`）・`.criterion-row`・`.fieldset`等のgapが欄の上下の間隔を持ち、`Field`・入力部品は外側余白を持たない。一覧の上の操作列は`.list-toolbar`（flex・折返し・`align-items: center`・gap `--space-sm`・下余白`--space-lg`）を使い、列内の部品は同じ`size`を指定する。切替だけを置く一覧でも、下余白は`.list-toolbar`が持つ。送信の失敗の要約（`FormErrorSummary`）と作成・編集フォーム（`.project-form`）の間は`.state-card + .project-form`が持つ。`.detail-section`の字下げ（`padding-left`）はclassの無い本文の箇条書きにだけ付け、classを持つ一覧（`.outcome-list`・`.grant-list`等）は行の罫線と内側余白（`list-item`）で区画の見出しの下に並べる。
 
 ## 視覚方針
 
-白と青灰色の面に、青藍（ブランド）を現在地・主要操作・リンクだけに使う。サンセリフの太さ・大きさと面・罫線で階層を表し、太い囲みや大きな余白を一律に使わない。値の正本は`styles/_tokens.scss`で、製品とUIカタログは同じtoken・部品・SCSSを読む。参照は[ムードボード](design/compass-moodboard-blue.png)の配色・文字・部品の密度で、画像内の架空データ・進捗率・Agent表示・ダッシュボード配置は採用しない。
+白と青灰色の面に、青藍（ブランド）を現在地・主要操作・リンクだけに使う。サンセリフの太さ・大きさと面・罫線で階層を表し、太い囲みや大きな余白を一律に使わない。値の正本は`styles/_tokens.scss`で、製品とUIカタログは同じtoken・部品・SCSSを読む。参照は[ムードボード](design/compass-moodboard-blue.png)の配色・文字・部品の密度と、プロトタイプ（`/Users/aokayama/git/compass-prototype`）の情報構造・列構成・区画の見出しの大きさ・一覧の区切り方。画像・プロトタイプ内の架空データ・Goal・期日・進捗率・Agentの稼働表示は採用しない。
 
 | 対象 | 採用した判断 | token |
 | --- | --- | --- |
@@ -118,9 +119,11 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 | ブランド | 主要操作（Button primary）、選択中のnav・ViewSwitch、リンク・eyebrow、焦点表示。hoverは濃色、淡い強調は補助操作・navのhover | `--color-brand` #285a78・`--color-brand-strong` #1f4a63・`--color-brand-soft` #e7eff5 |
 | 状態 | ブランドと別の色相。失敗・危険操作は赤、要対応は橙、警告は黄、完了は緑、進行中は淡い青。必ずラベル文字を併記し、エラーの入力は枠の色に加えて内側の線と要約（`role="alert"`）で示す | `--color-danger*`・`--tone-*` |
 | 文字 | 外部フォントを配信しない。OS標準のサンセリフ（system-ui、和文はヒラギノ角ゴ・Noto Sans JP・Yu Gothic UI・メイリオ）へフォールバックし、セリフ体は使わない | `--font-sans` |
-| 文字の階層 | h1 32px/44・h2 20px・h3 16px（700）、本文14px/1.6、注記13px、ラベル12px（大文字・字間.08em） | `--text-h1`〜`--text-label`・`--line-height-*` |
-| 余白・密度 | 4px基準の`--space-*`（4/8/12/16/24/36px）。区画のpaddingは24px、本文上端は36〜48px | `--space-*` |
-| 角丸 | 操作・入力は6px、行カード6〜8px、区画10px、カード12px。pillは状態badgeだけ | `--control-radius`・`--radius-*` |
+| 文字の階層 | h1 32px/44・h2（区画の見出し）18px・h3 16px（700）、本文14px/1.6、注記13px、ラベル12px（固定のラベルは大文字・字間.08em。Workspace名等の実データを含むeyebrowは大文字へ変換しない） | `--text-h1`〜`--text-label`・`--line-height-*` |
+| 余白・密度 | 4px基準の`--space-*`（4/8/12/16/24/36px）。区画のpaddingは24px（狭い画面16px）、区画の間・列の間は16px、見出しの下の要素は8〜12px、本文上端は36px | `--space-*` |
+| 一覧 | 行ごとに囲まず、区画の白い面の中で罫線（`--color-line-soft`）と内側余白12px/8pxで区切る。行全体のリンクはhoverで淡い青灰色の面にする。囲みは区画・カード・入力の組・会話の発言だけが持つ | `list-item`・`list-link`・`divided-list`（`_mixins.scss`） |
+| 画面の構成 | Mission・Visionをブランドの濃い面の帯（`DirectionPanel`）で本文より先に置き、概要とTask詳細は主列（次の行動・要対応・現在地・履歴）と補助列（境界・件数・担当・管理）の2列にする。Projectのview切替は下線のタブで、sidebarのナビゲーション（ブランドの面）・表示切替（`ViewSwitch`）と区別する | `PageColumns`・`.direction-panel`・`.project-view-nav` |
+| 角丸 | 操作・入力は6px、入力の組・Story card 8px、区画・Projectカード・帯10px。pillは状態badgeだけ（文字は大文字へ変換しない） | `--control-radius`・`--radius-*` |
 
 操作部品の状態は次のとおり。disabledは`--control-disabled-opacity`で薄くし、hoverを変化させない。pendingは`Button`だけが持ち、disabledと`aria-busy="true"`・`cursor: progress`、文言は利用側が切り替える。focusはすべての操作・入力で`--focus-ring`（3px・offset 2px）の実線を出す。
 
@@ -135,6 +138,19 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 
 文字・背景・枠・焦点表示のコントラストは`server/tests/uiTokens.test.ts`（`npm run check:ui`）が`_tokens.scss`の値から測定し、文字はWCAG AA 4.5:1、入力の枠・焦点表示等の非テキストは3:1を下回ると失敗する。測定値は実行時のdiagnosticに出る（例: 本文13.77:1、muted 5.47〜6.15:1、ブランド文字6.39〜7.43:1、主要ボタンの白文字7.43:1、入力の枠3.26〜3.67:1、焦点表示6.39〜7.43:1、状態badge 5.42〜7.41:1）。
 
+### 主要画面への適用と残存する囲み
+
+| 画面 | 構成 |
+| --- | --- |
+| Workspaceの概要 | 見出し → Mission・Visionの帯 → 主列（取得時刻・再読込、要対応、現在地、最近の記録）・補助列（Project、Agent、Workspaceの管理） |
+| Workspaceの方向 | Mission・Visionの帯 → Intent・Outcome → Principles・Constraints |
+| Projectの概要 | 見出し（更新時刻・Roleを1行）→ タブ → 主列（取得時刻・再読込、次の行動、貢献するOutcome、最近の記録）・補助列（実行境界、実行状況、Claim保持中） |
+| Projectの方向・実行・判断待ち・記録・設定 | 本文の幅を概要とそろえ（`main`の既定幅）、設定の入力欄は`.grant-form`で40remまでに抑える |
+| Task詳細 | パンくず → 見出し・操作 → 主列（相談待ち、差戻し理由、Task受入とOutcome評価、Comment、変更履歴）・補助列（概要: Story・相関ID・Claim等）。狭い画面では補助列（担当）を先に出す |
+| Project一覧（Workspace・参加中） | 内容の高さのカードを`auto-fill`（最小17rem）で並べる |
+
+意図して残す囲みは、区画（`.detail-section`・`.form-section`）、Story card（`.intent-card`）、成功条件の入力の組（`.criterion-row`）、会話の発言（`.consultation-message`）、状態・案内の枠（`StateCard`）、確認パネル、開発用ログイン（破線）、Projectカード。一覧の行・Agent・Role・Member・記録は罫線で区切る。旧表現の再発は`checkLegacyVisuals`と上記の画面のDesktop・狭い画面の確認で見る。
+
 ## style
 
 Sassの入口は`app/main.scss`（`app/main.tsx`が読む）で、共有 → 部品 → 組合せUI → app → Featureの順に`@use`する。各partialは自分の所有するclassだけを定義し、命名は既存のclass名を保つ。
@@ -145,7 +161,7 @@ Sassの入口は`app/main.scss`（`app/main.tsx`が読む）で、共有 → 部
 | 共有 | `styles/_base.scss` | reset・要素の既定値（`main`の幅、`fieldset`、焦点表示、`details`の開閉、reduced-motion）。要素へのselectorはここだけ |
 | 共有 | `styles/_layout.scss` | 複数のFeature・appが使うlayout・区画・操作列（`.action-row`・`.list-toolbar`・`.form-actions`）・一覧・カード・文字の型・状態badge |
 | 基本部品 | `components/ui/_button.scss`・`_view-switch.scss`・`_field.scss` | Button・LinkButton・ViewSwitch・Field・Fieldset・入力部品の内側の見た目と状態 |
-| 組合せUI | `components/_shell.scss`・`_state-card.scss`・`_reason-panel.scss`・`_list-inputs.scss` | Shell・StateCard・ConfirmPanel・ListInputsの見た目 |
+| 組合せUI | `components/_shell.scss`・`_state-card.scss`・`_reason-panel.scss`・`_list-inputs.scss`・`_page-columns.scss` | Shell・StateCard・ConfirmPanel・ListInputs・PageColumnsの見た目 |
 | app | `app/_app.scss` | 未定義のURLの画面、sidebarの参加中のProjectへのリンク |
 | Feature | `features/<機能>/_<機能>.scss` | そのFeatureだけが使うclass（Shellのslotに置くSession・Workspaceの切替/ナビゲーションの見た目を含む） |
 
@@ -161,6 +177,7 @@ rootの`npm run check:ui`は`server`の同名scriptへ委譲し、検査自体�
 - 操作・入力（`components/ui`を除くweb全体の`.tsx`）: nativeの`<button>`・`<input>`・`<textarea>`・`<select>`を使わない。例外は`<input type="hidden">`（ログインのform POSTで`returnTo`・招待tokenを運ぶ）と、上記の`<button className="workspace-switch">`だけで、例外の対象が見つからなければ失敗する。基本部品へ`className`・`style`を渡さない。`.list-toolbar`内に`a`・`Link`・`NavLink`・`button`を直接置かず、部品はすべて同じ`size`を文字列で指定する。
 - size契約（SCSS）: `control-size`の全宣言（補間`#{$size}`を含む）の値が`0`か`--control-*`トークンだけで、`min-height`・`padding`・`font-size`を定め、md・smのトークンが定義されている。表示切替・入力・文字だけのボタンの部品と`.list-toolbar`内のbutton類に外側余白を持たせない。`.input`・`.textarea`・`.select`・`.text-button`・`.button`・`.secondary-button`のsizeは、どのselectorからも`0`か`--control-*`・`--field-*`トークンだけで指定する。`.list-switch`のselectorを使わない（表示切替は`ViewSwitch`）。
 - classの所有（SCSSとTSX）: 入れ子と`&`を展開したselectorが定義するclassごとに、定義するpartialは1つだけ。部品・組合せUIのclassへ所有partialの外から指定できるのは配置（幅・flex・grid・字体。組合せUIには外側余白も）だけ。`styles/_base.scss`・`_tokens.scss`以外の最上位のselectorはclassから始める。部品・組合せUI・app・Featureのpartialのclassはその所有者のsource（`className`と、class名を組み立てる式の文字列。attributeに渡したslotのJSXを含む）だけが使い、`styles/`の共有classは2つ以上の所有者が使う。どこからも使わないclassを残さない。
+- 旧視覚表現（`checkLegacyVisuals`）: `--radius-pill`は`.status-badge`だけ、`transform`（hoverで持ち上げる動き）は使わない、`text-transform: uppercase`は`caps-label` mixinだけで指定する。
 - Sassの入口: `app/main.scss`をcompileし、web内の全partialが入口から読まれている。出力CSSで、同じ@規則の中の同じselectorの同じpropertyを別のruleで宣言しない（partialの二重出力・後のruleによる打消し）。
 
 他Featureの内部fileへの依存と、SCSSのclassの所有に例外は設けない。

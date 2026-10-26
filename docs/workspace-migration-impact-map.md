@@ -229,7 +229,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `features/intent/`・`outcome/`・`research/`・`decision/`・`adr/`・`direction/` | Workspace Directionへ。OutcomeからTarget Project・Storyへの遷移はS10-02で実装済み（Outcome詳細の閲覧はWorkspace配下。作成・編集・Research・Decisionの画面はProject配下のまま） | S10-02 |
 | `features/execution/`（`ExecutionSection`・`TaskDetailPage`・`ClaimHolderSection`等） | Project配下のまま。Workspace→Projectの遷移に接続。Project概要の貢献Outcome・実行状況から「実行」viewのStoryへの遷移はS10-03で実装済み。Task詳細のWorkspace → Project → 実行 → Storyの現在位置、「実行」viewのHumanの判断待ちの絞り込み、Task受入とOutcome評価（Evidence）の区別はS10-04で実装済み | S10-03、S10-04 |
 | `features/activity/`・`grant/`・`credential/`・`member/`・`access/` | scope別の表示と、Workspace / Projectの権限の区別。Activityの表示はS11-01、Agent・Role・Credential・Claimの表示（`features/agent/`）はS11-02で接続済み | S11-01〜03 |
-| `app/main.scss`・`styles/_tokens.scss`・`styles/_mixins.scss`・`components/` | SCSS基盤は既存Project画面に接続済み（partialの配置は[Web UIの構成](web-ui.md#style)）。Shell・StateCard・FormErrorSummary・ReasonPanel等の既存部品と共通classを再利用する。S09-02でWorkspaceのShell・画面へ接続し、ナビゲーションの`nav-link` mixinとtokenがWorkspace・Projectの双方へ反映されることを実ブラウザで確認済み | S09-01、S09-02 |
+| `app/main.scss`・`styles/_tokens.scss`・`styles/_mixins.scss`・`components/` | SCSS基盤は既存Project画面に接続済み（partialの配置は[Web UIの構成](web-ui.md#style)）。Shell・StateCard・FormErrorSummary・ReasonPanel等の既存部品と共通classを再利用する。S09-02でWorkspaceのShell・画面へ接続済み。Workspaceのナビゲーションは`nav-link` mixin、Project詳細のview切替は下線のタブで、どちらも同じtokenを使う | S09-01、S09-02 |
 
 ## Orchestrator・Ralph
 

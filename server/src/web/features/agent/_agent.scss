@@ -5,8 +5,7 @@
   @include unstyled-list;
   display: grid;
 }
-.agent-role-cards, .agent-principals { gap: .6rem; }
-.agent-role-cards > li, .agent-principals > li { @include list-item; padding: .9rem 1rem; overflow-wrap: anywhere; }
+.agent-role-cards > li, .agent-principals > li { @include list-item; overflow-wrap: anywhere; }
 .agent-role-card-head {
   display: flex;
   flex-wrap: wrap;

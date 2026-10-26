@@ -1,5 +1,5 @@
 export * from "./model.ts";
-export { stageLabels, WorkCounts } from "./DirectionStatus";
+export { DirectionPanel, stageLabels, WorkCounts } from "./DirectionStatus";
 export {
   loadDirection,
   loadOpenResearch,
