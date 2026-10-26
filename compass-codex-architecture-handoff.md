@@ -1237,15 +1237,15 @@ Collaboration
 Collaboration（`packages/collaboration`）は Agent から Human への相談を所有する（[ADR 0002](docs/adr/0002-collaboration-context.md)）。
 
 ```text
-Consultation（Project scope。所属 Workspace と Project を保持）
+Consultation（Project scope は所属 Workspace と Project、Workspace scope は Workspace だけを保持）
 ConsultationMessage（会話。追記のみ）
 ConsultationResolution（結論。判断の由来 human_decision / agent_summary と記録主体）
 応答 lease（相談 ID と入力版ごと。Task の Claim とは別）
 ```
 
 - 会話と結論を分け、Human の発言と Agent の発言・要約を記録主体で区別する。判断の由来は入口（Human は Web API、Agent は MCP）で決め、Agent が Human の明示決定を記録する入口は作らない。
-- 状態遷移・版・応答 lease・根拠の規則は Collaboration が強制し、認可（Membership / Execution Role Grant）は Access が持つ。
-- Work は Task の相談待ち・元段階・要件/成果版・再開を所有し、相談の会話・結論を複製しない。準備状態は同一transactionのapplication portから読む。OrchestratorはProject Runtime Credentialで未処理の相談ID/入力版を読み、Managerは自身のAgent Credential・応答leaseで再判断する。Runtimeはworktree/Contextを保持し、全相談・現在要件・PR/SHAと元段階のClaimを照合して再開する。Direction Decision は Intent の戦略判断のまま維持する。
+- 状態遷移・版・応答 lease・根拠の規則は Collaboration が強制し、認可（scope の Membership / Role Grant。Project と Workspace の間で継承しない）は Access が持つ。scope は決定対象の所有で決め、横断一覧は認可済みの相談だけを絞り込み・ページングする。
+- Work は Task の相談待ち・元段階・要件/成果版・再開を所有し、相談の会話・結論を複製しない。準備状態は同一transactionのapplication portから読む。OrchestratorはProject / Workspace Runtime Credentialで未処理の相談ID/入力版を読み、Project相談はManager、Workspace相談はStrategistが自身のAgent Credential・応答leaseで再判断する。Runtimeはworktree/Contextを保持し、全相談・現在要件・PR/SHAと元段階のClaimを照合して再開する。Direction Decision は Intent の戦略判断のまま維持する。
 
 以下のようにはまだ分けない。
 

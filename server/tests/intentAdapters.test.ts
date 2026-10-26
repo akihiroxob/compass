@@ -182,7 +182,7 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
       "fetch_runtime_events", "ack_runtime_event", "record_execution_evidence", "get_outcome_execution_summary", "get_workspace_orchestration_state",
       "get_evaluator_context", "record_outcome_evaluation",
       // Execution（旧Wachaから移植）。同じendpointから列挙される。
-      "wait_for_consultation", "list_consultation_resumptions", "resume_consultation_task", "confirm_consultation_continuation", "get_project_consultation_state",
+      "wait_for_consultation", "list_consultation_resumptions", "resume_consultation_task", "confirm_consultation_continuation",
       "list_stories", "get_outcome_handoff_context", "list_tasks", "list_task_comments", "list_changes",
       "issue_story", "edit_story", "complete_story", "cancel_story", "issue_task", "edit_task", "cancel_task",
       "claim_task", "claim_review", "claim_acceptance", "renew_claim", "release_claim",
@@ -190,9 +190,10 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
       // Activity（意味のある履歴）。
       "record_activity", "list_activities", "get_activity",
       "record_workspace_activity", "list_workspace_activities", "get_workspace_activity",
-      // Project相談（Collaboration）。Humanの明示決定はWeb UI専用でMCPには無い。
+      // Project・Workspace相談（Collaboration）。Humanの明示決定はWeb UI専用でMCPには無い。応答待ちの読取りはRuntime Credential用。
       "create_consultation", "list_consultations", "get_consultation", "acquire_consultation_lease",
       "reply_consultation", "resolve_consultation", "cancel_consultation",
+      "get_project_consultation_state", "get_workspace_consultation_state",
     ],
   );
 

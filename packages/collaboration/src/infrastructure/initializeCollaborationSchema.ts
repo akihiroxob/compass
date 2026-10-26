@@ -3,7 +3,8 @@ import type { CollaborationDatabase } from "./schema.ts";
 
 /**
  * Collaborationのtable。`create ... if not exists`だけで、他Contextのtableには触れない。旧schemaの変換は行わない（開発DBを再作成する）。
- * 相談は所属Workspace・Projectを両方持ち、`project_id`は既存`project.id`を参照する（Project削除時は一緒に消える）。
+ * Project scopeの相談は所属Workspace・Projectを両方持ち、Workspace scopeの相談はWorkspaceだけを持つ（scopeと`project_id`の有無をDBでも一致させる）。
+ * `project_id`は既存`project.id`を参照する（Project削除時は一緒に消える）。
  * 状態・判断の由来・記録主体の種類はDBでも制約し、結論は相談につき1件、発言の順序は相談内で一意にする。
  */
 export const initializeCollaborationSchema = async (database: Kysely<CollaborationDatabase>): Promise<void> => {
@@ -11,8 +12,9 @@ export const initializeCollaborationSchema = async (database: Kysely<Collaborati
     .createTable("consultation")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("scope", "text", (column) => column.notNull().check(sql`scope in ('project', 'workspace')`))
     .addColumn("workspace_id", "text", (column) => column.notNull().references("workspace.id"))
-    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("project_id", "text", (column) => column.references("project.id").onDelete("cascade"))
     .addColumn("title", "text", (column) => column.notNull())
     .addColumn("question", "text", (column) => column.notNull())
     .addColumn("blocking_reason", "text", (column) => column.notNull())
@@ -35,6 +37,7 @@ export const initializeCollaborationSchema = async (database: Kysely<Collaborati
     .addColumn("canceled_by_principal_id", "text")
     .addColumn("canceled_by_role", "text")
     .addColumn("canceled_at", "integer")
+    .addCheckConstraint("consultation_scope_check", sql`(scope = 'project') = (project_id is not null)`)
     .addCheckConstraint(
       "consultation_cancel_check",
       sql`(status = 'canceled') = (cancel_reason is not null and canceled_by_kind is not null and canceled_by_principal_id is not null and canceled_at is not null)`,
@@ -45,6 +48,12 @@ export const initializeCollaborationSchema = async (database: Kysely<Collaborati
     .ifNotExists()
     .on("consultation")
     .columns(["project_id", "status", "updated_at"])
+    .execute();
+  await database.schema
+    .createIndex("consultation_workspace_updated_idx")
+    .ifNotExists()
+    .on("consultation")
+    .columns(["workspace_id", "scope", "status", "updated_at"])
     .execute();
 
   await database.schema

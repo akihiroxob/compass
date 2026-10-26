@@ -9,17 +9,17 @@ Agentが既存の要件・方針・権限では決められない設計・要件
 
 ## 決定
 
-- `packages/collaboration`をBounded Contextとして追加し、Consultation・Message・Resolution・応答lease・受付記録を所有する。最初のuse caseはProject scopeの作成・一覧・詳細・返信・結論・取消・応答leaseで、空の構造を先に作らない。
-- ConsultationはProject scopeで、所属Workspace IDとProject IDを両方保持する。Workspace scopeの相談は後続で追加する。
+- `packages/collaboration`をBounded Contextとして追加し、Consultation・Message・Resolution・応答lease・受付記録を所有する。use caseは作成・一覧・詳細・返信・結論・取消・応答leaseと横断一覧で、空の構造を先に作らない。
+- Consultationのscopeは決定対象の所有で決め、Project scope（所属Workspace IDとProject IDを保持）とWorkspace scope（Workspace IDだけを保持）とする。scopeをまたぐ転送・親子相談は作らず、相談は自分のscopeでだけ見つかる。
 - 会話（Message）と結論（Resolution）を分け、どちらも追記とする。訂正は自分の発言を指す新しい発言、解決後の方針変更は元の相談を参照する新しい相談とする。
 - 記録主体（Human / Agent）と判断の由来（`human_decision` / `agent_summary`）を区別する。由来は入口と記録主体から決め、入力で指定させない。Humanの明示決定はWeb API専用で、MCPへは公開しない。
 - Agentの応答は相談ID・入力版ごとの短い応答leaseと`expectedRevision`・`requestId`で直列化・冪等化する。leaseはTaskのClaimと別のもの。
-- 認可はAccessが持つ。HumanはProject Membershipの権限表（参照viewer・返信editor・決定/取消administrator）、AgentはProject Execution Role Grant（参照・作成・返信はmanager / worker / reviewer、結論整理・取消はmanager）で検査する。状態遷移・版・lease・根拠の規則はCollaborationのDomain / Applicationで強制する。
-- Collaborationは他Contextのtableを直接読まない。Projectの状態・Resource（Organization）と参照先Task・Story（Work）は、serverが同じtransactionで読むreader portとして渡す。WorkはTaskの相談待ち・再開を所有し、相談の会話・結論を複製しない（現在の接続契約は[Project相談](../consultation-design.md)）。
+- 認可はAccessが持つ。HumanはscopeのMembershipの権限表（参照viewer・返信editor・決定/取消administrator）、AgentはProject相談をProject Execution Role Grant（参照・作成・返信はmanager / worker / reviewer、結論整理・取消はmanager）、Workspace相談をWorkspace Direction Role Grant（参照・作成・返信はstrategist / researcher / evaluator、結論整理・取消はstrategist）で検査し、ProjectとWorkspaceの間で継承しない。状態遷移・版・lease・根拠の規則はCollaborationのDomain / Applicationで強制する。
+- Collaborationは他Contextのtableを直接読まない。scopeの状態・Resource（Organization）と参照先Task・Story（Work）・Intent・Outcome（Direction）は、serverが同じtransactionで読むreader portとして渡す。WorkはTaskの相談待ち・再開を所有し、相談の会話・結論を複製しない（現在の接続契約は[相談](../consultation-design.md)）。
 - Direction DecisionはIntentに関する戦略判断のまま維持し、相談由来の結論をDirection Decisionとして作らない。Activityへ会話全文を二重保存しない。
 
 ## 影響
 
-- serverは`collaboration`のschemaを合成し、Web API（Human）とMCP（Agent）を同じuse caseへ委譲する。Web UIはProject詳細の「判断待ち」viewと相談詳細を持つ。
-- Task待機・自動再開はWork / Runtime、応答起動はOrchestratorが所有する。Workspace相談・横断一覧・文書反映Taskは[実装計画](../planning/consultation-implementation-plan.md)の後続増分が接続する。
-- 現行の契約は[Project相談](../consultation-design.md)に記す。
+- serverは`collaboration`のschemaを合成し、Web API（Human）とMCP（Agent）を同じuse caseへ委譲する。Web UIは横断した判断待ち、Project・Workspaceの「判断待ち」と相談詳細を持つ。
+- Task待機・自動再開はWork / Runtime、応答起動はOrchestrator（ProjectはManager、WorkspaceはStrategist）が所有する。文書反映Taskは[実装計画](../planning/consultation-implementation-plan.md)の後続増分が接続する。
+- 現行の契約は[相談](../consultation-design.md)に記す。

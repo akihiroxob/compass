@@ -33,9 +33,9 @@
     padding: var(--space-xs) 2vw calc(var(--space-xs) + env(safe-area-inset-bottom));
     border-top: 1px solid var(--color-line);
     background: var(--color-surface);
-    // 項目数に合わせて等分する（項目を増やしても列数を書き換えない）。
-    ul { grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; }
-    a { justify-content: center; min-height: 2.75rem; padding: 0 var(--space-2xs); font-size: var(--text-small); }
+    // 項目数に合わせて等分する（項目を増やしても列数を書き換えない）。各列は項目名の幅を下限にし、名前を折り返さない。収まらない幅では横にスクロールする。
+    ul { grid-auto-columns: minmax(min-content, 1fr); grid-auto-flow: column; overflow-x: auto; }
+    a { justify-content: center; min-height: 2.75rem; padding: 0 var(--space-2xs); font-size: var(--text-small); white-space: nowrap; }
   }
 }
 .workspace-dialog {

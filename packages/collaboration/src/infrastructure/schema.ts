@@ -4,8 +4,10 @@
  */
 export type ConsultationTable = {
   id: string;
+  /** `project`（Project scope）・`workspace`（Workspace scope）。Workspace scopeは`project_id`を持たない。 */
+  scope: string;
   workspace_id: string;
-  project_id: string;
+  project_id: string | null;
   title: string;
   question: string;
   blocking_reason: string;

@@ -430,7 +430,8 @@ test("list_skillsはmetadataだけを返し、roleはRole Definitionの参照で
 
   const forReviewer = (await callTool(app, "list_skills", { role: "reviewer" })).structuredContent;
   assert.deepEqual(forReviewer.skills.map((skill: { name: string }) => skill.name), ["consultation-task-resumption", "propose-knowledge-update", "review-task"]);
-  assert.deepEqual((await callTool(app, "list_skills", { role: "strategist" })).structuredContent.skills, []);
+  assert.deepEqual((await callTool(app, "list_skills", { role: "strategist" })).structuredContent.skills.map((skill: { name: string }) => skill.name), ["respond-consultation"]);
+  assert.deepEqual((await callTool(app, "list_skills", { role: "manager" })).structuredContent.skills.map((skill: { name: string }) => skill.name).filter((name: string) => name.includes("consultation")), ["consultation-task-resumption", "respond-consultation"]);
   assert.deepEqual((await callTool(app, "list_skills", { status: "deprecated" })).structuredContent.skills, []);
 
   const context = (await callTool(app, "get_skill_context", { name: "review-task" })).structuredContent;

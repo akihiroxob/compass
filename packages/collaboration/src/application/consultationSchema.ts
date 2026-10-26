@@ -1,6 +1,6 @@
 import { optionalText, parseWith, trimmedText } from "@compass/shared";
 import { z } from "zod";
-import { consultationStatuses, type ConsultationReference } from "../domain/Consultation.ts";
+import { consultationScopeKinds, consultationStatuses, type ConsultationReference } from "../domain/Consultation.ts";
 
 export const maximumConsultationOptions = 10;
 export const maximumConsultationRefs = 20;
@@ -33,7 +33,8 @@ const referenceSchema = z.union([
       revision: optionalText(200),
     })
     .strict(),
-  z.object({ kind: z.enum(["task", "story", "consultation"]), id: identifier("id") }).strict(),
+  z.object({ kind: z.enum(["task", "story", "intent", "consultation"]), id: identifier("id") }).strict(),
+  z.object({ kind: z.literal("outcome"), intentId: identifier("intentId"), id: identifier("id") }).strict(),
 ]);
 
 const optionSchema = z.object({ label: trimmedText("label", 200), description: optionalText(2_000) }).strict();
@@ -98,7 +99,7 @@ const basisMessageIds = z.array(identifier("basisMessageIds")).max(maximumBasisM
 /** Humanの明示決定。決定そのものがHumanの判断のため、根拠の発言は任意。 */
 const humanDecisionSchema = z.object({ ...resolutionFields, basisMessageIds: basisMessageIds.default([]) }).strict();
 
-/** Managerの結論整理。Humanの発言を含む根拠の発言と、応答leaseを要求する。 */
+/** 応答Role（Manager・Strategist）の結論整理。Humanの発言を含む根拠の発言と、応答leaseを要求する。 */
 const agentResolutionSchema = z
   .object({ ...resolutionFields, basisMessageIds: basisMessageIds.min(1, "basisMessageIds must include the Human messages the conclusion is based on"), leaseId: identifier("leaseId") })
   .strict();
@@ -120,3 +121,38 @@ export const parseAcquireLeaseInput = (input: unknown): AcquireLeaseInput => par
 const listQuerySchema = z.object({ status: z.enum(consultationStatuses).optional() }).strict();
 export type ConsultationListQuery = z.input<typeof listQuerySchema>;
 export const parseConsultationListQuery = (input: unknown) => parseWith(listQuerySchema, input ?? {}, "Consultation query");
+
+export const defaultAccessibleConsultationLimit = 30;
+export const maximumAccessibleConsultationLimit = 100;
+
+/** 横断一覧の位置。`<updatedAt>.<id>`（応答の`nextCursor`をそのまま渡す）。 */
+const cursorSchema = z
+  .string()
+  .trim()
+  .max(300, "cursor is invalid")
+  .transform((value, context) => {
+    const match = /^(\d{1,16})\.(.+)$/.exec(value);
+    if (!match) {
+      context.addIssue({ code: "custom", message: "cursor is invalid" });
+      return z.NEVER;
+    }
+    return { updatedAt: Number(match[1]), id: match[2]! };
+  });
+
+/**
+ * 横断一覧（Humanの判断待ち）のquery。状態の既定はHumanの判断待ち（`waiting_human`）で、`all`は全状態。scope・Project・Workspaceで絞る。
+ * 値はWeb APIのquery文字列のため、`limit`は数字の文字列も受け付ける。
+ */
+const accessibleListQuerySchema = z
+  .object({
+    status: z.enum([...consultationStatuses, "all"]).default("waiting_human"),
+    scope: z.enum(consultationScopeKinds).optional(),
+    projectId: identifier("projectId").optional(),
+    workspaceId: identifier("workspaceId").optional(),
+    limit: z.coerce.number().int().min(1).max(maximumAccessibleConsultationLimit).default(defaultAccessibleConsultationLimit),
+    cursor: cursorSchema.optional(),
+  })
+  .strict();
+export type AccessibleConsultationListQuery = z.output<typeof accessibleListQuerySchema>;
+export const parseAccessibleConsultationListQuery = (input: unknown): AccessibleConsultationListQuery =>
+  parseWith(accessibleListQuerySchema, input ?? {}, "Consultation query");
