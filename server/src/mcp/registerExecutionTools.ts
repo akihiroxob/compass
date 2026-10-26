@@ -57,11 +57,6 @@ export const registerExecutionTools = (server: McpServer, services: OperationSer
     description: "Manager only. Confirm cancellation reasons and current continuation policy against the current Task requirementVersion and every Consultation revision. Does not replace resolution of open Consultations.",
     inputSchema: { taskId: z.string(), expectedRequirementVersion: z.string(), consultationRevisions: z.array(z.object({ id: z.string(), revision: z.number().int() })), reason: z.string(), requestId: requestIdSchema },
   }, ({ taskId, expectedRequirementVersion, consultationRevisions, reason, requestId }) => asPrincipal((principalId) => coordination.confirmConsultationContinuation(principalId, taskId, expectedRequirementVersion, consultationRevisions, reason, requestId)));
-  server.registerTool("get_project_consultation_state", {
-    title: "Get Project Consultation State",
-    description: "Project Runtime Credential with runtime:state:read only. Read unprocessed Human input revisions for Manager dispatch. Returns IDs and revisions without conversation text; responses require the Manager's own Agent Credential and response lease.",
-    inputSchema: { projectId: z.string() },
-  }, ({ projectId }) => execute(() => services.getProjectConsultationStateUseCase.execute(caller, projectId)));
 
   server.registerTool(
     "list_stories",

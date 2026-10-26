@@ -8,6 +8,7 @@ import { projectViewPath, workspaceApiPath, workspaceCreatePath, workspaceEditPa
 import { canOperateWorkspace, workspaceDirectionAccess } from "../access";
 import { ActivitySection } from "../activity";
 import { ProjectAgentsSection, WorkspaceAgentsSection } from "../agent";
+import { ConsultationSection } from "../consultation";
 import { useSession } from "../auth";
 import { CredentialSection } from "../credential";
 import { loadDirection, loadOutcomeDetail } from "../direction";
@@ -322,6 +323,7 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
 export const WorkspaceOverviewPage = () => <WorkspaceFrame section="overview">{(workspace, myRole, reload) => <OverviewContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
 export const WorkspaceDirectionPage = () => <WorkspaceFrame section="direction">{(workspace) => <DirectionContent workspace={workspace} />}</WorkspaceFrame>;
 export const WorkspaceOutcomePage = () => <WorkspaceFrame section="direction">{(workspace, myRole) => <OutcomeContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
+export const WorkspaceConsultationsPage = () => <WorkspaceFrame section="consultations">{(workspace) => <ConsultationSection scope={{ kind: "workspace", workspaceId: workspace.id }} />}</WorkspaceFrame>;
 export const WorkspaceProjectsPage = () => <WorkspaceFrame section="projects">{(workspace, myRole) => <ProjectsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceActivityPage = () => <WorkspaceFrame section="activity">{(workspace) => <ActivityContent workspace={workspace} />}</WorkspaceFrame>;
 export const WorkspaceAgentsPage = () => <WorkspaceFrame section="agents">{(workspace, myRole) => <AgentsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;

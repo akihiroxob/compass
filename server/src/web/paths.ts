@@ -16,6 +16,9 @@ export const researchRequestPath = (projectId: string, requestId: string) =>
 /** Project相談の詳細画面。一覧はProject詳細の「判断待ち」view。 */
 export const consultationPath = (projectId: string, consultationId: string) => `/projects/${projectId}/consultations/${consultationId}`;
 
+/** 閲覧できるProject・Workspaceを横断した判断待ちの一覧画面。 */
+export const consultationInboxPath = "/consultations";
+
 export const taskPath = (projectId: string, taskId: string) => `/projects/${projectId}/tasks/${taskId}`;
 export const taskEditPath = (projectId: string, taskId: string) => `${taskPath(projectId, taskId)}/edit`;
 export const taskCreatePath = (projectId: string, storyId?: string) =>
@@ -23,12 +26,15 @@ export const taskCreatePath = (projectId: string, storyId?: string) =>
 export const storyCreatePath = (projectId: string) => `/projects/${projectId}/stories/new`;
 export const storyEditPath = (projectId: string, storyId: string) => `/projects/${projectId}/stories/${storyId}/edit`;
 
-export const workspaceSections = ["overview", "direction", "projects", "activity", "agents", "settings"] as const;
+export const workspaceSections = ["overview", "direction", "consultations", "projects", "activity", "agents", "settings"] as const;
 export type WorkspaceSection = (typeof workspaceSections)[number];
 
 /** Workspaceの画面のpath。概要はWorkspaceのpathそのもの。 */
 export const workspacePath = (workspaceId: string, section: WorkspaceSection = "overview") =>
   `/workspaces/${workspaceId}${section === "overview" ? "" : `/${section}`}`;
+
+/** Workspace相談の詳細画面。一覧はWorkspaceの「判断待ち」。 */
+export const workspaceConsultationPath = (workspaceId: string, consultationId: string) => `${workspacePath(workspaceId, "consultations")}/${consultationId}`;
 
 /** Workspaceの作成・編集、既存WorkspaceへのProject追加の画面。 */
 export const workspaceCreatePath = "/workspaces/new";

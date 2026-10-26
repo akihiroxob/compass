@@ -2,7 +2,7 @@ import type { CompassStateReader } from "./compassClient.ts";
 import type { OrchestratorConfig, RoleCommand, WorkspaceConfig } from "./config.ts";
 import { decideLaunch, finishRecord, type DispatchPolicy, type DispatchStore } from "./dispatchStore.ts";
 import { terminateAgent, type AgentLauncher } from "./launcher.ts";
-import { planProjectConsultationDispatches, planWorkspaceDispatches, type WorkspaceDispatch } from "./plan.ts";
+import { planProjectConsultationDispatches, planWorkspaceConsultationDispatches, planWorkspaceDispatches, type WorkspaceDispatch } from "./plan.ts";
 
 /** Operational Log。stdout / stderr へ出す実行記録で、Compass の Activity・Change Log には書かない。 */
 export type OperationalLog = (event: string, fields: Record<string, unknown>) => void;
@@ -56,8 +56,20 @@ export class Orchestrator {
         this.log("state_read_failed", { workspaceId: workspace.workspaceId, error: message });
         continue;
       }
-      // Project相談はIntent/Outcomeの有無から独立して読む。失敗したProjectの記録はpruneしない。
-      let projectReadFailed = false;
+      // 相談はIntent/Outcomeの有無から独立して読む。読めなかった相談の記録はpruneしない。
+      let consultationReadFailed = false;
+      // Workspace相談は同じWorkspace Runtime CredentialでStrategistの応答待ちを読む（所属Projectの相談は含まない）。
+      if (this.reader.getWorkspaceConsultationState) {
+        try {
+          const state = await this.reader.getWorkspaceConsultationState(workspace.workspaceId, workspace.token);
+          if (state.workspaceId !== workspace.workspaceId) throw new Error("Workspace consultation scope mismatch");
+          planned.push(...planWorkspaceConsultationDispatches(state));
+        } catch (error) {
+          consultationReadFailed = true;
+          this.log("workspace_consultation_state_failed", { workspaceId: workspace.workspaceId, error: (error as Error).message });
+          report.failedWorkspaces.push({ workspaceId: workspace.workspaceId, error: `Workspace consultations: ${(error as Error).message}` });
+        }
+      }
       for (const project of workspace.projects) {
         if (!project.token) continue;
         try {
@@ -66,12 +78,12 @@ export class Orchestrator {
           if (state.workspaceId !== workspace.workspaceId || state.projectId !== project.projectId) throw new Error("Project consultation scope mismatch");
           planned.push(...planProjectConsultationDispatches(state));
         } catch (error) {
-          projectReadFailed = true;
+          consultationReadFailed = true;
           this.log("project_consultation_state_failed", { projectId: project.projectId, error: (error as Error).message });
           report.failedWorkspaces.push({ workspaceId: workspace.workspaceId, error: `Project ${project.projectId}: ${(error as Error).message}` });
         }
       }
-      if (!projectReadFailed) this.store.prune(workspace.workspaceId, planned);
+      if (!consultationReadFailed) this.store.prune(workspace.workspaceId, planned);
       for (const dispatch of planned) {
         const skipped = this.tryLaunch(workspace, dispatch, report);
         if (skipped) {
@@ -113,6 +125,17 @@ export class Orchestrator {
     const project = (this.config.consultationProjects ?? []).find(({ projectId }) => projectId === dispatch.projectId) ?? workspace?.projects.find(({ projectId }) => projectId === dispatch.projectId);
     if (!project) return `Project ${dispatch.projectId} is not configured in workspaces[].projects`;
     return { command: command.command, env: { ...command.env, ...project.agentEnv } };
+  }
+
+  /** 相談の応答待ちの現在状態。Project相談はProject、Workspace相談（`projectId`なし）はWorkspaceのRuntime Credentialで読む。 */
+  private async pendingConsultations(workspace: WorkspaceConfig | null, dispatch: WorkspaceDispatch) {
+    if (dispatch.projectId === null) {
+      if (!workspace || !this.reader.getWorkspaceConsultationState) throw new Error("Workspace consultation state reader is unavailable");
+      return (await this.reader.getWorkspaceConsultationState(workspace.workspaceId, workspace.token)).consultations;
+    }
+    const project = (this.config.consultationProjects ?? []).find(({ projectId }) => projectId === dispatch.projectId) ?? workspace?.projects.find(({ projectId }) => projectId === dispatch.projectId);
+    if (!project?.token || !this.reader.getProjectConsultationState) throw new Error("Project consultation state reader is unavailable");
+    return (await this.reader.getProjectConsultationState(project.projectId, project.token)).consultations;
   }
 
   private tryLaunch(workspace: WorkspaceConfig | null, dispatch: WorkspaceDispatch, report: TickReport): string | null {
@@ -161,11 +184,9 @@ export class Orchestrator {
     const finished = launched.done.then(async (result) => {
       if (result.ok && dispatch.subject.kind === "consultation") {
         // process成功だけではHuman返信を処理済みにしない。現在状態が進んだことを確認する。
-        const project = (this.config.consultationProjects ?? []).find(({ projectId }) => projectId === dispatch.projectId) ?? workspace?.projects.find(({ projectId }) => projectId === dispatch.projectId);
         try {
-          if (!project?.token || !this.reader.getProjectConsultationState) throw new Error("Project consultation state reader is unavailable");
-          const state = await this.reader.getProjectConsultationState(project.projectId, project.token);
-          if (state.consultations.some(({ id, inputRevision }) => id === dispatch.subject.id && inputRevision === dispatch.subject.inputRevision)) {
+          const pending = await this.pendingConsultations(workspace, dispatch);
+          if (pending.some(({ id, inputRevision }) => id === dispatch.subject.id && inputRevision === dispatch.subject.inputRevision)) {
             result = { ok: false, error: "Agent exited without handling the pending Human input" };
           }
         } catch (error) { result = { ok: false, error: (error as Error).message }; }

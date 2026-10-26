@@ -1,9 +1,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { ProjectConsultationState, WorkspaceOrchestrationState } from "./state.ts";
+import type { ProjectConsultationState, WorkspaceConsultationState, WorkspaceOrchestrationState } from "./state.ts";
 
 export interface CompassStateReader {
   getProjectConsultationState?(projectId: string, token: string): Promise<ProjectConsultationState>;
+  getWorkspaceConsultationState?(workspaceId: string, token: string): Promise<WorkspaceConsultationState>;
   getWorkspaceOrchestrationState(workspaceId: string, token: string): Promise<WorkspaceOrchestrationState>;
 }
 
@@ -27,6 +28,10 @@ export class McpCompassStateReader implements CompassStateReader {
     return this.call("get_project_consultation_state", { projectId }, token) as Promise<ProjectConsultationState>;
   }
 
+  async getWorkspaceConsultationState(workspaceId: string, token: string): Promise<WorkspaceConsultationState> {
+    return this.call("get_workspace_consultation_state", { workspaceId }, token) as Promise<WorkspaceConsultationState>;
+  }
+
   async getWorkspaceOrchestrationState(workspaceId: string, token: string): Promise<WorkspaceOrchestrationState> {
     return this.call("get_workspace_orchestration_state", { workspaceId }, token) as Promise<WorkspaceOrchestrationState>;
   }
@@ -46,7 +51,7 @@ export class McpCompassStateReader implements CompassStateReader {
         const error = (result.structuredContent?.error ?? {}) as { code?: string; message?: string };
         throw new CompassToolError(error.code ?? "UNKNOWN", error.message ?? `${name} failed`);
       }
-      return result.structuredContent as WorkspaceOrchestrationState;
+      return result.structuredContent;
     } finally {
       await client.close();
     }

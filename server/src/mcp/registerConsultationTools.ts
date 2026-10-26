@@ -1,26 +1,51 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { consultationStatuses } from "@compass/collaboration";
+import { consultationStatuses, type ConsultationScope } from "@compass/collaboration";
 import { agentPrincipalOf, type Caller } from "@compass/access";
+import { ValidationError } from "@compass/shared";
 import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
 import { execute } from "./toolExecution.ts";
 
-const target = { projectId: z.string().min(1), consultationId: z.string().min(1) };
-const role = z.string().optional().describe("Project Execution Role to act as (manager, worker, reviewer); defaults to X-Compass-Active-Role");
+const scopeIds = {
+  projectId: z.string().min(1).optional().describe("Project of a Project Consultation (give exactly one of projectId and workspaceId)"),
+  workspaceId: z.string().min(1).optional().describe("Workspace of a Workspace Consultation (give exactly one of projectId and workspaceId)"),
+};
+const target = { ...scopeIds, consultationId: z.string().min(1) };
+const role = z
+  .string()
+  .optional()
+  .describe("Role to act as: a Project Execution Role (manager, worker, reviewer) for a Project Consultation or a Workspace Direction Role " +
+    "(strategist, researcher, evaluator) for a Workspace Consultation; defaults to X-Compass-Active-Role");
 const requestId = z.string().min(1).describe("Caller-generated idempotency key");
+const scopeNote =
+  "Give projectId for a Project Consultation or workspaceId for a Workspace Consultation (exactly one). The scope is the owner of the " +
+  "decision: a Project's design or requirement goes to the Project, a Workspace's direction (Intent / Outcome) goes to the Workspace; do " +
+  "not move a Project question to the Workspace because it affects several Projects. A Consultation is found only in its own scope. ";
 const roleNote =
-  "The Principal comes from Authorization; role must be a Project Execution Role you hold (defaults to X-Compass-Active-Role). " +
-  "Workspace Direction Role Grants do not apply. ";
+  "The Principal comes from Authorization; role must be a Role of the scope you hold (Project Execution Role or Workspace Direction Role, " +
+  "defaults to X-Compass-Active-Role). Grants are not inherited between a Workspace and its Projects. ";
 const idempotencyNote = "The same requestId returns the saved result; reusing it with different input fails with CONFLICT. ";
 const leaseNote =
   "Requires leaseId from acquire_consultation_lease for the current revision and expectedRevision equal to the current revision: " +
   "if a Human replied meanwhile the revision moved on and the call fails with CONFLICT (conflict STALE_REVISION); read the Consultation " +
   "again, acquire a new lease and respond to the new input. An expired lease fails with CONFLICT (LEASE_EXPIRED). ";
 
+/** `projectId`・`workspaceId`のどちらか一方から相談のscopeを決める。両方・どちらも無い入力はVALIDATION_ERROR。 */
+const scopeOf = ({ projectId, workspaceId }: { projectId?: string | undefined; workspaceId?: string | undefined }): ConsultationScope => {
+  if ((projectId === undefined) === (workspaceId === undefined)) {
+    throw new ValidationError("Consultation input is invalid", [
+      { path: "projectId", message: "give exactly one of projectId (Project Consultation) and workspaceId (Workspace Consultation)" },
+    ]);
+  }
+  return projectId !== undefined ? { kind: "project", projectId } : { kind: "workspace", workspaceId: workspaceId! };
+};
+
 /**
- * Project相談（Collaboration）のtool。入力規則・状態遷移・版とleaseの照合・冪等性は共通のuse caseが持ち、ここはPrincipalとRoleを渡すだけ。
+ * 相談（Collaboration）のtool。Project相談とWorkspace相談を同じtoolで扱い、`projectId`・`workspaceId`のどちらか一方でscopeを指す。
+ * 入力規則・状態遷移・版とleaseの照合・冪等性は共通のuse caseが持ち、ここはPrincipal・Role・scopeを渡すだけ。
  * Humanの明示決定（`human_decision`）はWeb UI専用で、ここには無い。Agentの結論は常に`agent_summary`として記録される。
  * 未知の項目（`source`等）はMCP境界で捨てず、use caseの厳格な検査でVALIDATION_ERRORにする。
+ * 応答待ちの読取り（`get_project_consultation_state`・`get_workspace_consultation_state`）はOrchestrator向けで、Runtime Credentialだけで読む。
  */
 export const registerConsultationTools = (server: McpServer, services: OperationServices, caller: Caller) => {
   const principal = agentPrincipalOf(caller);
@@ -31,15 +56,16 @@ export const registerConsultationTools = (server: McpServer, services: Operation
     {
       title: "Create Consultation",
       description:
-        "Ask the Humans of a Project to decide a design or requirement question that Agents cannot settle within existing " +
-        "requirements, policies and permissions (do not consult on routine decisions already allowed). Give title, question " +
-        "(what has to be decided), blockingReason (why work cannot proceed without it), options [{label, description?}], " +
-        "recommendation, impact and refs ({kind:'url', url}, {kind:'project_resource', resourceId, path?, revision?}, " +
-        "{kind:'task'|'story'|'consultation', id} of this Project; do not copy Repository / Docs content). The Consultation starts " +
-        "waiting_human. To change the conclusion of a resolved or canceled Consultation, create a new one with supersedesConsultationId. " +
-        roleNote + idempotencyNote + "An archived Project fails with CONFLICT.",
+        "Ask the Humans of a Project or a Workspace to decide a design, requirement or direction question that Agents cannot settle " +
+        "within existing requirements, policies and permissions (do not consult on routine decisions already allowed). Give title, " +
+        "question (what has to be decided), blockingReason (why work cannot proceed without it), options [{label, description?}], " +
+        "recommendation, impact and refs of the same scope (do not copy Repository / Docs content): {kind:'url', url}; for a Project " +
+        "{kind:'project_resource', resourceId, path?, revision?} and {kind:'task'|'story'|'consultation', id}; for a Workspace " +
+        "{kind:'intent', id}, {kind:'outcome', intentId, id} and {kind:'consultation', id}. The Consultation starts waiting_human. To " +
+        "change the conclusion of a resolved or canceled Consultation, create a new one with supersedesConsultationId. " +
+        scopeNote + roleNote + idempotencyNote + "An archived Project or Workspace fails with CONFLICT.",
       inputSchema: z.looseObject({
-        projectId: z.string().min(1),
+        ...scopeIds,
         role,
         title: z.string(),
         question: z.string(),
@@ -52,19 +78,22 @@ export const registerConsultationTools = (server: McpServer, services: Operation
         requestId,
       }),
     },
-    ({ projectId, role: actingRole, ...input }) => execute(() => consultations.create(principal, projectId, actingRole, input)),
+    ({ projectId, workspaceId, role: actingRole, ...input }) =>
+      execute(() => consultations.create(principal, scopeOf({ projectId, workspaceId }), actingRole, input)),
   );
   server.registerTool(
     "list_consultations",
     {
       title: "List Consultations",
       description:
-        "List the Consultations of a Project, most recently updated first, optionally filtered by status " +
+        "List the Consultations of a Project or a Workspace, most recently updated first, optionally filtered by status " +
         "(waiting_human, waiting_agent, resolved, canceled). waiting_agent means a Human replied and an Agent response is due. " +
-        "Requires a Project Execution Role Grant (the active role's Grant with X-Compass-Active-Role).",
-      inputSchema: { projectId: z.string().min(1), status: z.enum(consultationStatuses).optional() },
+        "A Workspace list does not include the Consultations of its Projects. " + scopeNote +
+        "Requires a Role Grant of the scope (the active role's Grant with X-Compass-Active-Role).",
+      inputSchema: { ...scopeIds, status: z.enum(consultationStatuses).optional() },
     },
-    ({ projectId, status }) => execute(() => consultations.list(principal, projectId, status === undefined ? {} : { status })),
+    ({ projectId, workspaceId, status }) =>
+      execute(() => consultations.list(principal, scopeOf({ projectId, workspaceId }), status === undefined ? {} : { status })),
   );
   server.registerTool(
     "get_consultation",
@@ -74,10 +103,11 @@ export const registerConsultationTools = (server: McpServer, services: Operation
         "Get a Consultation with its question, options, recommendation, impact and refs, the conversation (messages in order, each " +
         "with author kind human or agent), the resolution (source human_decision or agent_summary) and the Agent currently holding " +
         "the response lease (responder). revision is the version to pass as inputRevision / expectedRevision. " +
-        "A Consultation of another Project fails with NOT_FOUND. Requires a Project Execution Role Grant.",
+        "A Consultation of another scope fails with NOT_FOUND. " + scopeNote + "Requires a Role Grant of the scope.",
       inputSchema: target,
     },
-    ({ projectId, consultationId }) => execute(() => consultations.get(principal, projectId, consultationId)),
+    ({ projectId, workspaceId, consultationId }) =>
+      execute(() => consultations.get(principal, scopeOf({ projectId, workspaceId }), consultationId)),
   );
   server.registerTool(
     "acquire_consultation_lease",
@@ -88,11 +118,11 @@ export const registerConsultationTools = (server: McpServer, services: Operation
         "replying or resolving, so that only one Agent responds to the same Human input. The lease is separate from Task Claims " +
         "and expires after a few minutes; acquiring again while you hold it extends it. Another Agent's active lease fails with " +
         "CONFLICT (LEASE_HELD); an old inputRevision fails with CONFLICT (STALE_REVISION); a Consultation not waiting for an Agent " +
-        "fails with CONFLICT (NOT_WAITING_AGENT). " + roleNote + idempotencyNote,
+        "fails with CONFLICT (NOT_WAITING_AGENT). " + scopeNote + roleNote + idempotencyNote,
       inputSchema: z.looseObject({ ...target, inputRevision: z.number().int(), role, requestId }),
     },
-    ({ projectId, consultationId, role: actingRole, ...input }) =>
-      execute(() => consultations.acquireLease(principal, projectId, consultationId, actingRole, input)),
+    ({ projectId, workspaceId, consultationId, role: actingRole, ...input }) =>
+      execute(() => consultations.acquireLease(principal, scopeOf({ projectId, workspaceId }), consultationId, actingRole, input)),
   );
   server.registerTool(
     "reply_consultation",
@@ -101,8 +131,8 @@ export const registerConsultationTools = (server: McpServer, services: Operation
       description:
         "Add an Agent message to a waiting_agent Consultation: an answer to the Human or an additional question. The " +
         "Consultation becomes waiting_human again; the lease is released. Messages are append-only: to correct your own message, " +
-        "reply with correctsMessageId. Do not use a reply to record a decision; a manager records the conclusion with " +
-        "resolve_consultation. " + leaseNote + roleNote + idempotencyNote,
+        "reply with correctsMessageId. Do not use a reply to record a decision; the responder Role (manager for a Project, " +
+        "strategist for a Workspace) records the conclusion with resolve_consultation. " + leaseNote + scopeNote + roleNote + idempotencyNote,
       inputSchema: z.looseObject({
         ...target,
         leaseId: z.string().min(1),
@@ -113,18 +143,19 @@ export const registerConsultationTools = (server: McpServer, services: Operation
         requestId,
       }),
     },
-    ({ projectId, consultationId, role: actingRole, ...input }) =>
-      execute(() => consultations.reply(principal, projectId, consultationId, actingRole, input)),
+    ({ projectId, workspaceId, consultationId, role: actingRole, ...input }) =>
+      execute(() => consultations.reply(principal, scopeOf({ projectId, workspaceId }), consultationId, actingRole, input)),
   );
   server.registerTool(
     "resolve_consultation",
     {
       title: "Resolve Consultation",
       description:
-        "Manager only. Record the conclusion organized from the Human replies and resolve the Consultation in one step: " +
-        "conclusion, rationale, applicability?, selectedOption? (index of options) and basisMessageIds (must include at least one " +
-        "Human message the conclusion is based on). The resolution is recorded as source agent_summary by you; it is never a Human " +
-        "decision. Do not ask the Human to approve again when the reply is already clear. " + leaseNote + idempotencyNote,
+        "Responder Role only: manager for a Project Consultation, strategist for a Workspace Consultation. Record the conclusion " +
+        "organized from the Human replies and resolve the Consultation in one step: conclusion, rationale, applicability?, " +
+        "selectedOption? (index of options) and basisMessageIds (must include at least one Human message the conclusion is based on). " +
+        "The resolution is recorded as source agent_summary by you; it is never a Human decision. Do not ask the Human to approve " +
+        "again when the reply is already clear. " + leaseNote + scopeNote + idempotencyNote,
       inputSchema: z.looseObject({
         ...target,
         leaseId: z.string().min(1),
@@ -137,18 +168,35 @@ export const registerConsultationTools = (server: McpServer, services: Operation
         requestId,
       }),
     },
-    ({ projectId, consultationId, ...input }) => execute(() => consultations.resolve(principal, projectId, consultationId, input)),
+    ({ projectId, workspaceId, consultationId, ...input }) =>
+      execute(() => consultations.resolve(principal, scopeOf({ projectId, workspaceId }), consultationId, input)),
   );
   server.registerTool(
     "cancel_consultation",
     {
       title: "Cancel Consultation",
       description:
-        "Manager only. Cancel an open Consultation that is no longer needed, with a reason. expectedRevision must be the current " +
-        "revision (CONFLICT STALE_REVISION otherwise). A resolved or canceled Consultation fails with CONFLICT (CONSULTATION_CLOSED). " +
-        idempotencyNote,
+        "Responder Role only: manager for a Project Consultation, strategist for a Workspace Consultation. Cancel an open " +
+        "Consultation that is no longer needed, with a reason. expectedRevision must be the current revision (CONFLICT " +
+        "STALE_REVISION otherwise). A resolved or canceled Consultation fails with CONFLICT (CONSULTATION_CLOSED). " + scopeNote + idempotencyNote,
       inputSchema: z.looseObject({ ...target, expectedRevision: z.number().int(), reason: z.string(), requestId }),
     },
-    ({ projectId, consultationId, ...input }) => execute(() => consultations.cancel(principal, projectId, consultationId, input)),
+    ({ projectId, workspaceId, consultationId, ...input }) =>
+      execute(() => consultations.cancel(principal, scopeOf({ projectId, workspaceId }), consultationId, input)),
   );
+
+  server.registerTool("get_project_consultation_state", {
+    title: "Get Project Consultation State",
+    description: "Project Runtime Credential with runtime:state:read only. Read unprocessed Human input revisions for Manager dispatch. Returns IDs and revisions without conversation text; responses require the Manager's own Agent Credential and response lease.",
+    inputSchema: { projectId: z.string() },
+  }, ({ projectId }) => execute(() => services.getProjectConsultationStateUseCase.execute(caller, projectId)));
+  server.registerTool("get_workspace_consultation_state", {
+    title: "Get Workspace Consultation State",
+    description:
+      "Workspace Runtime Credential with runtime:state:read only (a Project Credential or a trusted-local Bearer name is rejected). " +
+      "Read the unprocessed Human input revisions of the Workspace Consultations for Strategist dispatch; Project Consultations of the " +
+      "Workspace are not included. Returns IDs and revisions without conversation text; an archived Workspace returns an empty list. " +
+      "Responses require the Strategist's own Agent Credential and response lease.",
+    inputSchema: { workspaceId: z.string() },
+  }, ({ workspaceId }) => execute(() => services.getWorkspaceConsultationStateUseCase.execute(caller, workspaceId)));
 };

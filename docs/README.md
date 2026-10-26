@@ -20,7 +20,7 @@
 - [Agent認可・Instruction配信](step-4-strategist-role-design.md)
 - [Project archive](step-5-project-archive-design.md)
 - [Human認証・Membership・Credential](step-6-human-auth-design.md)
-- [Project相談](consultation-design.md): 相談の状態・版・応答lease・判断の由来・認可とWeb API・MCP・Web UI。
+- [相談](consultation-design.md): Project / Workspace相談のscope・状態・版・応答lease・判断の由来・認可、横断一覧とWeb API・MCP・Web UI、Task待機・再開。
 - [Web UIの構成](web-ui.md): 配置と依存、共通の基本部品（`components/ui`）のAPI・size契約、SCSSのpartialの所有、`npm run check:ui`の検査範囲と機械的に保証しない範囲。
 - [実装状況](implementation-status.md): 公開入口・検証範囲・未接続の現況。[Workspace移行の受入検証](implementation-status.md#workspace移行の受入検証)に新規DB・実ブラウザ・独立起動で確認した範囲とfixtureの限界を記す。[UI構成の統合検証](implementation-status.md#ui構成の統合検証)に共通部品・layoutの代表的な経路・権限・寸法の確認範囲と未検証を記す。
 
@@ -36,7 +36,7 @@
 - [Wacha Skill配布の改善メモ](planning/wacha-skill-delivery.md): Codex・ClaudeへのSkill登録を検討するための案。未採用。
 - [Story分割・AC・検証依存の再発防止案](planning/acceptance-dependency-prevention.md): 検証可能な増分、Givenの成立確認、依存制御と停止後の自律的な回復の提案。依存制御等は未実装。
 - [Humanとの協働・自律保守・対話的開発の変更案](planning/human-collaboration-and-autonomous-maintenance.md): 判断待ちと会話、運用ログの振り返り、記録しながら進める開発に必要な追加・変更と実装順。未確定の設計案。
-- [人への相談・判断待ちの実装計画](planning/consultation-implementation-plan.md): 相談機能に絞った画面・保存・認可・会話・自動再開・ADR反映、受入境界とWacha登録先。登録と実装完了を区別する。Project相談の作成・会話・結論（01）の現行契約は[Project相談](consultation-design.md)。
+- [人への相談・判断待ちの実装計画](planning/consultation-implementation-plan.md): 相談機能に絞った画面・保存・認可・会話・自動再開・ADR反映、受入境界とWacha登録先。登録と実装完了を区別する。実装済みの範囲の現行契約は[相談](consultation-design.md)。
 - [デザインシステムとUIカタログの実装計画](planning/design-system-implementation-plan.md): ムードボード・プロトタイプの参照、配色と視覚方向、実部品を共有するカタログ、画面適用の受入境界とWacha登録先。登録と実装完了を区別する。
 
 現行文書へ過去の案・段階別の作業記録を併記しない。過去情報はGit履歴から参照する。

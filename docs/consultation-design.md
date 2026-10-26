@@ -1,20 +1,29 @@
-# Project相談（Collaboration）
+# 相談（Collaboration）
 
-Agentが既存の要件・方針・権限の範囲で決められない設計・要件の問題を、Project scopeの相談としてHumanへ問い、会話と結論をCompassへ残す。所有Contextは`packages/collaboration`（[ADR 0002](adr/0002-collaboration-context.md)）。ProjectのTask単位の相談待ち・Manager応答起動・自動再開までを接続する。Workspace scopeの相談、横断一覧、文書反映Taskは含まない（[実装計画](planning/consultation-implementation-plan.md)の後続増分）。
+Agentが既存の要件・方針・権限の範囲で決められない問題をHumanへ問い、会話と結論をCompassへ残す。所有Contextは`packages/collaboration`（[ADR 0002](adr/0002-collaboration-context.md)）。Project相談とWorkspace相談、閲覧できる全scopeの横断一覧、Project相談でのTask単位の相談待ち・Manager応答起動・自動再開、Workspace相談のStrategist応答起動までを接続する。結論から文書反映Taskへの引継ぎは含まない（[実装計画](planning/consultation-implementation-plan.md)の後続増分）。
+
+## scope
+
+| scope | 決定対象 | 保持するID | 応答・結論整理・取消のAgent | 参照できる関連先 |
+| --- | --- | --- | --- | --- |
+| `project` | Projectの要件・設計 | 所属Workspace・Project | Manager | `url`・`project_resource`・`task`・`story`・`consultation`（同じProject） |
+| `workspace` | WorkspaceのDirection（Intent・Outcome・優先順位等） | Workspace（Projectなし） | Strategist | `url`・`intent`・`outcome`（`intentId`付き）・`consultation`（同じWorkspace） |
+
+scopeは決定対象の所有で決め、影響するProject数では決めない。相談は自分のscopeでだけ見つかり、Project相談をWorkspaceのIDで、Workspace相談をProjectのIDで指しても`NOT_FOUND`。scopeをまたぐ自動転送・親子相談は作らず、別scopeの判断は別の相談として作り、権限のある相談・成果を参照する。DBは`scope`と`project_id`の有無を一致させる。
 
 ## 保存するもの
 
 | 記録 | 内容 |
 | --- | --- |
-| Consultation | 所属Workspace・Project、タイトル、判断したいこと（`question`）、進めない理由（`blockingReason`）、選択肢（`options`。`label`・任意の`description`）、推奨（`recommendation`）、影響（`impact`）、参照（`refs`）、状態、版（`revision`）、方針変更元（`supersedesConsultationId`）、起票者、取消の理由・主体・日時 |
+| Consultation | scope・所属Workspace・Project（Project scopeだけ）、タイトル、判断したいこと（`question`）、進めない理由（`blockingReason`）、選択肢（`options`。`label`・任意の`description`）、推奨（`recommendation`）、影響（`impact`）、参照（`refs`）、状態、版（`revision`）、方針変更元（`supersedesConsultationId`）、起票者、取消の理由・主体・日時 |
 | Message | 相談内の順序（`sequence`）、記録主体（`author`）、本文、訂正元（`correctsMessageId`）、発言で進んだ版。追記だけで書き換えない |
 | Resolution | 相談につき1件。結論・判断の根拠・適用範囲・採用した選択肢（`selectedOption`）・根拠の発言（`basisMessageIds`）と版（`basisRevision`）・判断の由来（`source`）・記録主体 |
 | 応答lease | 相談ID・入力版・保持Principal・期限（5分）・解放日時。TaskのClaimとは別 |
 | 受付記録 | 主体・操作・`requestId`ごとの入力hashと結果 |
 
-記録主体（`author`・`recordedBy`・`createdBy`・`cancellation.by`）は`kind`（`human` / `agent`）・`principalId`・`role`で、入力からは受け取らない。Humanは`human:{humanUserId}`・`operator`、AgentはBearerのPrincipalと認可したExecution Role。
+記録主体（`author`・`recordedBy`・`createdBy`・`cancellation.by`）は`kind`（`human` / `agent`）・`principalId`・`role`で、入力からは受け取らない。Humanは`human:{humanUserId}`・`operator`、AgentはBearerのPrincipalと認可したscopeのRole（ProjectはExecution Role、WorkspaceはDirection Role）。
 
-参照は`{kind:'url', url}`・`{kind:'project_resource', resourceId, path?, revision?}`・`{kind:'task'|'story'|'consultation', id}`で、Project Resource・Task・Story・相談は同じProjectのものだけを受け付ける。Repository / Docsの本文は複製しない。
+参照は`{kind:'url', url}`と、Projectは`{kind:'project_resource', resourceId, path?, revision?}`・`{kind:'task'|'story'|'consultation', id}`、Workspaceは`{kind:'intent', id}`・`{kind:'outcome', intentId, id}`・`{kind:'consultation', id}`。参照先は相談と同じscopeのものだけを受け付け（別scopeの種類・別Project/Workspaceの対象は`VALIDATION_ERROR`）、相談を閲覧できるHumanは参照先も閲覧できる。Repository / Docsの本文は複製しない。
 
 ## 状態と版
 
@@ -31,47 +40,67 @@ Agentが既存の要件・方針・権限の範囲で決められない設計・
 
 1. `get_consultation`で`revision`と会話を読む。
 2. `acquire_consultation_lease`（`inputRevision`=現在の版）で応答leaseを取る。`waiting_agent`の現在の版にだけ発行し、他Principalの有効なleaseがあれば`LEASE_HELD`、古い版は`STALE_REVISION`、Humanの返信待ちは`NOT_WAITING_AGENT`。同じPrincipalの再取得は期限を延ばして同じleaseを返す。
-3. `reply_consultation`（回答・追加質問）または`resolve_consultation`（managerだけ）へ`leaseId`と`expectedRevision`を渡す。応答中にHumanが追加で返信すると版が進み、古い版の応答・解決は`STALE_REVISION`で拒否される。期限切れは`LEASE_EXPIRED`、leaseを持たない・使用済みは`LEASE_NOT_HELD`。応答を保存するとleaseを解放する。
+3. `reply_consultation`（回答・追加質問）または`resolve_consultation`（Projectはmanager、Workspaceはstrategistだけ）へ`leaseId`と`expectedRevision`を渡す。応答中にHumanが追加で返信すると版が進み、古い版の応答・解決は`STALE_REVISION`で拒否される。期限切れは`LEASE_EXPIRED`、leaseを持たない・使用済みは`LEASE_NOT_HELD`。応答を保存するとleaseを解放する。
 4. `requestId`は主体・操作ごとに一意にする。同じ`requestId`・同じ入力の再送は、その後に状態が変わっていても保存済みの結果を返し、別の入力での再利用は`IDEMPOTENCY_CONFLICT`。
 
-拒否はいずれも`CONFLICT`で、`conflict`・`consultationId`・`currentRevision`・`consultationStatus`を返す。OrchestratorはProject Runtime Credentialで`get_project_consultation_state`を読み、相談ID・入力版ごとにManagerを起動する。応答leaseは起動されたManagerが自身のAgent Credentialで取得する。processの正常終了だけでは返信を処理済みにせず、同じ入力版が未処理なら既存backoff・試行上限で再試行する。
+拒否はいずれも`CONFLICT`で、`conflict`・`consultationId`・`currentRevision`・`consultationStatus`を返す。OrchestratorはProject Runtime Credentialで`get_project_consultation_state`を読んでManagerを、Workspace Runtime Credentialで`get_workspace_consultation_state`を読んでStrategistを、相談ID・入力版ごとに起動する。応答leaseは起動されたRoleが自身のAgent Credentialで取得する。processの正常終了だけでは返信を処理済みにせず、同じ入力版が未処理なら既存backoff・試行上限で再試行する。Agentの応答手順は`skills/respond-consultation.md`。
 
 ## 結論と判断の由来
 
 | 由来 | 入口 | 記録主体 | 条件 |
 | --- | --- | --- | --- |
 | `human_decision` | Web API `POST .../resolution`（administrator以上） | Human | 表示した版（`expectedRevision`）が現在の版。`waiting_human` / `waiting_agent`のどちらでも記録でき、根拠の発言は任意 |
-| `agent_summary` | MCP `resolve_consultation`（manager） | Agent | 応答leaseと現在の版。`basisMessageIds`にHumanの発言を1つ以上含む |
+| `agent_summary` | MCP `resolve_consultation`（Projectはmanager、Workspaceはstrategist） | Agent | 応答leaseと現在の版。`basisMessageIds`にHumanの発言を1つ以上含む |
 
-由来は入口と記録主体から決め、入力では指定させない（MCPで`source`等の未知の項目は`VALIDATION_ERROR`）。DBも由来と記録主体の組を制約する。Humanの明確な返信を根拠にManagerが結論を保存でき、再承認は求めない。通常の許可・既存方針内の判断を相談にする手順は設けない。
+由来は入口と記録主体から決め、入力では指定させない（MCPで`source`等の未知の項目は`VALIDATION_ERROR`）。DBも由来と記録主体の組を制約する。Humanの明確な返信を根拠に応答Roleが結論を保存でき、再承認は求めない。通常の許可・既存方針内の判断を相談にする手順は設けない。
 
 ## 認可
 
-| 操作 | Human（Project Membership） | Agent（Project Execution Role Grant） |
-| --- | --- | --- |
-| 一覧・詳細 | viewer以上（`project.read`） | manager / worker / reviewer |
-| 作成 | なし | manager / worker / reviewer |
-| 返信 | editor以上（`consultation.reply`） | manager / worker / reviewer（応答lease） |
-| 結論 | administrator以上の明示決定（`consultation.decide`） | managerの結論整理（応答lease） |
-| 取消 | administrator以上（`consultation.decide`） | manager |
+| 操作 | Human（Project相談はProject Membership、Workspace相談はWorkspace Membership） | Agent（Project相談はProject Execution Role Grant） | Agent（Workspace相談はWorkspace Direction Role Grant） |
+| --- | --- | --- | --- |
+| 一覧・詳細 | viewer以上（`project.read` / `workspace.read`） | manager / worker / reviewer | strategist / researcher / evaluator |
+| 作成 | なし | manager / worker / reviewer | strategist / researcher / evaluator |
+| 返信 | editor以上（`consultation.reply`） | manager / worker / reviewer（応答lease） | strategist / researcher / evaluator（応答lease） |
+| 結論 | administrator以上の明示決定（`consultation.decide`） | managerの結論整理（応答lease） | strategistの結論整理（応答lease） |
+| 取消 | administrator以上（`consultation.decide`） | manager | strategist |
+| 応答待ちの読取り | なし | Project Runtime Credential（`runtime:state:read`） | Workspace Runtime Credential（`runtime:state:read`） |
 
-Humanは未所属・存在しないProject・別Projectの相談IDを404で区別しない。AgentはGrantが無ければ`FORBIDDEN`、別Projectの相談IDは`NOT_FOUND`。Workspace Direction Role・旧Project Direction Grantでは参照・記録できない。AgentはactiveRole（`X-Compass-Active-Role`）または`role`入力でRoleを決め、どちらも無い記録は`VALIDATION_ERROR`。archivedのProjectは参照だけでき、記録は`CONFLICT`（`projectStatus: archived`）。
+Project MembershipとWorkspace Membership、Project GrantとWorkspace Grant、Project Runtime CredentialとWorkspace Runtime Credentialは互いに継承しない。Project MembershipだけのHumanは同じWorkspaceの相談を読めず、Workspace MembershipだけのHumanは未所属Projectの相談を読めない。Humanは未所属・存在しないscope・別scopeの相談IDを404で区別しない。AgentはscopeのGrantが無ければ`FORBIDDEN`、別scopeの相談IDは`NOT_FOUND`、scopeに属さないRole（Project相談のstrategist等）は`FORBIDDEN`。AgentはactiveRole（`X-Compass-Active-Role`）または`role`入力でRoleを決め、どちらも無い記録は`VALIDATION_ERROR`。archivedのProject・Workspaceは参照だけでき、記録は`CONFLICT`（`projectStatus` / `workspaceStatus: archived`）。
+
+## 横断一覧
+
+`GET /api/consultations`は、呼出しHumanの有効なProject Membershipを持つProjectのProject相談と、有効なWorkspace Membershipを持つWorkspaceのWorkspace相談を、更新の新しい順（同時刻はID順）に返す。
+
+| query | 内容 |
+| --- | --- |
+| `status` | `waiting_human`（既定）・`waiting_agent`・`resolved`・`canceled`・`all` |
+| `scope` | `project`・`workspace`（省略で両方） |
+| `projectId` | そのProjectのProject相談だけ（Workspace相談を含めない） |
+| `workspaceId` | そのWorkspaceのWorkspace相談と、閲覧できる所属ProjectのProject相談 |
+| `limit`・`cursor` | 1〜100件（既定30）。続きがあれば応答の`nextCursor`を`cursor`に渡す |
+
+絞り込み・件数・ページングは認可済みの集合に対して行う。閲覧できないProject・Workspaceを指定しても拒否せず空を返し、題名・件数・存在を区別させない。不正な値は400。
 
 ## 公開入口
 
-Web API（Human。Session・CSRF）:
+Web API（Human。Session・CSRF）。`:scopePath`は`/api/projects/:projectId`（Project相談）または`/api/workspaces/:workspaceId`（Workspace相談）:
 
 | method・path | 内容 |
 | --- | --- |
-| `GET /api/projects/:projectId/consultations?status=` | 一覧（更新の新しい順。`status`省略で全件） |
-| `GET /api/projects/:projectId/consultations/:consultationId` | `consultation`・`messages`・`resolution`・`responder`（有効な応答leaseの保持者・期限） |
+| `GET /api/consultations` | 横断一覧（上記）。`{ consultations, nextCursor }` |
+| `GET :scopePath/consultations?status=` | scopeの一覧（更新の新しい順。`status`省略で全件）。Workspaceの一覧に所属Projectの相談は含めない |
+| `GET :scopePath/consultations/:consultationId` | `consultation`・`messages`・`resolution`・`responder`（有効な応答leaseの保持者・期限） |
 | `POST .../messages` | 返信`{ body, correctsMessageId?, requestId }`（201） |
 | `POST .../resolution` | 明示決定`{ conclusion, rationale, applicability?, selectedOption?, basisMessageIds?, expectedRevision, requestId }`（201） |
 | `POST .../cancel` | 取消`{ reason, expectedRevision, requestId }` |
 
-MCP（Agent）: `create_consultation`・`list_consultations`・`get_consultation`・`acquire_consultation_lease`・`reply_consultation`・`resolve_consultation`・`cancel_consultation`。Humanの明示決定のtoolは無い。
+MCP（Agent）: `create_consultation`・`list_consultations`・`get_consultation`・`acquire_consultation_lease`・`reply_consultation`・`resolve_consultation`・`cancel_consultation`。どれも`projectId`（Project相談）と`workspaceId`（Workspace相談）のどちらか一方を受け取り、両方・どちらも無い入力は`VALIDATION_ERROR`。Humanの明示決定のtoolは無い。Runtime向けの`get_project_consultation_state`（Project Runtime Credential）・`get_workspace_consultation_state`（Workspace Runtime Credential。所属Projectの相談を含めない、archivedは空）は相談ID・未処理の入力版だけを返し、会話本文を返さない。
 
-Web UI: Project詳細の「判断待ち」view（`?view=consultations`。`?status=`で絞り込み、既定はHumanの判断待ち）と相談詳細（`/projects/:projectId/consultations/:consultationId`）。詳細は上段に質問・選択肢・推奨・影響・参照、下段に会話（Humanの発言とAgentの発言を帯の色と文言で区別）と返信、結論または取消の理由を出し、開いている間は15秒ごとに読み直す。導線はRoleとProjectの状態で出し分け、拒否はserverが行う。
+Web UI:
+
+- 横断一覧「判断待ち（すべて）」（`/consultations`。サイドバーの下部から開く）: 状態・scopeの切替、Workspace・Projectの選択をURLのqueryで表し（既定はHumanの判断待ち・全scope）、行に所属（`Project · 名前` / `Workspace · 名前`）を出す。続きは「さらに表示」。名前は閲覧できるProject・Workspaceの一覧から引く。
+- scopeの一覧: Project詳細の「判断待ち」view（`?view=consultations`）とWorkspaceの「判断待ち」（`/workspaces/:workspaceId/consultations`）。`?status=`で絞り込み、既定はHumanの判断待ち。
+- 相談詳細（`/projects/:projectId/consultations/:consultationId`・`/workspaces/:workspaceId/consultations/:consultationId`）: 上段に質問・選択肢・推奨・影響・参照（Task・Story・Intent・Outcome・相談は画面へ、Resource・URLは正本へ）、下段に会話（Humanの発言とAgentの発言を帯の色と文言で区別）と返信、結論または取消の理由を出し、開いている間は15秒ごとに読み直す。導線はscopeのMembershipのRoleとscopeの状態で出し分け、拒否はserverが行う。
 
 ## 専用環境での公開操作による確認
 
@@ -84,15 +113,17 @@ Web UI: Project詳細の「判断待ち」view（`?view=consultations`。`?statu
 5. 再読込・同schemaでのserver再起動後に会話と結論が保持され、`agent_summary`とHumanの発言が区別されることを確認する。Humanの明示決定はadministratorのWeb UIから別相談で確認する。
 6. viewerの書込拒否、未所属・別Projectの404、古い版・他Principalのlease・期限切れの拒否、同じ`requestId`の再送を確認する。Desktopと狭い画面の画像を保存し、空・読込・通信失敗・権限不足を確認する。読込遅延や通信失敗の模擬は表示検査だけに用い、保存・認可の成功の証拠にはしない。
 
-回帰テストは`node --import tsx --test packages/collaboration/tests/consultation.test.ts server/tests/consultation.test.ts server/tests/consultationUi.test.ts`、UI構造検査は`npm run check:ui`。テスト内の時刻差し替えでlease境界を検査することと、実環境で期限を待つ確認は区別する。専用serverは確認後に停止する。
+Workspace相談は、ownerがWorkspace（`POST /api/workspaces`）とWorkspace Grant（`POST /api/workspaces/:workspaceId/grants`）のstrategist / researcherを用意し、Workspace Membership（viewer・editor・administrator）とProject MembershipだけのHumanを分けて同じ流れを確認する。Strategistの起動はWorkspace Runtime Credentialを設定したOrchestrator（[Orchestrator](../orchestrator/README.md)）で行う。
 
-## Taskの待機と自動再開
+回帰テストは`node --import tsx --test packages/collaboration/tests/consultation.test.ts server/tests/consultation.test.ts server/tests/workspaceConsultation.test.ts server/tests/consultationUi.test.ts`、UI構造検査は`npm run check:ui`。テスト内の時刻差し替えでlease境界を検査することと、実環境で期限を待つ確認は区別する。専用serverは確認後に停止する。
+
+## Taskの待機と自動再開（Project相談）
 
 Workが`task_consultation_wait`にTaskごとの待機相談参照（ID・版・結論ID）、元の`work` / `review` / `acceptance`段階、Principal・Role、要件版、保存済みRuntime情報、`waiting` / `ready` / `resuming`と失敗理由を保持する。会話・結論本文はCollaborationだけに置く。相談の準備状態はserverが同じtransactionで配線する`ConsultationReadinessPort`から読み、WorkはCollaborationのtableを読まない。
 
 | MCP | 認可・契約 |
 | --- | --- |
-| `wait_for_consultation` | 現在Claim所有者と段階のProject Role。`taskId`・`claimId`・`consultationIds`・`reason`・`runtime`・`requestId`。同じProjectの未解決相談だけ。Runtime情報を保存後、statusを保持したままClaimを解放する |
+| `wait_for_consultation` | 現在Claim所有者と段階のProject Role。`taskId`・`claimId`・`consultationIds`・`reason`・`runtime`・`requestId`。同じProjectの未解決のProject相談だけ（Workspace相談では待機しない）。Runtime情報を保存後、statusを保持したままClaimを解放する |
 | `list_consultation_resumptions` | Project Execution Role。自身のPrincipal/activeRoleが保持する保存済み実行だけを全件照合。全相談の解決/取消確認・現在要件版を確かめて再開候補を返す |
 | `resume_consultation_task` | 元Principal・Role。実際の`runtime`を指定し、保存時のworktree/Context・PR・HEAD・fingerprintと一致することを確認。元段階の新Claimを排他的に取得する |
 | `confirm_consultation_continuation` | manager。取消の不要理由/継続方針、現在の`expectedRequirementVersion`と全相談の`consultationRevisions`を確認。未解決相談は解決扱いにしない |

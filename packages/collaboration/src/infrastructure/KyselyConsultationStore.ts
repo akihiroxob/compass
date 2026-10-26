@@ -8,10 +8,12 @@ import type {
   ConsultationOption,
   ConsultationReference,
   ConsultationResolution,
+  ConsultationScope,
+  ConsultationScopeKind,
   ConsultationStatus,
   ResolutionSource,
 } from "../domain/Consultation.ts";
-import type { ConsultationStore } from "../application/port/ConsultationStore.ts";
+import type { AccessibleConsultationQuery, ConsultationStore } from "../application/port/ConsultationStore.ts";
 import type {
   CollaborationDatabase,
   ConsultationLeaseTable,
@@ -28,6 +30,7 @@ const actor = (kind: string, principalId: string, role: string): ConsultationAct
 
 const toConsultation = (row: Selectable<ConsultationTable>): Consultation => ({
   id: row.id,
+  scope: row.scope as ConsultationScopeKind,
   workspaceId: row.workspace_id,
   projectId: row.project_id,
   title: row.title,
@@ -94,6 +97,7 @@ export class KyselyConsultationStore implements ConsultationStore {
       .insertInto("consultation")
       .values({
         id: consultation.id,
+        scope: consultation.scope,
         workspace_id: consultation.workspaceId,
         project_id: consultation.projectId,
         title: consultation.title,
@@ -138,20 +142,46 @@ export class KyselyConsultationStore implements ConsultationStore {
       .execute();
   }
 
-  async findConsultation(projectId: string, consultationId: string) {
-    const row = await this.db
-      .selectFrom("consultation")
-      .selectAll()
-      .where("id", "=", consultationId)
-      .where("project_id", "=", projectId)
-      .executeTakeFirst();
+  /** scopeの相談だけを選ぶ。Workspace scopeはProject scopeの相談（同じWorkspaceに属するもの）を含めない。 */
+  private selectInScope(scope: ConsultationScope) {
+    const select = this.db.selectFrom("consultation").selectAll();
+    return scope.kind === "project"
+      ? select.where("scope", "=", "project").where("project_id", "=", scope.projectId)
+      : select.where("scope", "=", "workspace").where("workspace_id", "=", scope.workspaceId);
+  }
+
+  async findConsultation(scope: ConsultationScope, consultationId: string) {
+    const row = await this.selectInScope(scope).where("id", "=", consultationId).executeTakeFirst();
     return row ? toConsultation(row) : null;
   }
 
-  async listConsultations(projectId: string, query: { status?: ConsultationStatus }) {
-    let select = this.db.selectFrom("consultation").selectAll().where("project_id", "=", projectId);
+  async listConsultations(scope: ConsultationScope, query: { status?: ConsultationStatus }) {
+    let select = this.selectInScope(scope);
     if (query.status !== undefined) select = select.where("status", "=", query.status);
     const rows = await select.orderBy("updated_at", "desc").orderBy("id").execute();
+    return rows.map(toConsultation);
+  }
+
+  async listAccessibleConsultations(query: AccessibleConsultationQuery) {
+    const { projectIds, workspaceIds, after } = query;
+    let select = this.db
+      .selectFrom("consultation")
+      .selectAll()
+      .where(({ and, or, eb }) =>
+        or([
+          ...(projectIds.length ? [and([eb("scope", "=", "project"), eb("project_id", "in", [...projectIds])])] : []),
+          ...(workspaceIds.length ? [and([eb("scope", "=", "workspace"), eb("workspace_id", "in", [...workspaceIds])])] : []),
+        ]),
+      );
+    if (query.status !== undefined) select = select.where("status", "=", query.status);
+    if (query.workspaceId !== undefined) select = select.where("workspace_id", "=", query.workspaceId);
+    if (query.projectId !== undefined) select = select.where("project_id", "=", query.projectId);
+    if (after !== undefined) {
+      select = select.where(({ or, and, eb }) =>
+        or([eb("updated_at", "<", after.updatedAt), and([eb("updated_at", "=", after.updatedAt), eb("id", ">", after.id)])]),
+      );
+    }
+    const rows = await select.orderBy("updated_at", "desc").orderBy("id").limit(query.limit).execute();
     return rows.map(toConsultation);
   }
 

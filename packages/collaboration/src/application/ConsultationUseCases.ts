@@ -8,6 +8,7 @@ import {
   checkLeaseAcquisition,
   checkSupersedes,
   consultationLeaseTtlMs,
+  consultationReferenceKinds,
   hasHumanBasis,
   statusAfterMessage,
   type Consultation,
@@ -15,11 +16,13 @@ import {
   type ConsultationLease,
   type ConsultationMessage,
   type ConsultationResolution,
+  type ConsultationScope,
   type ConsultationViolation,
 } from "../domain/Consultation.ts";
 import {
   parseAcquireLeaseInput,
   parseAgentMessageInput,
+  parseAccessibleConsultationListQuery,
   parseAgentResolutionInput,
   parseCancelConsultationInput,
   parseConsultationListQuery,
@@ -28,6 +31,12 @@ import {
   parseHumanMessageInput,
 } from "./consultationSchema.ts";
 import type { ConsultationScopeReader, ConsultationStore, ConsultationUnitOfWork } from "./port/ConsultationStore.ts";
+
+/** 横断一覧で閲覧できるscope（Accessが呼出し主体のMembershipから求める）。 */
+export type ConsultationAccess = { projectIds: readonly string[]; workspaceIds: readonly string[] };
+
+/** 横断一覧の結果。`nextCursor`は続きがあるときだけ返す。 */
+export type AccessibleConsultationList = { consultations: Consultation[]; nextCursor: string | null };
 
 type Clock = () => number;
 
@@ -61,18 +70,26 @@ const violation = (code: ConsultationViolation, consultation: Pick<Consultation,
 
 const consultationNotFound = (consultationId: string) => new NotFoundError(`Consultation ${consultationId} was not found`);
 
-/** 書込の前提。Projectの存在（無ければ404）とarchived（409）を、書込と同じtransactionで確かめる。 */
-const requireWritableProject = async (scopes: ConsultationScopeReader, projectId: string) => {
-  const project = await scopes.findProject(projectId);
-  if (!project) throw new NotFoundError(`Project ${projectId} was not found`);
-  if (project.archived) {
-    throw new ConflictError(`Project ${projectId} is archived and can no longer be changed`, { projectStatus: "archived" });
-  }
-  return project;
+const scopeLabel = (scope: ConsultationScope) => (scope.kind === "project" ? `Project ${scope.projectId}` : `Workspace ${scope.workspaceId}`);
+
+/** scopeのProject・Workspaceの存在（無ければ404）。 */
+const requireScope = async (scopes: ConsultationScopeReader, scope: ConsultationScope) => {
+  const state = await scopes.findScope(scope);
+  if (!state) throw new NotFoundError(`${scopeLabel(scope)} was not found`);
+  return state;
 };
 
-const requireConsultation = async (store: ConsultationStore, projectId: string, consultationId: string) => {
-  const consultation = await store.findConsultation(projectId, consultationId);
+/** 書込の前提。scopeのProject・Workspaceの存在（無ければ404）とarchived（409）を、書込と同じtransactionで確かめる。 */
+const requireWritableScope = async (scopes: ConsultationScopeReader, scope: ConsultationScope) => {
+  const state = await requireScope(scopes, scope);
+  if (state.archived) {
+    throw new ConflictError(`${scopeLabel(scope)} is archived and can no longer be changed`, scope.kind === "project" ? { projectStatus: "archived" } : { workspaceStatus: "archived" });
+  }
+  return state;
+};
+
+const requireConsultation = async (store: ConsultationStore, scope: ConsultationScope, consultationId: string) => {
+  const consultation = await store.findConsultation(scope, consultationId);
   if (!consultation) throw consultationNotFound(consultationId);
   return consultation;
 };
@@ -104,7 +121,7 @@ const withReceipt = async <T>(
 };
 
 /**
- * 相談の作成（Agentの設計質問）。作成時はHumanの判断待ち（`waiting_human`）。参照・方針変更元は同じProjectのものだけを受け付ける。
+ * 相談の作成（Agentの設計質問）。作成時はHumanの判断待ち（`waiting_human`）。参照・方針変更元は同じscopeのものだけを受け付ける。
  * 認可は入口（`AgentConsultationUseCases`）が行い、ここは認可済みの記録主体を受け取る。
  */
 export class CreateConsultationUseCase {
@@ -114,27 +131,35 @@ export class CreateConsultationUseCase {
     private readonly newId: () => string = randomUUID,
   ) {}
 
-  execute(projectId: string, actor: ConsultationActor, input: unknown): Promise<{ consultation: Consultation }> {
+  execute(scope: ConsultationScope, actor: ConsultationActor, input: unknown): Promise<{ consultation: Consultation }> {
     const { requestId, ...content } = parseCreateConsultationInput(input);
     return this.unitOfWork.execute((store, scopes) =>
-      withReceipt(store, actor, "create_consultation", requestId, { projectId, ...content }, this.clock, async () => {
-        const project = await requireWritableProject(scopes, projectId);
+      withReceipt(store, actor, "create_consultation", requestId, { ...scope, ...content }, this.clock, async () => {
+        const state = await requireWritableScope(scopes, scope);
+        const label = scope.kind === "project" ? "Project" : "Workspace";
         const issues: { path: string; message: string }[] = [];
         for (const [index, ref] of content.refs.entries()) {
           const path = `refs.${index}`;
-          if (ref.kind === "project_resource" && !project.resourceIds.includes(ref.resourceId)) {
+          if (!consultationReferenceKinds[scope.kind].includes(ref.kind)) {
+            issues.push({ path: `${path}.kind`, message: `${ref.kind} cannot be referenced from a ${label} Consultation` });
+            continue;
+          }
+          if (ref.kind === "project_resource" && !state.resourceIds.includes(ref.resourceId)) {
             issues.push({ path: `${path}.resourceId`, message: `Project Resource ${ref.resourceId} is not registered in this Project` });
           }
-          if ((ref.kind === "task" || ref.kind === "story") && !(await scopes.workItemExists(projectId, ref.kind, ref.id))) {
+          if ((ref.kind === "task" || ref.kind === "story") && scope.kind === "project" && !(await scopes.workItemExists(scope.projectId, ref.kind, ref.id))) {
             issues.push({ path: `${path}.id`, message: `${ref.kind === "task" ? "Task" : "Story"} ${ref.id} was not found in this Project` });
           }
-          if (ref.kind === "consultation" && !(await store.findConsultation(projectId, ref.id))) {
-            issues.push({ path: `${path}.id`, message: `Consultation ${ref.id} was not found in this Project` });
+          if ((ref.kind === "intent" || ref.kind === "outcome") && !(await scopes.directionItemExists(state.workspaceId, ref))) {
+            issues.push({ path: `${path}.id`, message: `${ref.kind === "intent" ? "Intent" : "Outcome"} ${ref.id} was not found in this Workspace` });
+          }
+          if (ref.kind === "consultation" && !(await store.findConsultation(scope, ref.id))) {
+            issues.push({ path: `${path}.id`, message: `Consultation ${ref.id} was not found in this ${label}` });
           }
         }
         if (issues.length) throw new ValidationError("Consultation input is invalid", issues);
         if (content.supersedesConsultationId !== undefined) {
-          const superseded = await store.findConsultation(projectId, content.supersedesConsultationId);
+          const superseded = await store.findConsultation(scope, content.supersedesConsultationId);
           if (!superseded) throw consultationNotFound(content.supersedesConsultationId);
           const rejected = checkSupersedes(superseded);
           if (rejected) throw violation(rejected, superseded);
@@ -142,8 +167,9 @@ export class CreateConsultationUseCase {
         const now = this.clock();
         const consultation: Consultation = {
           id: this.newId(),
-          workspaceId: project.workspaceId,
-          projectId,
+          scope: scope.kind,
+          workspaceId: state.workspaceId,
+          projectId: scope.kind === "project" ? scope.projectId : null,
           title: content.title,
           question: content.question,
           blockingReason: content.blockingReason,
@@ -166,28 +192,60 @@ export class CreateConsultationUseCase {
   }
 }
 
-/** Projectの相談一覧（更新の新しい順。`status`で絞る）。認可は呼び出し側の入口で行う。 */
+/** scopeの相談一覧（更新の新しい順。`status`で絞る）。認可は呼び出し側の入口で行う。 */
 export class ListConsultationsUseCase {
   constructor(private readonly unitOfWork: ConsultationUnitOfWork) {}
 
   /** `query`は未検証の入力（Web APIのquery・MCPの入力）で、ここで検証する。 */
-  execute(projectId: string, query: unknown = {}): Promise<{ consultations: Consultation[] }> {
+  execute(scope: ConsultationScope, query: unknown = {}): Promise<{ consultations: Consultation[] }> {
     const parsed = parseConsultationListQuery(query);
     return this.unitOfWork.execute(async (store, scopes) => {
-      if (!(await scopes.findProject(projectId))) throw new NotFoundError(`Project ${projectId} was not found`);
-      return { consultations: await store.listConsultations(projectId, parsed) };
+      await requireScope(scopes, scope);
+      return { consultations: await store.listConsultations(scope, parsed) };
     });
   }
 }
 
-/** 相談の詳細（質問・会話・結論と、現在応答中のAgent）。別Projectの相談IDは存在しないものとして扱う。 */
+const encodeCursor = (consultation: Pick<Consultation, "updatedAt" | "id">) => `${consultation.updatedAt}.${consultation.id}`;
+
+/**
+ * 閲覧できるscopeを横断した相談一覧（Humanの判断待ち）。閲覧できるProject・Workspaceの集合は入口がMembershipから求めて渡し、
+ * scope・Project・Workspace・状態の絞り込みとページングはその認可済みの集合に対して行う。閲覧できないProject・Workspaceを指定しても
+ * 拒否せず空にし、存在・件数を区別させない。Project Membershipから同じWorkspaceの相談を、Workspace Membershipから未所属Projectの相談を返さない。
+ */
+export class ListAccessibleConsultationsUseCase {
+  constructor(private readonly unitOfWork: ConsultationUnitOfWork) {}
+
+  execute(access: ConsultationAccess, query: unknown = {}): Promise<AccessibleConsultationList> {
+    const parsed = parseAccessibleConsultationListQuery(query);
+    const projectIds = parsed.scope === "workspace" ? [] : access.projectIds.filter((id) => parsed.projectId === undefined || id === parsed.projectId);
+    // Projectを指定した絞り込みはそのProjectの相談だけで、Workspace scopeの相談を含めない。
+    const workspaceIds = parsed.scope === "project" || parsed.projectId !== undefined ? [] : access.workspaceIds;
+    if (!projectIds.length && !workspaceIds.length) return Promise.resolve({ consultations: [], nextCursor: null });
+    return this.unitOfWork.execute(async (store) => {
+      const page = await store.listAccessibleConsultations({
+        projectIds,
+        workspaceIds,
+        ...(parsed.status === "all" ? {} : { status: parsed.status }),
+        ...(parsed.workspaceId === undefined ? {} : { workspaceId: parsed.workspaceId }),
+        ...(parsed.projectId === undefined ? {} : { projectId: parsed.projectId }),
+        ...(parsed.cursor === undefined ? {} : { after: parsed.cursor }),
+        limit: parsed.limit + 1,
+      });
+      const consultations = page.slice(0, parsed.limit);
+      return { consultations, nextCursor: page.length > parsed.limit ? encodeCursor(consultations[consultations.length - 1]!) : null };
+    });
+  }
+}
+
+/** 相談の詳細（質問・会話・結論と、現在応答中のAgent）。別scopeの相談IDは存在しないものとして扱う。 */
 export class GetConsultationUseCase {
   constructor(private readonly unitOfWork: ConsultationUnitOfWork, private readonly clock: Clock = Date.now) {}
 
-  execute(projectId: string, consultationId: string): Promise<ConsultationDetail> {
+  execute(scope: ConsultationScope, consultationId: string): Promise<ConsultationDetail> {
     return this.unitOfWork.execute(async (store, scopes) => {
-      if (!(await scopes.findProject(projectId))) throw new NotFoundError(`Project ${projectId} was not found`);
-      const consultation = await requireConsultation(store, projectId, consultationId);
+      await requireScope(scopes, scope);
+      const consultation = await requireConsultation(store, scope, consultationId);
       const lease = await store.findActiveLease(consultation.id, consultation.revision, this.clock());
       return {
         consultation,
@@ -211,12 +269,12 @@ export class AcquireConsultationLeaseUseCase {
     private readonly ttlMs = consultationLeaseTtlMs,
   ) {}
 
-  execute(projectId: string, consultationId: string, actor: ConsultationActor, input: unknown): Promise<{ lease: ConsultationLease }> {
+  execute(scope: ConsultationScope, consultationId: string, actor: ConsultationActor, input: unknown): Promise<{ lease: ConsultationLease }> {
     const { requestId, inputRevision } = parseAcquireLeaseInput(input);
     return this.unitOfWork.execute((store, scopes) =>
-      withReceipt(store, actor, "acquire_consultation_lease", requestId, { projectId, consultationId, inputRevision }, this.clock, async () => {
-        await requireWritableProject(scopes, projectId);
-        const consultation = await requireConsultation(store, projectId, consultationId);
+      withReceipt(store, actor, "acquire_consultation_lease", requestId, { ...scope, consultationId, inputRevision }, this.clock, async () => {
+        await requireWritableScope(scopes, scope);
+        const consultation = await requireConsultation(store, scope, consultationId);
         const now = this.clock();
         const active = await store.findActiveLease(consultation.id, consultation.revision, now);
         const rejected = checkLeaseAcquisition(consultation, inputRevision, active, actor.principalId);
@@ -262,13 +320,13 @@ export class AddConsultationMessageUseCase {
     private readonly newId: () => string = randomUUID,
   ) {}
 
-  execute(projectId: string, consultationId: string, actor: ConsultationActor, input: unknown): Promise<{ consultation: Consultation; message: ConsultationMessage }> {
+  execute(scope: ConsultationScope, consultationId: string, actor: ConsultationActor, input: unknown): Promise<{ consultation: Consultation; message: ConsultationMessage }> {
     const agent = actor.kind === "agent" ? parseAgentMessageInput(input) : null;
     const { requestId, ...content } = agent ?? parseHumanMessageInput(input);
     return this.unitOfWork.execute((store, scopes) =>
-      withReceipt(store, actor, "reply_consultation", requestId, { projectId, consultationId, ...content }, this.clock, async () => {
-        await requireWritableProject(scopes, projectId);
-        const consultation = await requireConsultation(store, projectId, consultationId);
+      withReceipt(store, actor, "reply_consultation", requestId, { ...scope, consultationId, ...content }, this.clock, async () => {
+        await requireWritableScope(scopes, scope);
+        const consultation = await requireConsultation(store, scope, consultationId);
         const now = this.clock();
         if (agent) {
           const lease = await store.findLease(consultation.id, agent.leaseId);
@@ -311,7 +369,7 @@ export class AddConsultationMessageUseCase {
 
 /**
  * 結論の保存と解決（同じtransaction）。Humanは閲覧した版を指定して明示決定を記録する（`human_decision`）。
- * Managerは応答leaseのもとで、Humanの発言を含む根拠の発言を指定して結論を整理する（`agent_summary`）。
+ * 応答Role（ProjectはManager、WorkspaceはStrategist）は応答leaseのもとで、Humanの発言を含む根拠の発言を指定して結論を整理する（`agent_summary`）。
  * 由来は記録主体の種類から決め、入力では指定させない。明確なHumanの回答に対して再承認は求めない。
  */
 export class ResolveConsultationUseCase {
@@ -321,13 +379,13 @@ export class ResolveConsultationUseCase {
     private readonly newId: () => string = randomUUID,
   ) {}
 
-  execute(projectId: string, consultationId: string, actor: ConsultationActor, input: unknown): Promise<{ consultation: Consultation; resolution: ConsultationResolution }> {
+  execute(scope: ConsultationScope, consultationId: string, actor: ConsultationActor, input: unknown): Promise<{ consultation: Consultation; resolution: ConsultationResolution }> {
     const agent = actor.kind === "agent" ? parseAgentResolutionInput(input) : null;
     const { requestId, ...content } = agent ?? parseHumanDecisionInput(input);
     return this.unitOfWork.execute((store, scopes) =>
-      withReceipt(store, actor, "resolve_consultation", requestId, { projectId, consultationId, ...content }, this.clock, async () => {
-        await requireWritableProject(scopes, projectId);
-        const consultation = await requireConsultation(store, projectId, consultationId);
+      withReceipt(store, actor, "resolve_consultation", requestId, { ...scope, consultationId, ...content }, this.clock, async () => {
+        await requireWritableScope(scopes, scope);
+        const consultation = await requireConsultation(store, scope, consultationId);
         const now = this.clock();
         const rejected = agent
           ? checkAgentResponse(consultation, agent.expectedRevision, await store.findLease(consultation.id, agent.leaseId), actor.principalId, now)
@@ -367,16 +425,16 @@ export class ResolveConsultationUseCase {
   }
 }
 
-/** 理由付きの取消（Humanのadministrator以上・Agentのmanager）。閲覧した版を照合し、応答中のleaseも解放する。 */
+/** 理由付きの取消（Humanのadministrator以上・Agentの応答Role）。閲覧した版を照合し、応答中のleaseも解放する。 */
 export class CancelConsultationUseCase {
   constructor(private readonly unitOfWork: ConsultationUnitOfWork, private readonly clock: Clock = Date.now) {}
 
-  execute(projectId: string, consultationId: string, actor: ConsultationActor, input: unknown): Promise<{ consultation: Consultation }> {
+  execute(scope: ConsultationScope, consultationId: string, actor: ConsultationActor, input: unknown): Promise<{ consultation: Consultation }> {
     const { requestId, ...content } = parseCancelConsultationInput(input);
     return this.unitOfWork.execute((store, scopes) =>
-      withReceipt(store, actor, "cancel_consultation", requestId, { projectId, consultationId, ...content }, this.clock, async () => {
-        await requireWritableProject(scopes, projectId);
-        const consultation = await requireConsultation(store, projectId, consultationId);
+      withReceipt(store, actor, "cancel_consultation", requestId, { ...scope, consultationId, ...content }, this.clock, async () => {
+        await requireWritableScope(scopes, scope);
+        const consultation = await requireConsultation(store, scope, consultationId);
         const rejected = actor.kind === "human"
           ? checkHumanClosing(consultation, content.expectedRevision)
           : checkAgentCancel(consultation, content.expectedRevision);

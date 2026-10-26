@@ -60,3 +60,11 @@ export type ProjectConsultationState = {
   consultations: { id: string; inputRevision: number }[];
   observedAt: number;
 };
+
+/** Workspace Runtime Credentialだけで読めるWorkspace相談の応答待ち。所属Projectの相談・会話本文を含めない。 */
+export type WorkspaceConsultationState = {
+  workspaceId: string;
+  workspaceStatus: string;
+  consultations: { id: string; inputRevision: number }[];
+  observedAt: number;
+};
