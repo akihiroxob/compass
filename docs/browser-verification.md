@@ -85,3 +85,13 @@ node --import tsx /Users/aokayama/git/compass/scripts/prepare-browser-verificati
 ```
 
 サーバーも同じDB・認証設定で起動する。Ralphでは専用DBの作成・起動・停止はプレビュー機構が管理する。
+
+## 実Agentによる相談応答と自動再開
+
+`verification.hostCommands`の`node --import tsx /Users/aokayama/git/compass/scripts/verify-consultation-resumption.mjs`を`run_host_verification`へそのまま渡す。対象WorktreeのHEADを固定し、専用DB・loopbackサーバー・別Git checkout・検証用ProjectのRuntime Credentialだけを使用する。実際の受入実行と運用DB・GitHubを変更しない。
+
+このコマンドは公開操作で相談待ちTaskを作り、Humanの返信を送信して、対象SHAのOrchestratorから実CodexのManagerを1回、対象SHAのRalphから実CodexのWorkerを1回起動する。回答・状態遷移・Claim取得を偽Agentや固定応答で代用しない。各プロセスの実行上限は240秒、Managerのdispatch試行上限は1回。Taskの受入・commit・pushは行わない。
+
+終了時にJSONで`evidencePath`・対象SHA・成功/失敗を出力する。証跡には専用DB、Manager/Workerログ、dispatch記録、保存Context、未commit成果物を保持する。公開`list_tasks`・Claimコメントと成果物を照合して、新Claimでの`in_review`到達・元Contextと成果物の保持を確認する。検証サーバーは終了時に停止する。Agentの認証・利用枠が不足した場合は失敗として記録し、成功とみなさない。
+
+同じSHAの有効な実Agent証跡がある場合は、対象SHA・実行コード・dispatch・新Claim・保存成果物を独立に照合して使用できる。読み取り確認だけを直せばよい場合に実Agentを再起動し直さない。偽Agentによる回帰テストは実Agent稼働の証明として扱わない。

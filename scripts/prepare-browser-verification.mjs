@@ -150,7 +150,7 @@ const manifest = { schemaVersion: 1, purpose: 'browser-verification-fixtures', h
     policyPath: resolve(dirname(fileURLToPath(import.meta.url)), '../docs/browser-verification.md'),
     scope: 'isolated-preview-only', endpointPath: '/mcp', actors: identities,
     projectIds: scenarios.flatMap(({ projects }) => projects.map(({ id }) => id)),
-    allowedTools: ['issue_story', 'issue_task', 'get_story', 'get_task', 'list_stories', 'list_tasks',
+    allowedTools: ['issue_story', 'issue_task', 'get_story', 'get_task', 'list_stories', 'list_tasks', 'list_task_comments',
       'claim_task', 'claim_review', 'claim_acceptance', 'renew_claim', 'release_claim',
       'add_task_comment', 'complete_task', 'reviewed_task', 'accept_task',
       'create_consultation', 'list_consultations', 'get_consultation', 'acquire_consultation_lease',

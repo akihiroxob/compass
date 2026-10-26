@@ -21,21 +21,43 @@ const evidence = { schemaVersion: 1, headSha, sourceRoot: root, directory,
   preparationScriptSha256: createHash('sha256').update(await readFile(script)).digest('hex'),
   realAgents: true, startedAt: new Date().toISOString(), steps: [] };
 const children = new Set();
-let server, database;
+const ownedPids = new Set();
+let server, database, interrupted = false;
+const stopDispatches = async () => {
+  try {
+    const dispatches = JSON.parse(await readFile(join(directory, 'dispatch/dispatches.json'), 'utf8'));
+    for (const record of Object.values(dispatches.records)) {
+      if (record.status === 'running' && ownedPids.has(record.ownerPid) && record.childPid) {
+        try { process.kill(-record.childPid, 'SIGTERM'); } catch {}
+      }
+    }
+  } catch (error) { if (error.code !== 'ENOENT') throw error; }
+};
+for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => {
+  interrupted = true;
+  for (const child of children) { try { process.kill(-child.pid, 'SIGTERM'); } catch {} }
+  stopDispatches().catch((error) => { evidence.cleanupError = error.message; });
+});
 const save = async () => writeFile(join(directory, 'evidence.json'), JSON.stringify(evidence, null, 2) + '\n');
-const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const run = async (label, command, args, options = {}) => {
+  if (interrupted) throw new Error('Verification interrupted');
   const log = await open(join(directory, label + '.log'), 'a', 0o600);
   const process = spawn(command, args, { cwd: root, env: { ...globalThis.process.env, ...options.env },
     stdio: ['ignore', log.fd, log.fd], detached: true, ...options });
   children.add(process);
+  ownedPids.add(process.pid);
   const exit = new Promise((resolve, reject) => {
     process.once('error', reject);
     process.once('exit', (code, signal) => resolve({ code, signal }));
   }).finally(async () => { children.delete(process); await log.close(); });
-  const timer = setTimeout(() => { try { globalThis.process.kill(-process.pid, 'SIGTERM'); } catch {} }, 240_000);
+  let forceKillTimer;
+  const timer = setTimeout(() => {
+    try { globalThis.process.kill(-process.pid, 'SIGTERM'); } catch {}
+    forceKillTimer = setTimeout(() => { try { globalThis.process.kill(-process.pid, 'SIGKILL'); } catch {} }, 5_000);
+    forceKillTimer.unref();
+  }, 240_000);
   try { const result = await exit; assert.equal(result.code, 0, `${label} failed; see ${directory}/${label}.log`); }
-  finally { clearTimeout(timer); }
+  finally { clearTimeout(timer); clearTimeout(forceKillTimer); }
 };
 try {
   await run('prepare', process.execPath, ['--import', 'tsx', join(dirname(script), 'prepare-browser-verification.mjs'), '--data-dir', data], {
@@ -133,20 +155,27 @@ try {
     roles: { worker: { tokenEnv: 'VERIFY_WORKER', prompt: workerPrompt } } }));
   await run('worker', 'bash', [join(root, 'ralph/bin/ralph'), 'run', 'worker', '--config', ralphConfig, '--once'],
     { env: { ...process.env, VERIFY_WORKER: actors.worker } });
-  const after = await mcp('worker', 'get_task', { taskId: task.id });
-  const current = after.task ?? after;
+  const after = await mcp('worker', 'list_tasks', { projectId });
+  const current = after.tasks.find((item) => item.id === task.id);
+  assert.ok(current, 'Verification Task is missing');
   assert.equal(current.status, 'in_review');
   assert.equal((await readFile(join(artifacts, 'resumed.txt'), 'utf8')).trim(), 'blue');
   assert.deepEqual(await readFile(join(artifacts, 'evidence.txt')), preserved);
   assert.deepEqual(await readFile(contextPath), Buffer.from(JSON.stringify({ reason: 'Human selection is pending', headSha })));
   assert.equal(execFileSync('git', ['rev-parse', 'HEAD'], { cwd: artifacts, encoding: 'utf8' }).trim(), headSha);
-  assert.notEqual(work.claimId, current.activeClaim?.claimId);
+  const notes = await mcp('worker', 'list_task_comments', { taskId: task.id });
+  const resumedNote = notes.comments.find((item) => item.principalId === actors.worker && item.claimId !== work.claimId);
+  assert.ok(resumedNote, 'No verification note from the resumed Claim');
+  evidence.resumedClaimId = resumedNote.claimId;
   evidence.steps.push({ phase: 'real_worker_resumed', taskId: task.id, state: current.status, artifactsPreserved: true });
   evidence.result = 'passed';
 } catch (error) {
   evidence.result = 'failed'; evidence.error = error.message; process.exitCode = 1;
 } finally {
   for (const child of children) { try { process.kill(-child.pid, 'SIGTERM'); } catch {} }
+  // Orchestrator launches separate process groups; stop only this run's unfinished dispatches.
+  try { await stopDispatches(); }
+  catch (error) { evidence.cleanupError = error.message; evidence.result = 'failed'; process.exitCode = 1; }
   if (server) { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)); }
   if (database) await database.destroy();
   evidence.finishedAt = new Date().toISOString(); await save();

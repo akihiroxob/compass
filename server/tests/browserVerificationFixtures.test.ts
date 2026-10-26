@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -32,6 +32,7 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
     assert.match(manifest.preparationScriptSha256, /^[a-f0-9]{64}$/);
     assert.equal(manifest.dataPreparation.scope, "isolated-preview-only");
     assert.ok(manifest.dataPreparation.allowedTools.includes("claim_task"));
+    assert.ok(manifest.dataPreparation.allowedTools.includes("list_task_comments"));
     // The manifest must describe the actual inspected MCP contract, including optional newer features.
     const hasResumption = manifest.dataPreparation.allowedTools.includes("wait_for_consultation");
     assert.equal(manifest.dataPreparation.consultationResumptionEnabled, hasResumption);
@@ -141,6 +142,30 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
       const expired = (await read(0)).tasks.find((task: { id: string }) => task.id === tasks[0]!.id);
       assert.equal(expired.activeClaim, null);
       assert.equal(expired.reclaimable, true);
+      // A Manager must be able to construct the consultation-wait UI Given through permitted public tools.
+      const waitingTask = await call("manager", "issue_task", { projectId: projectIds[0], title: "相談待機表示用Task" });
+      const claim = await call("worker", "claim_task", { taskId: waitingTask.id });
+      const consultation = await call("worker", "create_consultation", { projectId: projectIds[0],
+        title: "検証用選択", question: "blueとredのどちらですか", blockingReason: "Humanの選択が必要", recommendation: "blue",
+        impact: "検証Taskのみ", refs: [{ kind: "task", id: waitingTask.id }] });
+      const artifacts = join(data, "artifacts");
+      const cloned = spawnSync("git", ["clone", "--shared", root, artifacts], { encoding: "utf8" });
+      assert.equal(cloned.status, 0, cloned.stderr);
+      await mkdir(join(artifacts, ".compass-ralph"));
+      const contextPath = join(artifacts, ".compass-ralph/context.json");
+      await writeFile(contextPath, "{}");
+      await writeFile(join(artifacts, "pending.txt"), "preserved artifact");
+      const metadata = join(data, "runtime.json");
+      await writeFile(metadata, JSON.stringify({ worktreePath: artifacts, contextPath }));
+      const inspected = spawnSync(process.execPath, [join(root, "ralph/runtime/consultation-context.mjs"), metadata], { encoding: "utf8" });
+      assert.equal(inspected.status, 0, inspected.stderr);
+      const waited = await call("worker", "wait_for_consultation", { taskId: waitingTask.id, claimId: claim.claimId,
+        consultationIds: [consultation.consultation.id], reason: "Humanの選択待ち", runtime: JSON.parse(inspected.stdout) });
+      assert.equal(waited.state, "waiting");
+      const resumptions = await call("worker", "list_consultation_resumptions", { projectId: projectIds[0] });
+      assert.equal(resumptions.resumptions.find((item: { taskId: string }) => item.taskId === waitingTask.id)?.state, "waiting");
+      assert.equal(await readFile(join(artifacts, "pending.txt"), "utf8"), "preserved artifact");
+
     } finally { await database.destroy(); }
     const before = await readFile(join(data, "preview.db"));
     assert.notEqual(prepare(data).status, 0);

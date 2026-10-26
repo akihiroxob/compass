@@ -56,6 +56,12 @@
         "server/tests/strategistIntegration.test.ts",
         "orchestrator/tests/integration.test.ts",
         "ralph/tests/ralph.test.ts"
+      ],
+      [
+        "node",
+        "--import",
+        "tsx",
+        "/Users/aokayama/git/compass/scripts/verify-consultation-resumption.mjs"
       ]
     ],
     "browser": {
