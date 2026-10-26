@@ -18,13 +18,13 @@
 .direction-panel {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  border-radius: 1.4rem;
+  border-radius: var(--radius-lg);
   color: var(--color-inverse-text);
   background: var(--color-inverse);
   overflow: hidden;
-  > div { padding: 2.2rem; }
+  > div { padding: var(--space-lg); }
   > div + div { border-left: 1px solid var(--color-inverse-line); }
-  p:last-child { margin: 0; font-family: var(--font-serif); font-size: 1.4rem; line-height: 1.6; }
+  p:last-child { margin: 0; font-size: var(--text-lead); font-weight: 600; line-height: var(--line-height-body); }
   .unset { color: var(--color-inverse-muted); }
   @include narrow { grid-template-columns: 1fr; > div + div { border-top: 1px solid var(--color-inverse-line); border-left: 0; } }
 }

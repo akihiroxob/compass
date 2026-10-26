@@ -6,15 +6,15 @@
   display: grid;
   gap: var(--field-gap);
   min-width: 0;
-  font-weight: 700;
+  font-weight: 600;
   &.inline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs) var(--space-sm); }
 }
 .fieldset {
   display: grid;
   gap: var(--space-xs);
-  > legend { margin-bottom: var(--space-xs); padding: 0; font-weight: 700; }
+  > legend { margin-bottom: var(--space-xs); padding: 0; font-weight: 600; }
 }
-.field-required { color: var(--color-accent); font-size: .75rem; }
+.field-required { color: var(--color-brand); font-size: var(--text-label); }
 .field-description { color: var(--color-text-muted); font-weight: 400; }
 .input, .textarea, .select {
   width: 100%;
@@ -23,6 +23,9 @@
   border-radius: var(--field-radius);
   color: var(--color-text);
   background: var(--color-raised);
+  // labelの太さを継承しない（入力値は本文の太さ）。
+  font-weight: 400;
+  &:hover:not(:disabled, [readonly], [aria-invalid="true"]) { border-color: var(--field-hover-border-color); }
   &[aria-invalid="true"] { border-color: var(--field-invalid-color); box-shadow: inset 0 0 0 var(--control-border-width) var(--field-invalid-color); }
   &:disabled { opacity: var(--control-disabled-opacity); background: var(--field-disabled-background); cursor: not-allowed; }
 }
@@ -30,7 +33,7 @@
   @include control-size(md);
   &.compact { @include control-size(sm); }
 }
-.input[readonly] { background: var(--field-readonly-background); }
+.input[readonly], .textarea[readonly] { background: var(--field-readonly-background); }
 .textarea {
   padding: var(--field-padding-y) var(--control-md-padding-x);
   font-size: var(--control-md-font-size);
@@ -43,6 +46,6 @@
   align-items: center;
   gap: var(--space-xs);
   font-weight: 400;
-  input { flex-shrink: 0; accent-color: var(--color-accent); }
+  input { flex-shrink: 0; accent-color: var(--color-brand); }
   > span { min-width: 0; overflow-wrap: anywhere; }
 }

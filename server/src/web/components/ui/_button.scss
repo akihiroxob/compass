@@ -1,21 +1,41 @@
 // ボタン（Button・LinkButton）。sizeは既定がmd、`compact`がsm。外側余白・幅・配置は親layoutが持つ。
+// 主要操作はブランドの面、補助操作は白地にブランドの枠と文字。hoverは押せる場合だけ濃く（淡く）する。
 @use "../../styles/mixins" as *;
 
 .button, .secondary-button {
-  @include pill-control;
+  @include control-shape;
   @include control-size(md);
   &.compact { @include control-size(sm); }
 }
-.button { border-color: var(--color-text); color: #fff; background: var(--color-text); }
-.secondary-button { border-color: var(--color-text); background: transparent; }
+.button {
+  border-color: var(--color-brand);
+  color: var(--color-on-brand);
+  background: var(--color-brand);
+  &:hover:not(:disabled) { border-color: var(--color-brand-strong); background: var(--color-brand-strong); }
+}
+.secondary-button {
+  border-color: var(--color-brand);
+  color: var(--color-brand);
+  background: var(--color-surface);
+  &:hover:not(:disabled) { background: var(--color-brand-soft); }
+}
 // 押せない状態と送信中（Buttonの`pending`は`aria-busy`）。
 .button, .secondary-button, .text-button {
   &:disabled { opacity: var(--control-disabled-opacity); cursor: not-allowed; }
   &[aria-busy="true"] { cursor: progress; }
 }
 // 取り返しのつかない操作（Buttonの`tone="danger"`）。
-.secondary-button.danger { color: var(--color-danger); border-color: var(--color-danger-line); }
-.button.danger { color: #fff; border-color: var(--color-danger); background: var(--color-danger); }
+.secondary-button.danger {
+  color: var(--color-danger);
+  border-color: var(--color-danger-line);
+  &:hover:not(:disabled) { background: var(--color-danger-soft); }
+}
+.button.danger {
+  color: var(--color-on-brand);
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+  &:hover:not(:disabled) { border-color: var(--color-danger-strong); background: var(--color-danger-strong); }
+}
 // 枠の無い文字だけのボタン（Button `variant="text"`）。入力行の追加・削除等。
 .text-button {
   display: inline-flex;
@@ -23,8 +43,9 @@
   min-height: var(--control-sm-height);
   padding: 0;
   border: 0;
-  color: var(--color-accent);
+  color: var(--color-brand);
   background: transparent;
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 600;
+  &:hover:not(:disabled) { text-decoration: underline; }
 }

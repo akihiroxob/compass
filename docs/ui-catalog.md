@@ -1,6 +1,6 @@
 # UIカタログ
 
-製品の共通部品の用途・API・使用例・状態を、Storybook React/Viteで確認する。現在の製品表示が対象で、[ムードボード](design/compass-moodboard-blue.png)の青藍・白・青灰色とサンセリフへの更新はまだ適用していない。画像は視覚方向の参照であり、架空のデータ・進捗率・Agent表示は業務仕様にしない。情報構造・密度の参照は`/Users/aokayama/git/compass-prototype`（ローカル参照URL `http://localhost:8443/`）。現行の配置・API・UI検査は[Web UI](web-ui.md)を正本とする。
+製品の共通部品の用途・API・使用例・状態を、Storybook React/Viteで確認する。製品と同じtoken・SCSSを読むため、[Web UIの視覚方針](web-ui.md#視覚方針)（青藍・白・青灰色、サンセリフ）がカタログと製品の両方へ同じbuildで反映される。[ムードボード](design/compass-moodboard-blue.png)は視覚方向の参照であり、架空のデータ・進捗率・Agent表示は業務仕様にしない。情報構造・密度の参照は`/Users/aokayama/git/compass-prototype`（ローカル参照URL `http://localhost:8443/`）。現行の配置・API・UI検査は[Web UI](web-ui.md)を正本とする。
 
 ## 起動とbuild
 
@@ -40,8 +40,8 @@ devはループバックだけでlistenする。終了は`Ctrl+C`。静的build�
 
 | 一覧 | 使用例と確認する契約 |
 | --- | --- |
-| `Foundations/Tokens` | 現在の全CSS token宣言。参照値も正本から表示する |
-| `Components/Button` | Controlsでvariant/size/tone、md/smのButton・LinkButton、text、disabled、pendingを確認。pendingはdisabledとaria-busyを付ける。textはsizeを持たない |
+| `Foundations/Tokens` | 現在の全CSS token宣言。参照値も正本から表示する。用途とコントラストは[視覚方針](web-ui.md#視覚方針) |
+| `Components/Button` | Controlsでvariant/size/tone、md/smのButton・LinkButton、text、disabled、pendingを確認。`States`でvariant・toneごとのdefault/disabled/pendingを並べる。pendingはdisabledとaria-busyを付ける。textはsizeを持たない |
 | `Components/LinkButton` | URL遷移のControls、primary/secondaryとmd/sm。Router Link標準属性を受ける |
 | `Components/FormControls` | TextInputのControls、md/smの入力とSelect、TextArea、必須/説明つきField、inline Field、FieldsetとCheckbox。readOnly/disabled/aria-invalid、選択済み・未選択を確認 |
 | `Components/ViewSwitch` | md/sm、件数と選択中表示。NavigationでURLとaria-currentの切替を確認 |
@@ -54,7 +54,7 @@ devはループバックだけでlistenする。終了は`Ctrl+C`。静的build�
 `npm run check:ui`はstoryも走査する。web内の`*.stories.tsx`だけに`import type ... from "@storybook/react-vite"`を許可し、Storybookの実行時importは許可せず、基本部品近傍ではFeature/app/API依存も許可しない。storyにもnative基本部品禁止・propsによるstyle上書き禁止・操作列のsize整合を適用する。製品sourceからstoryへの依存は禁止する。SCSSの所有・重複・入口検査も維持する。storyを丸ごと除外しない。
 
 1. 製品のtoken/部品を修正し、近傍storyの用途・API・関係する状態例を更新する。
-2. `npm run check:ui`・`npm run typecheck`・`npm run lint`・関連テスト・`npm run build`・`npm run catalog:build`を実行する。typecheckは`.storybook`設定も含む。
+2. `npm run check:ui`（tokenのコントラスト測定を含む）・`npm run typecheck`・`npm run lint`・関連テスト・`npm run build`・`npm run catalog:build`を実行する。typecheckは`.storybook`設定も含む。
 3. devと静的buildの対象例を開き、Desktop（1280px）・狭い画面（390px）で描画・操作・focus・折返しを確認し、画像を保存して目視する。
 4. 対象HEADと作業差分、配信HTMLが参照するasset名/ハッシュ、状態・操作・実測・未検証を結果へ記録する。部品修正時は製品の利用画面も確認する。カタログの成功だけで全画面や新テーマを検証済みとしない。
 

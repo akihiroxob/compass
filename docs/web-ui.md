@@ -95,16 +95,45 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 
 ## size契約
 
-`size`は`md`（既定）・`sm`。値は`_tokens.scss`の`--control-{md|sm}-height`・`--control-{md|sm}-padding-x`・`--control-{md|sm}-font-size`と共通の`--control-border-width`・`--control-line-height`で定め、`_mixins.scss`の`control-size($size)`だけが適用する。`.button`・`.secondary-button`・`.view-switch-item`は同じmixin（形は`pill-control`）を使うため、トークンを変えるとButton・LinkButton・ViewSwitchの同じsizeへ反映される。
+`size`は`md`（既定）・`sm`。値は`_tokens.scss`の`--control-{md|sm}-height`・`--control-{md|sm}-padding-x`・`--control-{md|sm}-font-size`と共通の`--control-border-width`・`--control-line-height`で定め、`_mixins.scss`の`control-size($size)`だけが適用する。`.button`・`.secondary-button`・`.view-switch-item`は同じmixin（形は`control-shape`。角丸`--control-radius`）を使うため、トークンを変えるとButton・LinkButton・ViewSwitchの同じsizeへ反映される。
 
 | size | 高さ（min-height） | 左右padding | 文字 |
 | --- | --- | --- | --- |
-| `md` | 3rem | `--space-md`（1.25rem） | 1rem |
-| `sm` | 2.4rem | .9rem | `--text-note`（.9rem） |
+| `md` | 2.5rem（40px） | 1rem | .875rem（14px） |
+| `sm` | 2rem（32px） | .75rem | .8125rem（13px） |
 
-入力（`.input`・`.select`）も同じ`control-size`を使い、`TextArea`は`--control-md-padding-x`・`--control-md-font-size`と`--field-padding-y`・`--field-line-height`を使う。入力の枠・角丸・label内の間隔・エラー・無効・読取専用の表示は`_tokens.scss`の`--field-*`（`--field-gap`・`--field-radius`・`--field-border-color`・`--field-invalid-color`・`--field-disabled-background`・`--field-readonly-background`）と、ボタンと共通の`--control-disabled-opacity`で定める。Featureのstyleは部品の見た目・sizeを上書きせず、配置（幅・flex・grid）と字体（例: tokenの等幅表示）だけを指定する。
+入力（`.input`・`.select`）も同じ`control-size`を使い、`TextArea`は`--control-md-padding-x`・`--control-md-font-size`と`--field-padding-y`・`--field-line-height`を使う。入力の枠・角丸・label内の間隔・エラー・無効・読取専用の表示は`_tokens.scss`の`--field-*`（`--field-gap`・`--field-radius`・`--field-border-color`・`--field-hover-border-color`・`--field-invalid-color`・`--field-disabled-background`・`--field-readonly-background`）と、ボタンと共通の`--control-disabled-opacity`で定める。Featureのstyleは部品の見た目・sizeを上書きせず、配置（幅・flex・grid）と字体（例: tokenの等幅表示）だけを指定する。
 
 部品間のgap・折返し・一覧との余白は親layoutが持つ。フォームでは`.form-section`（grid・gap `--space-md`）・`.grant-form`（grid・gap `--space-md`）・`.criterion-row`・`.fieldset`等のgapが欄の上下の間隔を持ち、`Field`・入力部品は外側余白を持たない。一覧の上の操作列は`.list-toolbar`（flex・折返し・`align-items: center`・gap `--space-sm`・下余白`--space-lg`）を使い、列内の部品は同じ`size`を指定する。切替だけを置く一覧でも、下余白は`.list-toolbar`が持つ。送信の失敗の要約（`FormErrorSummary`）と作成・編集フォーム（`.project-form`）の間は`.state-card + .project-form`が持つ。`.detail-section`の字下げ（`padding-left`）はclassの無い本文の箇条書きにだけ付け、classを持つ一覧（`.outcome-list`・`.grant-list`等の行カード）は自身の余白で区画の見出しと左端を揃える。
+
+## 視覚方針
+
+白と青灰色の面に、青藍（ブランド）を現在地・主要操作・リンクだけに使う。サンセリフの太さ・大きさと面・罫線で階層を表し、太い囲みや大きな余白を一律に使わない。値の正本は`styles/_tokens.scss`で、製品とUIカタログは同じtoken・部品・SCSSを読む。参照は[ムードボード](design/compass-moodboard-blue.png)の配色・文字・部品の密度で、画像内の架空データ・進捗率・Agent表示・ダッシュボード配置は採用しない。
+
+| 対象 | 採用した判断 | token |
+| --- | --- | --- |
+| 面 | ページは青灰色、区画・カード・入力は白、注記・読取専用は淡い青灰色 | `--color-paper` #f5f7fa・`--color-surface`/`--color-raised` #fff・`--color-note` #eef2f6 |
+| 文字 | 本文は濃い青墨、補助・注記は青灰色の2段 | `--color-text` #1d2935・`--color-text-secondary` #44515e・`--color-text-muted` #56636f |
+| 罫線 | 区画は淡い罫線、入力・表示切替の枠は3:1以上の濃さ | `--color-line` #dce3ea・`--color-line-input` #7a8794 |
+| ブランド | 主要操作（Button primary）、選択中のnav・ViewSwitch、リンク・eyebrow、焦点表示。hoverは濃色、淡い強調は補助操作・navのhover | `--color-brand` #285a78・`--color-brand-strong` #1f4a63・`--color-brand-soft` #e7eff5 |
+| 状態 | ブランドと別の色相。失敗・危険操作は赤、要対応は橙、警告は黄、完了は緑、進行中は淡い青。必ずラベル文字を併記し、エラーの入力は枠の色に加えて内側の線と要約（`role="alert"`）で示す | `--color-danger*`・`--tone-*` |
+| 文字 | 外部フォントを配信しない。OS標準のサンセリフ（system-ui、和文はヒラギノ角ゴ・Noto Sans JP・Yu Gothic UI・メイリオ）へフォールバックし、セリフ体は使わない | `--font-sans` |
+| 文字の階層 | h1 32px/44・h2 20px・h3 16px（700）、本文14px/1.6、注記13px、ラベル12px（大文字・字間.08em） | `--text-h1`〜`--text-label`・`--line-height-*` |
+| 余白・密度 | 4px基準の`--space-*`（4/8/12/16/24/36px）。区画のpaddingは24px、本文上端は36〜48px | `--space-*` |
+| 角丸 | 操作・入力は6px、行カード6〜8px、区画10px、カード12px。pillは状態badgeだけ | `--control-radius`・`--radius-*` |
+
+操作部品の状態は次のとおり。disabledは`--control-disabled-opacity`で薄くし、hoverを変化させない。pendingは`Button`だけが持ち、disabledと`aria-busy="true"`・`cursor: progress`、文言は利用側が切り替える。focusはすべての操作・入力で`--focus-ring`（3px・offset 2px）の実線を出す。
+
+| 部品 | default | hover | 選択中・error |
+| --- | --- | --- | --- |
+| Button primary / LinkButton primary | ブランドの面・白文字 | `--color-brand-strong` | — |
+| Button secondary / LinkButton secondary | 白地・ブランドの枠と文字 | `--color-brand-soft` | — |
+| Button `tone="danger"` | primaryは赤の面、secondaryは赤文字・淡い赤の枠 | 濃い赤 / `--color-danger-soft` | — |
+| Button text | ブランドの文字 | 下線 | — |
+| ViewSwitch | 白地・入力と同じ枠・補助文字 | `--color-brand-soft` | `aria-current="page"`でブランドの面・白文字 |
+| TextInput / Select / TextArea | 白地・`--field-border-color` | 枠を`--field-hover-border-color`へ | `aria-invalid="true"`で赤の枠＋内側線。読取専用は淡い青灰色 |
+
+文字・背景・枠・焦点表示のコントラストは`server/tests/uiTokens.test.ts`（`npm run check:ui`）が`_tokens.scss`の値から測定し、文字はWCAG AA 4.5:1、入力の枠・焦点表示等の非テキストは3:1を下回ると失敗する。測定値は実行時のdiagnosticに出る（例: 本文13.77:1、muted 5.47〜6.15:1、ブランド文字6.39〜7.43:1、主要ボタンの白文字7.43:1、入力の枠3.26〜3.67:1、焦点表示6.39〜7.43:1、状態badge 5.42〜7.41:1）。
 
 ## style
 
@@ -112,7 +141,7 @@ Sassの入口は`app/main.scss`（`app/main.tsx`が読む）で、共有 → 部
 
 | 所有者 | partial | 置くもの |
 | --- | --- | --- |
-| 共有 | `styles/_tokens.scss`・`_mixins.scss` | CSS変数のトークン（`:root`）・breakpoint、mixin（`control-size`・`pill-control`・`nav-link`・`list-link`等） |
+| 共有 | `styles/_tokens.scss`・`_mixins.scss` | CSS変数のトークン（`:root`）・breakpoint、mixin（`control-size`・`control-shape`・`heading`・`nav-link`・`list-link`等） |
 | 共有 | `styles/_base.scss` | reset・要素の既定値（`main`の幅、`fieldset`、焦点表示、`details`の開閉、reduced-motion）。要素へのselectorはここだけ |
 | 共有 | `styles/_layout.scss` | 複数のFeature・appが使うlayout・区画・操作列（`.action-row`・`.list-toolbar`・`.form-actions`）・一覧・カード・文字の型・状態badge |
 | 基本部品 | `components/ui/_button.scss`・`_view-switch.scss`・`_field.scss` | Button・LinkButton・ViewSwitch・Field・Fieldset・入力部品の内側の見た目と状態 |
@@ -128,6 +157,7 @@ rootの`npm run check:ui`は`server`の同名scriptへ委譲し、検査自体�
 
 - 依存方向（web全体の`.ts`・`.tsx`）: 共通層からFeature・app、Featureからappへの依存がない。他Featureへは`features/<機能>/index.ts(x)`・`model.ts`の公開入口だけを使う。Feature内から自身の`index`を経由しない。`model.ts`から`.tsx`へ推移的に辿れない。公開入口を経由したものを含め、Feature間の依存が循環しない（循環の各辺のimportを示す）。`import`・`export ... from`（型だけを含む）・文字列の`import()`・`require()`・`import("x")`型を、TypeScriptのbundler解決とweb tsconfigの`paths`で実際のfileへ解決して判定するため、alias・再exportの経由も検出する。web内で解決できないlocal importと文字列でない`import()`は失敗にする。app・Feature・共通層のいずれかのsourceが無い（空走査）と失敗する。
 - `components/ui`: Feature・app等への依存がない。
+- コントラスト（`tests/uiTokens.test.ts`）: [視覚方針](#視覚方針)の色の組合せがWCAG AAの基準を満たし、ブランド色と状態色が別の値である。
 - 操作・入力（`components/ui`を除くweb全体の`.tsx`）: nativeの`<button>`・`<input>`・`<textarea>`・`<select>`を使わない。例外は`<input type="hidden">`（ログインのform POSTで`returnTo`・招待tokenを運ぶ）と、上記の`<button className="workspace-switch">`だけで、例外の対象が見つからなければ失敗する。基本部品へ`className`・`style`を渡さない。`.list-toolbar`内に`a`・`Link`・`NavLink`・`button`を直接置かず、部品はすべて同じ`size`を文字列で指定する。
 - size契約（SCSS）: `control-size`の全宣言（補間`#{$size}`を含む）の値が`0`か`--control-*`トークンだけで、`min-height`・`padding`・`font-size`を定め、md・smのトークンが定義されている。表示切替・入力・文字だけのボタンの部品と`.list-toolbar`内のbutton類に外側余白を持たせない。`.input`・`.textarea`・`.select`・`.text-button`・`.button`・`.secondary-button`のsizeは、どのselectorからも`0`か`--control-*`・`--field-*`トークンだけで指定する。`.list-switch`のselectorを使わない（表示切替は`ViewSwitch`）。
 - classの所有（SCSSとTSX）: 入れ子と`&`を展開したselectorが定義するclassごとに、定義するpartialは1つだけ。部品・組合せUIのclassへ所有partialの外から指定できるのは配置（幅・flex・grid・字体。組合せUIには外側余白も）だけ。`styles/_base.scss`・`_tokens.scss`以外の最上位のselectorはclassから始める。部品・組合せUI・app・Featureのpartialのclassはその所有者のsource（`className`と、class名を組み立てる式の文字列。attributeに渡したslotのJSXを含む）だけが使い、`styles/`の共有classは2つ以上の所有者が使う。どこからも使わないclassを残さない。

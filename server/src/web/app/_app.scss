@@ -2,7 +2,7 @@
 @use "../styles/mixins" as *;
 
 .not-found {
-  h1 { margin: var(--space-2xs) 0 1rem; font-size: clamp(2rem, 5vw, 2.8rem); line-height: 1.15; }
+  h1 { margin: var(--space-2xs) 0 var(--space-md); }
   .eyebrow { margin: 0; }
 }
 .sidebar-link {

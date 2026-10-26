@@ -14,7 +14,7 @@
   border-left-width: 4px;
   overflow-wrap: anywhere;
   scroll-margin-top: 4rem;
-  &.from-human { border-left-color: var(--color-accent); }
+  &.from-human { border-left-color: var(--color-brand); }
   &.from-agent { border-left-color: var(--color-line); background: var(--color-note); }
   &:target { @include focus-ring; }
   .section-note { margin: 0 0 .4rem; }

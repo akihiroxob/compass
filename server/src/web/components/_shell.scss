@@ -3,12 +3,13 @@
 @use "../styles/mixins" as *;
 
 .site-header {
-  min-height: 4.5rem;
+  min-height: 3.5rem;
   padding: 0 4vw;
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--color-line);
+  background: var(--color-surface);
   p { color: var(--color-text-muted); font-size: var(--text-small); }
   @include narrow { padding: 0 5vw; p { display: none; } }
 }
@@ -17,13 +18,14 @@
   gap: .65rem;
   align-items: center;
   text-decoration: none;
-  font-weight: 750;
-  span { color: var(--color-accent); font-size: 1.4rem; }
+  font-weight: 700;
+  letter-spacing: .14em;
+  span { color: var(--color-brand); font-size: 1.25rem; }
 }
 
 .app-shell {
   display: grid;
-  grid-template-columns: 16.5rem minmax(0, 1fr);
+  grid-template-columns: 15rem minmax(0, 1fr);
   min-height: 100vh;
   @include narrow { display: block; padding-bottom: 4.75rem; }
 }
@@ -74,5 +76,5 @@
 .app-content {
   min-width: 0;
   &:focus { outline: none; }
-  main { padding-top: 3.5rem; @include narrow { padding-top: 1.5rem; } }
+  main { padding-top: var(--space-xl); @include narrow { padding-top: 1.5rem; } }
 }

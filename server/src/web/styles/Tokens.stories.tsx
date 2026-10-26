@@ -7,7 +7,7 @@ const tokens = [...tokensSource.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)];
 const meta = {
   title: "Foundations/Tokens",
   tags: ["autodocs"],
-  parameters: { docs: { description: { component: "styles/_tokens.scssが正本。色・状態色・文字・余白・control size・角丸・影・動きの宣言をソースから生成する。色見本と文字は製品SCSSのCSS変数を参照する。新テーマの視覚方針と参照画像はdocs/ui-catalog.mdを参照。" } } },
+  parameters: { docs: { description: { component: "styles/_tokens.scssが正本。色・状態色・文字・余白・control size・角丸・影・動きの宣言をソースから生成する。色見本と文字は製品SCSSのCSS変数を参照する。色の用途・文字の階層・密度の判断とコントラストの測定はdocs/web-ui.mdの「視覚方針」を参照。" } } },
 } satisfies Meta;
 export default meta;
 export const Current: StoryObj = {
