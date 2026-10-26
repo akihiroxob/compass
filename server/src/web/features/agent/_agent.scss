@@ -18,8 +18,8 @@
 .agent-role-card-agents { margin: var(--space-xs) 0 0; font-size: var(--text-note); }
 .role-definition {
   margin-top: var(--space-xs);
-  > summary { width: fit-content; border-radius: var(--radius-sm); color: var(--color-accent); cursor: pointer; font-size: var(--text-note); font-weight: 700; }
-  > summary::marker { color: var(--color-accent); }
+  > summary { width: fit-content; border-radius: var(--radius-sm); color: var(--color-brand); cursor: pointer; font-size: var(--text-note); font-weight: 700; }
+  > summary::marker { color: var(--color-brand); }
   h4 { margin: var(--space-sm) 0 var(--space-xs); font-size: var(--text-note); }
   .section-note { margin: var(--space-sm) 0 0; }
 }

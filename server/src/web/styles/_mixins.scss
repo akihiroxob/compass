@@ -20,30 +20,33 @@
 }
 
 // ボタン・表示切替の項目（components/uiのButton・LinkButton・ViewSwitch）の形。sizeは`control-size`、色は各部品が持つ。
-@mixin pill-control {
+@mixin control-shape {
   display: inline-flex;
   justify-content: center;
   align-items: center;
   border-style: solid;
-  border-radius: var(--radius-pill);
+  border-radius: var(--control-radius);
   text-decoration: none;
-  font-weight: 700;
+  font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
+  transition: color var(--motion-fast), background-color var(--motion-fast), border-color var(--motion-fast);
 }
 
 // 小さな大文字の見出しラベル（eyebrow・dt等）。
-@mixin caps-label($size: var(--text-label), $spacing: .12em) {
+@mixin caps-label($size: var(--text-label), $spacing: .08em) {
   color: var(--color-text-muted);
   font-size: $size;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: $spacing;
   text-transform: uppercase;
 }
 
-@mixin serif-heading($size) {
-  font-family: var(--font-serif);
+// 見出しの文字（`--text-h1`〜`--text-h3`）。サンセリフの太さと行間で階層を表す。
+@mixin heading($size) {
   font-size: $size;
-  font-weight: 500;
+  font-weight: var(--font-weight-heading);
+  line-height: var(--line-height-heading);
 }
 
 // 一覧の1行・小さなカード。
@@ -58,7 +61,7 @@
   @include list-item;
   display: $display;
   text-decoration: none;
-  &:hover { border-color: var(--color-accent); box-shadow: var(--shadow-hover); }
+  &:hover { border-color: var(--color-brand); box-shadow: var(--shadow-hover); }
 }
 
 // 区画（form-section・detail-section等）。
@@ -75,17 +78,17 @@
   list-style: none;
 }
 
-// ナビゲーションのリンク（Workspaceのナビゲーション・Project詳細のview切替）。選択中は`aria-current="page"`で反転する。
-@mixin nav-link($display: inline-flex, $radius: var(--radius-pill)) {
+// ナビゲーションのリンク（Workspaceのナビゲーション・Project詳細のview切替）。選択中は`aria-current="page"`でブランドの面にする。
+@mixin nav-link($display: inline-flex, $radius: var(--radius-sm)) {
   display: $display;
   align-items: center;
-  min-height: 2.4rem;
-  padding: 0 1rem;
+  min-height: var(--control-sm-height);
+  padding: 0 var(--control-sm-padding-x);
   border-radius: $radius;
-  color: var(--color-text);
+  color: var(--color-text-secondary);
   text-decoration: none;
-  font-weight: 700;
+  font-weight: 600;
   transition: background-color var(--motion-fast), color var(--motion-fast);
-  &:hover { background: var(--color-subtle); }
-  &[aria-current="page"] { color: var(--color-inverse-text); background: var(--color-inverse); }
+  &:hover { color: var(--color-text); background: var(--color-brand-soft); }
+  &[aria-current="page"] { color: var(--color-on-brand); background: var(--color-brand); }
 }

@@ -1,4 +1,4 @@
-// 表示切替（ViewSwitch）。選択中は`aria-current="page"`で反転する。部品間のgapだけを持ち、外側余白は親layoutが持つ。
+// 表示切替（ViewSwitch）。選択中は`aria-current="page"`でブランドの面にする。部品間のgapだけを持ち、外側余白は親layoutが持つ。
 @use "../../styles/mixins" as *;
 
 .view-switch {
@@ -7,11 +7,13 @@
   gap: var(--space-xs);
 }
 .view-switch-item {
-  @include pill-control;
+  @include control-shape;
   @include control-size(md);
-  border-color: var(--color-line);
+  border-color: var(--color-line-input);
   color: var(--color-text-secondary);
+  background: var(--color-surface);
   &.compact { @include control-size(sm); }
-  &[aria-current="page"] { color: #fff; border-color: var(--color-text); background: var(--color-text); }
+  &:hover { color: var(--color-text); background: var(--color-brand-soft); }
+  &[aria-current="page"] { color: var(--color-on-brand); border-color: var(--color-brand); background: var(--color-brand); }
 }
 .view-switch-count { margin-left: var(--space-2xs); font-variant-numeric: tabular-nums; }

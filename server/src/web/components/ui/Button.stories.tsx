@@ -28,5 +28,16 @@ export const SizesAndVariants: Story = {
     <Button variant="text">入力を追加</Button>
   </div>,
 };
+// variantごとのdefault・disabled・pending。hoverはポインター、focusはTabで確認する。
+export const States: Story = {
+  render: () => <div className="form-section">
+    {([["primary", undefined], ["secondary", undefined], ["primary", "danger"], ["secondary", "danger"]] as const).map(([variant, tone]) => <div className="action-row" key={`${variant}-${tone}`}>
+      <Button variant={variant} tone={tone}>{variant}{tone ? ` ${tone}` : ""}</Button>
+      <Button variant={variant} tone={tone} disabled>disabled</Button>
+      <Button variant={variant} tone={tone} pending>pending...</Button>
+    </div>)}
+    <div className="action-row"><Button variant="text">text</Button><Button variant="text" disabled>text disabled</Button></div>
+  </div>,
+};
 export const Disabled: Story = { args: { disabled: true, children: "変更できません" } };
 export const Pending: Story = { args: { pending: true, children: "保存中..." } };

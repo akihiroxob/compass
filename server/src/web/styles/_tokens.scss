@@ -1,95 +1,113 @@
 // デザイントークン。共通の色・文字・余白・角丸・影・動きの値を定義し、各partialはCSS変数で参照する。
-// 文字色は背景（paper / surface / raised / note）に対してWCAG AA（4.5:1以上）を満たす値に限る。
+// 視覚方針（青藍・白・青灰色、サンセリフ、コンパクトな操作部品）とコントラストの測定はdocs/web-ui.mdの「視覚方針」。
+// 文字色は背景（paper / surface / raised / note / brand-soft）に対してWCAG AA（4.5:1以上）を満たす値に限る（tests/uiTokens.test.ts）。
 
 $breakpoint-narrow: 700px;
 
 :root {
-  // 色
-  --color-text: #24221f;
-  --color-text-secondary: #5c564e;
-  --color-text-muted: #686158;
-  --color-paper: #f4f1eb;
-  --color-surface: #faf8f4;
+  // 色。面は白と青灰色、ブランド（青藍）は現在地・主要操作・リンクだけに使う。
+  --color-text: #1d2935;
+  --color-text-secondary: #44515e;
+  --color-text-muted: #56636f;
+  --color-paper: #f5f7fa;
+  --color-surface: #fff;
   --color-raised: #fff;
-  --color-note: #f0ebe2;
-  --color-subtle: #e4ded5;
-  --color-line: #d8d1c7;
-  --color-line-soft: #e0dad1;
-  --color-line-strong: #c8c0b5;
+  --color-note: #eef2f6;
+  --color-subtle: #e8edf2;
+  --color-line: #dce3ea;
+  --color-line-soft: #e6ebf0;
+  --color-line-strong: #c3ced8;
   // 入力欄の枠は非テキストのコントラスト（3:1以上）を満たす。
-  --color-line-input: #8b847b;
-  --color-accent: #a2462d;
-  --color-danger: #872f1d;
-  --color-danger-line: #d89481;
-  --color-danger-soft: #fff0eb;
-  --color-danger-softer: #fff7f4;
-  --color-inverse: #292622;
-  --color-inverse-text: #f8f4ed;
-  --color-inverse-muted: #aaa39a;
-  --color-inverse-line: #4b4741;
+  --color-line-input: #7a8794;
+  --color-brand: #285a78;
+  --color-brand-strong: #1f4a63;
+  --color-brand-soft: #e7eff5;
+  --color-on-brand: #fff;
+  // 失敗・取り返しのつかない操作。ブランドとは別の色相にする。
+  --color-danger: #b3261e;
+  --color-danger-strong: #8f1e18;
+  --color-danger-line: #e8a29c;
+  --color-danger-soft: #fdecea;
+  --color-danger-softer: #fef6f5;
+  // 濃い面（skip link・Projectの方向）。ブランドの濃色。
+  --color-inverse: #234f6a;
+  --color-inverse-text: #fff;
+  --color-inverse-muted: #c9d8e4;
+  --color-inverse-line: #3e6a86;
+  --color-backdrop: rgba(29, 41, 53, .45);
   // 焦点表示は背景に対して3:1以上の実線にする。
-  --focus-ring: 3px solid var(--color-accent);
+  --focus-ring: 3px solid var(--color-brand);
   --focus-offset: 2px;
 
-  // 状態badgeの意味（statusTone.ts）。文字と背景はWCAG AA（4.5:1以上）。
+  // 状態badgeの意味（statusTone.ts）。ブランドと分け、文字と背景はWCAG AA（4.5:1以上）。色だけに頼らずラベルを併記する。
   --tone-attention-fg: #fff;
-  --tone-attention-bg: #a2462d;
-  --tone-waiting-fg: #5c564e;
-  --tone-waiting-border: #8b847b;
-  --tone-progress-fg: #fff;
-  --tone-progress-bg: #2f5a7a;
-  --tone-done-fg: #2c5631;
-  --tone-done-bg: #e1eedf;
-  --tone-muted-fg: #5c564e;
-  --tone-muted-bg: #e4ded5;
-  --tone-warning-fg: #872f1d;
-  --tone-warning-bg: #fff0eb;
-  --tone-warning-border: #d89481;
+  --tone-attention-bg: #b54708;
+  --tone-waiting-fg: #4a5867;
+  --tone-waiting-border: #8794a1;
+  --tone-progress-fg: #234e68;
+  --tone-progress-bg: #e1ecf4;
+  --tone-done-fg: #1e6b3a;
+  --tone-done-bg: #e3f4e8;
+  --tone-muted-fg: #4a5867;
+  --tone-muted-bg: #e8edf2;
+  --tone-warning-fg: #93370d;
+  --tone-warning-bg: #fef0c7;
+  --tone-warning-border: #e9b949;
 
-  // 文字
-  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif;
-  --font-serif: Georgia, serif;
+  // 文字。外部フォントを読み込まず、OS標準のサンセリフ（和文はヒラギノ・Noto Sans JP・Yu Gothic・メイリオ）へフォールバックする。
+  --font-sans: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --text-label: .72rem;
-  --text-small: .85rem;
-  --text-note: .9rem;
+  // 文字の階層（h1 32px・h2 20px・h3 16px、見出しの行間1.375。本文14px・行間1.6、注記13px、ラベル12px）。
+  --text-h1: 2rem;
+  --text-h2: 1.25rem;
+  --text-h3: 1rem;
+  --text-body: .875rem;
+  --text-lead: 1rem;
+  --text-note: .8125rem;
+  --text-small: .8125rem;
+  --text-label: .75rem;
+  --line-height-heading: 1.375;
+  --line-height-body: 1.6;
+  --font-weight-heading: 700;
 
   // 余白
   --space-2xs: .25rem;
-  --space-xs: .4rem;
+  --space-xs: .5rem;
   --space-sm: .75rem;
-  --space-md: 1.25rem;
-  --space-lg: 2rem;
-  --space-xl: 3rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.25rem;
 
   // 操作部品（components/ui）のsize契約。同じsizeのcontrolは文字・高さ・内側余白をそろえ、外側余白は持たない。
   --control-border-width: 1px;
   --control-line-height: 1.25;
-  --control-md-height: 3rem;
-  --control-md-padding-x: var(--space-md);
-  --control-md-font-size: 1rem;
-  --control-sm-height: 2.4rem;
-  --control-sm-padding-x: .9rem;
-  --control-sm-font-size: var(--text-note);
+  --control-radius: .375rem;
+  --control-md-height: 2.5rem;
+  --control-md-padding-x: 1rem;
+  --control-md-font-size: .875rem;
+  --control-sm-height: 2rem;
+  --control-sm-padding-x: .75rem;
+  --control-sm-font-size: .8125rem;
   // 入力部品（components/uiのTextInput・TextArea・Select）。高さ・左右padding・文字は上の`--control-*`を共有し、枠・状態をここで定める。
-  --field-gap: .55rem;
-  --field-radius: .65rem;
-  --field-padding-y: .75rem;
+  --field-gap: .375rem;
+  --field-radius: var(--control-radius);
+  --field-padding-y: .5rem;
   --field-line-height: 1.6;
   --field-border-color: var(--color-line-input);
+  --field-hover-border-color: var(--color-text-muted);
   --field-invalid-color: var(--color-danger);
   --field-disabled-background: var(--color-subtle);
   --field-readonly-background: var(--color-note);
   --control-disabled-opacity: .55;
 
   // 角丸・影
-  --radius-sm: .7rem;
-  --radius-md: 1rem;
-  --radius-lg: 1.25rem;
-  --radius-xl: 1.5rem;
+  --radius-sm: .375rem;
+  --radius-md: .5rem;
+  --radius-lg: .625rem;
+  --radius-xl: .75rem;
   --radius-pill: 999px;
-  --shadow-hover: 0 6px 16px rgba(45, 37, 28, .06);
-  --shadow-lift: 0 14px 30px rgba(45, 37, 28, .08);
+  --shadow-hover: 0 4px 12px rgba(29, 41, 53, .06);
+  --shadow-lift: 0 10px 24px rgba(29, 41, 53, .1);
 
   // 動き。状態変化・移動の理解を助ける範囲に限る（prefers-reduced-motionで無効化）。
   --motion-fast: .18s;

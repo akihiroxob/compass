@@ -9,7 +9,7 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; }
+body { margin: 0; font-size: var(--text-body); line-height: var(--line-height-body); }
 a { color: inherit; }
 button, input, textarea, select { font: inherit; }
 // fieldsetは枠を持たず、見た目は利用側のclass（Fieldset・可変行の入力等）が持つ。
@@ -18,18 +18,15 @@ fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
 h1 {
   max-width: 780px;
   margin: 0;
-  font-family: var(--font-serif);
-  font-size: clamp(2.7rem, 7vw, 5.6rem);
-  font-weight: 500;
-  line-height: .98;
-  letter-spacing: -.045em;
+  @include heading(var(--text-h1));
+  letter-spacing: -.01em;
 }
 
 // 画面の本文。Featureの画面は`<main>`から始まり、`narrow`で狭い本文にする。
 main {
   width: min(1120px, calc(100% - 8vw));
   margin: 0 auto;
-  padding: 5rem 0 7rem;
+  padding: 3rem 0 5rem;
   &.narrow { width: min(820px, calc(100% - 8vw)); }
   @include narrow { padding-top: 1.5rem; }
 }

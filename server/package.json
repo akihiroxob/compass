@@ -7,7 +7,7 @@
     "build": "tsc -p src/web && vite build --config src/web/vite.config.ts",
     "typecheck": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json",
     "test": "node --import tsx --test \"tests/**/*.test.ts\"",
-    "check:ui": "node --import tsx --test tests/uiStructure.test.ts",
+    "check:ui": "node --import tsx --test tests/uiStructure.test.ts tests/uiTokens.test.ts",
     "lint": "tsc -p tsconfig.json && tsc -p src/web/tsconfig.json && npm run check:ui",
     "catalog:dev": "storybook dev -p 6006 --host 127.0.0.1 --no-open --disable-telemetry",
     "catalog:build": "storybook build --disable-telemetry"
