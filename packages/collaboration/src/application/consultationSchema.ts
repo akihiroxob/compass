@@ -1,6 +1,6 @@
-import { optionalText, parseWith, trimmedText } from "@compass/shared";
+import { fullCommitSha, httpUrl, optionalText, parseWith, repositoryRelativePath, trimmedText } from "@compass/shared";
 import { z } from "zod";
-import { consultationScopeKinds, consultationStatuses, type ConsultationReference } from "../domain/Consultation.ts";
+import { consultationScopeKinds, consultationStatuses, followupKinds, type ConsultationReference } from "../domain/Consultation.ts";
 
 export const maximumConsultationOptions = 10;
 export const maximumConsultationRefs = 20;
@@ -156,3 +156,48 @@ const accessibleListQuerySchema = z
 export type AccessibleConsultationListQuery = z.output<typeof accessibleListQuerySchema>;
 export const parseAccessibleConsultationListQuery = (input: unknown): AccessibleConsultationListQuery =>
   parseWith(accessibleListQuerySchema, input ?? {}, "Consultation query");
+
+/**
+ * 結論からの文書反映の依頼（Projectの応答Role）。反映先の種類・Repositoryと、Workerへ渡す目的・決定内容・根拠・検証方法を必須にする。
+ * 種類の判断・文書内容の整理はAgentが行い、Serverは意味を判定しない。`resumptionDependency`は元Taskの再開をこの反映の後にする理由で、
+ * 指定したときだけ待機条件になる。
+ */
+const followupRequestSchema = z
+  .object({
+    kind: z.enum(followupKinds, { error: `kind must be one of: ${followupKinds.join(", ")}` }),
+    repositoryId: identifier("repositoryId"),
+    storyId: identifier("storyId").optional(),
+    title: trimmedText("title", 200),
+    purpose: longText("purpose"),
+    decision: trimmedText("decision", 10_000),
+    rationale: longText("rationale"),
+    verification: longText("verification"),
+    resumptionDependency: optionalText(2_000),
+    requestId,
+  })
+  .strict();
+export type FollowupRequestInput = z.output<typeof followupRequestSchema>;
+export const parseFollowupRequestInput = (input: unknown): FollowupRequestInput => parseWith(followupRequestSchema, input, "Consultation follow-up");
+
+/**
+ * 受入済みの文書反映Taskの成果物参照。Task・Repositoryを明示させて依頼との一致を検査し、無関係なTask・Repositoryの参照だけで反映済みにしない。
+ * path・commit SHA・PR URLの形式はDirectionのADR参照と同じ検査を使う。
+ */
+const artifactSchema = z
+  .object({
+    followupId: identifier("followupId"),
+    taskId: identifier("taskId"),
+    repositoryId: identifier("repositoryId"),
+    path: repositoryRelativePath,
+    commitSha: fullCommitSha.transform((value) => value.toLowerCase()),
+    pullRequestUrl: httpUrl("pullRequestUrl").nullable().optional().transform((value) => value ?? null),
+    requestId,
+  })
+  .strict();
+export type ArtifactInput = z.output<typeof artifactSchema>;
+export const parseArtifactInput = (input: unknown): ArtifactInput => parseWith(artifactSchema, input, "Consultation artifact");
+
+/** Workspace相談の結論の引継ぎ先（Workspaceに所属するProject）。 */
+const handoffSchema = z.object({ projectId: identifier("projectId"), requestId }).strict();
+export type HandoffInput = z.output<typeof handoffSchema>;
+export const parseHandoffInput = (input: unknown): HandoffInput => parseWith(handoffSchema, input, "Consultation handoff");

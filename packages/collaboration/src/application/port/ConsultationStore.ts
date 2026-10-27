@@ -1,12 +1,16 @@
 import type {
   Consultation,
   ConsultationActor,
+  ConsultationArtifact,
+  ConsultationFollowup,
+  ConsultationHandoff,
   ConsultationLease,
   ConsultationMessage,
   ConsultationReference,
   ConsultationResolution,
   ConsultationScope,
   ConsultationStatus,
+  FollowupTaskStatus,
 } from "../../domain/Consultation.ts";
 
 /** 横断一覧の位置（更新日時の降順・同時刻はIDの昇順）。この位置より後ろを返す。 */
@@ -54,6 +58,18 @@ export interface ConsultationStore {
   /** 同じ主体・操作・`requestId`で保存済みの結果と入力のhash。 */
   findReceipt(principalId: string, operation: string, requestId: string): Promise<{ inputHash: string; result: unknown } | null>;
   insertReceipt(receipt: { principalId: string; operation: string; requestId: string; inputHash: string; result: unknown; createdAt: number }): Promise<void>;
+  insertHandoff(handoff: ConsultationHandoff): Promise<void>;
+  /** Workspace相談の結論の引継ぎ先として明示されたProject（無ければnull）。 */
+  findHandoff(consultationId: string, projectId: string): Promise<ConsultationHandoff | null>;
+  insertFollowup(followup: ConsultationFollowup): Promise<void>;
+  /** 同じ相談・種類・反映先（Project・Repository）の依頼。 */
+  findFollowupByTarget(consultationId: string, target: Pick<ConsultationFollowup, "kind" | "projectId" | "repositoryId">): Promise<ConsultationFollowup | null>;
+  /** 別の相談の依頼IDはnull。 */
+  findFollowup(consultationId: string, followupId: string): Promise<ConsultationFollowup | null>;
+  listFollowups(consultationId: string): Promise<ConsultationFollowup[]>;
+  insertArtifact(artifact: ConsultationArtifact): Promise<void>;
+  findArtifact(followupId: string, path: string, commitSha: string): Promise<ConsultationArtifact | null>;
+  listArtifacts(consultationId: string): Promise<ConsultationArtifact[]>;
 }
 
 /**
@@ -72,9 +88,64 @@ export interface ConsultationScopeReader {
   directionItemExists(workspaceId: string, reference: Extract<ConsultationReference, { kind: "intent" | "outcome" }>): Promise<boolean>;
 }
 
-/** 相談の照合・追記・受付記録と、他Contextの状態の読取りを同じtransactionで行う。 */
+/** 文書反映Task（Workが所有）。 */
+export type FollowupTaskState = { id: string; title: string; status: FollowupTaskStatus };
+
+/** Projectに登録されたRepository（Organizationが所有）。 */
+export type FollowupRepository = { id: string; name: string; url: string };
+
+/** 反映担当Project（Organizationが所有）。 */
+export type FollowupProject = { id: string; name: string };
+
+/** 文書反映Taskの受入成果物（Workの受入証跡）。受け入れたManagerが確認したRepository・commit・path・PRの参照。 */
+export type FollowupAcceptedDeliverable = { repositoryId: string; commitSha: string; paths: string[]; pullRequestUrl: string | null };
+
+/** 相談を待つTask（Workの待機関係）。元Taskの状態を相談から辿るために読む。 */
+export type ConsultationWaitingTask = {
+  taskId: string;
+  title: string;
+  status: FollowupTaskStatus;
+  phase: "work" | "review" | "acceptance";
+  state: "waiting" | "ready" | "resuming";
+  failureReason: string | null;
+};
+
+/** 文書反映の意味的な履歴（Activityが所有）。本文は持たず、要約と参照だけを記録する。 */
+export type FollowupActivityFact = {
+  type: "consultation.followup_requested" | "consultation.followup_reflected";
+  projectId: string;
+  actor: ConsultationActor;
+  summary: string;
+  consultationId: string;
+  /** 相談のscope。Workspace相談はWorkspaceの相談詳細へ辿る参照にする。 */
+  consultationScope: ConsultationScope["kind"];
+  taskId: string;
+  artifact: { repositoryId: string; path: string; commitSha: string; pullRequestUrl: string | null } | null;
+  occurredAt: number;
+};
+
+/**
+ * 文書反映が使う他Contextの操作。Task（Work）の起票は既存の起票処理（Grant・Projectの状態・受付記録・Change Log・canonical Activity）を
+ * 相談の記録と同じtransactionで行い、Collaborationはtask・project_repository等のtableを直接扱わない。
+ */
+export interface ConsultationFollowupLinks {
+  /** 呼出しPrincipal・RoleのProject Grantで、通常のWork Taskを起票する。 */
+  issueTask(actor: ConsultationActor, input: { projectId: string; storyId: string | null; title: string; description: string }, requestId: string): Promise<{ id: string }>;
+  /** そのProjectのTask（別Projectのタスクはnull）。 */
+  findTask(projectId: string, taskId: string): Promise<FollowupTaskState | null>;
+  /** そのProjectのTaskの最新の受入で残した受入成果物（未受入・成果物なしは空）。 */
+  findAcceptedDeliverables(projectId: string, taskId: string): Promise<FollowupAcceptedDeliverable[]>;
+  findProject(projectId: string): Promise<FollowupProject | null>;
+  /** そのProjectに登録されたRepository（未登録・別ProjectのRepositoryはnull）。 */
+  findRepository(projectId: string, repositoryId: string): Promise<FollowupRepository | null>;
+  /** その相談を待つ同じProjectのTask。 */
+  listWaitingTasks(projectId: string, consultationId: string): Promise<ConsultationWaitingTask[]>;
+  recordActivity(fact: FollowupActivityFact): Promise<void>;
+}
+
+/** 相談の照合・追記・受付記録と、他Contextの状態の読取り・文書反映Taskの起票を同じtransactionで行う。 */
 export interface ConsultationUnitOfWork {
-  execute<T>(work: (store: ConsultationStore, scopes: ConsultationScopeReader) => Promise<T>): Promise<T>;
+  execute<T>(work: (store: ConsultationStore, scopes: ConsultationScopeReader, links: ConsultationFollowupLinks) => Promise<T>): Promise<T>;
 }
 
 /**
@@ -89,4 +160,14 @@ export interface ConsultationAgentAuthorization {
   resolveActor(principal: string | null, scope: ConsultationScope, role: string | undefined): Promise<ConsultationActor | null>;
   /** 結論整理・取消を担うRole（ProjectはManager、WorkspaceはStrategist）のGrantを要求する。 */
   requireResponder(principal: string | null, scope: ConsultationScope): Promise<ConsultationActor>;
+  /**
+   * 文書反映の引継ぎ（結論の参照・依頼・成果物参照の登録）を行う、反映担当ProjectのmanagerのGrantを要求する。Workspace相談では
+   * 相談側の公開（Strategistが明示した引継ぎ先）をuse caseが検査し、Workspace GrantをProject Grantで代替しない。
+   */
+  requireProjectManager(principal: string | null, projectId: string): Promise<ConsultationActor>;
+  /**
+   * 相談詳細へ文書反映の関連先（Project・Task・Repository・成果物）を展開してよいProjectのID。Execution RoleのProject Grant
+   * （activeRoleの指定時はそのRoleのGrant）を持つProjectだけで、Workspace Grantからは継承しない。
+   */
+  listReadableProjectIds(principal: string | null): Promise<string[]>;
 }

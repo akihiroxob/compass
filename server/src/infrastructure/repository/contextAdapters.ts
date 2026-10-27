@@ -11,6 +11,7 @@ import {
   type RoleScopeAuthorizationService,
 } from "@compass/access";
 import {
+  ActivityScope,
   KyselyActivityStore,
   canonicalWorkChangeTypes,
   recordCanonicalDirectionActivity,
@@ -20,7 +21,17 @@ import {
   type ActivityScopeReader,
   type ActivityTarget,
 } from "@compass/activity";
-import { consultationResponderRole, type ConsultationAgentAuthorization, type ConsultationScope, type ConsultationScopeReader } from "@compass/collaboration";
+import {
+  blocksResumption,
+  consultationResponderRole,
+  reflectionStatusOf,
+  type ConsultationAgentAuthorization,
+  type ConsultationFollowupLinks,
+  type ConsultationScope,
+  type ConsultationScopeReader,
+  type ConsultationWaitingTask,
+  type FollowupTaskStatus,
+} from "@compass/collaboration";
 import {
   findAdrReferencedRepositoryId,
   isOutcomeTargetProject,
@@ -49,7 +60,13 @@ import {
   type ProjectRepositoryReferenceFinder,
 } from "@compass/organization";
 import { ConflictError, ValidationError } from "@compass/shared";
-import type { WorkChangeObserver, WorkExternalReaders } from "@compass/work";
+import {
+  KyselyWorkStore,
+  TaskCoordinationService,
+  type DirectionReferenceLookupPort,
+  type WorkChangeObserver,
+  type WorkExternalReaders,
+} from "@compass/work";
 import {
   asAccessDatabase,
   asCollaborationDatabase,
@@ -82,7 +99,16 @@ export const workExternalReaders: WorkExternalReaders = (executor) => {
         const consultation = await collaboration.findConsultation({ kind: "project", projectId }, consultationId);
         if (!consultation) return null;
         const resolution = await collaboration.findResolution(consultationId);
-        return { id: consultation.id, status: consultation.status, revision: consultation.revision, resolutionId: resolution?.id ?? null };
+        // 結論が明示した文書反映の依存のうち、まだ反映済み・取消でないものだけを再開の待機条件として返す。
+        const [followups, artifacts] = await Promise.all([collaboration.listFollowups(consultationId), collaboration.listArtifacts(consultationId)]);
+        const prerequisiteTaskIds: string[] = [];
+        for (const followup of followups.filter(({ resumptionDependency }) => resumptionDependency !== null)) {
+          const task = await asWorkDatabase(executor).selectFrom("task").select("status").where("id", "=", followup.taskId).executeTakeFirst();
+          const reflected = artifacts.filter(({ followupId }) => followupId === followup.id).length;
+          const status = task ? reflectionStatusOf(task.status as FollowupTaskStatus, reflected) : "in_progress";
+          if (blocksResumption(followup, status)) prerequisiteTaskIds.push(followup.taskId);
+        }
+        return { id: consultation.id, status: consultation.status, revision: consultation.revision, resolutionId: resolution?.id ?? null, prerequisiteTaskIds };
       },
     },
     grants: {
@@ -91,6 +117,7 @@ export const workExternalReaders: WorkExternalReaders = (executor) => {
     projects: {
       exists: (projectId) => projectExists(organization, projectId),
       isArchived: (projectId) => isProjectArchived(organization, projectId),
+      findRepository: async (projectId, repositoryId) => (await findProjectRepository(organization, projectId, repositoryId)) ?? null,
     },
     outcomeTargets: {
       isTarget: (outcomeId, projectId) => isOutcomeTargetProject(direction, outcomeId, projectId),
@@ -354,6 +381,88 @@ export const consultationScopeReader = (executor: Parameters<typeof asOrganizati
 };
 
 /**
+ * 相談の文書反映（Collaboration）が同じtransactionで使う、Work Taskの起票・読取（Work）、Repository（Organization）、
+ * 相談待ちTask（Workの待機関係）、意味的な履歴（Activity）。Taskの起票はWorkの通常の起票処理（Project Grant・activeRole・
+ * Projectの状態・受付記録・Change Log・canonical Activity）をそのまま使い、業務規則を複製しない。
+ */
+export const consultationFollowupLinks = (
+  executor: Parameters<typeof asOrganizationDatabase>[0],
+  options: { directionReferences: DirectionReferenceLookupPort; clock: () => number },
+): ConsultationFollowupLinks => {
+  const organization = asOrganizationDatabase(executor);
+  const work = asWorkDatabase(executor);
+  const activities = new KyselyActivityStore(asActivityDatabase(executor));
+  return {
+    issueTask: async (actor, input, requestId) => {
+      const store = new KyselyWorkStore(work, workExternalReaders, workChangeActivityObserver);
+      const service = new TaskCoordinationService(store, options.directionReferences, options.clock).forActiveRole(actor.role);
+      const task = await service.issueTask(
+        actor.principalId,
+        { projectId: input.projectId, ...(input.storyId === null ? {} : { storyId: input.storyId }), title: input.title, description: input.description },
+        requestId,
+      );
+      return { id: task.id };
+    },
+    findTask: async (projectId, taskId) => {
+      const row = await work.selectFrom("task").select(["id", "title", "status"]).where("id", "=", taskId).where("project_id", "=", projectId).executeTakeFirst();
+      return row ? { id: row.id, title: row.title, status: row.status as FollowupTaskStatus } : null;
+    },
+    findAcceptedDeliverables: (projectId, taskId) =>
+      new KyselyWorkStore(work, workExternalReaders, workChangeActivityObserver).findAcceptedDeliverables(projectId, taskId),
+    findRepository: async (projectId, repositoryId) => (await findProjectRepository(organization, projectId, repositoryId)) ?? null,
+    findProject: async (projectId) =>
+      (await organization.selectFrom("project").select(["id", "name"]).where("id", "=", projectId).executeTakeFirst()) ?? null,
+    listWaitingTasks: async (projectId, consultationId) => {
+      const rows = await work
+        .selectFrom("task_consultation_wait")
+        .innerJoin("task", "task.id", "task_consultation_wait.task_id")
+        .select(["task.id", "task.title", "task.status", "task_consultation_wait.phase", "task_consultation_wait.state",
+          "task_consultation_wait.failure_reason", "task_consultation_wait.consultations"])
+        .where("task_consultation_wait.project_id", "=", projectId)
+        .orderBy("task_consultation_wait.created_at")
+        .execute();
+      return rows
+        .filter((row) => (JSON.parse(row.consultations) as { id: string }[]).some(({ id }) => id === consultationId))
+        .map((row): ConsultationWaitingTask => ({
+          taskId: row.id, title: row.title, status: row.status as FollowupTaskStatus, phase: row.phase, state: row.state, failureReason: row.failure_reason,
+        }));
+    },
+    recordActivity: async (fact) => {
+      const artifactRefs = fact.artifact
+        ? [
+          { kind: "project_resource" as const, resourceId: fact.artifact.repositoryId, path: fact.artifact.path, revision: fact.artifact.commitSha },
+          ...(fact.artifact.pullRequestUrl ? [{ kind: "url" as const, url: fact.artifact.pullRequestUrl }] : []),
+        ]
+        : [];
+      await activities.append({
+        id: crypto.randomUUID(),
+        scope: ActivityScope.PROJECT,
+        workspaceId: await activityWorkspaceId(executor, fact.projectId),
+        projectId: fact.projectId,
+        type: fact.type,
+        principalId: fact.actor.principalId,
+        role: fact.actor.role,
+        summary: fact.summary,
+        body: null,
+        refs: [
+          { kind: fact.consultationScope === "workspace" ? "workspace_consultation" : "consultation", id: fact.consultationId },
+          { kind: "task", id: fact.taskId },
+          ...artifactRefs,
+        ],
+        correctsActivityId: null,
+        source: "canonical",
+        occurredAt: fact.occurredAt,
+        recordedAt: fact.occurredAt,
+        dedupeKey: fact.artifact
+          ? `${fact.type}:${fact.taskId}:${fact.artifact.path}:${fact.artifact.commitSha}`
+          : `${fact.type}:${fact.taskId}`,
+        inputHash: null,
+      });
+    },
+  };
+};
+
+/**
  * 相談のAgent認可（activeRoleの固定を含む）。相談のscopeのRole Grantだけで認可する。ProjectはExecution Role（manager / worker / reviewer）、
  * WorkspaceはDirection Role（strategist / researcher / evaluator）で、WorkspaceとProjectの間・旧Project Direction Grant・他scopeのGrantでは
  * 参照・記録させない。結論整理・取消はscopeの応答Role（ProjectはManager、WorkspaceはStrategist）。
@@ -377,5 +486,11 @@ export const consultationAgentAuthorization = (roleScopeAuthorization: RoleScope
       const role = consultationResponderRole(scope.kind);
       return { kind: "agent", principalId: await roleScopeAuthorization.requireRole(principal, roleScope(scope), role), role };
     },
+    requireProjectManager: async (principal, projectId) => ({
+      kind: "agent",
+      principalId: await roleScopeAuthorization.requireRole(principal, { kind: "project", id: projectId }, "manager"),
+      role: "manager",
+    }),
+    listReadableProjectIds: (principal) => roleScopeAuthorization.listScopedProjectIds(principal),
   };
 };

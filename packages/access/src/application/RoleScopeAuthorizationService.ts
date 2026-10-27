@@ -66,6 +66,17 @@ export class RoleScopeAuthorizationService {
   }
 
   /**
+   * Execution RoleのGrant（activeRoleの指定時はそのRoleのGrant）を持つProjectのID。Workspace Grant・旧Project Direction Grantは含めず、
+   * Direction RoleのactiveRoleでは空。
+   */
+  async listScopedProjectIds(principal: Principal): Promise<string[]> {
+    if (principal === null) return [];
+    const roles = this.activeRole === null ? executionRoles : isRoleInScope("project", this.activeRole) ? [this.activeRole] : [];
+    const projectIds = await Promise.all(roles.map((role) => this.projectGrants.listProjectIds(principal, role)));
+    return [...new Set(projectIds.flat())];
+  }
+
+  /**
    * Human管理操作（trusted-localのMCPだけに登録）の職務分離。WorkspaceのDirection Role Grantを持つPrincipalと、
    * activeRoleに固定した操作Contextを拒否する。Principalなし・Grantなしは通す（管理面との互換）。
    */

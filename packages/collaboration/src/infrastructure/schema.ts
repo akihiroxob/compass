@@ -79,10 +79,57 @@ export type ConsultationCommandReceiptTable = {
   created_at: number;
 };
 
+/** 結論からの文書反映の依頼。同じ相談・種類・反映先（Project・Repository）につき1件。文書反映Taskは`task_id`で参照する。 */
+export type ConsultationFollowupTable = {
+  id: string;
+  consultation_id: string;
+  resolution_id: string;
+  kind: string;
+  project_id: string;
+  repository_id: string;
+  task_id: string;
+  title: string;
+  purpose: string;
+  decision: string;
+  rationale: string;
+  verification: string;
+  resumption_dependency: string | null;
+  requested_by_principal_id: string;
+  requested_by_role: string;
+  created_at: number;
+};
+
+/** Workspace相談の結論の引継ぎ先Project。同じ相談・Projectにつき1件。 */
+export type ConsultationHandoffTable = {
+  consultation_id: string;
+  project_id: string;
+  handed_off_by_principal_id: string;
+  handed_off_by_role: string;
+  created_at: number;
+};
+
+/** 受入済みの文書反映Taskの成果物参照。同じ依頼・path・commitにつき1件。 */
+export type ConsultationArtifactTable = {
+  id: string;
+  followup_id: string;
+  consultation_id: string;
+  task_id: string;
+  repository_id: string;
+  path: string;
+  commit_sha: string;
+  pull_request_url: string | null;
+  recorded_by_principal_id: string;
+  recorded_by_role: string;
+  created_at: number;
+};
+
 export type CollaborationDatabase = {
   consultation: ConsultationTable;
   consultation_message: ConsultationMessageTable;
   consultation_resolution: ConsultationResolutionTable;
   consultation_lease: ConsultationLeaseTable;
   consultation_command_receipt: ConsultationCommandReceiptTable;
+  consultation_handoff: ConsultationHandoffTable;
+  consultation_followup: ConsultationFollowupTable;
+  consultation_artifact: ConsultationArtifactTable;
 };

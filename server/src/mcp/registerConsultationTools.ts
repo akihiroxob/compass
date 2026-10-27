@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { consultationStatuses, type ConsultationScope } from "@compass/collaboration";
+import { consultationStatuses, followupKinds, type ConsultationScope } from "@compass/collaboration";
 import { agentPrincipalOf, type Caller } from "@compass/access";
 import { ValidationError } from "@compass/shared";
 import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
@@ -102,7 +102,9 @@ export const registerConsultationTools = (server: McpServer, services: Operation
       description:
         "Get a Consultation with its question, options, recommendation, impact and refs, the conversation (messages in order, each " +
         "with author kind human or agent), the resolution (source human_decision or agent_summary) and the Agent currently holding " +
-        "the response lease (responder). revision is the version to pass as inputRevision / expectedRevision. " +
+        "the response lease (responder), the document follow-ups with their reflection status (pending, in_progress, reflected, " +
+        "canceled) and artifacts, and the Tasks waiting on it (waitingTasks). revision is the version to pass as inputRevision / " +
+        "expectedRevision. " +
         "A Consultation of another scope fails with NOT_FOUND. " + scopeNote + "Requires a Role Grant of the scope.",
       inputSchema: target,
     },
@@ -183,6 +185,113 @@ export const registerConsultationTools = (server: McpServer, services: Operation
     },
     ({ projectId, workspaceId, consultationId, ...input }) =>
       execute(() => consultations.cancel(principal, scopeOf({ projectId, workspaceId }), consultationId, input)),
+  );
+
+  // Workspace相談の結論は、Strategistが引継ぎ先に明示した所属Projectだけへ公開する（Grantは継承しない）。
+  server.registerTool(
+    "hand_off_consultation",
+    {
+      title: "Hand Off Consultation",
+      description:
+        "Strategist of the Workspace only. Name a Project of the same Workspace that takes over the conclusion of a resolved Workspace " +
+        "Consultation (for example to reflect it in its specification, policy or ADR). Only a named Project's manager can then read the " +
+        "conclusion with get_consultation_handoff_context and request document follow-ups; Project Grants never read Workspace " +
+        "Consultations otherwise. Decide which Projects need it from the conclusion; nothing is forwarded automatically and no Work " +
+        "Task is issued by this call. The same Consultation and Project returns the saved handoff regardless of requestId. A Project of " +
+        "another Workspace is NOT_FOUND, an archived Project or Workspace fails with CONFLICT, an unresolved Consultation fails with " +
+        "CONFLICT (CONSULTATION_NOT_RESOLVED). " + idempotencyNote,
+      inputSchema: z.looseObject({ workspaceId: z.string().min(1), consultationId: z.string().min(1), projectId: z.string().min(1), requestId }),
+    },
+    ({ workspaceId, consultationId, ...input }) => execute(() => consultations.handOff(principal, workspaceId, consultationId, input)),
+  );
+
+  // 文書反映は反映担当Project（projectId）のmanagerが行う。workspaceIdを指定すると、そのWorkspaceのWorkspace相談の結論を引継ぎ先のProjectで扱う。
+  const followupTarget = {
+    projectId: z.string().min(1).describe("Project that reflects the conclusion in its Repository (you need its manager Grant)"),
+    workspaceId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Give it for a Workspace Consultation: the Workspace that owns the Consultation and handed it off to projectId. Omit for a Project Consultation of projectId"),
+    consultationId: z.string().min(1),
+  };
+  const followupScope = ({ projectId, workspaceId }: { projectId: string; workspaceId?: string | undefined }): ConsultationScope =>
+    workspaceId === undefined ? { kind: "project", projectId } : { kind: "workspace", workspaceId };
+  const followupNote =
+    "Manager of projectId only (no Workspace Grant is needed or used). The Consultation is the Project Consultation of projectId, or with " +
+    "workspaceId a Workspace Consultation of that Workspace that its Strategist handed off to projectId (hand_off_consultation); " +
+    "otherwise NOT_FOUND. ";
+  server.registerTool(
+    "get_consultation_handoff_context",
+    {
+      title: "Get Consultation Handoff Context",
+      description:
+        "Read the conclusion of a resolved Consultation to hand it to a document Task of your Project: the Consultation (question, " +
+        "options, recommendation, refs), its resolution and the follow-ups this Project already holds with their reflection status. " +
+        "The conversation is not included. An unresolved Consultation fails with CONFLICT (CONSULTATION_NOT_RESOLVED). " + followupNote,
+      inputSchema: followupTarget,
+    },
+    ({ projectId, workspaceId, consultationId }) =>
+      execute(() => consultations.getHandoffContext(principal, projectId, followupScope({ projectId, workspaceId }), consultationId)),
+  );
+  server.registerTool(
+    "request_consultation_followup",
+    {
+      title: "Request Consultation Follow-up",
+      description:
+        "Hand the conclusion of a resolved Consultation to a document Task that reflects it in " +
+        "a Repository registered in projectId: kind adr (a long-lived structure or technology choice with alternatives and trade-offs), " +
+        "specification (continuing requirements) or policy (operational rules). Decide whether a document is needed and which kind; do " +
+        "not turn routine permissions, temporary checks or UI dimensions into an ADR, and do not add a Human approval step. Give " +
+        "repositoryId, title, purpose, decision (what the document must state), rationale, verification (how the reviewer checks the " +
+        "document) and optional storyId. A normal Work Task is issued in the same step for Worker / Reviewer / Manager; it never waits " +
+        "for the original Task. The original Task waiting on a Project Consultation resumes on the conclusion alone unless you give " +
+        "resumptionDependency (the reason it must wait for this document); only then it waits until the follow-up is reflected. The " +
+        "same conclusion, kind, Project and Repository returns the existing follow-up and Task regardless of requestId (CONFLICT " +
+        "FOLLOWUP_EXISTS if the content differs). An unresolved Consultation fails with CONFLICT (CONSULTATION_NOT_RESOLVED). " +
+        followupNote + idempotencyNote,
+      inputSchema: z.looseObject({
+        ...followupTarget,
+        kind: z.string().describe(`Document kind: ${followupKinds.join(", ")}`),
+        repositoryId: z.string(),
+        storyId: z.string().optional(),
+        title: z.string(),
+        purpose: z.string(),
+        decision: z.string(),
+        rationale: z.string(),
+        verification: z.string(),
+        resumptionDependency: z.string().nullable().optional(),
+        requestId,
+      }),
+    },
+    ({ projectId, workspaceId, consultationId, ...input }) =>
+      execute(() => consultations.requestFollowup(principal, projectId, followupScope({ projectId, workspaceId }), consultationId, input)),
+  );
+  server.registerTool(
+    "record_consultation_artifact",
+    {
+      title: "Record Consultation Artifact",
+      description:
+        "After the document Task of a follow-up is accepted with deliverables (accept_task), record the reflected document: followupId, " +
+        "taskId and repositoryId of that follow-up, the Repository-relative path, the full 40-character commitSha and pullRequestUrl " +
+        "(or null) exactly as accepted. The Repository stays the source of truth; Compass keeps only the reference. A Task or " +
+        "Repository other than the follow-up's fails with VALIDATION_ERROR; a Task that is not accepted fails with CONFLICT " +
+        "(FOLLOWUP_TASK_NOT_ACCEPTED); a path, commit or pull request that is not among the accepted deliverables fails with CONFLICT " +
+        "(ARTIFACT_NOT_ACCEPTED). The same follow-up, path and commit returns the saved reference regardless of requestId. " +
+        followupNote + idempotencyNote,
+      inputSchema: z.looseObject({
+        ...followupTarget,
+        followupId: z.string(),
+        taskId: z.string(),
+        repositoryId: z.string(),
+        path: z.string(),
+        commitSha: z.string(),
+        pullRequestUrl: z.string().nullable().optional(),
+        requestId,
+      }),
+    },
+    ({ projectId, workspaceId, consultationId, ...input }) =>
+      execute(() => consultations.recordArtifact(principal, projectId, followupScope({ projectId, workspaceId }), consultationId, input)),
   );
 
   server.registerTool("get_project_consultation_state", {

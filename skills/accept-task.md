@@ -2,7 +2,7 @@
 name: accept-task
 description: manager が Task の成果を要件と Project 全体の整合性に照らして最終受入し、Accept または Reject を判断する。
 status: active
-version: 1
+version: 2
 requiredKnowledge:
   - tips/acceptance.md
   - tips/task-writing.md
@@ -37,6 +37,7 @@ reviewer の実装レビューを追認するのではなく、「この成果�
 5. `knowledge/tips/acceptance.md` に従い、Task の完了条件とシステム全体の整合性を分けて検証する。
 6. 判断根拠と確認した証拠を整理する。補足を残す必要があれば `add_task_comment` を使う。
 7. 両方を満たす場合だけ `accept_task` を呼ぶ。不足があれば、期待との差分と再受入条件を reason に含めて `reject_task` を呼ぶ。
+   Repository の成果物を受け入れる場合（相談の文書反映Taskなど）は、確認した Repository・完全な commit SHA・変更した path・PR URL を `deliverables` に受入成果物として残す。確認していない成果物は記載しない。
 8. 判断材料が取得できず判定を中断する場合は、理由を添えて `release_claim` を呼ぶ。
 
 ## Success Criteria

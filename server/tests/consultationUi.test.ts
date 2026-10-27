@@ -10,6 +10,7 @@ import {
   describeActor,
   describeConsultationReference,
   describeConsultationScope,
+  describeReflection,
   inboxApiPath,
   inboxPath,
   messageKindLabel,
@@ -97,4 +98,12 @@ test("Workspace相談の参照はIntentをWorkspaceの方向へ、OutcomeをWork
   assert.equal(describeConsultationReference(workspace, { kind: "intent", id: "i1" }, null).to, "/workspaces/w1/direction");
   assert.equal(describeConsultationReference(workspace, { kind: "outcome", intentId: "i1", id: "o1" }, null).to, "/workspaces/w1/direction/intents/i1/outcomes/o1");
   assert.equal(describeConsultationReference(workspace, { kind: "consultation", id: "c0" }, null).to, "/workspaces/w1/consultations/c0");
+});
+
+test("文書反映の状況はTaskの状態と受入済み成果物から出し、受入後の参照登録待ち・Taskの不在を区別する", () => {
+  const task = (status: "todo" | "doing" | "accepted") => ({ id: "t1", title: "ADR", status });
+  assert.equal(describeReflection({ status: "pending", task: task("todo"), artifacts: [] }), "文書反映Task: 未着手");
+  assert.equal(describeReflection({ status: "in_progress", task: task("doing"), artifacts: [] }), "文書反映Task: 作業中");
+  assert.equal(describeReflection({ status: "in_progress", task: task("accepted"), artifacts: [] }), "Taskは受入済みです。成果物の参照の登録を待っています");
+  assert.equal(describeReflection({ status: "in_progress", task: null, artifacts: [] }), "文書反映Taskが見つかりません");
 });

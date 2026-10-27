@@ -104,6 +104,12 @@ export type CommandReceiptRecord = {
   active_role: string | null;
 };
 
+/**
+ * 受入成果物（受入証跡）。`accept_task`で受け入れたManagerが確認したRepository・完全なcommit SHA・変更したpath・PR URLの参照で、
+ * TASK_ACCEPTEDのChangeに残す。本文は持たない。
+ */
+export type AcceptedDeliverable = { repositoryId: string; commitSha: string; paths: string[]; pullRequestUrl: string | null };
+
 /** Outcomeに相関付いたStory・Taskの変更へ付ける相関。 */
 export type EntityCorrelation = { id: string; outcome_ref: string | null; correlation_id: string | null };
 
@@ -128,6 +134,8 @@ export interface ProjectGrantReader {
 export interface ProjectStateReader {
   exists(projectId: string): Promise<boolean>;
   isArchived(projectId: string): Promise<boolean>;
+  /** Projectに登録されたRepository（未登録・別ProjectのRepositoryはnull）。受入成果物の検査に使う。 */
+  findRepository(projectId: string, repositoryId: string): Promise<{ id: string; url: string } | null>;
 }
 
 /**
@@ -197,6 +205,8 @@ export interface WorkStore {
 
   /** 追記したChangeの`cursor`を返す。 */
   appendChange(change: Omit<ChangeRecord, "cursor">): Promise<number>;
+  /** 最新の`TASK_ACCEPTED`に残した受入成果物。受入されていない・成果物なしで受け入れたTaskは空。 */
+  findAcceptedDeliverables(projectId: string, taskId: string): Promise<AcceptedDeliverable[]>;
   /** 最新の`TASK_COMPLETED`を記録したPrincipal。 */
   findLatestCompleter(taskId: string): Promise<string | null>;
   /** Projectの`TASK_COMPLETED`を新しい順に返す。 */

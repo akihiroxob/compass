@@ -193,6 +193,9 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
       // Project・Workspace相談（Collaboration）。Humanの明示決定はWeb UI専用でMCPには無い。応答待ちの読取りはRuntime Credential用。
       "create_consultation", "list_consultations", "get_consultation", "acquire_consultation_lease",
       "reply_consultation", "resolve_consultation", "cancel_consultation",
+      // Workspace相談の結論の引継ぎ先の明示（Strategist）と、相談（Project・Workspace）の結論からの文書反映の引継ぎ・依頼、
+      // 受入済み成果物の参照の登録（反映担当ProjectのManager）。
+      "hand_off_consultation", "get_consultation_handoff_context", "request_consultation_followup", "record_consultation_artifact",
       "get_project_consultation_state", "get_workspace_consultation_state",
     ],
   );

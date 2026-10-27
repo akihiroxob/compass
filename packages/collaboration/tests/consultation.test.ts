@@ -3,6 +3,7 @@ import test from "node:test";
 import BetterSqlite3 from "better-sqlite3";
 import { Kysely, sql, SqliteDialect } from "kysely";
 import {
+  blocksResumption,
   checkAgentResponse,
   checkHumanClosing,
   checkHumanMessage,
@@ -12,6 +13,7 @@ import {
   consultationReferenceKinds,
   consultationResponderRole,
   isLeaseActive,
+  reflectionStatusOf,
   scopeOfConsultation,
   statusAfterMessage,
   type ConsultationLease,
@@ -135,4 +137,20 @@ test("schemaは冪等に作成でき、scopeとProjectの有無・状態・判�
   await database.insertInto("consultation_resolution").values({ ...resolution, source: "agent_summary" }).execute();
   await assert.rejects(database.insertInto("consultation_resolution").values({ ...resolution, id: "r2", source: "agent_summary" }).execute(), /UNIQUE/);
   await database.destroy();
+});
+
+test("反映状況は相談の解決と別に、文書反映Taskの状態と受入済み成果物から求め、明示的な依存だけが再開を待たせる", () => {
+  assert.equal(reflectionStatusOf("todo", 0), "pending");
+  assert.equal(reflectionStatusOf("doing", 0), "in_progress");
+  assert.equal(reflectionStatusOf("rejected", 0), "in_progress");
+  // 受入だけでは反映済みにせず、成果物の参照が登録されてから反映済みにする。
+  assert.equal(reflectionStatusOf("accepted", 0), "in_progress");
+  assert.equal(reflectionStatusOf("accepted", 1), "reflected");
+  // 未受入のTaskに参照があっても反映済みにしない。
+  assert.equal(reflectionStatusOf("wait_accept", 1), "in_progress");
+  assert.equal(reflectionStatusOf("canceled", 0), "canceled");
+  assert.equal(blocksResumption({ resumptionDependency: null }, "pending"), false);
+  assert.equal(blocksResumption({ resumptionDependency: "運用ルールを先に確定する" }, "in_progress"), true);
+  assert.equal(blocksResumption({ resumptionDependency: "運用ルールを先に確定する" }, "reflected"), false);
+  assert.equal(blocksResumption({ resumptionDependency: "運用ルールを先に確定する" }, "canceled"), false);
 });

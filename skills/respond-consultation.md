@@ -2,7 +2,7 @@
 name: respond-consultation
 description: Project相談（Manager）・Workspace相談（Strategist）でHumanの返信へ応答し、追加質問または結論を整理する。
 status: active
-version: 1
+version: 4
 requiredKnowledge: []
 requiredTools:
   - compass:create_consultation
@@ -12,6 +12,10 @@ requiredTools:
   - compass:reply_consultation
   - compass:resolve_consultation
   - compass:cancel_consultation
+  - compass:hand_off_consultation
+  - compass:get_consultation_handoff_context
+  - compass:request_consultation_followup
+  - compass:record_consultation_artifact
 ---
 
 # respond-consultation
@@ -30,3 +34,14 @@ requiredTools:
 - 追加返信による古い版（`STALE_REVISION`）・lease失効（`LEASE_EXPIRED`）は会話を再読込して新しい入力へ応答する。処理できない場合は失敗理由をRuntimeへ返し、返信を処理済みと扱わない。
 - 不要になった相談は理由付きで`cancel_consultation`する。Project相談の取消でTaskを再開する場合の確認は`consultation-task-resumption`に従う。
 - Workspace相談の結論はStrategistがDirectionの判断（Outcome・Direction Decision）へ反映する。相談の結論だけでIntent・Outcomeを変更済みとみなさない。
+- Workspace相談の結論を所属Projectの仕様・Policy・ADRへ反映する必要があれば、Strategistは結論から反映すべきProjectを判断し、`hand_off_consultation`（`workspaceId`・`consultationId`・`projectId`）で引継ぎ先に明示する。明示したProjectのmanagerだけが結論を読み、文書反映を依頼できる。関係しないProjectへ引き継がない。StrategistはWorkを起票しない。
+
+## 結論の文書反映（反映担当ProjectのManager）
+
+- 結論を仕様・Policy・ADRへ残す必要があるかをManagerが判断する。長く効く構造・技術選択で代替案とトレードオフを伴うものは`adr`、継続する要件は`specification`、運用ルールは`policy`。通常の実行許可・既存方針内の判断・一時的な確認・UI寸法等は文書化の依頼にしない。Humanへ追加の承認を求めない。
+- 文書反映のtoolは反映担当Projectの`projectId`で呼ぶ。Workspace相談の結論は、Strategistが引継ぎ先に明示したProjectのmanagerが`workspaceId`も付けて`get_consultation_handoff_context`で結論を読み、そのProjectのRepositoryへの反映を依頼する（Workspace Grantは使わない）。引継ぎ先でないProjectからは`NOT_FOUND`になる。必要なのに引き継がれていなければ、Project相談または既存の連絡経路でStrategistへ求め、Project GrantでWorkspace相談を読もうとしない。
+- 必要なら`request_consultation_followup`で、反映担当Projectに登録された反映先`repositoryId`、`title`、`purpose`、`decision`（文書に書く決定内容）、`rationale`、`verification`（Reviewerが文書を確かめる方法）を渡す。文書の本文はRepositoryで書き、Compassへ複製しない。起票されたTaskは通常のWorker → Reviewer → Managerで扱う。
+- 同じ結論・種類・Repositoryの依頼は同じTaskを返す。通信断後は同じ入力で再送してよい。内容を変える必要があれば既存のTaskを編集・差し戻し、別の依頼を重ねない。
+- 元Taskは結論の成立だけで再開できる。文書を先に確定しないと元Taskを進められない場合だけ、`resumptionDependency`に理由を書く。文書反映Taskへ元Taskの受入を待たせない。
+- 文書反映Taskを受け入れるManagerは、Reviewerの確認とRepositoryの実際の変更（受け入れたcommit・変更したpath・PR）を確かめ、`accept_task`の`deliverables`に受入成果物として残す。
+- 受入後、`record_consultation_artifact`で受入成果物と同じRepository・path・完全なcommit SHA・PR URLを登録する。未受入のTask・別のRepository・関係のないTask・受入成果物に無いpath / commit / PRは登録できず、反映済みにならない。
