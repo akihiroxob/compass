@@ -28,6 +28,32 @@ export const clearableText = (maximum: number) =>
     .nullable()
     .transform((value) => value || null);
 
+/**
+ * Repository内の相対path。Compass serverのローカルfilesystem pathとして扱わないため、
+ * 絶対path（先頭が`/`、Windowsドライブレター）とpath traversal（`..`セグメント）を拒否する。
+ */
+export const repositoryRelativePath = trimmedText("path", 1_000).refine(
+  (value) =>
+    !value.startsWith("/") &&
+    !value.startsWith("\\") &&
+    !/^[a-zA-Z]:[\\/]/.test(value) &&
+    !value.split(/[\\/]+/).some((segment) => segment === ".."),
+  { message: "must be a relative path inside the Repository, without a leading slash or .. segments" },
+);
+
+/** 短縮SHAを許さず、Git（SHA-1）の完全な40桁16進数だけを受け付ける。 */
+export const fullCommitSha = z
+  .string()
+  .trim()
+  .regex(/^[0-9a-f]{40}$/i, "must be a full 40-character commit SHA");
+
+export const httpUrl = (label: string) =>
+  z
+    .url(`${label} must be a valid URL`)
+    .refine((value) => value.startsWith("http://") || value.startsWith("https://"), {
+      message: `${label} must use http or https`,
+    });
+
 /** schemaで検証し、失敗は`ValidationError`（issueごとのpath・message）にする。`subject`はmessageの主語。 */
 export const parseWith = <T extends z.ZodType>(
   schema: T,

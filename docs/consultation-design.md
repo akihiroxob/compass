@@ -1,6 +1,6 @@
 # 相談（Collaboration）
 
-Agentが既存の要件・方針・権限の範囲で決められない問題をHumanへ問い、会話と結論をCompassへ残す。所有Contextは`packages/collaboration`（[ADR 0002](adr/0002-collaboration-context.md)）。Project相談とWorkspace相談、閲覧できる全scopeの横断一覧、Project相談でのTask単位の相談待ち・Manager応答起動・自動再開、Workspace相談のStrategist応答起動までを接続する。結論から文書反映Taskへの引継ぎは含まない（[実装計画](planning/consultation-implementation-plan.md)の後続増分）。
+Agentが既存の要件・方針・権限の範囲で決められない問題をHumanへ問い、会話と結論をCompassへ残す。所有Contextは`packages/collaboration`（[ADR 0002](adr/0002-collaboration-context.md)）。Project相談とWorkspace相談、閲覧できる全scopeの横断一覧、Project相談でのTask単位の相談待ち・Manager応答起動・自動再開、Workspace相談のStrategist応答起動、Project相談の結論から仕様・Policy・ADRの文書反映Taskへの引継ぎと受入済み成果物の参照までを接続する。
 
 ## scope
 
@@ -19,6 +19,8 @@ scopeは決定対象の所有で決め、影響するProject数では決めな�
 | Message | 相談内の順序（`sequence`）、記録主体（`author`）、本文、訂正元（`correctsMessageId`）、発言で進んだ版。追記だけで書き換えない |
 | Resolution | 相談につき1件。結論・判断の根拠・適用範囲・採用した選択肢（`selectedOption`）・根拠の発言（`basisMessageIds`）と版（`basisRevision`）・判断の由来（`source`）・記録主体 |
 | 応答lease | 相談ID・入力版・保持Principal・期限（5分）・解放日時。TaskのClaimとは別 |
+| 文書反映の依頼（Follow-up） | 結論・種類（`adr` / `specification` / `policy`）・反映担当Project・Repository・文書反映Task（Work）・目的・決定内容・根拠・検証方法・元Taskの再開の依存理由（`resumptionDependency`）・依頼主体。同じ相談・種類・Project・Repositoryにつき1件 |
+| 成果物参照（Artifact） | 依頼・受入済みTask・Repository・Repository内の相対path・完全なcommit SHA・任意のPR URL・記録主体。同じ依頼・path・commitにつき1件。本文は持たない |
 | 受付記録 | 主体・操作・`requestId`ごとの入力hashと結果 |
 
 記録主体（`author`・`recordedBy`・`createdBy`・`cancellation.by`）は`kind`（`human` / `agent`）・`principalId`・`role`で、入力からは受け取らない。Humanは`human:{humanUserId}`・`operator`、AgentはBearerのPrincipalと認可したscopeのRole（ProjectはExecution Role、WorkspaceはDirection Role）。
@@ -64,6 +66,7 @@ scopeは決定対象の所有で決め、影響するProject数では決めな�
 | 結論 | administrator以上の明示決定（`consultation.decide`） | managerの結論整理（応答lease） | strategistの結論整理（応答lease） |
 | 取消 | administrator以上（`consultation.decide`） | manager | strategist |
 | 応答待ちの読取り | なし | Project Runtime Credential（`runtime:state:read`） | Workspace Runtime Credential（`runtime:state:read`） |
+| 文書反映の依頼・成果物参照の登録 | なし（詳細で参照だけ） | manager（文書反映TaskはProject Grantで起票） | なし（Project相談だけ） |
 
 Project MembershipとWorkspace Membership、Project GrantとWorkspace Grant、Project Runtime CredentialとWorkspace Runtime Credentialは互いに継承しない。Project MembershipだけのHumanは同じWorkspaceの相談を読めず、Workspace MembershipだけのHumanは未所属Projectの相談を読めない。Humanは未所属・存在しないscope・別scopeの相談IDを404で区別しない。AgentはscopeのGrantが無ければ`FORBIDDEN`、別scopeの相談IDは`NOT_FOUND`、scopeに属さないRole（Project相談のstrategist等）は`FORBIDDEN`。AgentはactiveRole（`X-Compass-Active-Role`）または`role`入力でRoleを決め、どちらも無い記録は`VALIDATION_ERROR`。archivedのProject・Workspaceは参照だけでき、記録は`CONFLICT`（`projectStatus` / `workspaceStatus: archived`）。
 
@@ -89,18 +92,19 @@ Web API（Human。Session・CSRF）。`:scopePath`は`/api/projects/:projectId`�
 | --- | --- |
 | `GET /api/consultations` | 横断一覧（上記）。`{ consultations, nextCursor }` |
 | `GET :scopePath/consultations?status=` | scopeの一覧（更新の新しい順。`status`省略で全件）。Workspaceの一覧に所属Projectの相談は含めない |
-| `GET :scopePath/consultations/:consultationId` | `consultation`・`messages`・`resolution`・`responder`（有効な応答leaseの保持者・期限） |
+| `GET :scopePath/consultations/:consultationId` | `consultation`・`messages`・`resolution`・`responder`（有効な応答leaseの保持者・期限）・`followups`（文書反映の依頼・反映状況・Task・Repository・成果物参照）・`waitingTasks`（この相談を待つTaskの状態・段階・待機状態。Project相談だけ） |
 | `POST .../messages` | 返信`{ body, correctsMessageId?, requestId }`（201） |
 | `POST .../resolution` | 明示決定`{ conclusion, rationale, applicability?, selectedOption?, basisMessageIds?, expectedRevision, requestId }`（201） |
 | `POST .../cancel` | 取消`{ reason, expectedRevision, requestId }` |
 
-MCP（Agent）: `create_consultation`・`list_consultations`・`get_consultation`・`acquire_consultation_lease`・`reply_consultation`・`resolve_consultation`・`cancel_consultation`。どれも`projectId`（Project相談）と`workspaceId`（Workspace相談）のどちらか一方を受け取り、両方・どちらも無い入力は`VALIDATION_ERROR`。Humanの明示決定のtoolは無い。Runtime向けの`get_project_consultation_state`（Project Runtime Credential）・`get_workspace_consultation_state`（Workspace Runtime Credential。所属Projectの相談を含めない、archivedは空）は相談ID・未処理の入力版だけを返し、会話本文を返さない。
+MCP（Agent）: `create_consultation`・`list_consultations`・`get_consultation`・`acquire_consultation_lease`・`reply_consultation`・`resolve_consultation`・`cancel_consultation`、Project相談の文書反映の`request_consultation_followup`・`record_consultation_artifact`（`projectId`だけ。後述）。どれも`projectId`（Project相談）と`workspaceId`（Workspace相談）のどちらか一方を受け取り、両方・どちらも無い入力は`VALIDATION_ERROR`。Humanの明示決定のtoolは無い。Runtime向けの`get_project_consultation_state`（Project Runtime Credential）・`get_workspace_consultation_state`（Workspace Runtime Credential。所属Projectの相談を含めない、archivedは空）は相談ID・未処理の入力版だけを返し、会話本文を返さない。
 
 Web UI:
 
 - 横断一覧「判断待ち（すべて）」（`/consultations`。サイドバーの下部から開く）: 状態・scopeの切替、Workspace・Projectの選択をURLのqueryで表し（既定はHumanの判断待ち・全scope）、行に所属（`Project · 名前` / `Workspace · 名前`）を出す。続きは「さらに表示」。名前は閲覧できるProject・Workspaceの一覧から引く。
 - scopeの一覧: Project詳細の「判断待ち」view（`?view=consultations`）とWorkspaceの「判断待ち」（`/workspaces/:workspaceId/consultations`）。`?status=`で絞り込み、既定はHumanの判断待ち。
 - 相談詳細（`/projects/:projectId/consultations/:consultationId`・`/workspaces/:workspaceId/consultations/:consultationId`）: 上段に質問・選択肢・推奨・影響・参照（Task・Story・Intent・Outcome・相談は画面へ、Resource・URLは正本へ）、下段に会話（Humanの発言とAgentの発言を帯の色と文言で区別）と返信、結論または取消の理由を出し、開いている間は15秒ごとに読み直す。導線はscopeのMembershipのRoleとscopeの状態で出し分け、拒否はserverが行う。
+- Project相談の詳細は、結論の下に「この相談を待つTask」（Taskの状態・待機状態・保持した段階・失敗理由、Task詳細へ）と「文書への反映」（反映状況・種類・反映先Repository・文書反映Task・目的・元Taskの再開条件・成果物のpath/commit/PR）を出す。文書の本文は出さない（`ConsultationFollowupSection.tsx`）。
 
 ## 専用環境での公開操作による確認
 
@@ -136,3 +140,29 @@ Workが`task_consultation_wait`にTaskごとの待機相談参照（ID・版・�
 製品Ralphは同じ`projectRoot`でpollingし、保存済みContextと未commit/未追跡成果物を検査する。OSのworktree lockを保持し、元段階のClaim再取得後にAgentを起動する。Runner停止時も旧Agentが持つlockが残るため同時起動しない。再開したAgentは結論・現在要件・PR/SHAを再読込し、旧blocked結果を再送せず、古い検証を変更後のSHAへ無条件適用しない。成果物版の照合が失敗した場合は破棄せず失敗理由を報告する。Task詳細は待機/再開状態・元段階・相談導線・失敗理由を表示する。
 
 設定・運用は[Orchestrator](../orchestrator/README.md)と[Ralph](../ralph/README.md)。実行手順はRoleから参照する`skills/consultation-task-resumption.md`を正本とする。稼働中agent-foundation版Ralph/Wachaは開発系の別実行システムで、本契約はCompass製品の`/mcp`と製品側`ralph/`が所有する。
+
+## 結論の文書反映（Project相談）
+
+Project相談の結論を仕様・Policy・ADRへ反映する必要があるとき、Managerが文書反映を依頼する。反映の要否・種類・文書の内容はAgentが判断し、Serverは意味を判定しない。長く効く構造・技術選択で代替案とトレードオフを伴うものを`adr`、継続する要件を`specification`、運用ルールを`policy`とする。通常の実行許可・既存方針内の判断・一時的な確認・UI寸法等を相談・ADRへ送らず、Humanへの追加承認工程は設けない。
+
+| MCP | 認可・契約 |
+| --- | --- |
+| `request_consultation_followup` | Projectのmanager。解決済み（`resolved`）のProject相談だけ（未解決は`CONFLICT` `CONSULTATION_NOT_RESOLVED`）。`kind`・Projectに登録された`repositoryId`・`title`・`purpose`・`decision`・`rationale`・`verification`・任意の`storyId`・`resumptionDependency`。Workの通常の起票処理（Project Grant・activeRole・Projectの状態・Change Log・canonical Activity）で文書反映Taskを同じtransactionで起票し、Task本文へ相談ID・結論ID・反映先・目的・決定内容・根拠・検証方法を書く。同じ相談・種類・Repositoryへの依頼は`requestId`によらず同じ依頼・Taskを返し、内容が違えば`CONFLICT`（`FOLLOWUP_EXISTS`） |
+| `record_consultation_artifact` | Projectのmanager。`followupId`と、その依頼の`taskId`・`repositoryId`（違えば`VALIDATION_ERROR`）、Repository内の相対`path`、完全な40桁の`commitSha`、同じRepositoryの`pullRequestUrl`（http(s)のRepositoryでは`{Repository URL}/`配下だけ。null可）。文書反映Taskが`accepted`でなければ`CONFLICT`（`FOLLOWUP_TASK_NOT_ACCEPTED`）。同じ依頼・path・commitの参照は`requestId`によらず保存済みを返す |
+
+path・commit SHA・PR URLの形式検査はDirectionのADR参照（`record_adr_reference`）と同じ`@compass/shared`の部品を使う。Repositoryの本文は正本のまま複製しない。Workspace相談はこの経路を持たず、`projectId`で指しても`NOT_FOUND`。既存のDirection ADR経路（Intentの`adr_candidate` Decision起点）は変えず、相談由来の結論からIntent・Direction Decisionを作らない。
+
+反映状況は相談の`resolved`と別に、文書反映Taskの状態と成果物参照から読むたびに求める。
+
+| 反映状況 | 条件 |
+| --- | --- |
+| `pending`（反映待ち） | 文書反映Taskが`todo` |
+| `in_progress`（対応中） | 作業・レビュー・受入待ち・差戻し、または受入済みで成果物参照の登録待ち |
+| `reflected`（反映済み） | 受入済み（`accepted`）のTaskの成果物参照がある |
+| `canceled`（取消） | 文書反映Taskの取消 |
+
+結論が成立すれば、元Task（相談を待つTask）は文書反映を待たずに再開できる。依頼に`resumptionDependency`（文書を先に確定する理由）を指定した場合だけ、その依頼が`pending` / `in_progress`の間は`ConsultationReadinessPort`が`prerequisiteTaskIds`を返し、`list_consultation_resumptions`は`waiting`と理由を返し、`resume_consultation_task`は`TASK_NOT_CLAIMABLE`で拒否する。反映済み・取消になれば待機条件から外れる。文書反映Taskは新しく起票され、元Taskの受入を待つ条件を持たないため循環しない。
+
+Activityは依頼（`consultation.followup_requested`）と反映（`consultation.followup_reflected`）をcanonicalに1件ずつ記録し、要約と参照（相談・Task・Repositoryのpath/commit・PR URL）だけを持つ。会話全文・文書本文は複製しない。文書反映Taskの起票・受入はWorkの通常のcanonical Activityとして残る。
+
+回帰テストは`node --import tsx --test server/tests/consultationFollowup.test.ts`（実際にcommitした検証用git Repositoryを使い、公開MCP・Web APIで依頼→Worker→Reviewer→Manager受入→参照登録→詳細・Activity・再起動後の保持を確認する）。

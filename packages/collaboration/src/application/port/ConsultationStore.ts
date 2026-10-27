@@ -1,12 +1,15 @@
 import type {
   Consultation,
   ConsultationActor,
+  ConsultationArtifact,
+  ConsultationFollowup,
   ConsultationLease,
   ConsultationMessage,
   ConsultationReference,
   ConsultationResolution,
   ConsultationScope,
   ConsultationStatus,
+  FollowupTaskStatus,
 } from "../../domain/Consultation.ts";
 
 /** 横断一覧の位置（更新日時の降順・同時刻はIDの昇順）。この位置より後ろを返す。 */
@@ -54,6 +57,15 @@ export interface ConsultationStore {
   /** 同じ主体・操作・`requestId`で保存済みの結果と入力のhash。 */
   findReceipt(principalId: string, operation: string, requestId: string): Promise<{ inputHash: string; result: unknown } | null>;
   insertReceipt(receipt: { principalId: string; operation: string; requestId: string; inputHash: string; result: unknown; createdAt: number }): Promise<void>;
+  insertFollowup(followup: ConsultationFollowup): Promise<void>;
+  /** 同じ相談・種類・反映先（Project・Repository）の依頼。 */
+  findFollowupByTarget(consultationId: string, target: Pick<ConsultationFollowup, "kind" | "projectId" | "repositoryId">): Promise<ConsultationFollowup | null>;
+  /** 別の相談の依頼IDはnull。 */
+  findFollowup(consultationId: string, followupId: string): Promise<ConsultationFollowup | null>;
+  listFollowups(consultationId: string): Promise<ConsultationFollowup[]>;
+  insertArtifact(artifact: ConsultationArtifact): Promise<void>;
+  findArtifact(followupId: string, path: string, commitSha: string): Promise<ConsultationArtifact | null>;
+  listArtifacts(consultationId: string): Promise<ConsultationArtifact[]>;
 }
 
 /**
@@ -72,9 +84,53 @@ export interface ConsultationScopeReader {
   directionItemExists(workspaceId: string, reference: Extract<ConsultationReference, { kind: "intent" | "outcome" }>): Promise<boolean>;
 }
 
-/** 相談の照合・追記・受付記録と、他Contextの状態の読取りを同じtransactionで行う。 */
+/** 文書反映Task（Workが所有）。 */
+export type FollowupTaskState = { id: string; title: string; status: FollowupTaskStatus };
+
+/** Projectに登録されたRepository（Organizationが所有）。 */
+export type FollowupRepository = { id: string; name: string; url: string };
+
+/** 相談を待つTask（Workの待機関係）。元Taskの状態を相談から辿るために読む。 */
+export type ConsultationWaitingTask = {
+  taskId: string;
+  title: string;
+  status: FollowupTaskStatus;
+  phase: "work" | "review" | "acceptance";
+  state: "waiting" | "ready" | "resuming";
+  failureReason: string | null;
+};
+
+/** 文書反映の意味的な履歴（Activityが所有）。本文は持たず、要約と参照だけを記録する。 */
+export type FollowupActivityFact = {
+  type: "consultation.followup_requested" | "consultation.followup_reflected";
+  projectId: string;
+  actor: ConsultationActor;
+  summary: string;
+  consultationId: string;
+  taskId: string;
+  artifact: { repositoryId: string; path: string; commitSha: string; pullRequestUrl: string | null } | null;
+  occurredAt: number;
+};
+
+/**
+ * 文書反映が使う他Contextの操作。Task（Work）の起票は既存の起票処理（Grant・Projectの状態・受付記録・Change Log・canonical Activity）を
+ * 相談の記録と同じtransactionで行い、Collaborationはtask・project_repository等のtableを直接扱わない。
+ */
+export interface ConsultationFollowupLinks {
+  /** 呼出しPrincipal・RoleのProject Grantで、通常のWork Taskを起票する。 */
+  issueTask(actor: ConsultationActor, input: { projectId: string; storyId: string | null; title: string; description: string }, requestId: string): Promise<{ id: string }>;
+  /** そのProjectのTask（別Projectのタスクはnull）。 */
+  findTask(projectId: string, taskId: string): Promise<FollowupTaskState | null>;
+  /** そのProjectに登録されたRepository（未登録・別ProjectのRepositoryはnull）。 */
+  findRepository(projectId: string, repositoryId: string): Promise<FollowupRepository | null>;
+  /** その相談を待つ同じProjectのTask。 */
+  listWaitingTasks(projectId: string, consultationId: string): Promise<ConsultationWaitingTask[]>;
+  recordActivity(fact: FollowupActivityFact): Promise<void>;
+}
+
+/** 相談の照合・追記・受付記録と、他Contextの状態の読取り・文書反映Taskの起票を同じtransactionで行う。 */
 export interface ConsultationUnitOfWork {
-  execute<T>(work: (store: ConsultationStore, scopes: ConsultationScopeReader) => Promise<T>): Promise<T>;
+  execute<T>(work: (store: ConsultationStore, scopes: ConsultationScopeReader, links: ConsultationFollowupLinks) => Promise<T>): Promise<T>;
 }
 
 /**

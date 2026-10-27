@@ -2,6 +2,8 @@ import type { Kysely, Selectable } from "kysely";
 import type {
   Consultation,
   ConsultationActor,
+  ConsultationArtifact,
+  ConsultationFollowup,
   ConsultationActorKind,
   ConsultationLease,
   ConsultationMessage,
@@ -11,11 +13,14 @@ import type {
   ConsultationScope,
   ConsultationScopeKind,
   ConsultationStatus,
+  FollowupKind,
   ResolutionSource,
 } from "../domain/Consultation.ts";
 import type { AccessibleConsultationQuery, ConsultationStore } from "../application/port/ConsultationStore.ts";
 import type {
   CollaborationDatabase,
+  ConsultationArtifactTable,
+  ConsultationFollowupTable,
   ConsultationLeaseTable,
   ConsultationMessageTable,
   ConsultationResolutionTable,
@@ -86,6 +91,37 @@ const toLease = (row: Selectable<ConsultationLeaseTable>): ConsultationLease => 
   acquiredAt: row.acquired_at,
   expiresAt: row.expires_at,
   releasedAt: row.released_at,
+});
+
+const toFollowup = (row: Selectable<ConsultationFollowupTable>): ConsultationFollowup => ({
+  id: row.id,
+  consultationId: row.consultation_id,
+  resolutionId: row.resolution_id,
+  kind: row.kind as FollowupKind,
+  projectId: row.project_id,
+  repositoryId: row.repository_id,
+  taskId: row.task_id,
+  title: row.title,
+  purpose: row.purpose,
+  decision: row.decision,
+  rationale: row.rationale,
+  verification: row.verification,
+  resumptionDependency: row.resumption_dependency,
+  requestedBy: actor("agent", row.requested_by_principal_id, row.requested_by_role),
+  createdAt: row.created_at,
+});
+
+const toArtifact = (row: Selectable<ConsultationArtifactTable>): ConsultationArtifact => ({
+  id: row.id,
+  followupId: row.followup_id,
+  consultationId: row.consultation_id,
+  taskId: row.task_id,
+  repositoryId: row.repository_id,
+  path: row.path,
+  commitSha: row.commit_sha,
+  pullRequestUrl: row.pull_request_url,
+  recordedBy: actor("agent", row.recorded_by_principal_id, row.recorded_by_role),
+  createdAt: row.created_at,
 });
 
 /** `ConsultationStore`のKysely（SQLite）実装。transactionを受け取れば、その中で読み書きする。 */
@@ -318,5 +354,103 @@ export class KyselyConsultationStore implements ConsultationStore {
         created_at: receipt.createdAt,
       })
       .execute();
+  }
+
+  async insertFollowup(followup: ConsultationFollowup) {
+    await this.db
+      .insertInto("consultation_followup")
+      .values({
+        id: followup.id,
+        consultation_id: followup.consultationId,
+        resolution_id: followup.resolutionId,
+        kind: followup.kind,
+        project_id: followup.projectId,
+        repository_id: followup.repositoryId,
+        task_id: followup.taskId,
+        title: followup.title,
+        purpose: followup.purpose,
+        decision: followup.decision,
+        rationale: followup.rationale,
+        verification: followup.verification,
+        resumption_dependency: followup.resumptionDependency,
+        requested_by_principal_id: followup.requestedBy.principalId,
+        requested_by_role: followup.requestedBy.role,
+        created_at: followup.createdAt,
+      })
+      .execute();
+  }
+
+  async findFollowupByTarget(consultationId: string, target: Pick<ConsultationFollowup, "kind" | "projectId" | "repositoryId">) {
+    const row = await this.db
+      .selectFrom("consultation_followup")
+      .selectAll()
+      .where("consultation_id", "=", consultationId)
+      .where("kind", "=", target.kind)
+      .where("project_id", "=", target.projectId)
+      .where("repository_id", "=", target.repositoryId)
+      .executeTakeFirst();
+    return row ? toFollowup(row) : null;
+  }
+
+  async findFollowup(consultationId: string, followupId: string) {
+    const row = await this.db
+      .selectFrom("consultation_followup")
+      .selectAll()
+      .where("id", "=", followupId)
+      .where("consultation_id", "=", consultationId)
+      .executeTakeFirst();
+    return row ? toFollowup(row) : null;
+  }
+
+  async listFollowups(consultationId: string) {
+    const rows = await this.db
+      .selectFrom("consultation_followup")
+      .selectAll()
+      .where("consultation_id", "=", consultationId)
+      .orderBy("created_at")
+      .orderBy("id")
+      .execute();
+    return rows.map(toFollowup);
+  }
+
+  async insertArtifact(artifact: ConsultationArtifact) {
+    await this.db
+      .insertInto("consultation_artifact")
+      .values({
+        id: artifact.id,
+        followup_id: artifact.followupId,
+        consultation_id: artifact.consultationId,
+        task_id: artifact.taskId,
+        repository_id: artifact.repositoryId,
+        path: artifact.path,
+        commit_sha: artifact.commitSha,
+        pull_request_url: artifact.pullRequestUrl,
+        recorded_by_principal_id: artifact.recordedBy.principalId,
+        recorded_by_role: artifact.recordedBy.role,
+        created_at: artifact.createdAt,
+      })
+      .execute();
+  }
+
+  async findArtifact(followupId: string, path: string, commitSha: string) {
+    const row = await this.db
+      .selectFrom("consultation_artifact")
+      .selectAll()
+      .where("followup_id", "=", followupId)
+      .where("path", "=", path)
+      .where("commit_sha", "=", commitSha)
+      .executeTakeFirst();
+    return row ? toArtifact(row) : null;
+  }
+
+  async listArtifacts(consultationId: string) {
+    const rows = await this.db
+      .selectFrom("consultation_artifact")
+      .selectAll()
+      .where("consultation_id", "=", consultationId)
+      .orderBy("created_at")
+      .orderBy("id")
+      .execute();
+    return rows.map(toArtifact);
   }
 }

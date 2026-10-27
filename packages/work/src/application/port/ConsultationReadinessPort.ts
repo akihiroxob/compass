@@ -4,6 +4,11 @@ export type ConsultationReadiness = {
   revision: number;
   status: "waiting_human" | "waiting_agent" | "resolved" | "canceled";
   resolutionId: string | null;
+  /**
+   * 結論が元Taskの再開を明示的に待たせている、まだ反映済み・取消でない文書反映Task。空なら結論の成立だけで再開できる。
+   * 文書反映Taskは元Taskの受入を待たないため、循環しない。
+   */
+  prerequisiteTaskIds: string[];
 };
 
 export interface ConsultationReadinessPort {

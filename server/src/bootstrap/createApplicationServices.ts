@@ -168,6 +168,8 @@ import {
   KyselyConsultationStore,
   ListAccessibleConsultationsUseCase,
   ListConsultationsUseCase,
+  RecordConsultationArtifactUseCase,
+  RequestConsultationFollowupUseCase,
   ResolveConsultationUseCase,
   type ConsultationActor,
   type ConsultationScope,
@@ -189,6 +191,7 @@ import {
   activityAuthorization,
   activityScopeReader,
   consultationAgentAuthorization,
+  consultationFollowupLinks,
   consultationScopeReader,
   directionChangeObserver,
   directionProjectReaders,
@@ -310,9 +313,15 @@ export const createApplicationServices = (
   };
   // 相談（Collaboration）。照合・追記・受付記録と、scopeの状態・参照先Task/Story/Intent/Outcomeの読取りを同じtransactionで行う。
   // Web API（Human）とMCP（Agent）は同じuse caseへ委譲し、記録主体と判断の由来は入口が決める。
+  // 文書反映Taskの起票はWorkの通常の起票処理を同じtransactionで使う。Story作成以外ではDirectionの参照を読まない。
+  const directionReferenceLookup = new DirectionReferenceLookupService(projectRepository, workspaceOutcomeRepository, outcomeTargetProjectRepository);
   const consultationUnitOfWork: ConsultationUnitOfWork = {
     execute: (work) => applicationDatabase.transaction().execute((transaction) =>
-      work(new KyselyConsultationStore(asCollaborationDatabase(transaction)), consultationScopeReader(transaction)),
+      work(
+        new KyselyConsultationStore(asCollaborationDatabase(transaction)),
+        consultationScopeReader(transaction),
+        consultationFollowupLinks(transaction, { directionReferences: directionReferenceLookup, clock }),
+      ),
     ),
   };
   const consultations = {
@@ -324,13 +333,15 @@ export const createApplicationServices = (
     addMessage: new AddConsultationMessageUseCase(consultationUnitOfWork, clock),
     resolve: new ResolveConsultationUseCase(consultationUnitOfWork, clock),
     cancel: new CancelConsultationUseCase(consultationUnitOfWork, clock),
+    requestFollowup: new RequestConsultationFollowupUseCase(consultationUnitOfWork, clock),
+    recordArtifact: new RecordConsultationArtifactUseCase(consultationUnitOfWork, clock),
   };
   // Execution（旧Wachaから移植）。同じDB・同じプロセスの中で動き、Directionの参照は読取専用ポートだけを通す。
   // 重要な状態変更は、同じtransactionでcanonical Activityへ投影する。
   const workStore = new KyselyWorkStore(asWorkDatabase(applicationDatabase), workExternalReaders, workChangeActivityObserver);
   const taskCoordinationService = new TaskCoordinationService(
     workStore,
-    new DirectionReferenceLookupService(projectRepository, workspaceOutcomeRepository, outcomeTargetProjectRepository),
+    directionReferenceLookup,
     clock,
   );
   // Direction → Executionは読取専用ポート（Execution自身のtableだけを読む）を通す。Direction側の還流先は自身のRepository。

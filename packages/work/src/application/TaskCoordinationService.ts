@@ -845,6 +845,8 @@ export class TaskCoordinationService {
           if (!current) { reason = "Consultation not found"; break; }
           if (current.status === "resolved" && current.resolutionId) {
             ref.revision = current.revision; ref.resolutionId = current.resolutionId;
+            // 結論が明示した文書反映の依存だけを待機条件に残す。依存の無い結論は反映待ちでも再開できる。
+            if (current.prerequisiteTaskIds.length) reason = `Waiting for document Task ${current.prerequisiteTaskIds.join(", ")} required before resumption`;
           } else if (current.status !== "canceled" || !ref.confirmedCancellation || ref.revision !== current.revision) {
             reason = current.status === "canceled" ? "Manager must confirm cancellation and continuation" : `Consultation is ${current.status}`;
           }
@@ -912,6 +914,9 @@ export class TaskCoordinationService {
           const current = await store.consultations.find(task.project_id, ref.id);
           if (!current || (current.status !== "resolved" && !(current.status === "canceled" && ref.confirmedCancellation && ref.revision === current.revision))) {
             throw new CoordinationError("TASK_NOT_CLAIMABLE", "Every Consultation must be resolved or its cancellation confirmed");
+          }
+          if (current.status === "resolved" && current.prerequisiteTaskIds.length) {
+            throw new CoordinationError("TASK_NOT_CLAIMABLE", "The Consultation conclusion requires its document Task to be reflected before resumption");
           }
           if (current.status === "resolved") { ref.revision = current.revision; ref.resolutionId = current.resolutionId; }
         }

@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { consultationStatuses, type ConsultationScope } from "@compass/collaboration";
+import { consultationStatuses, followupKinds, type ConsultationScope } from "@compass/collaboration";
 import { agentPrincipalOf, type Caller } from "@compass/access";
 import { ValidationError } from "@compass/shared";
 import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
@@ -102,7 +102,9 @@ export const registerConsultationTools = (server: McpServer, services: Operation
       description:
         "Get a Consultation with its question, options, recommendation, impact and refs, the conversation (messages in order, each " +
         "with author kind human or agent), the resolution (source human_decision or agent_summary) and the Agent currently holding " +
-        "the response lease (responder). revision is the version to pass as inputRevision / expectedRevision. " +
+        "the response lease (responder), the document follow-ups with their reflection status (pending, in_progress, reflected, " +
+        "canceled) and artifacts, and the Tasks waiting on it (waitingTasks). revision is the version to pass as inputRevision / " +
+        "expectedRevision. " +
         "A Consultation of another scope fails with NOT_FOUND. " + scopeNote + "Requires a Role Grant of the scope.",
       inputSchema: target,
     },
@@ -183,6 +185,64 @@ export const registerConsultationTools = (server: McpServer, services: Operation
     },
     ({ projectId, workspaceId, consultationId, ...input }) =>
       execute(() => consultations.cancel(principal, scopeOf({ projectId, workspaceId }), consultationId, input)),
+  );
+
+  const projectTarget = { projectId: z.string().min(1).describe("Project of the resolved Project Consultation"), consultationId: z.string().min(1) };
+  server.registerTool(
+    "request_consultation_followup",
+    {
+      title: "Request Consultation Follow-up",
+      description:
+        "Manager of the Project only. Hand the conclusion of a resolved Project Consultation to a document Task that reflects it in " +
+        "a Repository registered in the Project: kind adr (a long-lived structure or technology choice with alternatives and trade-offs), " +
+        "specification (continuing requirements) or policy (operational rules). Decide whether a document is needed and which kind; do " +
+        "not turn routine permissions, temporary checks or UI dimensions into an ADR, and do not add a Human approval step. Give " +
+        "repositoryId, title, purpose, decision (what the document must state), rationale, verification (how the reviewer checks the " +
+        "document) and optional storyId. A normal Work Task is issued in the same step for Worker / Reviewer / Manager; it never waits " +
+        "for the original Task. The original Task waiting on the Consultation resumes on the conclusion alone unless you give " +
+        "resumptionDependency (the reason it must wait for this document); only then it waits until the follow-up is reflected. The " +
+        "same conclusion, kind and Repository returns the existing follow-up and Task regardless of requestId (CONFLICT FOLLOWUP_EXISTS " +
+        "if the content differs). An unresolved Consultation fails with CONFLICT (CONSULTATION_NOT_RESOLVED). " + idempotencyNote,
+      inputSchema: z.looseObject({
+        ...projectTarget,
+        kind: z.string().describe(`Document kind: ${followupKinds.join(", ")}`),
+        repositoryId: z.string(),
+        storyId: z.string().optional(),
+        title: z.string(),
+        purpose: z.string(),
+        decision: z.string(),
+        rationale: z.string(),
+        verification: z.string(),
+        resumptionDependency: z.string().nullable().optional(),
+        requestId,
+      }),
+    },
+    ({ projectId, consultationId, ...input }) =>
+      execute(() => consultations.requestFollowup(principal, { kind: "project", projectId }, consultationId, input)),
+  );
+  server.registerTool(
+    "record_consultation_artifact",
+    {
+      title: "Record Consultation Artifact",
+      description:
+        "Manager of the Project only. After the document Task of a follow-up is accepted, record the reflected document: followupId, " +
+        "taskId and repositoryId of that follow-up, the Repository-relative path, the full 40-character commitSha and pullRequestUrl " +
+        "(a pull request of the same Repository, or null). The Repository stays the source of truth; Compass keeps only the reference. " +
+        "A Task or Repository other than the follow-up's fails with VALIDATION_ERROR; a Task that is not accepted fails with CONFLICT " +
+        "(FOLLOWUP_TASK_NOT_ACCEPTED). The same follow-up, path and commit returns the saved reference regardless of requestId. " + idempotencyNote,
+      inputSchema: z.looseObject({
+        ...projectTarget,
+        followupId: z.string(),
+        taskId: z.string(),
+        repositoryId: z.string(),
+        path: z.string(),
+        commitSha: z.string(),
+        pullRequestUrl: z.string().nullable().optional(),
+        requestId,
+      }),
+    },
+    ({ projectId, consultationId, ...input }) =>
+      execute(() => consultations.recordArtifact(principal, { kind: "project", projectId }, consultationId, input)),
   );
 
   server.registerTool("get_project_consultation_state", {

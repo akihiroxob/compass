@@ -9,6 +9,7 @@ import type {
   ListConsultationsUseCase,
   ResolveConsultationUseCase,
 } from "./ConsultationUseCases.ts";
+import type { RecordConsultationArtifactUseCase, RequestConsultationFollowupUseCase } from "./ConsultationFollowupUseCases.ts";
 import type { ConsultationAgentAuthorization } from "./port/ConsultationStore.ts";
 
 type ConsultationUseCases = {
@@ -19,6 +20,8 @@ type ConsultationUseCases = {
   addMessage: AddConsultationMessageUseCase;
   resolve: ResolveConsultationUseCase;
   cancel: CancelConsultationUseCase;
+  requestFollowup: RequestConsultationFollowupUseCase;
+  recordArtifact: RecordConsultationArtifactUseCase;
 };
 
 /**
@@ -26,6 +29,7 @@ type ConsultationUseCases = {
  * Grantを持たないPrincipalへscope・相談の存在を漏らさない。Project scopeは参照・作成・回答をmanager / worker / reviewer、
  * 結論整理・取消をmanagerだけ、Workspace scopeは参照・作成・回答をstrategist / researcher / evaluator、結論整理・取消をstrategistだけに許す。
  * Humanの明示決定はこの入口に無く、Agentの結論は常に`agent_summary`として記録される。
+ * 結論からの文書反映の依頼と受入済み成果物参照の登録は、結論整理と同じ応答Role（Project相談のmanager）が行う。
  */
 export class AgentConsultationUseCases {
   constructor(
@@ -71,5 +75,13 @@ export class AgentConsultationUseCases {
 
   async cancel(principal: string | null, scope: ConsultationScope, consultationId: string, input: unknown) {
     return this.useCases.cancel.execute(scope, consultationId, await this.authorization.requireResponder(principal, scope), input);
+  }
+
+  async requestFollowup(principal: string | null, scope: ConsultationScope, consultationId: string, input: unknown) {
+    return this.useCases.requestFollowup.execute(scope, consultationId, await this.authorization.requireResponder(principal, scope), input);
+  }
+
+  async recordArtifact(principal: string | null, scope: ConsultationScope, consultationId: string, input: unknown) {
+    return this.useCases.recordArtifact.execute(scope, consultationId, await this.authorization.requireResponder(principal, scope), input);
   }
 }

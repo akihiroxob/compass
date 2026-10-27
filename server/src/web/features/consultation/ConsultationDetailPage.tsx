@@ -9,6 +9,7 @@ import { statusBadgeClass } from "../../statusTone";
 import { canOperate, canOperateWorkspace, projectOperationAccess, projectOperationDeniedMessage, type ProjectOperationAccess } from "../access";
 import { formatTime } from "../execution";
 import { scopeMembersPath, type HumanRole, type Member } from "../member";
+import { ConsultationFollowupSection } from "./ConsultationFollowupSection";
 import {
   basisSequences,
   consultationApiPath,
@@ -390,6 +391,7 @@ export const ConsultationDetailPage = () => {
           </div>
           <QuestionFacts scope={scope} detail={detail} resources={scopeFacts?.resources ?? null} />
           <Outcome detail={detail} names={names} />
+          {scope.kind === "project" && <ConsultationFollowupSection projectId={scope.projectId} detail={detail} />}
           <section className="detail-section" aria-labelledby="consultation-messages-heading">
             <h2 id="consultation-messages-heading">会話</h2>
             <p className="section-note">Humanの返信とAgentの回答・追加質問です。発言は書き換えられず、訂正は新しい発言として残ります。</p>

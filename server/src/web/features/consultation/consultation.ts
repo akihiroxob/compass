@@ -6,16 +6,21 @@ import {
   scopeOfConsultation,
   type Consultation,
   type ConsultationActor,
+  type ConsultationArtifact,
+  type ConsultationFollowup,
   type ConsultationMessage,
   type ConsultationReference,
   type ConsultationResolution,
   type ConsultationScope,
   type ConsultationStatus,
+  type FollowupKind,
+  type FollowupTaskStatus,
+  type ReflectionStatus,
   type ResolutionSource,
 } from "@compass/collaboration/domain";
 import { consultationInboxPath, consultationPath, projectViewPath, taskPath, workspaceApiPath, workspaceConsultationPath, workspaceOutcomePath, workspacePath } from "../../paths.ts";
 import type { StatusTone } from "../../statusTone.ts";
-import { describePrincipal, storyAnchorId } from "../execution/model.ts";
+import { describePrincipal, storyAnchorId, taskStatusLabels, taskStatusTones } from "../execution/model.ts";
 
 export type { Consultation, ConsultationActor, ConsultationMessage, ConsultationReference, ConsultationResolution, ConsultationScope, ConsultationStatus };
 export { scopeOfConsultation };
@@ -23,12 +28,33 @@ export { scopeOfConsultation };
 /** 現在応答中のAgent（有効な応答lease）。 */
 export type ConsultationResponder = { principalId: string; role: string; inputRevision: number; expiresAt: number };
 
+/** 結論からの文書反映の依頼と、Taskの状態・受入済み成果物参照から求めた反映状況。 */
+export type ConsultationFollowupView = ConsultationFollowup & {
+  task: { id: string; title: string; status: FollowupTaskStatus } | null;
+  repository: { id: string; name: string; url: string } | null;
+  status: ReflectionStatus;
+  blocksResumption: boolean;
+  artifacts: ConsultationArtifact[];
+};
+
+/** この相談を待つTask（元Task）。 */
+export type ConsultationWaitingTask = {
+  taskId: string;
+  title: string;
+  status: FollowupTaskStatus;
+  phase: "work" | "review" | "acceptance";
+  state: "waiting" | "ready" | "resuming";
+  failureReason: string | null;
+};
+
 /** `GET /api/projects/:projectId/consultations/:consultationId`・`GET /api/workspaces/:workspaceId/consultations/:consultationId`の応答。 */
 export type ConsultationDetail = {
   consultation: Consultation;
   messages: ConsultationMessage[];
   resolution: ConsultationResolution | null;
   responder: ConsultationResponder | null;
+  followups: ConsultationFollowupView[];
+  waitingTasks: ConsultationWaitingTask[];
 };
 
 export const consultationStatusLabels: Record<ConsultationStatus, string> = {
@@ -49,6 +75,36 @@ export const resolutionSourceLabels: Record<ResolutionSource, string> = {
   human_decision: "Humanの決定",
   agent_summary: "Humanの返信からAgentが整理した結論",
 };
+
+// ---- 文書反映と元Task。反映状況は相談の解決（resolved）と別に、文書反映Taskの状態と受入済み成果物参照から出す。 ----
+
+export const followupKindLabels: Record<FollowupKind, string> = { adr: "ADR", specification: "仕様", policy: "Policy" };
+
+export const reflectionStatusLabels: Record<ReflectionStatus, string> = {
+  pending: "反映待ち",
+  in_progress: "対応中",
+  reflected: "反映済み",
+  canceled: "取消",
+};
+
+export const reflectionStatusTones: Record<ReflectionStatus, StatusTone> = {
+  pending: "waiting",
+  in_progress: "progress",
+  reflected: "done",
+  canceled: "muted",
+};
+
+/** 反映状況の補足。受入済みで参照の登録待ち・Taskが見つからない場合を区別する。 */
+export const describeReflection = (followup: Pick<ConsultationFollowupView, "status" | "task" | "artifacts">): string => {
+  if (!followup.task) return "文書反映Taskが見つかりません";
+  if (followup.status === "in_progress" && followup.task.status === "accepted") return "Taskは受入済みです。成果物の参照の登録を待っています";
+  return `文書反映Task: ${taskStatusLabels[followup.task.status]}`;
+};
+
+export { taskStatusLabels, taskStatusTones };
+
+export const waitStateLabels: Record<ConsultationWaitingTask["state"], string> = { waiting: "相談の結論待ち", ready: "再開待ち", resuming: "再開中" };
+export const waitPhaseLabels: Record<ConsultationWaitingTask["phase"], string> = { work: "作業", review: "レビュー", acceptance: "受入" };
 
 // ---- 一覧の絞り込み。Project・Workspaceの「判断待ち」と横断一覧で`?status=`に表す。既定はHumanの判断待ち。 ----
 

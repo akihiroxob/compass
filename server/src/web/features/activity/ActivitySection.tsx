@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { Button, Field, Select } from "../../components/ui";
-import { intentPath, researchRequestPath, taskPath, workspaceOutcomePath, workspacePath } from "../../paths";
+import { consultationPath, intentPath, researchRequestPath, taskPath, workspaceConsultationPath, workspaceOutcomePath, workspacePath } from "../../paths";
 import { describePrincipal, formatTime } from "../execution";
 import {
   activitiesPath,
@@ -28,9 +28,11 @@ import {
 /**
  * Web UI内の画面。Task・Intent・Research RequestはProject配下のrouteのため、Project Activityからだけ辿る。
  * OutcomeはWorkspaceのOutcome詳細（Workspace Membershipで閲覧）、Workspace ActivityのIntentはWorkspaceの「方向」へ辿る。
+ * 相談はActivityと同じscopeの相談詳細へ辿る。
  */
 const screenPath = (scope: ActivityScope, workspaceId: string, screen: NonNullable<ReferenceView["screen"]>): string | null => {
   if (screen.kind === "outcome") return workspaceOutcomePath(workspaceId, screen.intentId, screen.id);
+  if (screen.kind === "consultation") return scope.kind === "workspace" ? workspaceConsultationPath(workspaceId, screen.id) : consultationPath(scope.projectId, screen.id);
   if (scope.kind === "workspace") return screen.kind === "intent" ? workspacePath(workspaceId, "direction") : null;
   return screen.kind === "task"
     ? taskPath(scope.projectId, screen.id)

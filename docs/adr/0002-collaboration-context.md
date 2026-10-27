@@ -21,5 +21,5 @@ Agentが既存の要件・方針・権限では決められない設計・要件
 ## 影響
 
 - serverは`collaboration`のschemaを合成し、Web API（Human）とMCP（Agent）を同じuse caseへ委譲する。Web UIは横断した判断待ち、Project・Workspaceの「判断待ち」と相談詳細を持つ。
-- Task待機・自動再開はWork / Runtime、応答起動はOrchestrator（ProjectはManager、WorkspaceはStrategist）が所有する。文書反映Taskは[実装計画](../planning/consultation-implementation-plan.md)の後続増分が接続する。
+- Task待機・自動再開はWork / Runtime、応答起動はOrchestrator（ProjectはManager、WorkspaceはStrategist）が所有する。Project相談の結論からの文書反映の依頼と受入済み成果物の参照はCollaborationが所有し、文書反映TaskはWorkの通常のTaskとして同じtransactionで起票する。文書本文はRepositoryが正本で、Compassは要約と参照だけを持つ。
 - 現行の契約は[相談](../consultation-design.md)に記す。

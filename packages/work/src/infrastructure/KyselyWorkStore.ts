@@ -61,7 +61,12 @@ export class KyselyWorkStore implements WorkStore {
     this.outcomeTargets = readers.outcomeTargets;
   }
 
+  /**
+   * 既に他Contextのtransaction（例: 相談の文書反映Taskの起票）の中で作られたstoreは、そのtransactionに参加する。
+   * SQLiteのtransactionは入れ子にできないため、新しいtransactionを開かずに同じ接続で実行する。
+   */
   transaction<T>(work: (store: WorkStore) => Promise<T>): Promise<T> {
+    if (this.db.isTransaction) return work(this);
     return this.db.transaction().execute((transaction) =>
       work(new KyselyWorkStore(transaction, this.externalReaders, this.changeObserver)),
     );

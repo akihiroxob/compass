@@ -3,7 +3,7 @@
 export type ActivityReference =
   | { kind: "project_resource"; resourceId: string; path: string | null; revision: string | null }
   | { kind: "url"; url: string }
-  | { kind: "intent" | "outcome" | "research_request" | "decision" | "story" | "task" | "activity"; id: string };
+  | { kind: "intent" | "outcome" | "research_request" | "decision" | "story" | "task" | "activity" | "consultation"; id: string };
 
 export type ActivitySummary = {
   id: string;
@@ -105,6 +105,7 @@ const entityLabels: Record<Exclude<ActivityReference["kind"], "project_resource"
   story: "Story",
   task: "Task",
   activity: "Activity",
+  consultation: "相談",
 };
 
 /**
@@ -115,7 +116,7 @@ export type ReferenceView = {
   label: string;
   detail: string | null;
   href?: string;
-  screen?: { kind: "task" | "intent" | "research_request"; id: string } | { kind: "outcome"; id: string; intentId: string };
+  screen?: { kind: "task" | "intent" | "research_request" | "consultation"; id: string } | { kind: "outcome"; id: string; intentId: string };
 };
 
 /**
@@ -137,7 +138,7 @@ export const describeReference = (
       : { label: resources === null ? `Resource ${ref.resourceId}` : `登録が外れたResource ${ref.resourceId}`, detail };
   }
   const label = `${entityLabels[ref.kind]} ${ref.id.slice(0, 8)}`;
-  if (ref.kind === "task" || ref.kind === "intent" || ref.kind === "research_request") {
+  if (ref.kind === "task" || ref.kind === "intent" || ref.kind === "research_request" || ref.kind === "consultation") {
     return { label, detail: null, screen: { kind: ref.kind, id: ref.id } };
   }
   if (ref.kind === "outcome") {

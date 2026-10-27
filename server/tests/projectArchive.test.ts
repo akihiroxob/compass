@@ -472,6 +472,8 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       "wait_for_consultation", "list_consultation_resumptions", "resume_consultation_task", "confirm_consultation_continuation", "get_project_consultation_state",
       "acquire_consultation_lease", "cancel_consultation", "create_consultation", "get_consultation", "list_consultations",
       "reply_consultation", "resolve_consultation", "get_workspace_consultation_state",
+      // 文書反映は依頼と成果物参照の追記だけ。
+      "request_consultation_followup", "record_consultation_artifact",
     ].sort(),
   );
   const listTool = tools.find(({ name }) => name === "list_projects");

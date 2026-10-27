@@ -2,7 +2,7 @@
 name: respond-consultation
 description: Project相談（Manager）・Workspace相談（Strategist）でHumanの返信へ応答し、追加質問または結論を整理する。
 status: active
-version: 1
+version: 2
 requiredKnowledge: []
 requiredTools:
   - compass:create_consultation
@@ -12,6 +12,8 @@ requiredTools:
   - compass:reply_consultation
   - compass:resolve_consultation
   - compass:cancel_consultation
+  - compass:request_consultation_followup
+  - compass:record_consultation_artifact
 ---
 
 # respond-consultation
@@ -30,3 +32,12 @@ requiredTools:
 - 追加返信による古い版（`STALE_REVISION`）・lease失効（`LEASE_EXPIRED`）は会話を再読込して新しい入力へ応答する。処理できない場合は失敗理由をRuntimeへ返し、返信を処理済みと扱わない。
 - 不要になった相談は理由付きで`cancel_consultation`する。Project相談の取消でTaskを再開する場合の確認は`consultation-task-resumption`に従う。
 - Workspace相談の結論はStrategistがDirectionの判断（Outcome・Direction Decision）へ反映する。相談の結論だけでIntent・Outcomeを変更済みとみなさない。
+
+## 結論の文書反映（Project相談・Manager）
+
+- 結論を仕様・Policy・ADRへ残す必要があるかをManagerが判断する。長く効く構造・技術選択で代替案とトレードオフを伴うものは`adr`、継続する要件は`specification`、運用ルールは`policy`。通常の実行許可・既存方針内の判断・一時的な確認・UI寸法等は文書化の依頼にしない。Humanへ追加の承認を求めない。
+- 必要なら`request_consultation_followup`で、Projectに登録された反映先`repositoryId`、`title`、`purpose`、`decision`（文書に書く決定内容）、`rationale`、`verification`（Reviewerが文書を確かめる方法）を渡す。文書の本文はRepositoryで書き、Compassへ複製しない。起票されたTaskは通常のWorker → Reviewer → Managerで扱う。
+- 同じ結論・種類・Repositoryの依頼は同じTaskを返す。通信断後は同じ入力で再送してよい。内容を変える必要があれば既存のTaskを編集・差し戻し、別の依頼を重ねない。
+- 元Taskは結論の成立だけで再開できる。文書を先に確定しないと元Taskを進められない場合だけ、`resumptionDependency`に理由を書く。文書反映Taskへ元Taskの受入を待たせない。
+- 文書反映Taskを受け入れた後、`record_consultation_artifact`で受け入れたTask・Repository・文書のpath・完全なcommit SHA・PR URLを登録する。未受入のTask・別のRepository・関係のないTaskの成果物は登録できず、反映済みにならない。
+- Workspace相談の結論はこの経路を使わない（StrategistがDirectionへ反映する）。

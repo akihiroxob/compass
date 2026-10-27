@@ -28,6 +28,18 @@
   small { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 }
 .consultation-resolution { border-left: 4px solid var(--tone-done-bg); padding-left: 1.5rem; }
+// 結論からの文書反映。1件ごとに反映状況・反映先・Task・成果物の参照をまとめる。
+.consultation-followups {
+  @include unstyled-list;
+  display: grid;
+  gap: .75rem;
+}
+.consultation-followup {
+  @include list-item;
+  padding: .9rem 1rem;
+  overflow-wrap: anywhere;
+  .intent-facts { margin: 0; }
+}
 // 判断待ちの一覧。行全体が相談詳細へのリンク。
 .consultation-list {
   @include unstyled-list;

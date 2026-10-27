@@ -218,3 +218,70 @@ export const hasHumanBasis = (basis: readonly Pick<ConsultationMessage, "author"
 /** Agentの結論整理・取消を担うRole。ProjectはManager、WorkspaceはStrategistで、Humanの返信への応答もこのRoleを起動する。 */
 export const consultationResponderRole = (scope: ConsultationScopeKind): "manager" | "strategist" =>
   scope === "project" ? "manager" : "strategist";
+
+// ---- 結論の文書反映（Follow-up）。結論から仕様・Policy・ADRを反映するWork Taskへ引き継ぎ、受入済みの成果物参照を相談へ戻す。 ----
+
+/**
+ * 反映先の文書の種類。種類の判断（長く効く構造・技術選択で代替案とトレードオフを伴うならADR、継続要件・運用ルールは仕様・Policy）は
+ * Agentが行い、Serverは値の妥当性だけを検査する。
+ */
+export const followupKinds = ["adr", "specification", "policy"] as const;
+export type FollowupKind = (typeof followupKinds)[number];
+
+/**
+ * 結論からの文書反映の依頼。反映担当Project・Repositoryと、文書反映Task（Workが所有）への参照を持つ。本文はRepositoryが正本で、
+ * Compassは依頼の要約（目的・決定内容・根拠・検証方法）と参照だけを持つ。同じ結論・種類・反映先（Project・Repository）につき1件。
+ * `resumptionDependency`は元Taskの再開をこの反映の後にする明示的な理由で、無ければ結論の成立だけで元Taskを再開できる。
+ */
+export type ConsultationFollowup = {
+  id: string;
+  consultationId: string;
+  resolutionId: string;
+  kind: FollowupKind;
+  projectId: string;
+  repositoryId: string;
+  taskId: string;
+  title: string;
+  purpose: string;
+  decision: string;
+  rationale: string;
+  verification: string;
+  resumptionDependency: string | null;
+  requestedBy: ConsultationActor;
+  createdAt: number;
+};
+
+/** 受入済みの文書反映Taskの成果物参照。Repository内の相対path・完全なcommit SHA・任意のPR URLだけを持ち、本文を複製しない。 */
+export type ConsultationArtifact = {
+  id: string;
+  followupId: string;
+  consultationId: string;
+  taskId: string;
+  repositoryId: string;
+  path: string;
+  commitSha: string;
+  pullRequestUrl: string | null;
+  recordedBy: ConsultationActor;
+  createdAt: number;
+};
+
+/** 文書反映Taskの状態（Workの`task.status`）。 */
+export type FollowupTaskStatus = "todo" | "doing" | "in_review" | "wait_accept" | "accepted" | "rejected" | "canceled";
+
+/**
+ * 反映状況。相談の`resolved`とは別に、文書反映Taskの状態と受入済み成果物の登録から求める（保存しない）。
+ * `pending`は反映待ち（Task未着手）、`in_progress`は対応中（作業・レビュー・受入待ち・差戻し、受入後の参照登録待ち）、
+ * `reflected`は受入済みTaskの成果物参照がある、`canceled`は文書反映Taskの取消。
+ */
+export const reflectionStatuses = ["pending", "in_progress", "reflected", "canceled"] as const;
+export type ReflectionStatus = (typeof reflectionStatuses)[number];
+
+export const reflectionStatusOf = (taskStatus: FollowupTaskStatus, artifactCount: number): ReflectionStatus => {
+  if (taskStatus === "canceled") return "canceled";
+  if (taskStatus === "accepted" && artifactCount > 0) return "reflected";
+  return taskStatus === "todo" ? "pending" : "in_progress";
+};
+
+/** 元Taskの再開を待たせる反映か。明示的な依存があり、まだ反映済み・取消でないものだけが待機条件になる。 */
+export const blocksResumption = (followup: Pick<ConsultationFollowup, "resumptionDependency">, status: ReflectionStatus): boolean =>
+  followup.resumptionDependency !== null && (status === "pending" || status === "in_progress");

@@ -33,7 +33,7 @@ const openDatabase = () => {
 let database = openDatabase();
 let grants = new Map<string, Set<string>>();
 let archivedProjects = new Set<string>();
-let consultations = new Map<string, { id: string; revision: number; status: "waiting_human" | "waiting_agent" | "resolved" | "canceled"; resolutionId: string | null }>();
+let consultations = new Map<string, { id: string; revision: number; status: "waiting_human" | "waiting_agent" | "resolved" | "canceled"; resolutionId: string | null; prerequisiteTaskIds: string[] }>();
 let now = 1_000;
 const grantKey = (projectId: string, principalId: string) => `${projectId}\u0000${principalId}`;
 const createService = () =>
@@ -642,8 +642,8 @@ test("相談待ちは候補と直接Claimを排除し、全相談の解決後だ
   await grant(project.id, "worker-b", WorkRole.WORKER);
   const claim = await service.claimTask("worker-a", task.id, "work");
   const other = await insertTask(project.id, "other Task");
-  consultations.set("c1", { id: "c1", revision: 1, status: "waiting_human", resolutionId: null });
-  consultations.set("c2", { id: "c2", revision: 1, status: "waiting_human", resolutionId: null });
+  consultations.set("c1", { id: "c1", revision: 1, status: "waiting_human", resolutionId: null, prerequisiteTaskIds: [] });
+  consultations.set("c2", { id: "c2", revision: 1, status: "waiting_human", resolutionId: null, prerequisiteTaskIds: [] });
   const input = { taskId: task.id, claimId: claim.claimId, consultationIds: ["c1", "c2"], reason: "要件が不明", runtime: runtimeSnapshot };
   await assert.rejects(service.waitForConsultations("worker-b", input, "not-owner"));
   const waited = await service.waitForConsultations("worker-a", input, "wait");
@@ -652,10 +652,10 @@ test("相談待ちは候補と直接Claimを排除し、全相談の解決後だ
   assert.deepEqual((await service.listTasks("worker-b", project.id, { availableFor: "work" })).tasks.map((t) => t.id), [other.id]);
   await assert.rejects(service.claimTask("worker-b", task.id, "steal"), { code: "TASK_NOT_CLAIMABLE" });
   await service.claimTask("worker-b", other.id, "continue-other");
-  consultations.set("c1", { id: "c1", revision: 3, status: "resolved", resolutionId: "r1" });
+  consultations.set("c1", { id: "c1", revision: 3, status: "resolved", resolutionId: "r1", prerequisiteTaskIds: [] });
   assert.equal((await service.reconcileConsultationWaits("worker-a", project.id)).resumptions[0]?.state, "waiting");
   await assert.rejects(service.resumeConsultationTask("worker-a", task.id, runtimeSnapshot, "too-early"));
-  consultations.set("c2", { id: "c2", revision: 3, status: "resolved", resolutionId: "r2" });
+  consultations.set("c2", { id: "c2", revision: 3, status: "resolved", resolutionId: "r2", prerequisiteTaskIds: [] });
   assert.equal((await service.reconcileConsultationWaits("worker-a", project.id)).resumptions[0]?.state, "ready");
   await assert.rejects(service.resumeConsultationTask("worker-a", task.id, { ...runtimeSnapshot, headSha: "b".repeat(40) }, "stale-sha"));
   let resumed = await service.resumeConsultationTask("worker-a", task.id, runtimeSnapshot, "resume");
@@ -683,10 +683,10 @@ test("取消と要件変更はManagerが全版を確認するまで再開せず�
   await service.addTaskComment("author", task.id, claim.claimId, "done", "comment");
   await service.completeTask("author", task.id, claim.claimId, "complete");
   const review = await service.claimReview("reviewer", task.id, "review");
-  consultations.set("cancel", { id: "cancel", revision: 1, status: "waiting_human", resolutionId: null });
+  consultations.set("cancel", { id: "cancel", revision: 1, status: "waiting_human", resolutionId: null, prerequisiteTaskIds: [] });
   await service.waitForConsultations("reviewer", { taskId: task.id, claimId: review.claimId, consultationIds: ["cancel"], reason: "仕様確認", runtime: runtimeSnapshot }, "wait");
   await assert.rejects(service.claimAcceptance("manager", task.id, "skip-wait"), { code: "TASK_NOT_CLAIMABLE" });
-  consultations.set("cancel", { id: "cancel", revision: 2, status: "canceled", resolutionId: null });
+  consultations.set("cancel", { id: "cancel", revision: 2, status: "canceled", resolutionId: null, prerequisiteTaskIds: [] });
   assert.equal((await service.reconcileConsultationWaits("reviewer", project.id)).resumptions[0]?.state, "waiting");
   await service.editTask("manager", { projectId: project.id, taskId: task.id, title: "current requirements" }, "edit");
   const current = (await service.listTasks("manager", project.id)).tasks.find((t) => t.id === task.id)!;
@@ -697,12 +697,29 @@ test("取消と要件変更はManagerが全版を確認するまで再開せず�
   assert.equal(resumed.taskStatus, "in_review");
   await service.reviewedTask("reviewer", task.id, resumed.claimId, "approve");
   const acceptance = await service.claimAcceptance("manager", task.id, "acceptance");
-  consultations.set("accept", { id: "accept", revision: 1, status: "waiting_human", resolutionId: null });
+  consultations.set("accept", { id: "accept", revision: 1, status: "waiting_human", resolutionId: null, prerequisiteTaskIds: [] });
   await service.waitForConsultations("manager", { taskId: task.id, claimId: acceptance.claimId, consultationIds: ["accept"], reason: "受入確認", runtime: runtimeSnapshot }, "wait-acceptance");
   assert.equal((await service.listTasks("manager", project.id)).tasks[0]?.status, "wait_accept");
   await assert.rejects(service.claimReview("reviewer", task.id, "wrong-phase"), { code: "TASK_NOT_CLAIMABLE" });
-  consultations.set("accept", { id: "accept", revision: 3, status: "resolved", resolutionId: "accept-resolution" });
+  consultations.set("accept", { id: "accept", revision: 3, status: "resolved", resolutionId: "accept-resolution", prerequisiteTaskIds: [] });
   const acceptanceResume = await service.resumeConsultationTask("manager", task.id, runtimeSnapshot, "resume-acceptance");
   assert.equal(acceptanceResume.phase, "acceptance");
   assert.equal(acceptanceResume.taskStatus, "wait_accept");
+});
+
+test("結論が明示した文書反映の依存だけが再開を待たせ、反映後は同じ保存済み実行から再開する", async () => {
+  const { project, task } = await createProjectTask();
+  await grant(project.id, "worker-a", WorkRole.WORKER);
+  const claim = await service.claimTask("worker-a", task.id, "claim");
+  consultations.set("doc", { id: "doc", revision: 1, status: "waiting_human", resolutionId: null, prerequisiteTaskIds: [] });
+  await service.waitForConsultations("worker-a", { taskId: task.id, claimId: claim.claimId, consultationIds: ["doc"], reason: "設計判断", runtime: runtimeSnapshot }, "wait");
+  consultations.set("doc", { id: "doc", revision: 3, status: "resolved", resolutionId: "doc-resolution", prerequisiteTaskIds: ["adr-task"] });
+  const waiting = (await service.reconcileConsultationWaits("worker-a", project.id)).resumptions[0];
+  assert.equal(waiting?.state, "waiting");
+  assert.match(waiting?.failureReason ?? "", /adr-task/);
+  await assert.rejects(service.resumeConsultationTask("worker-a", task.id, runtimeSnapshot, "before-reflection"), { code: "TASK_NOT_CLAIMABLE" });
+  consultations.set("doc", { id: "doc", revision: 3, status: "resolved", resolutionId: "doc-resolution", prerequisiteTaskIds: [] });
+  assert.equal((await service.reconcileConsultationWaits("worker-a", project.id)).resumptions[0]?.state, "ready");
+  const resumed = await service.resumeConsultationTask("worker-a", task.id, runtimeSnapshot, "after-reflection");
+  assert.equal(resumed.phase, "work");
 });
