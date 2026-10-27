@@ -13,11 +13,13 @@ import {
   type ReflectionStatus,
 } from "../domain/Consultation.ts";
 import { parseArtifactInput, parseFollowupRequestInput, type FollowupRequestInput } from "./consultationSchema.ts";
-import { requireConsultation, requireWritableScope, withReceipt, type Clock } from "./consultationOperation.ts";
+import { consultationNotFound, requireConsultation, requireScope, requireWritableScope, withReceipt, type Clock } from "./consultationOperation.ts";
 import type {
   ConsultationFollowupLinks,
+  ConsultationScopeReader,
   ConsultationStore,
   ConsultationUnitOfWork,
+  FollowupProject,
   FollowupRepository,
   FollowupTaskState,
 } from "./port/ConsultationStore.ts";
@@ -27,6 +29,7 @@ import type {
  * `blocksResumption`は元Taskの再開を待たせている（明示的な依存があり、まだ反映済み・取消でない）か。
  */
 export type ConsultationFollowupView = ConsultationFollowup & {
+  project: FollowupProject | null;
   task: FollowupTaskState | null;
   repository: FollowupRepository | null;
   status: ReflectionStatus;
@@ -51,6 +54,7 @@ export const describeFollowups = async (
     const status = task ? reflectionStatusOf(task.status, own.length) : "in_progress";
     views.push({
       ...followup,
+      project: await links.findProject(followup.projectId),
       task,
       repository: await links.findRepository(followup.projectId, followup.repositoryId),
       status,
@@ -61,14 +65,20 @@ export const describeFollowups = async (
   return views;
 };
 
-/** 文書反映はProject相談の結論から、そのProjectのWork・Repositoryへ依頼する。Workspace相談はこの経路を持たない。 */
-const requireProjectScope = (scope: ConsultationScope): Extract<ConsultationScope, { kind: "project" }> => {
-  if (scope.kind !== "project") {
-    throw new ValidationError("Consultation follow-up input is invalid", [
-      { path: "projectId", message: "document follow-ups are requested from a Project Consultation (give projectId)" },
-    ]);
-  }
-  return scope;
+/**
+ * 文書反映の依頼先。反映担当Projectは存在してarchivedでなく、相談の所属に含まれる（Project相談はそのProject自身、Workspace相談は
+ * そのWorkspaceに所属するProject）。所属しないProjectからは、相談の存在を区別せずNOT_FOUNDにする。
+ */
+const requireFollowupProject = async (
+  scopes: ConsultationScopeReader,
+  scope: ConsultationScope,
+  projectId: string,
+  consultationId: string,
+  access: "read" | "write" = "write",
+) => {
+  const project = await (access === "write" ? requireWritableScope : requireScope)(scopes, { kind: "project", projectId });
+  const belongs = scope.kind === "project" ? scope.projectId === projectId : project.workspaceId === scope.workspaceId;
+  if (!belongs) throw consultationNotFound(consultationId);
 };
 
 const requireResolved = async (store: ConsultationStore, consultation: Consultation): Promise<ConsultationResolution> => {
@@ -82,6 +92,32 @@ const requireResolved = async (store: ConsultationStore, consultation: Consultat
   }
   return resolution;
 };
+
+/** 反映担当Projectのmanagerが文書反映を依頼するために読む、解決済みの相談の結論と、そのProjectが担当する依頼。会話本文は含めない。 */
+export type ConsultationHandoffContext = {
+  consultation: Consultation;
+  resolution: ConsultationResolution;
+  followups: ConsultationFollowupView[];
+};
+
+/**
+ * 文書反映の引継ぎContext（反映担当Projectのmanager）。Workspace相談の結論も、そのWorkspaceに所属するProjectから読める
+ * （Workspace Grantは要らず、使わない）。所属しないProject・別scopeの相談はNOT_FOUND、未解決は`CONSULTATION_NOT_RESOLVED`。
+ */
+export class GetConsultationHandoffContextUseCase {
+  constructor(private readonly unitOfWork: ConsultationUnitOfWork) {}
+
+  execute(projectId: string, scope: ConsultationScope, consultationId: string): Promise<ConsultationHandoffContext> {
+    return this.unitOfWork.execute(async (store, scopes, links) => {
+      await requireScope(scopes, scope);
+      await requireFollowupProject(scopes, scope, projectId, consultationId, "read");
+      const consultation = await requireConsultation(store, scope, consultationId);
+      const resolution = await requireResolved(store, consultation);
+      const followups = (await describeFollowups(store, links, consultation.id)).filter((followup) => followup.projectId === projectId);
+      return { consultation, resolution, followups };
+    });
+  }
+}
 
 /**
  * 文書反映TaskのTask本文。依頼の項目を決まった見出しへ並べるだけで、内容の要約・分類はしない（Agentが入力で行う）。
@@ -132,8 +168,8 @@ const sameRequest = (followup: ConsultationFollowup, input: FollowupRequestInput
   followup.resumptionDependency === input.resumptionDependency;
 
 /**
- * 結論からの文書反映の依頼（Projectの応答Role）。解決済みのProject相談の結論について、反映先Repositoryを明示した通常のWork Taskを
- * 同じtransactionで起票し、相談に依頼を記録する。同じ結論・種類・反映先への依頼は`requestId`によらず同じ依頼・Taskを返し
+ * 結論からの文書反映の依頼（反映担当Projectのmanager）。解決済みの相談（Project相談はそのProject、Workspace相談は所属Projectのいずれか）の
+ * 結論について、反映先Repositoryを明示した通常のWork Taskを同じtransactionで起票し、相談に依頼を記録する。同じ結論・種類・反映先への依頼は`requestId`によらず同じ依頼・Taskを返し
  * （内容が違えば`CONFLICT`）、再送や通信断でTaskを二重に作らない。元Taskの再開は`resumptionDependency`を指定したときだけ待たせる。
  */
 export class RequestConsultationFollowupUseCase {
@@ -143,15 +179,20 @@ export class RequestConsultationFollowupUseCase {
     private readonly newId: () => string = randomUUID,
   ) {}
 
-  execute(scope: ConsultationScope, consultationId: string, actor: ConsultationActor, input: unknown): Promise<{ followup: ConsultationFollowupView }> {
-    const projectScope = requireProjectScope(scope);
+  execute(
+    projectId: string,
+    scope: ConsultationScope,
+    consultationId: string,
+    actor: ConsultationActor,
+    input: unknown,
+  ): Promise<{ followup: ConsultationFollowupView }> {
     const { requestId, ...content } = parseFollowupRequestInput(input);
     return this.unitOfWork.execute((store, scopes, links) =>
-      withReceipt(store, actor, "request_consultation_followup", requestId, { ...scope, consultationId, ...content }, this.clock, async () => {
+      withReceipt(store, actor, "request_consultation_followup", requestId, { ...scope, targetProjectId: projectId, consultationId, ...content }, this.clock, async () => {
         await requireWritableScope(scopes, scope);
+        await requireFollowupProject(scopes, scope, projectId, consultationId);
         const consultation = await requireConsultation(store, scope, consultationId);
         const resolution = await requireResolved(store, consultation);
-        const { projectId } = projectScope;
         const repository = await links.findRepository(projectId, content.repositoryId);
         if (!repository) {
           throw new ValidationError("Consultation follow-up input is invalid", [
@@ -199,6 +240,7 @@ export class RequestConsultationFollowupUseCase {
           actor,
           summary: `相談「${consultation.title}」の結論を${followupKindLabels[content.kind]}へ反映するTaskを依頼した`,
           consultationId: consultation.id,
+          consultationScope: scope.kind,
           taskId: task.id,
           artifact: null,
           occurredAt: now,
@@ -209,16 +251,23 @@ export class RequestConsultationFollowupUseCase {
   }
 }
 
-/** PR URLが依頼のRepositoryのものか。http(s)のRepository URLだけ照合し、それ以外（ローカルの検証用Repository等）は形式の検査だけにする。 */
-const pullRequestBelongsTo = (repository: FollowupRepository, pullRequestUrl: string) => {
-  if (!/^https?:\/\//i.test(repository.url)) return true;
-  const base = repository.url.trim().replace(/\/+$/, "").replace(/\.git$/i, "").toLowerCase();
-  return pullRequestUrl.toLowerCase().startsWith(`${base}/`);
-};
+/** 登録する参照が、文書反映Taskの受入で残した受入成果物（Repository・commit・path・PR）のいずれかと一致するか。 */
+const matchesAcceptance = (
+  deliverables: { repositoryId: string; commitSha: string; paths: string[]; pullRequestUrl: string | null }[],
+  artifact: { repositoryId: string; commitSha: string; path: string; pullRequestUrl: string | null },
+) =>
+  deliverables.some(
+    (deliverable) =>
+      deliverable.repositoryId === artifact.repositoryId &&
+      deliverable.commitSha === artifact.commitSha &&
+      deliverable.paths.includes(artifact.path) &&
+      deliverable.pullRequestUrl === artifact.pullRequestUrl,
+  );
 
 /**
- * 受入済みの文書反映Taskの成果物参照の登録（Projectの応答Role）。依頼のTask・Repositoryと一致し、Taskが受入済み（`accepted`）で、
- * RepositoryがProjectに登録されていることを検査してから参照を保存する。未受入・無関係なTask・別Repositoryの参照では反映済みにしない。
+ * 受入済みの文書反映Taskの成果物参照の登録（反映担当Projectのmanager）。依頼のTask・Repositoryと一致し、Taskが受入済み（`accepted`）で、
+ * path・commit SHA・PR URLがそのTaskの受入で残した受入成果物（Workの受入証跡）と一致することを検査してから参照を保存する。
+ * 未受入・無関係なTask・別Repository・受入証跡に無いpath / commit / PRの参照では反映済みにしない。
  * 同じ依頼・path・commitの参照は1件で、`requestId`によらず再送は保存済みの参照を返す。本文は複製せず、Activityへも参照だけを残す。
  */
 export class RecordConsultationArtifactUseCase {
@@ -228,23 +277,27 @@ export class RecordConsultationArtifactUseCase {
     private readonly newId: () => string = randomUUID,
   ) {}
 
-  execute(scope: ConsultationScope, consultationId: string, actor: ConsultationActor, input: unknown): Promise<{ artifact: ConsultationArtifact; followup: ConsultationFollowupView }> {
-    requireProjectScope(scope);
+  execute(
+    projectId: string,
+    scope: ConsultationScope,
+    consultationId: string,
+    actor: ConsultationActor,
+    input: unknown,
+  ): Promise<{ artifact: ConsultationArtifact; followup: ConsultationFollowupView }> {
     const { requestId, ...content } = parseArtifactInput(input);
     return this.unitOfWork.execute((store, scopes, links) =>
-      withReceipt(store, actor, "record_consultation_artifact", requestId, { ...scope, consultationId, ...content }, this.clock, async () => {
+      withReceipt(store, actor, "record_consultation_artifact", requestId, { ...scope, targetProjectId: projectId, consultationId, ...content }, this.clock, async () => {
         await requireWritableScope(scopes, scope);
+        await requireFollowupProject(scopes, scope, projectId, consultationId);
         const consultation = await requireConsultation(store, scope, consultationId);
         const followup = await store.findFollowup(consultation.id, content.followupId);
-        if (!followup) throw new NotFoundError(`Follow-up ${content.followupId} was not found in this Consultation`);
+        // 別Projectが担当する依頼は、そのProjectのmanagerだけが登録する（存在は区別しない）。
+        if (!followup || followup.projectId !== projectId) throw new NotFoundError(`Follow-up ${content.followupId} was not found in this Consultation`);
         const issues: { path: string; message: string }[] = [];
         if (content.taskId !== followup.taskId) issues.push({ path: "taskId", message: "taskId must be the document Task of this follow-up" });
         if (content.repositoryId !== followup.repositoryId) issues.push({ path: "repositoryId", message: "repositoryId must be the Repository of this follow-up" });
         const repository = issues.length ? null : await links.findRepository(followup.projectId, followup.repositoryId);
         if (!issues.length && !repository) issues.push({ path: "repositoryId", message: `Repository ${followup.repositoryId} is no longer registered in this Project` });
-        if (repository && content.pullRequestUrl !== null && !pullRequestBelongsTo(repository, content.pullRequestUrl)) {
-          issues.push({ path: "pullRequestUrl", message: `pullRequestUrl must be a pull request of Repository ${repository.name} (${repository.url})` });
-        }
         if (issues.length) throw new ValidationError("Consultation artifact input is invalid", issues);
         const task = await links.findTask(followup.projectId, followup.taskId);
         if (!task || task.status !== "accepted") {
@@ -253,6 +306,15 @@ export class RecordConsultationArtifactUseCase {
             followupId: followup.id,
             taskId: followup.taskId,
             taskStatus: task?.status ?? "missing",
+          });
+        }
+        const deliverables = await links.findAcceptedDeliverables(followup.projectId, followup.taskId);
+        if (!matchesAcceptance(deliverables, { repositoryId: followup.repositoryId, commitSha: content.commitSha, path: content.path, pullRequestUrl: content.pullRequestUrl })) {
+          throw new ConflictError("The path, commit and pull request are not among the deliverables accepted for the document Task", {
+            conflict: "ARTIFACT_NOT_ACCEPTED",
+            followupId: followup.id,
+            taskId: followup.taskId,
+            acceptedDeliverables: String(deliverables.length),
           });
         }
         const view = async () => (await describeFollowups(store, links, consultation.id)).find((item) => item.id === followup.id)!;
@@ -287,6 +349,7 @@ export class RecordConsultationArtifactUseCase {
           actor,
           summary: `相談「${consultation.title}」の結論を${followupKindLabels[followup.kind]}へ反映した（${content.path}）`,
           consultationId: consultation.id,
+          consultationScope: scope.kind,
           taskId: followup.taskId,
           artifact: { repositoryId: followup.repositoryId, path: content.path, commitSha: content.commitSha, pullRequestUrl: content.pullRequestUrl },
           occurredAt: now,

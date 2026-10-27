@@ -3,6 +3,7 @@ import type { Kysely, Transaction } from "kysely";
 import type { StoryStatus } from "../domain/StoryStatus.ts";
 import { TaskStatus } from "../domain/TaskStatus.ts";
 import type {
+  AcceptedDeliverable,
   ChangeRecord,
   CommandReceiptRecord,
   EntityCorrelation,
@@ -334,6 +335,19 @@ export class KyselyWorkStore implements WorkStore {
     if (task) return { kind: "task", id: task.id, title: task.title, storyId: task.story_id };
     const story = await this.db.selectFrom("story").select(["id", "title"]).where("id", "=", entityId).executeTakeFirst();
     return story ? { kind: "story", id: story.id, title: story.title, storyId: null } : null;
+  }
+
+  async findAcceptedDeliverables(projectId: string, taskId: string): Promise<AcceptedDeliverable[]> {
+    const row = await this.db
+      .selectFrom("change_log")
+      .select("payload")
+      .where("project_id", "=", projectId)
+      .where("entity_id", "=", taskId)
+      .where("type", "=", "TASK_ACCEPTED")
+      .orderBy("cursor", "desc")
+      .executeTakeFirst();
+    if (!row) return [];
+    return (JSON.parse(row.payload) as { deliverables?: AcceptedDeliverable[] }).deliverables ?? [];
   }
 
   async findLatestCompleter(taskId: string): Promise<string | null> {

@@ -117,6 +117,7 @@ export const workExternalReaders: WorkExternalReaders = (executor) => {
     projects: {
       exists: (projectId) => projectExists(organization, projectId),
       isArchived: (projectId) => isProjectArchived(organization, projectId),
+      findRepository: async (projectId, repositoryId) => (await findProjectRepository(organization, projectId, repositoryId)) ?? null,
     },
     outcomeTargets: {
       isTarget: (outcomeId, projectId) => isOutcomeTargetProject(direction, outcomeId, projectId),
@@ -406,7 +407,11 @@ export const consultationFollowupLinks = (
       const row = await work.selectFrom("task").select(["id", "title", "status"]).where("id", "=", taskId).where("project_id", "=", projectId).executeTakeFirst();
       return row ? { id: row.id, title: row.title, status: row.status as FollowupTaskStatus } : null;
     },
+    findAcceptedDeliverables: (projectId, taskId) =>
+      new KyselyWorkStore(work, workExternalReaders, workChangeActivityObserver).findAcceptedDeliverables(projectId, taskId),
     findRepository: async (projectId, repositoryId) => (await findProjectRepository(organization, projectId, repositoryId)) ?? null,
+    findProject: async (projectId) =>
+      (await organization.selectFrom("project").select(["id", "name"]).where("id", "=", projectId).executeTakeFirst()) ?? null,
     listWaitingTasks: async (projectId, consultationId) => {
       const rows = await work
         .selectFrom("task_consultation_wait")
@@ -439,7 +444,11 @@ export const consultationFollowupLinks = (
         role: fact.actor.role,
         summary: fact.summary,
         body: null,
-        refs: [{ kind: "consultation", id: fact.consultationId }, { kind: "task", id: fact.taskId }, ...artifactRefs],
+        refs: [
+          { kind: fact.consultationScope === "workspace" ? "workspace_consultation" : "consultation", id: fact.consultationId },
+          { kind: "task", id: fact.taskId },
+          ...artifactRefs,
+        ],
         correctsActivityId: null,
         source: "canonical",
         occurredAt: fact.occurredAt,
@@ -477,5 +486,10 @@ export const consultationAgentAuthorization = (roleScopeAuthorization: RoleScope
       const role = consultationResponderRole(scope.kind);
       return { kind: "agent", principalId: await roleScopeAuthorization.requireRole(principal, roleScope(scope), role), role };
     },
+    requireProjectManager: async (principal, projectId) => ({
+      kind: "agent",
+      principalId: await roleScopeAuthorization.requireRole(principal, { kind: "project", id: projectId }, "manager"),
+      role: "manager",
+    }),
   };
 };

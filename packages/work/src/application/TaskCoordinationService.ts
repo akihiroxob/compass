@@ -1,3 +1,4 @@
+import { assertDeliverablesBelongTo, parseAcceptedDeliverables } from "./taskAcceptanceSchema.ts";
 import { consultationRuntimeSchema, waitForConsultationsSchema, taskRequirementVersion, type ConsultationWaitReference } from "./consultationWaitSchema.ts";
 import { outcomeCorrelationId } from "@compass/direction";
 import { ProjectArchivedError } from "@compass/organization";
@@ -11,7 +12,7 @@ import type {
   OutcomeReferenceSnapshot,
   RepositoryReference,
 } from "./port/DirectionReferenceLookupPort.ts";
-import type { ChangeRecord, StoryRecord, TaskClaimRecord, TaskRecord, WorkStore } from "./port/WorkStore.ts";
+import type { AcceptedDeliverable, ChangeRecord, StoryRecord, TaskClaimRecord, TaskRecord, WorkStore } from "./port/WorkStore.ts";
 
 export type TaskAvailability = "work" | "review" | "acceptance";
 
@@ -1150,6 +1151,7 @@ export class TaskCoordinationService {
     taskId: string,
     claimId: string,
     actorRole: ActivityActorRole,
+    deliverables: AcceptedDeliverable[] = [],
   ) {
     const task = await this.getTask(store, taskId);
     if (task.status !== TaskStatus.WAIT_ACCEPT) {
@@ -1170,7 +1172,8 @@ export class TaskCoordinationService {
       entityId: taskId,
       principalId,
       claimId,
-      payload: { actorRole, fromStatus: TaskStatus.WAIT_ACCEPT, toStatus: TaskStatus.ACCEPTED },
+      // 受入成果物は受入証跡としてChangeへ残す（相談の文書反映の参照登録は、これと一致する参照だけを受け付ける）。
+      payload: { actorRole, fromStatus: TaskStatus.WAIT_ACCEPT, toStatus: TaskStatus.ACCEPTED, ...(deliverables.length ? { deliverables } : {}) },
       occurredAt: now,
     });
     await this.syncStoryAfterAcceptance(
@@ -1185,13 +1188,20 @@ export class TaskCoordinationService {
     return { taskId, claimId, status: TaskStatus.ACCEPTED };
   }
 
-  async acceptTask(principalId: string, taskId: string, claimId: string, requestId: string) {
+  /**
+   * `deliverables`は任意の受入成果物（Repository・完全なcommit SHA・変更したpath・PR URL）。RepositoryはTaskのProjectに登録済みで、
+   * PR URLはそのRepositoryのpull requestに限る。指定がなければ従来どおり成果物なしで受け入れる。
+   */
+  async acceptTask(principalId: string, taskId: string, claimId: string, requestId: string, deliverablesInput?: unknown) {
+    const deliverables = parseAcceptedDeliverables(deliverablesInput);
+    const receiptInput = deliverables.length ? { taskId, claimId, deliverables } : { taskId, claimId };
     return this.store.transaction(async (store) =>
-      this.withReceipt(store, principalId, "accept_task", requestId, { taskId, claimId }, async () => {
+      this.withReceipt(store, principalId, "accept_task", requestId, receiptInput, async () => {
         await this.assertCurrentClaim(store, principalId, taskId, claimId);
         const task = await this.getTask(store, taskId);
         await this.requireRole(store, task.project_id, principalId, WorkRole.MANAGER);
-        return this.acceptTaskCore(store, principalId, taskId, claimId, "manager");
+        await assertDeliverablesBelongTo(deliverables, (repositoryId) => store.projects.findRepository(task.project_id, repositoryId));
+        return this.acceptTaskCore(store, principalId, taskId, claimId, "manager", deliverables);
       }),
     );
   }

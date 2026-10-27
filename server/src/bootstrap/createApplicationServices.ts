@@ -165,6 +165,7 @@ import {
   CancelConsultationUseCase,
   CreateConsultationUseCase,
   GetConsultationUseCase,
+  GetConsultationHandoffContextUseCase,
   KyselyConsultationStore,
   ListAccessibleConsultationsUseCase,
   ListConsultationsUseCase,
@@ -333,6 +334,7 @@ export const createApplicationServices = (
     addMessage: new AddConsultationMessageUseCase(consultationUnitOfWork, clock),
     resolve: new ResolveConsultationUseCase(consultationUnitOfWork, clock),
     cancel: new CancelConsultationUseCase(consultationUnitOfWork, clock),
+    getHandoffContext: new GetConsultationHandoffContextUseCase(consultationUnitOfWork),
     requestFollowup: new RequestConsultationFollowupUseCase(consultationUnitOfWork, clock),
     recordArtifact: new RecordConsultationArtifactUseCase(consultationUnitOfWork, clock),
   };

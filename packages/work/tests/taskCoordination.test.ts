@@ -33,6 +33,7 @@ const openDatabase = () => {
 let database = openDatabase();
 let grants = new Map<string, Set<string>>();
 let archivedProjects = new Set<string>();
+let repositories = new Map<string, { id: string; url: string }>();
 let consultations = new Map<string, { id: string; revision: number; status: "waiting_human" | "waiting_agent" | "resolved" | "canceled"; resolutionId: string | null; prerequisiteTaskIds: string[] }>();
 let now = 1_000;
 const grantKey = (projectId: string, principalId: string) => `${projectId}\u0000${principalId}`;
@@ -44,6 +45,7 @@ const createService = () =>
       projects: {
         exists: async (projectId) => (await sql`select id from project where id = ${projectId}`.execute(database)).rows.length > 0,
         isArchived: async (projectId) => archivedProjects.has(projectId),
+        findRepository: async (projectId, repositoryId) => repositories.get(`${projectId}:${repositoryId}`) ?? null,
       },
       outcomeTargets: { isTarget: async () => assert.fail("Directionを参照しない操作でOutcome Targetを読んではならない") },
     })),
@@ -61,6 +63,7 @@ beforeEach(async () => {
   grants = new Map();
   consultations = new Map();
   archivedProjects = new Set();
+  repositories = new Map();
   now = 1_000;
   service = createService();
 });
@@ -159,6 +162,45 @@ test("worker, reviewer, and manager complete the guarded Claim lifecycle", async
     changes.changes.map((change) => change.payload.actorRole),
     ["worker", "worker", "reviewer", "reviewer", "manager", "manager"],
   );
+});
+
+test("accept_task keeps the verified deliverables as acceptance evidence and rejects foreign Repositories and pull requests", async () => {
+  const { project, task } = await createProjectTask();
+  const other = await createProject();
+  repositories.set(`${project.id}:repo-docs`, { id: "repo-docs", url: "https://github.com/example/docs.git" });
+  repositories.set(`${project.id}:repo-local`, { id: "repo-local", url: "/tmp/docs-repo" });
+  repositories.set(`${other.id}:repo-other`, { id: "repo-other", url: "https://github.com/example/other" });
+  await grant(project.id, "worker-a", WorkRole.WORKER);
+  await grant(project.id, "reviewer-a", WorkRole.REVIEWER);
+  await grant(project.id, "manager-a", WorkRole.MANAGER);
+  const work = await service.claimTask("worker-a", task.id, "claim-work");
+  await service.addTaskComment("worker-a", task.id, work.claimId, "Documented", "comment-work");
+  await service.completeTask("worker-a", task.id, work.claimId, "complete-work");
+  const review = await service.claimReview("reviewer-a", task.id, "claim-review");
+  await service.reviewedTask("reviewer-a", task.id, review.claimId, "review-task");
+  const acceptance = await service.claimAcceptance("manager-a", task.id, "claim-acceptance");
+  const sha = "A".repeat(40);
+  const reject = (deliverables: unknown, path: string) =>
+    assert.rejects(service.acceptTask("manager-a", task.id, acceptance.claimId, `accept-${path}-${Math.random()}`, deliverables), (error: unknown) =>
+      error instanceof Error && error.name === "ValidationError" && JSON.stringify(error).includes(path));
+  await reject([{ repositoryId: "repo-other", commitSha: sha, paths: ["docs/a.md"], pullRequestUrl: null }], "deliverables.0.repositoryId");
+  await reject([{ repositoryId: "repo-docs", commitSha: sha, paths: ["docs/a.md"], pullRequestUrl: "https://github.com/example/other/pull/1" }], "deliverables.0.pullRequestUrl");
+  await reject([{ repositoryId: "repo-docs", commitSha: sha, paths: ["docs/a.md"], pullRequestUrl: "https://github.com/example/docs/issues/1" }], "deliverables.0.pullRequestUrl");
+  await reject([{ repositoryId: "repo-local", commitSha: sha, paths: ["docs/a.md"], pullRequestUrl: "https://example.com/pr/1" }], "deliverables.0.pullRequestUrl");
+  await reject([{ repositoryId: "repo-docs", commitSha: "abc1234", paths: ["docs/a.md"] }], "deliverables.0.commitSha");
+  await reject([{ repositoryId: "repo-docs", commitSha: sha, paths: ["../a.md"] }], "deliverables.0.paths.0");
+  assert.equal(await taskStatus(task.id), TaskStatus.WAIT_ACCEPT);
+
+  const deliverables = [{ repositoryId: "repo-docs", commitSha: sha, paths: ["docs/a.md", "docs/a.md"], pullRequestUrl: "https://github.com/example/docs/pull/7" }];
+  await service.acceptTask("manager-a", task.id, acceptance.claimId, "accept-task", deliverables);
+  // 同じrequestIdの再送は保存済みの結果を返し、別の成果物での再利用はIDEMPOTENCY_CONFLICT。
+  await service.acceptTask("manager-a", task.id, acceptance.claimId, "accept-task", deliverables);
+  await assert.rejects(service.acceptTask("manager-a", task.id, acceptance.claimId, "accept-task"), hasCode("IDEMPOTENCY_CONFLICT"));
+  const store = new KyselyWorkStore(database, () => ({}) as never);
+  assert.deepEqual(await store.findAcceptedDeliverables(project.id, task.id), [
+    { repositoryId: "repo-docs", commitSha: "a".repeat(40), paths: ["docs/a.md"], pullRequestUrl: "https://github.com/example/docs/pull/7" },
+  ]);
+  assert.deepEqual(await store.findAcceptedDeliverables(other.id, task.id), []);
 });
 
 test("expired doing Claim is available for work and is atomically replaced", async () => {

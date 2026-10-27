@@ -184,6 +184,7 @@ Mission・Principles・既存の Intent / Evaluation から決められない Di
 
 - 相談の tool には `workspaceId` を渡す。Project の要件・設計の判断は各 Project の Manager の担当で、Project 相談を Workspace へ移さない
 - 結論の整理（`resolve_consultation`）と取消は Strategist だけが行える。Researcher / Evaluator は Workspace 相談の作成・参照・応答はできるが、結論の整理・取消はできない
+- 結論を Project の仕様・Policy・ADR へ反映する必要があれば、反映すべき Project と内容を結論に明記する。文書反映 Task の起票は所属 Project の Manager が行い、Strategist は Work Task を起票しない
 - 結論を Outcome・Direction Decision へ反映するのは通常の Direction の操作で行う。Human の明示決定（Web UI）を Strategist の判断として記録し直さない
 
 ## Role の意味

@@ -339,11 +339,23 @@ export const registerExecutionTools = (server: McpServer, services: OperationSer
     "accept_task",
     {
       title: "Accept Task",
-      description: "Accept a wait_accept Task under the current Acceptance Claim.",
-      inputSchema: { taskId: z.string().min(1), claimId: claimIdSchema, requestId: requestIdSchema },
+      description:
+        "Accept a wait_accept Task under the current Acceptance Claim. Optional deliverables record the acceptance evidence you " +
+        "verified: [{ repositoryId (registered in the Task's Project), commitSha (full 40-character SHA of the accepted change, e.g. " +
+        "the merge commit), paths (Repository-relative files changed), pullRequestUrl ({Repository URL}/pull/{number}, or null; " +
+        "must be null for a Repository without an http(s) URL) }]. They are kept on the TASK_ACCEPTED change as references only; " +
+        "record_consultation_artifact accepts only a path / commit / PR that matches them.",
+      inputSchema: {
+        taskId: z.string().min(1),
+        claimId: claimIdSchema,
+        deliverables: z
+          .array(z.object({ repositoryId: z.string(), commitSha: z.string(), paths: z.array(z.string()), pullRequestUrl: z.string().nullable().optional() }))
+          .optional(),
+        requestId: requestIdSchema,
+      },
     },
-    ({ taskId, claimId, requestId }) =>
-      asPrincipal((principalId) => coordination.acceptTask(principalId, taskId, claimId, requestId)),
+    ({ taskId, claimId, deliverables, requestId }) =>
+      asPrincipal((principalId) => coordination.acceptTask(principalId, taskId, claimId, requestId, deliverables)),
   );
   server.registerTool(
     "reject_task",

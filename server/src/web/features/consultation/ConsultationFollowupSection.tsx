@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { taskPath } from "../../paths";
+import { projectViewPath, taskPath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import { formatTime } from "../execution";
 import {
@@ -17,7 +17,7 @@ import {
 } from "./consultation";
 
 /** 文書反映の1件。反映先・文書反映Task・受入済み成果物（Repositoryの正本へのlink）を出し、文書の本文は出さない。 */
-const FollowupItem = ({ projectId, followup }: { projectId: string; followup: ConsultationFollowupView }) => (
+const FollowupItem = ({ followup, showProject }: { followup: ConsultationFollowupView; showProject: boolean }) => (
   <li className="consultation-followup">
     <p className="consultation-message-head">
       <span className={statusBadgeClass(reflectionStatusTones[followup.status])}>{reflectionStatusLabels[followup.status]}</span>
@@ -25,10 +25,11 @@ const FollowupItem = ({ projectId, followup }: { projectId: string; followup: Co
       <strong>{followup.title}</strong>
     </p>
     <dl className="intent-facts">
+      {showProject && <><dt>反映担当Project</dt><dd><Link to={projectViewPath(followup.projectId, "overview")}>{followup.project?.name ?? `Project ${followup.projectId.slice(0, 8)}`}</Link></dd></>}
       <dt>反映先</dt>
       <dd>{followup.repository ? <a href={followup.repository.url} target="_blank" rel="noreferrer">{followup.repository.name}<span className="visually-hidden">（Repositoryを新しいタブで開く）</span></a> : <code>登録が外れたRepository {followup.repositoryId}</code>}</dd>
       <dt>文書反映Task</dt>
-      <dd><Link to={taskPath(projectId, followup.taskId)}>{followup.task?.title ?? `Task ${followup.taskId.slice(0, 8)}`}</Link>（{describeReflection(followup)}）</dd>
+      <dd><Link to={taskPath(followup.projectId, followup.taskId)}>{followup.task?.title ?? `Task ${followup.taskId.slice(0, 8)}`}</Link>（{describeReflection(followup)}）</dd>
       <dt>目的</dt>
       <dd className="pre-wrap">{followup.purpose}</dd>
       <dt>元Taskの再開</dt>
@@ -54,15 +55,16 @@ const FollowupItem = ({ projectId, followup }: { projectId: string; followup: Co
 );
 
 /**
- * 結論からの文書反映（仕様・Policy・ADR）と、この相談を待つ元Task。Project相談だけが持つ。反映状況は相談の解決とは別で、
- * 文書反映Taskの状態と受入済み成果物の登録から決まる。未解決で待つTaskも無ければ何も出さない。
+ * 結論からの文書反映（仕様・Policy・ADR）と、この相談を待つ元Task（Project相談だけ）。反映状況は相談の解決とは別で、
+ * 文書反映Taskの状態と受入済み成果物の登録から決まる。Workspace相談では反映担当Projectも出す。未解決で待つTaskも無ければ何も出さない。
  */
-export const ConsultationFollowupSection = ({ projectId, detail }: { projectId: string; detail: ConsultationDetail }) => {
-  const { followups, waitingTasks, resolution } = detail;
+export const ConsultationFollowupSection = ({ detail }: { detail: ConsultationDetail }) => {
+  const { consultation, followups, waitingTasks, resolution } = detail;
+  const { projectId } = consultation;
   if (!resolution && !waitingTasks.length) return null;
   return (
     <>
-      {waitingTasks.length > 0 && (
+      {projectId !== null && waitingTasks.length > 0 && (
         <section className="detail-section" aria-labelledby="consultation-waiting-heading">
           <h2 id="consultation-waiting-heading">この相談を待つTask</h2>
           <ul className="consultation-refs">
@@ -83,7 +85,7 @@ export const ConsultationFollowupSection = ({ projectId, detail }: { projectId: 
           <h2 id="consultation-followups-heading">文書への反映</h2>
           <p className="section-note">文書の本文はRepositoryが正本です。ここには反映を依頼したTaskと、受け入れた成果物の参照だけを表示します。</p>
           {followups.length ? (
-            <ul className="consultation-followups">{followups.map((followup) => <FollowupItem key={followup.id} projectId={projectId} followup={followup} />)}</ul>
+            <ul className="consultation-followups">{followups.map((followup) => <FollowupItem key={followup.id} followup={followup} showProject={projectId === null} />)}</ul>
           ) : (
             <p className="unset">この結論から文書への反映は依頼されていません</p>
           )}

@@ -30,6 +30,8 @@ export type ConsultationResponder = { principalId: string; role: string; inputRe
 
 /** 結論からの文書反映の依頼と、Taskの状態・受入済み成果物参照から求めた反映状況。 */
 export type ConsultationFollowupView = ConsultationFollowup & {
+  /** 反映担当Project（Workspace相談では所属Projectのいずれか）。 */
+  project: { id: string; name: string } | null;
   task: { id: string; title: string; status: FollowupTaskStatus } | null;
   repository: { id: string; name: string; url: string } | null;
   status: ReflectionStatus;

@@ -90,6 +90,12 @@ export type FollowupTaskState = { id: string; title: string; status: FollowupTas
 /** Projectに登録されたRepository（Organizationが所有）。 */
 export type FollowupRepository = { id: string; name: string; url: string };
 
+/** 反映担当Project（Organizationが所有）。 */
+export type FollowupProject = { id: string; name: string };
+
+/** 文書反映Taskの受入成果物（Workの受入証跡）。受け入れたManagerが確認したRepository・commit・path・PRの参照。 */
+export type FollowupAcceptedDeliverable = { repositoryId: string; commitSha: string; paths: string[]; pullRequestUrl: string | null };
+
 /** 相談を待つTask（Workの待機関係）。元Taskの状態を相談から辿るために読む。 */
 export type ConsultationWaitingTask = {
   taskId: string;
@@ -107,6 +113,8 @@ export type FollowupActivityFact = {
   actor: ConsultationActor;
   summary: string;
   consultationId: string;
+  /** 相談のscope。Workspace相談はWorkspaceの相談詳細へ辿る参照にする。 */
+  consultationScope: ConsultationScope["kind"];
   taskId: string;
   artifact: { repositoryId: string; path: string; commitSha: string; pullRequestUrl: string | null } | null;
   occurredAt: number;
@@ -121,6 +129,9 @@ export interface ConsultationFollowupLinks {
   issueTask(actor: ConsultationActor, input: { projectId: string; storyId: string | null; title: string; description: string }, requestId: string): Promise<{ id: string }>;
   /** そのProjectのTask（別Projectのタスクはnull）。 */
   findTask(projectId: string, taskId: string): Promise<FollowupTaskState | null>;
+  /** そのProjectのTaskの最新の受入で残した受入成果物（未受入・成果物なしは空）。 */
+  findAcceptedDeliverables(projectId: string, taskId: string): Promise<FollowupAcceptedDeliverable[]>;
+  findProject(projectId: string): Promise<FollowupProject | null>;
   /** そのProjectに登録されたRepository（未登録・別ProjectのRepositoryはnull）。 */
   findRepository(projectId: string, repositoryId: string): Promise<FollowupRepository | null>;
   /** その相談を待つ同じProjectのTask。 */
@@ -145,4 +156,6 @@ export interface ConsultationAgentAuthorization {
   resolveActor(principal: string | null, scope: ConsultationScope, role: string | undefined): Promise<ConsultationActor | null>;
   /** 結論整理・取消を担うRole（ProjectはManager、WorkspaceはStrategist）のGrantを要求する。 */
   requireResponder(principal: string | null, scope: ConsultationScope): Promise<ConsultationActor>;
+  /** 文書反映の依頼・成果物参照の登録を行う、反映担当ProjectのmanagerのGrantを要求する（相談のscopeによらない）。 */
+  requireProjectManager(principal: string | null, projectId: string): Promise<ConsultationActor>;
 }
