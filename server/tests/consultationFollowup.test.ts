@@ -8,14 +8,15 @@ import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { addTestMembership, createTestHuman, requestAs, seedWorkspaceGrant, type TestHuman } from "./support/humanSession.ts";
+import { addTestMembership, addTestWorkspaceMembership, createTestHuman, requestAs, seedWorkspaceGrant, type TestHuman } from "./support/humanSession.ts";
 
 /**
  * 相談の結論から文書反映（仕様・Policy・ADR）へ。反映担当ProjectのManagerが公開MCPで結論から文書反映Taskを依頼し、通常の
  * Worker→Reviewer→Managerで受け入れる。Managerは受入時に検証用Repositoryへの実際のcommit（path・commit SHA・PR URL）を受入成果物として残し、
  * 相談へはそれと一致する参照だけを登録できる。同じ依頼・参照の再送で二重作成しないこと、未受入・無関係なTask・別Repository・受入証跡に無い
- * path / commit / PR・別scopeの参照で反映済みにしないこと、元Taskは明示的な依存がなければ結論だけで再開できること、Workspace相談の結論も
- * 所属Projectのmanagerが引き継げ、所属しないProject・権限の無いRoleでは引き継げないことを確認する。
+ * path / commit / PR・別scopeの参照で反映済みにしないこと、元Taskは明示的な依存がなければ結論だけで再開できること、Workspace相談の結論は
+ * Strategistが引継ぎ先に明示した所属Projectのmanagerだけが引き継げ、Project GrantだけではWorkspace相談を読めず、相談詳細は閲覧主体が
+ * 参照できるProjectの文書反映だけを返すことを確認する。
  */
 
 type App = ReturnType<typeof createApp>;
@@ -353,7 +354,7 @@ test("文書反映の依頼・参照は同じschemaでの再起動後も保持�
   }
 });
 
-test("Workspace相談の結論は所属Projectのmanagerが文書反映へ引き継ぎ、受入済み成果物の参照までWorkspaceの相談から辿れる", async () => {
+test("Workspace相談の結論はStrategistが明示した引継ぎ先Projectのmanagerが文書反映へ引き継ぎ、受入済み成果物の参照までWorkspaceの相談から辿れる", async () => {
   const kit = await open();
   const repository = await commitAdr("全Projectの監査ログは90日保持する");
   try {
@@ -377,6 +378,14 @@ test("Workspace相談の結論は所属Projectのmanagerが文書反映へ引き
       assert.equal((await asOwner(`/api/projects/${projectId}/grants`, post({ principalId, role }))).status, 201);
     }
     const docs = projectA1.repositories[0]!;
+    // Humanの閲覧範囲を分ける。Workspaceだけ（viewer）・Project A1だけ・両方。
+    const workspaceOnly = await createTestHuman(kit.database);
+    const projectOnly = await createTestHuman(kit.database);
+    const both = await createTestHuman(kit.database);
+    await addTestWorkspaceMembership(kit.database, workspaceA.id, workspaceOnly, "viewer");
+    await addTestWorkspaceMembership(kit.database, workspaceA.id, both, "viewer");
+    await addTestMembership(kit.database, projectA1.id, projectOnly, "viewer");
+    await addTestMembership(kit.database, projectA1.id, both, "viewer");
 
     // StrategistがWorkspace相談を作り、Humanの返信からStrategistが結論を整理する。
     const created = ok(await callTool(kit.app, "create_consultation", {
@@ -388,19 +397,37 @@ test("Workspace相談の結論は所属Projectのmanagerが文書反映へ引き
     const reply = await json(await asOwner(`${base}/messages`, post({ body: "90日にしてください", requestId: next("ws-reply") })));
     const scope = { workspaceId: workspaceA.id, consultationId };
     const target = { ...scope, projectId: projectA1.id };
+    const handOff = (projectId: string, label: string, principal = "strategist-a", role = "strategist") =>
+      callTool(kit.app, "hand_off_consultation", { ...scope, projectId, requestId: next(label) }, principal, role);
     // 未解決の結論は引き継げない。
-    assert.equal(failure(await callTool(kit.app, "get_consultation_handoff_context", target, "manager-a", "manager")).conflict, "CONSULTATION_NOT_RESOLVED");
+    assert.equal(failure(await handOff(projectA1.id, "unresolved")).conflict, "CONSULTATION_NOT_RESOLVED");
     const lease = ok(await callTool(kit.app, "acquire_consultation_lease", { ...scope, inputRevision: reply.consultation.revision, requestId: next("ws-lease") }, "strategist-a", "strategist"));
     ok(await callTool(kit.app, "resolve_consultation", {
       ...scope, leaseId: lease.lease.id, expectedRevision: reply.consultation.revision, conclusion: "監査ログは全Projectで90日保持する",
       rationale: "Humanの回答", selectedOption: 1, basisMessageIds: [reply.message.id], requestId: next("ws-resolve"),
     }, "strategist-a", "strategist"));
 
-    // 所属Projectのmanagerは、Workspace Grantなしで結論を読める（会話本文は含めない）。
+    // 引継ぎ先に明示されるまで、所属ProjectのmanagerもProject GrantだけでWorkspace相談を読めず、依頼もできない（存在も区別しない）。
+    assert.equal(failure(await callTool(kit.app, "get_consultation_handoff_context", target, "manager-a", "manager")).code, "NOT_FOUND");
+    assert.equal(failure(await callTool(kit.app, "get_consultation", scope, "manager-a", "manager")).code, "FORBIDDEN");
+    assert.equal(failure(await callTool(kit.app, "get_consultation_handoff_context", { ...target, consultationId: "missing" }, "manager-a", "manager")).code, "NOT_FOUND");
+
+    // 引継ぎ先の明示はWorkspaceのStrategistだけ。別WorkspaceのProjectは選べない。同じ引継ぎの再送は保存済みを返す。
+    assert.equal(failure(await handOff(projectA1.id, "as-manager", "manager-a", "manager")).code, "FORBIDDEN");
+    assert.equal(failure(await handOff(projectB1.id, "other-workspace")).code, "NOT_FOUND");
+    const handoff = ok(await handOff(projectA1.id, "hand-off")).handoff;
+    assert.equal(handoff.projectId, projectA1.id);
+    assert.deepEqual(ok(await handOff(projectA1.id, "hand-off-retry")).handoff, handoff);
+
+    // 引継ぎ先Projectのmanagerは、Workspace Grantなしで結論を読める（会話本文は含めない）。Workspace相談そのものは引き続き読めない。
+    assert.equal(failure(await callTool(kit.app, "get_consultation", scope, "manager-a", "manager")).code, "FORBIDDEN");
     const context = ok(await callTool(kit.app, "get_consultation_handoff_context", target, "manager-a", "manager"));
     assert.equal(context.resolution.conclusion, "監査ログは全Projectで90日保持する");
     assert.equal(JSON.stringify(context).includes("90日にしてください"), false);
     assert.deepEqual(context.followups, []);
+
+    // 同じWorkspaceでも引継ぎ先でないProject（A2）のmanagerは読めない・依頼できない。
+    assert.equal(failure(await callTool(kit.app, "get_consultation_handoff_context", { ...target, projectId: projectA2.id }, "manager-c", "manager")).code, "NOT_FOUND");
 
     // 権限不足・所属しないProjectは拒否する。StrategistはProjectのWorkを起票しない。
     const input = { ...target, ...followupInput({ project: projectA1, docs }, { kind: "policy", title: "Policy: 監査ログの保持期間", decision: "監査ログは90日保持する", verification: "Policyに90日の保持と対象が記載されていること" }) };
@@ -441,7 +468,8 @@ test("Workspace相談の結論は所属Projectのmanagerが文書反映へ引き
     ok(await callTool(kit.app, "accept_task", { taskId, claimId: acceptance.claimId, deliverables: [deliverable], requestId: next("accept") }, "manager-a", "manager"));
 
     const artifact = { ...target, followupId: requested.id, taskId, repositoryId: docs.id, path: adrPath, commitSha: repository.sha, pullRequestUrl };
-    // 同じWorkspaceの別Project（A2）のmanagerは、A1が担当する依頼へ登録できない。
+    // 同じWorkspaceの別Project（A2）のmanagerは、引継ぎ先に明示されてもA1が担当する依頼へ登録できない。
+    ok(await handOff(projectA2.id, "hand-off-a2"));
     assert.equal(failure(await callTool(kit.app, "record_consultation_artifact", { ...artifact, projectId: projectA2.id, requestId: next("a2") }, "manager-c", "manager")).code, "NOT_FOUND");
     assert.equal(failure(await callTool(kit.app, "record_consultation_artifact", { ...artifact, commitSha: "f".repeat(40), requestId: next("fake-sha") }, "manager-a", "manager")).conflict, "ARTIFACT_NOT_ACCEPTED");
     const recorded = ok(await callTool(kit.app, "record_consultation_artifact", { ...artifact, requestId: next("record") }, "manager-a", "manager"));
@@ -456,6 +484,29 @@ test("Workspace相談の結論は所属Projectのmanagerが文書反映へ引き
     assert.equal(detail.followups[0].artifacts[0].commitSha, repository.sha);
     assert.match(repository.show(detail.followups[0].artifacts[0].path), /90日保持/);
     assert.deepEqual(detail.waitingTasks, []);
+
+    // 相談詳細の文書反映は、閲覧主体が参照できるProjectの分だけ。WorkspaceだけのHumanにはProject A1の名前・Task・Repository・件数を返さない。
+    const hidden = await json(await requestAs(kit.app, workspaceOnly)(base));
+    assert.equal(hidden.resolution.conclusion, "監査ログは全Projectで90日保持する");
+    assert.deepEqual(hidden.followups, []);
+    for (const secret of [requested.taskId as string, "a1-docs", "Policy: 監査ログの保持期間", repository.sha]) {
+      assert.equal(JSON.stringify(hidden).includes(secret), false, secret);
+    }
+    assert.equal((await requestAs(kit.app, workspaceOnly)(`/api/projects/${projectA1.id}/tasks/${requested.taskId}`)).status, 404);
+    // Project A1だけのHumanはWorkspace相談を読めない。両方を持つHumanは文書反映からProject A1のTaskへ辿れる。
+    assert.equal((await requestAs(kit.app, projectOnly)(base)).status, 404);
+    const visible = await json(await requestAs(kit.app, both)(base));
+    assert.equal(visible.followups.length, 1);
+    assert.equal(visible.followups[0].task.id, requested.taskId);
+    assert.equal((await requestAs(kit.app, both)(`/api/projects/${projectA1.id}/tasks/${requested.taskId}`)).status, 200);
+    // Workspace GrantだけのAgent（Strategist）にも、Project A1の文書反映を展開しない。
+    const strategistView = ok(await callTool(kit.app, "get_consultation", scope, "strategist-a", "strategist"));
+    assert.equal(strategistView.resolution.conclusion, "監査ログは全Projectで90日保持する");
+    assert.deepEqual(strategistView.followups, []);
+    // Workspace GrantとProject A1のGrantを両方持つAgentは、activeRoleを固定しなければProject A1の分を読める。Direction Roleに固定すると展開しない。
+    assert.equal((await asOwner(`/api/workspaces/${workspaceA.id}/grants`, post({ principalId: "manager-a", role: "researcher" }))).status, 201);
+    assert.equal(ok(await callTool(kit.app, "get_consultation", scope, "manager-a")).followups[0].task.id, requested.taskId);
+    assert.deepEqual(ok(await callTool(kit.app, "get_consultation", scope, "manager-a", "researcher")).followups, []);
 
     // Project A1のActivityはWorkspace相談への参照と成果物の参照だけを持つ。
     const activities = (await json(await asOwner(`/api/projects/${projectA1.id}/activities?limit=50`))).activities as { type: string; body: string | null; refs: { kind: string; id?: string }[] }[];

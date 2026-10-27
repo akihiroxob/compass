@@ -3,6 +3,7 @@ import type {
   ConsultationActor,
   ConsultationArtifact,
   ConsultationFollowup,
+  ConsultationHandoff,
   ConsultationLease,
   ConsultationMessage,
   ConsultationReference,
@@ -57,6 +58,9 @@ export interface ConsultationStore {
   /** 同じ主体・操作・`requestId`で保存済みの結果と入力のhash。 */
   findReceipt(principalId: string, operation: string, requestId: string): Promise<{ inputHash: string; result: unknown } | null>;
   insertReceipt(receipt: { principalId: string; operation: string; requestId: string; inputHash: string; result: unknown; createdAt: number }): Promise<void>;
+  insertHandoff(handoff: ConsultationHandoff): Promise<void>;
+  /** Workspace相談の結論の引継ぎ先として明示されたProject（無ければnull）。 */
+  findHandoff(consultationId: string, projectId: string): Promise<ConsultationHandoff | null>;
   insertFollowup(followup: ConsultationFollowup): Promise<void>;
   /** 同じ相談・種類・反映先（Project・Repository）の依頼。 */
   findFollowupByTarget(consultationId: string, target: Pick<ConsultationFollowup, "kind" | "projectId" | "repositoryId">): Promise<ConsultationFollowup | null>;
@@ -156,6 +160,14 @@ export interface ConsultationAgentAuthorization {
   resolveActor(principal: string | null, scope: ConsultationScope, role: string | undefined): Promise<ConsultationActor | null>;
   /** 結論整理・取消を担うRole（ProjectはManager、WorkspaceはStrategist）のGrantを要求する。 */
   requireResponder(principal: string | null, scope: ConsultationScope): Promise<ConsultationActor>;
-  /** 文書反映の依頼・成果物参照の登録を行う、反映担当ProjectのmanagerのGrantを要求する（相談のscopeによらない）。 */
+  /**
+   * 文書反映の引継ぎ（結論の参照・依頼・成果物参照の登録）を行う、反映担当ProjectのmanagerのGrantを要求する。Workspace相談では
+   * 相談側の公開（Strategistが明示した引継ぎ先）をuse caseが検査し、Workspace GrantをProject Grantで代替しない。
+   */
   requireProjectManager(principal: string | null, projectId: string): Promise<ConsultationActor>;
+  /**
+   * 相談詳細へ文書反映の関連先（Project・Task・Repository・成果物）を展開してよいProjectのID。Execution RoleのProject Grant
+   * （activeRoleの指定時はそのRoleのGrant）を持つProjectだけで、Workspace Grantからは継承しない。
+   */
+  listReadableProjectIds(principal: string | null): Promise<string[]>;
 }

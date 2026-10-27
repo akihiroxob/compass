@@ -4,6 +4,7 @@ import type {
   ConsultationActor,
   ConsultationArtifact,
   ConsultationFollowup,
+  ConsultationHandoff,
   ConsultationActorKind,
   ConsultationLease,
   ConsultationMessage,
@@ -21,6 +22,7 @@ import type {
   CollaborationDatabase,
   ConsultationArtifactTable,
   ConsultationFollowupTable,
+  ConsultationHandoffTable,
   ConsultationLeaseTable,
   ConsultationMessageTable,
   ConsultationResolutionTable,
@@ -108,6 +110,13 @@ const toFollowup = (row: Selectable<ConsultationFollowupTable>): ConsultationFol
   verification: row.verification,
   resumptionDependency: row.resumption_dependency,
   requestedBy: actor("agent", row.requested_by_principal_id, row.requested_by_role),
+  createdAt: row.created_at,
+});
+
+const toHandoff = (row: Selectable<ConsultationHandoffTable>): ConsultationHandoff => ({
+  consultationId: row.consultation_id,
+  projectId: row.project_id,
+  handedOffBy: actor("agent", row.handed_off_by_principal_id, row.handed_off_by_role),
   createdAt: row.created_at,
 });
 
@@ -354,6 +363,29 @@ export class KyselyConsultationStore implements ConsultationStore {
         created_at: receipt.createdAt,
       })
       .execute();
+  }
+
+  async insertHandoff(handoff: ConsultationHandoff) {
+    await this.db
+      .insertInto("consultation_handoff")
+      .values({
+        consultation_id: handoff.consultationId,
+        project_id: handoff.projectId,
+        handed_off_by_principal_id: handoff.handedOffBy.principalId,
+        handed_off_by_role: handoff.handedOffBy.role,
+        created_at: handoff.createdAt,
+      })
+      .execute();
+  }
+
+  async findHandoff(consultationId: string, projectId: string) {
+    const row = await this.db
+      .selectFrom("consultation_handoff")
+      .selectAll()
+      .where("consultation_id", "=", consultationId)
+      .where("project_id", "=", projectId)
+      .executeTakeFirst();
+    return row ? toHandoff(row) : null;
   }
 
   async insertFollowup(followup: ConsultationFollowup) {

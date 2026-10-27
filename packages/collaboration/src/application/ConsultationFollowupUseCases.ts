@@ -7,12 +7,13 @@ import {
   type ConsultationActor,
   type ConsultationArtifact,
   type ConsultationFollowup,
+  type ConsultationHandoff,
   type ConsultationResolution,
   type ConsultationScope,
   type FollowupKind,
   type ReflectionStatus,
 } from "../domain/Consultation.ts";
-import { parseArtifactInput, parseFollowupRequestInput, type FollowupRequestInput } from "./consultationSchema.ts";
+import { parseArtifactInput, parseFollowupRequestInput, parseHandoffInput, type FollowupRequestInput } from "./consultationSchema.ts";
 import { consultationNotFound, requireConsultation, requireScope, requireWritableScope, withReceipt, type Clock } from "./consultationOperation.ts";
 import type {
   ConsultationFollowupLinks,
@@ -39,13 +40,19 @@ export type ConsultationFollowupView = ConsultationFollowup & {
 
 const followupKindLabels: Record<FollowupKind, string> = { adr: "ADR", specification: "仕様", policy: "Policy" };
 
-/** 相談の文書反映の依頼と反映状況（作成順）。 */
+/**
+ * 相談の文書反映の依頼と反映状況（作成順）。`projectIds`の反映担当Projectの依頼だけを展開し、それ以外のProject名・Task・Repository・
+ * 成果物参照・件数を返さない。
+ */
 export const describeFollowups = async (
   store: ConsultationStore,
   links: ConsultationFollowupLinks,
   consultationId: string,
+  projectIds: readonly string[],
 ): Promise<ConsultationFollowupView[]> => {
-  const [followups, artifacts] = await Promise.all([store.listFollowups(consultationId), store.listArtifacts(consultationId)]);
+  const followups = (await store.listFollowups(consultationId)).filter((followup) => projectIds.includes(followup.projectId));
+  if (!followups.length) return [];
+  const artifacts = await store.listArtifacts(consultationId);
   const views: ConsultationFollowupView[] = [];
   for (const followup of followups) {
     const task = await links.findTask(followup.projectId, followup.taskId);
@@ -66,10 +73,11 @@ export const describeFollowups = async (
 };
 
 /**
- * 文書反映の依頼先。反映担当Projectは存在してarchivedでなく、相談の所属に含まれる（Project相談はそのProject自身、Workspace相談は
- * そのWorkspaceに所属するProject）。所属しないProjectからは、相談の存在を区別せずNOT_FOUNDにする。
+ * 文書反映の依頼先。反映担当Projectは存在してarchivedでなく、相談が公開されている（Project相談はそのProject自身、Workspace相談は
+ * そのWorkspaceに所属し、Strategistが引継ぎ先に明示したProject）。それ以外のProjectからは、相談の存在を区別せずNOT_FOUNDにする。
  */
 const requireFollowupProject = async (
+  store: ConsultationStore,
   scopes: ConsultationScopeReader,
   scope: ConsultationScope,
   projectId: string,
@@ -77,8 +85,11 @@ const requireFollowupProject = async (
   access: "read" | "write" = "write",
 ) => {
   const project = await (access === "write" ? requireWritableScope : requireScope)(scopes, { kind: "project", projectId });
-  const belongs = scope.kind === "project" ? scope.projectId === projectId : project.workspaceId === scope.workspaceId;
-  if (!belongs) throw consultationNotFound(consultationId);
+  const published =
+    scope.kind === "project"
+      ? scope.projectId === projectId
+      : project.workspaceId === scope.workspaceId && (await store.findHandoff(consultationId, projectId)) !== null;
+  if (!published) throw consultationNotFound(consultationId);
 };
 
 const requireResolved = async (store: ConsultationStore, consultation: Consultation): Promise<ConsultationResolution> => {
@@ -101,8 +112,8 @@ export type ConsultationHandoffContext = {
 };
 
 /**
- * 文書反映の引継ぎContext（反映担当Projectのmanager）。Workspace相談の結論も、そのWorkspaceに所属するProjectから読める
- * （Workspace Grantは要らず、使わない）。所属しないProject・別scopeの相談はNOT_FOUND、未解決は`CONSULTATION_NOT_RESOLVED`。
+ * 文書反映の引継ぎContext（反映担当Projectのmanager）。Workspace相談の結論は、Strategistが引継ぎ先に明示したProjectからだけ読める
+ * （Workspace Grantは要らず、使わない）。引継ぎ先でないProject・別scopeの相談はNOT_FOUND、未解決は`CONSULTATION_NOT_RESOLVED`。
  */
 export class GetConsultationHandoffContextUseCase {
   constructor(private readonly unitOfWork: ConsultationUnitOfWork) {}
@@ -110,12 +121,40 @@ export class GetConsultationHandoffContextUseCase {
   execute(projectId: string, scope: ConsultationScope, consultationId: string): Promise<ConsultationHandoffContext> {
     return this.unitOfWork.execute(async (store, scopes, links) => {
       await requireScope(scopes, scope);
-      await requireFollowupProject(scopes, scope, projectId, consultationId, "read");
+      await requireFollowupProject(store, scopes, scope, projectId, consultationId, "read");
       const consultation = await requireConsultation(store, scope, consultationId);
       const resolution = await requireResolved(store, consultation);
-      const followups = (await describeFollowups(store, links, consultation.id)).filter((followup) => followup.projectId === projectId);
-      return { consultation, resolution, followups };
+      return { consultation, resolution, followups: await describeFollowups(store, links, consultation.id, [projectId]) };
     });
+  }
+}
+
+/**
+ * Workspace相談の結論の引継ぎ先の明示（Strategist）。解決済みの相談だけを、同じWorkspaceに所属しarchivedでないProjectへ公開する。
+ * どのProjectが反映するかはStrategistが結論から判断し、Serverは自動で選ばない。同じ相談・Projectは`requestId`によらず保存済みを返す。
+ * 別WorkspaceのProjectはNOT_FOUND、archivedのProjectは`CONFLICT`、未解決は`CONSULTATION_NOT_RESOLVED`。
+ */
+export class HandOffConsultationUseCase {
+  constructor(private readonly unitOfWork: ConsultationUnitOfWork, private readonly clock: Clock = Date.now) {}
+
+  execute(workspaceId: string, consultationId: string, actor: ConsultationActor, input: unknown): Promise<{ handoff: ConsultationHandoff }> {
+    const { requestId, projectId } = parseHandoffInput(input);
+    const scope: ConsultationScope = { kind: "workspace", workspaceId };
+    return this.unitOfWork.execute((store, scopes) =>
+      withReceipt(store, actor, "hand_off_consultation", requestId, { ...scope, consultationId, projectId }, this.clock, async () => {
+        await requireWritableScope(scopes, scope);
+        const consultation = await requireConsultation(store, scope, consultationId);
+        await requireResolved(store, consultation);
+        const project = await scopes.findScope({ kind: "project", projectId });
+        if (!project || project.workspaceId !== workspaceId) throw new NotFoundError(`Project ${projectId} was not found in Workspace ${workspaceId}`);
+        await requireWritableScope(scopes, { kind: "project", projectId });
+        const existing = await store.findHandoff(consultation.id, projectId);
+        if (existing) return { handoff: existing };
+        const handoff: ConsultationHandoff = { consultationId: consultation.id, projectId, handedOffBy: actor, createdAt: this.clock() };
+        await store.insertHandoff(handoff);
+        return { handoff };
+      }),
+    );
   }
 }
 
@@ -190,7 +229,7 @@ export class RequestConsultationFollowupUseCase {
     return this.unitOfWork.execute((store, scopes, links) =>
       withReceipt(store, actor, "request_consultation_followup", requestId, { ...scope, targetProjectId: projectId, consultationId, ...content }, this.clock, async () => {
         await requireWritableScope(scopes, scope);
-        await requireFollowupProject(scopes, scope, projectId, consultationId);
+        await requireFollowupProject(store, scopes, scope, projectId, consultationId);
         const consultation = await requireConsultation(store, scope, consultationId);
         const resolution = await requireResolved(store, consultation);
         const repository = await links.findRepository(projectId, content.repositoryId);
@@ -209,7 +248,7 @@ export class RequestConsultationFollowupUseCase {
               followupId: existing.id,
             });
           }
-          return { followup: (await describeFollowups(store, links, consultation.id)).find((view) => view.id === existing.id)! };
+          return { followup: (await describeFollowups(store, links, consultation.id, [projectId])).find((view) => view.id === existing.id)! };
         }
         const id = this.newId();
         const task = await links.issueTask(
@@ -245,7 +284,7 @@ export class RequestConsultationFollowupUseCase {
           artifact: null,
           occurredAt: now,
         });
-        return { followup: (await describeFollowups(store, links, consultation.id)).find((view) => view.id === id)! };
+        return { followup: (await describeFollowups(store, links, consultation.id, [projectId])).find((view) => view.id === id)! };
       }),
     );
   }
@@ -288,7 +327,7 @@ export class RecordConsultationArtifactUseCase {
     return this.unitOfWork.execute((store, scopes, links) =>
       withReceipt(store, actor, "record_consultation_artifact", requestId, { ...scope, targetProjectId: projectId, consultationId, ...content }, this.clock, async () => {
         await requireWritableScope(scopes, scope);
-        await requireFollowupProject(scopes, scope, projectId, consultationId);
+        await requireFollowupProject(store, scopes, scope, projectId, consultationId);
         const consultation = await requireConsultation(store, scope, consultationId);
         const followup = await store.findFollowup(consultation.id, content.followupId);
         // 別Projectが担当する依頼は、そのProjectのmanagerだけが登録する（存在は区別しない）。
@@ -317,7 +356,7 @@ export class RecordConsultationArtifactUseCase {
             acceptedDeliverables: String(deliverables.length),
           });
         }
-        const view = async () => (await describeFollowups(store, links, consultation.id)).find((item) => item.id === followup.id)!;
+        const view = async () => (await describeFollowups(store, links, consultation.id, [projectId])).find((item) => item.id === followup.id)!;
         const existing = await store.findArtifact(followup.id, content.path, content.commitSha);
         if (existing) {
           if (existing.pullRequestUrl !== content.pullRequestUrl) {

@@ -179,6 +179,6 @@ reason には期待との差分と、再受入に必要な条件を書く。
 
 ## 相談待ちと再開
 
-Project相談へのHumanの返信にはManagerが応答する。起動Contextの相談ID・入力版で`respond-consultation` Skillに従い、追加質問または結論を整理する。Workspace相談（Direction）の応答・結論整理はStrategistの担当で、Project Grantでは扱えない。Project相談、または所属Workspaceの相談の結論を自Projectの仕様・Policy・ADRへ反映する必要がある場合は、同じSkillに従って文書反映Taskを依頼し、受入時に受入成果物（`accept_task`の`deliverables`）を残してから成果物の参照を登録する。
+Project相談へのHumanの返信にはManagerが応答する。起動Contextの相談ID・入力版で`respond-consultation` Skillに従い、追加質問または結論を整理する。Workspace相談（Direction）の応答・結論整理はStrategistの担当で、Project Grantでは扱えない。Project相談、またはStrategistが自Projectを引継ぎ先に明示したWorkspace相談の結論を自Projectの仕様・Policy・ADRへ反映する必要がある場合は、同じSkillに従って文書反映Taskを依頼し、受入時に受入成果物（`accept_task`の`deliverables`）を残してから成果物の参照を登録する。
 
 Projectの要件・設計について既存方針だけでは判断できない場合は、`consultation-task-resumption` Skillを取得する。継続不能なTaskだけを現在Claimのもとで待機させる。他Task/Role全体をpauseしない。再開ContextにClaimが渡されている場合はClaimし直さず、現在の結論・要件・成果版を読み直して元段階の判断を行う。旧blocked結果や旧SHAの検証結果をそのまま返さない。

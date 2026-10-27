@@ -251,6 +251,18 @@ export type ConsultationFollowup = {
   createdAt: number;
 };
 
+/**
+ * Workspace相談の結論の引継ぎ先。結論整理を担うStrategistがWorkspace Grantで所属Projectを明示し、そのProjectのmanagerだけが
+ * 結論を読み、文書反映を依頼できる。Workspace GrantとProject Grantは互いに継承しないため、引継ぎ先の明示が相談側の公開になる。
+ * 同じ相談・Projectにつき1件。
+ */
+export type ConsultationHandoff = {
+  consultationId: string;
+  projectId: string;
+  handedOffBy: ConsultationActor;
+  createdAt: number;
+};
+
 /** 受入済みの文書反映Taskの成果物参照。Repository内の相対path・完全なcommit SHA・任意のPR URLだけを持ち、本文を複製しない。 */
 export type ConsultationArtifact = {
   id: string;

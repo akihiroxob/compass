@@ -99,6 +99,15 @@ export type ConsultationFollowupTable = {
   created_at: number;
 };
 
+/** Workspace相談の結論の引継ぎ先Project。同じ相談・Projectにつき1件。 */
+export type ConsultationHandoffTable = {
+  consultation_id: string;
+  project_id: string;
+  handed_off_by_principal_id: string;
+  handed_off_by_role: string;
+  created_at: number;
+};
+
 /** 受入済みの文書反映Taskの成果物参照。同じ依頼・path・commitにつき1件。 */
 export type ConsultationArtifactTable = {
   id: string;
@@ -120,6 +129,7 @@ export type CollaborationDatabase = {
   consultation_resolution: ConsultationResolutionTable;
   consultation_lease: ConsultationLeaseTable;
   consultation_command_receipt: ConsultationCommandReceiptTable;
+  consultation_handoff: ConsultationHandoffTable;
   consultation_followup: ConsultationFollowupTable;
   consultation_artifact: ConsultationArtifactTable;
 };

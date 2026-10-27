@@ -187,21 +187,40 @@ export const registerConsultationTools = (server: McpServer, services: Operation
       execute(() => consultations.cancel(principal, scopeOf({ projectId, workspaceId }), consultationId, input)),
   );
 
-  // 文書反映は反映担当Project（projectId）のmanagerが行う。workspaceIdを指定すると、そのWorkspaceのWorkspace相談の結論を所属Projectへ引き継ぐ。
+  // Workspace相談の結論は、Strategistが引継ぎ先に明示した所属Projectだけへ公開する（Grantは継承しない）。
+  server.registerTool(
+    "hand_off_consultation",
+    {
+      title: "Hand Off Consultation",
+      description:
+        "Strategist of the Workspace only. Name a Project of the same Workspace that takes over the conclusion of a resolved Workspace " +
+        "Consultation (for example to reflect it in its specification, policy or ADR). Only a named Project's manager can then read the " +
+        "conclusion with get_consultation_handoff_context and request document follow-ups; Project Grants never read Workspace " +
+        "Consultations otherwise. Decide which Projects need it from the conclusion; nothing is forwarded automatically and no Work " +
+        "Task is issued by this call. The same Consultation and Project returns the saved handoff regardless of requestId. A Project of " +
+        "another Workspace is NOT_FOUND, an archived Project or Workspace fails with CONFLICT, an unresolved Consultation fails with " +
+        "CONFLICT (CONSULTATION_NOT_RESOLVED). " + idempotencyNote,
+      inputSchema: z.looseObject({ workspaceId: z.string().min(1), consultationId: z.string().min(1), projectId: z.string().min(1), requestId }),
+    },
+    ({ workspaceId, consultationId, ...input }) => execute(() => consultations.handOff(principal, workspaceId, consultationId, input)),
+  );
+
+  // 文書反映は反映担当Project（projectId）のmanagerが行う。workspaceIdを指定すると、そのWorkspaceのWorkspace相談の結論を引継ぎ先のProjectで扱う。
   const followupTarget = {
     projectId: z.string().min(1).describe("Project that reflects the conclusion in its Repository (you need its manager Grant)"),
     workspaceId: z
       .string()
       .min(1)
       .optional()
-      .describe("Give it for a Workspace Consultation: the Workspace that owns the Consultation and contains projectId. Omit for a Project Consultation of projectId"),
+      .describe("Give it for a Workspace Consultation: the Workspace that owns the Consultation and handed it off to projectId. Omit for a Project Consultation of projectId"),
     consultationId: z.string().min(1),
   };
   const followupScope = ({ projectId, workspaceId }: { projectId: string; workspaceId?: string | undefined }): ConsultationScope =>
     workspaceId === undefined ? { kind: "project", projectId } : { kind: "workspace", workspaceId };
   const followupNote =
     "Manager of projectId only (no Workspace Grant is needed or used). The Consultation is the Project Consultation of projectId, or with " +
-    "workspaceId a Workspace Consultation of that Workspace; projectId must belong to it, otherwise NOT_FOUND. ";
+    "workspaceId a Workspace Consultation of that Workspace that its Strategist handed off to projectId (hand_off_consultation); " +
+    "otherwise NOT_FOUND. ";
   server.registerTool(
     "get_consultation_handoff_context",
     {

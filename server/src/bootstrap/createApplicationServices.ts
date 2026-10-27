@@ -166,6 +166,7 @@ import {
   CreateConsultationUseCase,
   GetConsultationUseCase,
   GetConsultationHandoffContextUseCase,
+  HandOffConsultationUseCase,
   KyselyConsultationStore,
   ListAccessibleConsultationsUseCase,
   ListConsultationsUseCase,
@@ -334,6 +335,7 @@ export const createApplicationServices = (
     addMessage: new AddConsultationMessageUseCase(consultationUnitOfWork, clock),
     resolve: new ResolveConsultationUseCase(consultationUnitOfWork, clock),
     cancel: new CancelConsultationUseCase(consultationUnitOfWork, clock),
+    handOff: new HandOffConsultationUseCase(consultationUnitOfWork, clock),
     getHandoffContext: new GetConsultationHandoffContextUseCase(consultationUnitOfWork),
     requestFollowup: new RequestConsultationFollowupUseCase(consultationUnitOfWork, clock),
     recordArtifact: new RecordConsultationArtifactUseCase(consultationUnitOfWork, clock),
@@ -667,10 +669,21 @@ export const createApplicationServices = (
   // 相談の参照（scopeのIDを相談のscopeへ変換する）。認可は`authorized` / `workspaceAuthorized`が行う。
   const consultationReads = (toScope: (scopeId: string) => ConsultationScope) => ({
     list: { execute: (scopeId: string, query: unknown) => consultations.list.execute(toScope(scopeId), query) },
-    get: { execute: (scopeId: string, consultationId: string) => consultations.get.execute(toScope(scopeId), consultationId) },
   });
   const projectConsultationReads = consultationReads(projectConsultationScope);
   const workspaceConsultationReads = consultationReads(workspaceConsultationScope);
+  // Project相談の文書反映はそのProject自身の依頼だけ。Workspace相談の文書反映は、HumanがProject Membershipを持つProjectの分だけ展開する
+  // （Workspace Membershipから継承しない）。
+  const getProjectConsultation = {
+    execute: (projectId: string, consultationId: string) => consultations.get.execute(projectConsultationScope(projectId), consultationId, [projectId]),
+  };
+  const getWorkspaceConsultation = {
+    execute: async (actor: HumanActor, workspaceId: string, consultationId: string) => {
+      await humanWorkspaceAuthorizationService.authorize(actor, workspaceId, "workspace.read");
+      const readableProjectIds = await projectMembershipRepository.listActiveProjectIds(actor.humanUserId);
+      return consultations.get.execute(workspaceConsultationScope(workspaceId), consultationId, readableProjectIds);
+    },
+  };
   // Human向けWeb APIの入口。Membershipの認可（domainの権限表）を通してから、MCPと共通のuse caseへ委譲する。
   // Runtime向け（runtime-events・execution-evidence）はHuman向けではないため含めない。
   const human = {
@@ -739,13 +752,13 @@ export const createApplicationServices = (
     // Project相談（判断待ち）。参照はviewer以上、返信はeditor以上、明示決定・取消はadministrator以上。相談の作成はAgentのMCPだけ。
     // 明示決定は`human_decision`として記録し、MCPへは公開しない（AgentはHumanの返信を根拠に`agent_summary`を記録する）。
     listConsultations: authorized("project.read", projectConsultationReads.list),
-    getConsultation: authorized("project.read", projectConsultationReads.get),
+    getConsultation: authorized("project.read", getProjectConsultation),
     replyConsultation: projectConsultation("consultation.reply", consultations.addMessage),
     decideConsultation: projectConsultation("consultation.decide", consultations.resolve),
     cancelConsultation: projectConsultation("consultation.decide", consultations.cancel),
     // Workspace相談。Workspace Membershipで認可し（参照viewer・返信editor・明示決定/取消administrator以上）、Project Membershipから継承しない。
     listWorkspaceConsultations: workspaceAuthorized("workspace.read", workspaceConsultationReads.list),
-    getWorkspaceConsultation: workspaceAuthorized("workspace.read", workspaceConsultationReads.get),
+    getWorkspaceConsultation,
     replyWorkspaceConsultation: workspaceConsultation("consultation.reply", consultations.addMessage),
     decideWorkspaceConsultation: workspaceConsultation("consultation.decide", consultations.resolve),
     cancelWorkspaceConsultation: workspaceConsultation("consultation.decide", consultations.cancel),

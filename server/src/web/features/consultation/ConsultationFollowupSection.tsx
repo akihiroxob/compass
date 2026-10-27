@@ -56,7 +56,8 @@ const FollowupItem = ({ followup, showProject }: { followup: ConsultationFollowu
 
 /**
  * 結論からの文書反映（仕様・Policy・ADR）と、この相談を待つ元Task（Project相談だけ）。反映状況は相談の解決とは別で、
- * 文書反映Taskの状態と受入済み成果物の登録から決まる。Workspace相談では反映担当Projectも出す。未解決で待つTaskも無ければ何も出さない。
+ * 文書反映Taskの状態と受入済み成果物の登録から決まる。Workspace相談では反映担当Projectも出し、閲覧者がMembershipを持つProjectの依頼だけが
+ * 届く（他のProjectの依頼の有無は示さない）。未解決で待つTaskも無ければ何も出さない。
  */
 export const ConsultationFollowupSection = ({ detail }: { detail: ConsultationDetail }) => {
   const { consultation, followups, waitingTasks, resolution } = detail;
@@ -83,11 +84,16 @@ export const ConsultationFollowupSection = ({ detail }: { detail: ConsultationDe
       {resolution && (
         <section className="detail-section" aria-labelledby="consultation-followups-heading">
           <h2 id="consultation-followups-heading">文書への反映</h2>
-          <p className="section-note">文書の本文はRepositoryが正本です。ここには反映を依頼したTaskと、受け入れた成果物の参照だけを表示します。</p>
+          <p className="section-note">
+            文書の本文はRepositoryが正本です。ここには反映を依頼したTaskと、受け入れた成果物の参照だけを表示します。
+            {projectId === null && "Workspace相談では、あなたがMemberのProjectの依頼だけを表示します。"}
+          </p>
           {followups.length ? (
             <ul className="consultation-followups">{followups.map((followup) => <FollowupItem key={followup.id} followup={followup} showProject={projectId === null} />)}</ul>
           ) : (
-            <p className="unset">この結論から文書への反映は依頼されていません</p>
+            <p className="unset">
+              {projectId === null ? "参照できるProjectでは、この結論から文書への反映は依頼されていません" : "この結論から文書への反映は依頼されていません"}
+            </p>
           )}
         </section>
       )}

@@ -151,6 +151,17 @@ export const initializeCollaborationSchema = async (database: Kysely<Collaborati
     .execute();
 
   await database.schema
+    .createTable("consultation_handoff")
+    .ifNotExists()
+    .addColumn("consultation_id", "text", (column) => column.notNull().references("consultation.id").onDelete("cascade"))
+    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("handed_off_by_principal_id", "text", (column) => column.notNull())
+    .addColumn("handed_off_by_role", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("consultation_handoff_pk", ["consultation_id", "project_id"])
+    .execute();
+
+  await database.schema
     .createTable("consultation_artifact")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())

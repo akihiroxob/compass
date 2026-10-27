@@ -196,3 +196,8 @@ const artifactSchema = z
   .strict();
 export type ArtifactInput = z.output<typeof artifactSchema>;
 export const parseArtifactInput = (input: unknown): ArtifactInput => parseWith(artifactSchema, input, "Consultation artifact");
+
+/** Workspace相談の結論の引継ぎ先（Workspaceに所属するProject）。 */
+const handoffSchema = z.object({ projectId: identifier("projectId"), requestId }).strict();
+export type HandoffInput = z.output<typeof handoffSchema>;
+export const parseHandoffInput = (input: unknown): HandoffInput => parseWith(handoffSchema, input, "Consultation handoff");

@@ -47,7 +47,7 @@ export type ConsultationDetail = {
   messages: ConsultationMessage[];
   resolution: ConsultationResolution | null;
   responder: ConsultationResponder | null;
-  /** 結論からの文書反映の依頼と反映状況（Project相談だけ）。 */
+  /** 結論からの文書反映の依頼と反映状況（閲覧主体が参照できる反映担当Projectの分だけ）。 */
   followups: ConsultationFollowupView[];
   /** この相談を待つTask（元Task）の状態（Project相談だけ）。 */
   waitingTasks: ConsultationWaitingTask[];
@@ -171,11 +171,14 @@ export class ListAccessibleConsultationsUseCase {
   }
 }
 
-/** 相談の詳細（質問・会話・結論と、現在応答中のAgent）。別scopeの相談IDは存在しないものとして扱う。 */
+/**
+ * 相談の詳細（質問・会話・結論と、現在応答中のAgent）。別scopeの相談IDは存在しないものとして扱う。文書反映の依頼は、閲覧主体が参照できる
+ * Project（`readableProjectIds`。Project相談ではそのProject）の分だけ展開し、相談のscopeの権限から関連先Projectの情報を開示しない。
+ */
 export class GetConsultationUseCase {
   constructor(private readonly unitOfWork: ConsultationUnitOfWork, private readonly clock: Clock = Date.now) {}
 
-  execute(scope: ConsultationScope, consultationId: string): Promise<ConsultationDetail> {
+  execute(scope: ConsultationScope, consultationId: string, readableProjectIds: readonly string[]): Promise<ConsultationDetail> {
     return this.unitOfWork.execute(async (store, scopes, links) => {
       await requireScope(scopes, scope);
       const consultation = await requireConsultation(store, scope, consultationId);
@@ -185,7 +188,7 @@ export class GetConsultationUseCase {
         messages: await store.listMessages(consultation.id),
         resolution: await store.findResolution(consultation.id),
         responder: lease && { principalId: lease.principalId, role: lease.role, inputRevision: lease.inputRevision, expiresAt: lease.expiresAt },
-        followups: await describeFollowups(store, links, consultation.id),
+        followups: await describeFollowups(store, links, consultation.id, readableProjectIds),
         waitingTasks: scope.kind === "project" ? await links.listWaitingTasks(scope.projectId, consultation.id) : [],
       };
     });

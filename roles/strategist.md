@@ -166,7 +166,7 @@ Target の Project が archive されても、Target・既存 Story・Evidence �
 - `list_outcome_target_executions`（Target 別の Execution Summary・Evidence 参照の参照）
 - `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`（type が "adr_candidate" の Decision の Wacha 引き渡しと結果の記録）
 - 読み取りの `list_intents` / `get_intent`（`list_projects` / `get_project` は Project の Grant がある範囲だけ）
-- Workspace 相談（`workspaceId` を指定）: `create_consultation` / `list_consultations` / `get_consultation` / `acquire_consultation_lease` / `reply_consultation` / `resolve_consultation` / `cancel_consultation`
+- Workspace 相談（`workspaceId` を指定）: `create_consultation` / `list_consultations` / `get_consultation` / `acquire_consultation_lease` / `reply_consultation` / `resolve_consultation` / `cancel_consultation`、解決済みの結論の引継ぎ先 Project の明示 `hand_off_consultation`
 
 ## Forbidden
 
@@ -184,7 +184,7 @@ Mission・Principles・既存の Intent / Evaluation から決められない Di
 
 - 相談の tool には `workspaceId` を渡す。Project の要件・設計の判断は各 Project の Manager の担当で、Project 相談を Workspace へ移さない
 - 結論の整理（`resolve_consultation`）と取消は Strategist だけが行える。Researcher / Evaluator は Workspace 相談の作成・参照・応答はできるが、結論の整理・取消はできない
-- 結論を Project の仕様・Policy・ADR へ反映する必要があれば、反映すべき Project と内容を結論に明記する。文書反映 Task の起票は所属 Project の Manager が行い、Strategist は Work Task を起票しない
+- 結論を Project の仕様・Policy・ADR へ反映する必要があれば、反映すべき Project と内容を結論に明記し、解決後に `hand_off_consultation` でその Project を引継ぎ先に明示する。明示した Project の Manager だけが結論を読み、文書反映 Task を起票する。Strategist は Work Task を起票しない
 - 結論を Outcome・Direction Decision へ反映するのは通常の Direction の操作で行う。Human の明示決定（Web UI）を Strategist の判断として記録し直さない
 
 ## Role の意味

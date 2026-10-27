@@ -11,6 +11,7 @@ import type {
 } from "./ConsultationUseCases.ts";
 import type {
   GetConsultationHandoffContextUseCase,
+  HandOffConsultationUseCase,
   RecordConsultationArtifactUseCase,
   RequestConsultationFollowupUseCase,
 } from "./ConsultationFollowupUseCases.ts";
@@ -24,6 +25,7 @@ type ConsultationUseCases = {
   addMessage: AddConsultationMessageUseCase;
   resolve: ResolveConsultationUseCase;
   cancel: CancelConsultationUseCase;
+  handOff: HandOffConsultationUseCase;
   getHandoffContext: GetConsultationHandoffContextUseCase;
   requestFollowup: RequestConsultationFollowupUseCase;
   recordArtifact: RecordConsultationArtifactUseCase;
@@ -34,8 +36,9 @@ type ConsultationUseCases = {
  * Grantを持たないPrincipalへscope・相談の存在を漏らさない。Project scopeは参照・作成・回答をmanager / worker / reviewer、
  * 結論整理・取消をmanagerだけ、Workspace scopeは参照・作成・回答をstrategist / researcher / evaluator、結論整理・取消をstrategistだけに許す。
  * Humanの明示決定はこの入口に無く、Agentの結論は常に`agent_summary`として記録される。
- * 結論からの文書反映の依頼と受入済み成果物参照の登録は、反映担当Projectのmanagerが行う。Workspace相談の結論も、Workspaceに所属する
- * ProjectのmanagerがそのProjectのGrantでWorkへ引き継ぐ（Direction RoleはWork Taskを起票しない）。
+ * 結論からの文書反映の依頼と受入済み成果物参照の登録は、反映担当Projectのmanagerが行う。Workspace相談の結論は、Strategistが
+ * Workspace Grantで引継ぎ先に明示した所属Projectだけへ公開され、そのProjectのmanagerがProject GrantでWorkへ引き継ぐ
+ * （Direction RoleはWork Taskを起票せず、Project GrantでWorkspace相談を読めない）。詳細の文書反映は参照できるProjectの分だけ返す。
  */
 export class AgentConsultationUseCases {
   constructor(
@@ -64,7 +67,8 @@ export class AgentConsultationUseCases {
 
   async get(principal: string | null, scope: ConsultationScope, consultationId: string) {
     await this.authorization.requireReader(principal, scope);
-    return this.useCases.get.execute(scope, consultationId);
+    const readableProjectIds = scope.kind === "project" ? [scope.projectId] : await this.authorization.listReadableProjectIds(principal);
+    return this.useCases.get.execute(scope, consultationId, readableProjectIds);
   }
 
   async acquireLease(principal: string | null, scope: ConsultationScope, consultationId: string, role: string | undefined, input: unknown) {
@@ -81,6 +85,11 @@ export class AgentConsultationUseCases {
 
   async cancel(principal: string | null, scope: ConsultationScope, consultationId: string, input: unknown) {
     return this.useCases.cancel.execute(scope, consultationId, await this.authorization.requireResponder(principal, scope), input);
+  }
+
+  async handOff(principal: string | null, workspaceId: string, consultationId: string, input: unknown) {
+    const actor = await this.authorization.requireResponder(principal, { kind: "workspace", workspaceId });
+    return this.useCases.handOff.execute(workspaceId, consultationId, actor, input);
   }
 
   async getHandoffContext(principal: string | null, projectId: string, scope: ConsultationScope, consultationId: string) {

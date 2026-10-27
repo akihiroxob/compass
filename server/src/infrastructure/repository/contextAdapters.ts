@@ -491,5 +491,6 @@ export const consultationAgentAuthorization = (roleScopeAuthorization: RoleScope
       principalId: await roleScopeAuthorization.requireRole(principal, { kind: "project", id: projectId }, "manager"),
       role: "manager",
     }),
+    listReadableProjectIds: (principal) => roleScopeAuthorization.listScopedProjectIds(principal),
   };
 };
