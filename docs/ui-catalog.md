@@ -45,8 +45,8 @@ devはループバックだけでlistenする。終了は`Ctrl+C`。静的build�
 | `Components/LinkButton` | URL遷移のControls、primary/secondaryとmd/sm。Router Link標準属性を受ける |
 | `Components/FormControls` | TextInputのControls、md/smの入力とSelect、TextArea、必須/説明つきField、inline Field、FieldsetとCheckbox。readOnly/disabled/aria-invalid、選択済み・未選択を確認 |
 | `Components/ViewSwitch` | md/sm、件数と選択中表示。NavigationでURLとaria-currentの切替を確認 |
-| `Patterns/SharedUI` | 同sizeの操作列、標準HTML検証つきフォーム、確認の見出しfocus・キャンセル・確定、pending/error/読込/空状態。`ColumnsAndLists`で主列・補助列、罫線区切りの一覧（リンク行のhover・長い文言の折返し）、補助列の縦積み、状態badge。`Cards`でProjectカード（開ける・開けない） |
-| `Patterns/OverviewLayout` | Mission・Visionの帯（Visionの未設定・長い文言）と、帯の下のPageColumns。Desktop 2列・狭い画面1列 |
+| `Patterns/SharedUI` | 同sizeの操作列、標準HTML検証つきフォーム、確認の見出しfocus・キャンセル・確定、pending/error/読込/空状態。`ColumnsAndLists`で主列・補助列、`ColumnsInNarrowParent`で親layoutの幅が足りない場合の1列、罫線区切りの一覧（リンク行のhover・長い文言の折返し）、補助列の縦積み、状態badge。`Cards`でProjectカード（開ける・開けない） |
+| `Patterns/OverviewLayout` | Mission・Visionの帯（Visionの未設定・長い文言）と、帯の下のPageColumns。本文の幅が足りれば2列、足りなければ1列 |
 
 各Docsに用途・Controls/props・使用コードを表示する。詳細な標準属性・部品API・部品の使い分けは[Web UIの基本部品](web-ui.md#基本部品)も参照する。hoverはポインターを重ね、focusはTab/Shift+Tabで確認する。disabled/pendingをクリックしても操作されないこと、入力ラベル・required・エラーの関連付け、ViewSwitchのリンクと選択中表示を確認する。未実装のloading等のAPIを見本だけに追加しない。
 

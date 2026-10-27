@@ -51,8 +51,15 @@ export const States: Story = { render: () => <><Loading /><ErrorState message="�
 /** 区画の中の一覧。行ごとに囲まず罫線で区切る。リンクの行はhoverで面を変え、操作列は同じsizeにそろえる。 */
 const SampleSection = ({ title, children }: { title: string; children: ReactNode }) => <section className="detail-section"><h2>{title}</h2>{children}</section>;
 export const ColumnsAndLists: Story = {
-  parameters: { docs: { description: { story: "PageColumnsの主列（判断・履歴）と補助列（参照・件数）。区画の間隔は列が、行の区切りは一覧が持つ。Desktopは2列、狭い画面は1列で積む。fixtureの文言は検証用。" } } },
-  render: () => <PageColumns
+  parameters: { docs: { description: { story: "PageColumnsの主列（判断・履歴）と補助列（参照・件数）。区画の間隔は列が、行の区切りは一覧が持つ。本文の幅が主列30rem・補助列20remを確保できれば2列、足りなければ1列で積む。fixtureの文言は検証用。" } } },
+  render: () => <SampleColumns />,
+};
+export const ColumnsInNarrowParent: Story = {
+  parameters: { docs: { description: { story: "親layoutの幅が足りない場合（sidebarを含む中間幅の本文、幅44rem）。viewportが広くても本文の幅で1列に積み、主列が補助列に潰されない。" } } },
+  render: () => <div style={{ maxWidth: "44rem" }}><SampleColumns /></div>,
+};
+function SampleColumns() {
+  return <PageColumns
     main={<>
       <div className="claim-holder-toolbar"><span>検証用の取得時刻</span><Button size="sm" variant="secondary">再読込</Button></div>
       <SampleSection title="次の行動">
@@ -76,8 +83,8 @@ export const ColumnsAndLists: Story = {
       </SampleSection>
       <SampleSection title="状態"><p><span className="status-badge tone-done">完了</span> <span className="status-badge tone-progress">進行中</span> <span className="status-badge tone-attention">要対応</span></p></SampleSection>
     </>}
-  />,
-};
+  />;
+}
 export const Cards: Story = {
   parameters: { docs: { description: { story: "カードの一覧。内容の高さだけを持ち、親のgridが列数と間隔を決める。" } } },
   render: () => <section className="project-grid" aria-label="カードの例">

@@ -68,7 +68,7 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 
 | 部品 | 用途 |
 | --- | --- |
-| `PageColumns`（`components/PageColumns`） | 本文の主列と補助列（`main`・`side`・`sideFirst`）。Desktopは主列と幅16〜20remの補助列、狭い画面は1列。列の中の区画の間隔（gap）を持ち、区画は外側余白を持たない。`sideFirst`は狭い画面で補助列を先に積む |
+| `PageColumns`（`components/PageColumns`） | 本文の主列と補助列（`main`・`side`・`sideFirst`）。本文の利用可能幅（container query）で切り替え、主列30rem・補助列20remを確保できれば主列と幅16〜20remの補助列の2列、足りなければ（狭い画面、sidebarを含む中間幅）1列。列の中の区画の間隔（gap）を持ち、区画は外側余白を持たない。`sideFirst`は1列のとき補助列を先に積む |
 | `StateCard`（`components/StateCard`） | 読込・失敗・空・案内の枠。`tone="error"`、`role`（`alert`・`status`）・`id`・`tabIndex`・refを受け、`className`・`style`は受けない。`Loading`・`ErrorState`はこれを使う |
 | `ConfirmPanel`（`components/ReasonPanel`） | 操作の確定前の確認パネル（見出し・説明・入力・失敗・やめる/確定）。`danger`で確定ボタンを危険操作の色に、`focusHeading`で見出しへfocusを移す。Credentialのrotation等の入力つき確認 |
 | `ReasonPanel`（`components/ReasonPanel`） | `ConfirmPanel`に理由欄と`useReasonAction`の状態をつないだ、取消・放棄・アーカイブ等の確認 |

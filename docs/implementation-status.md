@@ -176,7 +176,7 @@ Execution Summary/EvidenceのTarget別還流: `record_execution_evidence`はProj
 - Storyの遷移: 起票・編集の保存後はProject詳細の実行view（`?view=work`）の該当Story cardへ移る。戻る・キャンセルは、起票時は実行view、編集時は実行viewの該当Story cardへ戻る。
 - Taskの遷移: 起票・編集の保存後はTask詳細へ移る。戻る・キャンセルは、起票時は実行view（Story起点なら該当Story card）、編集時はTask詳細へ戻る。
 - 余白: 送信失敗の要約とフォームの間は`--space-md`を取る。`.detail-section`の字下げはclassの無い箇条書きだけに適用し、classを持つ一覧は罫線で区切る。
-- 情報密度・配置: Workspace概要・Project概要・Task詳細は`PageColumns`の主列・補助列（1280pxで主列約600px・補助列320px、390pxで1列）、Mission・Visionは帯、区画の見出しは18px、一覧の行は罫線区切り（padding 12px/8px、角丸・行ごとの枠なし）。Desktop・390pxで13画面（Workspace概要・方向・Project・記録・Agent・設定、Targetなし・一部未着手のWorkspace概要、Project概要・実行・記録・設定、Task詳細、参加中のProject）とarchivedのProject概要・アーカイブ済み一覧に横方向のはみ出しが無い。owner・viewerで導線の差（管理区画・Project Bのリンク）を維持する。
+- 情報密度・配置: Workspace概要・Project概要・Task詳細は`PageColumns`の主列・補助列（本文幅で切り替え。Shell込みで1280pxは主列約600px・補助列320px、1100px以下は1列で主列・補助列が重ならない）、Mission・Visionは帯、区画の見出しは18px、一覧の行は罫線区切り（padding 12px/8px、角丸・行ごとの枠なし）。Desktop・390pxで13画面（Workspace概要・方向・Project・記録・Agent・設定、Targetなし・一部未着手のWorkspace概要、Project概要・実行・記録・設定、Task詳細、参加中のProject）とarchivedのProject概要・アーカイブ済み一覧に横方向のはみ出しが無い。owner・viewerで導線の差（管理区画・Project Bのリンク）を維持する。
 - 入力エラー・送信中: 設定画面の複数RoleフォームとCredentialフォームは、エラー要約から各フォームの入力へfocusを移し、対応する要約だけをARIAで参照する。代表のGrantフォームは実通信中に`pending`の文言・`disabled`・`aria-busy`を表示し、追加クリックでPOSTを重複させない（Desktop・狭い画面）。
 - console・失敗リクエスト: 検証用の400・認可の403/404・重複の409を区別する。ViewerのGrant付与・取消はCSRF付き公開Web APIでも`403 FORBIDDEN`になる。確認範囲に5xx・JavaScript例外・warningは無い。
 - 未検証: Workspaceのarchive、Credentialのrotation・取消、Taskの受入・差戻しはこのUI統合検証の経路で操作していない。実Google認証・remote mode・実Agentの自律運転は対象外。
