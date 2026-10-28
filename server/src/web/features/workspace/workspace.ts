@@ -35,6 +35,7 @@ export type WorkspaceProject = {
 export const workspaceSectionLabels: Record<WorkspaceSection, string> = {
   overview: "概要",
   direction: "方向",
+  consultations: "判断待ち",
   projects: "Project",
   activity: "記録",
   agents: "Agent",
@@ -43,7 +44,7 @@ export const workspaceSectionLabels: Record<WorkspaceSection, string> = {
 
 /**
  * URLから現在位置を読む。Workspaceの画面はWorkspace IDと項目、Project配下の画面はProject ID（所属Workspaceは取得して解決する）。
- * Workspaceの編集は「概要」、Project追加は「Project」、Outcome詳細は「方向」の項目に属する。
+ * Workspaceの編集は「概要」、Project追加は「Project」、Outcome詳細は「方向」、相談詳細は「判断待ち」の項目に属する。
  * それ以外（ホーム・参加中のProject・Workspace作成・未定義のURL）は`none`。
  */
 export type ShellLocation =
@@ -63,6 +64,8 @@ export const parseShellLocation = (pathname: string): ShellLocation => {
           ? "projects"
           : rest === "direction" && /^intents\/[^/]+\/outcomes\/[^/]+$/.test(subPage)
             ? "direction"
+          : rest === "consultations" && /^[^/]+$/.test(subPage)
+            ? "consultations"
           : subPage === "" ? workspaceSections.find((value) => value === rest && value !== "overview") ?? null : null;
     return { kind: "workspace", workspaceId: id, section };
   }

@@ -3,13 +3,18 @@ import test from "node:test";
 import BetterSqlite3 from "better-sqlite3";
 import { Kysely, sql, SqliteDialect } from "kysely";
 import {
+  blocksResumption,
   checkAgentResponse,
   checkHumanClosing,
   checkHumanMessage,
   checkLeaseAcquisition,
   checkSupersedes,
   hasHumanBasis,
+  consultationReferenceKinds,
+  consultationResponderRole,
   isLeaseActive,
+  reflectionStatusOf,
+  scopeOfConsultation,
   statusAfterMessage,
   type ConsultationLease,
 } from "../src/domain/Consultation.ts";
@@ -85,7 +90,19 @@ test("方針変更は解決・取消済みの相談だけを参照でき、Agent
   assert.equal(hasHumanBasis([]), false);
 });
 
-test("schemaは冪等に作成でき、状態・判断の由来と記録主体の組・取消の理由・発言の順序をDBでも制約する", async () => {
+test("scopeはProjectとWorkspaceで、応答Role・参照できる種類が分かれる", () => {
+  assert.deepEqual(scopeOfConsultation({ scope: "project", workspaceId: "w1", projectId: "p1" }), { kind: "project", projectId: "p1" });
+  assert.deepEqual(scopeOfConsultation({ scope: "workspace", workspaceId: "w1", projectId: null }), { kind: "workspace", workspaceId: "w1" });
+  assert.equal(consultationResponderRole("project"), "manager");
+  assert.equal(consultationResponderRole("workspace"), "strategist");
+  assert.ok(consultationReferenceKinds.project.includes("task"));
+  assert.ok(!consultationReferenceKinds.project.includes("outcome"));
+  assert.ok(consultationReferenceKinds.workspace.includes("outcome"));
+  assert.ok(!consultationReferenceKinds.workspace.includes("task"));
+  assert.ok(!consultationReferenceKinds.workspace.includes("project_resource"));
+});
+
+test("schemaは冪等に作成でき、scopeとProjectの有無・状態・判断の由来と記録主体の組・取消の理由・発言の順序をDBでも制約する", async () => {
   const sqlite = new BetterSqlite3(":memory:");
   sqlite.pragma("foreign_keys = ON");
   const database = new Kysely<CollaborationDatabase>({ dialect: new SqliteDialect({ database: sqlite }) });
@@ -96,7 +113,7 @@ test("schemaは冪等に作成でき、状態・判断の由来と記録主体�
   await initializeCollaborationSchema(database);
   await initializeCollaborationSchema(database);
   const consultation = {
-    id: "c1", workspace_id: "w1", project_id: "p1", title: "t", question: "q", blocking_reason: "b", options: "[]",
+    id: "c1", scope: "project", workspace_id: "w1", project_id: "p1" as string | null, title: "t", question: "q", blocking_reason: "b", options: "[]",
     recommendation: "r", impact: "i", refs: "[]", status: "waiting_human", revision: 1, supersedes_consultation_id: null,
     created_by_kind: "agent", created_by_principal_id: "worker-a", created_by_role: "worker", created_at: 1, updated_at: 1,
     cancel_reason: null, canceled_by_kind: null, canceled_by_principal_id: null, canceled_by_role: null, canceled_at: null,
@@ -104,6 +121,11 @@ test("schemaは冪等に作成でき、状態・判断の由来と記録主体�
   await database.insertInto("consultation").values(consultation).execute();
   await assert.rejects(database.insertInto("consultation").values({ ...consultation, id: "c2", status: "open" }).execute(), /CHECK/);
   await assert.rejects(database.insertInto("consultation").values({ ...consultation, id: "c3", status: "canceled" }).execute(), /CHECK/);
+  // Workspace scopeはProjectを持たず、Project scopeはProjectを必須にする。
+  await database.insertInto("consultation").values({ ...consultation, id: "cw", scope: "workspace", project_id: null }).execute();
+  await assert.rejects(database.insertInto("consultation").values({ ...consultation, id: "c4", scope: "workspace" }).execute(), /CHECK/);
+  await assert.rejects(database.insertInto("consultation").values({ ...consultation, id: "c5", project_id: null }).execute(), /CHECK/);
+  await assert.rejects(database.insertInto("consultation").values({ ...consultation, id: "c6", scope: "global", project_id: null }).execute(), /CHECK/);
   const message = { id: "m1", consultation_id: "c1", sequence: 1, author_kind: "human", principal_id: "human:h1", role: "operator", body: "x", corrects_message_id: null, revision: 2, created_at: 2 };
   await database.insertInto("consultation_message").values(message).execute();
   await assert.rejects(database.insertInto("consultation_message").values({ ...message, id: "m2" }).execute(), /UNIQUE/);
@@ -115,4 +137,20 @@ test("schemaは冪等に作成でき、状態・判断の由来と記録主体�
   await database.insertInto("consultation_resolution").values({ ...resolution, source: "agent_summary" }).execute();
   await assert.rejects(database.insertInto("consultation_resolution").values({ ...resolution, id: "r2", source: "agent_summary" }).execute(), /UNIQUE/);
   await database.destroy();
+});
+
+test("反映状況は相談の解決と別に、文書反映Taskの状態と受入済み成果物から求め、明示的な依存だけが再開を待たせる", () => {
+  assert.equal(reflectionStatusOf("todo", 0), "pending");
+  assert.equal(reflectionStatusOf("doing", 0), "in_progress");
+  assert.equal(reflectionStatusOf("rejected", 0), "in_progress");
+  // 受入だけでは反映済みにせず、成果物の参照が登録されてから反映済みにする。
+  assert.equal(reflectionStatusOf("accepted", 0), "in_progress");
+  assert.equal(reflectionStatusOf("accepted", 1), "reflected");
+  // 未受入のTaskに参照があっても反映済みにしない。
+  assert.equal(reflectionStatusOf("wait_accept", 1), "in_progress");
+  assert.equal(reflectionStatusOf("canceled", 0), "canceled");
+  assert.equal(blocksResumption({ resumptionDependency: null }, "pending"), false);
+  assert.equal(blocksResumption({ resumptionDependency: "運用ルールを先に確定する" }, "in_progress"), true);
+  assert.equal(blocksResumption({ resumptionDependency: "運用ルールを先に確定する" }, "reflected"), false);
+  assert.equal(blocksResumption({ resumptionDependency: "運用ルールを先に確定する" }, "canceled"), false);
 });

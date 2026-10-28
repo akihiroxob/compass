@@ -4,15 +4,19 @@ import { ApiError, classifyError, describeActionFailure, jsonPost, loadFailureMe
 import { ConfirmPanel, ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading, StateCard } from "../../components/StateCard";
 import { Button, Field, Select, TextArea, TextInput } from "../../components/ui";
-import { consultationPath, projectViewPath } from "../../paths";
+import { consultationInboxPath, projectViewPath, workspacePath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
-import { canOperate, projectOperationAccess, projectOperationDeniedMessage, type ProjectOperationAccess } from "../access";
+import { canOperate, canOperateWorkspace, projectOperationAccess, projectOperationDeniedMessage, type ProjectOperationAccess } from "../access";
 import { formatTime } from "../execution";
-import { membersPath, type HumanRole, type Member } from "../member";
+import { scopeMembersPath, type HumanRole, type Member } from "../member";
+import { ConsultationFollowupSection } from "./ConsultationFollowupSection";
 import {
   basisSequences,
   consultationApiPath,
+  consultationDetailPath,
   consultationListPath,
+  consultationScopeApiPath,
+  consultationScopeLabels,
   consultationStatusLabels,
   consultationStatusTones,
   describeActor,
@@ -21,26 +25,45 @@ import {
   messageAnchorId,
   messageKindLabel,
   newRequestId,
+  projectConsultationScope,
   resolutionSourceLabels,
+  workspaceConsultationScope,
   type ConsultationDetail,
   type ConsultationMessage,
   type ConsultationResourceLink,
+  type ConsultationScope,
 } from "./consultation";
 
-/** 相談詳細が読むProjectの項目（`GET /api/projects/:projectId`）。 */
-type ConsultationProject = { name: string; status: "active" | "archived"; repositories: ConsultationResourceLink[]; resources: ConsultationResourceLink[] };
+/**
+ * 相談詳細が読むscopeの項目。Projectは`GET /api/projects/:projectId`（Repository・Resourceは参照の表示先）、
+ * Workspaceは`GET /api/workspaces/:workspaceId`。`myRole`はscopeのMembershipのRoleで、互いに継承しない。
+ */
+type ScopeResponse =
+  | { project: { name: string; status: "active" | "archived"; repositories: ConsultationResourceLink[]; resources: ConsultationResourceLink[] }; myRole: HumanRole }
+  | { workspace: { name: string; status: "active" | "archived" }; myRole: HumanRole };
+type ScopeFacts = { name: string; status: "active" | "archived"; resources: ConsultationResourceLink[] | null; myRole: HumanRole };
+
+const scopeFactsOf = (response: ScopeResponse): ScopeFacts =>
+  "project" in response
+    ? { name: response.project.name, status: response.project.status, resources: [...response.project.repositories, ...response.project.resources], myRole: response.myRole }
+    : { name: response.workspace.name, status: response.workspace.status, resources: null, myRole: response.myRole };
+
+const scopeKey = (scope: ConsultationScope) => (scope.kind === "project" ? `project/${scope.projectId}` : `workspace/${scope.workspaceId}`);
 
 /** 会話の再読込の間隔。Agentの応答は非同期のため、開いている間だけ定期的に読み直す。 */
 const pollIntervalMs = 15_000;
 
-const notFoundMessage = "相談が見つかりません。別Projectの相談か、このProjectを閲覧する権限がありません。";
+const notFoundMessage = (scope: ConsultationScope) => {
+  const label = consultationScopeLabels[scope.kind];
+  return `相談が見つかりません。別の${label}の相談か、この${label}を閲覧する権限がありません。`;
+};
 
-/** 未所属・存在しないProjectと、別Projectの相談IDはどちらも404（serverが区別を漏らさない）。 */
-const detailLoadFailure = (reason: unknown) =>
-  reason instanceof ApiError && reason.status === 404 ? notFoundMessage : loadFailureMessage(classifyError(reason), notFoundMessage);
+/** 未所属・存在しないscopeと、別scopeの相談IDはどちらも404（serverが区別を漏らさない）。 */
+const detailLoadFailure = (scope: ConsultationScope, reason: unknown) =>
+  reason instanceof ApiError && reason.status === 404 ? notFoundMessage(scope) : loadFailureMessage(classifyError(reason), notFoundMessage(scope));
 
 /** 返信・決定・取消の失敗。版の競合は最新を読み直させ、入力は呼出し側で残す。 */
-const describeOperationFailure = (classified: ErrorKind) => describeActionFailure(classified, notFoundMessage);
+const describeOperationFailure = (scope: ConsultationScope) => (classified: ErrorKind) => describeActionFailure(classified, notFoundMessage(scope));
 
 /** 入力を保ったまま再試行するときは同じ`requestId`で送り、入力を変えたら新しくする（再送で発言・結論を重複させない）。 */
 const useRequestId = () => {
@@ -56,7 +79,7 @@ const OperationError = ({ id, message }: { id: string; message: string }) => {
 };
 
 /** Humanの返信。送信するとAgentの応答待ちになる。失敗時は入力を残し、成功時だけ空にする。 */
-const ReplyForm = ({ projectId, consultationId, onSaved }: { projectId: string; consultationId: string; onSaved: () => Promise<void> }) => {
+const ReplyForm = ({ scope, consultationId, onSaved }: { scope: ConsultationScope; consultationId: string; onSaved: () => Promise<void> }) => {
   const [body, setBody] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,13 +95,13 @@ const ReplyForm = ({ projectId, consultationId, onSaved }: { projectId: string; 
     setSent(false);
     setPending(true);
     try {
-      await request(consultationApiPath(projectId, consultationId, "/messages"), jsonPost({ body, requestId: requestId.current() }));
+      await request(consultationApiPath(scope, consultationId, "/messages"), jsonPost({ body, requestId: requestId.current() }));
       requestId.renew();
       setBody("");
       setSent(true);
       await onSaved();
     } catch (reason) {
-      setError(describeOperationFailure(classifyError(reason)));
+      setError(describeOperationFailure(scope)(classifyError(reason)));
     } finally {
       setPending(false);
     }
@@ -106,7 +129,7 @@ const ReplyForm = ({ projectId, consultationId, onSaved }: { projectId: string; 
 };
 
 /** Humanの明示決定。表示中の版を送り、他の返信・応答で版が進んでいれば拒否される（最新を読んでから決める）。 */
-const DecisionPanel = ({ projectId, detail, onCancel, onSaved }: { projectId: string; detail: ConsultationDetail; onCancel: () => void; onSaved: () => Promise<void> }) => {
+const DecisionPanel = ({ scope, detail, onCancel, onSaved }: { scope: ConsultationScope; detail: ConsultationDetail; onCancel: () => void; onSaved: () => Promise<void> }) => {
   const { consultation } = detail;
   const [conclusion, setConclusion] = useState("");
   const [rationale, setRationale] = useState("");
@@ -125,7 +148,7 @@ const DecisionPanel = ({ projectId, detail, onCancel, onSaved }: { projectId: st
     setError(null);
     setPending(true);
     try {
-      await request(consultationApiPath(projectId, consultation.id, "/resolution"), jsonPost({
+      await request(consultationApiPath(scope, consultation.id, "/resolution"), jsonPost({
         conclusion,
         rationale,
         applicability: applicability.trim() || null,
@@ -136,7 +159,7 @@ const DecisionPanel = ({ projectId, detail, onCancel, onSaved }: { projectId: st
       await onSaved();
     } catch (reason) {
       const classified = classifyError(reason);
-      setError(describeOperationFailure(classified));
+      setError(describeOperationFailure(scope)(classified));
       // 版の競合は最新の会話を読み直す。入力は残し、読んだうえで再度決定できる。
       if (classified.kind === "conflict") { requestId.renew(); await onSaved().catch(() => undefined); }
     } finally {
@@ -189,7 +212,7 @@ const MessageItem = ({ message, messages, names }: { message: ConsultationMessag
 };
 
 /** 質問・選択肢・推奨・影響・参照と、方針変更元の相談。 */
-const QuestionFacts = ({ projectId, detail, resources }: { projectId: string; detail: ConsultationDetail; resources: readonly ConsultationResourceLink[] | null }) => {
+const QuestionFacts = ({ scope, detail, resources }: { scope: ConsultationScope; detail: ConsultationDetail; resources: readonly ConsultationResourceLink[] | null }) => {
   const { consultation } = detail;
   return (
     <section className="detail-section" aria-labelledby="consultation-question-heading">
@@ -209,7 +232,7 @@ const QuestionFacts = ({ projectId, detail, resources }: { projectId: string; de
           {consultation.refs.length ? (
             <ul className="consultation-refs">
               {consultation.refs.map((reference, index) => {
-                const view = describeConsultationReference(projectId, reference, resources);
+                const view = describeConsultationReference(scope, reference, resources);
                 const label = view.href
                   ? <a href={view.href} target="_blank" rel="noreferrer">{view.label}<span className="visually-hidden">（外部の正本を新しいタブで開く）</span></a>
                   : view.to ? <Link to={view.to}>{view.label}</Link> : <code>{view.label}</code>;
@@ -218,7 +241,7 @@ const QuestionFacts = ({ projectId, detail, resources }: { projectId: string; de
             </ul>
           ) : <span className="unset">参照はありません</span>}
         </dd>
-        {consultation.supersedesConsultationId && <><dt>方針変更元</dt><dd><Link to={consultationPath(projectId, consultation.supersedesConsultationId)}>元の相談を開く</Link></dd></>}
+        {consultation.supersedesConsultationId && <><dt>方針変更元</dt><dd><Link to={consultationDetailPath(scope, consultation.supersedesConsultationId)}>元の相談を開く</Link></dd></>}
         <dt>起票</dt>
         <dd>{describeActor(consultation.createdBy)} ・ {formatTime(consultation.createdAt)}</dd>
       </dl>
@@ -264,25 +287,27 @@ const Outcome = ({ detail, names }: { detail: ConsultationDetail; names?: Readon
 
 /**
  * 相談の詳細。上段に質問・選択肢・推奨・影響・参照、下段に会話と返信を出し、Humanの発言とAgentの発言・要約を区別する。
- * editor以上は返信、administrator以上は明示決定・取消の導線を出す（archived・解決済みでは出さない）。拒否は常にserverが行う。
+ * Project相談（`/projects/:projectId/consultations/:id`）とWorkspace相談（`/workspaces/:workspaceId/consultations/:id`）で共有し、
+ * 導線はscopeのMembershipで出し分ける（editor以上は返信、administrator以上は明示決定・取消。archived・解決済みでは出さない）。拒否は常にserverが行う。
  */
 export const ConsultationDetailPage = () => {
-  const { projectId = "", consultationId = "" } = useParams();
-  const key = `${projectId}/${consultationId}`;
+  const { projectId, workspaceId, consultationId = "" } = useParams();
+  const scope = workspaceId !== undefined ? workspaceConsultationScope(workspaceId) : projectConsultationScope(projectId ?? "");
+  const key = `${scopeKey(scope)}/${consultationId}`;
   const [state, setState] = useState<{ key: string; detail: ConsultationDetail | null; error: string | null } | null>(null);
-  const [project, setProject] = useState<{ projectId: string; project: ConsultationProject; myRole: HumanRole } | null>(null);
-  const [humanNames, setHumanNames] = useState<{ projectId: string; names: ReadonlyMap<string, string> } | null>(null);
+  const [facts, setFacts] = useState<{ scopeKey: string; facts: ScopeFacts } | null>(null);
+  const [humanNames, setHumanNames] = useState<{ scopeKey: string; names: ReadonlyMap<string, string> } | null>(null);
   const [deciding, setDeciding] = useState(false);
   const load = useCallback(
-    () => request<ConsultationDetail>(consultationApiPath(projectId, consultationId)).then((detail) => setState({ key, detail, error: null })),
+    () => request<ConsultationDetail>(consultationApiPath(scope, consultationId)).then((detail) => setState({ key, detail, error: null })),
     [key],
   );
   useEffect(() => {
     let current = true;
     const fetchDetail = () =>
-      request<ConsultationDetail>(consultationApiPath(projectId, consultationId))
+      request<ConsultationDetail>(consultationApiPath(scope, consultationId))
         .then((detail) => { if (current) setState({ key, detail, error: null }); })
-        .catch((reason: unknown) => { if (current) setState((previous) => previous?.key === key && previous.detail ? previous : { key, detail: null, error: detailLoadFailure(reason) }); });
+        .catch((reason: unknown) => { if (current) setState((previous) => previous?.key === key && previous.detail ? previous : { key, detail: null, error: detailLoadFailure(scope, reason) }); });
     void fetchDetail();
     // 開いている間だけ定期的に読み直す（Agentの応答は非同期）。読み直しの失敗では表示中の内容を消さない。
     const timer = setInterval(() => { if (document.visibilityState === "visible") void fetchDetail(); }, pollIntervalMs);
@@ -290,57 +315,65 @@ export const ConsultationDetailPage = () => {
   }, [key]);
   useEffect(() => {
     let current = true;
-    request<{ project: ConsultationProject; myRole: HumanRole }>(`/api/projects/${projectId}`)
-      .then(({ project, myRole }) => { if (current) setProject({ projectId, project, myRole }); })
+    const currentKey = scopeKey(scope);
+    request<ScopeResponse>(consultationScopeApiPath(scope))
+      .then((response) => { if (current) setFacts({ scopeKey: currentKey, facts: scopeFactsOf(response) }); })
       .catch(() => undefined);
-    request<{ members: Member[] }>(membersPath(projectId))
-      .then(({ members }) => { if (current) setHumanNames({ projectId, names: new Map(members.map((member) => [member.human.id, member.human.displayName])) }); })
+    const memberScope = scope.kind === "project" ? { kind: "project" as const, id: scope.projectId } : { kind: "workspace" as const, id: scope.workspaceId };
+    request<{ members: Member[] }>(scopeMembersPath(memberScope))
+      .then(({ members }) => { if (current) setHumanNames({ scopeKey: currentKey, names: new Map(members.map((member) => [member.human.id, member.human.displayName])) }); })
       .catch(() => undefined);
     return () => { current = false; };
-  }, [projectId]);
+  }, [scopeKey(scope)]);
   const cancel = useReasonAction(async (reason) => {
     if (!reason.trim()) throw new Error("取消の理由を入力してください。");
     const detail = state?.detail;
     if (!detail) return;
     try {
-      await request(consultationApiPath(projectId, consultationId, "/cancel"), jsonPost({ reason, expectedRevision: detail.consultation.revision, requestId: newRequestId() }));
+      await request(consultationApiPath(scope, consultationId, "/cancel"), jsonPost({ reason, expectedRevision: detail.consultation.revision, requestId: newRequestId() }));
     } finally {
       await load().catch(() => undefined);
     }
-  }, describeOperationFailure);
+  }, describeOperationFailure(scope));
 
   const settled = state?.key === key ? state : null;
   const detail = settled?.detail ?? null;
-  const projectState = project?.projectId === projectId ? project : null;
-  const names = humanNames?.projectId === projectId ? humanNames.names : undefined;
-  const resources = projectState ? [...projectState.project.repositories, ...projectState.project.resources] : null;
+  const scopeFacts = facts?.scopeKey === scopeKey(scope) ? facts.facts : null;
+  const names = humanNames?.scopeKey === scopeKey(scope) ? humanNames.names : undefined;
+  const label = consultationScopeLabels[scope.kind];
   const access = (operation: "consultation.reply" | "consultation.decide"): ProjectOperationAccess | null =>
-    projectState ? projectOperationAccess(projectState.project, canOperate(projectState.myRole, operation)) : null;
+    scopeFacts
+      ? projectOperationAccess(scopeFacts, scope.kind === "project" ? canOperate(scopeFacts.myRole, operation) : canOperateWorkspace(scopeFacts.myRole, operation))
+      : null;
   const open = detail ? isOpenConsultation(detail.consultation.status) : false;
   const replyAccess = access("consultation.reply");
   const decideAccess = access("consultation.decide");
+  const scopeHome = scope.kind === "project" ? projectViewPath(scope.projectId, "overview") : workspacePath(scope.workspaceId);
   const saved = async () => {
     setDeciding(false);
     await load().catch(() => undefined);
   };
   return (
     <main className="narrow">
-      <Link to={consultationListPath(projectId)} className="back-link">← 判断待ち</Link>
+      <Link to={consultationListPath(scope)} className="back-link">← 判断待ち</Link>
       {settled?.error ? (
-        <ErrorState message={settled.error} />
+        <>
+          <ErrorState message={settled.error} />
+          <p className="section-note"><Link to={consultationInboxPath} className="text-link">閲覧できる判断待ちの一覧へ →</Link></p>
+        </>
       ) : !detail ? (
         <Loading />
       ) : (
         <>
           <nav className="breadcrumb" aria-label="現在位置">
             <ol>
-              <li><Link to={projectViewPath(projectId, "overview")}>{projectState?.project.name ?? "Project"}</Link></li>
-              <li><Link to={consultationListPath(projectId)}>判断待ち</Link></li>
+              <li><Link to={scopeHome}>{scopeFacts?.name ?? label}</Link></li>
+              <li><Link to={consultationListPath(scope)}>判断待ち</Link></li>
               <li aria-current="page">{detail.consultation.title}</li>
             </ol>
           </nav>
           <div className="detail-hero">
-            <p className="eyebrow">相談</p>
+            <p className="eyebrow">{label}の相談</p>
             <h1>{detail.consultation.title}</h1>
             <p><span className={statusBadgeClass(consultationStatusTones[detail.consultation.status])}>{consultationStatusLabels[detail.consultation.status]}</span></p>
             <time>{formatTime(detail.consultation.updatedAt)} 更新（版 {detail.consultation.revision}）</time>
@@ -351,13 +384,14 @@ export const ConsultationDetailPage = () => {
                 <Button variant="secondary" tone="danger" aria-expanded={cancel.confirming} onClick={() => { setDeciding(false); cancel.open(); }}>相談を取消</Button>
               </div>
             )}
-            {open && deciding && decideAccess === "allowed" && <DecisionPanel projectId={projectId} detail={detail} onCancel={() => setDeciding(false)} onSaved={saved} />}
+            {open && deciding && decideAccess === "allowed" && <DecisionPanel scope={scope} detail={detail} onCancel={() => setDeciding(false)} onSaved={saved} />}
             {open && cancel.confirming && decideAccess === "allowed" && (
               <ReasonPanel action={cancel} title="この相談を取り消しますか？" description="不要になった相談を閉じます。取り消すと返信・決定はできません。理由は相談に残ります。" label="取消の理由" required confirmLabel="取り消す" pendingLabel="取消中..." />
             )}
           </div>
-          <QuestionFacts projectId={projectId} detail={detail} resources={resources} />
+          <QuestionFacts scope={scope} detail={detail} resources={scopeFacts?.resources ?? null} />
           <Outcome detail={detail} names={names} />
+          <ConsultationFollowupSection detail={detail} />
           <section className="detail-section" aria-labelledby="consultation-messages-heading">
             <h2 id="consultation-messages-heading">会話</h2>
             <p className="section-note">Humanの返信とAgentの回答・追加質問です。発言は書き換えられず、訂正は新しい発言として残ります。</p>
@@ -368,8 +402,8 @@ export const ConsultationDetailPage = () => {
             ) : (
               <p className="unset">まだ返信はありません</p>
             )}
-            {open && replyAccess === "allowed" && <ReplyForm projectId={projectId} consultationId={consultationId} onSaved={saved} />}
-            {open && replyAccess !== null && replyAccess !== "allowed" && <p className="section-note">{projectOperationDeniedMessage(replyAccess)}</p>}
+            {open && replyAccess === "allowed" && <ReplyForm scope={scope} consultationId={consultationId} onSaved={saved} />}
+            {open && replyAccess !== null && replyAccess !== "allowed" && <p className="section-note">{projectOperationDeniedMessage(replyAccess, label)}</p>}
             {!open && <p className="section-note">この相談は{consultationStatusLabels[detail.consultation.status]}です。方針を変える場合は、Agentがこの相談を参照する新しい相談を登録します。</p>}
           </section>
         </>

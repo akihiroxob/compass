@@ -33,6 +33,7 @@ export const buildPrompt = (dispatch: WorkspaceDispatch): string =>
     `起動理由: ${dispatch.reason}`,
     ...(dispatch.subject.kind === "consultation" ? [
       `相談ID: ${dispatch.subject.id}; 入力版: ${dispatch.subject.inputRevision}`,
+      `相談のtoolには ${dispatch.projectId === null ? `workspaceId: "${dispatch.workspaceId}"（Workspace相談）` : `projectId: "${dispatch.projectId}"（Project相談）`} を渡す。`,
       "get_consultationで現在の会話・revisionを読み、acquire_consultation_leaseで応答権を取得してから回答する。追加返信による版変更・lease失効は再読込し、古い版を解決しない。",
       "不足なら同じ相談へ追加質問し、十分ならHuman発言を根拠に結論を整理する。返信だけでTaskを再開せず、取消の場合も不要理由と継続方針を確認する。",
     ] : []),

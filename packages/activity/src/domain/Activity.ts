@@ -28,7 +28,7 @@ export type ActivityTarget = { readonly kind: ActivityTargetKind; readonly id: s
 export type ActivitySource = "recorded" | "canonical";
 
 /** COMPASS内部のEntityへの参照。本文は持たず、IDだけで正本を辿らせる。 */
-export const activityEntityKinds = ["intent", "outcome", "research_request", "decision", "story", "task", "activity"] as const;
+export const activityEntityKinds = ["intent", "outcome", "research_request", "decision", "story", "task", "activity", "consultation", "workspace_consultation"] as const;
 
 export type ActivityEntityKind = (typeof activityEntityKinds)[number];
 

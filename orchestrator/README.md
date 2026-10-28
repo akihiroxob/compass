@@ -166,4 +166,8 @@ Project相談はWorkspace Direction dispatch・Intent・Outcomeから独立し�
 
 `get_project_consultation_state`は未処理の相談ID・入力版だけを返し、`<workspaceId>:<projectId>:manager:consultation:<id>:<inputRevision>`をkeyに起動します。`COMPASS_INPUT_REVISION`と起動Contextを渡し、応答lease・`expectedRevision`の操作と意味の判断はManagerへ委ねます。Humanが追加返信すれば新しい入力版になります。正常終了しても同じ入力版が未処理なら成功扱いにせず、backoff・試行上限で再試行し、失敗理由をOperational Logとdispatch記録へ残します。上限に達してもServerの未処理入力は消しません。
 
-結論後のTask再開は製品Ralphが所有します。OrchestratorはTaskをtodoへ戻したりClaimを取得したりしません。Workspace scopeの相談dispatchは含みません。
+結論後のTask再開は製品Ralphが所有します。OrchestratorはTaskをtodoへ戻したりClaimを取得したりしません。
+
+## Workspace相談へのStrategist応答
+
+`workspaces[]`に設定したWorkspaceは、同じWorkspace Runtime Credential（`runtime:state:read`）で`get_workspace_consultation_state`も読み、未処理の相談ID・入力版ごとに`<workspaceId>:strategist:consultation:<id>:<inputRevision>`をkeyにStrategistを起動します。所属Projectの相談は含まず、archivedのWorkspaceでは起動しません。Strategistへは`workspaces[].agentEnv`を加え、`COMPASS_PROJECT_ID`を渡さず、`get_workspace_role_context`と相談toolへ`workspaceId`を渡すよう指示します。読取りに失敗した周回は失敗として記録し、dispatch記録を整理しません。正常終了しても同じ入力版が未処理なら、Project相談と同じくbackoff・試行上限で再試行します。

@@ -1,4 +1,4 @@
-import type { ProjectConsultationState } from "./state.ts";
+import type { ProjectConsultationState, WorkspaceConsultationState } from "./state.ts";
 import { createHash } from "node:crypto";
 import type { OrchestrationResearchRequest, WorkspaceOrchestrationOutcome, WorkspaceOrchestrationState } from "./state.ts";
 
@@ -184,4 +184,15 @@ export const planProjectConsultationDispatches = (state: ProjectConsultationStat
     key: `${state.workspaceId}:${state.projectId}:manager:consultation:${id}:${inputRevision}`,
     workspaceId: state.workspaceId, projectId: state.projectId, role: "manager",
     subject: { kind: "consultation", id, inputRevision }, reason: `Consultation is waiting_agent at input revision ${inputRevision}`,
+  }));
+
+/**
+ * Workspace相談の返信の入力版ごとにStrategistを起動する（WorkspaceのDirectionの判断はStrategistが所有する）。所属Projectの相談は含めず、
+ * archivedのWorkspaceでは起動しない。
+ */
+export const planWorkspaceConsultationDispatches = (state: WorkspaceConsultationState): WorkspaceDispatch[] =>
+  state.workspaceStatus !== "active" ? [] : state.consultations.map(({ id, inputRevision }) => ({
+    key: `${state.workspaceId}:strategist:consultation:${id}:${inputRevision}`,
+    workspaceId: state.workspaceId, projectId: null, role: "strategist",
+    subject: { kind: "consultation", id, inputRevision }, reason: `Workspace Consultation is waiting_agent at input revision ${inputRevision}`,
   }));

@@ -38,7 +38,7 @@ Featureの画面は`<main>`から始まる本文だけを返し、Shell・Provid
 | `project` | Projectの型・入力検証（`project.ts`）、アーカイブ（`projectArchive.ts`）、Project詳細・一覧 |
 | `intent`・`outcome`・`decision`・`research`・`adr` | 各Directionの型・入力検証・変換（`intent.ts`・`outcome.ts`・`decision.ts`・`research.ts`・`adr.ts`）と画面 |
 | `workspace` | Workspaceの型・ナビゲーション（`workspace.ts`）・入力検証（`workspaceForm.ts`）・所属Projectの取得（`workspaceProjects.ts`）と画面 |
-| `consultation` | Project相談の型・Web API path・表示の判定（`consultation.ts`）、Project詳細の「判断待ち」（`ConsultationSection.tsx`）と相談詳細（`ConsultationDetailPage.tsx`） |
+| `consultation` | 相談の型・scope別のWeb API path・横断一覧のquery・表示の判定（`consultation.ts`）、一覧の行（`ConsultationList.tsx`）、Project詳細・Workspaceの「判断待ち」（`ConsultationSection.tsx`）、横断した判断待ち（`ConsultationInboxPage.tsx`）と相談詳細（`ConsultationDetailPage.tsx`） |
 | `execution`・`activity`・`agent`・`grant`・`credential`・`member`・`auth` | 各機能の型・API取得・画面 |
 
 公開入口は2種類とする。
@@ -162,7 +162,7 @@ Sassの入口は`app/main.scss`（`app/main.tsx`が読む）で、共有 → 部
 | 共有 | `styles/_layout.scss` | 複数のFeature・appが使うlayout・区画・操作列（`.action-row`・`.list-toolbar`・`.form-actions`）・一覧・カード・文字の型・状態badge |
 | 基本部品 | `components/ui/_button.scss`・`_view-switch.scss`・`_field.scss` | Button・LinkButton・ViewSwitch・Field・Fieldset・入力部品の内側の見た目と状態 |
 | 組合せUI | `components/_shell.scss`・`_state-card.scss`・`_reason-panel.scss`・`_list-inputs.scss`・`_page-columns.scss` | Shell・StateCard・ConfirmPanel・ListInputs・PageColumnsの見た目 |
-| app | `app/_app.scss` | 未定義のURLの画面、sidebarの参加中のProjectへのリンク |
+| app | `app/_app.scss` | 未定義のURLの画面、sidebarの横断した判断待ち・参加中のProjectへのリンク |
 | Feature | `features/<機能>/_<機能>.scss` | そのFeatureだけが使うclass（Shellのslotに置くSession・Workspaceの切替/ナビゲーションの見た目を含む） |
 
 1つのFeatureだけが使うclassはそのFeatureのpartialへ、2つ以上のFeature・appが使うclassは`styles/_layout.scss`へ置く。利用側の文脈による調整（例: `.app-sidebar .session-menu`）は、調整されるclassを所有するpartialに書く。

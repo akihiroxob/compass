@@ -36,6 +36,8 @@
   .lede { margin-bottom: var(--space-md); }
   > time { display: block; margin-top: var(--space-xs); color: var(--color-text-muted); font-size: var(--text-label); font-variant-numeric: tabular-nums; }
   > p:not([class]) { margin: var(--space-xs) 0 0; }
+  // 見出し直下の注記。h2直下用の負の余白を打ち消し、heroの下余白に任せる。
+  > .section-note { margin: var(--space-xs) 0 0; }
 }
 // WorkspaceとProjectの詳細の見出し（名前・説明・状態）。更新時刻とRoleは見出しの下の1段にまとめる。
 .project-hero {

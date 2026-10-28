@@ -3,6 +3,7 @@ import type { Kysely, Transaction } from "kysely";
 import type { StoryStatus } from "../domain/StoryStatus.ts";
 import { TaskStatus } from "../domain/TaskStatus.ts";
 import type {
+  AcceptedDeliverable,
   ChangeRecord,
   CommandReceiptRecord,
   EntityCorrelation,
@@ -61,7 +62,12 @@ export class KyselyWorkStore implements WorkStore {
     this.outcomeTargets = readers.outcomeTargets;
   }
 
+  /**
+   * 既に他Contextのtransaction（例: 相談の文書反映Taskの起票）の中で作られたstoreは、そのtransactionに参加する。
+   * SQLiteのtransactionは入れ子にできないため、新しいtransactionを開かずに同じ接続で実行する。
+   */
   transaction<T>(work: (store: WorkStore) => Promise<T>): Promise<T> {
+    if (this.db.isTransaction) return work(this);
     return this.db.transaction().execute((transaction) =>
       work(new KyselyWorkStore(transaction, this.externalReaders, this.changeObserver)),
     );
@@ -329,6 +335,19 @@ export class KyselyWorkStore implements WorkStore {
     if (task) return { kind: "task", id: task.id, title: task.title, storyId: task.story_id };
     const story = await this.db.selectFrom("story").select(["id", "title"]).where("id", "=", entityId).executeTakeFirst();
     return story ? { kind: "story", id: story.id, title: story.title, storyId: null } : null;
+  }
+
+  async findAcceptedDeliverables(projectId: string, taskId: string): Promise<AcceptedDeliverable[]> {
+    const row = await this.db
+      .selectFrom("change_log")
+      .select("payload")
+      .where("project_id", "=", projectId)
+      .where("entity_id", "=", taskId)
+      .where("type", "=", "TASK_ACCEPTED")
+      .orderBy("cursor", "desc")
+      .executeTakeFirst();
+    if (!row) return [];
+    return (JSON.parse(row.payload) as { deliverables?: AcceptedDeliverable[] }).deliverables ?? [];
   }
 
   async findLatestCompleter(taskId: string): Promise<string | null> {

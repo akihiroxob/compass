@@ -29,6 +29,18 @@
   small { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 }
 .consultation-resolution { border-left: 4px solid var(--tone-done-bg); padding-left: 1.5rem; }
+// 結論からの文書反映。1件ごとに反映状況・反映先・Task・成果物の参照をまとめる。
+.consultation-followups {
+  @include unstyled-list;
+  display: grid;
+  gap: .75rem;
+}
+.consultation-followup {
+  @include list-item;
+  padding: .9rem 1rem;
+  overflow-wrap: anywhere;
+  .intent-facts { margin: 0; }
+}
 // 判断待ちの一覧。行全体が相談詳細へのリンク。
 .consultation-list {
   @include divided-list;
@@ -36,4 +48,36 @@
   a { @include list-link; overflow-wrap: anywhere; }
   strong { overflow-wrap: anywhere; }
   small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+}
+// 横断一覧の絞り込み。狭い画面では折り返し、選択は1列に並べる。
+.consultation-inbox-selects {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-md);
+  .field { min-width: min(100%, 16rem); }
+  .form-actions { margin: 0; }
+}
+.consultation-inbox-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-lg);
+  margin-bottom: var(--space-md);
+}
+.consultation-inbox-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+}
+// 横断一覧の行の所属（Project・Workspaceの名前）。名前をそのまま読めるよう、状態のbadgeと違い大文字化しない。
+.consultation-scope {
+  display: inline-block;
+  padding: .1rem .5rem;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: .85em;
+  overflow-wrap: anywhere;
 }

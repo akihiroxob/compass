@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, Outlet } from "react-router-dom";
 import { Shell } from "../components/Shell";
+import { consultationInboxPath } from "../paths";
 import { AuthGate, SessionMenu } from "../features/auth";
 import { WorkspaceNav, WorkspaceNavigationProvider, WorkspaceSwitcher } from "../features/workspace";
 
@@ -19,7 +20,7 @@ export const AuthenticatedLayout = () => (
     <WorkspaceNavigationProvider>
       <Shell
         navigation={<><WorkspaceSwitcher /><WorkspaceNav /></>}
-        footer={<Link to="/projects" className="sidebar-link">参加中のProject</Link>}
+        footer={<><Link to={consultationInboxPath} className="sidebar-link">判断待ち（すべて）</Link><Link to="/projects" className="sidebar-link">参加中のProject</Link></>}
         session={<SessionMenu />}
       >
         <Outlet />

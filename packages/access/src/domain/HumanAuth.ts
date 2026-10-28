@@ -243,7 +243,7 @@ export const decideRegistration = (facts: RegistrationFacts): RegistrationDecisi
  * Project作成・一覧・Session取得はMembershipを要しない（認証済みであればよい）ため、ここに含めない。
  */
 export const humanProjectPermissions = {
-  /** Project・Intent・Outcome・Research・Direction Decision・ADR参照・Execution Summary・Evaluation・Execution（Story / Task / Comment / Change Log）・相談の参照。archivedでも参照できる。 */
+  /** Project・Intent・Outcome・Research・Direction Decision・ADR参照・Execution Summary・Evaluation・Execution（Story / Task / Comment / Change Log）・Project相談の参照。archivedでも参照できる。 */
   "project.read": "viewer",
   "grant.read": "viewer",
   "member.read": "viewer",
@@ -273,14 +273,18 @@ export type HumanProjectOperation = keyof typeof humanProjectPermissions;
  * それらは引き続きProject Membership（`humanProjectPermissions`）で認可する。Workspace作成は認証済みであればよい。
  */
 export const humanWorkspacePermissions = {
-  /** Workspace（Mission / Vision / Principles / Constraints・status）の参照。archivedでも参照できる。 */
+  /** Workspace（Mission / Vision / Principles / Constraints・status）・Workspace相談の参照。archivedでも参照できる。 */
   "workspace.read": "viewer",
   "member.read": "viewer",
   /** Workspace Direction Role（strategist / researcher / evaluator）のAgent Grantの参照。Project Grantは含めない。 */
   "grant.read": "viewer",
   /** Workspace scopeのDirection（Intent・Outcome等）の変更。入口の接続はDirectionのWorkspace scope化（Story 03）以降。 */
   "direction.write": "editor",
+  /** Workspace相談への返信（会話）。相談・会話・結論の参照は`workspace.read`。archivedでは拒否する。 */
+  "consultation.reply": "editor",
   "workspace.update": "administrator",
+  /** Workspace相談の明示決定（結論の記録と解決）と理由付きの取消。 */
+  "consultation.decide": "administrator",
   /** 既存のWorkspaceへのProject作成。作成者はProjectのownerになる。 */
   "project.create": "administrator",
   /** Workspace Direction RoleのAgent Grantの付与・取消。Project Grantは各ProjectのMembershipで認可する。 */

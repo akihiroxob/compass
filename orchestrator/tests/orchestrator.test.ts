@@ -284,3 +284,59 @@ test("Project相談はWorkspace dispatchなしで入力版ごとにManagerを起
     assert.equal((await runner.tick()).launched.length, 0);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("Workspace相談は同じWorkspace Runtime Credentialで読み、入力版ごとにStrategistを起動し、未処理の正常終了と読取り失敗を処理済みにしない", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "compass-workspace-consultation-dispatch-"));
+  let revision = 2;
+  let pending = true;
+  let failRead = false;
+  let workspaceStatus = "active";
+  const now = 1_000;
+  const reader: CompassStateReader = {
+    getWorkspaceOrchestrationState: async (workspaceId) => ({ ...baseState(workspaceId), activeIntent: null }),
+    getWorkspaceConsultationState: async (workspaceId, token) => {
+      assert.equal(workspaceId, "w-1"); assert.equal(token, "runtime-1");
+      if (failRead) throw new Error("FORBIDDEN");
+      return { workspaceId, workspaceStatus, consultations: pending ? [{ id: "wc1", inputRevision: revision }] : [], observedAt: now };
+    },
+  };
+  const launcher = new FakeLauncher();
+  const config: OrchestratorConfig = { serverUrl: "http://localhost:1", stateDir: directory, intervalMs: 1000,
+    leaseMs: 10000, maxAttempts: 3, retryBackoffMs: 100, maxConcurrent: 2, terminateGraceMs: 100,
+    workspaces: [{ workspaceId: "w-1", tokenEnv: "RUNTIME_TOKEN", token: "runtime-1", agentEnv: { STRATEGIST_CONFIG: "workspace-specific" }, projects: [] }],
+    roles: { strategist: { command: "strategist", env: {} } } };
+  const store = new DispatchStore(directory);
+  const runner = new Orchestrator(config, reader, launcher, store, () => now, () => {});
+  try {
+    const first = await runner.tick();
+    assert.equal(first.launched.length, 1);
+    const dispatch = first.launched[0]!;
+    assert.equal(dispatch.key, "w-1:strategist:consultation:wc1:2");
+    assert.equal(dispatch.role, "strategist");
+    assert.equal(dispatch.projectId, null);
+    assert.deepEqual(dispatch.subject, { kind: "consultation", id: "wc1", inputRevision: 2 });
+    assert.equal(launcher.launches[0]?.command.env.STRATEGIST_CONFIG, "workspace-specific");
+    // 正常終了しても同じ入力版が未処理なら再試行待ち。
+    launcher.launches[0]!.finish({ ok: true });
+    await runner.drain();
+    assert.equal(store.get(dispatch.key)?.status, "retry_wait");
+    // 状態を読めない周回は失敗として報告し、記録を消さない。
+    failRead = true;
+    const failed = await runner.tick();
+    assert.deepEqual(failed.failedWorkspaces.map(({ workspaceId }) => workspaceId), ["w-1"]);
+    assert.equal(store.get(dispatch.key)?.status, "retry_wait");
+    failRead = false;
+    // Humanの追加返信は新しい入力版。応答で処理されれば再起動しない。
+    revision = 3;
+    const next = await runner.tick();
+    assert.equal(next.launched[0]?.key, "w-1:strategist:consultation:wc1:3");
+    pending = false;
+    launcher.launches[1]!.finish({ ok: true });
+    await runner.drain();
+    assert.equal(store.get("w-1:strategist:consultation:wc1:3")?.status, "succeeded");
+    assert.equal((await runner.tick()).launched.length, 0);
+    // archivedのWorkspaceでは起動しない。
+    pending = true; revision = 4; workspaceStatus = "archived";
+    assert.equal((await runner.tick()).launched.length, 0);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
