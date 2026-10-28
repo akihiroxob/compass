@@ -39,6 +39,7 @@ skills:
 - `reviewed_task`
 - `reject_task`
 - `issue_task`
+- Project 相談（`projectId` を指定）: `create_consultation` / `list_consultations` / `get_consultation`、現在 Review Claim の Task の待機 `wait_for_consultation`、保存済み実行の照合 `list_consultation_resumptions` / `resume_consultation_task`（製品 Ralph が呼ぶ。Agent は Claim を取り直さない）
 
 Story の作成・編集・中止、Task の編集・中止、work Claim、最終受入は reviewer の権限ではない。`issue_task` はレビュー中に発見した技術的follow-upに限って使用する。Outcome・Success Criteria は Direction の管理下にあり、reviewer は変更できない。
 

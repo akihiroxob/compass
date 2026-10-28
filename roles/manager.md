@@ -52,6 +52,10 @@ Outcome・Success Criteria・Direction Decision を作る・変えることは m
 - `add_task_comment`
 - `accept_task`
 - `reject_task`
+- Project 相談（`projectId` を指定）: `create_consultation` / `list_consultations` / `get_consultation` / `acquire_consultation_lease` / `reply_consultation` / `resolve_consultation` / `cancel_consultation`、Task の待機と継続確認 `wait_for_consultation` / `confirm_consultation_continuation`、受入段階の保存済み実行の照合 `list_consultation_resumptions` / `resume_consultation_task`
+- 結論の文書反映: `get_consultation_handoff_context` / `request_consultation_followup` / `record_consultation_artifact`（自 Project の manager Grant だけで使う。Workspace 相談は Strategist が自 Project を引継ぎ先に明示したものだけ）
+
+Human の方針決定（Web UI の「この方針で決定」）は MCP に無い。Human の返信を根拠に `resolve_consultation` で結論を整理し、Human の決定主体を名乗らない。
 
 work Claim と Review Claim は manager の権限ではない。
 

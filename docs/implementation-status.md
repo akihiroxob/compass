@@ -181,6 +181,22 @@ Execution Summary/EvidenceのTarget別還流: `record_execution_evidence`はProj
 - 未検証: Workspaceのarchive、Credentialのrotation・取消、Taskの受入・差戻しはこのUI統合検証の経路で操作していない。実Google認証・remote mode・実Agentの自律運転は対象外。
 - 既知の不具合（未修正）: 確認パネルを「やめる」で閉じるとfocusが開いたボタンへ戻らない。
 
+## 相談の統合検証
+
+Project相談・Workspace相談・Task待機/再開・文書反映を、相談Storyの01〜04を統合したrevisionで、新規DB・公開操作・実ブラウザ・実Agentに分けて確認した範囲。契約は[相談](consultation-design.md)、データ準備は[ブラウザ検証データ](browser-verification.md)。対象revision・操作・画像・ログはTaskの結果に記録する。
+
+- データとRole: `scripts/prepare-browser-verification.mjs`の専用`preview.db`（owner・viewer、Projectのmanager / worker / reviewerとWorkspaceのstrategistのGrant）を作り、trusted-localのServerを起動した。相談・Task・待機・結論・文書反映の依頼は、すべて公開MCP（Bearer Principalと`X-Compass-Active-Role`）とSession・CSRF付きWeb APIで作った。待機する成果物は専用ディレクトリ内の別checkoutに置き、`ralph/runtime/consultation-context.mjs`でfingerprintを取った。
+- Project相談の流れ: Workerの相談作成→`wait_for_consultation`（同じ`requestId`の再送は同じ結果）→待機Taskは`availableFor`から除かれ、直接の`claim_task`も`TASK_NOT_CLAIMABLE`→Humanの返信（同じ`requestId`の再送で発言は増えない、viewerは403）→Managerの追加質問で`waiting_human`に戻りTaskは`waiting`のまま→Humanの再返信→応答中のHumanの追加返信で古い版の`resolve_consultation`は`STALE_REVISION`→新しい版で結論（`agent_summary`）→`list_consultation_resumptions`が`ready`→`resume_consultation_task`で元のwork段階の新Claim（同じ`requestId`の再送は同じClaim、別の再開要求は`CLAIM_CONFLICT`）。同じ版の別Principalの応答leaseは`LEASE_HELD`。
+- 複数待機・取消・明示決定・方針訂正: 1 Taskが2件を待ち、1件をHumanの明示決定（`human_decision`、記録主体はHuman）、1件をManagerが取消すと、Taskは`waiting`（Managerの継続確認待ち）に留まる。古い版での`confirm_consultation_continuation`とWorkerによる確認は拒否され、Managerの現在版での確認で`ready`になる。解決済みの相談の方針訂正は`supersedesConsultationId`付きの新しい相談として表示される。
+- Workspace相談: Strategistの作成→Humanの返信→Strategistの結論→`hand_off_consultation`。Project manager Grantでの`get_consultation`（Workspace scope）は`FORBIDDEN`、引継ぎ先でないProjectの`get_consultation_handoff_context`は`NOT_FOUND`。
+- 文書反映: Managerの`request_consultation_followup`は再送で同じ依頼を返し、詳細に「反映待ち」と文書反映Taskを表示する。未受入のTaskの`record_consultation_artifact`は`FOLLOWUP_TASK_NOT_ACCEPTED`。受入済み成果物との一致と実commitの参照は`server/tests/consultationFollowup.test.ts`（実際にcommitした検証用git Repository）で確認する。
+- 認可と漏洩: Project Bに所属しないviewerの横断一覧はProject Bの相談を含まず、`projectId`でProject Bを指定しても空で、詳細URLは「見つからない／権限がない」を区別しない表示になる。Project Aの相談はviewerには返信欄を出さず、権限が無い旨だけを出す。
+- 永続化: 同じDB fileでServerを再起動した前後で、Project・Workspaceの相談の状態・版・会話の順序と記録主体・結論の由来・方針訂正の参照・待機Taskの状態と段階、横断一覧が一致した。
+- 画面（Desktop 1280px・狭い画面390px）: 横断一覧（Human待ち・すべて）、Project相談の詳細（結論・この相談を待つTask・文書への反映・会話）、Humanの明示決定、Workspace相談の詳細、空状態（取消の無いProject）、読込中（応答遅延）、通信失敗、viewerの読取専用・権限不足・絞り込みの空を確認し、横方向のはみ出しは無い。応答遅延・通信失敗の模擬は表示の確認だけに使った。
+- 実Agent: 登録済みのホスト検証`scripts/verify-consultation-resumption.mjs`が、対象revisionのOrchestratorから実CodexのManagerを、Ralphから実CodexのWorkerを起動し、Human返信→Managerの結論→手動`ralph resume`なしの再開→`in_review`と成果物の保持を確認する。これ以外の上記の操作は検証用Principalによる公開操作で、Agentの判断ではない。
+- 観測: 相談詳細の「この相談を待つTask」の状態と失敗理由は、Runtimeの`list_consultation_resumptions`による再照合で更新されるため、結論の保存直後から次の照合までは前の状態（`waiting`と結論前の理由）を表示する。全体の判断待ち一覧の見出しと説明文の間に余白がほとんど無い。
+- 未検証: 実AgentのStrategistによるWorkspace相談への応答、実Agentによる文書反映TaskのRepository変更・PR作成・受入から参照登録までの運転、Runner再起動・lease失効の実時間での確認（自動テストの時刻差し替えとRalphの結合テストで確認）、remote mode・実Google認証。
+
 ## 未実装・未接続・未検証
 
 - 相談はProject / Workspace scopeの作成・会話・結論・取消、横断一覧（`/api/consultations`・`/consultations`）、WorkのTask待機/Claim除外（Project相談だけ）、入力版ごとの応答起動（ProjectはManager、WorkspaceはStrategist）、保存済み実行の再開まで接続済み。`roles/`から`consultation-task-resumption`（Worker / Reviewer / Manager）と`respond-consultation`（Manager / Strategist）Skillを配信する。Project・Workspace相談の結論から文書反映Taskの起票・受入成果物（`accept_task`の`deliverables`）と一致する成果物参照の登録・反映状況の表示、明示した依存だけで元Taskの再開を待たせる照合まで接続済み。Web UIの運用者による受入は受入成果物を記録しないため、その文書反映Taskは反映済みにできない。文書反映の検証はserverの結合テストで、実際にcommitした検証用git Repositoryの参照を使う。実AgentによるRepositoryの文書変更とPR作成を通した運転は未検証。実Agent（Strategist）によるWorkspace相談への応答は未検証で、Orchestratorの起動は結合テストのfixtureで確認している。詳細と検証境界は[相談](consultation-design.md)を参照。

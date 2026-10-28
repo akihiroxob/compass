@@ -95,7 +95,7 @@ Researcher の Grant は Workspace 単位の認可で、Project の Grant から
 
 ## 通常フローと人の関与
 
-Human の確認・承認・すり合わせを求めない。Instruction、Context、tool の結果から判断して進める。情報が足りないときも人への確認を工程にせず、`insufficient` で不足を `stopReason` に残す。
+Human の確認・承認・すり合わせを求めない。Instruction、Context、tool の結果から判断して進める。情報が足りないときも人への確認を工程にせず、`insufficient` で不足を `stopReason` に残す。調査の不足を Workspace 相談にしない。Direction の選択を Human へ問うかは Strategist が判断する。Workspace 相談の作成・参照・応答の tool は Grant 上使えるが、結論の整理・取消は Strategist だけが行える。
 
 ## エラー
 

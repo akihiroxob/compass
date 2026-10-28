@@ -25,6 +25,15 @@ MCP `get_workspace_orchestration_state({ workspaceId })` は、Workspace 単位�
 
 起動判断（どの状態で何の Role を起動するか）と重複抑止は `orchestrator/` の実装が持つ（`orchestrator/README.md`）。Workspace Role（strategist / researcher / evaluator）は Workspace を対象に Workspace Agent Credential で、manager は Target Project を対象にその Project の Agent Credential で起動する。Orchestrator の Runtime Credential を Agent へ渡さない。
 
+## 相談への応答起動と Task の再開
+
+Agent から Human への相談（`docs/consultation-design.md`）は Runtime event ではなく、現在状態の読取りで扱う。
+
+- `get_project_consultation_state({ projectId })`（Project Runtime Credential の `runtime:state:read`）と `get_workspace_consultation_state({ workspaceId })`（Workspace Runtime Credential の `runtime:state:read`）は、Human の返信がまだ処理されていない相談の ID と入力版（`inputRevision`）だけを返す。会話本文は含まない
+- Orchestrator は Project 相談で Manager、Workspace 相談で Strategist を、相談 ID と入力版ごとに起動する（`orchestrator/README.md`）。応答 lease・`expectedRevision` の操作と意味の判断は、起動した Agent が自身の Agent Credential で行う。Runtime Credential を Agent へ渡さない
+- process が正常終了しても、同じ入力版が未処理なら処理済みにしない。既存の backoff・試行上限で再試行し、上限に達しても Server の未処理入力は消さない
+- 相談待ち Task の再開は、Agent Credential を使う製品 Ralph が `list_consultation_resumptions` と `resume_consultation_task` で行う（`ralph/README.md`）。Runtime Credential では再開しない。手動の保留ファイル編集や `ralph resume` を通常経路にしない
+
 ## イベントの取得
 
 MCP `fetch_runtime_events({ workspaceId, afterCursor?, limit? })`、または Web API `GET /api/workspaces/:workspaceId/runtime-events?afterCursor=&limit=` を使う。応答は `{ events, nextCursor, resumeCursor }`。
