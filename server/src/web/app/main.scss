@@ -10,11 +10,13 @@
 @use "../components/state-card";
 @use "../components/reason-panel";
 @use "../components/list-inputs";
+@use "../components/page-columns";
 @use "app";
 @use "../features/activity/activity";
 @use "../features/agent/agent";
 @use "../features/auth/auth";
 @use "../features/consultation/consultation";
+@use "../features/direction/direction";
 @use "../features/execution/execution";
 @use "../features/grant/grant";
 @use "../features/intent/intent";

@@ -38,6 +38,7 @@ import {
   type WorkBucket,
 } from "./overview";
 import type { Project } from "./project";
+import { PageColumns } from "../../components/PageColumns";
 import { Button, LinkButton } from "../../components/ui";
 
 const workBucketLabels: Record<WorkBucket, string> = { ...taskStatusLabels, reclaimable: "再取得待ち" };
@@ -309,42 +310,47 @@ export const ProjectOverview = ({ project, direction, archived, permissions }: {
     const timer = setTimeout(() => setNow(Date.now()), Math.min(Math.max(expiry - Date.now() + 1, 0), 2 ** 31 - 1));
     return () => clearTimeout(timer);
   }, [expiry, now]);
-  return (
+  const toolbar = (
+    <div className="claim-holder-toolbar">
+      <span>{data ? `${formatTime(data.fetchedAt)} 取得` : "未取得"}</span>
+      <Button variant="secondary" size="sm" pending={pending} onClick={() => void load()}>
+        {pending ? "読み込み中..." : "再読込"}
+      </Button>
+    </div>
+  );
+  // 主列は次の行動 → 貢献するOutcome → 最近の記録の順に判断へ使う情報、補助列は実行境界・件数・Claimの参照。
+  const main = !data ? <>{toolbar}<Loading /></> : (
     <>
-      <ExecutionBoundary project={project} direction={direction} />
-      <div className="claim-holder-toolbar">
-        <span>{data ? `${formatTime(data.fetchedAt)} 取得` : "未取得"}</span>
-        <Button variant="secondary" size="sm" pending={pending} onClick={() => void load()}>
-          {pending ? "読み込み中..." : "再読込"}
-        </Button>
-      </div>
-      {!data ? <Loading /> : (
-        <>
-          <section className="detail-section" aria-labelledby="contributions-heading">
-            <h2 id="contributions-heading">貢献するOutcome</h2>
-            <p className="section-note">Outcomeは所属Workspaceのもので、このProjectはTarget ProjectとしてStory・Taskで貢献します。Taskの受入はOutcomeの達成ではなく、達成はEvaluatorが全Target Projectの結果から評価します。</p>
-            <Contributions projectId={projectId} direction={direction} data={data} />
-            {workspaceId !== null && <Link to={workspacePath(workspaceId, "direction")} className="text-link">Workspaceの方向を開く →</Link>}
-          </section>
-          <section className="detail-section" aria-labelledby="work-progress-heading">
-            <h2 id="work-progress-heading">実行状況</h2>
-            <p className="section-note">Taskの状態ごとの件数です。作業中・レビュー待ちはTaskの状態で、Agentの稼働を示しません。</p>
-            <WorkProgress projectId={projectId} execution={data.execution} now={now} />
-          </section>
-          <section className="detail-section" aria-labelledby="next-actions-heading">
-            <h2 id="next-actions-heading">次の行動</h2>
-            <NextActions projectId={projectId} workspaceId={workspaceId} data={data} archived={archived} permissions={permissions} now={now} onReload={() => void load()} pending={pending} />
-          </section>
-        </>
-      )}
-      <ClaimHolderSection projectId={projectId} />
-      {data && (
-        <section className="detail-section" aria-labelledby="project-recent-heading">
-          <h2 id="project-recent-heading">最近の記録</h2>
-          {!data.activities.ok ? <ErrorState message={`記録の読み込みに失敗しました: ${data.activities.error}`} /> : data.activities.value.length === 0 ? <p className="unset">Projectの記録はまだありません。</p> : <RecentActivityList activities={data.activities.value} />}
-          <Link to={projectViewPath(projectId, "records")} className="text-link">記録を開く →</Link>
-        </section>
-      )}
+      {toolbar}
+      <section className="detail-section" aria-labelledby="next-actions-heading">
+        <h2 id="next-actions-heading">次の行動</h2>
+        <NextActions projectId={projectId} workspaceId={workspaceId} data={data} archived={archived} permissions={permissions} now={now} onReload={() => void load()} pending={pending} />
+      </section>
+      <section className="detail-section" aria-labelledby="contributions-heading">
+        <h2 id="contributions-heading">貢献するOutcome</h2>
+        <p className="section-note">Outcomeは所属Workspaceのもので、このProjectはTarget ProjectとしてStory・Taskで貢献します。Taskの受入はOutcomeの達成ではなく、達成はEvaluatorが全Target Projectの結果から評価します。</p>
+        <Contributions projectId={projectId} direction={direction} data={data} />
+        {workspaceId !== null && <Link to={workspacePath(workspaceId, "direction")} className="text-link">Workspaceの方向を開く →</Link>}
+      </section>
+      <section className="detail-section" aria-labelledby="project-recent-heading">
+        <h2 id="project-recent-heading">最近の記録</h2>
+        {!data.activities.ok ? <ErrorState message={`記録の読み込みに失敗しました: ${data.activities.error}`} /> : data.activities.value.length === 0 ? <p className="unset">Projectの記録はまだありません。</p> : <RecentActivityList activities={data.activities.value} />}
+        <Link to={projectViewPath(projectId, "records")} className="text-link">記録を開く →</Link>
+      </section>
     </>
   );
+  const side = (
+    <>
+      <ExecutionBoundary project={project} direction={direction} />
+      {data && (
+        <section className="detail-section" aria-labelledby="work-progress-heading">
+          <h2 id="work-progress-heading">実行状況</h2>
+          <p className="section-note">Taskの状態ごとの件数です。作業中・レビュー待ちはTaskの状態で、Agentの稼働を示しません。</p>
+          <WorkProgress projectId={projectId} execution={data.execution} now={now} />
+        </section>
+      )}
+      <ClaimHolderSection projectId={projectId} />
+    </>
+  );
+  return <PageColumns main={main} side={side} />;
 };

@@ -11,7 +11,7 @@ import { ProjectAgentsSection, WorkspaceAgentsSection } from "../agent";
 import { ConsultationSection } from "../consultation";
 import { useSession } from "../auth";
 import { CredentialSection } from "../credential";
-import { loadDirection, loadOutcomeDetail } from "../direction";
+import { DirectionPanel, loadDirection, loadOutcomeDetail } from "../direction";
 import { AgentSettingsSection } from "../grant";
 import { humanRoleLabels, WorkspaceMembershipSection, type HumanRole } from "../member";
 import { archiveInit, describeArchiveFailure, parseListStatus, projectsApiPath, ProjectListSwitch, summarizeReason, validateArchiveReason, type Project, type ProjectStatus } from "../project";
@@ -143,17 +143,11 @@ const ManageSection = ({ workspace, myRole, reload }: { workspace: Workspace; my
   );
 };
 
-/** 概要。Mission・Visionと、現在地・要対応・Project・Agent・最近の記録（`WorkspaceOverview`）、Workspaceの管理。 */
+/** 概要。Mission・Visionの帯と、要対応・現在地・最近の記録・Project・Agent（`WorkspaceOverview`）、補助列のWorkspaceの管理。 */
 const OverviewContent = ({ workspace, myRole, reload }: { workspace: Workspace; myRole: HumanRole; reload: () => void }) => (
   <>
-    <section className="detail-section" aria-labelledby="workspace-mission-heading">
-      <h2 id="workspace-mission-heading">Mission</h2>
-      <p className="pre-wrap">{workspace.mission}</p>
-      <h3>Vision</h3>
-      {workspace.vision ? <p className="pre-wrap">{workspace.vision}</p> : <p className="unset">未設定</p>}
-    </section>
-    <WorkspaceOverview workspace={workspace} myRole={myRole} />
-    <ManageSection workspace={workspace} myRole={myRole} reload={reload} />
+    <DirectionPanel mission={workspace.mission} vision={workspace.vision} />
+    <WorkspaceOverview workspace={workspace} myRole={myRole} manage={<ManageSection workspace={workspace} myRole={myRole} reload={reload} />} />
   </>
 );
 
@@ -165,7 +159,7 @@ const DirectionContent = ({ workspace }: { workspace: Workspace }) => {
   const { value, error } = useLoad(workspace.id, () => Promise.all([loadDirection(workspace.id), settle(loadProjects(workspace.id), workspaceNotFound)]), workspaceNotFound);
   return (
     <>
-      <section className="detail-section"><h2>Mission</h2><p className="pre-wrap">{workspace.mission}</p><h3>Vision</h3>{workspace.vision ? <p className="pre-wrap">{workspace.vision}</p> : <p className="unset">未設定</p>}</section>
+      <DirectionPanel mission={workspace.mission} vision={workspace.vision} />
       <section className="detail-section intent-section" aria-labelledby="workspace-direction-intent-heading">
         <h2 id="workspace-direction-intent-heading">Intent・Outcome</h2>
         <p className="section-note">IntentはHumanが今実現したい状態、OutcomeはIntentへ近づくために達成すべき観測可能な状態です。OutcomeはWorkspaceに属し、Target ProjectのStoryが貢献します。</p>

@@ -66,27 +66,23 @@
   .eyebrow { margin-bottom: var(--space-2xs); }
 }
 .workspace-options {
-  @include unstyled-list;
-  display: grid;
-  gap: var(--space-xs);
+  @include divided-list;
   a {
     @include list-link(grid);
     gap: var(--space-2xs);
-    padding: var(--space-sm) var(--space-md);
-    transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
-    &[aria-current="true"] { border-color: var(--color-brand); }
+    transition: background-color var(--motion-fast);
+    &[aria-current="true"] { box-shadow: inset 3px 0 0 var(--color-brand); background: var(--color-brand-soft); }
   }
   small { color: var(--color-text-muted); overflow-wrap: anywhere; }
   .status-badge { justify-self: start; }
 }
 
 .workspace-project-links {
-  @include unstyled-list;
-  li > p { @include list-item; display: flex; justify-content: space-between; gap: 1rem; margin: 0; padding: 1rem; @include narrow { flex-direction: column; } }
+  li > p { @include list-item; display: flex; justify-content: space-between; gap: 1rem; margin: 0; @include narrow { flex-direction: column; } .page-side & { flex-direction: column; gap: var(--space-2xs); } }
 }
 .workspace-intent { margin: 0 0 var(--space-md); font-weight: 700; overflow-wrap: anywhere; }
 .attention-refs { display: block; flex-basis: 100%; overflow-wrap: anywhere; }
 .agent-intro p { margin: 0; }
 .agent-intro p + p { margin-top: var(--space-2xs); }
 // 方向の過去の一覧で、リンクにしない項目。
-.plain-item { .past-intents & { @include list-item; padding: .8rem 1rem; } }
+.plain-item { .past-intents & { @include list-item; } }

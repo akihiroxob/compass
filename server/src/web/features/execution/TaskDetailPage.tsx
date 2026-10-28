@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useParams } from "react-router-dom";
 import { ApiError, classifyError, describeActionFailure, jsonPost, loadFailureMessage, request, type ErrorKind } from "../../api";
+import { PageColumns } from "../../components/PageColumns";
 import { ReasonPanel, useReasonAction, type ReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading, StateCard } from "../../components/StateCard";
 import { Button, Field, LinkButton, TextArea } from "../../components/ui";
@@ -274,7 +275,7 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
   const currentNotice = notice?.key === key ? notice : null;
   const intervene = access === "allowed";
   return (
-    <main className="narrow">
+    <main>
       {settled?.error ? (
         <>
           <Link to={projectViewPath(projectId, "work")} className="back-link">← 実行</Link>
@@ -300,6 +301,8 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
             )}
             {access === "archived" && <p className="section-note">アーカイブ済みのProjectのため、受入・差戻し・取消・Commentはできません。</p>}
           </div>
+          {/* 補助列は担当（Claim）・Story等の事実、主列は判断と履歴。狭い画面では担当を先に出す。 */}
+          <PageColumns sideFirst side={
           <section className="detail-section" aria-labelledby="task-facts-heading">
             <h2 id="task-facts-heading">概要</h2>
             <dl className="intent-facts">
@@ -318,6 +321,7 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
               <dd>{formatTime(task.createdAt)}</dd>
             </dl>
           </section>
+          } main={<>
           {task.consultationWait && (
             <section className="detail-section" aria-labelledby="consultation-wait-heading">
               <h2 id="consultation-wait-heading">相談待ち・再開</h2>
@@ -374,6 +378,7 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
               <p className="unset">変更はありません</p>
             )}
           </section>
+          </>} />
         </>
       )}
     </main>

@@ -57,9 +57,10 @@ $breakpoint-narrow: 700px;
   // 文字。外部フォントを読み込まず、OS標準のサンセリフ（和文はヒラギノ・Noto Sans JP・Yu Gothic・メイリオ）へフォールバックする。
   --font-sans: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  // 文字の階層（h1 32px・h2 20px・h3 16px、見出しの行間1.375。本文14px・行間1.6、注記13px、ラベル12px）。
+  // 文字の階層（h1 32px・h2 18px・h3 16px、見出しの行間1.375。本文14px・行間1.6、注記13px、ラベル12px）。
+  // h2は区画の見出しで、ページ見出し（h1）との差で階層を示し、区画の中の情報を優先する。
   --text-h1: 2rem;
-  --text-h2: 1.25rem;
+  --text-h2: 1.125rem;
   --text-h3: 1rem;
   --text-body: .875rem;
   --text-lead: 1rem;
@@ -70,7 +71,7 @@ $breakpoint-narrow: 700px;
   --line-height-body: 1.6;
   --font-weight-heading: 700;
 
-  // 余白
+  // 余白。区画の中は`md`、区画どうしは`md`、ページ見出しと本文は`lg`を基本にする。
   --space-2xs: .25rem;
   --space-xs: .5rem;
   --space-sm: .75rem;
@@ -100,7 +101,7 @@ $breakpoint-narrow: 700px;
   --field-readonly-background: var(--color-note);
   --control-disabled-opacity: .55;
 
-  // 角丸・影
+  // 角丸・影。pill（`--radius-pill`）は状態badgeだけに使う。
   --radius-sm: .375rem;
   --radius-md: .5rem;
   --radius-lg: .625rem;

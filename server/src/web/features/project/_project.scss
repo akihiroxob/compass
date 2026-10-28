@@ -1,32 +1,29 @@
 // Project詳細（features/project）。view切替・方向・概要の進み具合。
 @use "../../styles/mixins" as *;
 
-// viewの切替。ナビゲーションのリンク（選択中は`aria-current="page"`）で、表示切替の部品（ViewSwitch）とは別のnavとして扱う。
+// viewの切替。ナビゲーションのリンク（選択中は`aria-current="page"`）を下線のタブで示し、sidebarのナビゲーション・表示切替の部品（ViewSwitch）と区別する。
 .project-view-nav {
   position: sticky;
   top: 0;
   z-index: 5;
   margin: 0 0 var(--space-md);
-  padding: .6rem 0;
   border-bottom: 1px solid var(--color-line);
   background: var(--color-paper);
   overflow-x: auto;
-  ul { display: flex; gap: var(--space-xs); @include unstyled-list; white-space: nowrap; }
-  a { @include nav-link; }
-  @include narrow { margin-left: -4vw; margin-right: -4vw; padding-left: 4vw; padding-right: 4vw; }
-}
-.direction-panel {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  border-radius: var(--radius-lg);
-  color: var(--color-inverse-text);
-  background: var(--color-inverse);
-  overflow: hidden;
-  > div { padding: var(--space-lg); }
-  > div + div { border-left: 1px solid var(--color-inverse-line); }
-  p:last-child { margin: 0; font-size: var(--text-lead); font-weight: 600; line-height: var(--line-height-body); }
-  .unset { color: var(--color-inverse-muted); }
-  @include narrow { grid-template-columns: 1fr; > div + div { border-top: 1px solid var(--color-inverse-line); border-left: 0; } }
+  ul { display: flex; gap: var(--space-lg); @include unstyled-list; white-space: nowrap; }
+  a {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--control-md-height);
+    border-bottom: 2px solid transparent;
+    color: var(--color-text-secondary);
+    font-weight: 600;
+    text-decoration: none;
+    transition: color var(--motion-fast), border-color var(--motion-fast);
+    &:hover { color: var(--color-text); border-bottom-color: var(--color-line-strong); }
+    &[aria-current="page"] { color: var(--color-brand); border-bottom-color: var(--color-brand); }
+  }
+  @include narrow { margin-left: -4vw; margin-right: -4vw; padding-left: 4vw; padding-right: 4vw; ul { gap: var(--space-md); } }
 }
 .position-work {
   font-variant-numeric: tabular-nums;

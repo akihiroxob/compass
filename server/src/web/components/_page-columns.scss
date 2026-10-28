@@ -1,0 +1,25 @@
+// 本文の2列（PageColumns）。viewportではなく本文の利用可能幅で切り替え、主列が読める幅（`$page-main-min`）を確保できるときだけ主列と幅を抑えた補助列の2列にする。
+// それより狭い本文（狭い画面、sidebarを含む中間幅）はDOMの順に1列で積む。
+$page-main-min: 30rem;
+$page-side-max: 20rem;
+$page-gap: 1rem; // --space-md
+
+.page-columns { container: page-columns / inline-size; }
+.page-columns-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-md);
+}
+.page-main, .page-side {
+  display: grid;
+  gap: var(--space-md);
+  min-width: 0;
+  // 列の中の区画の間隔はgapで持つ。
+  > * { margin-top: 0; margin-bottom: 0; }
+}
+@container page-columns (min-width: #{$page-main-min + $page-gap + $page-side-max}) {
+  .page-columns-grid { grid-template-columns: minmax($page-main-min, 1fr) minmax(16rem, $page-side-max); }
+  .page-main { grid-column: 1; grid-row: 1; }
+  .page-side { grid-column: 2; grid-row: 1; }
+}

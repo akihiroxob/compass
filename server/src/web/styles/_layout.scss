@@ -13,37 +13,39 @@
   justify-content: space-between;
   @include narrow { align-items: flex-start; flex-direction: column; }
 }
-.eyebrow, .card-label, .section-label { margin: 0 0 var(--space-xs); @include caps-label; color: var(--color-brand); }
-.lede { max-width: 700px; margin: var(--space-sm) 0 var(--space-xl); color: var(--color-text-muted); font-size: var(--text-lead); line-height: 1.7; }
+.card-label, .section-label { margin: 0 0 var(--space-xs); @include caps-label; color: var(--color-brand); }
+// eyebrowはWorkspace名等の実データを含むため、大文字へ変換しない。
+.eyebrow { margin: 0 0 var(--space-xs); @include caps-label($transform: none); color: var(--color-brand); }
+.lede { max-width: 700px; margin: var(--space-xs) 0 var(--space-lg); color: var(--color-text-muted); font-size: var(--text-lead); line-height: 1.7; }
 .text-link, .back-link { color: var(--color-brand); font-weight: 600; }
-.back-link { display: inline-block; margin-bottom: var(--space-xl); text-decoration: none; @include narrow { margin-bottom: 1.5rem; } }
+.back-link { display: inline-block; margin-bottom: var(--space-md); font-size: var(--text-note); text-decoration: none; }
 // 詳細画面の現在位置（Task詳細のWorkspace → Project → Story → Task、相談詳細のProject → 判断待ち → 相談）。長い名前は折り返し、狭い画面でも横にはみ出さない。
 .breadcrumb {
-  margin-bottom: var(--space-xl);
+  margin-bottom: var(--space-md);
   font-size: var(--text-small);
   ol { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2xs) var(--space-xs); @include unstyled-list; }
   li { min-width: 0; overflow-wrap: anywhere; color: var(--color-text-muted); }
   li + li::before { content: "›"; margin-right: var(--space-xs); color: var(--color-text-muted); }
   a { color: var(--color-brand); font-weight: 600; text-decoration: none; }
   [aria-current="page"] { color: var(--color-text-secondary); }
-  @include narrow { margin-bottom: 1.5rem; }
 }
 
 .detail-hero {
-  padding-bottom: var(--space-xl);
-  h1 { overflow-wrap: anywhere; }
-  .lede { margin-bottom: var(--space-md); }
-  time { margin-top: 1rem; color: var(--color-text-muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
-}
-// WorkspaceとProjectの詳細の見出し（名前・説明・状態）。
-.project-hero {
-  margin-bottom: var(--space-2xs);
   padding-bottom: var(--space-lg);
   h1 { overflow-wrap: anywhere; }
-  time { display: block; margin-top: var(--space-sm); }
-  .eyebrow { margin-bottom: var(--space-xs); }
+  .lede { margin-bottom: var(--space-md); }
+  > time { display: block; margin-top: var(--space-xs); color: var(--color-text-muted); font-size: var(--text-label); font-variant-numeric: tabular-nums; }
+  > p:not([class]) { margin: var(--space-xs) 0 0; }
+  // 見出し直下の注記。h2直下用の負の余白を打ち消し、heroの下余白に任せる。
+  > .section-note { margin: var(--space-xs) 0 0; }
+}
+// WorkspaceとProjectの詳細の見出し（名前・説明・状態）。更新時刻とRoleは見出しの下の1段にまとめる。
+.project-hero {
+  padding-bottom: var(--space-md);
+  h1 { overflow-wrap: anywhere; }
+  .eyebrow { margin-bottom: var(--space-2xs); }
   .section-note { margin: var(--space-2xs) 0 0; }
-  @include narrow { padding-bottom: var(--space-sm); .lede { margin-top: var(--space-sm); font-size: 1rem; } }
+  @include narrow { .lede { font-size: var(--text-body); } }
 }
 .view-panel { animation: view-enter var(--motion-fast) ease-out; }
 
@@ -101,16 +103,15 @@
   display: inline-block;
   max-width: 100%;
   flex-shrink: 0;
-  padding: .15rem .6rem;
+  padding: 0 .5rem;
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
   color: var(--tone-attention-fg);
   background: var(--tone-attention-bg);
   font-size: var(--text-label);
   font-weight: 700;
-  letter-spacing: .04em;
-  line-height: 1.5;
-  text-transform: uppercase;
+  letter-spacing: .02em;
+  line-height: 1.6;
   overflow-wrap: anywhere;
   vertical-align: .1em;
   transition: color var(--motion-fast), background-color var(--motion-fast), border-color var(--motion-fast);
@@ -131,17 +132,17 @@
   @include narrow { grid-template-columns: 1fr; }
 }
 .intent-card {
-  padding: 1.5rem;
+  padding: var(--space-md);
   border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
   background: var(--color-raised);
-  h3 { margin: var(--space-xs) 0 var(--space-sm); @include heading(var(--text-h2)); }
+  h3 { margin: var(--space-2xs) 0 var(--space-xs); @include heading(var(--text-h3)); }
   h4 { margin: .2rem 0 .8rem; font-size: 1rem; overflow-wrap: anywhere; }
 }
 .form-section, .detail-section {
   @include panel;
   @include narrow { padding: var(--space-md); }
-  h2 { margin: 0 0 var(--space-md); @include heading(var(--text-h2)); }
+  h2 { margin: 0 0 var(--space-sm); @include heading(var(--text-h2)); }
 }
 // フォームの区画。入力欄・入力行の上下の間隔はgapで持つ（見出しの下余白と合わせて1.5rem）。
 .form-section {
@@ -151,9 +152,11 @@
 }
 .detail-section {
   margin-top: var(--space-md);
-  > h2:first-child, > .claim-holder-toolbar:first-child h2 { margin-bottom: 1rem; }
+  // 区画の下端の余白はpaddingだけで持つ。
+  > :last-child { margin-bottom: 0; }
+  > h2:first-child, > .claim-holder-toolbar:first-child h2 { margin-bottom: var(--space-sm); }
   h2 .status-badge { margin-left: var(--space-xs); font-family: var(--font-sans); }
-  h3 { margin: var(--space-lg) 0 var(--space-sm); @include heading(var(--text-h3)); }
+  h3 { margin: var(--space-lg) 0 var(--space-xs); @include heading(var(--text-h3)); }
   ul { line-height: 1.7; }
   // 字下げは本文の箇条書き（classの無いlist）だけ。classを持つ一覧は自身の余白を持つ。
   // `:where`で詳細度を`.detail-section ul`と同じに保ち、後に書く区画内の一覧（`.past-intents ul`等）の指定を優先する。
@@ -167,9 +170,11 @@
 // 送信の失敗の要約（StateCard）とフォームの間。
 .state-card + .project-form { margin-top: var(--space-md); }
 // 区画の中の小さなフォーム（Grant・Credential・Member・ログイン・Comment）。
+// 本文が広い画面（Project・Workspaceの設定）でも入力欄を読みやすい幅に抑える。
 .grant-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  max-width: 40rem;
   gap: var(--space-md);
   margin-top: var(--space-md);
   .form-actions { justify-content: flex-start; margin-top: 0; }
@@ -185,7 +190,7 @@
   .input { font-family: var(--font-mono); }
 }
 // アーカイブの通知（Workspace・Project）。
-.archive-notice { border-left: 4px solid var(--color-brand); padding-left: 1.5rem; }
+.archive-notice { margin-bottom: var(--space-md); border-left: 4px solid var(--color-brand); padding-left: 1.5rem; }
 .archive-preview { margin-top: var(--space-sm); }
 
 // 説明つき項目（dl）
@@ -196,36 +201,36 @@
 }
 
 // 一覧（行カード）
-.outcome-list, .grant-list, .next-action-list { @include unstyled-list; display: grid; gap: .6rem; }
+.outcome-list, .grant-list, .next-action-list { @include divided-list; }
 .outcome-list {
-  margin-top: var(--space-md);
-  a { @include list-link; padding: .9rem 1rem; overflow-wrap: anywhere; }
+  margin-top: var(--space-sm);
+  a { @include list-link; overflow-wrap: anywhere; }
   small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
   code { font-size: .85em; overflow-wrap: anywhere; }
 }
 .link-list {
-  display: grid;
-  gap: .65rem;
+  @include divided-list;
+  margin-bottom: var(--space-sm);
   a {
     @include list-link(flex);
-    padding: 1rem;
     justify-content: space-between;
     gap: 1rem;
     @include narrow { align-items: flex-start; flex-direction: column; }
   }
   span { font-weight: 700; }
   small { color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  // 補助列（PageColumns）は幅が狭いため、名前と補足を縦に積む。
+  .page-side & a { align-items: flex-start; flex-direction: column; gap: var(--space-2xs); }
 }
 .grant-list {
-  margin-top: var(--space-md);
+  margin-top: var(--space-sm);
   li {
     @include list-item;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-sm);
-    padding: .9rem 1rem;
+    gap: var(--space-xs) var(--space-sm);
     overflow-wrap: anywhere;
     > .pre-wrap, > .evidence-uri { flex-basis: 100%; }
   }
@@ -234,41 +239,38 @@
   code { font-size: .85em; overflow-wrap: anywhere; }
   .action-row { margin-top: 0; }
 }
-.outcome-list a, .link-list a, .past-intents a, .grant-list li, .next-action-list li {
-  transition: border-color var(--motion-fast), background-color var(--motion-fast), box-shadow var(--motion-fast);
+.outcome-list a, .link-list a, .past-intents a {
+  transition: background-color var(--motion-fast);
 }
 // 変更・Activityの一覧（grant-listの行に本文・参照を重ねる）。
 .change-list {
   li { display: block; }
-  li small { display: block; margin-top: .35rem; }
-  .section-note { margin: .5rem 0 0; }
-  .pre-wrap { margin-top: .5rem; }
+  li small { display: block; margin-top: var(--space-2xs); }
+  .section-note { margin: var(--space-2xs) 0 0; }
+  .pre-wrap { margin-top: var(--space-2xs); }
 }
 // 過去のIntent・取り消したOutcome等の開閉する一覧。
 .past-intents {
   margin-top: var(--space-md);
   summary { border-radius: var(--radius-sm); cursor: pointer; font-weight: 700; }
   summary::marker { color: var(--color-brand); }
-  ul { @include unstyled-list; margin-top: .8rem; display: grid; gap: .5rem; }
-  a { @include list-link; padding: .8rem 1rem; }
+  ul { @include divided-list; margin-top: var(--space-xs); }
+  a { @include list-link; }
 }
 // 成功条件の一覧（Outcome詳細・Workspaceの方向）。
 .criteria-list {
-  @include unstyled-list;
-  display: grid;
-  gap: .8rem;
+  @include divided-list;
   counter-reset: criterion;
   li {
     @include list-item;
     position: relative;
-    padding: 1rem 1rem 1rem 3.2rem;
-    border-radius: var(--radius-md);
+    padding-left: 2.75rem;
     counter-increment: criterion;
     &::before {
       content: counter(criterion);
       position: absolute;
-      left: 1rem;
-      top: 1rem;
+      left: var(--space-xs);
+      top: var(--space-sm);
       width: 1.6rem;
       height: 1.6rem;
       display: grid;
@@ -290,34 +292,34 @@
 // Projectのカード一覧（参加中のProject・WorkspaceのProject一覧）。
 .project-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
   gap: var(--space-md);
   @include narrow { grid-template-columns: 1fr; }
 }
+// Projectのカード。内容の高さだけを持ち、一覧の行と同じく面と罫線で区切る（持ち上げる動きは使わない）。
 .project-card {
-  min-height: 240px;
-  padding: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
   display: flex;
   flex-direction: column;
   border: 1px solid var(--color-line);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
   text-decoration: none;
-  transition: transform .15s, box-shadow .15s;
-  &:hover { transform: translateY(-3px); box-shadow: var(--shadow-lift); }
-  h2 { margin: 0 0 var(--space-xs); @include heading(var(--text-h2)); }
-  > p:not(.card-label) { color: var(--color-text-muted); line-height: 1.55; }
-  time { margin-top: 1rem; color: var(--color-text-muted); font-size: .75rem; font-variant-numeric: tabular-nums; }
-  @media (prefers-reduced-motion: reduce) { &:hover { transform: none; } }
-  // Membershipの無いProject（Workspaceの一覧）。リンクにしないため、hoverで持ち上げない。
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast);
+  &:hover { border-color: var(--color-brand); box-shadow: var(--shadow-hover); }
+  h2 { margin: 0 0 var(--space-2xs); @include heading(var(--text-h2)); overflow-wrap: anywhere; }
+  > p:not(.card-label) { margin: 0 0 var(--space-xs); color: var(--color-text-muted); line-height: 1.55; }
+  .card-label { margin-bottom: var(--space-2xs); }
+  time { margin-top: auto; padding-top: var(--space-xs); color: var(--color-text-muted); font-size: var(--text-label); font-variant-numeric: tabular-nums; }
+  // Membershipの無いProject（Workspaceの一覧）。リンクにしないため、hoverで強調しない。
   &.locked {
     border-style: dashed;
-    &:hover { transform: none; box-shadow: none; }
+    &:hover { border-color: var(--color-line); box-shadow: none; }
   }
 }
 .mission-preview {
-  margin-top: auto;
-  padding-top: 1.5rem;
+  margin-top: var(--space-xs);
+  padding-top: var(--space-xs);
   border-top: 1px solid var(--color-subtle);
   line-height: 1.6;
   span { display: block; margin-bottom: .35rem; @include caps-label(.7rem); }
@@ -326,31 +328,29 @@
 // Outcomeごとの担当Projectと進み具合（Workspaceの概要・方向、Project詳細の概要の貢献Outcome）。
 .outcome-positions, .target-works { @include unstyled-list; display: grid; }
 .outcome-positions {
-  gap: .6rem;
-  margin-bottom: var(--space-md);
-  > li { @include list-item; padding: 1rem; overflow-wrap: anywhere; }
+  margin-bottom: var(--space-sm);
+  > li { @include list-item; overflow-wrap: anywhere; }
   .section-label { margin: var(--space-sm) 0 var(--space-xs); }
   p { margin: 0; }
 }
 .outcome-position-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs) 1rem; font-weight: 700; }
 .target-works {
-  gap: var(--space-xs);
-  li { padding: .55rem .9rem; border-left: 3px solid var(--color-line-soft); }
+  gap: var(--space-2xs);
+  li { padding: var(--space-2xs) var(--space-sm); border-left: 3px solid var(--color-line-soft); }
   small { display: block; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 }
 // 次の操作・担当待ちの一覧（Workspace・Projectの概要）。
-.next-action-summary { margin: 0 0 1rem; font-weight: 700; }
+.next-action-summary { margin: 0 0 var(--space-sm); font-weight: 700; }
 .next-action-list {
-  margin-bottom: var(--space-md);
+  margin-bottom: var(--space-sm);
   li {
     @include list-item;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-xs) .9rem;
-    padding: .8rem 1rem;
+    gap: var(--space-xs) var(--space-sm);
     font-variant-numeric: tabular-nums;
   }
   small { color: var(--color-text-muted); }
-  &.waiting { gap: var(--space-xs); li { padding: .55rem .9rem; line-height: 1.6; } }
+  &.waiting li { line-height: 1.6; }
 }

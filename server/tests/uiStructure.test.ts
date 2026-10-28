@@ -6,6 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   checkCompiledCss,
+  checkLegacyVisuals,
   checkUiClassUsage,
   checkUiDependencies,
   checkUiSources,
@@ -412,6 +413,15 @@ test("check:ui: the whole Web UI satisfies the dependency, primitive, style owne
   assert.deepEqual(checkUiStyles(sources), []);
   assert.deepEqual(checkUiClassUsage(sources), []);
   assert.deepEqual(checkUiStyleEntry(webRoot), []);
+  assert.deepEqual(checkLegacyVisuals(sources), []);
+});
+
+test("check:ui rejects legacy visuals: pills outside status badges, lifted hover and direct uppercase", () => {
+  const styles = (text: string) => [source("features/sample/_sample.scss", text)];
+  assert.deepEqual(checkLegacyVisuals(styles(".status-badge { border-radius: var(--radius-pill); &.tone-done { border-radius: var(--radius-pill); } }")), []);
+  assert.equal(checkLegacyVisuals(styles(".chip { border-radius: var(--radius-pill); }")).length, 1);
+  assert.equal(checkLegacyVisuals(styles(".card { &:hover { transform: translateY(-3px); } }")).length, 1);
+  assert.equal(checkLegacyVisuals(styles(".label { text-transform: uppercase; }")).length, 1);
 });
 
 

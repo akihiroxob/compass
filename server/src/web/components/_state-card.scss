@@ -2,15 +2,15 @@
 @use "../styles/mixins" as *;
 
 .state-card {
-  margin-top: var(--space-xl);
-  padding: var(--space-lg);
+  margin-top: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
   border: 1px dashed var(--color-line-strong);
   border-radius: var(--radius-lg);
   background: var(--color-surface);
   h2 { margin-top: 0; @include heading(var(--text-h2)); }
   code { font-size: .85em; overflow-wrap: anywhere; }
   &.error { border-style: solid; border-color: var(--color-danger-line); color: var(--color-danger); background: var(--color-danger-soft); }
-  @include narrow { margin-top: var(--space-lg); padding: var(--space-md); }
+  @include narrow { padding: var(--space-md); }
   // 確認パネル（ConfirmPanel）の中の失敗は、パネルの余白に合わせて小さくする。
   .abandon-panel & { margin-top: var(--space-md); padding: var(--space-sm) var(--space-md); }
 }
