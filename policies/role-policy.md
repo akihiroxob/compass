@@ -88,6 +88,9 @@ Execution の tool は旧 Wacha の契約を維持し、エラーを `{ error: {
 - Human（Project の editor 以上）は Web UI の Task 詳細から、`in_review` / `wait_accept` の受入・差戻し、`todo` / `doing` の取消、Comment の追加を行える（例外対応・最終判断）。Change Log の `principalId` は `human:<humanUserId>`、payload の `actorRole` は `operator`（Reviewer 工程を省いた受入は `path: operator_direct_review`）で、Comment は `claimId: null` で残る。Agent は Human の差戻し理由・取消・Comment を manager の判断と同じく尊重し、Human の操作を待つ工程は作らない
 - Human の介入は Agent の Claim と競合させない。有効な Claim がある Task の受入・差戻しは Human 側が拒否される。取消は Agent の Claim を解放するため、以後その `claimId` は `CLAIM_EXPIRED` 等で拒否される。再一覧して判断する
 - 情報が足りないときは、人への確認を工程にせず、不足を作業報告として明示する
+- 例外は相談（Collaboration）だけである。既存の要件・方針・権限で決められない要件の不足・矛盾や、Agent 間で解消できない構造・技術の選択に限り、決定対象を所有する scope（Project の要件・設計は Project 相談、Workspace の Direction は Workspace 相談）で Human へ問う。通常の実行許可・既存方針内の判断・一時的な確認を相談にしない
+- 相談の結論整理・取消は Project では `manager`、Workspace では `strategist` が行う。Human の方針決定は Web UI だけの操作で、Agent は Human の決定主体を名乗らない。返信・結論・Task の再開・文書反映は別の段階で、会話が続いているだけで再開せず、文書反映が未完了という理由だけで元 Task を止めない。手順は `respond-consultation`（応答・結論・文書反映）と `consultation-task-resumption`（Task の待機・再開）Skill、契約は `docs/consultation-design.md`
+- Task を相談待ちにできるのは、その Task の現在 Claim を持つ Agent が継続不能な場合だけ。待機は Task 単位で、Role 全体を止めない。相談待ちの Task は候補一覧にも直接の Claim にも現れず、結論の成立（取消だけの場合は manager の継続確認）と要件・成果版の照合の後に、製品 Ralph が元の段階から再開する
 
 ## 実装状況の扱い
 
