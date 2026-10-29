@@ -2,11 +2,12 @@
 /** Dedicated Manager preview fixtures. Product records use the inspected checkout's application services. */
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { open, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, realpath, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
+import { classifyTool, createPreviewMcpClient, PreviewOperationError, previewOperationPolicy } from './preview-operation-policy.mjs';
 
 const { values } = parseArgs({ options: { 'data-dir': { type: 'string' } } });
 if (!values['data-dir'] || !isAbsolute(values['data-dir'])) throw new Error('--data-dir must be an absolute dedicated preview directory');
@@ -44,7 +45,83 @@ const viewerEmail = 'preview-viewer@example.test';
 let sequence = 0;
 const key = (name) => `preview:${name}:${++sequence}`;
 const scenarios = [];
-let availableTools = [];
+// Project and Workspace Consultations reflected in a real document commit through the normal Work flow.
+// Human steps (Repository registration, replies) use the owner's Human use cases and are recorded as in-scope Entities;
+// Agent steps use the policy-checked public MCP.
+const prepareReflections = async (services, owner, client, entry) => {
+  const project = entry.projects.find(({ label }) => label === 'A');
+  const updated = await services.human.updateProject.execute(owner, project.id, {
+    repositories: [{ name: 'verification-docs', url: 'https://example.test/verification-docs.git' }] });
+  const repository = updated.repositories.find(({ name }) => name === 'verification-docs');
+  client.observe({ projectId: project.id }, repository);
+  // Project Repository URLs accept http(s) only; the dedicated bare repository holds the actual commits.
+  const bare = join(data, 'verification-docs.git');
+  const checkout = join(data, 'verification-docs');
+  const git = (...args) => execFileSync('git', args, { cwd: checkout, encoding: 'utf8' }).trim();
+  execFileSync('git', ['init', '-q', '--bare', bare]);
+  execFileSync('git', ['clone', '-q', bare, checkout], { stdio: 'ignore' });
+  git('config', 'user.email', 'preview-worker@example.test');
+  git('config', 'user.name', identities.worker);
+  git('config', 'commit.gpgsign', 'false');
+  const reflect = async (scope, consultationId, { path, ...followupInput }) => {
+    const ids = { projectId: project.id, ...(scope === 'workspace' ? { workspaceId: entry.workspaceId } : {}), consultationId };
+    const { followup } = await client.call('manager', 'request_consultation_followup', { ...ids, repositoryId: repository.id, ...followupInput });
+    const work = await client.call('worker', 'claim_task', { taskId: followup.taskId });
+    await mkdir(join(checkout, dirname(path)), { recursive: true });
+    await writeFile(join(checkout, path), `# ${followupInput.title}\n\n## 決定\n\n${followupInput.decision}\n\n## 理由\n\n${followupInput.rationale}\n`);
+    git('add', path);
+    git('commit', '-q', '-m', `docs: ${followupInput.title}`);
+    git('push', '-q', 'origin', 'HEAD');
+    const commitSha = git('rev-parse', 'HEAD');
+    await client.call('worker', 'add_task_comment', { taskId: followup.taskId, claimId: work.claimId,
+      body: `検証用Repositoryへ${path}をcommitした（${commitSha}）。画面検証専用の公開操作であり、実Agentの成果ではない。` });
+    await client.call('worker', 'complete_task', { taskId: followup.taskId, claimId: work.claimId });
+    const review = await client.call('reviewer', 'claim_review', { taskId: followup.taskId });
+    await client.call('reviewer', 'reviewed_task', { taskId: followup.taskId, claimId: review.claimId });
+    const acceptance = await client.call('manager', 'claim_acceptance', { taskId: followup.taskId });
+    await client.call('manager', 'accept_task', { taskId: followup.taskId, claimId: acceptance.claimId,
+      deliverables: [{ repositoryId: repository.id, commitSha, paths: [path], pullRequestUrl: null }] });
+    await client.call('manager', 'record_consultation_artifact', { ...ids, followupId: followup.id, taskId: followup.taskId,
+      repositoryId: repository.id, path, commitSha, pullRequestUrl: null });
+    return { scope, consultationId, followupId: followup.id, taskId: followup.taskId,
+      artifact: { repositoryId: repository.id, path, commitSha },
+      path: scope === 'project' ? `/projects/${project.id}/consultations/${consultationId}` : `/workspaces/${entry.workspaceId}/consultations/${consultationId}` };
+  };
+  const conclude = async (role, ids, reply) => {
+    const lease = await client.call(role, 'acquire_consultation_lease', { ...ids, inputRevision: reply.consultation.revision });
+    await client.call(role, 'resolve_consultation', { ...ids, leaseId: lease.lease.id, expectedRevision: reply.consultation.revision,
+      conclusion: reply.conclusion, rationale: 'Humanの返信に基づく検証専用の結論', basisMessageIds: [reply.message.id] });
+  };
+  const consultationInput = (title, question) => ({ title, question, blockingReason: '検証用の判断が必要',
+    options: [{ label: 'A案' }, { label: 'B案' }], recommendation: 'A案', impact: '専用プレビューの検証データのみ' });
+  const projectCreated = await client.call('worker', 'create_consultation', { projectId: project.id,
+    ...consultationInput('[検証専用] 通知履歴の保存方式', '通知履歴をDBへ保存するかを決めてください') });
+  const projectIds = { projectId: project.id, consultationId: projectCreated.consultation.id };
+  const projectReply = await services.human.replyConsultation.execute(owner, project.id, projectIds.consultationId,
+    { body: 'A案（DBへ保存）で進めてください。', requestId: key('reply') });
+  client.observe({ projectId: project.id }, projectReply);
+  await conclude('manager', projectIds, { ...projectReply, conclusion: '通知履歴はDBへ保存する' });
+  const workspaceCreated = await client.call('strategist', 'create_consultation', { workspaceId: entry.workspaceId,
+    ...consultationInput('[検証専用] Workspaceの優先順位', 'Target Projectの優先順位を決めてください') });
+  const workspaceIds = { workspaceId: entry.workspaceId, consultationId: workspaceCreated.consultation.id };
+  const workspaceReply = await services.human.replyWorkspaceConsultation.execute(owner, entry.workspaceId, workspaceIds.consultationId,
+    { body: 'A案（Project Aを優先）で進めてください。', requestId: key('reply') });
+  client.observe({ workspaceId: entry.workspaceId }, workspaceReply);
+  await conclude('strategist', workspaceIds, { ...workspaceReply, conclusion: 'Project Aを優先する' });
+  await client.call('strategist', 'hand_off_consultation', { ...workspaceIds, projectId: project.id });
+  const reflected = [
+    await reflect('project', projectIds.consultationId, { kind: 'adr', title: 'ADR: 通知履歴の保存方式', path: 'docs/adr/0001-notification-history.md',
+      purpose: '保存方式の選択を長く参照できるようにする', decision: '通知履歴はDBへ保存する', rationale: 'Humanの返信に基づく検証専用の結論',
+      verification: 'ADRに決定と理由が記載されていること' }),
+    await reflect('workspace', workspaceIds.consultationId, { kind: 'specification', title: '仕様: Workspaceの優先順位', path: 'docs/specs/workspace-priority.md',
+      purpose: '優先順位を仕様として参照できるようにする', decision: 'Project Aを優先する', rationale: 'Humanの返信に基づく検証専用の結論',
+      verification: '仕様に優先順位が記載されていること' }),
+  ];
+  return { repository: { id: repository.id, name: repository.name, url: repository.url, bareRepositoryPath: bare, checkoutPath: checkout },
+    consultations: reflected };
+};
+let observedTools = [];
+let preparation;
 try {
   await initializeSchema(database);
   const services = createApplicationServices(database, undefined, undefined, { initialOwnerEmail: ownerEmail });
@@ -53,18 +130,8 @@ try {
   const owner = { kind: 'human', humanUserId: login.session.humanUserId };
   const direction = services.workspaceDirection;
   const work = services.taskCoordinationService;
-  // Read the inspected revision's public MCP contract; never advertise absent operations.
   const { createApp } = await targetModule('server/src/bootstrap/app.ts');
   const app = createApp(services, { humanAuth: { mode: 'trusted-local', publicOrigin: 'http://localhost' } });
-  const listed = await app.request('/mcp', { method: 'POST', headers: {
-    'Content-Type': 'application/json', Accept: 'application/json, text/event-stream',
-    Authorization: `Bearer ${identities.manager}`, 'X-Compass-Active-Role': 'manager',
-  }, body: JSON.stringify({ jsonrpc: '2.0', id: 'preview-tools', method: 'tools/list' }) });
-  if (!listed.ok) throw new Error('Could not inspect preview MCP capabilities');
-  const raw = await listed.text();
-  const payload = JSON.parse(raw.split('\n').find((line) => line.startsWith('data: '))?.slice(6) ?? raw);
-  if (!Array.isArray(payload.result?.tools)) throw new Error('Invalid preview MCP tools/list response');
-  availableTools = payload.result.tools.map(({ name }) => name);
   const addViewer = async (workspaceId, projectId) => {
     const invitation = await services.createProjectInvitationUseCase.execute(owner, projectId, { email: viewerEmail, role: 'viewer' });
     const signedIn = await services.localDevLoginUseCase.execute({ email: viewerEmail, invitationToken: invitation.token, previousSessionToken: null });
@@ -140,6 +207,20 @@ try {
     }
     scenarios.push(entry);
   }
+  preparation = { endpointPath: '/mcp', actors: identities,
+    projectIds: scenarios.flatMap(({ projects }) => projects.map(({ id }) => id)),
+    workspaceIds: scenarios.map(({ workspaceId }) => workspaceId), operationPolicy: previewOperationPolicy };
+  // Read the inspected revision's public MCP contract; permission comes from the policy, not from listed names.
+  const client = createPreviewMcpClient({ origin: 'http://localhost', preparation, fetch: (url, init) => app.request(url, init) });
+  observedTools = (await client.listTools('manager')).map(classifyTool);
+  const evaluated = scenarios.find(({ scenario }) => scenario === 'evaluated');
+  try {
+    evaluated.consultationReflection = { status: 'prepared', ...await prepareReflections(services, owner, client, evaluated) };
+  } catch (error) {
+    // An inspected SHA without the public reflection contract is recorded, never patched with internal operations.
+    if (!(error instanceof PreviewOperationError) || !['tool_unavailable', 'policy_denied'].includes(error.kind)) throw error;
+    evaluated.consultationReflection = { status: 'unavailable', kind: error.kind, tool: error.tool, message: error.message };
+  }
 } finally {
   await database.destroy();
 }
@@ -148,23 +229,17 @@ const manifest = { schemaVersion: 1, purpose: 'browser-verification-fixtures', h
   repositoryRoot: root, databasePath, createdAt: new Date().toISOString(),
   dataPreparation: {
     policyPath: resolve(dirname(fileURLToPath(import.meta.url)), '../docs/browser-verification.md'),
-    scope: 'isolated-preview-only', endpointPath: '/mcp', actors: identities,
-    projectIds: scenarios.flatMap(({ projects }) => projects.map(({ id }) => id)),
-    allowedTools: ['issue_story', 'issue_task', 'get_story', 'get_task', 'list_stories', 'list_tasks', 'list_task_comments',
-      'claim_task', 'claim_review', 'claim_acceptance', 'renew_claim', 'release_claim',
-      'add_task_comment', 'complete_task', 'reviewed_task', 'accept_task',
-      'create_consultation', 'list_consultations', 'get_consultation', 'acquire_consultation_lease',
-      'reply_consultation', 'resolve_consultation', 'cancel_consultation',
-      'wait_for_consultation', 'list_consultation_resumptions', 'resume_consultation_task',
-      'confirm_consultation_continuation'].filter((name) => availableTools.includes(name)),
-    consultationResumptionEnabled: ['wait_for_consultation', 'list_consultation_resumptions',
-      'resume_consultation_task', 'confirm_consultation_continuation'].every((name) => availableTools.includes(name)),
+    scope: 'isolated-preview-only', ...preparation,
+    // Observation of the inspected contract at preparation time. It is not a permission list; re-read tools/list before calling.
+    observedTools,
+    consultationResumptionEnabled: ['wait_for_consultation', 'list_consultation_resumptions', 'resume_consultation_task',
+      'confirm_consultation_continuation'].every((name) => observedTools.some((tool) => tool.name === name && tool.context === 'work')),
     runtimeArtifacts: {
       scope: 'dedicated-verification-directory-only',
       instructions: 'Save a separate temporary Git checkout at this headSha, uncommitted artifacts and previous Context. Use the inspected revision runtime/consultation-context.mjs. Do not use or modify the actual acceptance execution Worktree/Context.',
     },
     claimTtlMs: Number(process.env.COMPASS_CLAIM_TTL_MS ?? 30 * 60 * 1000),
-    instructions: 'Read policyPath. Use only the dedicated preview URL and these preview actors; execution Task/Claim and operational MCP are outside this permission.',
+    instructions: 'Read policyPath. Use only the dedicated preview URL and these preview actors. Any current tool classified by operationPolicy is permitted within projectIds/workspaceIds; execution Task/Claim, operational MCP and Human management tools are outside this permission.',
   },
   login: { mode: 'trusted-local', ownerEmail, viewerEmail, instructions: 'ログイン画面からemailを入力する。viewerはProject Aのみ所属し、Project Bは未所属。' },
   scenarios, limitations: ['データ準備は公開APIによる管理操作のAC検証ではない', '判定・Evidenceは表示確認用fixtureであり、実Agentの自律運転や実成果を示さない'] };

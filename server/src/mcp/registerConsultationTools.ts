@@ -1,10 +1,10 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { consultationStatuses, followupKinds, type ConsultationScope } from "@compass/collaboration";
 import { agentPrincipalOf, type Caller } from "@compass/access";
 import { ValidationError } from "@compass/shared";
 import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
 import { execute } from "./toolExecution.ts";
+import { runtimeToolMeta, type ToolRegistrar } from "./toolContext.ts";
 
 const scopeIds = {
   projectId: z.string().min(1).optional().describe("Project of a Project Consultation (give exactly one of projectId and workspaceId)"),
@@ -47,7 +47,7 @@ const scopeOf = ({ projectId, workspaceId }: { projectId?: string | undefined; w
  * 未知の項目（`source`等）はMCP境界で捨てず、use caseの厳格な検査でVALIDATION_ERRORにする。
  * 応答待ちの読取り（`get_project_consultation_state`・`get_workspace_consultation_state`）はOrchestrator向けで、Runtime Credentialだけで読む。
  */
-export const registerConsultationTools = (server: McpServer, services: OperationServices, caller: Caller) => {
+export const registerConsultationTools = (server: ToolRegistrar, services: OperationServices, caller: Caller) => {
   const principal = agentPrincipalOf(caller);
   const consultations = services.agentConsultationUseCases;
 
@@ -298,6 +298,7 @@ export const registerConsultationTools = (server: McpServer, services: Operation
     title: "Get Project Consultation State",
     description: "Project Runtime Credential with runtime:state:read only. Read unprocessed Human input revisions for Manager dispatch. Returns IDs and revisions without conversation text; responses require the Manager's own Agent Credential and response lease.",
     inputSchema: { projectId: z.string() },
+    _meta: runtimeToolMeta,
   }, ({ projectId }) => execute(() => services.getProjectConsultationStateUseCase.execute(caller, projectId)));
   server.registerTool("get_workspace_consultation_state", {
     title: "Get Workspace Consultation State",
@@ -307,5 +308,6 @@ export const registerConsultationTools = (server: McpServer, services: Operation
       "Workspace are not included. Returns IDs and revisions without conversation text; an archived Workspace returns an empty list. " +
       "Responses require the Strategist's own Agent Credential and response lease.",
     inputSchema: { workspaceId: z.string() },
+    _meta: runtimeToolMeta,
   }, ({ workspaceId }) => execute(() => services.getWorkspaceConsultationStateUseCase.execute(caller, workspaceId)));
 };

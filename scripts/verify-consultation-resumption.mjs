@@ -8,6 +8,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createPreviewMcpClient } from './preview-operation-policy.mjs';
 
 const root = await realpath(process.cwd());
 const script = fileURLToPath(import.meta.url);
@@ -83,20 +84,9 @@ try {
   await new Promise((resolve) => server.listening ? resolve() : server.once('listening', resolve));
   origin = `http://127.0.0.1:${server.address().port}`;
   fetchHandler = createApp(services, { humanAuth: { mode: 'trusted-local', publicOrigin: origin } }).fetch;
-  const mcp = async (role, name, args) => {
-    assert.ok(manifest.dataPreparation.allowedTools.includes(name), `Preview policy does not permit ${name}`);
-    const response = await fetch(origin + '/mcp', { method: 'POST', headers: {
-      'Content-Type': 'application/json', Accept: 'application/json, text/event-stream',
-      Authorization: `Bearer ${actors[role]}`, 'X-Compass-Active-Role': role,
-    }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
-      name, arguments: { ...args, requestId: crypto.randomUUID() },
-    } }) });
-    assert.equal(response.status, 200);
-    const raw = await response.text();
-    const result = JSON.parse(raw.split('\n').find((line) => line.startsWith('data: '))?.slice(6) ?? raw).result;
-    assert.ok(!result.isError, JSON.stringify(result.structuredContent));
-    return result.structuredContent;
-  };
+  // The manifest's scope-based policy decides permission against the current tools/list of this loopback server.
+  const client = createPreviewMcpClient({ origin, preparation: manifest.dataPreparation });
+  const mcp = (role, name, args) => client.call(role, name, args);
   const login = await fetch(origin + '/auth/local/login', { method: 'POST', redirect: 'manual', headers: { Origin: origin },
     body: new URLSearchParams({ email: 'preview-owner@example.test' }) });
   assert.equal(login.status, 302);

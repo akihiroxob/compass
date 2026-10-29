@@ -8,6 +8,26 @@ import { fileURLToPath } from "node:url";
 import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
+import { toolCallerMetaKey, toolContextMetaKey } from "../src/mcp/toolContext.ts";
+// @ts-expect-error The preparation scripts are plain ESM without declarations.
+import { createPreviewMcpClient, PreviewOperationError, toolCallerMetaKey as policyCallerKey, toolContextMetaKey as policyContextKey } from "../../scripts/preview-operation-policy.mjs";
+
+type Preparation = { scope: string; endpointPath: string; actors: Record<string, string>; projectIds: string[]; workspaceIds: string[];
+  operationPolicy: { contexts: string[]; caller: string }; observedTools: { name: string; context: string | null; caller: string | null }[];
+  consultationResumptionEnabled: boolean };
+type Reflection = { status: string; repository: { id: string; bareRepositoryPath: string };
+  consultations: { scope: "project" | "workspace"; consultationId: string; followupId: string; taskId: string; path: string;
+    artifact: { repositoryId: string; path: string; commitSha: string } }[] };
+type PolicyClient = {
+  listTools(role: string): Promise<{ name: string; _meta?: Record<string, unknown> }[]>;
+  permittedTools(role: string): Promise<string[]>;
+  call(role: string, name: string, args?: object): Promise<any>;
+  observe(scope: { projectId?: string; workspaceId?: string }, value: unknown): void;
+};
+const clientOf = (preparation: Preparation, send: (url: string, init: RequestInit) => Response | Promise<Response>): PolicyClient =>
+  createPreviewMcpClient({ origin: "http://localhost", preparation, fetch: send });
+const rejectsWith = (operation: Promise<unknown>, kind: string) =>
+  assert.rejects(operation, (error: unknown) => error instanceof PreviewOperationError && (error as { kind: string }).kind === kind);
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const ownerEmail = "preview-owner@example.test";
@@ -24,23 +44,22 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
     assert.equal(prepared.status, 0, prepared.stderr);
     const manifest = JSON.parse(await readFile(join(data, "browser-fixtures.json"), "utf8")) as {
       headSha: string; preparationScriptSha256: string;
-      dataPreparation: { scope: string; actors: Record<string, string>; allowedTools: string[]; projectIds: string[]; consultationResumptionEnabled: boolean };
+      dataPreparation: Preparation;
       scenarios: { scenario: string; workspaceId: string; intentId: string; outcomeId: string;
-        projects: { id: string }[]; evaluationId?: string; decisionId?: string; researchRequestId?: string }[];
+        projects: { id: string }[]; evaluationId?: string; decisionId?: string; researchRequestId?: string; consultationReflection?: Reflection }[];
     };
     assert.match(manifest.headSha, /^[a-f0-9]{40}$/);
     assert.match(manifest.preparationScriptSha256, /^[a-f0-9]{64}$/);
     assert.equal(manifest.dataPreparation.scope, "isolated-preview-only");
-    assert.ok(manifest.dataPreparation.allowedTools.includes("claim_task"));
-    assert.ok(manifest.dataPreparation.allowedTools.includes("list_task_comments"));
-    // The manifest must describe the actual inspected MCP contract, including optional newer features.
-    const hasResumption = manifest.dataPreparation.allowedTools.includes("wait_for_consultation");
-    assert.equal(manifest.dataPreparation.consultationResumptionEnabled, hasResumption);
-    if (hasResumption) {
-      for (const name of ["list_consultation_resumptions", "resume_consultation_task", "confirm_consultation_continuation"]) {
-        assert.ok(manifest.dataPreparation.allowedTools.includes(name));
-      }
-    }
+    assert.equal("allowedTools" in manifest.dataPreparation, false, "Permission must not be a hand-written tool name list");
+    assert.deepEqual(manifest.dataPreparation.operationPolicy.contexts, ["work", "collaboration"]);
+    // observedTools records the inspected contract and its classification; it is an observation, not the permission.
+    const observed = new Map(manifest.dataPreparation.observedTools.map((tool) => [tool.name, tool]));
+    assert.equal(observed.get("claim_task")?.context, "work");
+    assert.equal(observed.get("record_consultation_artifact")?.context, "collaboration");
+    assert.equal(observed.get("create_project")?.context, null);
+    assert.equal(manifest.dataPreparation.consultationResumptionEnabled, true);
+    assert.deepEqual(manifest.dataPreparation.workspaceIds, manifest.scenarios.map(({ workspaceId }) => workspaceId));
     const database = createDatabase(join(data, "preview.db"));
     try {
       let now = Date.now();
@@ -100,23 +119,28 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
           }, body: JSON.stringify({ mission: "unauthorized" }) })).status, 403);
         }
       }
-      // Manager can add missing preview data using the same public MCP entry as browser fetch.
-      const call = async (role: string, name: string, args: object) => {
-        assert.ok(manifest.dataPreparation.allowedTools.includes(name));
-        const response = await app.request("/mcp", { method: "POST", headers: {
-          "Content-Type": "application/json", Accept: "application/json, text/event-stream",
-          Authorization: `Bearer ${manifest.dataPreparation.actors[role]}`,
-          "X-Compass-Active-Role": role,
-        }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {
-          name, arguments: { ...args, requestId: crypto.randomUUID() },
-        } }) });
-        assert.equal(response.status, 200);
-        const line = (await response.text()).split("\n").find((line) => line.startsWith("data: "));
-        assert.ok(line);
-        const { result } = JSON.parse(line.slice(6));
-        assert.equal(result.isError, undefined, JSON.stringify(result.structuredContent));
-        return result.structuredContent;
-      };
+      // Reflected Consultations were prepared through public MCP: real commit, normal Review/Acceptance and artifact registration.
+      const reflection = manifest.scenarios.find(({ scenario }) => scenario === "evaluated")!.consultationReflection!;
+      assert.equal(reflection.status, "prepared");
+      assert.deepEqual(reflection.consultations.map(({ scope }) => scope), ["project", "workspace"]);
+      for (const item of reflection.consultations) {
+        const exists = spawnSync("git", ["--git-dir", reflection.repository.bareRepositoryPath, "cat-file", "-e", `${item.artifact.commitSha}:${item.artifact.path}`]);
+        assert.equal(exists.status, 0, "The artifact commit must exist in the dedicated verification Repository");
+        const api = `/api${item.path}`;
+        for (const cookie of [owner, viewer]) {
+          const detail = await app.request(api, { headers: { Cookie: cookie } });
+          assert.equal(detail.status, 200);
+          const [followup] = (await detail.json()).followups;
+          assert.equal(followup.id, item.followupId);
+          assert.equal(followup.status, "reflected");
+          assert.equal(followup.task.status, "accepted");
+          assert.equal(followup.artifacts[0].commitSha, item.artifact.commitSha);
+          assert.equal(followup.artifacts[0].path, item.artifact.path);
+        }
+      }
+      // Manager can add missing preview data using the same public MCP entry as browser fetch, under the scope-based policy.
+      const client = clientOf(manifest.dataPreparation, (url, init) => app.request(url, init));
+      const call = (role: string, name: string, args: object) => client.call(role, name, args);
       const projectIds = manifest.scenarios.find(({ scenario }) => scenario === "evaluated")!.projects.map(({ id }) => id);
       const tasks: { id: string; claim: { claimId: string; expiresAt: number } }[] = [];
       for (const projectId of projectIds) {
@@ -166,6 +190,7 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
       assert.equal(resumptions.resumptions.find((item: { taskId: string }) => item.taskId === waitingTask.id)?.state, "waiting");
       assert.equal(await readFile(join(artifacts, "pending.txt"), "utf8"), "preserved artifact");
 
+      await assertScopedPolicy(manifest.dataPreparation, app, services, ownerEmail);
     } finally { await database.destroy(); }
     const before = await readFile(join(data, "preview.db"));
     assert.notEqual(prepare(data).status, 0);
@@ -181,3 +206,76 @@ test("preview preparation rejects remote auth and paths outside its dedicated DB
     await assert.rejects(readFile(join(data, "preview.db")), { code: "ENOENT" });
   } finally { await rm(data, { recursive: true, force: true }); }
 });
+
+type App = ReturnType<typeof createApp>;
+type Services = ReturnType<typeof createApplicationServices>;
+
+/** The policy permits current Work/Collaboration tools by classification and scope, and distinguishes each failure. */
+const assertScopedPolicy = async (preparation: Preparation, app: App, services: Services, email: string) => {
+  assert.equal(policyContextKey, toolContextMetaKey);
+  assert.equal(policyCallerKey, toolCallerMetaKey);
+  const client = clientOf(preparation, (url, init) => app.request(url, init));
+  const permitted = await client.permittedTools("manager");
+  for (const name of ["issue_task", "claim_acceptance", "request_consultation_followup", "record_consultation_artifact"]) assert.ok(permitted.includes(name), name);
+  // Human management, Direction and Runtime Credential tools stay outside even though tools/list exposes them in trusted-local.
+  for (const name of ["create_project", "update_project", "create_intent", "get_project_consultation_state"]) {
+    assert.ok(!permitted.includes(name), name);
+    await rejectsWith(client.call("manager", name, {}), "policy_denied");
+  }
+  await rejectsWith(client.call("manager", "no_such_tool", {}), "tool_unavailable");
+  await rejectsWith(client.call("operator", "list_tasks", { projectId: preparation.projectIds[0] }), "policy_denied");
+  // A Project outside the manifest is denied by the policy even when the actor holds a Grant there.
+  const login = await services.localDevLoginUseCase.execute({ email, previousSessionToken: null });
+  assert.equal(login.kind, "logged_in");
+  const owner = { kind: "human" as const, humanUserId: login.kind === "logged_in" ? login.session.humanUserId : "" };
+  const outside = await services.human.createWorkspace.execute({ name: "Policy外", mission: "scope外の確認" }, owner);
+  const project = await services.human.createWorkspaceProject.execute(owner, outside.id, { name: "Policy外Project" });
+  await services.grantProjectRoleUseCase.execute(project.id, { principalId: preparation.actors.manager!, role: "manager" });
+  await rejectsWith(client.call("manager", "issue_task", { projectId: project.id, title: "scope外" }), "policy_denied");
+  await rejectsWith(client.call("manager", "list_consultations", { workspaceId: outside.id }), "policy_denied");
+  // Entity IDs alone do not place a call in scope: Task/Claim/Story/Consultation IDs outside the manifest are denied even with a Grant.
+  const coordination = services.taskCoordinationService;
+  await services.grantProjectRoleUseCase.execute(project.id, { principalId: preparation.actors.worker!, role: "worker" });
+  const story = await coordination.issueStoryAsOperator(preparation.actors.manager!, project.id, { title: "scope外Story", description: null });
+  const task = await coordination.issueTask(preparation.actors.manager!, { projectId: project.id, storyId: story.id, title: "scope外Task" }, crypto.randomUUID());
+  const claim = await coordination.claimTask(preparation.actors.worker!, task.id, crypto.randomUUID());
+  for (const [role, name, args] of [
+    ["manager", "cancel_task", { taskId: task.id, reason: "scope外" }],
+    ["worker", "claim_task", { taskId: task.id }],
+    ["worker", "list_task_comments", { taskId: task.id }],
+    ["worker", "renew_claim", { claimId: claim.claimId }],
+    ["manager", "issue_task", { projectId: preparation.projectIds[0], storyId: story.id, title: "scope外Storyへの追加" }],
+    ["manager", "list_tasks", {}],
+  ] as const) await rejectsWith(client.call(role, name, args), "policy_denied");
+  assert.equal((await coordination.getTaskDetailOfProject(project.id, task.id))?.task.status, "doing");
+  assert.throws(() => client.observe({ projectId: project.id }, task), (error: unknown) => error instanceof PreviewOperationError);
+  // Entities observed through in-scope calls can be targeted by ID.
+  const inside = await client.call("manager", "issue_task", { projectId: preparation.projectIds[0], title: "scope内Task" });
+  const insideClaim = await client.call("worker", "claim_task", { taskId: inside.id });
+  assert.ok((await client.call("worker", "renew_claim", { claimId: insideClaim.claimId })).expiresAt);
+  // Inside the policy the server still enforces Roles: a Worker cannot cancel a Task.
+  await rejectsWith(client.call("worker", "cancel_task", { taskId: inside.id, reason: "Workerによる取消" }), "authorization_denied");
+  await rejectsWith(clientOf(preparation, () => { throw new Error("connection refused"); }).call("manager", "list_tasks", {}), "transport_failure");
+  await rejectsWith(clientOf(preparation, () => new Response("unavailable", { status: 502 })).listTools("manager"), "transport_failure");
+
+  // A tool added later in the same context is discovered from tools/list and used without editing any name list.
+  const future = { name: "preview_future_work_tool", inputSchema: { type: "object", properties: { projectId: { type: "string" }, requestId: { type: "string" } } },
+    _meta: { [toolContextMetaKey]: "work", [toolCallerMetaKey]: "agent" } };
+  const calls: Record<string, unknown>[] = [];
+  const extended = clientOf(preparation, async (url, init) => {
+    const body = JSON.parse(String(init.body));
+    if (body.method === "tools/call" && body.params.name === future.name) {
+      calls.push(body.params.arguments);
+      return Response.json({ jsonrpc: "2.0", id: body.id, result: { content: [], structuredContent: { ok: true } } });
+    }
+    const response = await app.request(url, init);
+    if (body.method !== "tools/list") return response;
+    const line = (await response.text()).split("\n").find((item) => item.startsWith("data: "))!;
+    const message = JSON.parse(line.slice(6));
+    message.result.tools.push(future);
+    return Response.json(message);
+  });
+  assert.deepEqual(await extended.call("manager", future.name, { projectId: preparation.projectIds[0] }), { ok: true });
+  assert.equal(typeof calls[0]!.requestId, "string");
+  await rejectsWith(extended.call("manager", future.name, { projectId: project.id }), "policy_denied");
+};
