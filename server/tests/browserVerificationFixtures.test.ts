@@ -18,6 +18,8 @@ type Preparation = { scope: string; endpointPath: string; actors: Record<string,
 type Reflection = { status: string; repository: { id: string; bareRepositoryPath: string };
   consultations: { scope: "project" | "workspace"; consultationId: string; followupId: string; taskId: string; path: string;
     artifact: { repositoryId: string; path: string; commitSha: string } }[] };
+type Lifecycle = { status: string; observations: { label: string; matched: boolean }[];
+  stages: { stage: string; consultationId?: string; taskId?: string; path?: string; paths?: string[]; artifactPath?: string }[] };
 type PolicyClient = {
   listTools(role: string): Promise<{ name: string; _meta?: Record<string, unknown> }[]>;
   permittedTools(role: string): Promise<string[]>;
@@ -46,7 +48,9 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
       headSha: string; preparationScriptSha256: string;
       dataPreparation: Preparation;
       scenarios: { scenario: string; workspaceId: string; intentId: string; outcomeId: string;
-        projects: { id: string }[]; evaluationId?: string; decisionId?: string; researchRequestId?: string; consultationReflection?: Reflection }[];
+        projects: { id: string }[]; evaluationId?: string; decisionId?: string; researchRequestId?: string; consultationReflection?: Reflection;
+        consultationLifecycle?: Lifecycle }[];
+      persistenceCheck: { snapshotPath: string; paths: string[] };
     };
     assert.match(manifest.headSha, /^[a-f0-9]{40}$/);
     assert.match(manifest.preparationScriptSha256, /^[a-f0-9]{64}$/);
@@ -137,6 +141,33 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
           assert.equal(followup.artifacts[0].commitSha, item.artifact.commitSha);
           assert.equal(followup.artifacts[0].path, item.artifact.path);
         }
+      }
+      // Consultation stages were left visible through public MCP and Human use cases, with the expected rejections observed.
+      const lifecycle = manifest.scenarios.find(({ scenario }) => scenario === "partial-work")!.consultationLifecycle!;
+      assert.equal(lifecycle.status, "prepared");
+      assert.deepEqual(lifecycle.observations.filter(({ matched }) => !matched), []);
+      const stage = (name: string) => lifecycle.stages.find((item) => item.stage === name)!;
+      const detailOf = async (path: string, cookie = owner) => {
+        const response = await app.request(`/api${path}`, { headers: { Cookie: cookie } });
+        return { status: response.status, body: response.status === 200 ? await response.json() : null };
+      };
+      const stateOf = async (path: string) => {
+        const { body } = await detailOf(path);
+        return [body.consultation.status, body.waitingTasks.map(({ state }: { state: string }) => state).join(), body.responder !== null];
+      };
+      assert.deepEqual(await stateOf(stage("waiting_human").path!), ["waiting_human", "waiting", false]);
+      assert.deepEqual(await stateOf(stage("agent_responding").path!), ["waiting_agent", "waiting", true]);
+      assert.deepEqual(await stateOf(stage("resumed").path!), ["resolved", "resuming", false]);
+      assert.deepEqual(await Promise.all(stage("confirmation_required").paths!.map(stateOf)), [["resolved", "waiting", false], ["canceled", "waiting", false]]);
+      assert.equal((await detailOf(stage("correction").path!)).body.consultation.supersedesConsultationId, stage("resumed").consultationId);
+      assert.equal(await readFile(stage("resumed").artifactPath!, "utf8"), "uncommitted artifact resumed\n");
+      assert.equal((await detailOf(stage("hidden_from_viewer").path!, viewer)).status, 404);
+      // The preview server reopens the same DB file; a fresh application must return the snapshot taken before it.
+      const snapshot = JSON.parse(await readFile(manifest.persistenceCheck.snapshotPath, "utf8")) as { responses: Record<string, { status: number; body: unknown }> };
+      assert.deepEqual(Object.keys(snapshot.responses), manifest.persistenceCheck.paths);
+      for (const [path, saved] of Object.entries(snapshot.responses)) {
+        const response = await app.request(path, { headers: { Cookie: owner } });
+        assert.deepEqual({ status: response.status, body: await response.json() }, saved, path);
       }
       // Manager can add missing preview data using the same public MCP entry as browser fetch, under the scope-based policy.
       const client = clientOf(manifest.dataPreparation, (url, init) => app.request(url, init));

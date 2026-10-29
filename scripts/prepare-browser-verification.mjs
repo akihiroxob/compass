@@ -120,8 +120,168 @@ const prepareReflections = async (services, owner, client, entry) => {
   return { repository: { id: repository.id, name: repository.name, url: repository.url, bareRepositoryPath: bare, checkoutPath: checkout },
     consultations: reflected };
 };
+// Project/Workspace Consultations left at each visible stage (Human待ち・応答中・再開・継続確認待ち・方針訂正) with waiting Tasks.
+// Agent steps use the policy-checked public MCP and Human steps the owner's Human use cases. Expected rejections are recorded,
+// not asserted, so the Manager can compare them with the current product behavior.
+const prepareConsultationLifecycle = async (services, owner, client, entry, inspectRuntime) => {
+  const [projectA, projectB] = entry.projects.map(({ id }) => id);
+  const workspaceId = entry.workspaceId;
+  const observations = [];
+  const rejected = async (label, expected, role, name, args) => {
+    try {
+      await client.call(role, name, args);
+      observations.push({ label, tool: name, principal: identities[role], expected, observed: 'succeeded', matched: false });
+    } catch (error) {
+      if (!(error instanceof PreviewOperationError) || error.kind === 'policy_denied' || error.kind === 'tool_unavailable') throw error;
+      const observed = error.conflict ?? error.code ?? error.kind;
+      observations.push({ label, tool: name, principal: identities[role], expected, observed, matched: observed === expected });
+    }
+  };
+  const same = (label, first, second) => observations.push({ label, expected: 'same result', observed: JSON.stringify(first) === JSON.stringify(second) ? 'same result' : 'different result',
+    matched: JSON.stringify(first) === JSON.stringify(second) });
+  // Saved artifacts live in a separate checkout of the inspected SHA inside the dedicated directory.
+  const runtimeFor = async (name) => {
+    const worktreePath = join(data, `consultation-runtime-${name}`);
+    execFileSync('git', ['clone', '-q', '--shared', '--no-checkout', root, worktreePath]);
+    execFileSync('git', ['checkout', '-q', '--detach', headSha], { cwd: worktreePath });
+    await mkdir(join(worktreePath, '.compass-ralph'));
+    const contextPath = join(worktreePath, '.compass-ralph/previous-context.json');
+    await writeFile(contextPath, JSON.stringify({ reason: 'Consultation pending', name }));
+    await writeFile(join(worktreePath, 'preview-artifact.txt'), `uncommitted artifact ${name}\n`);
+    return { worktreePath, read: () => inspectRuntime({ worktreePath, contextPath, pullRequest: null, verificationRefs: [] }) };
+  };
+  const consultation = (title, question, extra = {}) => ({ title: `[検証専用] ${title}`, question, blockingReason: '既存方針で決められない選択',
+    options: [{ label: 'A案' }, { label: 'B案' }], recommendation: 'A案', impact: '専用プレビューの検証データのみ', ...extra });
+  const humanReply = async (consultationId, body, requestId = key('reply')) => {
+    const reply = await services.human.replyConsultation.execute(owner, projectA, consultationId, { body, requestId });
+    client.observe({ projectId: projectA }, reply);
+    return reply;
+  };
+  const waitingTask = async (name, title, consultationIds) => {
+    const task = await client.call('manager', 'issue_task', { projectId: projectA, title: `[検証専用] ${title}`, description: '相談待ちから再開する検証専用Task' });
+    const claim = await client.call('worker', 'claim_task', { taskId: task.id });
+    const runtime = await runtimeFor(name);
+    const input = { taskId: task.id, claimId: claim.claimId, consultationIds, reason: '相談の結論待ち', runtime: runtime.read(), requestId: key('wait') };
+    const waited = await client.call('worker', 'wait_for_consultation', input);
+    return { task, runtime, input, waited };
+  };
+  const resumptionOf = async (taskId) => (await client.call('worker', 'list_consultation_resumptions', { projectId: projectA }))
+    .resumptions.find((item) => item.taskId === taskId);
+  const lease = (role, ids, revision) => client.call(role, 'acquire_consultation_lease', { ...ids, inputRevision: revision });
+
+  // Human待ち: 回答不足への追加質問で`waiting_human`へ戻り、Taskは待機を続ける。
+  const humanCreated = await client.call('worker', 'create_consultation', { projectId: projectA,
+    ...consultation('通知の保存先', '通知履歴をCollaborationとActivityのどちらに保存しますか') });
+  const humanIds = { projectId: projectA, consultationId: humanCreated.consultation.id };
+  const humanWait = await waitingTask('human', 'Human待ちの相談を待つTask', [humanIds.consultationId]);
+  same('wait_for_consultation resent with the same requestId', humanWait.waited, await client.call('worker', 'wait_for_consultation', humanWait.input));
+  const candidates = await client.call('worker', 'list_tasks', { projectId: projectA, filter: { availableFor: 'work' } });
+  observations.push({ label: 'waiting Task is excluded from work candidates', expected: 'excluded',
+    observed: candidates.tasks.some(({ id }) => id === humanWait.task.id) ? 'listed' : 'excluded', matched: !candidates.tasks.some(({ id }) => id === humanWait.task.id) });
+  await rejected('direct claim of a waiting Task', 'TASK_NOT_CLAIMABLE', 'worker', 'claim_task', { taskId: humanWait.task.id });
+  const replyRequestId = key('reply');
+  const firstReply = await humanReply(humanIds.consultationId, 'まだ決めきれません。Activityにすると何が困りますか。', replyRequestId);
+  same('Human reply resent with the same requestId', firstReply.message.id,
+    (await services.human.replyConsultation.execute(owner, projectA, humanIds.consultationId, { body: 'まだ決めきれません。Activityにすると何が困りますか。', requestId: replyRequestId })).message.id);
+  try {
+    await services.human.replyConsultation.execute({ kind: 'human', humanUserId: entry.viewerHumanUserId }, projectA, humanIds.consultationId, { body: 'viewer', requestId: key('reply') });
+    observations.push({ label: 'viewer reply', expected: 'rejected', observed: 'succeeded', matched: false });
+  } catch (error) {
+    observations.push({ label: 'viewer reply', expected: 'rejected', observed: `rejected: ${error.code ?? error.name}`, matched: true });
+  }
+  const questionLease = await lease('manager', humanIds, firstReply.consultation.revision);
+  await rejected('lease on the same revision by another Principal', 'LEASE_HELD', 'reviewer', 'acquire_consultation_lease', { ...humanIds, inputRevision: firstReply.consultation.revision });
+  await client.call('manager', 'reply_consultation', { ...humanIds, leaseId: questionLease.lease.id, expectedRevision: firstReply.consultation.revision,
+    body: 'Activityは履歴でありworkflowの状態を持たないため、未処理の通知を追えません。Collaborationでよいですか。' });
+
+  // 応答中: Humanの返信にManagerが応答leaseを持つ。応答中の追加返信で古い版の結論は拒否され、新しい版のleaseを残す。
+  const respondingCreated = await client.call('worker', 'create_consultation', { projectId: projectA,
+    ...consultation('公開APIの範囲', '管理APIをMCPへ公開しますか') });
+  const respondingIds = { projectId: projectA, consultationId: respondingCreated.consultation.id };
+  await waitingTask('responding', '応答中の相談を待つTask', [respondingIds.consultationId]);
+  const respondingReply = await humanReply(respondingIds.consultationId, 'A案で進めてください。');
+  const staleLease = await lease('manager', respondingIds, respondingReply.consultation.revision);
+  const addedReply = await humanReply(respondingIds.consultationId, '補足: 既存の管理画面は変えないでください。');
+  await rejected('conclusion on a revision older than an added Human reply', 'STALE_REVISION', 'manager', 'resolve_consultation', { ...respondingIds,
+    leaseId: staleLease.lease.id, expectedRevision: respondingReply.consultation.revision, conclusion: 'A案', rationale: '古い版', basisMessageIds: [respondingReply.message.id] });
+  const heldLease = await lease('manager', respondingIds, addedReply.consultation.revision);
+
+  // 再開: 結論（agent_summary）→ ready → 元のwork段階の新Claim。成果物は別checkoutに保持される。
+  const resumedCreated = await client.call('worker', 'create_consultation', { projectId: projectA,
+    ...consultation('通知テーブルの扱い', '既存の通知テーブルを使いますか') });
+  const resumedIds = { projectId: projectA, consultationId: resumedCreated.consultation.id };
+  const resumedWait = await waitingTask('resumed', '結論の後に再開したTask', [resumedIds.consultationId]);
+  const resumedReply = await humanReply(resumedIds.consultationId, 'B案（既存の通知テーブルは使わない）にしてください。');
+  const resolveLease = await lease('manager', resumedIds, resumedReply.consultation.revision);
+  const resolveInput = { ...resumedIds, leaseId: resolveLease.lease.id, expectedRevision: resumedReply.consultation.revision,
+    conclusion: '既存の通知テーブルは使わない', rationale: 'HumanがB案を選んだ', basisMessageIds: [resumedReply.message.id], requestId: key('resolve') };
+  same('resolve_consultation resent with the same requestId', await client.call('manager', 'resolve_consultation', resolveInput),
+    await client.call('manager', 'resolve_consultation', resolveInput));
+  const ready = await resumptionOf(resumedWait.task.id);
+  observations.push({ label: 'resumption after the conclusion', expected: 'ready', observed: ready?.state ?? 'missing', matched: ready?.state === 'ready' });
+  const resumeInput = { taskId: resumedWait.task.id, runtime: resumedWait.runtime.read(), requestId: key('resume') };
+  const resumed = await client.call('worker', 'resume_consultation_task', resumeInput);
+  same('resume_consultation_task resent with the same requestId', resumed, await client.call('worker', 'resume_consultation_task', resumeInput));
+  await rejected('second resumption request', 'CLAIM_CONFLICT', 'worker', 'resume_consultation_task', { taskId: resumedWait.task.id, runtime: resumedWait.runtime.read() });
+
+  // 継続確認待ち: 2件を待つTaskで、1件はHumanの明示決定、1件はManagerの取消。Managerの継続確認までreadyにしない。
+  const decidedCreated = await client.call('worker', 'create_consultation', { projectId: projectA, ...consultation('旧画面の扱い', '旧画面を残しますか') });
+  const canceledCreated = await client.call('worker', 'create_consultation', { projectId: projectA, ...consultation('旧APIの扱い', '旧APIを残しますか') });
+  const decidedIds = { projectId: projectA, consultationId: decidedCreated.consultation.id };
+  const canceledIds = { projectId: projectA, consultationId: canceledCreated.consultation.id };
+  const multiWait = await waitingTask('confirmation', '複数の相談と取消を待つTask', [decidedIds.consultationId, canceledIds.consultationId]);
+  const decided = await services.human.decideConsultation.execute(owner, projectA, decidedIds.consultationId, { conclusion: '旧画面は削除する',
+    rationale: 'Humanの明示決定（検証専用）', selectedOption: 0, expectedRevision: decidedCreated.consultation.revision, requestId: key('decide') });
+  client.observe({ projectId: projectA }, decided);
+  await client.call('manager', 'cancel_consultation', { ...canceledIds, reason: '別Storyで旧APIを削除済みのため不要', expectedRevision: canceledCreated.consultation.revision });
+  const confirmation = await resumptionOf(multiWait.task.id);
+  observations.push({ label: 'resumption after a Human decision and a cancellation', expected: 'waiting', observed: confirmation?.state ?? 'missing',
+    matched: confirmation?.state === 'waiting', failureReason: confirmation?.failureReason ?? null });
+  await rejected('continuation confirmed by a Worker', 'FORBIDDEN', 'worker', 'confirm_consultation_continuation', { taskId: multiWait.task.id,
+    expectedRequirementVersion: confirmation.requirementVersion, consultationRevisions: confirmation.consultations.map(({ id, revision }) => ({ id, revision })), reason: 'Workerによる確認' });
+
+  // 方針訂正: 解決済みの相談を参照する新しい相談。Workspace相談はHuman待ちのまま残す。Project Bの相談はviewerに見えない。
+  const correction = await client.call('manager', 'create_consultation', { projectId: projectA, ...consultation('通知テーブルの方針訂正',
+    '保存期間の要件が追加されたため、通知テーブルを使わない方針を見直しますか', { supersedesConsultationId: resumedIds.consultationId }) });
+  const workspaceWaiting = await client.call('strategist', 'create_consultation', { workspaceId,
+    ...consultation('次に優先するOutcome', '検索改善と通知改善のどちらを先に追いますか') });
+  const hidden = await client.call('worker', 'create_consultation', { projectId: projectB, ...consultation('Project Bだけの判断', 'Project Bの非公開の判断') });
+
+  const projectPath = (consultationId) => `/projects/${projectA}/consultations/${consultationId}`;
+  return {
+    stages: [
+      { stage: 'waiting_human', consultationId: humanIds.consultationId, taskId: humanWait.task.id, expected: 'Human待ち・追加質問・Task waiting', path: projectPath(humanIds.consultationId) },
+      { stage: 'agent_responding', consultationId: respondingIds.consultationId, expected: 'Agent応答中（manager lease）', leaseExpiresAt: heldLease.lease.expiresAt,
+        path: projectPath(respondingIds.consultationId) },
+      { stage: 'resumed', consultationId: resumedIds.consultationId, taskId: resumedWait.task.id, claimId: resumed.claimId ?? resumed.claim?.claimId ?? null,
+        expected: '結論（agent_summary）・元のwork段階で再開', path: projectPath(resumedIds.consultationId), taskPath: `/projects/${projectA}/tasks/${resumedWait.task.id}`,
+        artifactPath: join(resumedWait.runtime.worktreePath, 'preview-artifact.txt') },
+      { stage: 'confirmation_required', consultationIds: [decidedIds.consultationId, canceledIds.consultationId], taskId: multiWait.task.id,
+        expected: 'Humanの明示決定と取消・Managerの継続確認待ち', paths: [projectPath(decidedIds.consultationId), projectPath(canceledIds.consultationId)] },
+      { stage: 'correction', consultationId: correction.consultation.id, supersedes: resumedIds.consultationId, path: projectPath(correction.consultation.id) },
+      { stage: 'workspace_waiting_human', consultationId: workspaceWaiting.consultation.id, path: `/workspaces/${workspaceId}/consultations/${workspaceWaiting.consultation.id}` },
+      { stage: 'hidden_from_viewer', projectId: projectB, consultationId: hidden.consultation.id, path: `/projects/${projectB}/consultations/${hidden.consultation.id}` },
+    ],
+    observations,
+  };
+};
+// Web API responses before the preview server starts on the same DB file; the preview is the restarted server.
+const persistenceSnapshot = async (app, entries) => {
+  const origin = 'http://localhost';
+  const signedIn = await app.request(`${origin}/auth/local/login`, { method: 'POST', redirect: 'manual', headers: { Origin: origin },
+    body: new URLSearchParams({ email: ownerEmail }) });
+  const cookie = signedIn.headers.get('set-cookie')?.match(/compass_session=[^;]+/)?.[0];
+  if (!cookie) throw new Error('Preview owner could not sign in for the persistence snapshot');
+  const responses = {};
+  for (const path of ['/api/consultations?status=all', ...entries.flatMap(({ path, paths }) => paths ?? (path ? [path] : [])).map((path) => `/api${path}`)]) {
+    const response = await app.request(origin + path, { headers: { Cookie: cookie } });
+    responses[path] = { status: response.status, body: await response.json() };
+  }
+  return responses;
+};
 let observedTools = [];
 let preparation;
+let persistence;
 try {
   await initializeSchema(database);
   const services = createApplicationServices(database, undefined, undefined, { initialOwnerEmail: ownerEmail });
@@ -221,6 +381,16 @@ try {
     if (!(error instanceof PreviewOperationError) || !['tool_unavailable', 'policy_denied'].includes(error.kind)) throw error;
     evaluated.consultationReflection = { status: 'unavailable', kind: error.kind, tool: error.tool, message: error.message };
   }
+  const partial = scenarios.find(({ scenario }) => scenario === 'partial-work');
+  try {
+    const { inspectConsultationRuntime } = await targetModule('ralph/runtime/consultation-context.mjs');
+    partial.consultationLifecycle = { status: 'prepared', ...await prepareConsultationLifecycle(services, owner, client, partial, inspectConsultationRuntime) };
+  } catch (error) {
+    if (!(error instanceof PreviewOperationError) || !['tool_unavailable', 'policy_denied'].includes(error.kind)) throw error;
+    partial.consultationLifecycle = { status: 'unavailable', kind: error.kind, tool: error.tool, message: error.message };
+  }
+  persistence = { takenAt: new Date().toISOString(), responses: await persistenceSnapshot(app, [
+    ...(partial.consultationLifecycle.stages ?? []), ...(evaluated.consultationReflection.consultations ?? [])]) };
 } finally {
   await database.destroy();
 }
@@ -244,6 +414,11 @@ const manifest = { schemaVersion: 1, purpose: 'browser-verification-fixtures', h
   login: { mode: 'trusted-local', ownerEmail, viewerEmail, instructions: 'ログイン画面からemailを入力する。viewerはProject Aのみ所属し、Project Bは未所属。' },
   scenarios, limitations: ['データ準備は公開APIによる管理操作のAC検証ではない', '判定・Evidenceは表示確認用fixtureであり、実Agentの自律運転や実成果を示さない'] };
 const manifestPath = join(data, 'browser-fixtures.json');
+// The preview server reopens this DB file, so comparing its Web API responses with this snapshot checks a same-DB restart.
+const persistencePath = join(data, 'persistence-before-restart.json');
+await writeFile(persistencePath, JSON.stringify(persistence, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+manifest.persistenceCheck = { snapshotPath: persistencePath, takenAt: persistence.takenAt, paths: Object.keys(persistence.responses),
+  instructions: 'After the preview starts on the same DB file, GET each path as the owner and compare status and body. Responder leases, Claim expiry and resumption states change only with time or a reconciliation.' };
 await writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
 console.log(JSON.stringify({ manifestPath, headSha, dataPreparation: manifest.dataPreparation,
   scenarios: scenarios.map(({ scenario, workspaceId, outcomeId }) => ({ scenario, workspaceId, outcomeId })) }));
