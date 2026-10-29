@@ -93,7 +93,7 @@ Orchestrator と接続した Workspace 境界の E2E（`orchestrator/tests/integ
 
 ## 未接続・未検証
 
-- 実 Agent（Claude Code・Codex）が Compass の Task を処理するループは未検証。実 CLI については、`--mcp-config` の `${COMPASS_RALPH_TOKEN}` 展開（Claude Code）と `bearer_token_env_var`・`http_headers`（Codex）で Authorization・`X-Compass-Active-Role` が送られることだけを手動で確認した
+- 実 Agent（Codex）が Task を処理したのは、相談の統合検証（`scripts/verify-consultation-resumption.mjs`、[実装状況](../docs/implementation-status.md#相談の統合検証)）の専用環境での `ralph run <role> --once`（相談からの再開 Worker、文書反映の Worker / Reviewer / Manager、ローカルの検証用 Repository）だけ。Claude Code provider での処理、PR 作成・GitHub 連携を含む運転、polling を続ける常駐ループは未検証。実 CLI の接続については、`--mcp-config` の `${COMPASS_RALPH_TOKEN}` 展開（Claude Code）と `bearer_token_env_var`・`http_headers`（Codex）で Authorization・`X-Compass-Active-Role` が送られることだけを手動で確認した
 - 同じ Project を複数の Ralph で監視した場合の Agent の重複起動は抑止しない（Task の排他は Server の Claim が保証する）
 - remote mode の Server と Agent Credential での接続は自動テストの対象外
 
