@@ -22,6 +22,7 @@ type PolicyClient = {
   listTools(role: string): Promise<{ name: string; _meta?: Record<string, unknown> }[]>;
   permittedTools(role: string): Promise<string[]>;
   call(role: string, name: string, args?: object): Promise<any>;
+  observe(scope: { projectId?: string; workspaceId?: string }, value: unknown): void;
 };
 const clientOf = (preparation: Preparation, send: (url: string, init: RequestInit) => Response | Promise<Response>): PolicyClient =>
   createPreviewMcpClient({ origin: "http://localhost", preparation, fetch: send });
@@ -232,9 +233,28 @@ const assertScopedPolicy = async (preparation: Preparation, app: App, services: 
   await services.grantProjectRoleUseCase.execute(project.id, { principalId: preparation.actors.manager!, role: "manager" });
   await rejectsWith(client.call("manager", "issue_task", { projectId: project.id, title: "scope外" }), "policy_denied");
   await rejectsWith(client.call("manager", "list_consultations", { workspaceId: outside.id }), "policy_denied");
-  // Inside the policy the server still enforces Roles: a Worker cannot request a document follow-up.
-  await rejectsWith(client.call("worker", "request_consultation_followup", { projectId: preparation.projectIds[0], consultationId: "missing",
-    kind: "adr", repositoryId: "missing", title: "t", purpose: "p", decision: "d", rationale: "r", verification: "v" }), "authorization_denied");
+  // Entity IDs alone do not place a call in scope: Task/Claim/Story/Consultation IDs outside the manifest are denied even with a Grant.
+  const coordination = services.taskCoordinationService;
+  await services.grantProjectRoleUseCase.execute(project.id, { principalId: preparation.actors.worker!, role: "worker" });
+  const story = await coordination.issueStoryAsOperator(preparation.actors.manager!, project.id, { title: "scope外Story", description: null });
+  const task = await coordination.issueTask(preparation.actors.manager!, { projectId: project.id, storyId: story.id, title: "scope外Task" }, crypto.randomUUID());
+  const claim = await coordination.claimTask(preparation.actors.worker!, task.id, crypto.randomUUID());
+  for (const [role, name, args] of [
+    ["manager", "cancel_task", { taskId: task.id, reason: "scope外" }],
+    ["worker", "claim_task", { taskId: task.id }],
+    ["worker", "list_task_comments", { taskId: task.id }],
+    ["worker", "renew_claim", { claimId: claim.claimId }],
+    ["manager", "issue_task", { projectId: preparation.projectIds[0], storyId: story.id, title: "scope外Storyへの追加" }],
+    ["manager", "list_tasks", {}],
+  ] as const) await rejectsWith(client.call(role, name, args), "policy_denied");
+  assert.equal((await coordination.getTaskDetailOfProject(project.id, task.id))?.task.status, "doing");
+  assert.throws(() => client.observe({ projectId: project.id }, task), (error: unknown) => error instanceof PreviewOperationError);
+  // Entities observed through in-scope calls can be targeted by ID.
+  const inside = await client.call("manager", "issue_task", { projectId: preparation.projectIds[0], title: "scope内Task" });
+  const insideClaim = await client.call("worker", "claim_task", { taskId: inside.id });
+  assert.ok((await client.call("worker", "renew_claim", { claimId: insideClaim.claimId })).expiresAt);
+  // Inside the policy the server still enforces Roles: a Worker cannot cancel a Task.
+  await rejectsWith(client.call("worker", "cancel_task", { taskId: inside.id, reason: "Workerによる取消" }), "authorization_denied");
   await rejectsWith(clientOf(preparation, () => { throw new Error("connection refused"); }).call("manager", "list_tasks", {}), "transport_failure");
   await rejectsWith(clientOf(preparation, () => new Response("unavailable", { status: 502 })).listTools("manager"), "transport_failure");
 

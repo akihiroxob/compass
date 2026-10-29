@@ -28,11 +28,51 @@ export const classifyTool = (tool) => ({
   name: tool.name, context: tool._meta?.[toolContextMetaKey] ?? null, caller: tool._meta?.[toolCallerMetaKey] ?? null,
 });
 
-/** null when the policy permits the call, otherwise the reason. `preparation` is the manifest's dataPreparation. */
+/** Each denial returns null when the policy permits, otherwise the reason. `preparation` is the manifest's dataPreparation. */
 const actorDenial = (preparation, role) =>
   preparation.operationPolicy?.roleScopes?.[role] && preparation.actors?.[role] ? null : `${role} is not a verification actor of this preview`;
 
-export const policyDenial = (preparation, role, tool, args = {}) => {
+const scopeKeys = { projectId: 'projectIds', workspaceId: 'workspaceIds' };
+/** Idempotency and correlation keys name requests, not Entities. */
+const nonEntityKeys = new Set(['requestId', 'correlationId']);
+const isEntityKey = (key) => /Ids?$/.test(key) && !(key in scopeKeys) && !nonEntityKeys.has(key) && !/principal/i.test(key);
+const scopeDenial = (preparation, value) => {
+  for (const [key, list] of Object.entries(scopeKeys)) {
+    if (value[key] !== undefined && !preparation[list].includes(value[key])) return `${key} ${value[key]} is outside the verification scope`;
+  }
+  return null;
+};
+
+/** Entity IDs referenced by arguments, including nested ones such as deliverables[].repositoryId. */
+const entityReferences = (value, found = []) => {
+  if (Array.isArray(value)) value.forEach((item) => entityReferences(item, found));
+  else if (value && typeof value === 'object') {
+    for (const [key, item] of Object.entries(value)) {
+      if (isEntityKey(key)) for (const id of [item].flat()) if (typeof id === 'string') found.push({ key, id });
+      entityReferences(item, found);
+    }
+  }
+  return found;
+};
+
+/**
+ * Records Entity IDs from a result inside the verification scope. An object declaring a projectId/workspaceId outside the scope,
+ * and everything under it, is not recorded.
+ */
+const recordEntities = (preparation, known, value) => {
+  if (Array.isArray(value)) return value.forEach((item) => recordEntities(preparation, known, item));
+  if (!value || typeof value !== 'object' || scopeDenial(preparation, value)) return;
+  for (const [key, item] of Object.entries(value)) {
+    if (key === 'id' || isEntityKey(key)) for (const id of [item].flat()) if (typeof id === 'string') known.add(id);
+    recordEntities(preparation, known, item);
+  }
+};
+
+/**
+ * Every call must target the scope: projectId/workspaceId in the manifest, and each other Entity ID observed inside the scope.
+ * `known` holds the Entity IDs observed by this client; an ID it has not observed is treated as outside the scope.
+ */
+const classificationDenial = (preparation, role, tool) => {
   const policy = preparation.operationPolicy;
   const actor = actorDenial(preparation, role);
   if (actor) return actor;
@@ -40,8 +80,20 @@ export const policyDenial = (preparation, role, tool, args = {}) => {
   if (!policy.contexts.includes(context) || caller !== policy.caller) {
     return `${tool.name} (context ${context ?? 'none'}, caller ${caller ?? 'none'}) is outside the permitted ${policy.contexts.join('/')} operations`;
   }
-  if (args.projectId !== undefined && !preparation.projectIds.includes(args.projectId)) return `Project ${args.projectId} is outside the verification scope`;
-  if (args.workspaceId !== undefined && !preparation.workspaceIds.includes(args.workspaceId)) return `Workspace ${args.workspaceId} is outside the verification scope`;
+  return null;
+};
+
+export const policyDenial = (preparation, role, tool, args = {}, known = new Set()) => {
+  const classification = classificationDenial(preparation, role, tool);
+  if (classification) return classification;
+  const scope = scopeDenial(preparation, args);
+  if (scope) return scope;
+  const references = entityReferences(args);
+  const unknown = references.find(({ id }) => !known.has(id));
+  if (unknown) return `${unknown.key} ${unknown.id} is not an Entity observed in the verification scope`;
+  if (!Object.keys(scopeKeys).some((key) => args[key] !== undefined) && references.length === 0) {
+    return `${tool.name} has no projectId, workspaceId or Entity ID that places it in the verification scope`;
+  }
   return null;
 };
 
@@ -60,6 +112,7 @@ const readResponse = (raw, id) => {
 export const createPreviewMcpClient = ({ origin, preparation, fetch: send = globalThis.fetch }) => {
   const endpoint = new URL(preparation.endpointPath, origin).href;
   const listed = new Map();
+  const known = new Set();
   let sequence = 0;
   const rpc = async (role, method, params) => {
     const id = `preview-${++sequence}`;
@@ -100,13 +153,20 @@ export const createPreviewMcpClient = ({ origin, preparation, fetch: send = glob
   };
   return {
     listTools,
-    /** Tools of the current contract that the policy permits for the role, before scope checks on arguments. */
-    permittedTools: async (role) => (await listTools(role)).filter((tool) => policyDenial(preparation, role, tool) === null).map(({ name }) => name),
+    /** Tools of the current contract whose classification the policy permits for the role, before scope checks on arguments. */
+    permittedTools: async (role) => (await listTools(role)).filter((tool) => classificationDenial(preparation, role, tool) === null).map(({ name }) => name),
+    /** Records Entities that a Human entry created in a permitted Project/Workspace, e.g. a Repository or a reply message. */
+    observe: (scope, value) => {
+      const denial = Object.keys(scope).length === 0 || Object.keys(scope).some((key) => !(key in scopeKeys)) ? 'observe requires projectId or workspaceId'
+        : scopeDenial(preparation, scope);
+      if (denial) throw new PreviewOperationError('policy_denied', denial);
+      recordEntities(preparation, known, value);
+    },
     /** Calls a tool after checking the current contract and the policy. Adds a requestId when the schema declares one and none is given. */
     call: async (role, name, args = {}) => {
       const tool = (await listTools(role)).find((item) => item.name === name);
       if (!tool) throw new PreviewOperationError('tool_unavailable', `${name} is not in the current tools/list`, { tool: name });
-      const denial = policyDenial(preparation, role, tool, args);
+      const denial = policyDenial(preparation, role, tool, args, known);
       if (denial) throw new PreviewOperationError('policy_denied', denial, { tool: name });
       const input = tool.inputSchema?.properties?.requestId && args.requestId === undefined ? { ...args, requestId: crypto.randomUUID() } : args;
       const result = await rpc(role, 'tools/call', { name, arguments: input });
@@ -115,6 +175,7 @@ export const createPreviewMcpClient = ({ origin, preparation, fetch: send = glob
         const kind = ['FORBIDDEN', 'UNAUTHENTICATED'].includes(error.code) ? 'authorization_denied' : 'operation_failed';
         throw new PreviewOperationError(kind, `${name}: ${error.code ?? 'ERROR'} ${error.message ?? ''}`.trim(), { tool: name, code: error.code, conflict: error.conflict });
       }
+      recordEntities(preparation, known, result.structuredContent);
       return result.structuredContent;
     },
   };

@@ -46,12 +46,14 @@ let sequence = 0;
 const key = (name) => `preview:${name}:${++sequence}`;
 const scenarios = [];
 // Project and Workspace Consultations reflected in a real document commit through the normal Work flow.
-// Human steps (Repository registration, replies) use the owner's Human use cases; Agent steps use the policy-checked public MCP.
+// Human steps (Repository registration, replies) use the owner's Human use cases and are recorded as in-scope Entities;
+// Agent steps use the policy-checked public MCP.
 const prepareReflections = async (services, owner, client, entry) => {
   const project = entry.projects.find(({ label }) => label === 'A');
   const updated = await services.human.updateProject.execute(owner, project.id, {
     repositories: [{ name: 'verification-docs', url: 'https://example.test/verification-docs.git' }] });
   const repository = updated.repositories.find(({ name }) => name === 'verification-docs');
+  client.observe({ projectId: project.id }, repository);
   // Project Repository URLs accept http(s) only; the dedicated bare repository holds the actual commits.
   const bare = join(data, 'verification-docs.git');
   const checkout = join(data, 'verification-docs');
@@ -97,12 +99,14 @@ const prepareReflections = async (services, owner, client, entry) => {
   const projectIds = { projectId: project.id, consultationId: projectCreated.consultation.id };
   const projectReply = await services.human.replyConsultation.execute(owner, project.id, projectIds.consultationId,
     { body: 'A案（DBへ保存）で進めてください。', requestId: key('reply') });
+  client.observe({ projectId: project.id }, projectReply);
   await conclude('manager', projectIds, { ...projectReply, conclusion: '通知履歴はDBへ保存する' });
   const workspaceCreated = await client.call('strategist', 'create_consultation', { workspaceId: entry.workspaceId,
     ...consultationInput('[検証専用] Workspaceの優先順位', 'Target Projectの優先順位を決めてください') });
   const workspaceIds = { workspaceId: entry.workspaceId, consultationId: workspaceCreated.consultation.id };
   const workspaceReply = await services.human.replyWorkspaceConsultation.execute(owner, entry.workspaceId, workspaceIds.consultationId,
     { body: 'A案（Project Aを優先）で進めてください。', requestId: key('reply') });
+  client.observe({ workspaceId: entry.workspaceId }, workspaceReply);
   await conclude('strategist', workspaceIds, { ...workspaceReply, conclusion: 'Project Aを優先する' });
   await client.call('strategist', 'hand_off_consultation', { ...workspaceIds, projectId: project.id });
   const reflected = [
