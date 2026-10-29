@@ -10,6 +10,7 @@ import { registerExecutionTools } from "./registerExecutionTools.ts";
 import { withActivityActor } from "../application/activityActor.ts";
 import { skillStatuses } from "../application/agentContext/AgentAssets.ts";
 import { execute } from "./toolExecution.ts";
+import { withToolContext } from "./toolContext.ts";
 
 const nullableText = (maximum: number) => z.string().max(maximum).nullable().optional();
 const namedLink = { name: z.string(), url: z.string() };
@@ -1104,9 +1105,9 @@ export const createMcpServer = (
       ),
   );
 
-  registerExecutionTools(server, services, caller);
+  registerExecutionTools(withToolContext(server, "work"), services, caller);
   registerActivityTools(server, services, caller);
-  registerConsultationTools(server, services, caller);
+  registerConsultationTools(withToolContext(server, "collaboration"), services, caller);
 
   return server;
 };

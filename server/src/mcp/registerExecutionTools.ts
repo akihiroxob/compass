@@ -1,10 +1,10 @@
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { UnauthenticatedError } from "@compass/shared";
 import { agentPrincipalOf, type Caller } from "@compass/access";
 import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
 import { StoryStatus, TaskStatus } from "@compass/work";
 import { execute } from "./toolExecution.ts";
+import type { ToolRegistrar } from "./toolContext.ts";
 
 const requestIdSchema = z.string().min(1).describe("Caller-generated idempotency key");
 const claimIdSchema = z.string().uuid().describe("Current Task Claim ID");
@@ -26,7 +26,7 @@ const taskStatusSchema = z.enum([
  * PrincipalなしはUNAUTHENTICATED（PrincipalはBearerのAgent Credential・trusted-localのAgent名から解決し、tool入力からは受け取らない）。
  * Runtime Credentialは`list_changes`だけを`execution:change:read` scopeで呼べる。
  */
-export const registerExecutionTools = (server: McpServer, services: OperationServices, caller: Caller) => {
+export const registerExecutionTools = (server: ToolRegistrar, services: OperationServices, caller: Caller) => {
   const coordination = services.taskCoordinationService;
   const principal = agentPrincipalOf(caller);
   const asPrincipal = <T>(operation: (principalId: string) => Promise<T>) =>
