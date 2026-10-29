@@ -194,6 +194,7 @@ Project相談・Workspace相談・Task待機/再開・文書反映を、相談St
 - 認可と漏洩: Project Bに所属しないviewerの横断一覧はProject Bの相談を含まず、`projectId`でProject Bを指定しても空で、詳細URLは「見つからない／権限がない」を区別しない表示になる。Project Aの相談はviewerには返信欄を出さず、権限が無い旨だけを出す。
 - 永続化: 同じDB fileでServerを再起動した前後で、Project・Workspaceの相談の状態・版・会話の順序と記録主体・結論の由来・方針訂正の参照・待機Taskの状態と段階、文書反映の依頼・反映Taskの状態・成果物参照（Repository・path・commit）、横断一覧が一致した。再起動後の画面でも反映済みの成果物参照を辿れる。
 - 画面（Desktop 1280px・狭い画面390px）: 横断一覧（Human待ち・すべて）、Project相談の詳細（結論・この相談を待つTask・文書への反映・会話）、Project・Workspace相談の反映済みの文書反映と成果物参照（再起動の前後）、Humanの明示決定、Workspace相談の詳細、空状態（取消の無いProject）、読込中（応答遅延）、通信失敗、viewerの読取専用・権限不足・絞り込みの空を確認し、横方向のはみ出しは無い。応答遅延・通信失敗の模擬は表示の確認だけに使った。
+- 受入用preview: 準備スクリプトは一部未着手のシナリオに`consultationLifecycle`（Human待ち・応答中・再開・継続確認待ち・方針訂正・Workspace相談・viewer外の相談と、競合・再送・拒否の観測）を公開操作で作り、終了前のWeb API応答を保存する。previewのServerが同じDB fileを開くため、Managerはpreview上で各段階の画面と、同じDBの再起動後の応答の一致を確認できる（`server/tests/browserVerificationFixtures.test.ts`）。
 - 実Agent: 登録済みのホスト検証`scripts/verify-consultation-resumption.mjs`が、対象revisionのOrchestratorから実CodexのManagerを、Ralphから実CodexのWorkerを起動し、Human返信→Managerの結論→手動`ralph resume`なしの再開→`in_review`と成果物の保持を確認する。これ以外の上記の操作は検証用Principalによる公開操作で、Agentの判断ではない。
 - 観測: 相談詳細の「この相談を待つTask」の状態と失敗理由は、Runtimeの`list_consultation_resumptions`による再照合で更新されるため、結論の保存直後から次の照合までは前の状態（`waiting`と結論前の理由）を表示する。全体の判断待ち一覧の見出しと説明文の間に余白がほとんど無い。狭い画面の相談詳細の権限不足・通信失敗では、エラー表示と一覧への導線の間に余白が無い。
 - 未検証: 実AgentのStrategistによるWorkspace相談への応答、実Agentによる文書反映TaskのRepository変更・PR作成・受入から参照登録までの運転（上記の文書反映は検証用Principalの公開操作）、Runner再起動・lease失効の実時間での確認（自動テストの時刻差し替えとRalphの結合テストで確認）、remote mode・実Google認証。

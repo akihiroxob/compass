@@ -9,8 +9,23 @@ Managerの専用プレビューは、`.ralph/config.json`の`verification.browse
 | Targetなし | Workspace・Active Intent・Outcome。Target Projectなし |
 | 一部未着手 | Target Project A/B。Aにはaccepted Taskを持つStoryとExecution Evidence、BにはStoryなし |
 | 評価と判断 | 両Targetのaccepted WorkとEvidence、成功条件ごとのEvaluation、Research Result/Finding/Synthesis、関連するDirection Decision |
+| 相談の段階 | 一部未着手のWorkspaceに`consultationLifecycle`。Project Aの相談と待機Taskを各段階に置き、Workspace相談とProject Bの相談を加える |
 
 評価と判断のシナリオには`consultationReflection`として、Project相談とWorkspace相談（Project Aへ引継ぎ）の結論を文書へ反映した状態も準備する。専用ディレクトリ内のbare repository（`verification-docs.git`）とcheckoutを作り、Project Aへ`https://example.test/verification-docs.git`として登録する。`request_consultation_followup`→Workerの`claim_task`と実際の文書commit→通常の`claim_review`・`reviewed_task`→`claim_acceptance`・`accept_task`（`deliverables`にcommitとpath）→`record_consultation_artifact`を公開MCPで通す。manifestの`path`から反映済み表示・再読込・viewerとの権限差の確認へ進める。HumanのRepository登録・返信はOwnerのHuman use caseで行う。これらは検証用Principalの公開操作で、実Agentの稼働を示さない。対象SHAに反映の公開契約が無い場合は`status: unavailable`と`kind`（`tool_unavailable` / `policy_denied`）を記録し、内部操作で補わない。
+
+一部未着手のシナリオの`consultationLifecycle`は、同じ公開MCPとOwnerのHuman use caseで次の段階を作り、`stages`に相談・Task・画面パスを記録する。待機Taskの成果物とContextは専用ディレクトリ内の対象SHAの別checkoutに置く。
+
+| `stage` | 状態 |
+| --- | --- |
+| `waiting_human` | Humanの返信にManagerが追加質問し、Human待ちへ戻った相談。待機Taskは`waiting` |
+| `agent_responding` | 応答中にHumanが追加返信した相談。古い版の結論は拒否され、Managerが新しい版の応答leaseを持つ（`leaseExpiresAt`） |
+| `resumed` | 結論（`agent_summary`）の後、元のwork段階の新Claimで再開したTask（`taskPath`）。未commit成果物は`artifactPath`に残る |
+| `confirmation_required` | 2件を待つTask。1件はHumanの明示決定、1件はManagerの取消で、Managerの継続確認待ち |
+| `correction` | `resumed`の相談を`supersedesConsultationId`で訂正する新しい相談 |
+| `workspace_waiting_human` | StrategistのWorkspace相談（Human待ち） |
+| `hidden_from_viewer` | viewerが所属しないProject Bの相談 |
+
+`observations`には、作成中に確認した再送の同一結果、待機Taskの候補除外と直接Claimの拒否（`TASK_NOT_CLAIMABLE`）、viewerの返信拒否、同じ版の別Principalのlease（`LEASE_HELD`）、古い版の結論（`STALE_REVISION`）、二重の再開（`CLAIM_CONFLICT`）、Workerの継続確認（`FORBIDDEN`）を、期待値・観測値・一致で記録する。不一致があっても準備は止めないため、Managerは`matched: false`を製品の挙動として扱う。これらも検証用Principalの公開操作で、実Agentの稼働を示さない。
 
 Ownerは`preview-owner@example.test`、Viewerは`preview-viewer@example.test`で開発用ログインする。Viewerは後二者のWorkspaceとProject Aのviewerで、Project Bには所属しない。Workspace Directionの参照、Project AのWork参照、Bの参照拒否、編集操作の拒否を比較できる。
 
@@ -48,6 +63,14 @@ Managerは、Ralphが今回返した専用プレビューURL・対象SHA・専�
 - 待機・再開で必要な成果物とContextは、専用検証ディレクトリ内に対象SHAの別Git checkoutを作り、そこで保持する。そのSHAの`ralph/runtime/consultation-context.mjs`でHEAD・差分・Contextのfingerprintを取得する。実際の受入TaskのWorktree・Context・Claimを検証用に流用しない。
 - ログイン・Membership等の準備は専用プレビューのOwnerによるWeb UI・認証済みWeb APIで行う。権限差の検証時はOwnerで準備した後にViewer等へ切り替える。
 - SQL直接実行、schemaの変更、API応答や時刻の差し替え、Claim期限のDB直接更新、未登録のホストコマンド実行は許可しない。公開操作で作れない状態は不足する入口と必要な追加準備を具体的に示す。
+
+### 相談の段階・期限切れ・再起動の確認
+
+1. manifestの`stages`の`path`を開き、各段階の相談状態・応答中の表示・この相談を待つTaskの状態と理由を、Desktopと狭い画面で確認する。`resumed`の`taskPath`で再開後のTaskを開く。
+2. `confirmation_required`では、`preview-manager`の`confirm_consultation_continuation`（現在の要件版と各相談の現在版）を実行し、`list_consultation_resumptions`の照合後にTaskが`ready`になることを確認する。
+3. 応答leaseの期限切れは、`agent_responding`の`leaseExpiresAt`を過ぎてから再読込し、応答中の表示が消えること、別Principalが同じ版のleaseを取得できることを確認する。`resumed`のClaimは`claimTtlMs`で期限が切れ、待機の照合で`resuming`から`ready`へ戻る。時刻やDBを書き換えない。
+4. 同じDBでの再起動は`persistenceCheck`で確認する。準備スクリプトは終了前に各相談の詳細と横断一覧のWeb API応答を`snapshotPath`へ保存し、previewのServerは別processとして同じDB fileを開く。Ownerでログインし、`paths`の各pathを取得して状態と本文を比較する。応答leaseの期限・Claimの期限・照合で変わる待機状態は、時刻の経過や照合の後には一致しない。
+5. 読込中・通信失敗の表示は、ブラウザのネットワーク条件（offline・遅延）で確認し、Serverの応答内容を差し替えない。
 
 ### 期限内Claimと期限切れの確認
 
