@@ -18,7 +18,9 @@ Ownerは`preview-owner@example.test`、Viewerは`preview-viewer@example.test`で
 
 スクリプトはcwdのschemaとapplication use caseを読み込み、同じWorktree内の`@compass/*`を使う。依存関係が親Repositoryを参照している場合は失敗するため、対象Worktreeで`npm ci`等を済ませる。
 
-設定内のスクリプトパスは、検証準備を管理するProject checkoutの絶対パスにする。配置先を変える場合はこのパスも更新する。準備コードが対象SHAに含まれていなくても、対象側の実装からデータを作成できる。対象のuse caseが未実装・非互換なら準備は失敗し、別SHAのデータへ切り替えない。
+設定内のスクリプトパスは、登録済み準備コマンドの識別に使う。Reviewer・Managerの実行では、`verification.preparationFiles`で指定したファイルへの直接の引数を、Ralphが`verification.preparationRevision`（省略時は本体SHA）のGit blobから作成した専用コピーへ置き換える。Workerの実行は登録済みのパスをそのまま使うため、Workerは使用した準備ファイルが`preparationRevision`のblobと一致することを照合して記録する。準備コードの正本はそのGit revisionであり、固定Project checkoutの作業ファイルではない。対象のuse caseが未実装・非互換なら準備は失敗し、別SHAの本体やデータへ切り替えない。
+
+実行時の適用は、`verificationPreparation`と検証記録の本体`headSha`・準備元`sourceSha`・fingerprint/差分、実際の実行コマンドと生成manifestの一致で確認する。専用コピーを使った必要な検証が成功していれば、固定Project checkoutの旧ファイルが未更新であることだけを追加の受入条件にしない。別サービスへの配備が明示的なACなら、その配備の確認は別途行う。
 
 `dataDirectory/browser-fixtures.json`に、対象`headSha`・準備スクリプトのSHA-256・Workspace/Project/Outcome等のID・画面パス・ログイン方法を保存する。Managerはプレビューの`headSha`と一致することを確認し、manifestのパスをプレビューURLへ連結して確認する。準備ログにもmanifestの絶対パスが出力される。
 
@@ -78,14 +80,20 @@ const raw = await response.text();
 
 ## 手動実行
 
-検証対象Worktreeをcwdにし、新規の専用ディレクトリを用意する。
+検証対象Worktreeをcwdにし、新規の専用ディレクトリを用意する。準備ファイルはRalphと同じく`verification.preparationRevision`のGit blobから、Repository内の相対配置を保った専用コピーを作って実行する（manifestの`policyPath`はコピー内の本書を指す）。
 
 ```sh
 PREVIEW_DATA=$(mktemp -d)
+PREPARATION=$(mktemp -d)
+REVISION=<verification.preparationRevision>
+for file in <verification.preparationFiles>; do
+  mkdir -p "$PREPARATION/$(dirname "$file")"
+  git show "$REVISION:$file" > "$PREPARATION/$file"
+done
 COMPASS_DB_PATH="$PREVIEW_DATA/preview.db" \
 COMPASS_AUTH_MODE=trusted-local \
 COMPASS_INITIAL_OWNER_EMAIL=preview-owner@example.test \
-node --import tsx /Users/aokayama/git/compass/scripts/prepare-browser-verification.mjs \
+node --import tsx "$PREPARATION/scripts/prepare-browser-verification.mjs" \
   --data-dir "$PREVIEW_DATA"
 ```
 
@@ -93,10 +101,16 @@ node --import tsx /Users/aokayama/git/compass/scripts/prepare-browser-verificati
 
 ## 実Agentによる相談応答と自動再開
 
-`verification.hostCommands`の`node --import tsx /Users/aokayama/git/compass/scripts/verify-consultation-resumption.mjs`を`run_host_verification`へそのまま渡す。対象WorktreeのHEADを固定し、専用DB・loopbackサーバー・別Git checkout・検証用ProjectのRuntime Credentialだけを使用する。実際の受入実行と運用DB・GitHubを変更しない。
+`verification.hostCommands`の`node --import tsx /Users/aokayama/git/compass/scripts/verify-consultation-resumption.mjs`を`run_host_verification`へそのまま渡す。Reviewer・Managerの実行では、スクリプトは準備ファイルとして`preparationRevision`の専用コピーで実行される。対象WorktreeのHEADを固定し、専用DB・loopbackサーバー・別Git checkout・検証用ProjectのRuntime Credentialだけを使用する。実際の受入実行と運用DB・GitHubを変更しない。
 
 このコマンドは公開操作で相談待ちTaskを作り、Humanの返信を送信して、対象SHAのOrchestratorから実CodexのManagerを1回、対象SHAのRalphから実CodexのWorkerを1回起動する。回答・状態遷移・Claim取得を偽Agentや固定応答で代用しない。各プロセスの実行上限は240秒、Managerのdispatch試行上限は1回。Taskの受入・commit・pushは行わない。
 
 終了時にJSONで`evidencePath`・対象SHA・成功/失敗を出力する。証跡には専用DB、Manager/Workerログ、dispatch記録、保存Context、未commit成果物を保持する。公開`list_tasks`・Claimコメントと成果物を照合して、新Claimでの`in_review`到達・元Contextと成果物の保持を確認する。検証サーバーは終了時に停止する。Agentの認証・利用枠が不足した場合は失敗として記録し、成功とみなさない。
 
 同じSHAの有効な実Agent証跡がある場合は、対象SHA・実行コード・dispatch・新Claim・保存成果物を独立に照合して使用できる。読み取り確認だけを直せばよい場合に実Agentを再起動し直さない。偽Agentによる回帰テストは実Agent稼働の証明として扱わない。
+
+## 参照プロトタイプとの比較
+
+参照プロトタイプは、管理者がRalphのProject設定（`verification.browser.profiles`）へ`prototype` profileを登録した環境でだけ起動できる。このRepositoryの`.ralph/config.json`には登録されていないため、`start_browser_preview`が未登録profileを拒否した場合は比較を未検証として記録し、別の起動方法で代替しない。登録済みなら`start_browser_preview({"profile":"prototype"})`で起動する。想定する参照先は`/Users/aokayama/git/compass-prototype`、localhostに限定したViteの専用portで、製品のDB・MCPは使わない。停止済みの固定URLへ依存せず、返されたURLを使用する。参照コードは編集しない。Repository外の参照資料なので、比較時にファイル内容のdigest等で参照版を記録する。
+
+同時に起動できるpreviewは一つである。先にプロトタイプの対応画面をDesktopと狭幅で操作し、画像・画面名・viewport・参照版を`artifactDirectory`へ保存して停止する。続いてprofileを省略して製品previewを起動し、同じ画面・viewport・操作で比較する。保存画像を実見して採用した配置・情報密度・操作導線と意図した差を記録する。参照にない画面も製品側のACに従って独立確認する。参照prototypeが起動しても製品ACの成功にはならない。
