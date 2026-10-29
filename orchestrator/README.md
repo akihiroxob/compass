@@ -138,7 +138,7 @@ npm run typecheck --workspace orchestrator
 
 ## 未接続・未検証
 
-- 実 Agent（Claude Code・Codex 等）を起動した運用は未検証。上の設定例の `--mcp-config` による Credential の受け渡しも未検証
+- 実 Agent の起動は、相談の統合検証（`scripts/verify-consultation-resumption.mjs`、[実装状況](../docs/implementation-status.md#相談の統合検証)）の専用環境で、`roles.<role>.command` から Codex を起動し `agentEnv` で Agent Credential を渡す Project 相談の manager と Workspace 相談の strategist の応答だけを確認した。上の設定例の Claude Code（`--mcp-config`）の起動、Workspace Direction の実 Agent 運転、常駐した継続運転は未検証
 - Workspace Runtime / Agent Credential は Web UI の Workspace「設定」または Web API（`/api/workspaces/:workspaceId/credentials`）で発行する。発行は Orchestrator・Agent を起動しない
 - Execution Evidence の還流（`record_execution_evidence`）は行わない。Evaluator の起動条件は還流済みの要約に依存する
 - `wait_accept` の Task に対する manager の最終受入は起動しない（manager は Story / Task の無い Target Project だけに起動する）
