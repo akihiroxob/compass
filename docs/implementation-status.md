@@ -195,9 +195,15 @@ Project相談・Workspace相談・Task待機/再開・文書反映を、相談St
 - 永続化: 同じDB fileでServerを再起動した前後で、Project・Workspaceの相談の状態・版・会話の順序と記録主体・結論の由来・方針訂正の参照・待機Taskの状態と段階、文書反映の依頼・反映Taskの状態・成果物参照（Repository・path・commit）、横断一覧が一致した。再起動後の画面でも反映済みの成果物参照を辿れる。
 - 画面（Desktop 1280px・狭い画面390px）: 横断一覧（Human待ち・すべて）、Project相談の詳細（結論・この相談を待つTask・文書への反映・会話）、Project・Workspace相談の反映済みの文書反映と成果物参照（再起動の前後）、Humanの明示決定、Workspace相談の詳細、空状態（取消の無いProject）、読込中（応答遅延）、通信失敗、viewerの読取専用・権限不足・絞り込みの空を確認し、横方向のはみ出しは無い。応答遅延・通信失敗の模擬は表示の確認だけに使った。
 - 受入用preview: 準備スクリプトは一部未着手のシナリオに`consultationLifecycle`（Human待ち・応答中・再開・継続確認待ち・方針訂正・Workspace相談・viewer外の相談と、競合・再送・拒否の観測）を公開操作で作り、終了前のWeb API応答を保存する。previewのServerが同じDB fileを開くため、Managerはpreview上で各段階の画面と、同じDBの再起動後の応答の一致を確認できる（`server/tests/browserVerificationFixtures.test.ts`）。
-- 実Agent: 登録済みのホスト検証`scripts/verify-consultation-resumption.mjs`が、対象revisionのOrchestratorから実CodexのManagerを、Ralphから実CodexのWorkerを起動し、Human返信→Managerの結論→手動`ralph resume`なしの再開→`in_review`と成果物の保持を確認する。これ以外の上記の操作は検証用Principalによる公開操作で、Agentの判断ではない。
+- 実Agent: 登録済みのホスト検証`scripts/verify-consultation-resumption.mjs`は、対象revisionのOrchestrator・Ralphから実Codexを起動する。対象は、専用DBにOwnerが公開Web APIで作った専用Projectである。確認する流れは次の4つ。
+  - Project相談: Human返信→実Managerの結論→手動`ralph resume`なしの実Workerの再開→`in_review`、成果物とContextの保持。
+  - Workspace相談: Human返信→実Strategistの結論と引継ぎ。
+  - 文書反映: 実Managerの依頼→実Workerの検証用Repositoryへのcommit→実Reviewerの承認→実Managerの`deliverables`付き受入と`record_consultation_artifact`。
+  - 同じDBでのServer再起動後の一致。
+- Runner再起動（実時間）: 同じ検証で、dispatch中のOrchestratorを強制終了する。旧Agentが生きている間の再起動は2つ目のAgentを起動しない。旧Agent停止後の再起動は試行2で実Managerを起動し、Human発言は重複しない。再開Claim取得後にRalph Runnerを強制終了すると、旧provider生存中の再起動はworktree lockで拒否され、Claim有効中の再起動はAgentを起動しない。Claimが実時間で期限切れ（120秒）になった後、再起動したRalphが再開し、保存worktreeのfingerprint・成果物・worktree数（1）を保ったまま、期限後のClaimだけが操作する。強制終了中にdispatchを保持する代役processは状態・成果物を変更しない。
+- 上記以外の操作（データ準備、各ケースの拒否・再送の観測）は検証用Principalによる公開操作で、Agentの判断ではない。
 - 観測: 相談詳細の「この相談を待つTask」の状態と失敗理由は、Runtimeの`list_consultation_resumptions`による再照合で更新されるため、結論の保存直後から次の照合までは前の状態（`waiting`と結論前の理由）を表示する。全体の判断待ち一覧の見出しと説明文の間に余白がほとんど無い。狭い画面の相談詳細の権限不足・通信失敗では、エラー表示と一覧への導線の間に余白が無い。
-- 未検証: 実AgentのStrategistによるWorkspace相談への応答、実Agentによる文書反映TaskのRepository変更・PR作成・受入から参照登録までの運転（上記の文書反映は検証用Principalの公開操作）、Runner再起動・lease失効の実時間での確認（自動テストの時刻差し替えとRalphの結合テストで確認）、remote mode・実Google認証。
+- 未検証: 実AgentによるPR作成とGitHub上の受入（検証用Repositoryはローカルのgit Repositoryで、pushしない）、応答leaseの実時間の失効を実Agentが跨ぐ運転（lease失効は受入用previewの期限経過と自動テストで確認）、通信断後の書込み再送を伴う実Agent運転（再送の同一結果は公開操作と自動テストで確認）、remote mode・実Google認証。
 
 ## デザインシステムの統合検証
 

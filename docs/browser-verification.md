@@ -126,9 +126,27 @@ node --import tsx "$PREPARATION/scripts/prepare-browser-verification.mjs" \
 
 `verification.hostCommands`の`node --import tsx /Users/aokayama/git/compass/scripts/verify-consultation-resumption.mjs`を`run_host_verification`へそのまま渡す。Reviewer・Managerの実行では、スクリプトは準備ファイルとして`preparationRevision`の専用コピーで実行される。対象WorktreeのHEADを固定し、専用DB・loopbackサーバー・別Git checkout・検証用ProjectのRuntime Credentialだけを使用する。実際の受入実行と運用DB・GitHubを変更しない。
 
-このコマンドは公開操作で相談待ちTaskを作り、Humanの返信を送信して、対象SHAのOrchestratorから実CodexのManagerを1回、対象SHAのRalphから実CodexのWorkerを1回起動する。回答・状態遷移・Claim取得を偽Agentや固定応答で代用しない。各プロセスの実行上限は240秒、Managerのdispatch試行上限は1回。Taskの受入・commit・pushは行わない。
+このコマンドは専用DBで準備データを作った後、Ownerが公開Web APIで準備済みWorkspaceに専用Projectを作る。Grant・Runtime Credential・検証用Repositoryの登録も同じ経路で行う。準備データのTask・相談は実Runnerの候補にならない。検証scopeへ加えるのは、この実行が作った専用Projectだけである。続けて、対象SHAのOrchestrator・Ralphから実Codexを起動し、次の順に確認する。
 
-終了時にJSONで`evidencePath`・対象SHA・成功/失敗を出力する。証跡には専用DB、Manager/Workerログ、dispatch記録、保存Context、未commit成果物を保持する。公開`list_tasks`・Claimコメントと成果物を照合して、新Claimでの`in_review`到達・元Contextと成果物の保持を確認する。検証サーバーは終了時に停止する。Agentの認証・利用枠が不足した場合は失敗として記録し、成功とみなさない。
+1. Project相談とOrchestrator再起動: Workerが未commit成果物を残して待機し、HumanがWeb APIで返信する。OrchestratorのManager dispatch中にOrchestratorを強制終了する。起動したAgentが生きている間に再起動しても、2つ目のAgentは起動せず、dispatch記録・相談の版・Human発言は変わらない。旧Agentの停止後に再起動すると、試行2として実Managerを起動し、Human発言を重複させずに結論を保存する。
+2. Ralph Runner再起動: Ralphが`resume_consultation_task`で再開Claimを取得した後に、Runnerとloopを強制終了する。旧providerが動いている間の再起動は、worktree lockにより終了コード75で拒否される。旧provider停止後、再開Claimが有効な間の再起動は、Agentを起動しない（`resuming`のまま）。Claimの実時間の期限切れ（120秒）後は、再起動したRalphが再び`ready`から再開する。実Workerは成果物とContextを保持して`in_review`まで進める。保存worktreeのfingerprint、`TASK_CONSULTATION_RESUMING`が2件であること、期限後のClaimだけが操作したこと、worktreeが1つであることを照合する。
+3. Workspace相談: Strategistが相談を作り、HumanがWeb APIで返信する。Workspace Runtime CredentialのOrchestratorが実Strategistを起動し、実Strategistが結論の保存と専用Projectへの引継ぎを行う。
+4. 文書反映: 実Managerが引継ぎの結論から`request_consultation_followup`を依頼する。続けてRalphの実Worker（検証用Repositoryへcommit、pushなし）、実Reviewer、実Manager（`deliverables`付きの受入と`record_consultation_artifact`）を順に起動する。参照のcommit・pathとRepositoryの実commitを照合し、再送で同じ参照が返ることを確認する。
+5. Server再起動: 同じDB fileでapplicationを作り直し、相談詳細（Project・Workspace）とTask状態が一致することを確認する。
+
+回答・状態遷移・Claim取得・文書変更を偽Agentや固定応答で代用しない。RunnerとOrchestratorの強制終了中にdispatchを保持する代役（PIDを記録して待つだけのprocess）は、成果物・状態を変更しない。実Agentは専用MCPだけを使い、開発用Wacha MCPは無効にする。文書反映Workerは`.git`へcommitするため、専用ディレクトリの検証用RepositoryでだけsandboxなしのCodexを使う。各プロセスの実行上限は300秒、dispatch試行上限は3回。実行全体では十数分かかる。対象SHAのRepository・GitHubへのcommit・push・PRは行わない。
+
+終了時にJSONで`evidencePath`・対象SHA・成功/失敗を出力する。証跡ディレクトリには次を保持する。
+
+- `evidence.json`（段階ごとの記録）
+- 専用DB
+- Orchestrator・Ralph・Agentのログ
+- dispatch記録
+- 保存Contextと未commit成果物
+- 検証用Repository
+- `persistence.json`（再起動前後の比較）
+
+検証サーバーは終了時に停止する。Agentの認証・利用枠が不足した場合は失敗として記録し、成功とみなさない。
 
 同じSHAの有効な実Agent証跡がある場合は、対象SHA・実行コード・dispatch・新Claim・保存成果物を独立に照合して使用できる。読み取り確認だけを直せばよい場合に実Agentを再起動し直さない。偽Agentによる回帰テストは実Agent稼働の証明として扱わない。
 
