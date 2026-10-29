@@ -1,11 +1,11 @@
 lockfile_version: '1'
-generated_at: '2026-10-16T05:16:28.424546+00:00'
+generated_at: '2026-10-29T08:42:31.221090+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: akihiroxob/agent-foundation
   name: agent-harness
   host: github.com
-  resolved_commit: f69f6951e7b690cc54a8486f9e73feb4b65d0198
+  resolved_commit: 2655a6f074538e52ee83f6b241edf8758e94cb87
   version: 0.1.0
   package_type: apm_package
   deployed_files:
@@ -16,6 +16,10 @@ dependencies:
   - .agents/skills/review-documentation-impact
   - .agents/skills/review-documentation-impact/SKILL.md
   - .agents/skills/review-documentation-impact/agents/openai.yaml
+  - .agents/skills/use-mcp-tools
+  - .agents/skills/use-mcp-tools/SKILL.md
+  - .agents/skills/verify-browser-ac
+  - .agents/skills/verify-browser-ac/SKILL.md
   - .claude/hooks/agent-foundation/.apm/hooks/scripts/check-dangerous-command.py
   - .claude/rules/base.md
   - .claude/skills/investigate-bug
@@ -25,20 +29,28 @@ dependencies:
   - .claude/skills/review-documentation-impact
   - .claude/skills/review-documentation-impact/SKILL.md
   - .claude/skills/review-documentation-impact/agents/openai.yaml
+  - .claude/skills/use-mcp-tools
+  - .claude/skills/use-mcp-tools/SKILL.md
+  - .claude/skills/verify-browser-ac
+  - .claude/skills/verify-browser-ac/SKILL.md
   - .codex/hooks/agent-foundation/.apm/hooks/scripts/check-dangerous-command.py
   deployed_file_hashes:
     .agents/skills/investigate-bug/SKILL.md: sha256:251264fa6c1203d688c50e3dd1a0765580aa47380cba97308563c88240f21078
-    .agents/skills/recover-agent-execution/SKILL.md: sha256:b82929962a20325efc8205d44e3039e5c8fe59b8a40e183992986ef9c56ec4b0
-    .agents/skills/review-documentation-impact/SKILL.md: sha256:3abf6480cef2a400bfa73dc043f7e58ed1b62358689b50a3438a29c6b91e3d71
+    .agents/skills/recover-agent-execution/SKILL.md: sha256:478727e8e5066448ca20cef1bb3f4a42075d51f5bae48af48ef656362846d90b
+    .agents/skills/review-documentation-impact/SKILL.md: sha256:ff24c19e8089366e054a105030296dfc4fd0eaf0bc75c2bfa007d95664b862f5
     .agents/skills/review-documentation-impact/agents/openai.yaml: sha256:df87dc907c6371caf83d9128e14ffa88ade6af0f3d3d0ff4b0fce00dab4b33c5
+    .agents/skills/use-mcp-tools/SKILL.md: sha256:70deda797a5756900b57d63c6ca3675c70ab1a9084cb56151ecbaf587e3c811a
+    .agents/skills/verify-browser-ac/SKILL.md: sha256:9937024fa2509be60e2415637a1caa5fdccf9f355272ce2ebc38cb02e694748c
     .claude/hooks/agent-foundation/.apm/hooks/scripts/check-dangerous-command.py: sha256:51e68e83eb8af3904cf96e4ca6a62ebe21dc9f527b1c4a3d8ba4508091015bea
-    .claude/rules/base.md: sha256:bff96cb1da745a663fb7c325071aeac073243828a3eda580bbc9d91db01c27e6
+    .claude/rules/base.md: sha256:4d6b883d62ff2d147b51d38aa4a68921c9c807dd5ee20798f14da26a5fde30a1
     .claude/skills/investigate-bug/SKILL.md: sha256:251264fa6c1203d688c50e3dd1a0765580aa47380cba97308563c88240f21078
-    .claude/skills/recover-agent-execution/SKILL.md: sha256:b82929962a20325efc8205d44e3039e5c8fe59b8a40e183992986ef9c56ec4b0
-    .claude/skills/review-documentation-impact/SKILL.md: sha256:3abf6480cef2a400bfa73dc043f7e58ed1b62358689b50a3438a29c6b91e3d71
+    .claude/skills/recover-agent-execution/SKILL.md: sha256:478727e8e5066448ca20cef1bb3f4a42075d51f5bae48af48ef656362846d90b
+    .claude/skills/review-documentation-impact/SKILL.md: sha256:ff24c19e8089366e054a105030296dfc4fd0eaf0bc75c2bfa007d95664b862f5
     .claude/skills/review-documentation-impact/agents/openai.yaml: sha256:df87dc907c6371caf83d9128e14ffa88ade6af0f3d3d0ff4b0fce00dab4b33c5
+    .claude/skills/use-mcp-tools/SKILL.md: sha256:70deda797a5756900b57d63c6ca3675c70ab1a9084cb56151ecbaf587e3c811a
+    .claude/skills/verify-browser-ac/SKILL.md: sha256:9937024fa2509be60e2415637a1caa5fdccf9f355272ce2ebc38cb02e694748c
     .codex/hooks/agent-foundation/.apm/hooks/scripts/check-dangerous-command.py: sha256:51e68e83eb8af3904cf96e4ca6a62ebe21dc9f527b1c4a3d8ba4508091015bea
-  content_hash: sha256:39add9c1d2b73eee6f37fe4e3ddf0a8a69230227d5c6e4b0e7305f7c9cb9fab0
+  content_hash: sha256:a7bc2256e7d423d98667b9578d1398b72aeed941038467b5187c06e258b2e375
 deployments:
 - kind: project-relative
   target: claude
@@ -57,7 +69,7 @@ deployments:
   owners:
   - akihiroxob/agent-foundation
   active_owner: akihiroxob/agent-foundation
-  content_hash: sha256:bff96cb1da745a663fb7c325071aeac073243828a3eda580bbc9d91db01c27e6
+  content_hash: sha256:4d6b883d62ff2d147b51d38aa4a68921c9c807dd5ee20798f14da26a5fde30a1
 - kind: project-relative
   target: claude
   value: .claude/skills/investigate-bug
@@ -93,7 +105,7 @@ deployments:
   owners:
   - akihiroxob/agent-foundation
   active_owner: akihiroxob/agent-foundation
-  content_hash: sha256:b82929962a20325efc8205d44e3039e5c8fe59b8a40e183992986ef9c56ec4b0
+  content_hash: sha256:478727e8e5066448ca20cef1bb3f4a42075d51f5bae48af48ef656362846d90b
 - kind: project-relative
   target: claude
   value: .claude/skills/review-documentation-impact
@@ -111,7 +123,7 @@ deployments:
   owners:
   - akihiroxob/agent-foundation
   active_owner: akihiroxob/agent-foundation
-  content_hash: sha256:3abf6480cef2a400bfa73dc043f7e58ed1b62358689b50a3438a29c6b91e3d71
+  content_hash: sha256:ff24c19e8089366e054a105030296dfc4fd0eaf0bc75c2bfa007d95664b862f5
 - kind: project-relative
   target: claude
   value: .claude/skills/review-documentation-impact/agents/openai.yaml
@@ -121,6 +133,42 @@ deployments:
   - akihiroxob/agent-foundation
   active_owner: akihiroxob/agent-foundation
   content_hash: sha256:df87dc907c6371caf83d9128e14ffa88ade6af0f3d3d0ff4b0fce00dab4b33c5
+- kind: project-relative
+  target: claude
+  value: .claude/skills/use-mcp-tools
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/use-mcp-tools/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: sha256:70deda797a5756900b57d63c6ca3675c70ab1a9084cb56151ecbaf587e3c811a
+- kind: project-relative
+  target: claude
+  value: .claude/skills/verify-browser-ac
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/verify-browser-ac/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: sha256:9937024fa2509be60e2415637a1caa5fdccf9f355272ce2ebc38cb02e694748c
 - kind: project-relative
   target: codex
   value: .agents/skills/investigate-bug
@@ -156,7 +204,7 @@ deployments:
   owners:
   - akihiroxob/agent-foundation
   active_owner: akihiroxob/agent-foundation
-  content_hash: sha256:b82929962a20325efc8205d44e3039e5c8fe59b8a40e183992986ef9c56ec4b0
+  content_hash: sha256:478727e8e5066448ca20cef1bb3f4a42075d51f5bae48af48ef656362846d90b
 - kind: project-relative
   target: codex
   value: .agents/skills/review-documentation-impact
@@ -174,7 +222,7 @@ deployments:
   owners:
   - akihiroxob/agent-foundation
   active_owner: akihiroxob/agent-foundation
-  content_hash: sha256:3abf6480cef2a400bfa73dc043f7e58ed1b62358689b50a3438a29c6b91e3d71
+  content_hash: sha256:ff24c19e8089366e054a105030296dfc4fd0eaf0bc75c2bfa007d95664b862f5
 - kind: project-relative
   target: codex
   value: .agents/skills/review-documentation-impact/agents/openai.yaml
@@ -184,6 +232,42 @@ deployments:
   - akihiroxob/agent-foundation
   active_owner: akihiroxob/agent-foundation
   content_hash: sha256:df87dc907c6371caf83d9128e14ffa88ade6af0f3d3d0ff4b0fce00dab4b33c5
+- kind: project-relative
+  target: codex
+  value: .agents/skills/use-mcp-tools
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: null
+- kind: project-relative
+  target: codex
+  value: .agents/skills/use-mcp-tools/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: sha256:70deda797a5756900b57d63c6ca3675c70ab1a9084cb56151ecbaf587e3c811a
+- kind: project-relative
+  target: codex
+  value: .agents/skills/verify-browser-ac
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: null
+- kind: project-relative
+  target: codex
+  value: .agents/skills/verify-browser-ac/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: sha256:9937024fa2509be60e2415637a1caa5fdccf9f355272ce2ebc38cb02e694748c
 - kind: project-relative
   target: codex
   value: .codex/hooks/agent-foundation/.apm/hooks/scripts/check-dangerous-command.py
@@ -219,7 +303,7 @@ mcp_configs:
     transport: stdio
     args:
     - -y
-    - '@playwright/mcp@0.0.83'
+    - '@playwright/mcp@latest'
     - --isolated
     - --headless
     registry: false

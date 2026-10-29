@@ -34,7 +34,7 @@
     "reviewer": {
       "agentName": "reviewer",
       "agentProvider": "codex",
-      "model": ""
+      "model": "gpt-6.1-sol"
     },
     "manager": {
       "agentName": "accepter",
@@ -43,6 +43,13 @@
     }
   },
   "verification": {
+    "preparationFiles": [
+      "scripts/prepare-browser-verification.mjs",
+      "scripts/preview-operation-policy.mjs",
+      "scripts/verify-consultation-resumption.mjs",
+      "docs/browser-verification.md"
+    ],
+    "preparationRevision": "9cca1f332ce1051256eb47e69abc23a486f6de30",
     "hostCommands": [
       [
         "node",
