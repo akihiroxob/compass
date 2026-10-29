@@ -198,6 +198,17 @@ Project相談・Workspace相談・Task待機/再開・文書反映を、相談St
 - 観測: 相談詳細の「この相談を待つTask」の状態と失敗理由は、Runtimeの`list_consultation_resumptions`による再照合で更新されるため、結論の保存直後から次の照合までは前の状態（`waiting`と結論前の理由）を表示する。全体の判断待ち一覧の見出しと説明文の間に余白がほとんど無い。
 - 未検証: 実AgentのStrategistによるWorkspace相談への応答、実Agentによる文書反映TaskのRepository変更・PR作成・受入から参照登録までの運転（上記の文書反映は検証用Principalの公開操作）、Runner再起動・lease失効の実時間での確認（自動テストの時刻差し替えとRalphの結合テストで確認）、remote mode・実Google認証。
 
+## デザインシステムの統合検証
+
+UI方針・token・部品・カタログの4つの正本と、カタログ・製品画面・配信assetの対応を、デザインシステムStoryの01〜03を統合したrevisionで確認した範囲。正本と運用手順は[UIカタログ](ui-catalog.md)、方針と画面の構成は[Web UIの視覚方針](web-ui.md#視覚方針)。対象revision・画像・実測はTaskの結果に記録する。
+
+- build・配信: 同じrevisionで製品build（`server/public`）とカタログbuild（`server/storybook-static`）を作り直した。専用previewの配信HTMLはbuild直後と同じ`index-<hash>.css`・`index-<hash>.js`を参照し、配信されたCSSとbuild出力のSHA-256が一致した。カタログの`iframe-<hash>.css`は製品のCSSと同じhash・同じ内容（バイト単位で一致）で、カタログ固有のstyleは加わっていない。
+- token・部品: カタログと製品の`:root`で、ブランド・面・文字・罫線の色、`--font-sans`（OS標準のサンセリフ）、control size、見出しの大きさ、焦点表示が同じ値に解決される。Button・LinkButton・ViewSwitch・入力は、カタログと製品の両方でmd 40px（padding 16px・文字14px）、sm 32px（12px・13px）、角丸6px、primaryはブランドの面に白文字。製品はTabで移動した要素に3px・offset 2pxのブランド色の実線が出る。色の値は`styles/_tokens.scss`だけにある。
+- 製品画面（専用preview、owner、Desktop 1280px・狭い画面390px）: Workspaceの概要・方向・判断待ち・Project・記録・Agent・設定、Projectの概要・方向・実行・判断待ち・記録・設定、Task詳細、参加中のProjectの15画面で、h1 32px・区画の見出し18px、操作部品は上記のsizeだけ、横方向のはみ出しは無い。consoleのerror・warning、4xx・5xxの応答は無い。Workspace概要・Project概要・Task詳細は1280pxで主列602px・補助列320pxの2列、390pxで1列（Task詳細は補助列が先）。中間幅（768px・1024px）の同じ15画面も横方向のはみ出しが無く、2列の画面は1列になる。カタログの`Patterns/OverviewLayout`・`ColumnsInNarrowParent`も、親の幅に応じて同じ2列・1列になる。
+- 権限差（viewer）: Workspace概要に管理の区画・編集の導線を出さず、編集URLを直接開くと権限が無い理由を出す。Project Aの設定に入力フォームを出さない。未所属のProject Bは404で「見つからないか権限がない」を出す。
+- 参照との比較: ムードボードからは青藍・白・青灰色の配色、サンセリフ、Mission帯・要対応・主列/補助列の構成、コンパクトな操作部品を採用した。プロトタイプからは、見出し → Mission帯 → 要対応 → 主列（現在地・記録）・補助列の情報の順序と、罫線で区切る一覧を採用した。意図した差として、プロトタイプの緑系の配色・Noto Sans JPの配信・進捗率・件数の集計値・Agentの稼働表示・架空のOutcomeは採用しない。h1はプロトタイプの27pxではなく、ムードボードの32pxとした。
+- 未検証: Workspaceのarchive・Credentialのrotation/取消・Taskの受入/差戻しの操作、中間幅のProject概要以外の画像の目視（実測だけ）、カタログdevサーバー（静的buildで確認）、Windows・Linuxでのフォントのフォールバック、実Google認証・remote mode。
+
 ## 未実装・未接続・未検証
 
 - 相談はProject / Workspace scopeの作成・会話・結論・取消、横断一覧（`/api/consultations`・`/consultations`）、WorkのTask待機/Claim除外（Project相談だけ）、入力版ごとの応答起動（ProjectはManager、WorkspaceはStrategist）、保存済み実行の再開まで接続済み。`roles/`から`consultation-task-resumption`（Worker / Reviewer / Manager）と`respond-consultation`（Manager / Strategist）Skillを配信する。Project・Workspace相談の結論から文書反映Taskの起票・受入成果物（`accept_task`の`deliverables`）と一致する成果物参照の登録・反映状況の表示、明示した依存だけで元Taskの再開を待たせる照合まで接続済み。Web UIの運用者による受入は受入成果物を記録しないため、その文書反映Taskは反映済みにできない。文書反映は、serverの結合テストと専用環境の公開操作で、実際にcommitした検証用git Repositoryの参照を使って確認した。実AgentによるRepositoryの文書変更とPR作成を通した運転は未検証。実Agent（Strategist）によるWorkspace相談への応答は未検証で、Orchestratorの起動は結合テストのfixtureで確認している。詳細と検証境界は[相談](consultation-design.md)を参照。

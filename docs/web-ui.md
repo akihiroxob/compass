@@ -197,4 +197,4 @@ rootの`npm run check:ui`は`server`の同名scriptへ委譲し、検査自体�
 
 [UIカタログ](ui-catalog.md)で製品の実部品・同じ`app/main.scss`・現行tokenを確認できる。`npm run catalog:dev`・`npm run catalog:build`をRepository rootで実行する。基本部品は`components/ui`近傍のstoryから同じ公開入口を使い、組合せとtokenも近傍のstoryに置く。previewは`MemoryRouter`だけを供給し、実運用サービスを使わない。
 
-`check:ui`はstoryを含む全sourceを検査する。`components/ui/*.stories.tsx`のStorybook型importだけを限定的に許可し、storyのnative基本部品・基本部品のstyle上書き・操作列sizeも検査する。製品からstoryへの依存は禁止する。部品・SCSSの例外を増やすためにstoryを使わない。
+4つの正本（UI方針・token・部品・カタログ）、部品を変更するときのWorker・Reviewer・Managerの手順、配信assetとbuildの対応は[UIカタログの運用手順](ui-catalog.md#運用手順)に従う。`check:ui`はstoryを含む全sourceを検査する。`components/ui/*.stories.tsx`のStorybook型importだけを限定的に許可し、storyのnative基本部品・基本部品のstyle上書き・操作列sizeも検査する。製品からstoryへの依存は禁止する。部品・SCSSの例外を増やすためにstoryを使わない。

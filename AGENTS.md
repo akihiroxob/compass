@@ -44,4 +44,5 @@
 - 参照元は `/Users/aokayama/git/wacha`・`/Users/aokayama/git/shirube`・`/Users/aokayama/git/agent-foundation`。取り込み済み機能を重複移植しない。
 - 現在のHono / React・Vite / SQLite・Kysely構成を基準とし、技術変更を構成例だけから自動採用しない。
 - 変更後は関連テスト・型チェック・lint・buildを可能な範囲で実行し、未実施と失敗を明示する。
+- Web UIの部品・token・SCSSを変更する場合は `docs/ui-catalog.md` の運用手順に従い、状態例と適用画面の両方を確認する。カタログだけで画面受入を済ませない。
 - 実装済み・未接続・未検証を区別する。模擬実行を自律運転の実証と扱わない。
