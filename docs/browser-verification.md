@@ -152,6 +152,6 @@ node --import tsx "$PREPARATION/scripts/prepare-browser-verification.mjs" \
 
 ## 参照プロトタイプとの比較
 
-参照プロトタイプは、管理者がRalphのProject設定（`verification.browser.profiles`）へ`prototype` profileを登録した環境でだけ起動できる。このRepositoryの`.ralph/config.json`には登録されていないため、`start_browser_preview`が未登録profileを拒否した場合は比較を未検証として記録し、別の起動方法で代替しない。登録済みなら`start_browser_preview({"profile":"prototype"})`で起動する。想定する参照先は`/Users/aokayama/git/compass-prototype`、localhostに限定したViteの専用portで、製品のDB・MCPは使わない。停止済みの固定URLへ依存せず、返されたURLを使用する。参照コードは編集しない。Repository外の参照資料なので、比較時にファイル内容のdigest等で参照版を記録する。
+参照プロトタイプは、管理者がRalphのProject設定（`verification.browser.profiles`）へ`prototype` profileを登録した環境でだけ起動できる。このRepositoryの`.ralph/config.json`には`prototype` profileが登録されている。別環境で未登録profileが拒否された場合は、未登録であることと必要な設定を記録し、別の起動方法で代替しない。登録済みなら`start_browser_preview({"profile":"prototype"})`で起動する。想定する参照先は`/Users/aokayama/git/compass-prototype`、localhostに限定したViteの専用portで、製品のDB・MCPは使わない。停止済みの固定URLへ依存せず、返されたURLを使用する。参照コードは編集しない。Repository外の参照資料なので、比較時にファイル内容のdigest等で参照版を記録する。
 
 同時に起動できるpreviewは一つである。先にプロトタイプの対応画面をDesktopと狭幅で操作し、画像・画面名・viewport・参照版を`artifactDirectory`へ保存して停止する。続いてprofileを省略して製品previewを起動し、同じ画面・viewport・操作で比較する。保存画像を実見して採用した配置・情報密度・操作導線と意図した差を記録する。参照にない画面も製品側のACに従って独立確認する。参照prototypeが起動しても製品ACの成功にはならない。

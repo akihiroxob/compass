@@ -96,6 +96,23 @@
         ]
       ],
       "profiles": {
+        "prototype": {
+          "command": [
+            "npm",
+            "--prefix",
+            "/Users/aokayama/git/compass-prototype",
+            "run",
+            "dev",
+            "--",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "{port}",
+            "--strictPort"
+          ],
+          "readyPath": "/",
+          "setupCommands": []
+        },
         "catalog": {
           "command": [
             "npm",
