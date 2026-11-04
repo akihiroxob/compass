@@ -1,0 +1,756 @@
+{
+  "status": "awaiting_source_push",
+  "projectId": "45186ac4-9c0a-4bf5-8fb3-0f4ab9d4e7c3",
+  "sourceManifest": "docs/planning/ui-redesign-source-manifest.json",
+  "sourceCommit": "cebd9d3b5e973966467bbd3cc513dcf5fca02bca",
+  "common": {
+    "common": "共通方針:\n- 対象Repository: /Users/aokayama/git/compass。Wachaは開発管理だけに利用し、製品の依存関係として再導入しない。\n- 最新の合意資料 docs/planning/ux-user-scenarios.md と採用試作 docs/planning/prototypes/index.html、Architecture Handoff、ADR 0003を読む。試作は配置と導線の参照で、架空データ・HTMLの直配信・メモリだけの保存を製品へ移さない。\n- 既存Hono / React・Vite / SQLite・Kyselyを維持。UIはFeature責務・公開入口・既存共通React部品・SCSS・token・Storybookを再利用する。Tailwindの新規導入・新規必須階層・独立した『成果』管理・OpenAI API／内蔵AIチャットは対象外。\n- 独立した自分のWorktree/BranchでPRを作る。完了済みのStory/Taskを再実装しない。技術選定や実装詳細は既存Policy内でAgentが決め、根拠を記録する。要件自体の変更・ACの追加配分はManagerへ返す。\n- 対象SHAの専用環境で公開API/MCP/UIから状態を準備し、必要な準備を同じPRで更新する。docs/browser-verification.mdのPolicyと対象revisionを照合する。運用DB・稼働中Task/Claimは触らず、SQL直書きや応答差替えを公開操作のACの代わりにしない。\n- 前提Taskはaccepted（対象変更が統合済み）を待つ。番号・sortOrder・候補への表示は依存の成立を保証しない。受入を後続Taskへ丸投げせず、自分の対象SHAで記載ACを検証する。\n- 関連テスト、npm run typecheck / lint / buildを実施し、UIではnpm run check:ui / catalog:buildと実ブラウザPC 1440px・SP 390pxの操作・保存画像を確認する。全チェックの無目的な反復はしない。失敗・skip・未検証は理由と対象SHA・環境・根拠を分けて報告する。\n- 現行文書・公開契約・Role手順・検証準備を実装と揃える。正本には有効な現在仕様を記載し、過去案や変更履歴を追記しない。重要な設計判断はADRへ残す。\n- GitHub requiredChecksは現在空でCI任意。ローカルの必要な検証と独立レビューは省略しない。受入済みTask／PRマージ／公開／Outcome効果は別の事実として扱う。",
+    "ui": "UI共通AC:\n- 概要→対応待ち→Outcome→Activity→Agent管理→設定。Workspace/Project切替は概要へ戻る。SPは右のハンバーガーと右ドロワー。\n- 共通Dialogは×・44px以上・読み上げ名・Escape・focus復帰。個別対象の操作はそのカード内、ページ全体操作はページ上部。冗長な説明・矢印・二段階の開閉を増やさない。\n- 実データの空状態・権限不足・読込失敗・保存中／失敗・競合・多数件を区別し、未接続や不明をゼロや成功にしない。画面固有で本Taskに関係する状態を独立して確認する。"
+  },
+  "order": [
+    "A1",
+    "A2",
+    "N1",
+    "G1",
+    "A3",
+    "N2",
+    "B1",
+    "G2",
+    "C1",
+    "E1",
+    "N3",
+    "B2",
+    "E2",
+    "P1",
+    "B3",
+    "O1",
+    "M1",
+    "L1",
+    "P2",
+    "O2",
+    "L2",
+    "O3",
+    "M2",
+    "M3",
+    "W1",
+    "W2",
+    "W3",
+    "Z1"
+  ],
+  "stories": [
+    {
+      "k": "R01",
+      "title": "WorkspaceのMember権限で配下の全Projectを利用できる",
+      "goal": "HumanがWorkspaceだけで参加・招待・Role変更・除外を管理し、配下Projectへ同じ権限を適用できる。",
+      "refs": [
+        "docs/adr/0003-workspace-human-membership.md",
+        "packages/access",
+        "server/src/auth",
+        "server/src/web/features/member"
+      ],
+      "base": [
+        "784a115f-bed1-4aa1-88e8-26990a79d1ce"
+      ],
+      "tasks": [
+        {
+          "k": "A1",
+          "title": "HumanのProject操作を所属WorkspaceのMembershipで認可する",
+          "deps": [],
+          "ui": true,
+          "scope": "Access・Organization・HTTP認可・OIDC初期Owner処理・既存Member管理をADR 0003へ切替。Project Membershipの保持・個別Owner付与・ProjectのMember画面を除去し、WorkspaceのMember変更へ集約する。",
+          "given": "新規の専用DBに初期Ownerと別Workspaceを用意する。Role別の既存Humanを作る認可テストfixtureを同じTaskで更新し、閲覧・編集・管理・別Workspaceの各操作をHTTP入口で検証できる。新しい招待フローの完了を前提にしない。",
+          "acs": [
+            "Given WorkspaceのOwner・管理者・編集者・閲覧者がいる When 配下の複数Projectへ参照・編集・管理操作を行う Then 操作別Role水準を同じWorkspace Membershipで検査し、新規Projectにも自動適用される。別Workspaceは拒否する。",
+            "Given Role変更または除外を行った When 同じセッションでProject操作を再実行する Then 古いProject RoleやUIキャッシュで権限を維持できない。最後のWorkspace Ownerの降格・除外は拒否する。",
+            "Given AgentのWorkspace／Project GrantとCredentialがある When MCP・Runtimeから操作する Then Agent scope・activeRole・Claim・自己レビュー／自己受入の規則を維持し、Human認可と混同しない。",
+            "Given Project作成・bootstrap・archive・相談・Activity・Repository／Resource・Agent設定等の既存公開経路 When 認可を横断検査する Then Project独自Membershipへの依存と迂回経路が残らず、新規DBと既存の管理UIが起動する。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-A1-v1"
+        },
+        {
+          "k": "A2",
+          "title": "WorkspaceからHumanを招待し全Projectの利用へつなぐ",
+          "deps": [
+            "A1"
+          ],
+          "ui": true,
+          "scope": "Workspace scopeの招待・参加・取消・期限・Role付与をWeb API／Member UIまで縦に実装する。Project参加者を先に選ぶ条件とProject単位の招待を除去する。",
+          "given": "A1の新規DBと専用OIDC／開発ログイン環境を使う。招待の配送は専用環境の許可済みテスト配送先で確認し、実際の招待作成と参加APIはmockで置き換えない。配送不可の場合は発行と参加の証拠と配送未検証を分ける。",
+          "acs": [
+            "Given Workspace OwnerでMember管理を開いた When メールとRoleで招待し対象Humanが参加する Then Workspaceと既存・新規の全Projectを付与Roleで利用でき、Projectごとの招待・参加を要しない。",
+            "Given 取消済み・期限切れ・使用済み招待または他人の招待 When 参加を試みる Then 拒否し、再送・二重送信でもMembershipと権限を重複作成しない。未参加・招待中・参加済みを区別する。",
+            "Given Viewer・編集者・管理者 When 招待・Member変更を試す Then Owner権限なしでは拒否する。UIには操作可能範囲だけを表示し、失敗時は入力を保持する。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-A2-v1"
+        },
+        {
+          "k": "A3",
+          "title": "Member一覧と権限ヘルプを新しいWorkspace管理UIへ揃える",
+          "deps": [
+            "A2",
+            "N1"
+          ],
+          "ui": true,
+          "scope": "Member一覧・招待中・権限変更・除外と共通ヘルプモーダルを採用試作に合わせる。状態の多い実Memberを検索・ページングできる構成にし、ProjectのMember入口を置かない。",
+          "given": "A2の公開招待・参加・Role変更でMemberと招待中を準備する。検索の多件数は許可済みfixtureで用意し、管理操作そのものはブラウザで実行する。",
+          "acs": [
+            "Given PC／390pxでMember管理を開いた When 一覧・招待・変更・除外を操作する Then 対象Workspaceと全Projectへの影響が分かり、保存・再読込後も正しい状態になる。最後のOwnerは保護する。",
+            "Given 『権限について』を開いた When ×・Escape・キーボードで閉じる Then Role説明と適用範囲を確認でき、操作元へfocusが戻る。説明カードを常設しない。",
+            "Given 読込失敗・空状態・多数件・権限不足・archive When 閲覧する Then 欠損をゼロ件に偽装せず、変更できない理由・再読込・状態に応じた操作を示す。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-A3-v1"
+        }
+      ],
+      "wachaTitle": "UI-R01 WorkspaceのMember権限で配下の全Projectを利用できる",
+      "wachaDescription": "背景:\n- 合意したWorkspace中心のUIを既存Compassへ接続する。既存の完了済みStoryは再発行せず流用する。\n\n達成したいこと:\n- HumanがWorkspaceだけで参加・招待・Role変更・除外を管理し、配下Projectへ同じ権限を適用できる。\n\n完了条件:\n- 配下Taskが個別のGivenとACを満たし、同じ統合版でこの成果を確認できる。\n- Task A3が本Storyの統合条件（先行する配下Taskとの連携・画面/公開契約・権限・永続化）を確認する。後続Storyの完成は本Storyの先行Taskの受入条件にしない。\n- 配下の依存関係は各Taskに記載する。最終の横断受入はZ1が所有する。\n\n参照:\n- 設計コミット: cebd9d3b5e973966467bbd3cc513dcf5fca02bca\n- docs/planning/ux-user-scenarios.md / docs/planning/prototypes/index.html\n- docs/adr/0003-workspace-human-membership.md\n- packages/access\n- server/src/auth\n- server/src/web/features/member\n- 流用する既存Story: 784a115f-bed1-4aa1-88e8-26990a79d1ce\n\n制約:\n- completionModeは全実装Taskでpull_request。設計合意と実装完了を混同しない。\n- HumanはWorkspace Membershipへ統一。Agent scope・Work所有・Claim等の業務規則を維持する。\n- 既存部品・業務機能・準備スクリプトを再利用し、各Taskで必要な文書と検証準備も揃える。\n- 独立した成果管理・内蔵AIチャット・OpenAI API・agent-foundation全面集約は対象外。",
+      "requestId": "compass-ui-redesign-20261104-story-R01-v1"
+    },
+    {
+      "k": "R02",
+      "title": "WorkspaceとProjectを作り合意したナビゲーションで行き来できる",
+      "goal": "新規作成から概要・設定・Project切替まで、PCとスマートフォンで同じ情報構造を使える。",
+      "refs": [
+        "server/src/web/app",
+        "server/src/web/components/ui",
+        "server/src/web/features/workspace",
+        "server/src/web/features/project",
+        "docs/ui-catalog.md"
+      ],
+      "base": [
+        "aad2c1ec-80ee-4ae8-b5b7-e463e6805451",
+        "d2b657d0-fbbf-4649-8a73-25615f4043ef",
+        "a247762b-60a8-4f9d-b14d-1ec4861ab4bd"
+      ],
+      "tasks": [
+        {
+          "k": "N1",
+          "title": "共通Shellとモーダル・フォーム部品を合意した導線へ適用する",
+          "deps": [
+            "A1"
+          ],
+          "ui": true,
+          "scope": "既存React／SCSS／token／Storybookを再利用し、Workspaceメニュー、Project階層ナビ、右側SPドロワー、共通Dialog・Select・カード操作の配置を製品画面へ適用する。新しい部品基盤を重複導入しない。",
+          "given": "既存の公開作成・参照入口で2 Workspace・各2 Projectを準備し、現行画面とUIカタログを起動する。後続Direction・観測機能を要しない。",
+          "acs": [
+            "Given Workspace／Projectの既存画面 When 切替を行う Then 必ず対象の概要を開き、メニューは概要→対応待ち→Outcome→Activity→Agent管理→設定、Project配下は概要・開発詳細・リリース履歴・設定の階層となる。",
+            "Given 390pxで画面を開いた When 右のハンバーガーを押す Then 名前アイコンの右から右ドロワーを開き、閉じる×・Workspace選択を同じ行に置く。ヘッダー下の追加ナビは置かない。",
+            "Given 共通モーダル・Select・カード When 操作と表示を確認する Then 全モーダルの閉じる操作は×、44px以上と読み上げ名・focus復帰・Escapeを備える。Selectの矢印の余白を共有し、対象固有の操作はカード内、ページ全体操作は上部へ置く。",
+            "Given 製品とカタログ When 同じ部品を比較する Then 同じReact実装・SCSS・tokenを使い、Feature依存境界・keyboard・折返し・横スクロールなしを実画面でも確認できる。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-N1-v1"
+        },
+        {
+          "k": "N2",
+          "title": "Workspace作成・設定からProject追加と空の概要を使えるようにする",
+          "deps": [
+            "N1",
+            "A2"
+          ],
+          "ui": true,
+          "scope": "Workspace一覧の作成、Workspaceの名前・Mission／Vision・Principles／Constraintsの編集、Project追加、設定への導線と空状態を実保存へ接続する。作成成功後は概要へ直行し、試作のプレビュー段階を製品へ入れない。",
+          "given": "初期Ownerのみの新規DBからWeb UIの公開操作でWorkspace・Projectを作る。既存のOrchestrator／Ralphは検証用データで自動起動しない。",
+          "acs": [
+            "Given Workspaceが0件 When 名前・Missionで作成する Then 作成者がOwnerとなり空のWorkspace概要へ移動する。Vision等は任意、空白の必須欄は拒否し、再読込・Server再起動後も保持する。",
+            "Given 空のWorkspace概要 When 目標作成またはProject追加へ進む Then Projectを先に必須にせず目標フォームへ進め、Project追加ではWorkspaceを固定して名前・説明・任意のRepository URLを登録できる。",
+            "Given 作成直後のWorkspace／Project When 概要を開く Then 未登録の目標・Project・作業を示して次の入口を置く。KPI・進捗をゼロで埋めず、架空の作業・Agent・問題を表示しない。",
+            "Given 各Roleとarchive When 作成・設定変更を試す Then A1のRole水準と対象の状態を強制し、入力エラー・失敗・保存競合を区別する。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-N2-v1"
+        },
+        {
+          "k": "N3",
+          "title": "Project設定のRepository URL・Resource・archiveを実操作へ接続する",
+          "deps": [
+            "N2"
+          ],
+          "ui": true,
+          "scope": "Projectの名前・purpose、Repository URLからの表示名導出、Resource、Project／Workspaceのarchiveを採用配置へ揃える。Project Member設定を再導入しない。",
+          "given": "N2の公開操作で対象WorkspaceとProjectを作り、設定から複数Repository・Resourceを登録する。外部Repository自体の削除やcloneを行わない。",
+          "acs": [
+            "Given Project設定 When Repository URLを追加・編集する Then 手入力のRepository名を要求せずURLから表示名を導出する。Resourceは名前・URL・種類を持ち、保存・再読込・個別削除で保持する。",
+            "Given ProjectまたはWorkspace Owner When 理由付きでarchiveする Then 対象の操作制限と参照可能範囲が一致し、WorkspaceとProjectを一緒にarchiveしない。理由必須と最後のOwner等の規則を維持し、復帰できるように見せない。",
+            "Given 閲覧者・archive・不正URL・保存失敗 When 設定を開く Then 入力・操作・説明が実際の権限と状態に一致し、失敗しても入力を失わない。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-N3-v1"
+        }
+      ],
+      "wachaTitle": "UI-R02 WorkspaceとProjectを作り合意したナビゲーションで行き来できる",
+      "wachaDescription": "背景:\n- 合意したWorkspace中心のUIを既存Compassへ接続する。既存の完了済みStoryは再発行せず流用する。\n\n達成したいこと:\n- 新規作成から概要・設定・Project切替まで、PCとスマートフォンで同じ情報構造を使える。\n\n完了条件:\n- 配下Taskが個別のGivenとACを満たし、同じ統合版でこの成果を確認できる。\n- Task N3が本Storyの統合条件（先行する配下Taskとの連携・画面/公開契約・権限・永続化）を確認する。後続Storyの完成は本Storyの先行Taskの受入条件にしない。\n- 配下の依存関係は各Taskに記載する。最終の横断受入はZ1が所有する。\n\n参照:\n- 設計コミット: cebd9d3b5e973966467bbd3cc513dcf5fca02bca\n- docs/planning/ux-user-scenarios.md / docs/planning/prototypes/index.html\n- server/src/web/app\n- server/src/web/components/ui\n- server/src/web/features/workspace\n- server/src/web/features/project\n- docs/ui-catalog.md\n- 流用する既存Story: aad2c1ec-80ee-4ae8-b5b7-e463e6805451, d2b657d0-fbbf-4649-8a73-25615f4043ef, a247762b-60a8-4f9d-b14d-1ec4861ab4bd\n\n制約:\n- completionModeは全実装Taskでpull_request。設計合意と実装完了を混同しない。\n- Human認可はADR 0003、Agentはscope別Grantを維持する。\n- 既存部品・業務機能・準備スクリプトを再利用し、各Taskで必要な文書と検証準備も揃える。\n- 独立した成果管理・内蔵AIチャット・OpenAI API・agent-foundation全面集約は対象外。",
+      "requestId": "compass-ui-redesign-20261104-story-R02-v1"
+    },
+    {
+      "k": "R03",
+      "title": "ビジネス目標をUIと外部MCPから登録し複数目標を並行して進められる",
+      "goal": "Intentを構造化したビジネス目標として直接入力し、複数目標と学習による更新をAgentへ引き継げる。",
+      "refs": [
+        "packages/direction",
+        "server/src/mcp",
+        "server/src/web/features/intent",
+        "orchestrator/src",
+        "docs/planning/ux-user-scenarios.md"
+      ],
+      "base": [
+        "0eb0381e-4483-4f3b-a269-d63c9970d8bc",
+        "b1a435b1-d568-4759-badd-549b0c79836f"
+      ],
+      "tasks": [
+        {
+          "k": "B1",
+          "title": "構造化したIntentをWorkspaceのUIと認可済みMCPで登録・更新する",
+          "deps": [
+            "A1",
+            "N1"
+          ],
+          "ui": true,
+          "scope": "Intentに目標名・実現したい状態・背景・対象・制約・達成条件・目標日を構造化して永続化し、Workspaceの作成／編集フォームとMCPを共通applicationへ接続する。まず単一目標で閉じる。",
+          "given": "公開操作でWorkspaceを作成し、EditorとWorkspace Strategistの検証用Credentialを用意する。Google/OIDC本物の会話やOpenAI APIは必要条件にしない。",
+          "acs": [
+            "Given Workspace Editorまたは許可したWorkspace Strategist When UI／MCPから目標を登録・更新する Then 同じレコードとvalidationを使い、UIで再入力を要さず再読込・再起動後も全項目を保持する。タイトル・実現状態を必須、他のフォーム項目は任意として契約を明記する。",
+            "Given Worker／Reviewerや別Workspace Credential When 目標登録・更新を試す Then 拒否し、Agentの操作主体をHumanとして記録しない。Human管理Tool全般をMCPへ公開しない。",
+            "Given UIから目標を作る When 保存する Then 内蔵AIチャット・OpenAI API呼出し・開始ボタンを設けず、未起動のAgentを稼働中と表示しない。既存の単一Active Intent制約の変更はB2に所有させる。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-B1-v1"
+        },
+        {
+          "k": "B2",
+          "title": "複数ビジネス目標とIntent単位のOrchestrator dispatchを成立させる",
+          "deps": [
+            "B1"
+          ],
+          "ui": false,
+          "scope": "採用した複数目標の俯瞰に合わせ、Workspace最大1 Active Intentの制約を複数のActive Intentを扱う契約へ改める。保存・一覧・Orchestration State・dispatch・Role Context・関連Outcomeの分離を同時に更新する。",
+          "given": "B1のUI／公開MCPで同じWorkspaceへ複数目標を登録し、各目標へ異なるOutcome・Research／Evaluation状態を準備する。既存のRole起動adapterと検証用実行記録を使う。",
+          "acs": [
+            "Given 同じWorkspaceの複数Active Intent When 作成・一覧・参照する Then 互いを暗黙放棄せず保存・表示でき、各Outcome・判断・評価・Researchが正しいIntentを参照する。別Workspace参照は拒否する。",
+            "Given 複数目標に次の仕事がある When Orchestratorが現在状態を読む Then Intent IDを含む識別で各対象へdispatchし、最初の目標だけを処理しない。登録後に調査の要否判断・Outcome具体化へ進め、Researchを一律必須ゲートにしない。",
+            "Given 再実行・Goal終端・archive・Target未設定 When dispatchする Then 二重起動防止と既存の再計画・Actor scopeを保ち、別Goalの完了や待機で対象Goalを停止しない。実CLI常駐運転の実証とadapterテストを区別する。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-B2-v1"
+        },
+        {
+          "k": "B3",
+          "title": "目標を見直したとき既存Outcome・評価の根拠と版を保持する",
+          "deps": [
+            "B2"
+          ],
+          "ui": true,
+          "scope": "Outcome作成後のIntent編集制約と新UIの編集を整合させる。変更理由・版・履歴を残し、既存のhandoff・実行・評価の参照を現在要件へ黙って書き換えない。",
+          "given": "B2で作成した目標に既存Outcome・handoff・実行／評価の証跡を公開操作で準備する。競合は同じ対象を2画面／APIクライアントから更新して作る。",
+          "acs": [
+            "Given Outcomeを持つ目標 When Humanまたは認可Agentが目標を更新する Then 本文と変更主体・理由・版を保存し、古い評価・handoffは元の版を参照できる。影響のある未完了作業は明示的な再計画対象として識別する。",
+            "Given 古い編集画面や古い版の判断 When 更新する Then 競合を検知し、根拠を現在版の成果として扱わない。理由のない全面禁止や人の再開始ボタンで学習を止めない。",
+            "Given 目標の終端操作 When 実行する Then Outcome・Taskの状態を無断で完了に変えず、Orchestratorと一覧が正しい現在状態を示す。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-B3-v1"
+        }
+      ],
+      "wachaTitle": "UI-R03 ビジネス目標をUIと外部MCPから登録し複数目標を並行して進められる",
+      "wachaDescription": "背景:\n- 合意したWorkspace中心のUIを既存Compassへ接続する。既存の完了済みStoryは再発行せず流用する。\n\n達成したいこと:\n- Intentを構造化したビジネス目標として直接入力し、複数目標と学習による更新をAgentへ引き継げる。\n\n完了条件:\n- 配下Taskが個別のGivenとACを満たし、同じ統合版でこの成果を確認できる。\n- Task B3が本Storyの統合条件（先行する配下Taskとの連携・画面/公開契約・権限・永続化）を確認する。後続Storyの完成は本Storyの先行Taskの受入条件にしない。\n- 配下の依存関係は各Taskに記載する。最終の横断受入はZ1が所有する。\n\n参照:\n- 設計コミット: cebd9d3b5e973966467bbd3cc513dcf5fca02bca\n- docs/planning/ux-user-scenarios.md / docs/planning/prototypes/index.html\n- packages/direction\n- server/src/mcp\n- server/src/web/features/intent\n- orchestrator/src\n- docs/planning/ux-user-scenarios.md\n- 流用する既存Story: 0eb0381e-4483-4f3b-a269-d63c9970d8bc, b1a435b1-d568-4759-badd-549b0c79836f\n\n制約:\n- completionModeは全実装Taskでpull_request。設計合意と実装完了を混同しない。\n- Human認可はADR 0003、Agentはscope別Grantを維持する。\n- 既存部品・業務機能・準備スクリプトを再利用し、各Taskで必要な文書と検証準備も揃える。\n- 独立した成果管理・内蔵AIチャット・OpenAI API・agent-foundation全面集約は対象外。",
+      "requestId": "compass-ui-redesign-20261104-story-R03-v1"
+    },
+    {
+      "k": "R04",
+      "title": "Outcomeの課題・解決策・評価計画を読み書きし目標をまたいで把握できる",
+      "goal": "新しい必須階層を増やさずOutcomeごとに課題・根拠・解決策・評価をまとめ、一覧から進捗と障害を辿れる。",
+      "refs": [
+        "packages/direction",
+        "server/src/web/features/outcome",
+        "server/src/mcp",
+        "docs/planning/ux-user-scenarios.md"
+      ],
+      "base": [
+        "fabb77d6-e018-47d8-87ad-67168681c474",
+        "e1404d38-8ba2-458e-99da-70521247c9ca"
+      ],
+      "tasks": [
+        {
+          "k": "O1",
+          "title": "Outcomeに課題と解決策の仮説・根拠を関連付けUI／MCPで扱う",
+          "deps": [
+            "B2",
+            "N1"
+          ],
+          "ui": true,
+          "scope": "Outcome配下にProblem Statement・根拠参照・解決策の仮説を扱う最小の構造を追加する。独立したGoal／施策／成果Entityや新しい必須承認工程は作らない。HumanとAgentが同じOutcomeを扱えるようにする。",
+          "given": "B2で複数目標を作成し、既存のOutcome作成・Research公開操作から根拠を用意する。試作にある架空の100件／61件を実データへ入れない。",
+          "acs": [
+            "Given Workspaceの目標 When Human UIまたは認可済みMCPからOutcomeを作成・編集する Then 目指す変化・貢献仮説・成功条件と、課題ごとの根拠・解決策を保存し、全文を詳細で読める。",
+            "Given 根拠不足・観測済み・反証を持つ課題 When 閲覧・更新する Then 観測と原因の仮説を区別し、途中離脱だけで原因を確定しない。課題と開発上の障害を同じ一覧に混ぜない。",
+            "Given 別Workspaceの根拠・古い更新版・権限不足 When 関連付ける Then 拒否し、既存のTarget Project・handoff・成功条件の版と更新規則を破壊しない。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-O1-v1"
+        },
+        {
+          "k": "O2",
+          "title": "評価計画と実際の評価結果をOutcomeへ接続する",
+          "deps": [
+            "O1",
+            "B3"
+          ],
+          "ui": true,
+          "scope": "既存Evaluation／Evidenceを再利用して問い・評価方法・前提・観測期間・判断／中止条件・根拠と限界を記録する。計画と結果、提供状況と効果の判断を分ける。",
+          "given": "O1の課題・解決策と、既存のExecution Evidence・Evaluation記録の公開操作を使う。未実施・データ不足・判定済みの検証用例を同じTaskで準備する。",
+          "acs": [
+            "Given 課題と解決策の仮説 When 評価計画をUI／許可したMCPから記録する Then 計画と未実施の状態が保持され、認知的ウォークスルーの結果を実ユーザーの証拠としない。",
+            "Given 検証結果・定量観測・根拠不足 When Evaluatorが評価を記録する Then 方法・対象版・根拠・限界を保存し、不足は判断不能として表示する。Task受入・公開を効果達成としない。",
+            "Given A/Bや差分の差分法を計画へ記す When 記録・表示する Then 適用前提を扱えるが、統計解析エンジン・必須インタビュー・独立Success Metrics製品は追加しない。評価待ちを自動でHuman待ちにしない。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-O2-v1"
+        },
+        {
+          "k": "O3",
+          "title": "Outcome一覧・詳細で全Projectの進捗と問題を比較できるようにする",
+          "deps": [
+            "O2",
+            "N2"
+          ],
+          "ui": true,
+          "scope": "Workspace固定メニューのOutcome一覧、目標をまたぐ検索・絞り込み・ページング、全文の課題別詳細、関連ProjectのTask集約・問題を実データに接続する。",
+          "given": "公開操作で2目標・複数Target Project・Outcomeを準備し、Work／相談で受入済み・差戻し・Human待ち・Agent待ち・未起票を作る。表示量だけの多件数は許可済みfixtureを使える。",
+          "acs": [
+            "Given 目標をまたぐOutcome一覧 When 検索・目標・問題有無で絞る Then 目的・Task進捗・問題を比較でき、詳細と同じ集計を使う。詳細から戻って条件を保持し、複数ProjectのTaskを文脈込みで数える。",
+            "Given accepted・未完了・canceled・Outcome未設定・0件 When 進捗を求める Then 集計規則を現行文書へ明記し、取消を含む件数と分母、対象なし・未起票を区別する。検索で分母を変えず、進捗率をOutcome達成度にしない。",
+            "Given Human待ち・Agent対処の複数障害 When 概要・詳細を開く Then 代表の理由・ほかN件と全件を辿れ、未取得を問題なしとしない。自然言語の一致だけで問題を同定しない。",
+            "Given PC／390pxでOutcome詳細を開く Then 大枠から課題別の根拠・解決策・評価計画／結果へ進め、提供状況・効果・Task進捗が別物と分かる。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-O3-v1"
+        }
+      ],
+      "wachaTitle": "UI-R04 Outcomeの課題・解決策・評価計画を読み書きし目標をまたいで把握できる",
+      "wachaDescription": "背景:\n- 合意したWorkspace中心のUIを既存Compassへ接続する。既存の完了済みStoryは再発行せず流用する。\n\n達成したいこと:\n- 新しい必須階層を増やさずOutcomeごとに課題・根拠・解決策・評価をまとめ、一覧から進捗と障害を辿れる。\n\n完了条件:\n- 配下Taskが個別のGivenとACを満たし、同じ統合版でこの成果を確認できる。\n- Task O3が本Storyの統合条件（先行する配下Taskとの連携・画面/公開契約・権限・永続化）を確認する。後続Storyの完成は本Storyの先行Taskの受入条件にしない。\n- 配下の依存関係は各Taskに記載する。最終の横断受入はZ1が所有する。\n\n参照:\n- 設計コミット: cebd9d3b5e973966467bbd3cc513dcf5fca02bca\n- docs/planning/ux-user-scenarios.md / docs/planning/prototypes/index.html\n- packages/direction\n- server/src/web/features/outcome\n- server/src/mcp\n- docs/planning/ux-user-scenarios.md\n- 流用する既存Story: fabb77d6-e018-47d8-87ad-67168681c474, e1404d38-8ba2-458e-99da-70521247c9ca\n\n制約:\n- completionModeは全実装Taskでpull_request。設計合意と実装完了を混同しない。\n- Human認可はADR 0003、Agentはscope別Grantを維持する。\n- 既存部品・業務機能・準備スクリプトを再利用し、各Taskで必要な文書と検証準備も揃える。\n- 独立した成果管理・内蔵AIチャット・OpenAI API・agent-foundation全面集約は対象外。",
+      "requestId": "compass-ui-redesign-20261104-story-R04-v1"
+    },
+    {
+      "k": "R05",
+      "title": "ビジネス目標への到達点と前回からの変化をWorkspaceで理解できる",
+      "goal": "Workspace一覧から優先して見る対象を選び、目標の実測値・推移・根拠付きの説明を確認できる。",
+      "refs": [
+        "packages/direction",
+        "packages/activity",
+        "server/src/web/features/workspace",
+        "server/src/web/features/intent",
+        "server/src/mcp"
+      ],
+      "base": [
+        "a9f532a6-1ff3-44ae-a0a2-2a647e15d9d1"
+      ],
+      "tasks": [
+        {
+          "k": "M1",
+          "title": "目標の観測値と時系列を根拠付きで記録・参照する最小契約を提供する",
+          "deps": [
+            "B2"
+          ],
+          "ui": false,
+          "scope": "既存Runtime／Evidenceを調査し再利用する。Intentに関連する観測項目・単位・対象期間・時刻・値・出所・revisionを表す最小の公開入出力を整備し、現状値・推移・未計測の取得を可能にする。専用BI連携を必須にしない。",
+          "given": "B2の目標とWorkspace Runtime／評価用の検証主体を用い、対象SHAの公開入口から観測を記録する。外部分析サービスの実契約・秘密情報・課金APIは不要。",
+          "acs": [
+            "Given 正規の観測入力がある When 同じ対象と時系列を記録・再取得する Then 再送で重複せず、目標・期間・単位・出所・revisionとともに永続化する。別Workspaceや不正な値・時刻の入力は拒否する。",
+            "Given 観測なし・古い観測・取得失敗・数値ゼロ When 読み取る Then それぞれを区別し、ゼロや推測値でグラフを埋めない。目標値・比率は説明文の数字抽出で生成しない。",
+            "Given 既存Runtime／Evidenceと照合する Then 新しい必須階層や独立したSuccess Metrics管理UIを増やさず、単位・目標値・系列の契約と対象Roleを文書化する。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-M1-v1"
+        },
+        {
+          "k": "M2",
+          "title": "事実・原因仮説・次の提案を根拠に結び付けて記録・表示する",
+          "deps": [
+            "M1",
+            "O2"
+          ],
+          "ui": true,
+          "scope": "既存Research Synthesis／Direction Decisionを再利用してAgentの説明を記録する。原記録を複製せず、観測対象・分析期間・前回からの変化・関連Outcomeを辿れるようにする。",
+          "given": "M1の観測とO2の評価・Research根拠を専用公開入口で準備し、認可Agentから記録する。実LLM出力やOpenAI APIに依存せず入力契約と表示を独立検証する。",
+          "acs": [
+            "Given 観測・関連施策とAgentの説明 When 目標詳細へ表示する Then 事実・原因の仮説・提案を区別し、対象期間・根拠・関連Outcomeへ辿れる。単なる前後差を因果効果と断定しない。",
+            "Given 説明なし・根拠が古い・データ未接続 When 開く Then 生成済みの説明として埋めず、不明・未記録と分かる。説明の記録を、Agentの実稼働や目標達成の証拠にしない。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-M2-v1"
+        },
+        {
+          "k": "M3",
+          "title": "Workspace一覧・概要と目標詳細を実データの俯瞰と日次推移へ揃える",
+          "deps": [
+            "M2",
+            "O3",
+            "N2"
+          ],
+          "ui": true,
+          "scope": "採用した左にWorkspace名・Mission・2行Vision、右に問題理由・ほかN件と独立した対応待ちの構成、Workspace概要のVision・現状概要・目標全体、目標詳細の全文・7日／30日推移を接続する。",
+          "given": "N2の公開作成とM1／M2の観測・説明、O3の進捗・問題、既存相談を使い2 Workspaceのデータを準備する。実ビジネスの売上・DAUは不要。",
+          "acs": [
+            "Given Workspace一覧 When 比較する Then Mission・最大2行Vision、問題の代表理由・ほか件数、対応待ちを区別して表示し、Workspace名から概要へ移動する。余計な矢印や『概要を開く』を置かない。",
+            "Given Workspace概要 When 開く Then Visionと現状概要を上部に、複数目標の到達点と変化を俯瞰できる。目標詳細は背景・対象・制約を全文表示し、7日／30日の実測日次推移と説明、関連Outcomeへ進める。",
+            "Given 未計測・取得失敗・Task受入だけがある状態 When 表示する Then 目標達成や公開済みを推測しない。PC／SPの情報密度・折返し・操作を試作と比較して確認する。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-M3-v1"
+        }
+      ],
+      "wachaTitle": "UI-R05 ビジネス目標への到達点と前回からの変化をWorkspaceで理解できる",
+      "wachaDescription": "背景:\n- 合意したWorkspace中心のUIを既存Compassへ接続する。既存の完了済みStoryは再発行せず流用する。\n\n達成したいこと:\n- Workspace一覧から優先して見る対象を選び、目標の実測値・推移・根拠付きの説明を確認できる。\n\n完了条件:\n- 配下Taskが個別のGivenとACを満たし、同じ統合版でこの成果を確認できる。\n- Task M3が本Storyの統合条件（先行する配下Taskとの連携・画面/公開契約・権限・永続化）を確認する。後続Storyの完成は本Storyの先行Taskの受入条件にしない。\n- 配下の依存関係は各Taskに記載する。最終の横断受入はZ1が所有する。\n\n参照:\n- 設計コミット: cebd9d3b5e973966467bbd3cc513dcf5fca02bca\n- docs/planning/ux-user-scenarios.md / docs/planning/prototypes/index.html\n- packages/direction\n- packages/activity\n- server/src/web/features/workspace\n- server/src/web/features/intent\n- server/src/mcp\n- 流用する既存Story: a9f532a6-1ff3-44ae-a0a2-2a647e15d9d1\n\n制約:\n- completionModeは全実装Taskでpull_request。設計合意と実装完了を混同しない。\n- Human認可はADR 0003、Agentはscope別Grantを維持する。\n- 既存部品・業務機能・準備スクリプトを再利用し、各Taskで必要な文書と検証準備も揃える。\n- 独立した成果管理・内蔵AIチャット・OpenAI API・agent-foundation全面集約は対象外。",
+      "requestId": "compass-ui-redesign-20261104-story-R05-v1"
+    },
+    {
+      "k": "R06",
+      "title": "Projectの目的・進捗・全Story／Taskを把握し必要な介入ができる",
+      "goal": "Outcomeを事前に選ばず全仕事を検索し、Storyの受入条件とTaskの活動・コメント・関連PR・Human操作を確認できる。",
+      "refs": [
+        "server/src/web/features/execution",
+        "packages/work",
+        "server/src/web/features/project",
+        "server/src/mcp/registerExecutionTools.ts"
+      ],
+      "base": [
+        "a9f532a6-1ff3-44ae-a0a2-2a647e15d9d1"
+      ],
+      "tasks": [
+        {
+          "k": "W1",
+          "title": "Project概要と全OutcomeのStory／Task一覧を多件数で閲覧できるようにする",
+          "deps": [
+            "N2",
+            "O3"
+          ],
+          "ui": true,
+          "scope": "既存WorkとProject概要を流用し、目的・Task進捗・全障害、全Outcome／未設定のStory・Task検索・状態絞り込み・Story表示とTask一覧・ページングを実装する。 Taskのない手動Storyと、Storyに属さないTaskも検索・表示対象にする。手動Storyの既存descriptionを全文読めるようにし、表示のためだけの新しい必須AC保存項目を増やさない。",
+          "given": "25 Story・122 Task以上、1 Storyに13 Task、2 Outcomeと未設定Taskの専用データを公開操作または許可済み表示fixtureで作る。件数は上限や固定データにしない。",
+          "acs": [
+            "Given 全Outcome・未設定・TaskなしのStory・Storyに属さないTaskがある When 開発詳細を開く Then 全仕事を閲覧できる。Storyを1回開くと受入条件全文とTaskを同時表示し、条件だけをさらに開かせない。",
+            "Given 複数ページ When 検索・状態・Outcome・表示形式を変えてTask詳細から戻る Then サーバー側で全対象を検索・ページングし、条件とページを保持する。絞り込み件数と進捗の分母を混同しない。",
+            "Given Project概要 When 確認する Then 取り組む目的・Outcome別進捗・HumanとAgent双方の問題を表示し、提供済み機能の履歴は分ける。ClaimからAgent稼働を推測しない。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-W1-v1"
+        },
+        {
+          "k": "W2",
+          "title": "Story／Taskの手動起票・編集を対象に沿った導線へ揃える",
+          "deps": [
+            "W1"
+          ],
+          "ui": true,
+          "scope": "既存のHuman起票・編集フォームを再利用する。Story追加はページ入口、Task追加は手動Storyのカード内またはStoryなしの入口から行い、Story選択の巨大なSelectを廃止する。",
+          "given": "W1の一覧と、公開操作で手動Story・Agent handoff Story・手動Task・Claim保持Task・終端Taskを用意する。",
+          "acs": [
+            "Given 手動Story When カード内のTask追加から進む Then 対象Storyを固定表示する。ページ上部のTask追加はStoryに属さないTaskを作る。大量Storyから選ばせない。",
+            "Given Agentが起票したStory／Task・終端・Claim保持・権限不足 When 作成・編集を試す Then 既存の編集・Task追加制約をServerで維持し、非表示だけで許可しない。",
+            "Given タイトルと説明・受入／完了条件 When 作成・編集する Then 実保存と再読込を確認でき、失敗・競合でも入力を保持する。個別の操作は対象カード内、フォーム全体の保存は外に置く。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-W2-v1"
+        },
+        {
+          "k": "W3",
+          "title": "Task詳細の関連PR・活動履歴・コメントとHuman操作を接続する",
+          "deps": [
+            "W2",
+            "G1"
+          ],
+          "ui": true,
+          "scope": "Task詳細を実施内容・受入条件・関連PR・活動履歴・コメント中心に整理する。Claim表示、上部のHuman操作、差戻し理由・確認パネルを既存use caseに接続し、専用の成果／実装検証管理欄を作らない。",
+          "given": "Workの公開操作で各状態と期限内・期限切れClaimを作り、G1の登録APIからPR関連を準備する。期限切れは専用環境の短いTTLを実経過させ、DB時刻を書き換えない。",
+          "acs": [
+            "Given Task詳細 When 開く Then 冒頭に状態と上部操作を置き、作業・レビュー・受入の独立ステータスカードを置かない。Claim保持者・期限をプロセス稼働と区別する。",
+            "Given 関連PR・変更記録・コメント When 読む Then TaskとPR／対象Commitを辿れ、活動履歴と会話を分ける。Workerの変更・検証報告、Reviewer／Managerの確認内容はコメントとして読める。",
+            "Given 状態・Claim・Role When 受入・差戻し・取消・コメントを実行する Then 現行の業務条件を維持し、影響・必要理由を確認して保存結果へ反映する。Task受入を公開・Outcome達成としない。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-W3-v1"
+        }
+      ],
+      "wachaTitle": "UI-R06 Projectの目的・進捗・全Story／Taskを把握し必要な介入ができる",
+      "wachaDescription": "背景:\n- 合意したWorkspace中心のUIを既存Compassへ接続する。既存の完了済みStoryは再発行せず流用する。\n\n達成したいこと:\n- Outcomeを事前に選ばず全仕事を検索し、Storyの受入条件とTaskの活動・コメント・関連PR・Human操作を確認できる。\n\n完了条件:\n- 配下Taskが個別のGivenとACを満たし、同じ統合版でこの成果を確認できる。\n- Task W3が本Storyの統合条件（先行する配下Taskとの連携・画面/公開契約・権限・永続化）を確認する。後続Storyの完成は本Storyの先行Taskの受入条件にしない。\n- 配下の依存関係は各Taskに記載する。最終の横断受入はZ1が所有する。\n\n参照:\n- 設計コミット: cebd9d3b5e973966467bbd3cc513dcf5fca02bca\n- docs/planning/ux-user-scenarios.md / docs/planning/prototypes/index.html\n- server/src/web/features/execution\n- packages/work\n- server/src/web/features/project\n- server/src/mcp/registerExecutionTools.ts\n- 流用する既存Story: a9f532a6-1ff3-44ae-a0a2-2a647e15d9d1\n\n制約:\n- completionModeは全実装Taskでpull_request。設計合意と実装完了を混同しない。\n- Human認可はADR 0003、Agentはscope別Grantを維持する。\n- 既存部品・業務機能・準備スクリプトを再利用し、各Taskで必要な文書と検証準備も揃える。\n- 独立した成果管理・内蔵AIチャット・OpenAI API・agent-foundation全面集約は対象外。",
+      "requestId": "compass-ui-redesign-20261104-story-R06-v1"
+    },
+    {
+      "k": "R07",
+      "title": "TaskとGitHub PR・対象SHA・レビュー・受入を整合させる",
+      "goal": "現行WachaのPR/SHA整合性をCompassの実行管理へ取り込み、CIなし・同一GitHubアカウントでも品質確認と受入を行える。",
+      "refs": [
+        "packages/work",
+        "server/src/mcp/registerExecutionTools.ts",
+        "/Users/aokayama/git/wacha/src/application/service/TaskCoordinationService.ts",
+        "/Users/aokayama/git/wacha/src/mcp/createMcpServer.ts",
+        "ralph/README.md"
+      ],
+      "base": [
+        "59eb14a1-31c0-4946-b999-0adada9843b7"
+      ],
+      "tasks": [
+        {
+          "k": "G1",
+          "title": "TaskへのPR登録・一覧と検証済みSHAを公開契約で扱う",
+          "deps": [
+            "A1"
+          ],
+          "ui": false,
+          "scope": "現行WachaのPR登録・履歴・GitHub照合を調査してCompassへ重複なく取り込む。Taskの成果物参照と実GitHub検証を区別し、Claim・Repository・Project認可・requestIdを強制する。",
+          "given": "2 Projectと検証用Task／Work Claim、制御可能なGitHub adapterまたは専用テストRepositoryを準備する。tokenをログ・文書・コメントへ出さない。",
+          "acs": [
+            "Given 正しいRepositoryのopen PR When 現在のWork Claimで登録する Then PR番号・URL・head/base/merge情報と確認時刻を保存し、Task別に履歴を参照できる。同じrequestIdの再送は重複しない。",
+            "Given 別Project／Repository・不正URL・古いClaim・権限不足 When 登録・一覧する Then 拒否し、通常の成果物URLを検証済みPRとして扱わない。",
+            "Given GitHub応答なし・失敗・登録済みの可能性がある通信断 When 再確認する Then 操作の成否不明と確定失敗を区別し、照合・再送で安全に結果を確認できる。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-G1-v1"
+        },
+        {
+          "k": "G2",
+          "title": "PR／SHA照合を作業完了・レビュー・受入とRole手順へ接続する",
+          "deps": [
+            "G1"
+          ],
+          "ui": false,
+          "scope": "complete／reviewed／accept時に現在PR・レビュー対象head・merge対象・証拠の整合を強制する。Reviewerがレビューしマージし、ManagerはAC照合後に受入する手順へRole Contextと製品Ralphの必要な接続を揃える。",
+          "given": "G1と既存のWorker／Reviewer／Manager Credentialを使い、変更後head、競合、未マージ、設定なし／ありCI、同じGitHubアカウントをadapter制御または専用Repositoryで準備する。",
+          "acs": [
+            "Given PR運用のProject When Work完了→レビュー→マージ→受入へ進む Then 対象SHAとマージの一致を検証し、マージ失敗・新しいhead・競合を受入成功へ進めない。非連携Projectの既存経路は維持する。",
+            "Given requiredChecks未設定 When 進める Then CIを必須にしない。指定がある場合はそのチェックだけを必要条件として検証する。GitHubの自己Approveを必須にせず、同一アカウントのコメントによるレビュー根拠を使える。",
+            "Given GitHub失敗 When Roleへ結果を返す Then 失敗した操作・対象Task／PR・SHA・状態・再確認方法を示し、『GitHub実行結果を反映できませんでした』だけの包括的な文言で止めない。実行基盤の全面移植は行わない。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-G2-v1"
+        }
+      ],
+      "wachaTitle": "UI-R07 TaskとGitHub PR・対象SHA・レビュー・受入を整合させる",
+      "wachaDescription": "背景:\n- 合意したWorkspace中心のUIを既存Compassへ接続する。既存の完了済みStoryは再発行せず流用する。\n\n達成したいこと:\n- 現行WachaのPR/SHA整合性をCompassの実行管理へ取り込み、CIなし・同一GitHubアカウントでも品質確認と受入を行える。\n\n完了条件:\n- 配下Taskが個別のGivenとACを満たし、同じ統合版でこの成果を確認できる。\n- Task G2が本Storyの統合条件（先行する配下Taskとの連携・画面/公開契約・権限・永続化）を確認する。後続Storyの完成は本Storyの先行Taskの受入条件にしない。\n- 配下の依存関係は各Taskに記載する。最終の横断受入はZ1が所有する。\n\n参照:\n- 設計コミット: cebd9d3b5e973966467bbd3cc513dcf5fca02bca\n- docs/planning/ux-user-scenarios.md / docs/planning/prototypes/index.html\n- packages/work\n- server/src/mcp/registerExecutionTools.ts\n- /Users/aokayama/git/wacha/src/application/service/TaskCoordinationService.ts\n- /Users/aokayama/git/wacha/src/mcp/createMcpServer.ts\n- ralph/README.md\n- 流用する既存Story: 59eb14a1-31c0-4946-b999-0adada9843b7\n\n制約:\n- completionModeは全実装Taskでpull_request。設計合意と実装完了を混同しない。\n- Human認可はADR 0003、Agentはscope別Grantを維持する。\n- 既存部品・業務機能・準備スクリプトを再利用し、各Taskで必要な文書と検証準備も揃える。\n- 独立した成果管理・内蔵AIチャット・OpenAI API・agent-foundation全面集約は対象外。",
+      "requestId": "compass-ui-redesign-20261104-story-R07-v1"
+    },
+    {
+      "k": "R08",
+      "title": "Workspaceの対応待ちから経緯を確認して回答できる",
+      "goal": "人の対応が必要な相談だけをWorkspaceで把握し、要約から経緯・回答・Agentの再開を辿れる。",
+      "refs": [
+        "packages/collaboration",
+        "server/src/web/features/consultation",
+        "docs/consultation-design.md"
+      ],
+      "base": [
+        "92f8713f-cc83-4176-96ee-a204bfc2dab5"
+      ],
+      "tasks": [
+        {
+          "k": "C1",
+          "title": "対応待ち一覧・詳細・回答を既存相談の排他と自動再開へ接続する",
+          "deps": [
+            "A2",
+            "N1"
+          ],
+          "ui": true,
+          "scope": "既存Collaborationを再利用し、Workspace共通と配下ProjectのHuman待ちを集約する。影響・期限・推奨・要約から詳細と会話・回答へ進む画面を適用する。",
+          "given": "既存公開MCPでWorkspace／Project相談、Human待ち・Agent応答待ち・解決・取消・待機Taskを作る。版競合・lease期限は許可済み準備と公開操作で再現する。",
+          "acs": [
+            "Given 複数相談 When Workspaceの対応待ちを開く Then Humanが回答しないと止まるものを表示し、任意コメントやAgentだけで解消できる作業を混ぜない。影響と期限を根拠に順序を説明でき、未知を確定順位に偽装しない。",
+            "Given 相談詳細 When 開いて回答する Then 要約・推奨と根拠・影響・期限を先に示し、経緯と関連情報を読んで選択または自由文を送れる。誰か一人の権限あるHumanが対応すれば進める。",
+            "Given 同時回答・古い版・Agent応答中・解決済み When 操作する Then 既存revision／lease／結論・再開規則を維持し、回答保存とTask／Agentの再開状態を区別する。内蔵の新規AI相談チャットを追加しない。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-C1-v1"
+        }
+      ],
+      "wachaTitle": "UI-R08 Workspaceの対応待ちから経緯を確認して回答できる",
+      "wachaDescription": "背景:\n- 合意したWorkspace中心のUIを既存Compassへ接続する。既存の完了済みStoryは再発行せず流用する。\n\n達成したいこと:\n- 人の対応が必要な相談だけをWorkspaceで把握し、要約から経緯・回答・Agentの再開を辿れる。\n\n完了条件:\n- 配下Taskが個別のGivenとACを満たし、同じ統合版でこの成果を確認できる。\n- Task C1が本Storyの統合条件（先行する配下Taskとの連携・画面/公開契約・権限・永続化）を確認する。後続Storyの完成は本Storyの先行Taskの受入条件にしない。\n- 配下の依存関係は各Taskに記載する。最終の横断受入はZ1が所有する。\n\n参照:\n- 設計コミット: cebd9d3b5e973966467bbd3cc513dcf5fca02bca\n- docs/planning/ux-user-scenarios.md / docs/planning/prototypes/index.html\n- packages/collaboration\n- server/src/web/features/consultation\n- docs/consultation-design.md\n- 流用する既存Story: 92f8713f-cc83-4176-96ee-a204bfc2dab5\n\n制約:\n- completionModeは全実装Taskでpull_request。設計合意と実装完了を混同しない。\n- Human認可はADR 0003、Agentはscope別Grantを維持する。\n- 既存部品・業務機能・準備スクリプトを再利用し、各Taskで必要な文書と検証準備も揃える。\n- 独立した成果管理・内蔵AIチャット・OpenAI API・agent-foundation全面集約は対象外。",
+      "requestId": "compass-ui-redesign-20261104-story-R08-v1"
+    },
+    {
+      "k": "R09",
+      "title": "Workspaceの全業務活動を検索し対象の詳細へ辿れる",
+      "goal": "Workspaceと全Projectの意味ある活動を一覧し、コメントや技術ログを混ぜず経緯を確認できる。",
+      "refs": [
+        "packages/activity",
+        "packages/work",
+        "server/src/web/features/activity",
+        "server/src/mcp/registerActivityTools.ts"
+      ],
+      "base": [
+        "6c75a241-a12e-43f6-b85d-a558f01626d7",
+        "e9f14250-7c77-4442-bf9c-909694fb385e"
+      ],
+      "tasks": [
+        {
+          "k": "L1",
+          "title": "Workspaceと全Projectの業務活動を重複なく横断取得する",
+          "deps": [
+            "A1",
+            "B2"
+          ],
+          "ui": false,
+          "scope": "既存ActivityとWork Change Logの責任を照合し、作成・着手・作業完了・レビュー・差戻し・受入・目標変更等を業務Activityとして取得する。所有元の記録を保ち、検索・期間・種別・Project・cursorを提供する。",
+          "given": "公開操作でWorkspace・複数Projectと各種活動・コメント・Claim更新を生成する。別Workspaceのデータも用意し、同時刻・再送・複数ページを検証する。",
+          "acs": [
+            "Given Workspaceの権限あるHuman When すべての記録を取得する Then Workspace共通と配下全Projectの業務活動を漏れ・重複なく時系列で取得でき、別Workspaceは含めない。",
+            "Given コメント追加・内部通信・Claimの定期更新 When 一覧を取得する Then Activityへ混ぜない。業務イベントの判定規則とChange Log／Operational Logとの境界を文書化する。",
+            "Given 同時刻・再送・ページング中の追加・検索 When 取得する Then 安定したcursorと順序を使い、訂正・原記録の参照を保つ。Agentの既存scope認可は拡張しない。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-L1-v1"
+        },
+        {
+          "k": "L2",
+          "title": "Activity一覧・詳細を横断検索と原記録への導線に揃える",
+          "deps": [
+            "L1",
+            "N1"
+          ],
+          "ui": true,
+          "scope": "すべての記録／Workspace共通／Project別、検索・種別・期間と状態保持、日付別一覧・詳細を実データへ接続する。概要は少数の重要活動へ絞るが、Activity一覧では重要度だけで除外しない。",
+          "given": "L1の公開入口で複数scope・種別・多数件を準備する。0件と通信失敗は分け、表示件数以上をページングする。",
+          "acs": [
+            "Given Workspace Activity When 対象・種別・期間・検索を組み合わせる Then サーバー全体の対象から絞り込み、0件・条件解除・詳細からの条件復帰が使える。『すべて』と『Workspace共通』を区別する。",
+            "Given 記録詳細 When 開く Then 何が起きたか・主体・時刻・根拠・対象Goal／Outcome／Project／Taskへ辿れる。コメント本文や架空の履歴を表示せず、Task受入と公開・Outcome達成を混同しない。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-L2-v1"
+        }
+      ],
+      "wachaTitle": "UI-R09 Workspaceの全業務活動を検索し対象の詳細へ辿れる",
+      "wachaDescription": "背景:\n- 合意したWorkspace中心のUIを既存Compassへ接続する。既存の完了済みStoryは再発行せず流用する。\n\n達成したいこと:\n- Workspaceと全Projectの意味ある活動を一覧し、コメントや技術ログを混ぜず経緯を確認できる。\n\n完了条件:\n- 配下Taskが個別のGivenとACを満たし、同じ統合版でこの成果を確認できる。\n- Task L2が本Storyの統合条件（先行する配下Taskとの連携・画面/公開契約・権限・永続化）を確認する。後続Storyの完成は本Storyの先行Taskの受入条件にしない。\n- 配下の依存関係は各Taskに記載する。最終の横断受入はZ1が所有する。\n\n参照:\n- 設計コミット: cebd9d3b5e973966467bbd3cc513dcf5fca02bca\n- docs/planning/ux-user-scenarios.md / docs/planning/prototypes/index.html\n- packages/activity\n- packages/work\n- server/src/web/features/activity\n- server/src/mcp/registerActivityTools.ts\n- 流用する既存Story: 6c75a241-a12e-43f6-b85d-a558f01626d7, e9f14250-7c77-4442-bf9c-909694fb385e\n\n制約:\n- completionModeは全実装Taskでpull_request。設計合意と実装完了を混同しない。\n- Human認可はADR 0003、Agentはscope別Grantを維持する。\n- 既存部品・業務機能・準備スクリプトを再利用し、各Taskで必要な文書と検証準備も揃える。\n- 独立した成果管理・内蔵AIチャット・OpenAI API・agent-foundation全面集約は対象外。",
+      "requestId": "compass-ui-redesign-20261104-story-R09-v1"
+    },
+    {
+      "k": "R10",
+      "title": "Workspace内のAgentの担当と観測された実行状態を把握できる",
+      "goal": "PrincipalのRole・担当Project・Credentialと、実際の実行観測を区別して一覧・詳細で管理できる。",
+      "refs": [
+        "packages/access",
+        "server/src/web/features/agent",
+        "orchestrator",
+        "ralph",
+        "server/src/mcp"
+      ],
+      "base": [
+        "e9f14250-7c77-4442-bf9c-909694fb385e"
+      ],
+      "tasks": [
+        {
+          "k": "E1",
+          "title": "Workspace内のAgent一覧・詳細とPrincipal／Credential管理をまとめる",
+          "deps": [
+            "A1",
+            "N1"
+          ],
+          "ui": true,
+          "scope": "既存Principal・Grant・Credential操作を再利用し、Workspace内に一覧を集約する。Project別Memberは使わずHuman Workspace Roleで管理し、Agentのscope自体は維持する。",
+          "given": "既存のHuman管理APIでWorkspace Roleと複数Project RoleのAgentを用意し、発行・取消可能な専用Credentialを使う。秘密のtokenは証跡へ記録しない。",
+          "acs": [
+            "Given 一覧 When 担当範囲を確認する Then Project名1件＋ほかN件の1行とし、全Projectは詳細で確認する。Role・担当・Grant・Credential・現在作業を別の概念として示す。",
+            "Given PCの登録・Credential発行・取消 When 実操作する Then Actor／scope・Role・権限をServerで検証し、発行だけでAgentを起動しない。SPは一覧・詳細を中心とし登録入口を置かない。",
+            "Given 同一Principalの複数Grantがある When 表示・管理する Then UI上の一Role運用想定を理由に既存Grantを黙って削除せず、現在契約と運用制約を明記する。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-E1-v1"
+        },
+        {
+          "k": "E2",
+          "title": "Ralph／Orchestratorの実行観測をAgent一覧へ接続する",
+          "deps": [
+            "E1"
+          ],
+          "ui": true,
+          "scope": "製品内Ralph／Orchestratorの最小の実行開始・終了・失敗・最終観測を記録し、Principal・activeRole・scope・run参照・作業参照をUIへ接続する。外部agent-foundation全面集約はしない。",
+          "given": "専用環境で制御可能な実行adapterを用い、成功終了・エラー・観測途絶・未接続を作る。テスト用adapterと本物のProvider実行の証拠を分ける。",
+          "acs": [
+            "Given 実行観測がある When Agent一覧／詳細を読む Then 作業中・待機・エラー・不明を観測時刻と理由付きで表示し、Grant・Credential有効性・Claimからプロセス生存を推測しない。",
+            "Given Provider未接続・古い観測・異常終了 When 再読込する Then 稼働中と断定せず、取得不能・経過・終了理由を区別して根拠へ辿れる。run情報をActivityのworkflow checkpointへ流用しない。",
+            "Given 同じrun／再送・別scope When 記録する Then 重複・越境を防ぎ、認証情報をログや画面へ出さない。テスト用実行を自律運転の実証と呼ばない。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-E2-v1"
+        }
+      ],
+      "wachaTitle": "UI-R10 Workspace内のAgentの担当と観測された実行状態を把握できる",
+      "wachaDescription": "背景:\n- 合意したWorkspace中心のUIを既存Compassへ接続する。既存の完了済みStoryは再発行せず流用する。\n\n達成したいこと:\n- PrincipalのRole・担当Project・Credentialと、実際の実行観測を区別して一覧・詳細で管理できる。\n\n完了条件:\n- 配下Taskが個別のGivenとACを満たし、同じ統合版でこの成果を確認できる。\n- Task E2が本Storyの統合条件（先行する配下Taskとの連携・画面/公開契約・権限・永続化）を確認する。後続Storyの完成は本Storyの先行Taskの受入条件にしない。\n- 配下の依存関係は各Taskに記載する。最終の横断受入はZ1が所有する。\n\n参照:\n- 設計コミット: cebd9d3b5e973966467bbd3cc513dcf5fca02bca\n- docs/planning/ux-user-scenarios.md / docs/planning/prototypes/index.html\n- packages/access\n- server/src/web/features/agent\n- orchestrator\n- ralph\n- server/src/mcp\n- 流用する既存Story: e9f14250-7c77-4442-bf9c-909694fb385e\n\n制約:\n- completionModeは全実装Taskでpull_request。設計合意と実装完了を混同しない。\n- Human認可はADR 0003、Agentはscope別Grantを維持する。\n- 既存部品・業務機能・準備スクリプトを再利用し、各Taskで必要な文書と検証準備も揃える。\n- 独立した成果管理・内蔵AIチャット・OpenAI API・agent-foundation全面集約は対象外。",
+      "requestId": "compass-ui-redesign-20261104-story-R10-v1"
+    },
+    {
+      "k": "R11",
+      "title": "Projectの開発受入と公開の履歴を分けて追跡できる",
+      "goal": "何を提供したかを細かく残し、開発受入と公開確認とOutcomeの効果を区別して辿れる。",
+      "refs": [
+        "packages/work",
+        "packages/activity",
+        "packages/direction",
+        "server/src/web/features/project"
+      ],
+      "base": [
+        "a9f532a6-1ff3-44ae-a0a2-2a647e15d9d1"
+      ],
+      "tasks": [
+        {
+          "k": "P1",
+          "title": "開発受入と公開確認を別の根拠として記録・取得する",
+          "deps": [
+            "G2"
+          ],
+          "ui": false,
+          "scope": "Workの受入記録・PR／Commitを再利用し、Projectの公開確認の最小契約を提供する。Runtimeの認可済み入力から対象revision・公開先参照・確認日時・根拠を記録し、複数Taskを含む変更との関連を保持する。",
+          "given": "G2で受入済み／未マージ等を用意し、公開入力用の専用Runtime主体で証拠を送る。実Cloudflare／CDサービスの設定や新規デプロイは不要。",
+          "acs": [
+            "Given 受入記録と公開確認 When 記録・照合する Then 開発受入・公開済み・公開未確認を別々に取得し、PRのマージだけで公開としない。原記録を保持し、Goal／Outcome・Task／PR・対象Commitへ辿れる。",
+            "Given 公開証拠なし・対象revision不一致・古い通知・再送 When 取得する Then 未確認と未公開を区別し、誤った成果版を公開済みにしない。設定がない場合は確認できずと表示できる。",
+            "Given 異なるデプロイ方式 When 接続契約を読む Then 共通の公開記録契約を使い、方式別の専用管理画面や新しい必須『成果』Entityを設けない。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-P1-v1"
+        },
+        {
+          "k": "P2",
+          "title": "リリース履歴の一覧・詳細を開発と公開の状態へ接続する",
+          "deps": [
+            "P1",
+            "N1"
+          ],
+          "ui": true,
+          "scope": "Projectのリリース履歴を新しい順に、変更要約・開発受入・公開状態・公開日時・根拠・関連目的とTaskへ接続する。",
+          "given": "P1の公開入力とWork操作で、公開済み・未公開と確認できるもの・確認できずを含む多件数を準備する。",
+          "acs": [
+            "Given リリース履歴 When 検索・公開状況で絞り込み詳細を開く Then 原記録と関連Goal／Outcome／Task／PRへ辿り、複数Taskを含むリリースも扱える。",
+            "Given 公開確認なし・入力失敗・0件・多数件 When 表示する Then 公開済みや未公開を捏造せず、ページングと再読込を使える。公開による効果は別途評価と分かる。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-P2-v1"
+        }
+      ],
+      "wachaTitle": "UI-R11 Projectの開発受入と公開の履歴を分けて追跡できる",
+      "wachaDescription": "背景:\n- 合意したWorkspace中心のUIを既存Compassへ接続する。既存の完了済みStoryは再発行せず流用する。\n\n達成したいこと:\n- 何を提供したかを細かく残し、開発受入と公開確認とOutcomeの効果を区別して辿れる。\n\n完了条件:\n- 配下Taskが個別のGivenとACを満たし、同じ統合版でこの成果を確認できる。\n- Task P2が本Storyの統合条件（先行する配下Taskとの連携・画面/公開契約・権限・永続化）を確認する。後続Storyの完成は本Storyの先行Taskの受入条件にしない。\n- 配下の依存関係は各Taskに記載する。最終の横断受入はZ1が所有する。\n\n参照:\n- 設計コミット: cebd9d3b5e973966467bbd3cc513dcf5fca02bca\n- docs/planning/ux-user-scenarios.md / docs/planning/prototypes/index.html\n- packages/work\n- packages/activity\n- packages/direction\n- server/src/web/features/project\n- 流用する既存Story: a9f532a6-1ff3-44ae-a0a2-2a647e15d9d1\n\n制約:\n- completionModeは全実装Taskでpull_request。設計合意と実装完了を混同しない。\n- Human認可はADR 0003、Agentはscope別Grantを維持する。\n- 既存部品・業務機能・準備スクリプトを再利用し、各Taskで必要な文書と検証準備も揃える。\n- 独立した成果管理・内蔵AIチャット・OpenAI API・agent-foundation全面集約は対象外。",
+      "requestId": "compass-ui-redesign-20261104-story-R11-v1"
+    },
+    {
+      "k": "R12",
+      "title": "合意した主要導線を実データ・実認可で通して受入できる",
+      "goal": "既存機能を落とさず、初回利用から目標・開発・判断・活動・管理まで一貫して使えることを確認できる。",
+      "refs": [
+        "docs/browser-verification.md",
+        "docs/ui-catalog.md",
+        "docs/implementation-status.md",
+        "server/tests",
+        "orchestrator/tests",
+        "ralph/tests"
+      ],
+      "base": [],
+      "tasks": [
+        {
+          "k": "Z1",
+          "title": "新UIと業務契約の統合回帰・実ブラウザ確認・文書整合を完了する",
+          "deps": [
+            "A3",
+            "N3",
+            "M3",
+            "W3",
+            "G2",
+            "C1",
+            "L2",
+            "E2",
+            "P2"
+          ],
+          "ui": true,
+          "scope": "各Taskで提供した公開準備を組み合わせ、認証・Workspace作成・招待・目標／Outcome・複数Project作業・レビュー／受入・相談回答・Activity・Agent管理・公開履歴を同じ統合SHAで通す。先行Taskの未完了ACの肩代わりにはしない。",
+          "given": "全依存Taskがacceptedで、scripts/prepare-browser-verification.mjs等の同一SHA用準備とPolicyが揃っている。専用DB・検証用GitHub／Runtime adapter・テスト主体を使い、実運用DB・稼働中Claimは触らない。",
+          "acs": [
+            "Given 初期Ownerで0件から始める When 作成→招待→目標／Outcome→TargetとWork→レビュー／受入→公開確認を通す Then 各入口で保存・再読込を確認でき、Goal・Outcome・Task・公開の状態を取り違えない。",
+            "Given Owner・管理者・編集者・閲覧者と別Workspace When 主要導線と直接URL／API操作を検証する Then Workspace権限統一とAgent scope制約・最終Owner保護・状態制約を維持する。",
+            "Given PC 1440pxとSP 390px When 全主要画面を操作する Then 試作の情報配置・メニュー・×モーダル・Select・カード操作・全文表示・ページング・入力失敗・空状態・通信失敗を実ブラウザと保存画像で確認する。",
+            "Given 型・lint・build・関連テスト・UI構造検査・catalog buildの結果 When 完了報告する Then 実施／未実施・対象SHA・環境・証跡を区別し、README／契約／Role手順／実装状況を実際の状態へ揃える。"
+          ],
+          "requestId": "compass-ui-redesign-20261104-task-Z1-v1"
+        }
+      ],
+      "wachaTitle": "UI-R12 合意した主要導線を実データ・実認可で通して受入できる",
+      "wachaDescription": "背景:\n- 合意したWorkspace中心のUIを既存Compassへ接続する。既存の完了済みStoryは再発行せず流用する。\n\n達成したいこと:\n- 既存機能を落とさず、初回利用から目標・開発・判断・活動・管理まで一貫して使えることを確認できる。\n\n完了条件:\n- 配下Taskが個別のGivenとACを満たし、同じ統合版でこの成果を確認できる。\n- Task Z1が本Storyの統合条件（先行する配下Taskとの連携・画面/公開契約・権限・永続化）を確認する。後続Storyの完成は本Storyの先行Taskの受入条件にしない。\n- 配下の依存関係は各Taskに記載する。最終の横断受入はZ1が所有する。\n\n参照:\n- 設計コミット: cebd9d3b5e973966467bbd3cc513dcf5fca02bca\n- docs/planning/ux-user-scenarios.md / docs/planning/prototypes/index.html\n- docs/browser-verification.md\n- docs/ui-catalog.md\n- docs/implementation-status.md\n- server/tests\n- orchestrator/tests\n- ralph/tests\n\n制約:\n- completionModeは全実装Taskでpull_request。設計合意と実装完了を混同しない。\n- Human認可はADR 0003、Agentはscope別Grantを維持する。\n- 実運用DBを使わず、専用環境と対象SHAで検証する。\n- 独立した成果管理・内蔵AIチャット・OpenAI API・agent-foundation全面集約は対象外。",
+      "requestId": "compass-ui-redesign-20261104-story-R12-v1"
+    }
+  ],
+  "registration": {
+    "stories": {},
+    "tasks": {}
+  },
+  "requestPrefix": "compass-ui-redesign-20261104"
+}

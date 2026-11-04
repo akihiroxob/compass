@@ -1,7 +1,6 @@
 {
   "sourceRoot": "/Users/aokayama/git/compass",
-  "baseSha": "8334c58e942251eb0fddaa07a4fcd3fda0b080df",
-  "purpose": "承認済みUI設計のWorker引継ぎ。Task U00が読み取り、各SHA-256を検証してPRで共有する。",
+  "purpose": "合意UI設計の共有参照と整合確認。資料共有専用Taskは設けず、コミット済みの設計を実装Taskから参照する。",
   "files": [
     {
       "path": "compass-codex-architecture-handoff.md",
@@ -171,5 +170,6 @@
       "path": "docs/planning/ux-user-scenarios.md",
       "sha256": "fa288ad72af3e7eb9a287d943a6b6dbf5a6f21f40c782bc43d4fa3f61baa1eb8"
     }
-  ]
+  ],
+  "sourceCommit": "cebd9d3b5e973966467bbd3cc513dcf5fca02bca"
 }
