@@ -13,6 +13,7 @@ Repositoryを変更するTaskでは、Worker→Reviewer→Managerが同じPRとS
 - 受入成果物の`pullRequestUrl`、CommentのURL等の参照は、GitHubで確認したPRとして扱わない。
 - 同じGitHub PRは1つのTaskだけに属する。Taskの登録順の最後を現在のPRとし、現在のopen PRがある間は別のPRを登録しない。確認の履歴はChange Logに残し、canonical Activityにはしない。
 - GitHubの読取は読取専用のportとadapterで行い、SQLiteのtransactionの外で実行する。Claim・状態・登録済みPRは保存時に再検査する。
+- GitHubの応答は実行時に型を検証してから事実へ変換する。型不正・欠落した応答を既定値で補わず、GitHubを読めなかった場合と同じく扱う。
 - 失敗を「GitHubを読めず何も保存していない（retryable）」と「確定した拒否（権限・存在・条件）」に分ける。通信断で結果が不明なら、同じ入力・`requestId`で再送する。受付記録があればGitHubを読まずに保存済みの結果を返す。
 - GitHubの認証情報はServerの環境に置き、Tool入力・結果・記録へ出さない。
 

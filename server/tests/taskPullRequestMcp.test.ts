@@ -21,12 +21,18 @@ type ToolResult = { isError?: boolean; content: { text: string }[]; structuredCo
 type Pull = { state: "open" | "closed"; draft?: boolean; merged?: boolean; headSha: string; repo?: string };
 const pulls = new Map<string, Pull>();
 let outage: number | null = null;
+/** 設定時は200で任意の本文を返す（GitHub互換adapterの不正応答）。 */
+let malformed: { body: string } | null = null;
 let observedAuthorization: (string | undefined)[] = [];
 const api = createServer((request, response) => {
   observedAuthorization.push(request.headers.authorization);
   const match = /^\/repos\/([^/]+)\/([^/]+)\/pulls\/(\d+)$/.exec(request.url ?? "");
   if (outage !== null) {
     response.writeHead(outage).end();
+    return;
+  }
+  if (malformed !== null) {
+    response.writeHead(200, { "content-type": "application/json" }).end(malformed.body);
     return;
   }
   const key = match ? `${match[1]}/${match[2]}#${match[3]}`.toLowerCase() : "";
@@ -102,6 +108,7 @@ test("Workerは現在のWork ClaimでopenなPRを登録し、Task別の履歴を
   try {
     pulls.clear();
     outage = null;
+    malformed = null;
     observedAuthorization = [];
     pulls.set("acme/widget#7", { state: "open", headSha: "a".repeat(40) });
     pulls.set("acme/widget#8", { state: "open", draft: true, headSha: "b".repeat(40) });
@@ -121,7 +128,21 @@ test("Workerは現在のWork ClaimでopenなPRを登録し、Task別の履歴を
     assert.deepEqual(ok(await callTool(app, "list_task_pull_requests", { taskId: a.taskId }, "worker-a", "worker")).pullRequests, []);
     outage = null;
 
-    // 復旧後に同じ入力・requestIdで再送すると登録される。
+    // 200でもobjectでない本文・draft / mergedの型不正や欠落は、確認済みの事実にせずretryableで返す。何も保存されない。
+    const valid = { number: 7, html_url: "https://github.com/Acme/Widget/pull/7", state: "open", draft: false, merged: false,
+      merge_commit_sha: null, user: { login: "agent-bot" }, head: { ref: "task-7", sha: "a".repeat(40) },
+      base: { ref: "main", repo: { full_name: "Acme/Widget" } } };
+    for (const body of [null, { ...valid, draft: "true" }, { ...valid, draft: undefined }, { ...valid, merged: "false" }]) {
+      malformed = { body: JSON.stringify(body) };
+      const invalid = failure(await register(a, 7, "reg-1"));
+      assert.deepEqual([invalid.code, invalid.retryable], ["GITHUB_UNAVAILABLE", true], JSON.stringify(body));
+    }
+    malformed = null;
+    assert.deepEqual(ok(await callTool(app, "list_task_pull_requests", { taskId: a.taskId }, "worker-a", "worker")).pullRequests, []);
+    const changesBefore = ok(await callTool(app, "list_changes", { projectId: a.projectId }, "worker-a", "worker")).changes as { type: string }[];
+    assert.equal(changesBefore.filter((change) => change.type === "TASK_PULL_REQUEST_REGISTERED").length, 0);
+
+    // 復旧後に同じ入力・requestIdで再送すると登録される（障害・不正応答の間にreceiptは保存されていない）。
     const registered = ok(await register(a, 7, "reg-1")).pullRequest;
     assert.equal(registered.number, 7);
     assert.equal(registered.url, "https://github.com/Acme/Widget/pull/7");

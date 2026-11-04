@@ -341,6 +341,12 @@ test("GitHub adapterは404・401/403を確定失敗、rate limit・5xx・timeout
   assert.equal(await codeOf({ status: 200, body: gitHubPull({ number: 8 }) }), "GITHUB_UNAVAILABLE");
   assert.equal(await codeOf({ status: 200, body: gitHubPull({ head: { ref: "x", sha: "short" } }) }), "GITHUB_UNAVAILABLE");
   assert.equal(await codeOf({ status: 200, body: gitHubPull(), delayMs: 1_000 }), "GITHUB_UNAVAILABLE");
+  // 200でもobjectでない本文・保存する事実の型が違う・欠落した応答は、確認済みの事実へ変換しない。
+  for (const body of [null, [], 7, gitHubPull({ draft: "true" }), gitHubPull({ draft: undefined }), gitHubPull({ merged: "false" }),
+    gitHubPull({ merged: undefined }), gitHubPull({ user: null }), gitHubPull({ base: { ref: "main", repo: null } }),
+    gitHubPull({ merge_commit_sha: 1 }), gitHubPull({ state: "open" })]) {
+    assert.equal(await codeOf({ status: 200, body: JSON.stringify(body) }), "GITHUB_UNAVAILABLE", JSON.stringify(body));
+  }
   const unreachable = new GitHubPullRequestGateway({ apiBaseUrl: "http://127.0.0.1:9", timeoutMs: 500 });
   await assert.rejects(unreachable.getPullRequest({ owner: "a", name: "b" }, 1), hasCode("GITHUB_UNAVAILABLE"));
 });

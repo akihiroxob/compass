@@ -2,19 +2,18 @@ import { CoordinationError } from "../application/error/CoordinationError.ts";
 import type { PullRequestGateway } from "../application/port/PullRequestGateway.ts";
 import type { GitHubRepositoryName, PullRequestSnapshot } from "../domain/PullRequest.ts";
 
-type GitHubPullRequest = {
-  number?: number;
-  html_url?: string;
-  state?: string;
-  draft?: boolean;
-  merged?: boolean;
-  merge_commit_sha?: string | null;
-  user?: { login?: string };
-  head?: { ref?: string; sha?: string };
-  base?: { ref?: string; repo?: { full_name?: string } };
-};
-
 const shaPattern = /^[a-f0-9]{40}$/i;
+
+type JsonObject = Record<string, unknown>;
+const isObject = (value: unknown): value is JsonObject => typeof value === "object" && value !== null && !Array.isArray(value);
+const stringField = (object: JsonObject | undefined, key: string): string | null => {
+  const value = object?.[key];
+  return typeof value === "string" ? value : null;
+};
+const objectField = (object: JsonObject | undefined, key: string): JsonObject | undefined => {
+  const value = object?.[key];
+  return isObject(value) ? value : undefined;
+};
 
 export type GitHubPullRequestGatewayOptions = {
   /** 既定は`https://api.github.com`。検証用のGitHub互換adapterへ向けるときだけ変える。 */
@@ -66,35 +65,48 @@ export class GitHubPullRequestGateway implements PullRequestGateway {
       }
       throw new CoordinationError("GITHUB_UNAVAILABLE", `GitHub returned HTTP ${response.status}`);
     }
-    let body: GitHubPullRequest;
+    let body: unknown;
     try {
-      body = (await response.json()) as GitHubPullRequest;
+      body = await response.json();
     } catch {
       throw new CoordinationError("GITHUB_UNAVAILABLE", "GitHub returned an invalid response");
     }
     return this.toSnapshot(body, number);
   }
 
-  private toSnapshot(pr: GitHubPullRequest, number: number): PullRequestSnapshot {
-    const merged = pr.merged === true;
-    const fullName = pr.base?.repo?.full_name;
-    if (pr.number !== number || typeof pr.html_url !== "string" || !shaPattern.test(pr.head?.sha ?? "") ||
-      typeof pr.head?.ref !== "string" || typeof pr.base?.ref !== "string" || typeof fullName !== "string" ||
-      typeof pr.user?.login !== "string" || (pr.state !== "open" && pr.state !== "closed") ||
-      (merged && !shaPattern.test(pr.merge_commit_sha ?? ""))) {
-      throw new CoordinationError("GITHUB_UNAVAILABLE", "GitHub returned an invalid pull request response");
+  /** 応答は信頼せず、保存する事実の型をすべて実行時に検証する。不正な応答は再確認できる`GITHUB_UNAVAILABLE`にする。 */
+  private toSnapshot(body: unknown, number: number): PullRequestSnapshot {
+    const invalid = () => new CoordinationError("GITHUB_UNAVAILABLE", "GitHub returned an invalid pull request response");
+    if (!isObject(body)) throw invalid();
+    const head = objectField(body, "head");
+    const base = objectField(body, "base");
+    const url = stringField(body, "html_url");
+    const state = stringField(body, "state");
+    const headBranch = stringField(head, "ref");
+    const headSha = stringField(head, "sha");
+    const baseBranch = stringField(base, "ref");
+    const fullName = stringField(objectField(base, "repo"), "full_name");
+    const author = stringField(objectField(body, "user"), "login");
+    const { draft, merged } = body;
+    const mergeSha = body.merge_commit_sha;
+    if (body.number !== number || url === null || (state !== "open" && state !== "closed") ||
+      typeof draft !== "boolean" || typeof merged !== "boolean" ||
+      headBranch === null || headSha === null || !shaPattern.test(headSha) ||
+      baseBranch === null || fullName === null || author === null ||
+      (merged && (state !== "closed" || typeof mergeSha !== "string" || !shaPattern.test(mergeSha)))) {
+      throw invalid();
     }
     return {
       repository: fullName.toLowerCase(),
       number,
-      url: pr.html_url,
-      state: merged ? "merged" : pr.state,
-      draft: pr.draft === true,
-      headBranch: pr.head.ref,
-      headSha: pr.head.sha!.toLowerCase(),
-      baseBranch: pr.base.ref,
-      mergeSha: merged ? pr.merge_commit_sha!.toLowerCase() : null,
-      author: pr.user.login,
+      url,
+      state: merged ? "merged" : state,
+      draft,
+      headBranch,
+      headSha: headSha.toLowerCase(),
+      baseBranch,
+      mergeSha: merged ? (mergeSha as string).toLowerCase() : null,
+      author,
     };
   }
 }
