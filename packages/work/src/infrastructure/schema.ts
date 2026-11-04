@@ -6,6 +6,7 @@ import type {
   StoryRecord,
   TaskClaimRecord,
   TaskCommentRecord,
+  TaskPullRequestRecord,
   TaskRecord,
 } from "../application/port/WorkStore.ts";
 
@@ -16,6 +17,7 @@ export type TaskCommentTable = TaskCommentRecord;
 export type TaskClaimTable = TaskClaimRecord;
 export type ChangeLogTable = Omit<ChangeRecord, "cursor"> & { cursor: Generated<number> };
 export type CommandReceiptTable = CommandReceiptRecord;
+export type TaskPullRequestTable = TaskPullRequestRecord;
 
 /** Workが所有するtable。単一SQLite fileの一部で、serverが他Contextのtableと合成する。 */
 export type WorkDatabase = {
@@ -24,6 +26,7 @@ export type WorkDatabase = {
   task: TaskTable;
   task_comment: TaskCommentTable;
   task_claim: TaskClaimTable;
+  task_pull_request: TaskPullRequestTable;
   change_log: ChangeLogTable;
   command_receipt: CommandReceiptTable;
 };

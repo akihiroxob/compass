@@ -27,7 +27,7 @@ Execution（Story / Task / Claim / Comment / Change Log）は旧 Wacha から移
 - Grant の発行・取消・一覧は MCP tool にない。Agent は自分の権限を増やせない。権限が足りないときは自己拡張を試みず、報告して停止する
 - Role は Project 単位で判断する。別 Project の Grant は使えない
 - 1 Principal は同一 Project で複数 Role を持てる。ただし後述の自己レビュー・自己受入の禁止は Role を増やしても回避できない
-- Execution の read（`list_stories` / `list_tasks` / `list_task_comments` / `list_changes`）は、その Project の何らかの Role Grant があれば行える。書き込みは各 tool が必要な Role を検査する
+- Execution の read（`list_stories` / `list_tasks` / `list_task_comments` / `list_task_pull_requests` / `list_changes`）は、その Project の何らかの Role Grant があれば行える。書き込みは各 tool が必要な Role を検査する
 - Manager が Outcome handoff の計画に読む `get_outcome_handoff_context` は、その Project の manager Grant が要り、その Project を Target とする Outcome だけを返す。Workspace の Direction Grant は要求も継承もしない
 
 ## 認証と信頼境界
@@ -66,6 +66,9 @@ Execution の tool は旧 Wacha の契約を維持し、エラーを `{ error: {
 | `FORBIDDEN` | Project に必要な Role の Grant が無い | 権限の自己拡張を試みず、報告して停止する |
 | `SELF_REVIEW_NOT_ALLOWED` / `SELF_ACCEPTANCE_NOT_ALLOWED` | 自分が `complete_task` した Task のレビュー・受入 | 別の Principal に任せる |
 | `IDEMPOTENCY_CONFLICT` | 同じ `requestId`（または同じ Story の `correlationId`）を異なる入力で使った | 新しい `requestId` で、意図した入力を送り直す |
+| `GITHUB_UNAVAILABLE` | GitHub を読めなかった（応答なし・timeout・rate limit・5xx・不正な応答。`retryable: true`）。何も記録していない | 時間をおいて同じ入力・同じ `requestId` で再送する |
+| `GITHUB_ACCESS_DENIED` / `PULL_REQUEST_NOT_FOUND` | GitHub が権限不足で拒否した、PR が存在しない・見えない | 再送せず、Repository・番号・Server の GitHub 設定を確認して報告する |
+| `PULL_REQUEST_NOT_READY` | PR が登録の条件を満たさない（別 Repository・open でない・draft・別 Task に登録済み・現在の open PR が残っている） | PR を直すか、条件を満たす PR を登録する |
 
 ## Execution の Claim と状態遷移
 
@@ -75,6 +78,8 @@ Execution の tool は旧 Wacha の契約を維持し、エラーを `{ error: {
 - Claim は期限切れで無効になる。作業を続けるときだけ、所有者が期限前に `renew_claim` する。heartbeat は不要。期限切れの `doing` Task は再び Claim できる
 - `claim_task` / `claim_review` / `claim_acceptance` の結果の `claimId` を、以後の `add_task_comment` / `complete_task` / `reviewed_task` / `accept_task` / `reject_task` / `renew_claim` / `release_claim` に渡す
 - `complete_task` は、同じ Principal と同じ Claim の `add_task_comment` が無いと拒否される。実施内容と検証結果をコメントに残す
+- PR を作る Task では、Worker が現在の Work Claim で `register_task_pull_request`（`repositoryId` は Project に登録した GitHub Repository、Story に Repository があればそれ）を呼ぶ。Server が GitHub で確認した open・非 draft の PR だけを保存し、`list_task_pull_requests` が登録順の履歴（最後が `current`）と head / base / merge の事実・確認時刻を返す。受入成果物やコメントの PR URL は確認済み PR として扱わない
+- `register_task_pull_request` の応答が失われたら、同じ入力・同じ `requestId` で再送するか `list_task_pull_requests` で確認する。同じ `requestId` の再送は GitHub を読まずに記録済みの結果を返す
 - 最新の `complete_task` を行った Principal は、同じ Task の `claim_review` / `claim_acceptance` を取れない（Role を複数持っても回避できない）
 - `reject_task` の意味は状態で変わる。`in_review` は reviewer による実装・検証観点の差し戻し、`wait_accept` は manager による要件・受入観点の差し戻し。reason に不足点、危険性、再レビュー（再受入）条件を残す
 - `manager` は `in_review` の Task に `claim_acceptance` して Reviewer 工程を省ける。`wait_accept` へ進み、Change Log に `manager_direct_review` が残る

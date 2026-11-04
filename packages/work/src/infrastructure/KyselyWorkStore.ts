@@ -13,6 +13,7 @@ import type {
   StoryRecord,
   TaskClaimRecord,
   TaskCommentRecord,
+  TaskPullRequestRecord,
   TaskRecord,
   WorkChangeNotice,
   WorkStore,
@@ -430,6 +431,27 @@ export class KyselyWorkStore implements WorkStore {
       .where("task.id", "in", entityIds)
       .execute();
     return [...stories, ...tasks];
+  }
+
+  listTaskPullRequests(taskId: string): Promise<TaskPullRequestRecord[]> {
+    return this.db.selectFrom("task_pull_request").selectAll().where("task_id", "=", taskId)
+      .orderBy("sequence", "asc").execute();
+  }
+
+  async findPullRequestByNumber(repository: string, number: number): Promise<TaskPullRequestRecord | null> {
+    return (await this.db.selectFrom("task_pull_request").selectAll().where("repository", "=", repository)
+      .where("number", "=", number).executeTakeFirst()) ?? null;
+  }
+
+  async insertTaskPullRequest(record: TaskPullRequestRecord): Promise<void> {
+    await this.db.insertInto("task_pull_request").values(record).execute();
+  }
+
+  async updateTaskPullRequest(
+    id: string,
+    patch: Omit<TaskPullRequestRecord, "id" | "task_id" | "project_id" | "repository" | "number" | "sequence" | "created_at">,
+  ): Promise<void> {
+    await this.db.updateTable("task_pull_request").set(patch).where("id", "=", id).execute();
   }
 
   async findReceipt(principalId: string, toolName: string, requestId: string): Promise<CommandReceiptRecord | null> {

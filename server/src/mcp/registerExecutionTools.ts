@@ -119,6 +119,40 @@ export const registerExecutionTools = (server: ToolRegistrar, services: Operatio
     ({ taskId }) => asPrincipal((principalId) => coordination.listTaskComments(principalId, taskId)),
   );
   server.registerTool(
+    "list_task_pull_requests",
+    {
+      title: "List Task Pull Requests",
+      description:
+        "List the GitHub pull requests registered to a Task with the facts the server verified on GitHub (number, URL, state, " +
+        "draft, head branch/SHA, base branch, merge SHA, author) and verifiedAt, in registration order. current marks the latest. " +
+        "Deliverable or comment URLs are not verified pull requests and are not listed. Requires any Role Grant in the Task's Project.",
+      inputSchema: { taskId: z.string().min(1) },
+    },
+    ({ taskId }) => asPrincipal((principalId) => coordination.listTaskPullRequests(principalId, taskId)),
+  );
+  server.registerTool(
+    "register_task_pull_request",
+    {
+      title: "Register Task Pull Request",
+      description:
+        "Worker with the current Work Claim of a doing Task only. The server reads the pull request from GitHub and attaches it " +
+        "when it is an open, non-draft PR of the given Project Repository (https://github.com/{owner}/{name}, the Story's " +
+        "Repository if set) and not registered to another Task. Re-registering the same PR refreshes its verified facts; another " +
+        "PR needs the current open PR closed first. GITHUB_UNAVAILABLE (retryable) means GitHub could not be read and nothing was " +
+        "recorded; GITHUB_ACCESS_DENIED / PULL_REQUEST_NOT_FOUND / PULL_REQUEST_NOT_READY are definitive. After a lost response, " +
+        "resend the same input and requestId (returns the recorded result without reading GitHub) or check list_task_pull_requests.",
+      inputSchema: {
+        taskId: z.string().min(1),
+        claimId: claimIdSchema,
+        repositoryId: z.string().min(1).describe("Repository ID registered in the Task's Project"),
+        number: z.number().int().positive().describe("GitHub pull request number"),
+        requestId: requestIdSchema,
+      },
+    },
+    ({ requestId, ...input }) =>
+      asPrincipal((principalId) => coordination.registerTaskPullRequest(principalId, input, requestId)),
+  );
+  server.registerTool(
     "list_changes",
     {
       title: "List Changes",

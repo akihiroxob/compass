@@ -72,6 +72,38 @@ export type TaskClaimRecord = {
   release_reason: string | null;
 };
 
+/**
+ * TaskにWorkerが登録し、ServerがGitHubで確認したpull request（Repository・番号ごとに1行）。値は最後に確認した時点のsnapshot。
+ * 確認のたびの履歴はChange Log（`TASK_PULL_REQUEST_REGISTERED`）に残る。受入成果物の`pullRequestUrl`等の参照はここへ入れない。
+ */
+export type TaskPullRequestRecord = {
+  id: string;
+  task_id: string;
+  project_id: string;
+  /** Projectに登録されたRepository（Organizationの`project_repository_link.id`）。 */
+  repository_id: string;
+  /** GitHubの`owner/name`（小文字）。 */
+  repository: string;
+  number: number;
+  /** Task内の登録順（1から）。履歴の並びと現在のPRを決める。 */
+  sequence: number;
+  url: string;
+  state: string;
+  draft: number;
+  head_branch: string;
+  head_sha: string;
+  base_branch: string;
+  merge_sha: string | null;
+  author: string;
+  /** 最後に登録・確認したWork ClaimとPrincipal。 */
+  work_claim_id: string;
+  principal_id: string;
+  /** GitHubで確認した時刻。 */
+  verified_at: number;
+  created_at: number;
+  updated_at: number;
+};
+
 /** 追記専用のChange Log。`cursor`が取得位置になる。 */
 export type ChangeRecord = {
   cursor: number;
@@ -221,6 +253,13 @@ export interface WorkStore {
   maxChangeCursor(projectId: string, entityIds?: string[]): Promise<number>;
   /** Story自身と、Story配下のTaskの相関（`outcome_ref`・`correlation_id`）。 */
   listEntityCorrelations(projectId: string, entityIds: string[]): Promise<EntityCorrelation[]>;
+
+  /** Taskに登録したPR。`sequence`の昇順（最後が現在のPR）。 */
+  listTaskPullRequests(taskId: string): Promise<TaskPullRequestRecord[]>;
+  /** GitHubのRepository・番号で登録済みのPR（Project・Taskを問わない）。 */
+  findPullRequestByNumber(repository: string, number: number): Promise<TaskPullRequestRecord | null>;
+  insertTaskPullRequest(record: TaskPullRequestRecord): Promise<void>;
+  updateTaskPullRequest(id: string, patch: Omit<TaskPullRequestRecord, "id" | "task_id" | "project_id" | "repository" | "number" | "sequence" | "created_at">): Promise<void>;
 
   findReceipt(principalId: string, toolName: string, requestId: string): Promise<CommandReceiptRecord | null>;
   insertReceipt(receipt: CommandReceiptRecord): Promise<void>;
