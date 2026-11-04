@@ -46,8 +46,8 @@ const loadOutcomeRef = async (workspaceId: string, outcomeId: string): Promise<T
 };
 
 /**
- * Task詳細の「Task受入とOutcome評価」。Taskの状態（Project Membershipで読むWork）と、StoryのOutcomeへ還流したこのProjectの
- * Execution・Evidence（Project Membership）、Outcomeの評価（Workspace Membership）を別々に読み、Taskの受入をOutcomeの達成として示さない。
+ * Task詳細の「Task受入とOutcome評価」。Taskの状態（Work）と、StoryのOutcomeへ還流したこのProjectの
+ * Execution・Evidence、Outcomeの評価（Workspace Direction）を別々に読み、Taskの受入をOutcomeの達成として示さない。
  * Taskの更新時刻が変わったら（受入・差戻し等の後）読み直す。表示だけで、ここからは何も変更しない。
  */
 export const TaskOutcomeSection = ({ projectId, workspaceId, task, story }: { projectId: string; workspaceId: string | null; task: ExecutionTask; story: ExecutionStory | null }) => {

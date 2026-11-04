@@ -378,14 +378,11 @@ test("Workspace相談の結論はStrategistが明示した引継ぎ先Projectの
       assert.equal((await asOwner(`/api/projects/${projectId}/grants`, post({ principalId, role }))).status, 201);
     }
     const docs = projectA1.repositories[0]!;
-    // Humanの閲覧範囲を分ける。Workspaceだけ（viewer）・Project A1だけ・両方。
-    const workspaceOnly = await createTestHuman(kit.database);
-    const projectOnly = await createTestHuman(kit.database);
-    const both = await createTestHuman(kit.database);
-    await addTestWorkspaceMembership(kit.database, workspaceA.id, workspaceOnly, "viewer");
-    await addTestWorkspaceMembership(kit.database, workspaceA.id, both, "viewer");
-    await addTestMembership(kit.database, projectA1.id, projectOnly, "viewer");
-    await addTestMembership(kit.database, projectA1.id, both, "viewer");
+    // Humanの閲覧範囲を分ける。Workspace Aのviewer（配下のProject A1・A2も同じRole）と、別Workspace Bだけのviewer。
+    const member = await createTestHuman(kit.database);
+    const outsider = await createTestHuman(kit.database);
+    await addTestWorkspaceMembership(kit.database, workspaceA.id, member, "viewer");
+    await addTestWorkspaceMembership(kit.database, workspaceB.id, outsider, "viewer");
 
     // StrategistがWorkspace相談を作り、Humanの返信からStrategistが結論を整理する。
     const created = ok(await callTool(kit.app, "create_consultation", {
@@ -485,20 +482,14 @@ test("Workspace相談の結論はStrategistが明示した引継ぎ先Projectの
     assert.match(repository.show(detail.followups[0].artifacts[0].path), /90日保持/);
     assert.deepEqual(detail.waitingTasks, []);
 
-    // 相談詳細の文書反映は、閲覧主体が参照できるProjectの分だけ。WorkspaceだけのHumanにはProject A1の名前・Task・Repository・件数を返さない。
-    const hidden = await json(await requestAs(kit.app, workspaceOnly)(base));
-    assert.equal(hidden.resolution.conclusion, "監査ログは全Projectで90日保持する");
-    assert.deepEqual(hidden.followups, []);
-    for (const secret of [requested.taskId as string, "a1-docs", "Policy: 監査ログの保持期間", repository.sha]) {
-      assert.equal(JSON.stringify(hidden).includes(secret), false, secret);
-    }
-    assert.equal((await requestAs(kit.app, workspaceOnly)(`/api/projects/${projectA1.id}/tasks/${requested.taskId}`)).status, 404);
-    // Project A1だけのHumanはWorkspace相談を読めない。両方を持つHumanは文書反映からProject A1のTaskへ辿れる。
-    assert.equal((await requestAs(kit.app, projectOnly)(base)).status, 404);
-    const visible = await json(await requestAs(kit.app, both)(base));
+    // Workspace AのMemberは、配下Project A1の文書反映からTaskへ辿れる（同じWorkspace Membershipで認可する）。
+    const visible = await json(await requestAs(kit.app, member)(base));
     assert.equal(visible.followups.length, 1);
     assert.equal(visible.followups[0].task.id, requested.taskId);
-    assert.equal((await requestAs(kit.app, both)(`/api/projects/${projectA1.id}/tasks/${requested.taskId}`)).status, 200);
+    assert.equal((await requestAs(kit.app, member)(`/api/projects/${projectA1.id}/tasks/${requested.taskId}`)).status, 200);
+    // 別WorkspaceだけのHumanは、Workspace相談もProject A1のTaskも区別せず404。
+    assert.equal((await requestAs(kit.app, outsider)(base)).status, 404);
+    assert.equal((await requestAs(kit.app, outsider)(`/api/projects/${projectA1.id}/tasks/${requested.taskId}`)).status, 404);
     // Workspace GrantだけのAgent（Strategist）にも、Project A1の文書反映を展開しない。
     const strategistView = ok(await callTool(kit.app, "get_consultation", scope, "strategist-a", "strategist"));
     assert.equal(strategistView.resolution.conclusion, "監査ログは全Projectで90日保持する");

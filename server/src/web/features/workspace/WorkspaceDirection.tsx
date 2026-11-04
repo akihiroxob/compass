@@ -72,19 +72,17 @@ export const DirectionIntents = ({ workspaceId, direction, projects }: { workspa
   </>
 );
 
-/** Target ProjectのStory・Task。Project Membershipで開けるProjectだけ、そのProjectのExecution閲覧から読む。 */
-const TargetStories = ({ projectId, outcomeId, canOpen }: { projectId: string; outcomeId: string; canOpen: boolean }) => {
+/** Target ProjectのStory・Task。そのProjectのExecution閲覧（所属WorkspaceのMembership）から読む。 */
+const TargetStories = ({ projectId, outcomeId }: { projectId: string; outcomeId: string }) => {
   const key = `${projectId}/${outcomeId}`;
   const [state, setState] = useState<{ key: string; overview: ExecutionOverview | null; error: string | null } | null>(null);
   useEffect(() => {
-    if (!canOpen) return;
     let current = true;
     request<ExecutionOverview>(executionPath(projectId, outcomeId))
       .then((overview) => { if (current) setState({ key, overview, error: null }); })
       .catch((reason: unknown) => { if (current) setState({ key, overview: null, error: loadFailureMessage(classifyError(reason), "Projectが見つからないか、閲覧する権限がありません。") }); });
     return () => { current = false; };
-  }, [key, canOpen]);
-  if (!canOpen) return <p className="locked-note">Project Membershipが無いため、Story・Taskは開けません。Projectのownerに招待を依頼してください。</p>;
+  }, [key]);
   const settled = state?.key === key ? state : null;
   if (settled?.error) return <ErrorState message={`Story・Taskの読み込みに失敗しました: ${settled.error}`} />;
   if (!settled?.overview) return <Loading />;
@@ -93,7 +91,6 @@ const TargetStories = ({ projectId, outcomeId, canOpen }: { projectId: string; o
 
 /** Target Project 1件の貢献: Work（Story・Task）→ 還流した結果とEvidence。 */
 const ContributionCard = ({ contribution, outcomeId, projects }: { contribution: TargetContribution<OutcomeExecutionRecord>; outcomeId: string; projects: Part<OverviewProject[]> }) => {
-  const project = projects.ok ? projects.value.find((item) => item.project.id === contribution.projectId) : undefined;
   return (
     <article className="intent-card direction-contribution" id={`target-${contribution.projectId}`}>
       <h3><ProjectName projectId={contribution.projectId} projects={projects} view="work" />{contribution.projectStatus === "archived" && <> <span className="status-badge muted">アーカイブ済み</span></>}</h3>
@@ -102,7 +99,7 @@ const ContributionCard = ({ contribution, outcomeId, projects }: { contribution:
         <>
           <h4>Story・Task</h4>
           {contribution.work && <p className="execution-meta"><WorkCounts work={contribution.work} /></p>}
-          <TargetStories projectId={contribution.projectId} outcomeId={outcomeId} canOpen={project?.canOpen ?? false} />
+          <TargetStories projectId={contribution.projectId} outcomeId={outcomeId} />
         </>
       )}
       <h4>結果とEvidence（還流）</h4>

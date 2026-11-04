@@ -199,7 +199,7 @@ export const WorkspaceAgentsSection = ({ workspace, myRole }: { workspace: { id:
 /** 表示に使うProjectの項目（WorkspaceのProject一覧の1件）。 */
 type AgentProject = { id: string; name: string };
 
-/** Project 1件のExecution Role。Project Membershipで読み、Credentialはそのprojectのadministrator以上にだけ出す。 */
+/** Project 1件のExecution Role。所属WorkspaceのMembershipで読み、Credentialはadministrator以上にだけ出す。 */
 const ProjectAgents = ({ project }: { project: AgentProject }) => {
   const { loaded, error, pending, reload } = useScopeAgents(
     project.id,
@@ -239,11 +239,8 @@ const ProjectAgents = ({ project }: { project: AgentProject }) => {
   );
 };
 
-/**
- * ProjectのExecution Role（Manager・Worker・Reviewer）。Project GrantとTaskのClaimをProjectごとに出す。
- * Project詳細はProject Membershipで認可するため、Membershipの無いProjectは理由だけを出す。
- */
-export const ProjectAgentsSection = ({ projects }: { projects: { project: AgentProject; canOpen: boolean }[] | null; }) => (
+/** ProjectのExecution Role（Manager・Worker・Reviewer）。Project GrantとTaskのClaimをProjectごとに出す。 */
+export const ProjectAgentsSection = ({ projects }: { projects: AgentProject[] | null; }) => (
   <section className="detail-section" aria-labelledby="project-execution-agents-heading">
     <h2 id="project-execution-agents-heading">ProjectのExecution Role <span className={statusBadgeClass("muted")}>Project</span></h2>
     <p className="section-note">
@@ -254,12 +251,7 @@ export const ProjectAgentsSection = ({ projects }: { projects: { project: AgentP
     <RoleList roles={projectAgentRoles} />
     {projects === null ? <Loading /> : projects.length === 0 ? <p className="unset">activeなProjectはありません。</p> : (
       <div className="agent-projects">
-        {projects.map(({ project, canOpen }) => canOpen ? <ProjectAgents key={project.id} project={project} /> : (
-          <article key={project.id} className="agent-project locked" aria-label={project.name}>
-            <h3>{project.name}</h3>
-            <p className="locked-note">Project Membershipが無いため、このProjectのAgent・Claimは表示できません。Projectのownerに招待を依頼してください。</p>
-          </article>
-        ))}
+        {projects.map((project) => <ProjectAgents key={project.id} project={project} />)}
       </div>
     )}
   </section>

@@ -26,7 +26,7 @@ const initializeProjectGrantSchema = async (database: Kysely<AccessDatabase>): P
 
 /**
  * Human認証（docs/step-6-human-auth-design.md）。すべて`create ... if not exists`で既存tableには触れない。
- * 既存Projectはowner不在（orphan）のまま残り、初期ownerのbootstrap時にowner Membershipを補完する。
+ * HumanのMembershipはWorkspace単位だけ（ADR 0003）。owner不在のWorkspaceは、初期ownerのbootstrap時にowner Membershipを補完する。
  * Session・招待・ログイン試行のsecretはSHA-256だけを保存し、平文の列を持たない。
  */
 const initializeHumanAuthSchema = async (database: Kysely<AccessDatabase>): Promise<void> => {
@@ -113,29 +113,6 @@ const initializeHumanAuthSchema = async (database: Kysely<AccessDatabase>): Prom
     .execute();
 
   await database.schema
-    .createTable("project_membership")
-    .ifNotExists()
-    .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
-    .addColumn("human_user_id", "text", (column) => humanUserId(column).notNull())
-    .addColumn("role", "text", (column) => column.notNull().check(sql`role in ${humanRole}`))
-    .addColumn("created_at", "integer", (column) => column.notNull())
-    .addColumn("updated_at", "integer", (column) => column.notNull())
-    .addColumn("created_by_human_user_id", "text", humanUserId)
-    .addColumn("revoked_at", "integer")
-    .addColumn("revoked_by_human_user_id", "text", humanUserId)
-    .execute();
-  // 有効なMembershipは(Project, Human)につき1件。取消後の再招待は新しい行にする。
-  await sql`create unique index if not exists project_membership_active_idx
-    on project_membership (project_id, human_user_id) where revoked_at is null`.execute(database);
-  await database.schema
-    .createIndex("project_membership_human_idx")
-    .ifNotExists()
-    .on("project_membership")
-    .column("human_user_id")
-    .execute();
-
-  await database.schema
     .createTable("project_invitation")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
@@ -159,7 +136,7 @@ const initializeHumanAuthSchema = async (database: Kysely<AccessDatabase>): Prom
     on project_invitation (project_id, email) where status = 'pending'`.execute(database);
 };
 
-/** Workspace Membership。`create ... if not exists`だけで既存tableには触れない。既存Projectからの初期memberは別途補完する。 */
+/** Workspace Membership。`create ... if not exists`だけで既存tableには触れない。配下のすべてのProjectのHuman認可に使う。 */
 const initializeWorkspaceMembershipSchema = async (database: Kysely<AccessDatabase>): Promise<void> => {
   const humanUserId = (column: ColumnDefinitionBuilder) => column.references("human_user.id");
   await database.schema

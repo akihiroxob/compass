@@ -1,3 +1,4 @@
-export { MembershipSection } from "./MembershipSection";
+export { ProjectInvitationSection } from "./ProjectInvitationSection";
 export { WorkspaceMembershipSection } from "./WorkspaceMembershipSection";
-export { humanRoleLabels, membersPath, scopeMembersPath, type HumanRole, type Member } from "./members";
+export { loadMemberNames } from "./memberNames";
+export { humanRoleLabels, workspaceMembersPath, type HumanRole, type Member } from "./members";

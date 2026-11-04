@@ -5,7 +5,7 @@ import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { addTestMembership, addTestWorkspaceMembership, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
+import { addTestWorkspaceMembership, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
 
 /**
  * S11-02: WorkspaceのAgent画面が読むWeb API。Workspace Direction RoleのGrantはWorkspace Membershipで読み、Project Grantを含めない。
@@ -44,10 +44,10 @@ test("Workspace GrantはWorkspace Membership（viewer以上）で読め、Projec
       assert.ok(grants.every((grant) => grant.workspaceId === workspace.id));
     }
 
-    // Project MembershipだけのHumanはWorkspaceのGrantを読めない（継承しない）。未所属・不在は404、Session無しは401。
-    const projectOnly = await createTestHuman(database);
-    await addTestMembership(database, project.id, projectOnly, "owner");
-    assert.equal((await requestAs(app, projectOnly)(`/api/workspaces/${workspace.id}/grants`)).status, 404);
+    // 別WorkspaceのMemberはこのWorkspaceのGrantを読めない。未所属・不在は404、Session無しは401。
+    const outsider = await createTestHuman(database);
+    await addTestWorkspaceMembership(database, other.id, outsider, "owner");
+    assert.equal((await requestAs(app, outsider)(`/api/workspaces/${workspace.id}/grants`)).status, 404);
     assert.equal((await requestAs(app, owner)("/api/workspaces/missing/grants")).status, 404);
     assert.equal((await app.request(`/api/workspaces/${workspace.id}/grants`)).status, 401);
   } finally {

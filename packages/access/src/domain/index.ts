@@ -6,7 +6,7 @@ export * from "./LoginAttemptRepository.ts";
 export * from "./ProjectArchivedResult.ts";
 export * from "./ProjectGrant.ts";
 export * from "./ProjectGrantRepository.ts";
-export * from "./ProjectMembershipRepository.ts";
+export * from "./ProjectInvitationRepository.ts";
 export * from "./ProjectRole.ts";
 export * from "./WorkspaceMembershipRepository.ts";
 export * from "./RoleScope.ts";

@@ -8,11 +8,11 @@ import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { addTestMembership, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
+import { addTestWorkspaceMembership, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
 
 /**
- * Workspace設定（S11-03）のWeb API。Workspace member（一覧・追加候補・追加・Role変更・取消）とWorkspace Direction RoleのGrant
- * （一覧・付与・取消）をWorkspace Membershipで認可し、Project Membership・Project Grantと互いに継承しないことを入口から検証する。
+ * Workspace設定のWeb API。Workspace member（一覧・Role変更・除外）とWorkspace Direction RoleのGrant（一覧・付与・取消）を
+ * Workspace Membershipで認可し、Memberの変更が配下Projectにも反映されること、Agent GrantがProject Grantと混ざらないことを入口から検証する。
  */
 
 type App = ReturnType<typeof createApp>;
@@ -39,85 +39,80 @@ const call = async (app: App, human: TestHuman, path: string, init?: RequestInit
   return { status: response.status, body: (await response.json()) as Json };
 };
 
-/** ProjectのMemberにしてから、Workspace ownerがWeb APIでWorkspace memberに追加する。 */
-const addMember = async (context: Awaited<ReturnType<typeof setup>>, email: string, role: HumanRole, projectRole: HumanRole = "viewer") => {
+/**
+ * 既存HumanをWorkspace memberにするfixture（招待による参加の検証はhumanAuth・humanAuthHttpIntegrationで行う）。
+ * 配下のすべてのProjectにも同じRoleが適用される。
+ */
+const addMember = async (context: Awaited<ReturnType<typeof setup>>, email: string, role: HumanRole) => {
   const human = await createTestHuman(context.database, { email });
-  await addTestMembership(context.database, context.project.id, human, projectRole);
-  const added = await call(context.app, context.owner, `/api/workspaces/${context.workspace.id}/members`, json("POST", { humanUserId: human.humanUserId, role }));
-  assert.equal(added.status, 201, JSON.stringify(added.body));
-  return { human, membershipId: added.body.membership.id as string };
+  const membershipId = await addTestWorkspaceMembership(context.database, context.workspace.id, human, role);
+  return { human, membershipId };
 };
 
-test("Workspace ownerは追加候補から所属ProjectのMemberを追加・Role変更・取消でき、Project Membershipは変わらない", async () => {
+test("Workspace ownerはMemberのRole変更・除外ができ、配下Projectにも次の操作から反映する。Project単位のMember・追加候補APIは無い", async () => {
   const context = await setup();
   const { app, owner, workspace, project, otherProject, database } = context;
   const base = `/api/workspaces/${workspace.id}`;
-  const candidate = await createTestHuman(database, { email: "candidate@example.com" });
-  await addTestMembership(database, project.id, candidate, "editor");
-  // 別WorkspaceのProject Memberは候補に出ず、追加もHumanの有無を区別せず404。
-  const outsider = await createTestHuman(database, { email: "outsider@example.com" });
-  await addTestMembership(database, otherProject.id, outsider, "owner");
+  const member = await addMember(context, "member@example.com", "administrator");
 
-  const candidates = await call(app, owner, `${base}/member-candidates`);
-  assert.equal(candidates.status, 200);
-  assert.deepEqual(candidates.body.candidates.map((item: Json) => item.email), ["candidate@example.com"]);
-  assert.deepEqual(Object.keys(candidates.body.candidates[0]).sort(), ["displayName", "email", "id"]);
-  assert.equal((await call(app, owner, `${base}/members`, json("POST", { humanUserId: outsider.humanUserId, role: "viewer" }))).status, 404);
-  const invalid = await call(app, owner, `${base}/members`, json("POST", { humanUserId: candidate.humanUserId, role: "guest" }));
+  const members = (await call(app, member.human, `${base}/members`)).body.members as Json[];
+  assert.deepEqual(members.map(({ membership, human }) => [human.email, membership.role]), [["owner@example.com", "owner"], ["member@example.com", "administrator"]]);
+  assert.equal(members[1].membership.workspaceId, workspace.id);
+  assert.equal((await call(app, member.human, `/api/projects/${project.id}`)).body.myRole, "administrator");
+  assert.equal((await call(app, member.human, `/api/projects/${otherProject.id}`)).status, 404);
+  const invalid = await call(app, owner, `${base}/members/${member.membershipId}`, json("PATCH", { role: "guest" }));
   assert.equal(invalid.body.error.code, "VALIDATION_ERROR");
 
-  const added = await call(app, owner, `${base}/members`, json("POST", { humanUserId: candidate.humanUserId, role: "administrator" }));
-  assert.equal(added.status, 201);
-  assert.equal(added.body.membership.workspaceId, workspace.id);
-  // 追加済みは候補から外れ、二重追加は409 ALREADY_MEMBER。
-  assert.deepEqual((await call(app, owner, `${base}/member-candidates`)).body.candidates, []);
-  const duplicate = await call(app, owner, `${base}/members`, json("POST", { humanUserId: candidate.humanUserId, role: "viewer" }));
-  assert.deepEqual([duplicate.status, duplicate.body.error.conflict], [409, "ALREADY_MEMBER"]);
-
-  const members = (await call(app, candidate, `${base}/members`)).body.members as Json[];
-  assert.deepEqual(members.map(({ membership, human }) => [human.email, membership.role]), [["owner@example.com", "owner"], ["candidate@example.com", "administrator"]]);
-  const changed = await call(app, owner, `${base}/members/${added.body.membership.id}`, json("PATCH", { role: "viewer" }));
+  // WorkspaceのRole変更は配下ProjectのRoleにもなる。
+  const changed = await call(app, owner, `${base}/members/${member.membershipId}`, json("PATCH", { role: "viewer" }));
   assert.equal(changed.body.membership.role, "viewer");
-  // WorkspaceのRole変更はProjectのRoleを変えない。
-  assert.equal((await call(app, candidate, `/api/projects/${project.id}`)).body.myRole, "editor");
+  assert.equal((await call(app, member.human, `/api/projects/${project.id}`)).body.myRole, "viewer");
+  assert.equal((await call(app, member.human, `/api/projects/${project.id}`, json("PATCH", { description: "x" }))).status, 403);
 
-  // 最後のownerは降格・取消できない（409 LAST_OWNER）。
+  // 最後のownerは降格・除外できない（409 LAST_OWNER）。
   const ownerMembership = members[0].membership.id;
   for (const init of [json("PATCH", { role: "viewer" }), { method: "DELETE" }]) {
     const lastOwner = await call(app, owner, `${base}/members/${ownerMembership}`, init);
     assert.deepEqual([lastOwner.status, lastOwner.body.error.conflict], [409, "LAST_OWNER"]);
   }
 
-  const revoked = await call(app, owner, `${base}/members/${added.body.membership.id}`, { method: "DELETE" });
+  const revoked = await call(app, owner, `${base}/members/${member.membershipId}`, { method: "DELETE" });
   assert.equal(revoked.status, 200);
   assert.notEqual(revoked.body.membership.revokedAt, null);
-  // 取消したHumanはWorkspaceを参照できず、候補へ戻る。Projectには引き続き入れる。
-  assert.equal((await call(app, candidate, base)).status, 404);
-  assert.deepEqual((await call(app, owner, `${base}/member-candidates`)).body.candidates.map((item: Json) => item.email), ["candidate@example.com"]);
-  assert.equal((await call(app, candidate, `/api/projects/${project.id}`)).status, 200);
+  // 除外したHumanはWorkspaceも配下Projectも参照できない。
+  assert.equal((await call(app, member.human, base)).status, 404);
+  assert.equal((await call(app, member.human, `/api/projects/${project.id}`)).status, 404);
+
+  // Project単位のMember API・Project Memberからの追加候補・直接追加は公開しない（参加は招待で行う）。
+  for (const [path, init] of [
+    [`/api/projects/${project.id}/members`, undefined],
+    [`${base}/member-candidates`, undefined],
+    [`${base}/members`, json("POST", { humanUserId: member.human.humanUserId, role: "viewer" })],
+  ] as const) {
+    assert.equal((await requestAs(app, owner)(path, init)).status, 404, path);
+  }
   await database.destroy();
 });
 
-test("Workspace memberの管理はownerだけで、viewerは一覧だけ、Project ownerはWorkspaceのMemberでなければ404", async () => {
+test("Workspace memberの管理はownerだけで、viewerは一覧だけ、別Workspaceのownerは404", async () => {
   const context = await setup();
-  const { app, workspace, project, database } = context;
+  const { app, workspace, other, database } = context;
   const base = `/api/workspaces/${workspace.id}`;
   const admin = await addMember(context, "admin@example.com", "administrator");
   const viewer = await addMember(context, "viewer@example.com", "viewer");
 
   assert.equal((await call(app, viewer.human, `${base}/members`)).status, 200);
   for (const human of [admin.human, viewer.human]) {
-    assert.equal((await call(app, human, `${base}/member-candidates`)).status, 403);
     const forbidden = await call(app, human, `${base}/members/${viewer.membershipId}`, json("PATCH", { role: "editor" }));
     assert.deepEqual([forbidden.status, forbidden.body.error.code, forbidden.body.error.requiredRole], [403, "FORBIDDEN", "owner"]);
     assert.equal((await call(app, human, `${base}/members/${viewer.membershipId}`, { method: "DELETE" })).status, 403);
   }
 
-  // ProjectのownerでもWorkspace Membershipが無ければ、Workspaceのmember・Grant・Credentialは存在を明かさず404。
-  const projectOwner = await createTestHuman(database, { email: "project-owner@example.com" });
-  await addTestMembership(database, project.id, projectOwner, "owner");
-  for (const path of ["/members", "/member-candidates", "/grants", "/credentials"]) {
-    const response = await call(app, projectOwner, `${base}${path}`);
+  // 別Workspaceのownerは、このWorkspaceのmember・Grant・Credentialの存在を明かされず404。
+  const otherOwner = await createTestHuman(database, { email: "other-owner@example.com" });
+  await addTestWorkspaceMembership(database, other.id, otherOwner, "owner");
+  for (const path of ["/members", "/grants", "/credentials"]) {
+    const response = await call(app, otherOwner, `${base}${path}`);
     assert.deepEqual([path, response.status, response.body.error.code], [path, 404, "NOT_FOUND"]);
   }
   // 別WorkspaceのMembershipIDは404。
@@ -130,7 +125,7 @@ test("Workspace Direction RoleのGrantはadministrator以上が付与・取消�
   const { app, owner, workspace, project, other, database } = context;
   const grants = `/api/workspaces/${workspace.id}/grants`;
   const admin = await addMember(context, "admin@example.com", "administrator");
-  const editor = await addMember(context, "editor@example.com", "editor", "owner");
+  const editor = await addMember(context, "editor@example.com", "editor");
   const viewer = await addMember(context, "viewer@example.com", "viewer");
 
   const created = await call(app, admin.human, grants, json("POST", { principalId: "strategist-a", role: "strategist" }));
@@ -144,7 +139,7 @@ test("Workspace Direction RoleのGrantはadministrator以上が付与・取消�
     assert.deepEqual([role, rejected.status, rejected.body.error.code], [role, 400, "VALIDATION_ERROR"]);
   }
 
-  // editor（Projectではowner）・viewerは付与・取消できない。Project RoleからWorkspaceの管理権限を継承しない。
+  // editor・viewerは付与・取消できない。
   for (const human of [editor.human, viewer.human]) {
     const forbidden = await call(app, human, grants, json("POST", { principalId: "researcher-a", role: "researcher" }));
     assert.deepEqual([forbidden.status, forbidden.body.error.requiredRole], [403, "administrator"]);

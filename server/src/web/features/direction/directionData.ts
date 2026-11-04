@@ -1,4 +1,4 @@
-// Workspaceの概要・方向とProjectの概要が共有するDirectionの取得。Workspace所有のDirectionはWorkspace Membership、所属ProjectのStory / TaskはProject Membershipで読む。
+// Workspaceの概要・方向とProjectの概要が共有するDirectionの取得。Workspace所有のDirectionと所属ProjectのStory / Taskを同じWorkspace Membershipで読む。
 import { request, settle, type Part } from "../../api";
 import { workspaceApiPath } from "../../paths";
 import type { DirectionDecision } from "../decision";

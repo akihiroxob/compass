@@ -15,7 +15,7 @@ export const workspaceDirectionAccess = (workspace: { status: "active" | "archiv
 
 /**
  * Projectが所属するWorkspaceの`workspaceId`と、WorkspaceのDirectionを変更できるかを取得する。
- * Directionの参照・変更はWorkspace Membershipで認可され、Project Membershipからは継承しない。
+ * Directionの参照・変更はWorkspace Membershipで認可される（ProjectのWorkも同じMembershipで認可する）。
  */
 export const loadProjectWorkspaceDirection = (projectId: string, fetchImpl?: FetchLike): Promise<WorkspaceDirectionState> =>
   request<{ project: { workspaceId: string } }>(`/api/projects/${projectId}`, undefined, fetchImpl)

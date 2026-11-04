@@ -10,8 +10,8 @@ import type { WorkspaceMembershipRepository } from "../domain/WorkspaceMembershi
 import { ForbiddenError, NotFoundError } from "@compass/shared";
 
 /**
- * Human Workspace Membershipによる認可。`HumanProjectAuthorizationService`と同じく、未所属・取消済み・存在しない
- * Workspaceはすべて404にしてWorkspace IDの存在を漏らさない。Project Membershipからの継承はしない。
+ * Human Workspace Membershipによる認可。未所属・取消済み・存在しないWorkspaceはすべて404にしてWorkspace IDの存在を漏らさない。
+ * 配下ProjectのHuman操作も同じMembershipで認可する（`HumanProjectAuthorizationService`）。
  */
 export class HumanWorkspaceAuthorizationService {
   constructor(private readonly membershipRepository: WorkspaceMembershipRepository) {}

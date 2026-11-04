@@ -10,12 +10,12 @@ import { createApplicationServices } from "../src/bootstrap/createApplicationSer
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
 import type { Database } from "../src/bootstrap/database/schema.ts";
-import { addTestMembership, addTestWorkspaceMembership, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
+import { addTestWorkspaceMembership, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
 
 /**
  * S07-02: canonical ActivityとProject Resource参照をscope別に接続する。
  * WorkspaceのResearch / DecisionはWorkspace Activity、ProjectのWork変更はProject Activityとして記録され、
- * Workspace履歴はWorkspace Role Grant（Human: Workspace Membership）、Project履歴はProject Role Grant（Project Membership）で別々に読める。
+ * Workspace履歴はWorkspace Role Grant、Project履歴はProject Role Grantで別々に読める（Humanはどちらも所属WorkspaceのMembership）。
  * 明示記録の成果物はRepository / Docs（Project Resource + path + revision）を参照し、runId・本文の複製・Change Logを混ぜない。
  */
 
@@ -217,10 +217,10 @@ test("Workspace / Project Activityはscope別に記録され、Workspace Grant�
   }
 });
 
-test("HumanはWorkspace MembershipでWorkspace Activity、Project MembershipでProject Activityを読み、互いに継承しない", async () => {
+test("HumanはWorkspace MembershipでWorkspace Activityと配下ProjectのActivityを別scopeとして読み、別WorkspaceのMemberは404", async () => {
   const database = createDatabase(":memory:");
   try {
-    const { app, workspace, a } = await setup(database);
+    const { app, workspace, otherWorkspace, a } = await setup(database);
     ok(await callTool(app, "manager-a", "issue_story", { projectId: a.id, title: "Story", requestId: "story-1" }, "manager"));
     const recorded = ok(await callTool(app, "strategist-a", "record_workspace_activity", {
       workspaceId: workspace.id,
@@ -232,9 +232,11 @@ test("HumanはWorkspace MembershipでWorkspace Activity、Project MembershipでP
     }, "strategist"));
 
     const workspaceViewer = await createTestHuman(database);
-    const projectViewer = await createTestHuman(database);
+    const outsider = await createTestHuman(database);
     await addTestWorkspaceMembership(database, workspace.id, workspaceViewer, "viewer");
-    await addTestMembership(database, a.id, projectViewer, "viewer");
+    await addTestWorkspaceMembership(database, otherWorkspace.id, outsider, "owner");
+    // 配下ProjectのActivityも同じWorkspace Membershipで読む。
+    const projectViewer = workspaceViewer;
 
     const list = await requestAs(app, workspaceViewer)(`/api/workspaces/${workspace.id}/activities`);
     assert.equal(list.status, 200);
@@ -247,10 +249,11 @@ test("HumanはWorkspace MembershipでWorkspace Activity、Project MembershipでP
     assert.equal(body.activity.body, "詳細");
     assert.deepEqual(body.activity.refs, [{ kind: "project_resource", resourceId: a.resources[0]!.id, path: "adr/0001.md", revision: "def456" }]);
 
-    // Workspace MembershipだけではProject Activityを読めず、Project MembershipだけではWorkspace Activityを読めない。
-    assert.equal((await requestAs(app, workspaceViewer)(`/api/projects/${a.id}/activities`)).status, 404);
-    assert.equal((await requestAs(app, projectViewer)(`/api/workspaces/${workspace.id}/activities`)).status, 404);
-    assert.equal((await requestAs(app, projectViewer)(`/api/workspaces/${workspace.id}/activities/${recorded.activity.id}`)).status, 404);
+    // 別WorkspaceのMemberは、Workspace ActivityもProject Activityも読めない（存在を区別しない）。
+    assert.equal((await requestAs(app, outsider)(`/api/projects/${a.id}/activities`)).status, 404);
+    assert.equal((await requestAs(app, outsider)(`/api/workspaces/${workspace.id}/activities`)).status, 404);
+    assert.equal((await requestAs(app, outsider)(`/api/workspaces/${workspace.id}/activities/${recorded.activity.id}`)).status, 404);
+    // Project Activityの一覧・詳細はProject scopeだけで、Workspace Activityを混ぜない。
     const projectPage = (await (await requestAs(app, projectViewer)(`/api/projects/${a.id}/activities`)).json()) as Json;
     assert.deepEqual(projectPage.activities.map((item: Json) => item.type), ["story.created"]);
     assert.equal((await requestAs(app, projectViewer)(`/api/projects/${a.id}/activities/${recorded.activity.id}`)).status, 404);

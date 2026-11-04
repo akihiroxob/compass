@@ -123,8 +123,8 @@ const prepareReflections = async (services, owner, client, entry) => {
 // Project/Workspace Consultations left at each visible stage (Human待ち・応答中・再開・継続確認待ち・方針訂正) with waiting Tasks.
 // Agent steps use the policy-checked public MCP and Human steps the owner's Human use cases. Expected rejections are recorded,
 // not asserted, so the Manager can compare them with the current product behavior.
-const prepareConsultationLifecycle = async (services, owner, client, entry, inspectRuntime) => {
-  const [projectA, projectB] = entry.projects.map(({ id }) => id);
+const prepareConsultationLifecycle = async (services, owner, client, entry, inspectRuntime, hiddenWorkspaceId) => {
+  const [projectA] = entry.projects.map(({ id }) => id);
   const workspaceId = entry.workspaceId;
   const observations = [];
   const rejected = async (label, expected, role, name, args) => {
@@ -240,12 +240,13 @@ const prepareConsultationLifecycle = async (services, owner, client, entry, insp
   await rejected('continuation confirmed by a Worker', 'FORBIDDEN', 'worker', 'confirm_consultation_continuation', { taskId: multiWait.task.id,
     expectedRequirementVersion: confirmation.requirementVersion, consultationRevisions: confirmation.consultations.map(({ id, revision }) => ({ id, revision })), reason: 'Workerによる確認' });
 
-  // 方針訂正: 解決済みの相談を参照する新しい相談。Workspace相談はHuman待ちのまま残す。Project Bの相談はviewerに見えない。
+  // 方針訂正: 解決済みの相談を参照する新しい相談。Workspace相談はHuman待ちのまま残す。viewerが所属しないWorkspaceの相談はviewerに見えない。
   const correction = await client.call('manager', 'create_consultation', { projectId: projectA, ...consultation('通知テーブルの方針訂正',
     '保存期間の要件が追加されたため、通知テーブルを使わない方針を見直しますか', { supersedesConsultationId: resumedIds.consultationId }) });
   const workspaceWaiting = await client.call('strategist', 'create_consultation', { workspaceId,
     ...consultation('次に優先するOutcome', '検索改善と通知改善のどちらを先に追いますか') });
-  const hidden = await client.call('worker', 'create_consultation', { projectId: projectB, ...consultation('Project Bだけの判断', 'Project Bの非公開の判断') });
+  const hidden = await client.call('strategist', 'create_consultation', { workspaceId: hiddenWorkspaceId,
+    ...consultation('未所属Workspaceの判断', 'viewerが所属しないWorkspaceの非公開の判断') });
 
   const projectPath = (consultationId) => `/projects/${projectA}/consultations/${consultationId}`;
   return {
@@ -260,7 +261,7 @@ const prepareConsultationLifecycle = async (services, owner, client, entry, insp
         expected: 'Humanの明示決定と取消・Managerの継続確認待ち', paths: [projectPath(decidedIds.consultationId), projectPath(canceledIds.consultationId)] },
       { stage: 'correction', consultationId: correction.consultation.id, supersedes: resumedIds.consultationId, path: projectPath(correction.consultation.id) },
       { stage: 'workspace_waiting_human', consultationId: workspaceWaiting.consultation.id, path: `/workspaces/${workspaceId}/consultations/${workspaceWaiting.consultation.id}` },
-      { stage: 'hidden_from_viewer', projectId: projectB, consultationId: hidden.consultation.id, path: `/projects/${projectB}/consultations/${hidden.consultation.id}` },
+      { stage: 'hidden_from_viewer', workspaceId: hiddenWorkspaceId, consultationId: hidden.consultation.id, path: `/workspaces/${hiddenWorkspaceId}/consultations/${hidden.consultation.id}` },
     ],
     observations,
   };
@@ -292,15 +293,14 @@ try {
   const work = services.taskCoordinationService;
   const { createApp } = await targetModule('server/src/bootstrap/app.ts');
   const app = createApp(services, { humanAuth: { mode: 'trusted-local', publicOrigin: 'http://localhost' } });
+  // 招待の受諾で所属WorkspaceのMembership（配下のすべてのProjectに同じRole）になる（ADR 0003）。
   const addViewer = async (workspaceId, projectId) => {
     const invitation = await services.createProjectInvitationUseCase.execute(owner, projectId, { email: viewerEmail, role: 'viewer' });
     const signedIn = await services.localDevLoginUseCase.execute({ email: viewerEmail, invitationToken: invitation.token, previousSessionToken: null });
     if (signedIn.kind !== 'logged_in') throw new Error('Preview viewer invitation could not be accepted');
     const humanUserId = signedIn.session.humanUserId;
     const members = await services.human.listWorkspaceMembers.execute(owner, workspaceId);
-    if (!members.some(({ human }) => human.id === humanUserId)) {
-      await services.human.addWorkspaceMember.execute(owner, workspaceId, { humanUserId, role: 'viewer' });
-    }
+    if (!members.some(({ human }) => human.id === humanUserId)) throw new Error('Preview viewer did not join the Workspace');
     return humanUserId;
   };
   const acceptedWork = async (project, outcome, label) => {
@@ -384,7 +384,8 @@ try {
   const partial = scenarios.find(({ scenario }) => scenario === 'partial-work');
   try {
     const { inspectConsultationRuntime } = await targetModule('ralph/runtime/consultation-context.mjs');
-    partial.consultationLifecycle = { status: 'prepared', ...await prepareConsultationLifecycle(services, owner, client, partial, inspectConsultationRuntime) };
+    const hiddenWorkspaceId = scenarios.find(({ scenario }) => scenario === 'no-target').workspaceId;
+    partial.consultationLifecycle = { status: 'prepared', ...await prepareConsultationLifecycle(services, owner, client, partial, inspectConsultationRuntime, hiddenWorkspaceId) };
   } catch (error) {
     if (!(error instanceof PreviewOperationError) || !['tool_unavailable', 'policy_denied'].includes(error.kind)) throw error;
     partial.consultationLifecycle = { status: 'unavailable', kind: error.kind, tool: error.tool, message: error.message };
@@ -411,7 +412,7 @@ const manifest = { schemaVersion: 1, purpose: 'browser-verification-fixtures', h
     claimTtlMs: Number(process.env.COMPASS_CLAIM_TTL_MS ?? 30 * 60 * 1000),
     instructions: 'Read policyPath. Use only the dedicated preview URL and these preview actors. Any current tool classified by operationPolicy is permitted within projectIds/workspaceIds; execution Task/Claim, operational MCP and Human management tools are outside this permission.',
   },
-  login: { mode: 'trusted-local', ownerEmail, viewerEmail, instructions: 'ログイン画面からemailを入力する。viewerはProject Aのみ所属し、Project Bは未所属。' },
+  login: { mode: 'trusted-local', ownerEmail, viewerEmail, instructions: 'ログイン画面からemailを入力する。viewerは[受入] 一部Project未着手・[受入] 複数Targetと評価根拠のWorkspaceのviewer（配下のProject A・Bとも同じRole）で、[受入] TargetなしのWorkspaceは未所属。' },
   scenarios, limitations: ['データ準備は公開APIによる管理操作のAC検証ではない', '判定・Evidenceは表示確認用fixtureであり、実Agentの自律運転や実成果を示さない'] };
 const manifestPath = join(data, 'browser-fixtures.json');
 // The preview server reopens this DB file, so comparing its Web API responses with this snapshot checks a same-DB restart.

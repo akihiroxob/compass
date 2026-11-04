@@ -19,7 +19,7 @@ export const loginErrorMessages: Record<string, { title: string; detail: string 
   },
   invitation_expired: {
     title: "招待の有効期限が切れています。",
-    detail: "Projectのownerに招待の再発行を依頼してください。",
+    detail: "Workspaceのownerに招待の再発行を依頼してください。",
   },
   oidc_failed: {
     title: "Googleでのログインを完了できませんでした。",

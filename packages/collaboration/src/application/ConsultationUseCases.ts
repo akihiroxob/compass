@@ -144,7 +144,7 @@ const encodeCursor = (consultation: Pick<Consultation, "updatedAt" | "id">) => `
 /**
  * 閲覧できるscopeを横断した相談一覧（Humanの判断待ち）。閲覧できるProject・Workspaceの集合は入口がMembershipから求めて渡し、
  * scope・Project・Workspace・状態の絞り込みとページングはその認可済みの集合に対して行う。閲覧できないProject・Workspaceを指定しても
- * 拒否せず空にし、存在・件数を区別させない。Project Membershipから同じWorkspaceの相談を、Workspace Membershipから未所属Projectの相談を返さない。
+ * 拒否せず空にし、存在・件数を区別させない。
  */
 export class ListAccessibleConsultationsUseCase {
   constructor(private readonly unitOfWork: ConsultationUnitOfWork) {}

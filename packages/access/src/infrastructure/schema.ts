@@ -54,19 +54,7 @@ export type AuthLoginAttemptTable = {
   consumed_at: number | null;
 };
 
-export type ProjectMembershipTable = {
-  id: string;
-  project_id: string;
-  human_user_id: string;
-  role: "owner" | "administrator" | "editor" | "viewer";
-  created_at: number;
-  updated_at: number;
-  created_by_human_user_id: string | null;
-  revoked_at: number | null;
-  revoked_by_human_user_id: string | null;
-};
-
-/** Workspace（Organization）単位のHuman Membership。Project Membershipとは別tableで、相互に継承しない。 */
+/** Workspace（Organization）単位のHuman Membership（ADR 0003）。配下のすべてのProjectへ同じRoleを適用する。 */
 export type WorkspaceMembershipTable = {
   id: string;
   workspace_id: string;
@@ -132,7 +120,6 @@ export type AccessDatabase = {
   human_identity: HumanIdentityTable;
   web_session: WebSessionTable;
   auth_login_attempt: AuthLoginAttemptTable;
-  project_membership: ProjectMembershipTable;
   project_invitation: ProjectInvitationTable;
   workspace_membership: WorkspaceMembershipTable;
   access_credential: AccessCredentialTable;

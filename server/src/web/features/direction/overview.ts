@@ -243,15 +243,15 @@ export const attentionSummary = ({ items, outcomeFailures, unconfirmed }: Worksp
   items.length ? null : outcomeFailures || unconfirmed.length ? "確認できた範囲に要対応はありません" : "要対応はありません";
 
 /**
- * Outcome・Intentの詳細を開くProject。詳細画面のrouteはProject配下で、Project Membershipで認可される。
- * Target Projectのうち開けるものを優先し、無ければWorkspace内で開けるactiveなProject。どれも開けなければnull（リンクにしない）。
+ * Outcome・Intentの詳細を開くProject。詳細画面のrouteはProject配下（所属WorkspaceのMembershipで認可）。
+ * WorkspaceのProjectにあるTarget Projectを優先し、無ければactiveなProject。どれも無ければnull（リンクにしない）。
  */
 export const pickOpenProject = (
   preferred: readonly string[],
-  projects: readonly { id: string; status: "active" | "archived"; canOpen: boolean }[],
+  projects: readonly { id: string; status: "active" | "archived" }[],
 ): string | null => {
-  const openable = new Map(projects.filter((project) => project.canOpen).map((project) => [project.id, project]));
-  return preferred.find((id) => openable.has(id)) ?? [...openable.values()].find((project) => project.status === "active")?.id ?? null;
+  const known = new Set(projects.map(({ id }) => id));
+  return preferred.find((id) => known.has(id)) ?? projects.find((project) => project.status === "active")?.id ?? null;
 };
 
 /**

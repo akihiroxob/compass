@@ -65,14 +65,14 @@ export const createApp = (
   };
   const { human } = services;
 
-  // 作成者を同一transactionでowner Membershipにする。
+  // Projectと専用のWorkspaceを作り、作成者を同一transactionでWorkspaceのowner Membershipにする。
   app.post("/api/projects", async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw);
     const project = await services.createProjectUseCase.execute(input, actor);
     return c.json({ project }, 201);
   });
-  // 有効なMembershipを持つProjectだけ。既定はactiveのみ。`?status=archived`でアーカイブ済み一覧。それ以外の値は400（path `status`）。
+  // 有効なWorkspace Membershipを持つWorkspaceのProjectだけ。既定はactiveのみ。`?status=archived`でアーカイブ済み一覧。それ以外の値は400（path `status`）。
   app.get("/api/projects", async (c) => {
     const actor = await actorOf(c);
     return c.json({ projects: await human.listProjects.execute(actor, parseProjectStatusFilter(c.req.query("status"))) });
@@ -88,9 +88,8 @@ export const createApp = (
     return c.json({ project });
   });
 
-  // Workspaceの作成・参照・更新・archiveと、既存WorkspaceへのProject作成。Workspace Membershipで認可し（未所属・不在は404）、
-  // Project Membershipから継承しない。作成は認証済みであればよく、作成者を同一transactionでowner Membershipにする。
-  // member管理の入口はまだ公開しない。
+  // Workspaceの作成・参照・更新・archiveと、既存WorkspaceへのProject作成。Workspace Membershipで認可する（未所属・不在は404）。
+  // 作成は認証済みであればよく、作成者を同一transactionでowner Membershipにする。作成したProjectは同じMembershipで利用する。
   app.post("/api/workspaces", async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Workspace");
@@ -104,7 +103,7 @@ export const createApp = (
   app.get("/api/workspaces/:workspaceId", async (c) =>
     c.json(await human.getWorkspace.execute(await actorOf(c), c.req.param("workspaceId"))),
   );
-  // 所属Projectの一覧（purpose・Repository・Resource）。Mission等はWorkspaceの応答を参照する。Project詳細はProject Membershipが必要。
+  // 所属Projectの一覧（purpose・Repository・Resource）。Mission等はWorkspaceの応答を参照する。
   app.get("/api/workspaces/:workspaceId/projects", async (c) => {
     const actor = await actorOf(c);
     const status = parseProjectStatusFilter(c.req.query("status"));
@@ -116,7 +115,7 @@ export const createApp = (
     const input = await readJsonBody(c.req.raw, "Workspace");
     return c.json({ workspace: await human.updateWorkspace.execute(actor, c.req.param("workspaceId"), input) });
   });
-  // 既存WorkspaceへのProject作成（administrator以上）。作成者はProjectのownerになる。Mission等はWorkspaceの正本を使う。
+  // 既存WorkspaceへのProject作成（administrator以上）。WorkspaceのMemberが同じRoleで利用する。Mission等はWorkspaceの正本を使う。
   app.post("/api/workspaces/:workspaceId/projects", async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw);
@@ -343,7 +342,7 @@ export const createApp = (
       ),
     );
   });
-  // Human向けの読取（Project Membership）。還流済みのProjectのExecutionの結果・Evidence参照を返す（還流前は`record: null`）。
+  // Human向けの読取（所属WorkspaceのMembership）。還流済みのProjectのExecutionの結果・Evidence参照を返す（還流前は`record: null`）。
   app.get("/api/projects/:projectId/outcomes/:outcomeId/execution-summary", async (c) =>
     c.json({
       record: await human.getExecutionSummary.execute(
@@ -399,7 +398,7 @@ export const createApp = (
     ...(c.req.query("type") === undefined ? {} : { type: c.req.query("type") }),
   });
   // Workspace Activity閲覧。Workspace Membership（viewer以上）で認可し、Workspace scopeのsummary・refsと1件の本文・訂正を返す。
-  // 所属ProjectのActivityは含めない（Project Membershipで`/api/projects/:projectId/activities`から読む）。Web UIからは記録しない。
+  // 所属ProjectのActivityは含めない（所属WorkspaceのMembershipで`/api/projects/:projectId/activities`から読む）。Web UIからは記録しない。
   app.get("/api/workspaces/:workspaceId/activities", async (c) =>
     c.json(
       await human.listWorkspaceActivities.execute(await actorOf(c), c.req.param("workspaceId"), activityListQuery(c)),
@@ -436,7 +435,7 @@ export const createApp = (
     c.json(await human.getActivity.execute(await actorOf(c), c.req.param("projectId"), c.req.param("activityId"))),
   );
   // 相談（判断待ち）。scopeのMembershipで認可し（参照はviewer、返信はeditor、明示決定・取消はadministrator以上）、MCPと同じuse caseへ委譲する。
-  // ProjectはProject Membership、WorkspaceはWorkspace Membershipで、互いに継承しない。記録主体はSessionのHumanから導出し、本文では受け取らない。
+  // Projectは所属Workspace、WorkspaceはそのWorkspaceのMembershipで認可する。記録主体はSessionのHumanから導出し、本文では受け取らない。
   // 相談の作成・Agentの応答leaseはMCPだけ。
   const consultationRoutes = (
     scopePath: string,
@@ -538,45 +537,12 @@ export const createApp = (
     const input = await readJsonBody(c.req.raw, "Task");
     return c.json({ task: await human.editExecutionTask.execute(actor, c.req.param("projectId"), c.req.param("taskId"), input) });
   });
-  // Human Membershipと招待（docs/step-6-human-auth-design.md）。認可はMembershipのuse caseが権限表で行う。
-  const membersPath = "/api/projects/:projectId/members";
-  app.get(membersPath, async (c) =>
-    c.json({ members: await services.listProjectMembersUseCase.execute(await actorOf(c), c.req.param("projectId")) }),
-  );
-  app.patch(`${membersPath}/:membershipId`, async (c) => {
-    const actor = await actorOf(c);
-    const input = await readJsonBody(c.req.raw, "Membership");
-    const membership = await services.changeProjectMemberRoleUseCase.execute(
-      actor,
-      c.req.param("projectId"),
-      c.req.param("membershipId"),
-      input,
-    );
-    return c.json({ membership });
-  });
-  app.delete(`${membersPath}/:membershipId`, async (c) => {
-    const actor = await actorOf(c);
-    const membership = await services.revokeProjectMemberUseCase.execute(
-      actor,
-      c.req.param("projectId"),
-      c.req.param("membershipId"),
-    );
-    return c.json({ membership });
-  });
-  // Workspace Membership。一覧はviewer以上、追加候補・追加・Role変更・取消はowner（権限表は`humanWorkspacePermissions`）。
-  // 追加できるのは所属ProjectのMemberだけで、Human全体の検索は公開しない。Project Membershipは変えない。
+  // HumanのMembershipはWorkspace単位だけ（ADR 0003）。一覧はviewer以上、Role変更・除外はowner（権限表は`humanWorkspacePermissions`）。
+  // 変更・除外は配下の全Projectへの次の操作から反映する。Project単位のMember APIは持たない。
   const workspaceMembersPath = "/api/workspaces/:workspaceId/members";
   app.get(workspaceMembersPath, async (c) =>
     c.json({ members: await human.listWorkspaceMembers.execute(await actorOf(c), c.req.param("workspaceId")) }),
   );
-  app.get("/api/workspaces/:workspaceId/member-candidates", async (c) =>
-    c.json({ candidates: await human.listWorkspaceMemberCandidates.execute(await actorOf(c), c.req.param("workspaceId")) }),
-  );
-  app.post(workspaceMembersPath, async (c) => {
-    const actor = await actorOf(c);
-    const input = await readJsonBody(c.req.raw, "Membership");
-    return c.json({ membership: await human.addWorkspaceMember.execute(actor, c.req.param("workspaceId"), input) }, 201);
-  });
   app.patch(`${workspaceMembersPath}/:membershipId`, async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Membership");
@@ -588,6 +554,7 @@ export const createApp = (
     const membership = await human.revokeWorkspaceMember.execute(actor, c.req.param("workspaceId"), c.req.param("membershipId"));
     return c.json({ membership });
   });
+  // Projectから発行する招待（所属Workspaceのowner）。受諾すると所属WorkspaceのMembershipになる。
   const invitationsPath = "/api/projects/:projectId/invitations";
   app.get(invitationsPath, async (c) =>
     c.json({
