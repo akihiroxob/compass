@@ -1,0 +1,175 @@
+{
+  "sourceRoot": "/Users/aokayama/git/compass",
+  "baseSha": "8334c58e942251eb0fddaa07a4fcd3fda0b080df",
+  "purpose": "承認済みUI設計のWorker引継ぎ。Task U00が読み取り、各SHA-256を検証してPRで共有する。",
+  "files": [
+    {
+      "path": "compass-codex-architecture-handoff.md",
+      "sha256": "fa851704f619d3f94fe37e052521a8230eef4d8ec927778281eae6370f7df732"
+    },
+    {
+      "path": "docs/README.md",
+      "sha256": "3ce0c380d63b21bb5ee04d0fdc2422bf48b5bd1f872e6aeff50fdfe33c39a47b"
+    },
+    {
+      "path": "docs/adr/0001-workspace-project-boundary.md",
+      "sha256": "c930ebc2f8bf9a7ff640e4addfbab9dfa876eb4b7aea1d6843697e32824f5cb2"
+    },
+    {
+      "path": "docs/adr/0003-workspace-human-membership.md",
+      "sha256": "390bb9bb93b72d1c24d39ef02b3b559036f7e41b6df8dd6a79336cc785b27adc"
+    },
+    {
+      "path": "docs/implementation-status.md",
+      "sha256": "ecffe53b7a0a059e8fbaa2720f0195a61a63b73fbac65419e0757b827bbed746"
+    },
+    {
+      "path": "docs/planning/prototypes/activity-detail-mobile.png",
+      "sha256": "ae3b5adbb360763009548f41f28098e49eccda78d7762acb7d769febda93fe7e"
+    },
+    {
+      "path": "docs/planning/prototypes/activity-detail-pc.png",
+      "sha256": "dbde62857a30226547ef38c162944616654fe6e4162c1027422e7f3992b01286"
+    },
+    {
+      "path": "docs/planning/prototypes/activity-mobile.png",
+      "sha256": "3d57599ef804693f1de4d38a191e12b8d441b97f43d06c9b74f0130e8f55dd79"
+    },
+    {
+      "path": "docs/planning/prototypes/activity-pc.png",
+      "sha256": "e83a0aaa9ec2f47ac58c4bcd5a8db7b76ab35d5852699739f1e162bc6a2ea890"
+    },
+    {
+      "path": "docs/planning/prototypes/agent-detail-mobile.png",
+      "sha256": "c536124580035eaaade0290b6b716b0333724207848650a2283952e8106ca83d"
+    },
+    {
+      "path": "docs/planning/prototypes/agent-detail-pc.png",
+      "sha256": "b9152e34ef24919939787e3173cd90543c69e9da111c1a24a5e7d14ba0f19480"
+    },
+    {
+      "path": "docs/planning/prototypes/agents-mobile.png",
+      "sha256": "7b9faf8cf909de4ce2d2ee22b326ba06680b4f4c2bf0f482e5323ec820d74769"
+    },
+    {
+      "path": "docs/planning/prototypes/agents-pc.png",
+      "sha256": "d153e8cea4900ab6e65411dc28a452f60cca0a60ff9cea8360f0f885de8b6bb6"
+    },
+    {
+      "path": "docs/planning/prototypes/consultation-mobile.png",
+      "sha256": "479eacee456be26d773689a8ef8c4853a8d5f17fcb3892bd5a0fbf9be647ae20"
+    },
+    {
+      "path": "docs/planning/prototypes/consultation-pc.png",
+      "sha256": "d7dc8cb0c48b895c39a95f40d6cc85fb88097cfe10b2505c42ad0ebdffd3cf51"
+    },
+    {
+      "path": "docs/planning/prototypes/development-mobile.png",
+      "sha256": "5ab85ee40534433a73a290b8af42a9fb00098eca7851a41ac5f1f81be2062f6e"
+    },
+    {
+      "path": "docs/planning/prototypes/development-pc.png",
+      "sha256": "dab8982a91587d03e869d9f5db4cf49a6b0ece668afd8ff7433a157eef1a0158"
+    },
+    {
+      "path": "docs/planning/prototypes/development-tasks-mobile.png",
+      "sha256": "f66a9434757eb9217a46e837c236c3ec2de18f93b88362cd503ac665456abded"
+    },
+    {
+      "path": "docs/planning/prototypes/development-tasks-pc.png",
+      "sha256": "ab53d80440c74a61c3604ed4486124b4a45891ba9ef9427c840609c7ce1f2e9d"
+    },
+    {
+      "path": "docs/planning/prototypes/goal-form-mobile.png",
+      "sha256": "83dbd5d61ec039b470cc14e92d29ef60b3d90d21432d0f805730f0ae2689c934"
+    },
+    {
+      "path": "docs/planning/prototypes/goal-form-pc.png",
+      "sha256": "08f32727610fdfb38b02c3582b604adf66b45f6000d83fc79428c7b7c2211746"
+    },
+    {
+      "path": "docs/planning/prototypes/goal-mobile.png",
+      "sha256": "452013c73cc13f8ffffedffaf07142752d71e70ccc1d8b932b4a8d9c59127639"
+    },
+    {
+      "path": "docs/planning/prototypes/goal-pc.png",
+      "sha256": "a99b21ea2a51abf3dbda016d9fb7fa54cd9ea9273186e11deec3fe2811b4935d"
+    },
+    {
+      "path": "docs/planning/prototypes/index.html",
+      "sha256": "6369b48fe8ec109914189ff6322012459fa151defa39da86e2d29e3e2ba73ccd"
+    },
+    {
+      "path": "docs/planning/prototypes/outcome-form-mobile.png",
+      "sha256": "5bd9d18b7bcea72d93fa24df335452c67269f92712ba1c3b1cb27fb15acaee66"
+    },
+    {
+      "path": "docs/planning/prototypes/outcome-form-pc.png",
+      "sha256": "8a1e438fbd3e04a632bc88143c3d00aec2ae3fd00f1f16bd261aa8cd58ce9a8d"
+    },
+    {
+      "path": "docs/planning/prototypes/outcome-mobile.png",
+      "sha256": "f2b031c7aa5791b7ffe7eda883445eda45ff219fe3806b9d92ad3eee5e1f22a7"
+    },
+    {
+      "path": "docs/planning/prototypes/outcome-pc.png",
+      "sha256": "e016dfe05165cea3924e65549d1ef56acd366fd0a32c48d4f83d077ae8d17139"
+    },
+    {
+      "path": "docs/planning/prototypes/release-detail-mobile.png",
+      "sha256": "21e3dbb073beae34a61ffb3413d095af88286e52980667506bb49ec55a0bb44c"
+    },
+    {
+      "path": "docs/planning/prototypes/release-detail-pc.png",
+      "sha256": "01f4831b4730fe57820d58c29d19c6f0bb5f997d151f7506e9999d2b41882024"
+    },
+    {
+      "path": "docs/planning/prototypes/releases-mobile.png",
+      "sha256": "baa011b5cdcb04196b0c3569c45e23fe6698923b7e7c429c87caf7bc335dbb71"
+    },
+    {
+      "path": "docs/planning/prototypes/releases-pc.png",
+      "sha256": "ff4ac8280867115d1a18abef69ab5fac2d0ade99b14a8c3fbef0a2c9d7f8d912"
+    },
+    {
+      "path": "docs/planning/prototypes/select-mobile.png",
+      "sha256": "65dc198cc510497b8f8dd7776f7065454c4038dd17550f670421ab9a5643e985"
+    },
+    {
+      "path": "docs/planning/prototypes/task-mobile.png",
+      "sha256": "a95aef4eb8fb3513b30b396a8ae9448ca750fab3af952735a05ff7e7e8733212"
+    },
+    {
+      "path": "docs/planning/prototypes/task-pc.png",
+      "sha256": "3dd11f284494a6b6ec0ef16c776d8c49e146c70d29ce118af9ea23f3951abbd3"
+    },
+    {
+      "path": "docs/planning/prototypes/waiting-mobile.png",
+      "sha256": "cbea3bbfd7652a9af48fefe6c2854c95a71aa2fe85d48e762e7b88b22572de22"
+    },
+    {
+      "path": "docs/planning/prototypes/waiting-pc.png",
+      "sha256": "fa4b61f84ffc1ee29a4fd9e43c3f4619a32e319a2a06327d5e3e7ee349b7c944"
+    },
+    {
+      "path": "docs/planning/prototypes/workspace-mobile.png",
+      "sha256": "7fe17758ac6fa23078dda549dd650e3c99b2184ed501f08402c304423253a682"
+    },
+    {
+      "path": "docs/planning/prototypes/workspace-pc.png",
+      "sha256": "a8552df2682a5257e00df8754bc39e84edfa655ca0940162a605433af0a5f647"
+    },
+    {
+      "path": "docs/planning/prototypes/workspaces-mobile.png",
+      "sha256": "c21795117d94ad092153271d5aed960fe2985f1b8877a112cab18235d06dfd93"
+    },
+    {
+      "path": "docs/planning/prototypes/workspaces-pc.png",
+      "sha256": "96dcb8979cb77967010fb18c9d379f95c2f057c512fbf4416f352c22fe6f560b"
+    },
+    {
+      "path": "docs/planning/ux-user-scenarios.md",
+      "sha256": "fa288ad72af3e7eb9a287d943a6b6dbf5a6f21f40c782bc43d4fa3f61baa1eb8"
+    }
+  ]
+}

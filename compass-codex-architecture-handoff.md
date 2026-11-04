@@ -773,7 +773,7 @@ scope（workspaceId または projectId）
 activeRole
 ```
 
-について Role Grant を検証する。Role と scope の組合せが §10.3 と異なる場合は拒否する。Workspace の Grant / Membership から Project の権限を継承しない。
+について Role Grant を検証する。Role と scope の組合せが §10.3 と異なる場合は拒否する。Workspace の Agent Grant から Project の Agent Grant を継承しない。Human の権限は §11.4 に従う。
 
 これにより、
 
@@ -803,7 +803,7 @@ packages/access/
 ```text
 Principal
 Role
-WorkspaceMembership / ProjectMembership
+WorkspaceMembership（Human。配下全Projectへ同じRoleを適用）
 WorkspaceRoleGrant / ProjectRoleGrant
 scope 付き Credential（workspace | project）
 Workspace / Project scoped authorization
@@ -841,6 +841,12 @@ Role Policy だけでは表現できないルール、
 相談の状態遷移・版の照合・応答 lease・結論の根拠は `packages/collaboration` で強制する。
 
 Authorization と Domain invariant を混同しない。
+
+## 11.4 Humanの所属・権限
+
+HumanはWorkspace Membershipで参加とRole（owner / administrator / editor / viewer）を管理する。同じRoleをWorkspaceと配下のすべてのProjectへ適用し、Project別のHuman Membership・権限の上書き・個別Owner付与は設けない。招待・権限変更・除外はWorkspaceで行う。ProjectのHuman向け操作ではServerがProjectの所属Workspaceを解決し、そのMembershipと操作別Role水準を検証する。Workspaceからの除外・Role変更は配下全Projectへの次の操作にも反映する。
+
+Work・Activity・相談等の所有scopeと、AgentのRole Grant / Credentialのscopeは区別して維持する。AgentのWorkspace GrantからProject Grantは継承しない。判断の背景と実装・検証の境界は[ADR 0003](docs/adr/0003-workspace-human-membership.md)に定める。
 
 ---
 
@@ -1119,7 +1125,7 @@ Claim
 Review / Acceptance state
 
 Principal
-Membership / RoleGrant（Workspace / Project）
+WorkspaceMembership（Human） / RoleGrant（Agent。Workspace / Project）
 
 Change Log
 Activity
@@ -1244,7 +1250,7 @@ ConsultationResolution（結論。判断の由来 human_decision / agent_summary
 ```
 
 - 会話と結論を分け、Human の発言と Agent の発言・要約を記録主体で区別する。判断の由来は入口（Human は Web API、Agent は MCP）で決め、Agent が Human の明示決定を記録する入口は作らない。
-- 状態遷移・版・応答 lease・根拠の規則は Collaboration が強制し、認可（scope の Membership / Role Grant。Project と Workspace の間で継承しない）は Access が持つ。scope は決定対象の所有で決め、横断一覧は認可済みの相談だけを絞り込み・ページングする。
+- 状態遷移・版・応答 lease・根拠の規則は Collaboration が強制し、認可は Access が持つ。HumanはWorkspace Membershipを配下Projectにも適用し、Agentは対象scopeのRole Grantを検証する。scope は決定対象の所有で決め、横断一覧は認可済みの相談だけを絞り込み・ページングする。
 - Work は Task の相談待ち・元段階・要件/成果版・再開を所有し、相談の会話・結論を複製しない。準備状態は同一transactionのapplication portから読む。OrchestratorはProject / Workspace Runtime Credentialで未処理の相談ID/入力版を読み、Project相談はManager、Workspace相談はStrategistが自身のAgent Credential・応答leaseで再判断する。Runtimeはworktree/Contextを保持し、全相談・現在要件・PR/SHAと元段階のClaimを照合して再開する。Direction Decision は Intent の戦略判断のまま維持する。
 - 相談の結論を仕様・Policy・ADRへ反映する場合、反映担当 Project（Workspace相談は Strategist が引継ぎ先に明示した所属 Project）の Manager が文書反映を依頼し、Work の通常の Task として起票・Review・受入する。受入時に Manager が受入成果物（Repository / commit SHA / path / PR URL）を残し、それと一致する参照だけを相談へ登録する。反映状況は相談の resolved と別に Task の状態と参照から求める。元 Task は明示した依存がある場合だけ反映を待つ。相談詳細の文書反映は、閲覧主体が参照できる Project の分だけを展開する。
 

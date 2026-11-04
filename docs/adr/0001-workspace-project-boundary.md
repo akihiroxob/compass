@@ -2,6 +2,7 @@
 
 - 状態: 承認
 - 対象: Direction / Work / Access / Activity / Orchestrator / Ralph / Server
+- Human Membershipの決定: [ADR 0003](0003-workspace-human-membership.md)により更新。以下のHuman Membership分離に関する記述は当時の決定として保持する。
 
 ## 背景
 
