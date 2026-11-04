@@ -1,6 +1,8 @@
-# Managerのブラウザ検証データ
+# Roleのブラウザ検証データ
 
-Managerの専用プレビューは、`.ralph/config.json`の`verification.browser.setupCommands`で、`npm ci --ignore-scripts`・`npm rebuild better-sqlite3`・`scripts/prepare-browser-verification.mjs`の順に実行してから起動する。準備コマンドはホスト側で、検証対象Worktreeをcwdとして動く。依存関係もそのWorktree内へインストールし、親Repositoryのworkspace参照を使わない。
+Worker・Reviewer・Managerの専用プレビューは、`.ralph/config.json`の`verification.browser.setupCommands`で、`npm ci --ignore-scripts`・`npm rebuild better-sqlite3`・`scripts/prepare-browser-verification.mjs`の順に実行してから起動する。準備コマンドはホスト側で、検証対象Worktreeをcwdとして動く。依存関係もそのWorktree内へインストールし、親Repositoryのworkspace参照を使わない。
+
+ReviewerはPR head、Managerは統合SHAを照合する。Workerは検証時HEADと未コミット差分を区別する。画像・操作記録・配信assetと対象SHAの対応を、返された`artifactDirectory`（`.ralph/verification/<claimId>/browser/`）内の絶対pathに保存して報告する。Worktree内の相対pathだけを引き継がない。Reviewerは証跡が不足する場合も専用プレビューで再確認する。`prototype` profileは`docs/planning/prototypes/`の採用試作を提供する。
 
 ## 準備する状態
 

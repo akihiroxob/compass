@@ -28,7 +28,7 @@
   "roles": {
     "worker": {
       "agentName": "worker",
-      "agentProvider": "claude",
+      "agentProvider": "codex",
       "model": ""
     },
     "reviewer": {
@@ -72,7 +72,10 @@
       ]
     ],
     "browser": {
-      "command": ["npm", "start"],
+      "command": [
+        "npm",
+        "start"
+      ],
       "env": {
         "PORT": "{port}",
         "COMPASS_DB_PATH": "{dataDir}/preview.db",
@@ -84,8 +87,16 @@
       },
       "readyPath": "/",
       "setupCommands": [
-        ["npm", "ci", "--ignore-scripts"],
-        ["npm", "rebuild", "better-sqlite3"],
+        [
+          "npm",
+          "ci",
+          "--ignore-scripts"
+        ],
+        [
+          "npm",
+          "rebuild",
+          "better-sqlite3"
+        ],
         [
           "node",
           "--import",
@@ -98,17 +109,14 @@
       "profiles": {
         "prototype": {
           "command": [
-            "npm",
-            "--prefix",
-            "/Users/aokayama/git/compass-prototype",
-            "run",
-            "dev",
-            "--",
-            "--host",
-            "127.0.0.1",
-            "--port",
+            "/Library/Developer/CommandLineTools/usr/bin/python3",
+            "-m",
+            "http.server",
             "{port}",
-            "--strictPort"
+            "--bind",
+            "127.0.0.1",
+            "--directory",
+            "docs/planning/prototypes"
           ],
           "readyPath": "/",
           "setupCommands": []
@@ -131,9 +139,21 @@
           ],
           "readyPath": "/index.json",
           "setupCommands": [
-            ["npm", "ci", "--ignore-scripts"],
-            ["npm", "rebuild", "better-sqlite3"],
-            ["npm", "run", "build"]
+            [
+              "npm",
+              "ci",
+              "--ignore-scripts"
+            ],
+            [
+              "npm",
+              "rebuild",
+              "better-sqlite3"
+            ],
+            [
+              "npm",
+              "run",
+              "build"
+            ]
           ]
         },
         "catalog-static": {
@@ -149,13 +169,138 @@
           ],
           "readyPath": "/index.json",
           "setupCommands": [
-            ["npm", "ci", "--ignore-scripts"],
-            ["npm", "rebuild", "better-sqlite3"],
-            ["npm", "run", "build"],
-            ["npm", "run", "catalog:build"]
+            [
+              "npm",
+              "ci",
+              "--ignore-scripts"
+            ],
+            [
+              "npm",
+              "rebuild",
+              "better-sqlite3"
+            ],
+            [
+              "npm",
+              "run",
+              "build"
+            ],
+            [
+              "npm",
+              "run",
+              "catalog:build"
+            ]
           ]
         }
       }
     }
+  },
+  "taskDependencies": {
+    "f6981424-b8d9-4d5c-af52-1699fa900695": [],
+    "77553441-526c-46bb-a046-af2ccc6f3046": [
+      "f6981424-b8d9-4d5c-af52-1699fa900695"
+    ],
+    "750acffc-4827-486e-81cb-13c3935674c4": [
+      "77553441-526c-46bb-a046-af2ccc6f3046",
+      "ccd79187-860e-4d8d-bad7-85d16ad4cec1"
+    ],
+    "ccd79187-860e-4d8d-bad7-85d16ad4cec1": [
+      "f6981424-b8d9-4d5c-af52-1699fa900695"
+    ],
+    "62ab3cf8-ef00-45b8-a646-65c31c3b9fd9": [
+      "ccd79187-860e-4d8d-bad7-85d16ad4cec1",
+      "77553441-526c-46bb-a046-af2ccc6f3046"
+    ],
+    "d0dca73f-38ed-4822-927f-d266505b37a8": [
+      "62ab3cf8-ef00-45b8-a646-65c31c3b9fd9"
+    ],
+    "21272178-1813-45ab-8ef9-b50f949118b4": [
+      "f6981424-b8d9-4d5c-af52-1699fa900695",
+      "ccd79187-860e-4d8d-bad7-85d16ad4cec1"
+    ],
+    "991fb519-bded-470e-bf84-f426f028bd84": [
+      "21272178-1813-45ab-8ef9-b50f949118b4"
+    ],
+    "b8f5022d-6602-4a60-9a40-4be0ccf30aed": [
+      "991fb519-bded-470e-bf84-f426f028bd84"
+    ],
+    "c7926b19-72d3-415f-8ab0-b0b88e7ee7e1": [
+      "991fb519-bded-470e-bf84-f426f028bd84",
+      "ccd79187-860e-4d8d-bad7-85d16ad4cec1"
+    ],
+    "2494dd06-74a8-4da2-8762-45cf79e1fb47": [
+      "c7926b19-72d3-415f-8ab0-b0b88e7ee7e1",
+      "b8f5022d-6602-4a60-9a40-4be0ccf30aed"
+    ],
+    "c711cae6-72b2-4cb6-904b-ae1caa7c78c6": [
+      "2494dd06-74a8-4da2-8762-45cf79e1fb47",
+      "62ab3cf8-ef00-45b8-a646-65c31c3b9fd9"
+    ],
+    "a736b825-8124-4edf-ab0a-b6da6120f050": [
+      "991fb519-bded-470e-bf84-f426f028bd84"
+    ],
+    "4a63fba0-158d-4c69-abd7-35bb8ae5978c": [
+      "a736b825-8124-4edf-ab0a-b6da6120f050",
+      "2494dd06-74a8-4da2-8762-45cf79e1fb47"
+    ],
+    "fd75f15b-814d-4d1a-9cc6-4210392a0c24": [
+      "4a63fba0-158d-4c69-abd7-35bb8ae5978c",
+      "c711cae6-72b2-4cb6-904b-ae1caa7c78c6",
+      "62ab3cf8-ef00-45b8-a646-65c31c3b9fd9"
+    ],
+    "36746ab0-73f1-4526-831f-0ae966f57464": [
+      "62ab3cf8-ef00-45b8-a646-65c31c3b9fd9",
+      "c711cae6-72b2-4cb6-904b-ae1caa7c78c6"
+    ],
+    "2ea66107-dd09-4de2-ae4f-1b9cd3ea1df9": [
+      "36746ab0-73f1-4526-831f-0ae966f57464"
+    ],
+    "113ef76c-f187-449a-ace6-d9bc4daf76dd": [
+      "2ea66107-dd09-4de2-ae4f-1b9cd3ea1df9",
+      "c5c4ca3f-4b93-49ff-9a25-7715fa14ab5f",
+      "ded25ca7-af29-4189-aaa1-533ae98a91bc"
+    ],
+    "c5c4ca3f-4b93-49ff-9a25-7715fa14ab5f": [
+      "f6981424-b8d9-4d5c-af52-1699fa900695"
+    ],
+    "ded25ca7-af29-4189-aaa1-533ae98a91bc": [
+      "c5c4ca3f-4b93-49ff-9a25-7715fa14ab5f"
+    ],
+    "298c6ec1-a5cb-4e03-8fbe-0d945ffc36ef": [
+      "77553441-526c-46bb-a046-af2ccc6f3046",
+      "ccd79187-860e-4d8d-bad7-85d16ad4cec1"
+    ],
+    "74f816e7-44c9-45de-b9eb-cf0882ce0c8a": [
+      "f6981424-b8d9-4d5c-af52-1699fa900695",
+      "991fb519-bded-470e-bf84-f426f028bd84"
+    ],
+    "891379d0-ddf7-465e-b887-2a3e09c262f6": [
+      "74f816e7-44c9-45de-b9eb-cf0882ce0c8a",
+      "ccd79187-860e-4d8d-bad7-85d16ad4cec1"
+    ],
+    "baee1d25-197c-4b57-acb7-b7467cd9aac4": [
+      "f6981424-b8d9-4d5c-af52-1699fa900695",
+      "ccd79187-860e-4d8d-bad7-85d16ad4cec1"
+    ],
+    "016e84c9-55ad-4b64-bb27-d967a3143533": [
+      "baee1d25-197c-4b57-acb7-b7467cd9aac4"
+    ],
+    "49333237-a6fa-4a2b-9e33-570b5d837d89": [
+      "ded25ca7-af29-4189-aaa1-533ae98a91bc"
+    ],
+    "a92eb97d-fdd6-4f55-96be-ad61a64a4439": [
+      "49333237-a6fa-4a2b-9e33-570b5d837d89",
+      "ccd79187-860e-4d8d-bad7-85d16ad4cec1"
+    ],
+    "69133039-0f94-46c1-aff8-51f02da668f1": [
+      "750acffc-4827-486e-81cb-13c3935674c4",
+      "d0dca73f-38ed-4822-927f-d266505b37a8",
+      "fd75f15b-814d-4d1a-9cc6-4210392a0c24",
+      "113ef76c-f187-449a-ace6-d9bc4daf76dd",
+      "ded25ca7-af29-4189-aaa1-533ae98a91bc",
+      "298c6ec1-a5cb-4e03-8fbe-0d945ffc36ef",
+      "891379d0-ddf7-465e-b887-2a3e09c262f6",
+      "016e84c9-55ad-4b64-bb27-d967a3143533",
+      "a92eb97d-fdd6-4f55-96be-ad61a64a4439"
+    ]
   }
 }

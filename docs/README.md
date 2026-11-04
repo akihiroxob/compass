@@ -29,6 +29,9 @@
 
 ## Wachaへの引き継ぎ
 
+- [合意UIの情報設計・画面](planning/ux-user-scenarios.md): 現時点で採用した主要ページ・導線・UI方針と、実装上の未確定事項。静的試作を本体の実装完了として扱わない。
+- [合意UIの実装計画・登録台帳](planning/ui-redesign-implementation-plan.md): Wachaへ登録した12 Story・28 Task、依存関係、実ID、準備と受入の境界。登録は実装・受入の完了ではない。
+
 - [移行計画](architecture-migration-plan.md): 現行のWorkspace移行と、Workspace導入前の構造移行でWachaへ登録したStory・Taskと受入条件。所有・scopeはADR 0001に従う。実装完了の記録ではない。
 - [Workspace移行 影響マップ](workspace-migration-impact-map.md): Workspace移行での現行コード・DB・API・MCP・UI・Orchestratorの変更先、互換期間、既存ID保全、データ変換・rollbackの確認点。変更先の定義で、実装完了の記録ではない。
 - [構造移行マッピング](architecture-migration-mapping.md): Workspace導入前の構造移行での全ファイルの配置・依存違反・互換性契約・移行単位。Workspace移行の変更先は含まない。
