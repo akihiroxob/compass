@@ -59,7 +59,8 @@ export const useWorkspaceNavigation = () => useContext(WorkspaceNavigationContex
  * ホームで開く先とWorkspaceを持たない画面の表示にだけ使う（localStorage）。表示の判定であり、拒否は常にserverが行う。
  */
 export const WorkspaceNavigationProvider = ({ children }: { children: ReactNode }) => {
-  const location = parseShellLocation(useLocation().pathname);
+  const { pathname, search } = useLocation();
+  const location = parseShellLocation(pathname, search);
   const [workspaces, setWorkspaces] = useState<Workspace[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   // 一覧の再取得要求。`workspaceId`を指定すると、そのWorkspaceの個別の状態も同じ時点で取り直す。

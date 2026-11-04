@@ -197,7 +197,7 @@ const WorkProgress = ({ projectId, execution, now }: { projectId: string; execut
         </>
       )}
       {settled > 0 && <p className="section-note">完了・取消のStoryが{settled}件あります。</p>}
-      <Link to={projectViewPath(projectId, "work")} className="text-link">実行を開く →</Link>
+      <Link to={projectViewPath(projectId, "work")} className="text-link">開発詳細を開く →</Link>
     </>
   );
 };

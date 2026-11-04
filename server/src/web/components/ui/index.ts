@@ -1,6 +1,8 @@
 // 機能に依存しない基本部品。Featureはここから使い、部品の内部ファイルを直接参照しない。
 export { Button, type ButtonProps } from "./Button";
+export { Dialog, type DialogProps } from "./Dialog";
 export { Field, Fieldset, type FieldProps, type FieldsetProps } from "./Field";
 export { Checkbox, Select, TextArea, TextInput, type CheckboxProps, type SelectProps, type TextAreaProps, type TextInputProps } from "./FormControls";
+export { IconButton, type IconButtonProps } from "./IconButton";
 export { LinkButton, type ControlSize, type LinkButtonProps } from "./LinkButton";
 export { ViewSwitch, type ViewSwitchItem } from "./ViewSwitch";

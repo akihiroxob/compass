@@ -1,0 +1,20 @@
+// アイコンだけのボタン（IconButton。閉じる×・メニュー）。枠を持たず、操作領域は`--control-icon-size`（44px）の正方形。
+@use "../../styles/mixins" as *;
+
+.icon-button {
+  display: inline-flex;
+  flex: 0 0 var(--control-icon-size);
+  justify-content: center;
+  align-items: center;
+  width: var(--control-icon-size);
+  height: var(--control-icon-size);
+  padding: 0;
+  border: 0;
+  border-radius: var(--control-radius);
+  color: var(--color-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: color var(--motion-fast), background-color var(--motion-fast);
+  &:hover { color: var(--color-text); background: var(--color-brand-soft); }
+  &[aria-expanded="true"] { color: var(--color-brand); }
+}

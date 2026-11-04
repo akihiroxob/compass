@@ -17,16 +17,10 @@ export type UiSource = { path: string; text: string };
 /** `<button>`を基本部品の外で使う個別の例外。対象のfileに指定したclassの`<button>`が無ければ失敗する（無効な除外を残さない）。 */
 export type UiButtonException = { path: string; className: string; reason: string };
 
-export const uiButtonExceptions: UiButtonException[] = [
-  {
-    path: "features/workspace/WorkspaceSwitcher.tsx",
-    className: "workspace-switch",
-    reason: "現在のWorkspaceの名前を示すカード型のdialogの開閉。操作ボタンのsize契約を持たず、Workspace固有の表示を含む",
-  },
-];
+export const uiButtonExceptions: UiButtonException[] = [];
 
 const primitiveRoot = "components/ui/";
-const primitiveComponents = new Set(["Button", "LinkButton", "ViewSwitch", "Field", "Fieldset", "TextInput", "TextArea", "Select", "Checkbox"]);
+const primitiveComponents = new Set(["Button", "IconButton", "Dialog", "LinkButton", "ViewSwitch", "Field", "Fieldset", "TextInput", "TextArea", "Select", "Checkbox"]);
 /** 入力の基本部品だけが描画するnative要素。`components/ui`の外では使わない。 */
 const nativeInputTags = new Set(["input", "textarea", "select"]);
 const toolbarClass = "list-toolbar";
