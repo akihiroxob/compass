@@ -2,19 +2,67 @@ import { Link, useParams } from "react-router-dom";
 import { jsonInit, jsonPost, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { WorkspaceDirectionGate } from "../access";
-import { emptyIntentFormValues, formValuesFromIntent, intentStatusLabels, type Intent } from "./intent";
-import { intentPath, workspaceApiPath } from "../../paths";
+import { emptyIntentFormValues, formValuesFromIntent, intentStatusLabels, type Intent, type IntentFormValues } from "./intent";
+import { intentPath, workspaceApiPath, workspacePath } from "../../paths";
 import { IntentForm } from "./IntentForm";
 import { useIntentPage } from "./useIntentPage";
 
-export const IntentCreatePage = () => { const { projectId = "" } = useParams(); return <WorkspaceDirectionGate projectId={projectId} back={{ to: `/projects/${projectId}`, label: "← Project詳細" }}>{(workspaceId) => <IntentForm projectId={projectId} initial={emptyIntentFormValues} heading={{ eyebrow: "New intent", title: "Intentを登録", lede: "必須なのはタイトルと実現したい状態です。Intentは所属Workspaceのもので、Activeなintentは1つのWorkspaceにつき1件までです。" }} submitLabel="Intentを登録" pendingLabel="登録中..." cancelTo={`/projects/${projectId}`} save={async (values) => (await request<{ intent: Intent }>(workspaceApiPath(workspaceId, "/intents"), jsonPost(values))).intent} />}</WorkspaceDirectionGate>; };
+const createLede = "必須なのは目標名と実現したい状態です。目標は所属Workspaceのもので、Activeな目標は1つのWorkspaceにつき1件までです。保存してもAgentは起動しません。";
+const editLede = "変更した内容は保存するまで反映されません。キャンセルすると保存済みの内容のままです。";
 
-export const IntentEditPage = () => { const { projectId = "", intentId = "" } = useParams(); return <WorkspaceDirectionGate projectId={projectId} back={{ to: intentPath(projectId, intentId), label: "← Intent詳細" }}>{(workspaceId) => <IntentEditForm projectId={projectId} workspaceId={workspaceId} intentId={intentId} />}</WorkspaceDirectionGate>; };
+const createIntent = (workspaceId: string) => async (values: IntentFormValues) =>
+  (await request<{ intent: Intent }>(workspaceApiPath(workspaceId, "/intents"), jsonPost(values))).intent;
+const updateIntent = (workspaceId: string, intentId: string) => async (values: IntentFormValues) =>
+  (await request<{ intent: Intent }>(workspaceApiPath(workspaceId, `/intents/${intentId}`), jsonInit("PATCH", values))).intent;
 
-const IntentEditForm = ({ projectId, workspaceId, intentId }: { projectId: string; workspaceId: string; intentId: string }) => {
-  const { intent, error } = useIntentPage(workspaceId, intentId); const back = intentPath(projectId, intentId);
-  if (error) return <main className="narrow"><Link to={`/projects/${projectId}`} className="back-link">← Project詳細</Link><ErrorState message={error} /></main>;
+/** 画面の配置ごとの戻り先・保存後の行き先。Project配下はIntent詳細、Workspace配下は方向（Outcome）の画面。 */
+type Placement = { back: { to: string; label: string }; savedTo: (intent: Intent) => string; activeIntentTo: (intentId: string) => string; detailTo: string };
+
+const projectPlacement = (projectId: string, intentId?: string): Placement => ({
+  back: intentId ? { to: intentPath(projectId, intentId), label: "← Intent詳細" } : { to: `/projects/${projectId}`, label: "← Project詳細" },
+  savedTo: (intent) => intentPath(projectId, intent.id),
+  activeIntentTo: (id) => intentPath(projectId, id),
+  detailTo: `/projects/${projectId}`,
+});
+
+const workspacePlacement = (workspaceId: string): Placement => {
+  const direction = workspacePath(workspaceId, "direction");
+  return { back: { to: direction, label: "← Outcome" }, savedTo: () => direction, activeIntentTo: () => direction, detailTo: direction };
+};
+
+const CreateForm = ({ workspaceId, placement }: { workspaceId: string; placement: Placement }) => (
+  <IntentForm initial={emptyIntentFormValues} heading={{ eyebrow: "New goal", title: "目標を作成", lede: createLede }} submitLabel="作成" pendingLabel="作成中..." cancelTo={placement.back.to} save={createIntent(workspaceId)} savedTo={placement.savedTo} activeIntentTo={placement.activeIntentTo} detailTo={placement.detailTo} />
+);
+
+const EditForm = ({ workspaceId, intentId, placement }: { workspaceId: string; intentId: string; placement: Placement }) => {
+  const { intent, error } = useIntentPage(workspaceId, intentId);
+  if (error) return <main className="narrow"><Link to={placement.back.to} className="back-link">{placement.back.label}</Link><ErrorState message={error} /></main>;
   if (!intent) return <main className="narrow"><Loading /></main>;
-  if (intent.status !== "active") return <main className="narrow"><Link to={back} className="back-link">← Intent詳細</Link><ErrorState message={`${intentStatusLabels[intent.status]}のIntentは編集できません。`} /></main>;
-  return <IntentForm projectId={projectId} initial={formValuesFromIntent(intent)} heading={{ eyebrow: "Edit intent", title: "Intentを編集", lede: "変更した内容は保存するまで反映されません。キャンセルすると保存済みの内容のままです。" }} submitLabel="変更を保存" pendingLabel="保存中..." cancelTo={back} save={async (values) => (await request<{ intent: Intent }>(workspaceApiPath(workspaceId, `/intents/${intentId}`), jsonInit("PATCH", values))).intent} />;
+  if (intent.status !== "active") return <main className="narrow"><Link to={placement.back.to} className="back-link">{placement.back.label}</Link><ErrorState message={`${intentStatusLabels[intent.status]}の目標は編集できません。`} /></main>;
+  return <IntentForm initial={formValuesFromIntent(intent)} heading={{ eyebrow: "Edit goal", title: "目標を編集", lede: editLede }} submitLabel="変更を保存" pendingLabel="保存中..." cancelTo={placement.back.to} save={updateIntent(workspaceId, intentId)} savedTo={placement.savedTo} activeIntentTo={placement.activeIntentTo} detailTo={placement.detailTo} />;
+};
+
+export const IntentCreatePage = () => {
+  const { projectId = "" } = useParams();
+  const placement = projectPlacement(projectId);
+  return <WorkspaceDirectionGate scope={{ projectId }} back={placement.back}>{(workspaceId) => <CreateForm workspaceId={workspaceId} placement={placement} />}</WorkspaceDirectionGate>;
+};
+
+export const IntentEditPage = () => {
+  const { projectId = "", intentId = "" } = useParams();
+  const placement = projectPlacement(projectId, intentId);
+  return <WorkspaceDirectionGate scope={{ projectId }} back={placement.back}>{(workspaceId) => <EditForm workspaceId={workspaceId} intentId={intentId} placement={placement} />}</WorkspaceDirectionGate>;
+};
+
+/** Workspaceの方向から開く目標の作成。URLを直接開いた場合もWorkspace Membershipで変更できるときだけフォームを出す。 */
+export const WorkspaceIntentCreatePage = () => {
+  const { workspaceId = "" } = useParams();
+  const placement = workspacePlacement(workspaceId);
+  return <WorkspaceDirectionGate scope={{ workspaceId }} back={placement.back}>{(id) => <CreateForm workspaceId={id} placement={placement} />}</WorkspaceDirectionGate>;
+};
+
+export const WorkspaceIntentEditPage = () => {
+  const { workspaceId = "", intentId = "" } = useParams();
+  const placement = workspacePlacement(workspaceId);
+  return <WorkspaceDirectionGate scope={{ workspaceId }} back={placement.back}>{(id) => <EditForm workspaceId={id} intentId={intentId} placement={placement} />}</WorkspaceDirectionGate>;
 };

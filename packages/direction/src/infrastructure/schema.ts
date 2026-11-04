@@ -5,7 +5,12 @@ export type IntentTable = {
   workspace_id: string;
   title: string;
   desired_state: string;
+  background: string | null;
+  audience: string | null;
+  constraints: string | null;
   completion_definition: string | null;
+  /** `YYYY-MM-DD`の暦日。 */
+  target_date: string | null;
   status: "active" | "achieved" | "abandoned";
   abandoned_reason: string | null;
   created_at: number;

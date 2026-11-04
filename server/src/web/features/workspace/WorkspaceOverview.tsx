@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { request, settle, type Part } from "../../api";
 import { PageColumns } from "../../components/PageColumns";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { intentPath, outcomePath, projectViewPath, researchRequestPath, workspaceOutcomePath, workspacePath, workspaceProjectsPath } from "../../paths";
+import { intentPath, outcomePath, projectViewPath, researchRequestPath, workspaceIntentCreatePath, workspaceOutcomePath, workspacePath, workspaceProjectsPath } from "../../paths";
 import { statusBadgeClass, type StatusTone } from "../../statusTone";
 import { canOperateWorkspace } from "../access";
 import { activitiesPath, RecentActivityList, type ActivityPage, type ActivitySummary } from "../activity";
@@ -149,12 +149,15 @@ const AttentionRefItem = ({ workspaceId, refItem, kind, projects, openProject }:
 const refKey = (refItem: AttentionRef) =>
   refItem.on === "outcome" ? `${refItem.outcome.id}-${refItem.projectId ?? ""}` : refItem.on === "intent" ? `intent-${refItem.intent.id}` : `research-${refItem.request.id}`;
 
-/** Humanの登録（Intent・Outcome）の導線。作成画面はProject配下のため、開けるProjectが無ければ理由を出す。 */
-const HumanAction = ({ item, intentId, projectId, canWrite }: { item: AttentionItem; intentId: string | null; projectId: string | null; canWrite: boolean }) => {
+/**
+ * Humanの登録（Intent・Outcome）の導線。目標（Intent）はWorkspaceの方向から作成する。
+ * Outcomeの作成画面はProject配下のため、開けるProjectが無ければ理由を出す。
+ */
+const HumanAction = ({ workspaceId, item, intentId, projectId, canWrite }: { workspaceId: string; item: AttentionItem; intentId: string | null; projectId: string | null; canWrite: boolean }) => {
   if (!canWrite) return <small>Workspace Editor以上へ依頼</small>;
+  if (item.kind === "intent") return <LinkButton size="sm" to={workspaceIntentCreatePath(workspaceId)}>目標を作成</LinkButton>;
   if (!projectId) return <small>登録画面を開けるactiveなProjectがありません</small>;
-  const to = item.kind === "intent" ? intentPath(projectId, "new") : intentId ? outcomePath(projectId, intentId, "new") : null;
-  return to ? <LinkButton size="sm" to={to}>{item.kind === "intent" ? "Intentを登録" : "Outcomeを登録"}</LinkButton> : null;
+  return intentId ? <LinkButton size="sm" to={outcomePath(projectId, intentId, "new")}>Outcomeを登録</LinkButton> : null;
 };
 
 const Attention = ({ workspace, myRole, direction, research, projects }: { workspace: Workspace; myRole: HumanRole; direction: DirectionData; research: Part<OverviewResearch[]>; projects: Part<OverviewProject[]> }) => {
@@ -178,7 +181,7 @@ const Attention = ({ workspace, myRole, direction, research, projects }: { works
             return (
               <li key={item.kind}>
                 <span><span className={statusBadgeClass(attentionLabels[item.kind].tone)}>{attentionLabels[item.kind].label}</span>{item.refs.length > 0 && <> {total}件</>} — {item.note}</span>
-                {item.actor === "human" && <HumanAction item={item} intentId={direction.activeIntent?.id ?? null} projectId={project} canWrite={canWrite} />}
+                {item.actor === "human" && <HumanAction workspaceId={workspace.id} item={item} intentId={direction.activeIntent?.id ?? null} projectId={project} canWrite={canWrite} />}
                 {item.refs.length > 0 && <small className="attention-refs">{item.refs.map((refItem, index) => <span key={refKey(refItem)}>{index > 0 && "、"}<AttentionRefItem workspaceId={workspace.id} refItem={refItem} kind={item.kind} projects={projects} openProject={project} /></span>)}</small>}
               </li>
             );

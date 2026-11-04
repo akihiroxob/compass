@@ -36,12 +36,20 @@ const projectUpdateSchema = {
     .optional(),
 };
 
-// Intentの入力規則はshared/intentSchemaが持つ。ここでは型だけを宣言し、上限などはuse caseで検証する。
+// Intentの入力規則はdirectionのintentSchemaが持つ（Web UIと共通）。ここでは型だけを宣言し、必須・上限・日付形式はuse caseで検証する。
+const intentOptionalFields = {
+  background: z.string().nullable().optional(),
+  audience: z.string().nullable().optional(),
+  constraints: z.string().nullable().optional(),
+  completionDefinition: z.string().nullable().optional(),
+  targetDate: z.string().nullable().optional(),
+};
+
 const intentCreateSchema = {
   workspaceId: z.string().min(1),
   title: z.string(),
   desiredState: z.string(),
-  completionDefinition: z.string().nullable().optional(),
+  ...intentOptionalFields,
 };
 
 const intentUpdateSchema = {
@@ -49,8 +57,13 @@ const intentUpdateSchema = {
   intentId: z.string().min(1),
   title: z.string().optional(),
   desiredState: z.string().optional(),
-  completionDefinition: z.string().nullable().optional(),
+  ...intentOptionalFields,
 };
+
+const intentFieldsDescription =
+  "Required: title (up to 100 characters) and desiredState (up to 2,000). Optional: background, audience (target / scope), " +
+  "constraints and completionDefinition (each up to 2,000) and targetDate (a calendar date in YYYY-MM-DD). " +
+  "The same validation as the Web UI applies (VALIDATION_ERROR otherwise).";
 
 // Outcomeの入力規則もshared/outcomeSchemaが持つ。成功条件は作成時に固定され、更新用のschemaには含めない。
 const outcomeCreateSchema = {
@@ -263,11 +276,15 @@ export const createMcpServer = (
       ),
     );
   };
-  // Workspace DirectionのHuman管理・入力操作（Intent）。WorkspaceのDirection Role Grantを持つPrincipalとactiveRole指定を拒否する。
+  // Workspace DirectionのHuman管理操作（Intentの放棄）。WorkspaceのDirection Role Grantを持つPrincipalとactiveRole指定を拒否する。
   const asWorkspaceOperator = async <T>(workspaceId: string, operation: () => Promise<T>) => {
     await roleScope.requireNoWorkspaceRole(principal, workspaceId);
     return principal === null ? operation() : withActivityActor({ principalId: principal, role: "operator" }, operation);
   };
+  // Intentの登録・更新。Agentは対象WorkspaceのStrategist Grantで認可し、操作者をそのStrategist（Agent）として記録する。
+  // trusted-localのPrincipalなし・activeRoleなしの保守呼出しだけはGrantを問わず、操作者は`system`になる。
+  const asIntentAuthor = async <T>(workspaceId: string, operation: () => Promise<T>) =>
+    !remote && principal === null && roleScope.activeRole === null ? operation() : asStrategist(workspaceId, operation);
 
   const server = new McpServer(
     { name: "compass", version: "0.1.0" },
@@ -293,7 +310,7 @@ export const createMcpServer = (
     return server;
   }
 
-  // Project作成・構想更新・Intent操作はHumanの管理・入力操作で、Web UIが正規入口。remote modeではMCPへ登録しない。
+  // Project作成・構想更新・Intentの放棄はHumanの管理操作で、Web UIが正規入口。remote modeではMCPへ登録しない。
   if (!remote) server.registerTool(
     "create_project",
     { title: "Create Project", description: "Create a Compass Project.", inputSchema: projectInputSchema },
@@ -341,18 +358,21 @@ export const createMcpServer = (
     ({ projectId }) => execute(() => asGrantedReader(projectId, () => services.getProjectUseCase.execute(projectId))),
   );
 
-  if (!remote) server.registerTool(
+  // Intentの登録・更新は、外部MCPクライアントでHumanと整理した目標をStrategistが登録する正規の入口。Web UIと同じuse caseへ委譲する。
+  server.registerTool(
     "create_intent",
     {
       title: "Create Intent",
       description:
-        "Create an active Intent in a Workspace. A Workspace has at most one active Intent; " +
-        "creating another while one is active fails with CONFLICT. Creating an Intent does not start Strategist or Research. " +
-        "An archived Workspace fails with CONFLICT (workspaceStatus archived).",
+        "Create an active Intent (business goal) in a Workspace. " + intentFieldsDescription + " " +
+        "A Workspace has at most one active Intent; creating another while one is active fails with CONFLICT. " +
+        "Creating an Intent does not start Strategist or Research. An archived Workspace fails with CONFLICT (workspaceStatus archived). " +
+        "Requires Authorization: Bearer <AgentName> with a Strategist Grant of the Workspace (with X-Compass-Active-Role it must be " +
+        "strategist; Project Grants do not count); UNAUTHENTICATED / FORBIDDEN otherwise. The Activity records the Strategist as the actor.",
       inputSchema: intentCreateSchema,
     },
     ({ workspaceId, ...input }) =>
-      execute(() => asWorkspaceOperator(workspaceId, () => services.createIntentUseCase.execute(workspaceId, input))),
+      execute(() => asIntentAuthor(workspaceId, () => services.createIntentUseCase.execute(workspaceId, input))),
   );
   server.registerTool(
     "list_intents",
@@ -374,18 +394,20 @@ export const createMcpServer = (
     ({ workspaceId, intentId }) =>
       execute(() => asWorkspaceReader(workspaceId, () => services.getIntentUseCase.execute(workspaceId, intentId))),
   );
-  if (!remote) server.registerTool(
+  server.registerTool(
     "update_intent",
     {
       title: "Update Intent",
       description:
-        "Update title, desiredState or completionDefinition of an active Intent. Omitted fields are unchanged; " +
-        "null or an empty string clears completionDefinition. Abandoned or achieved Intents cannot be edited (CONFLICT).",
+        "Update fields of an active Intent. " + intentFieldsDescription + " Omitted fields are unchanged; " +
+        "null or an empty string clears an optional field. Abandoned or achieved Intents cannot be edited (CONFLICT). " +
+        "Once the Intent has Outcomes, desiredState and completionDefinition can no longer be changed (CONFLICT). " +
+        "Requires a Strategist Grant of the Workspace, the same as create_intent.",
       inputSchema: intentUpdateSchema,
     },
     ({ workspaceId, intentId, ...input }) =>
       execute(() =>
-        asWorkspaceOperator(workspaceId, () => services.updateIntentUseCase.execute(workspaceId, intentId, input)),
+        asIntentAuthor(workspaceId, () => services.updateIntentUseCase.execute(workspaceId, intentId, input)),
       ),
   );
   if (!remote) server.registerTool(

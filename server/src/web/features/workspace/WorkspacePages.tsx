@@ -153,7 +153,7 @@ const OverviewContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
  * 方向。Mission・Vision、Intent（Active・過去）→ Outcome → Target Project別のWork、Principles・Constraints。いずれもWorkspaceが正本で、
  * Target別のStory・Taskは件数だけを出し、本文は各OutcomeのWorkspace詳細で各ProjectのExecution閲覧から読む。
  */
-const DirectionContent = ({ workspace }: { workspace: Workspace }) => {
+const DirectionContent = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
   const { value, error } = useLoad(workspace.id, () => Promise.all([loadDirection(workspace.id), settle(loadProjects(workspace.id), workspaceNotFound)]), workspaceNotFound);
   return (
     <>
@@ -161,7 +161,7 @@ const DirectionContent = ({ workspace }: { workspace: Workspace }) => {
       <section className="detail-section intent-section" aria-labelledby="workspace-direction-intent-heading">
         <h2 id="workspace-direction-intent-heading">Intent・Outcome</h2>
         <p className="section-note">IntentはHumanが今実現したい状態、OutcomeはIntentへ近づくために達成すべき観測可能な状態です。OutcomeはWorkspaceに属し、Target ProjectのStoryが貢献します。</p>
-        {error ? <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${error}`} /> : !value ? <Loading /> : <DirectionIntents workspaceId={workspace.id} direction={value[0]} projects={value[1]} />}
+        {error ? <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${error}`} /> : !value ? <Loading /> : <DirectionIntents workspaceId={workspace.id} direction={value[0]} projects={value[1]} canEdit={workspaceDirectionAccess(workspace, myRole) === "allowed"} />}
       </section>
       <TextList title="Principles" values={workspace.principles} />
       <TextList title="Constraints" values={workspace.constraints} />
@@ -307,7 +307,7 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
 };
 
 export const WorkspaceOverviewPage = () => <WorkspaceFrame section="overview">{(workspace, myRole, reload) => <OverviewContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
-export const WorkspaceDirectionPage = () => <WorkspaceFrame section="direction">{(workspace) => <DirectionContent workspace={workspace} />}</WorkspaceFrame>;
+export const WorkspaceDirectionPage = () => <WorkspaceFrame section="direction">{(workspace, myRole) => <DirectionContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceOutcomePage = () => <WorkspaceFrame section="direction">{(workspace, myRole) => <OutcomeContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceConsultationsPage = () => <WorkspaceFrame section="consultations">{(workspace) => <ConsultationSection scope={{ kind: "workspace", workspaceId: workspace.id }} />}</WorkspaceFrame>;
 export const WorkspaceProjectsPage = () => <WorkspaceFrame section="projects">{(workspace, myRole) => <ProjectsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;

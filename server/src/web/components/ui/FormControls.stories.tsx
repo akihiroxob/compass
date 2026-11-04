@@ -19,6 +19,7 @@ export const Fields: Story = {
       <Field label={`表示 ${size}`}><Select size={size} defaultValue="open"><option value="open">未完了</option><option value="all">すべて</option></Select></Field>
     </div>)}
     <Field label="説明"><TextArea rows={3} defaultValue="検証用の説明" /></Field>
+    <Field label="日付"><TextInput type="date" defaultValue="2027-03-31" /></Field>
     <Fieldset legend="通知" required="1つ以上必須"><Checkbox defaultChecked>更新通知</Checkbox><Checkbox>完了通知</Checkbox><Checkbox disabled>選択できない通知</Checkbox></Fieldset>
     <Field label="行内の絞り込み" layout="inline"><TextInput size="sm" /></Field>
   </div>,

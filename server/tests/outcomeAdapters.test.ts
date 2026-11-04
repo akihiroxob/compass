@@ -81,7 +81,8 @@ test("Web APIでOutcomeを作成・一覧・詳細・更新・取消でき、Int
 
   const intent = ((await (await app.request(`/api/workspaces/${workspaceId}/intents/${intentId}`)).json()) as { intent: object }).intent;
   assert.deepEqual(Object.keys(intent).sort(), [
-    "abandonedReason", "completionDefinition", "createdAt", "desiredState", "id", "status", "title", "updatedAt", "workspaceId",
+    "abandonedReason", "audience", "background", "completionDefinition", "constraints", "createdAt", "desiredState", "id", "status",
+    "targetDate", "title", "updatedAt", "workspaceId",
   ]);
   await database.destroy();
 });

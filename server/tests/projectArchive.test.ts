@@ -329,7 +329,7 @@ test("AC-11 Repositoryを直接呼んでも、archivedのProjectには何も書�
   const grants = new SQLiteProjectGrantRepository(asAccessDatabase(database), accessProjectReaders);
   const archived = { kind: "project_archived" };
   assert.deepEqual(await projects.update(project.id, { name: "Changed" }), archived);
-  assert.deepEqual(await intents.create(project.workspaceId, { title: "T", desiredState: "S", completionDefinition: null }), { kind: "workspace_archived" });
+  assert.deepEqual(await intents.create(project.workspaceId, { title: "T", desiredState: "S", background: null, audience: null, constraints: null, completionDefinition: null, targetDate: null }), { kind: "workspace_archived" });
   assert.deepEqual(await intents.update(project.workspaceId, intent.id, { title: "Changed" }), { kind: "workspace_archived" });
   assert.deepEqual(await intents.abandon(project.workspaceId, intent.id, "x"), { kind: "workspace_archived" });
   assert.deepEqual(await outcomes.create(project.workspaceId, intent.id, { ...outcomeInput, hypothesis: null, successCriteria: [{ description: "d", measurement: "m", target: null }] }), { kind: "workspace_archived" });

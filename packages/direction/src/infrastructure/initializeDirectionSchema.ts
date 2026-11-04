@@ -619,7 +619,11 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     .addUniqueConstraint("intent_id_workspace_unique", ["id", "workspace_id"])
     .addColumn("title", "text", (column) => column.notNull())
     .addColumn("desired_state", "text", (column) => column.notNull())
+    .addColumn("background", "text")
+    .addColumn("audience", "text")
+    .addColumn("constraints", "text")
     .addColumn("completion_definition", "text")
+    .addColumn("target_date", "text")
     .addColumn("status", "text", (column) =>
       column.notNull().check(sql`status in ('active', 'achieved', 'abandoned')`),
     )
