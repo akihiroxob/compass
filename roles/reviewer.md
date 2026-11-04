@@ -31,6 +31,7 @@ skills:
 - `list_stories`
 - `list_tasks`
 - `list_task_comments`
+- `list_task_pull_requests`
 - `list_changes`
 - `claim_review`
 - `renew_claim`

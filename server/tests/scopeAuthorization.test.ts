@@ -80,6 +80,7 @@ test("MCPはactiveRoleとscopeが一致する入口だけを認可し、全Role�
       ["list_stories", { projectId: project.id }],
       ["list_changes", { projectId: project.id }],
       ["list_task_comments", { taskId: task.id }],
+      ["list_task_pull_requests", { taskId: task.id }],
       ["list_activities", { projectId: project.id }],
       ["get_role_context", { projectId: project.id, role }],
     ];
@@ -184,6 +185,7 @@ test("Project GrantはWorkspace Roleを新規発行せず、残ったDirection R
         ["list_stories", { projectId: project.id }],
         ["list_changes", { projectId: project.id }],
         ["list_task_comments", { taskId: task.id }],
+        ["list_task_pull_requests", { taskId: task.id }],
         ["claim_task", { taskId: task.id, requestId: `legacy-claim-${role}` }],
         ["list_intents", { workspaceId: workspace.id }],
         ["get_strategist_context", { workspaceId: workspace.id }],

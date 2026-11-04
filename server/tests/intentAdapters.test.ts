@@ -183,7 +183,7 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
       "get_evaluator_context", "record_outcome_evaluation",
       // Execution（旧Wachaから移植）。同じendpointから列挙される。
       "wait_for_consultation", "list_consultation_resumptions", "resume_consultation_task", "confirm_consultation_continuation",
-      "list_stories", "get_outcome_handoff_context", "list_tasks", "list_task_comments", "list_changes",
+      "list_stories", "get_outcome_handoff_context", "list_tasks", "list_task_comments", "list_task_pull_requests", "register_task_pull_request", "list_changes",
       "issue_story", "edit_story", "complete_story", "cancel_story", "issue_task", "edit_task", "cancel_task",
       "claim_task", "claim_review", "claim_acceptance", "renew_claim", "release_claim",
       "add_task_comment", "complete_task", "reviewed_task", "accept_task", "reject_task",

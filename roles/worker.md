@@ -38,6 +38,7 @@ skills:
 - `renew_claim`
 - `release_claim`
 - `add_task_comment`
+- `register_task_pull_request` / `list_task_pull_requests`（PR を作る Task。現在の Work Claim で、Project の GitHub Repository の open PR を登録する）
 - `complete_task`
 - `issue_task`
 - Project 相談（`projectId` を指定）: `create_consultation` / `list_consultations` / `get_consultation`、現在 Claim の Task の待機 `wait_for_consultation`、再開 Context で渡された保存済み実行の照合 `list_consultation_resumptions` / `resume_consultation_task`（製品 Ralph が呼ぶ。Agent は Claim を取り直さない）

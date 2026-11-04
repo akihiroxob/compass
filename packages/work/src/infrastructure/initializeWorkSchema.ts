@@ -126,6 +126,32 @@ export const initializeWorkSchema = async (database: Kysely<WorkDatabase>): Prom
     database,
   );
 
+  // GitHubで確認したPR。同じGitHub PRは1つのTaskにだけ登録できる（Projectを跨いでも一意）。
+  await database.schema.createTable("task_pull_request").ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("task_id", "text", (column) => column.notNull().references("task.id").onDelete("cascade"))
+    .addColumn("project_id", "text", projectId)
+    .addColumn("repository_id", "text", (column) => column.notNull())
+    .addColumn("repository", "text", (column) => column.notNull())
+    .addColumn("number", "integer", (column) => column.notNull())
+    .addColumn("sequence", "integer", (column) => column.notNull())
+    .addColumn("url", "text", (column) => column.notNull())
+    .addColumn("state", "text", (column) => column.notNull().check(sql`state in ('open','closed','merged')`))
+    .addColumn("draft", "integer", (column) => column.notNull())
+    .addColumn("head_branch", "text", (column) => column.notNull())
+    .addColumn("head_sha", "text", (column) => column.notNull())
+    .addColumn("base_branch", "text", (column) => column.notNull())
+    .addColumn("merge_sha", "text")
+    .addColumn("author", "text", (column) => column.notNull())
+    .addColumn("work_claim_id", "text", (column) => column.notNull())
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("verified_at", "integer", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addColumn("updated_at", "integer", (column) => column.notNull())
+    .addUniqueConstraint("task_pull_request_repository_number_unique", ["repository", "number"])
+    .addUniqueConstraint("task_pull_request_task_sequence_unique", ["task_id", "sequence"])
+    .execute();
+
   await database.schema
     .createTable("change_log")
     .ifNotExists()

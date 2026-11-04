@@ -38,6 +38,7 @@ Outcome・Success Criteria・Direction Decision を作る・変えることは m
 - `list_stories`
 - `list_tasks`
 - `list_task_comments`
+- `list_task_pull_requests`
 - `list_changes`
 - `issue_story`
 - `edit_story`

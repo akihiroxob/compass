@@ -464,7 +464,7 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       // Execution（Story / Task / Claim）。archive・delete・restoreに当たるtoolは無い（cancelは取消であり削除ではない）。
       "accept_task", "add_task_comment", "cancel_story", "cancel_task", "claim_acceptance", "claim_review", "claim_task",
       "complete_story", "complete_task", "edit_story", "edit_task", "get_outcome_handoff_context", "issue_story", "issue_task", "list_changes",
-      "list_stories", "list_task_comments", "list_tasks", "reject_task", "release_claim", "renew_claim", "reviewed_task",
+      "list_stories", "list_task_comments", "list_task_pull_requests", "list_tasks", "register_task_pull_request", "reject_task", "release_claim", "renew_claim", "reviewed_task",
       // Activityは追記だけで、削除・書換のtoolは無い（訂正は追記）。
       "get_activity", "list_activities", "record_activity",
       "get_workspace_activity", "list_workspace_activities", "record_workspace_activity",

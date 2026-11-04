@@ -12,7 +12,9 @@ import type {
   OutcomeReferenceSnapshot,
   RepositoryReference,
 } from "./port/DirectionReferenceLookupPort.ts";
-import type { AcceptedDeliverable, ChangeRecord, StoryRecord, TaskClaimRecord, TaskRecord, WorkStore } from "./port/WorkStore.ts";
+import type { AcceptedDeliverable, ChangeRecord, StoryRecord, TaskClaimRecord, TaskPullRequestRecord, TaskRecord, WorkStore } from "./port/WorkStore.ts";
+import type { PullRequestGateway } from "./port/PullRequestGateway.ts";
+import { parseGitHubRepositoryUrl, repositoryFullName, type GitHubRepositoryName, type PullRequestSnapshot } from "../domain/PullRequest.ts";
 
 export type TaskAvailability = "work" | "review" | "acceptance";
 
@@ -79,6 +81,49 @@ const storyDto = (row: StoryRecord) => ({
   correlationId: row.correlation_id,
 });
 
+/** 登録済みPR。`current`はTaskに最後に登録したPR（後続の完了・レビュー・受入の照合対象）。 */
+const pullRequestDto = (row: TaskPullRequestRecord, current: boolean) => ({
+  id: row.id,
+  taskId: row.task_id,
+  projectId: row.project_id,
+  repositoryId: row.repository_id,
+  repository: row.repository,
+  number: row.number,
+  sequence: row.sequence,
+  url: row.url,
+  state: row.state,
+  draft: row.draft === 1,
+  headBranch: row.head_branch,
+  headSha: row.head_sha,
+  baseBranch: row.base_branch,
+  mergeSha: row.merge_sha,
+  author: row.author,
+  workClaimId: row.work_claim_id,
+  principalId: row.principal_id,
+  verifiedAt: row.verified_at,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  current,
+});
+
+const pullRequestFacts = (snapshot: PullRequestSnapshot) => ({
+  url: snapshot.url,
+  state: snapshot.state,
+  draft: snapshot.draft ? 1 : 0,
+  head_branch: snapshot.headBranch,
+  head_sha: snapshot.headSha,
+  base_branch: snapshot.baseBranch,
+  merge_sha: snapshot.mergeSha,
+  author: snapshot.author,
+});
+
+export type RegisterTaskPullRequestInput = { taskId: string; claimId: string; repositoryId: string; number: number };
+
+const parseOwnerName = (fullName: string): GitHubRepositoryName | null => {
+  const [owner, name, ...rest] = fullName.split("/");
+  return owner && name && rest.length === 0 ? { owner, name } : null;
+};
+
 const optionalId = (value: string | undefined, field: string): string | null => {
   if (value === undefined) return null;
   const trimmed = value.trim();
@@ -135,6 +180,8 @@ export class TaskCoordinationService {
     private readonly directionReferences: DirectionReferenceLookupPort,
     private readonly clock: Clock = () => Date.now(),
     claimTtlMs = Number(process.env.COMPASS_CLAIM_TTL_MS ?? 30 * 60 * 1000),
+    /** GitHubのPR読取。無ければPR登録はGITHUB_UNAVAILABLEで拒否する（一覧は保存済みの記録だけを返す）。 */
+    private readonly pullRequests: PullRequestGateway | null = null,
     /**
      * 操作Contextに固定したRole（`X-Compass-Active-Role`）。nullは互換の「操作ごとに必要Roleを検査」。
      * 指定時はそのRoleのGrantだけで認可し、同じPrincipalの他Grantを合算しない。
@@ -149,7 +196,7 @@ export class TaskCoordinationService {
 
   /** 同じstore・時刻源で、認可をactiveRoleのGrantだけに固定したserviceを返す。 */
   forActiveRole(activeRole: string): TaskCoordinationService {
-    return new TaskCoordinationService(this.store, this.directionReferences, this.clock, this.claimTtlMs, activeRole);
+    return new TaskCoordinationService(this.store, this.directionReferences, this.clock, this.claimTtlMs, this.pullRequests, activeRole);
   }
 
   /** 認可に使うRole。activeRoleがあれば、それを持つ場合だけそのRoleに絞る。 */
@@ -1091,6 +1138,129 @@ export class TaskCoordinationService {
         return { taskId, claimId, status: TaskStatus.IN_REVIEW };
       }),
     );
+  }
+
+  /**
+   * Taskに登録し、GitHubで確認したPRの履歴（登録順。最後が現在のPR）。ProjectのいずれかのRole Grantで読める。
+   * 受入成果物の`pullRequestUrl`やCommentに書いたURLは、GitHubで確認していないため含めない。
+   */
+  async listTaskPullRequests(principalId: string, taskId: string) {
+    const task = await this.getTask(this.store, taskId);
+    await this.requireAnyRole(this.store, task.project_id, principalId);
+    const rows = await this.store.listTaskPullRequests(taskId);
+    return { taskId, pullRequests: rows.map((row, index) => pullRequestDto(row, index === rows.length - 1)) };
+  }
+
+  /** 現在のWork Claim・worker Grant・`doing`・Projectに登録したGitHub Repositoryを検査し、対象RepositoryのGitHub名を返す。 */
+  private async assertPullRequestRegistrable(store: WorkStore, principalId: string, input: RegisterTaskPullRequestInput) {
+    await this.assertCurrentClaim(store, principalId, input.taskId, input.claimId);
+    const task = await this.getTask(store, input.taskId);
+    await this.requireRole(store, task.project_id, principalId, WorkRole.WORKER);
+    await this.assertProjectActive(store, task.project_id);
+    if (task.status !== TaskStatus.DOING) {
+      throw new CoordinationError("INVALID_TASK_STATUS", `Task ${input.taskId} is not doing`);
+    }
+    const repository = await store.projects.findRepository(task.project_id, input.repositoryId);
+    if (!repository) {
+      throw new CoordinationError("INVALID_INPUT", `Repository ${input.repositoryId} is not registered in the Task's Project`);
+    }
+    const story = task.story_id ? await store.findStory(task.story_id) : null;
+    const storyRepository = parseSnapshot<RepositoryReference>(story?.repository_snapshot ?? null);
+    if (storyRepository && storyRepository.id !== input.repositoryId) {
+      throw new CoordinationError("INVALID_INPUT", `Repository ${input.repositoryId} is not the target Repository of the Task's Story`);
+    }
+    const github = parseGitHubRepositoryUrl(repository.url);
+    if (!github) {
+      throw new CoordinationError("INVALID_INPUT", `Repository ${input.repositoryId} is not a GitHub repository (https://github.com/{owner}/{name})`);
+    }
+    return { task, github };
+  }
+
+  /**
+   * Work ClaimのもとでGitHubのopen PRをTaskへ登録する。ServerがGitHubからPRを読み、番号・URL・head / base / mergeの事実と確認時刻を保存する。
+   * GitHubの読取はSQLiteのtransactionの外で行い、Claim・状態・登録済みPRは保存時に再検査する。
+   * 同じ`requestId`の再送はGitHubを読み直さず保存済みの結果を返す（通信断後の照合）。GitHubを読めなかった場合は何も保存しない。
+   */
+  async registerTaskPullRequest(principalId: string, input: RegisterTaskPullRequestInput, requestId: string) {
+    const parsed: RegisterTaskPullRequestInput = {
+      taskId: this.requiredText(input.taskId, "taskId"),
+      claimId: this.requiredText(input.claimId, "claimId"),
+      repositoryId: this.requiredText(input.repositoryId, "repositoryId"),
+      number: input.number,
+    };
+    if (!Number.isSafeInteger(parsed.number) || parsed.number < 1) {
+      throw new CoordinationError("INVALID_INPUT", "number must be a positive integer");
+    }
+    const replay = await this.store.findReceipt(principalId, "register_task_pull_request", requestId);
+    const fetched = replay ? null : await this.fetchPullRequestsForRegistration(principalId, parsed);
+    return this.store.transaction(async (store) =>
+      this.withReceipt(store, principalId, "register_task_pull_request", requestId, parsed, async () => {
+        if (!fetched) throw new CoordinationError("IDEMPOTENCY_CONFLICT", `requestId ${requestId} changed during registration; retry`);
+        const { task, github } = await this.assertPullRequestRegistrable(store, principalId, parsed);
+        const repository = repositoryFullName(github);
+        const pr = fetched.current;
+        if (pr.repository !== repository || pr.number !== parsed.number) {
+          throw new CoordinationError("PULL_REQUEST_NOT_READY", `Pull request #${parsed.number} does not belong to ${repository}`);
+        }
+        if (pr.state !== "open" || pr.draft) {
+          throw new CoordinationError("PULL_REQUEST_NOT_READY", `Pull request #${parsed.number} is ${pr.draft ? "a draft" : pr.state}; register an open, ready pull request`);
+        }
+        const existing = await store.findPullRequestByNumber(repository, parsed.number);
+        if (existing && existing.task_id !== parsed.taskId) {
+          throw new CoordinationError("PULL_REQUEST_NOT_READY", `Pull request ${repository}#${parsed.number} is registered to another Task`);
+        }
+        const history = await store.listTaskPullRequests(parsed.taskId);
+        const latest = history.at(-1);
+        if (existing && latest && latest.id !== existing.id) {
+          throw new CoordinationError("PULL_REQUEST_NOT_READY", `Pull request ${repository}#${parsed.number} was superseded by a later pull request`);
+        }
+        const now = this.clock();
+        if (latest && latest.id !== existing?.id && latest.state === "open") {
+          const previous = fetched.previous;
+          if (!previous || previous.repository !== latest.repository || previous.number !== latest.number) {
+            throw new CoordinationError("PULL_REQUEST_NOT_READY", "Task pull request history changed during registration; retry");
+          }
+          if (previous.state === "open") {
+            throw new CoordinationError("PULL_REQUEST_NOT_READY",
+              `Pull request ${latest.repository}#${latest.number} is still open; reuse it or close it before registering another`);
+          }
+          await store.updateTaskPullRequest(latest.id, { ...pullRequestFacts(previous), repository_id: latest.repository_id,
+            work_claim_id: latest.work_claim_id, principal_id: latest.principal_id, verified_at: now, updated_at: now });
+        }
+        const facts = { ...pullRequestFacts(pr), repository_id: parsed.repositoryId, work_claim_id: parsed.claimId,
+          principal_id: principalId, verified_at: now, updated_at: now };
+        const id = existing?.id ?? crypto.randomUUID();
+        if (existing) await store.updateTaskPullRequest(id, facts);
+        else await store.insertTaskPullRequest({ id, task_id: parsed.taskId, project_id: task.project_id, repository, number: parsed.number,
+          sequence: (latest?.sequence ?? 0) + 1, created_at: now, ...facts });
+        await this.appendChange(store, {
+          projectId: task.project_id,
+          type: "TASK_PULL_REQUEST_REGISTERED",
+          entityId: parsed.taskId,
+          principalId,
+          claimId: parsed.claimId,
+          payload: { actorRole: "worker", repositoryId: parsed.repositoryId, pullRequest: pr, verifiedAt: now },
+          occurredAt: now,
+        });
+        const rows = await store.listTaskPullRequests(parsed.taskId);
+        const saved = rows.find((row) => row.id === id)!;
+        return { pullRequest: pullRequestDto(saved, rows.at(-1)?.id === id) };
+      }),
+    );
+  }
+
+  /** 登録前の検査とGitHubの読取（transactionの外）。現在の別のopen PRがあれば、その最新状態も読む。 */
+  private async fetchPullRequestsForRegistration(principalId: string, input: RegisterTaskPullRequestInput) {
+    const { github } = await this.assertPullRequestRegistrable(this.store, principalId, input);
+    if (!this.pullRequests) throw new CoordinationError("GITHUB_UNAVAILABLE", "GitHub integration is not configured on this server");
+    const current = await this.pullRequests.getPullRequest(github, input.number);
+    const latest = (await this.store.listTaskPullRequests(input.taskId)).at(-1);
+    const previousRepository: GitHubRepositoryName | null = latest ? parseOwnerName(latest.repository) : null;
+    const previous = latest && previousRepository && latest.state === "open" &&
+      (latest.repository !== repositoryFullName(github) || latest.number !== input.number)
+      ? await this.pullRequests.getPullRequest(previousRepository, latest.number)
+      : null;
+    return { current, previous };
   }
 
   async reviewedTask(principalId: string, taskId: string, claimId: string, requestId: string) {

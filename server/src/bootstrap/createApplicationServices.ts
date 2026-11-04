@@ -88,6 +88,7 @@ import {
   ListRecentExecutionChangesUseCase,
   RejectExecutionTaskUseCase,
   TaskCoordinationService,
+  type PullRequestGateway,
 } from "@compass/work";
 import {
   AuthenticateAccessCredentialUseCase,
@@ -222,6 +223,8 @@ export const createApplicationServices = (
   humanAuth: { initialOwnerEmail: string | null; identityProvider?: HumanIdentityProvider | null } = {
     initialOwnerEmail: null,
   },
+  /** 外部連携のadapter。`pullRequests`はGitHubのPR読取で、無ければPR登録をGITHUB_UNAVAILABLEで拒否する。 */
+  integrations: { pullRequests?: PullRequestGateway | null } = {},
 ) => {
   // Project（Workspaceを含む）はOrganizationが所有する。Projectのarchiveも同じtransactionでcanonical Activityへ投影する。
   const projectRepository = new SQLiteProjectRepository(
@@ -342,6 +345,8 @@ export const createApplicationServices = (
     workStore,
     directionReferenceLookup,
     clock,
+    undefined,
+    integrations.pullRequests ?? null,
   );
   // Direction → Executionは読取専用ポート（Execution自身のtableだけを読む）を通す。Direction側の還流先は自身のRepository。
   const executionSummaryService = new ExecutionSummaryService(workStore);

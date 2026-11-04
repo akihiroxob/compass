@@ -5,6 +5,7 @@ import { createApp } from "./bootstrap/app.ts";
 import { createApplicationServices } from "./bootstrap/createApplicationServices.ts";
 import { createDatabase } from "./bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "./bootstrap/database/initializeSchema.ts";
+import { GitHubPullRequestGateway } from "@compass/work";
 import { GoogleOidcIdentityProvider } from "./auth/GoogleOidcIdentityProvider.ts";
 import {
   assertBootstrapConfigured,
@@ -25,6 +26,12 @@ const start = async () => {
     identityProvider: authConfig.google
       ? new GoogleOidcIdentityProvider(authConfig.google)
       : null,
+  }, {
+    // GitHubのPR読取（読取専用）。tokenは任意で、値をログへ出さない。API URLは検証用のGitHub互換adapterへ向けるときだけ指定する。
+    pullRequests: new GitHubPullRequestGateway({
+      apiBaseUrl: process.env.COMPASS_GITHUB_API_URL || undefined,
+      token: process.env.COMPASS_GITHUB_TOKEN || null,
+    }),
   });
   assertBootstrapConfigured(
     authConfig,

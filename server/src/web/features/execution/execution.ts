@@ -116,6 +116,7 @@ export const changeTypeLabels: Record<string, string> = {
   TASK_REJECTED: "差戻し",
   TASK_CANCELED: "Task取消",
   TASK_EDITED: "Task編集",
+  TASK_PULL_REQUEST_REGISTERED: "PR登録",
   CLAIM_RELEASED: "Claim解放",
   CLAIM_EXPIRED: "Claim期限切れ",
 };
