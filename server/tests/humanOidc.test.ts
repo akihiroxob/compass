@@ -101,16 +101,16 @@ const getSession = (ctx: Setup, token: string | undefined) =>
   ctx.app.request("/api/auth/session", { headers: token ? { Cookie: `${sessionCookie(ctx.mode)}=${token}` } : {} });
 
 const countRows = async (database: Kysely<Database>) => {
-  const count = async (table: "human_user" | "human_identity" | "web_session" | "project_membership") =>
+  const count = async (table: "human_user" | "human_identity" | "web_session" | "workspace_membership") =>
     Number((await database.selectFrom(table).select((eb) => eb.fn.countAll<number>().as("n")).executeTakeFirstOrThrow()).n);
   return {
     human_user: await count("human_user"),
     human_identity: await count("human_identity"),
     web_session: await count("web_session"),
-    project_membership: await count("project_membership"),
+    workspace_membership: await count("workspace_membership"),
   };
 };
-const noRows = { human_user: 0, human_identity: 0, web_session: 0, project_membership: 0 };
+const noRows = { human_user: 0, human_identity: 0, web_session: 0, workspace_membership: 0 };
 
 test("初期ownerの初回ログインでOIDC応答をserverで検証し、Human・Identityを一度だけ作ってSecure Sessionを発行する", async () => {
   const ctx = await setup();
@@ -149,7 +149,7 @@ test("初期ownerの初回ログインでOIDC応答をserverで検証し、Human
   assert.equal(body.human.email, ownerEmail);
   assert.equal(body.human.displayName, "Test User");
   assert.equal(typeof body.csrfToken, "string");
-  assert.deepEqual(await countRows(ctx.database), { human_user: 1, human_identity: 1, web_session: 1, project_membership: 0 });
+  assert.deepEqual(await countRows(ctx.database), { human_user: 1, human_identity: 1, web_session: 1, workspace_membership: 0 });
   const identity = await ctx.database.selectFrom("human_identity").selectAll().executeTakeFirstOrThrow();
   assert.deepEqual([identity.provider, identity.issuer, identity.subject], ["google", "https://accounts.google.com", "owner-sub"]);
   await ctx.database.destroy();
@@ -168,7 +168,7 @@ test("2回目以降はissuer + subで同じHumanへ解決し、email変更で別
   assert.equal((await getSession(ctx, first.session)).status, 401);
   const restored = (await (await getSession(ctx, second.session)).json()) as { human: { id: string; email: string } };
   assert.equal(restored.human.email, "renamed@example.com");
-  assert.deepEqual(await countRows(ctx.database), { human_user: 1, human_identity: 1, web_session: 2, project_membership: 0 });
+  assert.deepEqual(await countRows(ctx.database), { human_user: 1, human_identity: 1, web_session: 2, workspace_membership: 0 });
 
   // 別subjectで元のemailを名乗っても、platform owner作成後は初期owner emailを読まない。
   const impostor = await loginFlow(ctx, { subject: "other-sub", email: ownerEmail });

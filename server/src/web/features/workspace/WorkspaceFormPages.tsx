@@ -93,7 +93,7 @@ type WorkspaceGateState = { key: string; state: { access: "allowed"; workspace: 
 
 /**
  * Workspaceの編集・Project追加の画面をURLで直接開いた場合も、Workspaceのstatusと`myRole`（Workspace Membership）で`operation`を
- * 行えるときだけ`children`を描画する。Project Membershipからは継承しない。行えないときは理由と戻り先だけを出す（拒否は常にserverが行う）。
+ * 行えるときだけ`children`を描画する。行えないときは理由と戻り先だけを出す（拒否は常にserverが行う）。
  */
 const WorkspaceOperationGate = ({ operation, children }: { operation: HumanWorkspaceOperation; children: (workspace: Workspace) => ReactNode }) => {
   const { workspaceId = "" } = useParams();
@@ -131,7 +131,7 @@ export const WorkspaceEditPage = () => (
   </WorkspaceOperationGate>
 );
 
-/** 既存WorkspaceへのProject追加（Workspace Membershipのadministrator以上）。作成者はProjectのownerになる。 */
+/** 既存WorkspaceへのProject追加（Workspace Membershipのadministrator以上）。WorkspaceのMemberが同じRoleで利用する。 */
 export const WorkspaceProjectCreatePage = () => {
   const navigation = useWorkspaceNavigation();
   return (
@@ -139,7 +139,7 @@ export const WorkspaceProjectCreatePage = () => {
       {(workspace) => (
         <ProjectForm
           initial={emptyFormValues}
-          heading={{ eyebrow: `Workspace · ${workspace.name}`, title: "Projectを追加", lede: "ProjectはWorkspaceのMissionを実現する実行の単位です。Mission等はWorkspaceの値を共有するため、ここでは名前・説明・Repository・Resourceを登録します。あなたがこのProjectのownerになります。" }}
+          heading={{ eyebrow: `Workspace · ${workspace.name}`, title: "Projectを追加", lede: "ProjectはWorkspaceのMissionを実現する実行の単位です。Mission等はWorkspaceの値を共有するため、ここでは名前・説明・Repository・Resourceを登録します。WorkspaceのMemberは、それぞれのWorkspaceのRoleでこのProjectを利用できます。" }}
           submitLabel="Projectを追加"
           pendingLabel="追加中..."
           back={{ to: workspaceProjectsPath(workspace.id), label: "WorkspaceのProject" }}

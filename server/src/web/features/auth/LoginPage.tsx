@@ -81,7 +81,7 @@ export const LoginPage = () => {
       <div className="detail-hero">
         <p className="eyebrow">Sign in</p>
         <h1>Compassにログイン</h1>
-        <p className="lede">利用できるのは、許可されたアカウントと、Projectに招待されたアカウントだけです。</p>
+        <p className="lede">利用できるのは、許可されたアカウントと、招待されたアカウントだけです。</p>
       </div>
       <LoginError code={params.get("error")} />
       <LoginForms returnTo={normalizeReturnTo(params.get("returnTo"))} />

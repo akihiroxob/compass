@@ -42,8 +42,8 @@ const newSecret = (kind: CredentialKind, createdByHumanUserId: string, now: numb
 export type IssuedCredential = { credential: AccessCredential; token: string };
 
 /**
- * Credential管理のHuman認可。scopeのMembership（Workspace / Project）のAdministrator以上だけで、
- * Workspace MembershipからProject Credentialの管理権限を継承しない（逆も同じ）。
+ * Credential管理のHuman認可。scope（Workspace / Project）のWorkspace MembershipのAdministrator以上だけ。ProjectのscopeはServerが
+ * 所属Workspaceを解決して検査する。Human Membershipは管理権限だけで、Agent Credentialのscope間で権限を継承しない。
  */
 export class CredentialScopeAuthorization {
   constructor(

@@ -32,8 +32,6 @@ export type RegisterOrLoginResult =
       bootstrapped: boolean;
       /** 招待の扱い。新規登録で受諾した場合は`accept`。 */
       invitation: ExistingHumanInvitationOutcome;
-      /** このログインでowner Membershipを補完したorphan ProjectのID。 */
-      adoptedProjectIds: string[];
       /** このログインでowner Membershipを補完したowner不在のWorkspaceのID。 */
       adoptedWorkspaceIds: string[];
     };

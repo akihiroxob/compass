@@ -102,10 +102,3 @@ export const filterWorkspaces = (workspaces: readonly Workspace[], query: string
   if (needle === "") return [...workspaces];
   return workspaces.filter(({ name, mission }) => `${name}\n${mission}`.toLocaleLowerCase().includes(needle));
 };
-
-/**
- * WorkspaceのProjectに、開けるかを付ける。Project詳細はProject Membershipで認可され、Workspace Membershipから継承しない。
- * `memberProjectIds`はHumanがMembershipを持つProject（`GET /api/projects`）。
- */
-export const withProjectAccess = (projects: readonly WorkspaceProject[], memberProjectIds: ReadonlySet<string>) =>
-  projects.map((project) => ({ project, canOpen: memberProjectIds.has(project.id) }));

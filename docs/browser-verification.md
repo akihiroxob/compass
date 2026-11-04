@@ -11,7 +11,7 @@ ReviewerはPR head、Managerは統合SHAを照合する。Workerは検証時HEAD
 | Targetなし | Workspace・Active Intent・Outcome。Target Projectなし |
 | 一部未着手 | Target Project A/B。Aにはaccepted Taskを持つStoryとExecution Evidence、BにはStoryなし |
 | 評価と判断 | 両Targetのaccepted WorkとEvidence、成功条件ごとのEvaluation、Research Result/Finding/Synthesis、関連するDirection Decision |
-| 相談の段階 | 一部未着手のWorkspaceに`consultationLifecycle`。Project Aの相談と待機Taskを各段階に置き、Workspace相談とProject Bの相談を加える |
+| 相談の段階 | 一部未着手のWorkspaceに`consultationLifecycle`。Project Aの相談と待機Taskを各段階に置き、Workspace相談と、viewerが所属しないTargetなしのWorkspaceの相談を加える |
 
 評価と判断のシナリオには`consultationReflection`として、Project相談とWorkspace相談（Project Aへ引継ぎ）の結論を文書へ反映した状態も準備する。専用ディレクトリ内のbare repository（`verification-docs.git`）とcheckoutを作り、Project Aへ`https://example.test/verification-docs.git`として登録する。`request_consultation_followup`→Workerの`claim_task`と実際の文書commit→通常の`claim_review`・`reviewed_task`→`claim_acceptance`・`accept_task`（`deliverables`にcommitとpath）→`record_consultation_artifact`を公開MCPで通す。manifestの`path`から反映済み表示・再読込・viewerとの権限差の確認へ進める。HumanのRepository登録・返信はOwnerのHuman use caseで行う。これらは検証用Principalの公開操作で、実Agentの稼働を示さない。対象SHAに反映の公開契約が無い場合は`status: unavailable`と`kind`（`tool_unavailable` / `policy_denied`）を記録し、内部操作で補わない。
 
@@ -25,11 +25,11 @@ ReviewerはPR head、Managerは統合SHAを照合する。Workerは検証時HEAD
 | `confirmation_required` | 2件を待つTask。1件はHumanの明示決定、1件はManagerの取消で、Managerの継続確認待ち |
 | `correction` | `resumed`の相談を`supersedesConsultationId`で訂正する新しい相談 |
 | `workspace_waiting_human` | StrategistのWorkspace相談（Human待ち） |
-| `hidden_from_viewer` | viewerが所属しないProject Bの相談 |
+| `hidden_from_viewer` | viewerが所属しないWorkspace（Targetなし）のWorkspace相談 |
 
 `observations`には、作成中に確認した再送の同一結果、待機Taskの候補除外と直接Claimの拒否（`TASK_NOT_CLAIMABLE`）、viewerの返信拒否、同じ版の別Principalのlease（`LEASE_HELD`）、古い版の結論（`STALE_REVISION`）、二重の再開（`CLAIM_CONFLICT`）、Workerの継続確認（`FORBIDDEN`）を、期待値・観測値・一致で記録する。不一致があっても準備は止めないため、Managerは`matched: false`を製品の挙動として扱う。これらも検証用Principalの公開操作で、実Agentの稼働を示さない。
 
-Ownerは`preview-owner@example.test`、Viewerは`preview-viewer@example.test`で開発用ログインする。Viewerは後二者のWorkspaceとProject Aのviewerで、Project Bには所属しない。Workspace Directionの参照、Project AのWork参照、Bの参照拒否、編集操作の拒否を比較できる。
+Ownerは`preview-owner@example.test`、Viewerは`preview-viewer@example.test`で開発用ログインする。ViewerはProject Aからの招待を受諾し、後二者のWorkspaceのviewerになる（配下のProject A・Bとも同じRole。[ADR 0003](adr/0003-workspace-human-membership.md)）。Targetなしのworkspaceには所属しない。Workspace Directionと両ProjectのWorkの参照、未所属Workspaceの参照拒否、編集操作の拒否を比較できる。
 
 ## 対象SHAとの一致
 

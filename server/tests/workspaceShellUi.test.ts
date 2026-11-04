@@ -7,9 +7,7 @@ import {
   parseShellLocation,
   resolveCurrentWorkspace,
   switchWorkspacePath,
-  withProjectAccess,
   type Workspace,
-  type WorkspaceProject,
 } from "../src/web/features/workspace/workspace.ts";
 import { workspaceCreatePath, workspaceEditPath, workspaceOutcomePath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath } from "../src/web/paths.ts";
 
@@ -81,26 +79,6 @@ test("Selectorの絞り込みは名前・Missionの部分一致で、空の入�
   assert.deepEqual(filterWorkspaces(list, "taneru").map(({ id }) => id), ["ws-1"]);
   assert.deepEqual(filterWorkspaces(list, "チーム").map(({ id }) => id), ["ws-2"]);
   assert.deepEqual(filterWorkspaces(list, "none"), []);
-});
-
-test("WorkspaceのProjectは、Project Membershipを持つものだけを開ける（Workspace Membershipから継承しない）", () => {
-  const project = (id: string): WorkspaceProject => ({
-    id,
-    workspaceId: "ws-1",
-    name: id,
-    description: null,
-    repositories: [],
-    resources: [],
-    createdAt: 1,
-    updatedAt: 1,
-    status: "active",
-    archivedAt: null,
-    archiveReason: null,
-  });
-  assert.deepEqual(
-    withProjectAccess([project("p-1"), project("p-2")], new Set(["p-2", "p-other"])).map(({ project, canOpen }) => [project.id, canOpen]),
-    [["p-1", false], ["p-2", true]],
-  );
 });
 
 test("現在のWorkspaceは一覧（active）を優先し、一覧に無ければ個別に取得した状態、閲覧できなければnull", () => {

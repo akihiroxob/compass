@@ -71,7 +71,10 @@ export const createTestHuman = async (
   return { humanUserId, sessionToken, email };
 };
 
-/** 有効なMembershipを直接作る（MCP・use caseで作られたowner不在のProjectをテストで使うため）。 */
+/**
+ * Projectの所属WorkspaceでのHumanのRoleを直接設定する（ADR 0003。Project単位のMembershipは無い）。有効なWorkspace Membershipが
+ * あればRoleを置き換え、無ければ作る。同じWorkspaceの他のProjectにも同じRoleが適用される。Workspace Membershipのidを返す。
+ */
 export const addTestMembership = async (
   database: Kysely<Database>,
   projectId: string,
@@ -79,22 +82,9 @@ export const addTestMembership = async (
   role: HumanRole = "owner",
   now = Date.now(),
 ) => {
-  const id = randomUUID();
-  await database
-    .insertInto("project_membership")
-    .values({
-      id,
-      project_id: projectId,
-      human_user_id: human.humanUserId,
-      role,
-      created_at: now,
-      updated_at: now,
-      created_by_human_user_id: null,
-      revoked_at: null,
-      revoked_by_human_user_id: null,
-    })
-    .execute();
-  return id;
+  const { workspace_id } = await database.selectFrom("project").select("workspace_id").where("id", "=", projectId).executeTakeFirstOrThrow();
+  if (workspace_id === null) throw new Error(`Project ${projectId} has no Workspace`);
+  return addTestWorkspaceMembership(database, workspace_id, human, role, now);
 };
 
 /** Session Cookie・CSRF token・Originを付けたrequest headers。 */
@@ -112,28 +102,9 @@ export const requestAs =
     app.request(path, { ...init, headers: humanHeaders(human, init.headers) });
 
 /**
- * 有効なowner Membershipを持たないProject（MCP・use caseで作られたProject）へ、指定Humanのowner Membershipを補う。
- * platform ownerのログイン時のorphan補完と同じ結果をテストで再現する。
+ * 有効なWorkspace Membershipを直接作る（use caseで作られたowner不在のWorkspaceをテストで使うため）。既に有効なMembershipがあれば
+ * Roleだけを置き換える。
  */
-export const adoptOrphanProjects = async (database: Kysely<Database>, human: Pick<TestHuman, "humanUserId">) => {
-  const orphans = await database
-    .selectFrom("project")
-    .select("id")
-    .where(({ not, exists, selectFrom }) =>
-      not(
-        exists(
-          selectFrom("project_membership")
-            .select("project_membership.id")
-            .whereRef("project_membership.project_id", "=", "project.id")
-            .where("project_membership.revoked_at", "is", null),
-        ),
-      ),
-    )
-    .execute();
-  for (const { id } of orphans) await addTestMembership(database, id, human, "owner");
-};
-
-/** 有効なWorkspace Membershipを直接作る（use caseで作られたowner不在のWorkspaceをテストで使うため）。 */
 export const addTestWorkspaceMembership = async (
   database: Kysely<Database>,
   workspaceId: string,
@@ -141,6 +112,17 @@ export const addTestWorkspaceMembership = async (
   role: HumanRole = "owner",
   now = Date.now(),
 ) => {
+  const existing = await database
+    .selectFrom("workspace_membership")
+    .select("id")
+    .where("workspace_id", "=", workspaceId)
+    .where("human_user_id", "=", human.humanUserId)
+    .where("revoked_at", "is", null)
+    .executeTakeFirst();
+  if (existing) {
+    await database.updateTable("workspace_membership").set({ role, updated_at: now }).where("id", "=", existing.id).execute();
+    return existing.id;
+  }
   const id = randomUUID();
   await database
     .insertInto("workspace_membership")
@@ -159,7 +141,10 @@ export const addTestWorkspaceMembership = async (
   return id;
 };
 
-/** 有効なowner Membershipを持たないWorkspaceへ、指定Humanのowner Membershipを補う（`adoptOrphanProjects`のWorkspace版）。 */
+/**
+ * 有効なowner Membershipを持たないWorkspaceへ、指定Humanのowner Membershipを補う（platform ownerのログイン時のorphan補完と同じ結果）。
+ * 配下のProjectも同じMembershipで利用できる。
+ */
 export const adoptOrphanWorkspaces = async (database: Kysely<Database>, human: Pick<TestHuman, "humanUserId">) => {
   const orphans = await database
     .selectFrom("workspace")
@@ -180,7 +165,7 @@ export const adoptOrphanWorkspaces = async (database: Kysely<Database>, human: P
 
 /**
  * 既存の匿名Web APIテストをSession付きへ移すためのapp。Humanを1人作り、`app.request`へSession Cookie・CSRFを付け、
- * 各requestの前にowner不在のProject・WorkspaceをそのHumanのowner Membershipにする（platform ownerのorphan補完に相当）。
+ * 各requestの前にowner不在のWorkspaceをそのHumanのowner Membershipにする（platform ownerのorphan補完に相当）。
  */
 export const createSignedInApp = async (
   database: Kysely<Database>,
@@ -190,13 +175,10 @@ export const createSignedInApp = async (
   const app = createApp(services);
   const human = await createTestHuman(database, { email: options.email ?? "tester@example.com" });
   const original = app.request.bind(app);
-  // 並行requestでも同じProjectへ二重に補完しないよう、補完だけを直列にする。
+  // 並行requestでも同じWorkspaceへ二重に補完しないよう、補完だけを直列にする。
   let adoption = Promise.resolve();
   const signedIn = (async (input: string | Request | URL, init?: RequestInit, ...rest: unknown[]) => {
-    adoption = adoption.then(async () => {
-      await adoptOrphanProjects(database, human);
-      await adoptOrphanWorkspaces(database, human);
-    });
+    adoption = adoption.then(() => adoptOrphanWorkspaces(database, human));
     await adoption;
     const call = original as (...args: unknown[]) => Response | Promise<Response>;
     if (typeof input !== "string") return call(input, init, ...rest);

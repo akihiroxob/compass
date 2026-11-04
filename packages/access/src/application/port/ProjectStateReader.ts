@@ -5,6 +5,6 @@
 export interface ProjectStateReader {
   exists(projectId: string): Promise<boolean>;
   isArchived(projectId: string): Promise<boolean>;
-  /** active / archivedを問わず、作成順のProject ID。 */
-  listIdsInCreationOrder(): Promise<string[]>;
+  /** 所属WorkspaceのID。Projectが無ければnull。HumanのProject操作はこのWorkspaceのMembershipで認可する。 */
+  findWorkspaceId(projectId: string): Promise<string | null>;
 }

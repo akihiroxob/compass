@@ -92,7 +92,6 @@ import {
 import {
   AuthenticateAccessCredentialUseCase,
   CredentialScopeAuthorization,
-  ChangeProjectMemberRoleUseCase,
   CompleteOidcLoginUseCase,
   CreateProjectInvitationUseCase,
   GetHumanAuthBootstrapStatusUseCase,
@@ -111,7 +110,6 @@ import {
   ListHumanProjectsUseCase,
   ListProjectGrantsUseCase,
   ListProjectInvitationsUseCase,
-  ListProjectMembersUseCase,
   LocalDevLoginUseCase,
   ProjectAuthorizationService,
   RegisterOrLoginHumanUseCase,
@@ -119,7 +117,6 @@ import {
   RevokeAccessCredentialUseCase,
   RevokeHumanSessionUseCase,
   RevokeProjectInvitationUseCase,
-  RevokeProjectMemberUseCase,
   RevokeProjectRoleUseCase,
   RotateAccessCredentialUseCase,
   RuntimeAuthorizationService,
@@ -127,17 +124,15 @@ import {
   SQLiteHumanAccountRepository,
   SQLiteLoginAttemptRepository,
   SQLiteProjectGrantRepository,
-  SQLiteProjectMembershipRepository,
+  SQLiteProjectInvitationRepository,
   SQLiteWorkspaceMembershipRepository,
   StartOidcLoginUseCase,
-  AddWorkspaceMemberUseCase,
   ChangeWorkspaceMemberRoleUseCase,
   CreateHumanWorkspaceProjectUseCase,
   GetHumanWorkspaceUseCase,
   HumanWorkspaceAuthorizationService,
   HumanWorkspaceAuthorizedUseCase,
   ListHumanWorkspacesUseCase,
-  ListWorkspaceMemberCandidatesUseCase,
   ListWorkspaceMembersUseCase,
   RevokeWorkspaceMemberUseCase,
   executionRoles,
@@ -198,7 +193,7 @@ import {
   directionChangeObserver,
   directionProjectReaders,
   directionWorkspaceReaders,
-  ownerMembershipWriters,
+  workspaceOwnerMembershipWriter,
   projectChangeActivityObserver,
   projectRepositoryReferenceFinder,
   workChangeActivityObserver,
@@ -232,12 +227,12 @@ export const createApplicationServices = (
   const projectRepository = new SQLiteProjectRepository(
     asOrganizationDatabase(applicationDatabase),
     projectRepositoryReferenceFinder,
-    ownerMembershipWriters,
+    workspaceOwnerMembershipWriter,
     projectChangeActivityObserver,
   );
   const workspaceRepository = new SQLiteWorkspaceRepository(
     asOrganizationDatabase(applicationDatabase),
-    ownerMembershipWriters.workspace,
+    workspaceOwnerMembershipWriter,
   );
   // Directionのrepositoryへは同じ接続を、自身のtable型で渡す。Workspace/Project状態は同じtransactionで読むreaderを渡す。
   const directionDatabase = asDirectionDatabase(applicationDatabase);
@@ -389,14 +384,18 @@ export const createApplicationServices = (
     accessWorkspaceReaders,
     clock,
   );
-  const projectMembershipRepository = new SQLiteProjectMembershipRepository(accessDatabase, accessProjectReaders, clock);
-  const humanProjectAuthorizationService = new HumanProjectAuthorizationService(projectMembershipRepository);
-  // Workspace Membership（handoff v2「14.1 Human」）。Project Membershipとは別に認可し、相互に継承しない。
+  // HumanのMembershipはWorkspace単位だけ（ADR 0003）。ProjectのHuman操作は所属WorkspaceのMembershipで認可する。
   const workspaceMembershipRepository = new SQLiteWorkspaceMembershipRepository(
     accessDatabase,
     accessWorkspaceReaders,
     clock,
   );
+  const humanProjectAuthorizationService = new HumanProjectAuthorizationService(
+    workspaceMembershipRepository,
+    accessProjectReaders(accessDatabase),
+    accessWorkspaceReaders(accessDatabase),
+  );
+  const projectInvitationRepository = new SQLiteProjectInvitationRepository(accessDatabase, accessProjectReaders, clock);
   const humanWorkspaceAuthorizationService = new HumanWorkspaceAuthorizationService(workspaceMembershipRepository);
   const credentialScopeAuthorization = new CredentialScopeAuthorization(humanProjectAuthorizationService, humanWorkspaceAuthorizationService);
   const loginAttemptRepository = new SQLiteLoginAttemptRepository(accessDatabase);
@@ -598,24 +597,18 @@ export const createApplicationServices = (
     localDevLoginUseCase: new LocalDevLoginUseCase(registerOrLoginHumanUseCase),
     resolveHumanSessionUseCase: new ResolveHumanSessionUseCase(humanAccountRepository),
     revokeHumanSessionUseCase: new RevokeHumanSessionUseCase(humanAccountRepository),
-    listProjectMembersUseCase: new ListProjectMembersUseCase(humanProjectAuthorizationService, projectMembershipRepository),
-    changeProjectMemberRoleUseCase: new ChangeProjectMemberRoleUseCase(
-      humanProjectAuthorizationService,
-      projectMembershipRepository,
-    ),
-    revokeProjectMemberUseCase: new RevokeProjectMemberUseCase(humanProjectAuthorizationService, projectMembershipRepository),
     createProjectInvitationUseCase: new CreateProjectInvitationUseCase(
       humanProjectAuthorizationService,
-      projectMembershipRepository,
+      projectInvitationRepository,
       clock,
     ),
     listProjectInvitationsUseCase: new ListProjectInvitationsUseCase(
       humanProjectAuthorizationService,
-      projectMembershipRepository,
+      projectInvitationRepository,
     ),
     revokeProjectInvitationUseCase: new RevokeProjectInvitationUseCase(
       humanProjectAuthorizationService,
-      projectMembershipRepository,
+      projectInvitationRepository,
     ),
   };
   const authorized = <Args extends unknown[], Result>(
@@ -672,22 +665,22 @@ export const createApplicationServices = (
   });
   const projectConsultationReads = consultationReads(projectConsultationScope);
   const workspaceConsultationReads = consultationReads(workspaceConsultationScope);
-  // Project相談の文書反映はそのProject自身の依頼だけ。Workspace相談の文書反映は、HumanがProject Membershipを持つProjectの分だけ展開する
-  // （Workspace Membershipから継承しない）。
+  // Project相談の文書反映はそのProject自身の依頼だけ。Workspace相談の文書反映は、HumanがWorkspace Membershipを持つWorkspaceの
+  // Projectの分だけ展開する（ADR 0003）。
   const getProjectConsultation = {
     execute: (projectId: string, consultationId: string) => consultations.get.execute(projectConsultationScope(projectId), consultationId, [projectId]),
   };
   const getWorkspaceConsultation = {
     execute: async (actor: HumanActor, workspaceId: string, consultationId: string) => {
       await humanWorkspaceAuthorizationService.authorize(actor, workspaceId, "workspace.read");
-      const readableProjectIds = await projectMembershipRepository.listActiveProjectIds(actor.humanUserId);
+      const readableProjectIds = await humanProjectAuthorizationService.listReadableProjectIds(actor);
       return consultations.get.execute(workspaceConsultationScope(workspaceId), consultationId, readableProjectIds);
     },
   };
   // Human向けWeb APIの入口。Membershipの認可（domainの権限表）を通してから、MCPと共通のuse caseへ委譲する。
   // Runtime向け（runtime-events・execution-evidence）はHuman向けではないため含めない。
   const human = {
-    listProjects: new ListHumanProjectsUseCase(services.listProjectsUseCase, projectMembershipRepository),
+    listProjects: new ListHumanProjectsUseCase(services.listProjectsUseCase, humanProjectAuthorizationService),
     getProject: new GetHumanProjectUseCase(humanProjectAuthorizationService, services.getProjectUseCase),
     updateProject: directionWrite("project.update", services.updateProjectUseCase),
     archiveProject: directionWrite("project.archive", services.archiveProjectUseCase),
@@ -714,7 +707,7 @@ export const createApplicationServices = (
     listWorkspaceActivities: workspaceAuthorized("workspace.read", listWorkspaceActivitiesUseCase),
     getWorkspaceActivity: workspaceAuthorized("workspace.read", getWorkspaceActivityUseCase),
     // Workspace Direction Role（strategist / researcher / evaluator）のAgent Grant（Workspace Membership）。Project Grantは含めず、
-    // Project Roleからは継承しない。付与・取消はadministrator以上。
+    // Project Grantからは継承しない。付与・取消はadministrator以上。
     listWorkspaceGrants: workspaceAuthorized("grant.read", services.listWorkspaceGrantsUseCase),
     grantWorkspaceRole: workspaceAuthorized("grant.manage", services.grantWorkspaceRoleUseCase),
     revokeWorkspaceRole: workspaceAuthorized("grant.manage", services.revokeWorkspaceRoleUseCase),
@@ -730,7 +723,7 @@ export const createApplicationServices = (
         return { role: { name: definition.name, path: definition.path, content: definition.content }, skills, source };
       },
     },
-    // Execution SummaryはProject固有の記録で、Project Membershipで読む。
+    // Execution SummaryはProject固有の記録で、所属WorkspaceのMembership（viewer以上）で読む。
     getExecutionSummary: authorized("project.read", services.getExecutionSummaryUseCase),
     // Execution閲覧（Task 45）。archivedのProjectも参照できる（介入はTask 46の`execution.intervene`）。
     listExecution: authorized("project.read", services.listExecutionUseCase),
@@ -756,18 +749,18 @@ export const createApplicationServices = (
     replyConsultation: projectConsultation("consultation.reply", consultations.addMessage),
     decideConsultation: projectConsultation("consultation.decide", consultations.resolve),
     cancelConsultation: projectConsultation("consultation.decide", consultations.cancel),
-    // Workspace相談。Workspace Membershipで認可し（参照viewer・返信editor・明示決定/取消administrator以上）、Project Membershipから継承しない。
+    // Workspace相談。Workspace Membershipで認可する（参照viewer・返信editor・明示決定/取消administrator以上）。
     listWorkspaceConsultations: workspaceAuthorized("workspace.read", workspaceConsultationReads.list),
     getWorkspaceConsultation,
     replyWorkspaceConsultation: workspaceConsultation("consultation.reply", consultations.addMessage),
     decideWorkspaceConsultation: workspaceConsultation("consultation.decide", consultations.resolve),
     cancelWorkspaceConsultation: workspaceConsultation("consultation.decide", consultations.cancel),
-    // 横断した判断待ち一覧。有効なProject Membership・Workspace Membershipを持つscopeの相談だけを、Project scopeはProject Membership、
-    // Workspace scopeはWorkspace Membershipで選び、互いに継承しない。絞り込み・ページングはこの認可済みの集合に対して行う。
+    // 横断した判断待ち一覧。有効なWorkspace Membershipを持つWorkspaceと、その配下Projectの相談だけを選ぶ（ADR 0003）。
+    // 絞り込み・ページングはこの認可済みの集合に対して行う。
     listAccessibleConsultations: {
       execute: async (actor: HumanActor, query: unknown) =>
         consultations.listAccessible.execute({
-          projectIds: await projectMembershipRepository.listActiveProjectIds(actor.humanUserId),
+          projectIds: await humanProjectAuthorizationService.listReadableProjectIds(actor),
           workspaceIds: await workspaceMembershipRepository.listActiveWorkspaceIds(actor.humanUserId),
         }, query),
     },
@@ -776,7 +769,7 @@ export const createApplicationServices = (
     createWorkspace: new CreateWorkspaceUseCase(workspaceRepository),
     listWorkspaces: new ListHumanWorkspacesUseCase(new ListWorkspacesUseCase(workspaceRepository), workspaceMembershipRepository),
     getWorkspace: new GetHumanWorkspaceUseCase(humanWorkspaceAuthorizationService, new GetWorkspaceUseCase(workspaceRepository)),
-    // Workspace memberは所属Projectのpurpose・Resource参照を見られる。Project詳細・WorkはProject Membershipで認可し、継承しない。
+    // 所属Projectのpurpose・Resource参照。Project詳細・Workも同じWorkspace Membershipで、操作別のRole水準を検査する。
     listWorkspaceProjects: workspaceAuthorized(
       "workspace.read",
       new ListWorkspaceProjectsUseCase(workspaceRepository, projectRepository),
@@ -787,10 +780,8 @@ export const createApplicationServices = (
       humanWorkspaceAuthorizationService,
       new CreateWorkspaceProjectUseCase(projectRepository),
     ),
-    // Workspace member管理（一覧はviewer以上、追加候補・追加・Role変更・取消はowner）。Project Membershipは変えない。
+    // Workspace member管理（一覧はviewer以上、Role変更・除外はowner）。配下の全Projectへの次の操作から反映される。
     listWorkspaceMembers: new ListWorkspaceMembersUseCase(humanWorkspaceAuthorizationService, workspaceMembershipRepository),
-    listWorkspaceMemberCandidates: new ListWorkspaceMemberCandidatesUseCase(humanWorkspaceAuthorizationService, workspaceMembershipRepository),
-    addWorkspaceMember: new AddWorkspaceMemberUseCase(humanWorkspaceAuthorizationService, workspaceMembershipRepository),
     changeWorkspaceMemberRole: new ChangeWorkspaceMemberRoleUseCase(
       humanWorkspaceAuthorizationService,
       workspaceMembershipRepository,

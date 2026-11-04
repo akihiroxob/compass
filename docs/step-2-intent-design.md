@@ -16,7 +16,7 @@ activeの間だけ部分更新できる。Outcomeを持つIntentはtitleのみ�
 
 保存・application use case・公開入口はWorkspace単位。Project IDをWorkspace IDとして受け付けない。応答は`workspaceId`を持ち、`projectId`は持たない。
 
-HumanはProject詳細から作成し、Intent詳細から編集・放棄する（画面はProjectの所属Workspaceを解決する）。Web APIは`/api/workspaces/:workspaceId/intents`とその詳細・更新・`abandon`。参照にはWorkspaceのviewer以上、変更にはeditor以上のWorkspace Membershipが必要で、Project Membershipからは継承しない。MCPの`create_intent` / `update_intent` / `abandon_intent`（trusted-localだけ）は`workspaceId`を受け取り、WorkspaceのDirection Role Grantを持つPrincipalとactiveRole指定を拒否する。remote modeのMCPにはHuman用の作成・更新・放棄toolを公開しない。
+HumanはProject詳細から作成し、Intent詳細から編集・放棄する（画面はProjectの所属Workspaceを解決する）。Web APIは`/api/workspaces/:workspaceId/intents`とその詳細・更新・`abandon`。参照にはWorkspaceのviewer以上、変更にはeditor以上のWorkspace Membershipが必要。MCPの`create_intent` / `update_intent` / `abandon_intent`（trusted-localだけ）は`workspaceId`を受け取り、WorkspaceのDirection Role Grantを持つPrincipalとactiveRole指定を拒否する。remote modeのMCPにはHuman用の作成・更新・放棄toolを公開しない。
 
 ## Researchとの接続
 

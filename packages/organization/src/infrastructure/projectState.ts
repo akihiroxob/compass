@@ -37,12 +37,6 @@ export const findArchivedProjectIds = async (database: Queryable, projectIds: st
   return new Set(rows.map(({ id }) => id));
 };
 
-/** active / archivedを問わず、作成順のProject ID。呼出し側のtransactionのまま読む（Accessのowner補完が使う）。 */
-export const listProjectIdsInCreationOrder = async (database: Queryable): Promise<string[]> => {
-  const rows = await database.selectFrom("project").select("id").orderBy("created_at").execute();
-  return rows.map(({ id }) => id);
-};
-
 /** Projectに登録されたRepository。他Projectのidは見つからない扱いにする。 */
 export const findProjectRepository = (database: Queryable, projectId: string, repositoryId: string) =>
   database

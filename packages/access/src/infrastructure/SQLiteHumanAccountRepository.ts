@@ -59,13 +59,18 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
             .where("token_hash", "=", command.invitationTokenHash)
             .executeTakeFirst()
         : undefined;
+      // 招待先Projectの所属WorkspaceのMembershipになる（ADR 0003）。判定・書込と同じtransactionで読み、archiveとの競合でも
+      // Membershipを追加しない。
+      const invitationWorkspaceId = invitation ? await this.projects(transaction).findWorkspaceId(invitation.project_id) : null;
       const alreadyMember =
-        existingIdentity && invitation
-          ? (await this.findActiveMembershipId(transaction, invitation.project_id, existingIdentity.humanUserId)) !== null
+        existingIdentity && invitationWorkspaceId !== null
+          ? (await this.findActiveWorkspaceMembershipId(transaction, invitationWorkspaceId, existingIdentity.humanUserId)) !== null
           : false;
-
-      // 受諾のMembership書込と同じtransactionで確認し、archiveとの競合でもMembershipを追加しない。
-      const projectArchived = invitation ? await this.projects(transaction).isArchived(invitation.project_id) : false;
+      const projectArchived = invitation
+        ? invitationWorkspaceId === null ||
+          (await this.projects(transaction).isArchived(invitation.project_id)) ||
+          (await this.workspaces(transaction).isArchived(invitationWorkspaceId))
+        : false;
 
       const facts: RegistrationFacts = {
         identity,
@@ -150,10 +155,10 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
           .executeTakeFirst();
         if (accepted.numUpdatedRows !== 1n) throw new Error("Invitation was not pending at acceptance");
         await transaction
-          .insertInto("project_membership")
+          .insertInto("workspace_membership")
           .values({
             id: crypto.randomUUID(),
-            project_id: invitation!.project_id,
+            workspace_id: invitationWorkspaceId!,
             human_user_id: humanUserId,
             role: invitation!.role,
             created_at: now,
@@ -170,8 +175,6 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
         .selectAll()
         .where("id", "=", humanUserId)
         .executeTakeFirstOrThrow();
-      const adoptedProjectIds =
-        human.platform_role === "owner" ? await this.adoptOrphanProjects(transaction, humanUserId, now) : [];
       const adoptedWorkspaceIds =
         human.platform_role === "owner" ? await this.adoptOrphanWorkspaces(transaction, humanUserId, now) : [];
 
@@ -206,7 +209,6 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
         created: decision.kind !== "login",
         bootstrapped: decision.kind === "bootstrap",
         invitation: invitationOutcome,
-        adoptedProjectIds,
         adoptedWorkspaceIds,
       };
     });
@@ -274,15 +276,15 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
     return result.numUpdatedRows > 0n;
   }
 
-  private async findActiveMembershipId(
+  private async findActiveWorkspaceMembershipId(
     transaction: Transaction<AccessDatabase>,
-    projectId: string,
+    workspaceId: string,
     humanUserId: string,
   ): Promise<string | null> {
     const row = await transaction
-      .selectFrom("project_membership")
+      .selectFrom("workspace_membership")
       .select("id")
-      .where("project_id", "=", projectId)
+      .where("workspace_id", "=", workspaceId)
       .where("human_user_id", "=", humanUserId)
       .where("revoked_at", "is", null)
       .executeTakeFirst();
@@ -290,58 +292,8 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
   }
 
   /**
-   * 有効なowner Membershipを持たないProject（認証導入前のProject・MCPで作られたProject）へ、platform ownerの
-   * owner Membershipを補完する。既に下位Roleの有効なMembershipがあればownerへ引き上げる。冪等。
-   */
-  private async adoptOrphanProjects(
-    transaction: Transaction<AccessDatabase>,
-    humanUserId: string,
-    now: number,
-  ): Promise<string[]> {
-    const projectIds = await this.projects(transaction).listIdsInCreationOrder();
-    const owned = new Set(
-      (
-        await transaction
-          .selectFrom("project_membership")
-          .select("project_id")
-          .where("role", "=", "owner")
-          .where("revoked_at", "is", null)
-          .execute()
-      ).map((row) => row.project_id),
-    );
-    const orphans = projectIds.filter((projectId) => !owned.has(projectId));
-
-    for (const projectId of orphans) {
-      const membershipId = await this.findActiveMembershipId(transaction, projectId, humanUserId);
-      if (membershipId) {
-        await transaction
-          .updateTable("project_membership")
-          .set({ role: "owner", updated_at: now })
-          .where("id", "=", membershipId)
-          .execute();
-        continue;
-      }
-      await transaction
-        .insertInto("project_membership")
-        .values({
-          id: crypto.randomUUID(),
-          project_id: projectId,
-          human_user_id: humanUserId,
-          role: "owner",
-          created_at: now,
-          updated_at: now,
-          created_by_human_user_id: null,
-          revoked_at: null,
-          revoked_by_human_user_id: null,
-        })
-        .execute();
-    }
-    return orphans;
-  }
-
-  /**
-   * 有効なowner Membershipを持たないWorkspace（owner不在Projectの移行Workspace・Actorなしで作られたWorkspace）へ、
-   * platform ownerのowner Membershipを補完する。Project側の補完と同じ規則で、冪等。
+   * 有効なowner Membershipを持たないWorkspace（MCP・CLI等のActorなしで作られたWorkspace）へ、platform ownerの
+   * owner Membershipを補完する。既に下位Roleの有効なMembershipがあればownerへ引き上げる。冪等。配下のProjectも同じRoleで利用する。
    */
   private async adoptOrphanWorkspaces(
     transaction: Transaction<AccessDatabase>,
@@ -362,18 +314,12 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
     const orphans = workspaceIds.filter((workspaceId) => !owned.has(workspaceId));
 
     for (const workspaceId of orphans) {
-      const existing = await transaction
-        .selectFrom("workspace_membership")
-        .select("id")
-        .where("workspace_id", "=", workspaceId)
-        .where("human_user_id", "=", humanUserId)
-        .where("revoked_at", "is", null)
-        .executeTakeFirst();
-      if (existing) {
+      const existingId = await this.findActiveWorkspaceMembershipId(transaction, workspaceId, humanUserId);
+      if (existingId) {
         await transaction
           .updateTable("workspace_membership")
           .set({ role: "owner", updated_at: now })
-          .where("id", "=", existing.id)
+          .where("id", "=", existingId)
           .execute();
         continue;
       }

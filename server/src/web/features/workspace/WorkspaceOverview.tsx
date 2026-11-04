@@ -74,15 +74,14 @@ const attentionLabels: Record<AttentionKind, { label: string; tone: StatusTone }
   evaluation: { label: "評価待ち", tone: "waiting" },
 };
 
-/** Project名とリンク。Project Membershipが無ければリンクにせず理由を出す。一覧を取得できなければIDだけを出す。 */
+/** Project名とリンク。一覧を取得できなければIDだけを出す。 */
 export const ProjectName = ({ projectId, projects, view }: { projectId: string; projects: Part<OverviewProject[]>; view: "overview" | "work" }) => {
   const found = projects.ok ? projects.value.find(({ project }) => project.id === projectId) : undefined;
   if (!found) return <code>{projectId.slice(0, 8)}</code>;
   return (
     <>
-      {found.canOpen ? <Link to={projectViewPath(projectId, view)}>{found.project.name}</Link> : <span>{found.project.name}</span>}
+      <Link to={projectViewPath(projectId, view)}>{found.project.name}</Link>
       {found.project.status === "archived" && <> <span className="status-badge muted">アーカイブ済み</span></>}
-      {!found.canOpen && <small className="locked-note">（Project Membershipが無いため開けません）</small>}
     </>
   );
 };
@@ -92,7 +91,7 @@ const OutcomeName = ({ workspaceId, outcome }: { workspaceId: string; outcome: O
   <Link to={workspaceOutcomePath(workspaceId, outcome.intentId, outcome.id)}>{outcome.title}</Link>;
 
 export const openProjects = (projects: Part<OverviewProject[]>) =>
-  projects.ok ? projects.value.map(({ project, canOpen }) => ({ id: project.id, status: project.status, canOpen })) : [];
+  projects.ok ? projects.value.map(({ project }) => ({ id: project.id, status: project.status })) : [];
 
 export const TargetRow = ({ target, projects }: { target: TargetWork; projects: Part<OverviewProject[]> }) => (
   <li>
@@ -153,7 +152,7 @@ const refKey = (refItem: AttentionRef) =>
 /** Humanの登録（Intent・Outcome）の導線。作成画面はProject配下のため、開けるProjectが無ければ理由を出す。 */
 const HumanAction = ({ item, intentId, projectId, canWrite }: { item: AttentionItem; intentId: string | null; projectId: string | null; canWrite: boolean }) => {
   if (!canWrite) return <small>Workspace Editor以上へ依頼</small>;
-  if (!projectId) return <small>登録画面を開けるProjectがありません（Project Membershipが必要です）</small>;
+  if (!projectId) return <small>登録画面を開けるactiveなProjectがありません</small>;
   const to = item.kind === "intent" ? intentPath(projectId, "new") : intentId ? outcomePath(projectId, intentId, "new") : null;
   return to ? <LinkButton size="sm" to={to}>{item.kind === "intent" ? "Intentを登録" : "Outcomeを登録"}</LinkButton> : null;
 };
@@ -201,10 +200,7 @@ const ProjectSummary = ({ workspace, projects, outcomes }: { workspace: Workspac
     <>
       {active.length === 0 ? <p className="unset">activeなProjectはありません。</p> : (
         <ul className="link-list workspace-project-links">
-          {active.map(({ project, canOpen }) => {
-            const note = projectTargetNote(outcomes, project.id);
-            return <li key={project.id}>{canOpen ? <Link to={projectViewPath(project.id, "overview")}><span>{project.name}</span><small>{note}</small></Link> : <p><span>{project.name}</span><small>{note} ・ Project Membershipが無いため開けません</small></p>}</li>;
-          })}
+          {active.map(({ project }) => <li key={project.id}><Link to={projectViewPath(project.id, "overview")}><span>{project.name}</span><small>{projectTargetNote(outcomes, project.id)}</small></Link></li>)}
         </ul>
       )}
       {archivedCount > 0 && <p className="section-note">アーカイブ済みのProjectが{archivedCount}件あります。</p>}

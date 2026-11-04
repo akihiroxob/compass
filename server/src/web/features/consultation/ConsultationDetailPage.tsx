@@ -8,7 +8,7 @@ import { consultationInboxPath, projectViewPath, workspacePath } from "../../pat
 import { statusBadgeClass } from "../../statusTone";
 import { canOperate, canOperateWorkspace, projectOperationAccess, projectOperationDeniedMessage, type ProjectOperationAccess } from "../access";
 import { formatTime } from "../execution";
-import { scopeMembersPath, type HumanRole, type Member } from "../member";
+import { loadMemberNames, type HumanRole } from "../member";
 import { ConsultationFollowupSection } from "./ConsultationFollowupSection";
 import {
   basisSequences,
@@ -36,7 +36,7 @@ import {
 
 /**
  * 相談詳細が読むscopeの項目。Projectは`GET /api/projects/:projectId`（Repository・Resourceは参照の表示先）、
- * Workspaceは`GET /api/workspaces/:workspaceId`。`myRole`はscopeのMembershipのRoleで、互いに継承しない。
+ * Workspaceは`GET /api/workspaces/:workspaceId`。`myRole`はどちらも所属WorkspaceのMembershipのRole。
  */
 type ScopeResponse =
   | { project: { name: string; status: "active" | "archived"; repositories: ConsultationResourceLink[]; resources: ConsultationResourceLink[] }; myRole: HumanRole }
@@ -319,9 +319,8 @@ export const ConsultationDetailPage = () => {
     request<ScopeResponse>(consultationScopeApiPath(scope))
       .then((response) => { if (current) setFacts({ scopeKey: currentKey, facts: scopeFactsOf(response) }); })
       .catch(() => undefined);
-    const memberScope = scope.kind === "project" ? { kind: "project" as const, id: scope.projectId } : { kind: "workspace" as const, id: scope.workspaceId };
-    request<{ members: Member[] }>(scopeMembersPath(memberScope))
-      .then(({ members }) => { if (current) setHumanNames({ scopeKey: currentKey, names: new Map(members.map((member) => [member.human.id, member.human.displayName])) }); })
+    loadMemberNames(scope)
+      .then((names) => { if (current) setHumanNames({ scopeKey: currentKey, names }); })
       .catch(() => undefined);
     return () => { current = false; };
   }, [scopeKey(scope)]);

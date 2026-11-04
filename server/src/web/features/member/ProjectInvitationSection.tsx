@@ -1,12 +1,13 @@
 import { useId, useCallback, useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { classifyError, describeActionFailure, loadFailureMessage, request, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
-import { ErrorState, Loading, StateCard } from "../../components/StateCard";
+import { ErrorState, Loading } from "../../components/StateCard";
 import { Button, Field, Select, TextInput } from "../../components/ui";
+import { workspacePath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import {
-  changeRoleInit,
   defaultInvitationExpiryHours,
   deleteInit,
   humanRoleDescriptions,
@@ -18,93 +19,13 @@ import {
   invitationStatusLabels,
   invitationStatusTones,
   invitationsPath,
-  isLastOwner,
-  memberScopeLabels,
-  scopeMembersPath,
-  scopeRoleDescriptions,
   type HumanRole,
   type Invitation,
   type InvitationResponse,
-  type Member,
-  type MemberScope,
-  type Membership,
 } from "./members";
 
-const notFoundOf = (scope: MemberScope) => `${memberScopeLabels[scope.kind]}または対象が見つかりません。画面を再読み込みしてください。`;
-const projectNotFound = notFoundOf({ kind: "project", id: "" });
+const projectNotFound = "Projectまたは対象が見つかりません。画面を再読み込みしてください。";
 const formatTime = (epochMs: number) => new Date(epochMs).toLocaleString("ja-JP");
-
-type MemberRowProps = { scope: MemberScope; member: Member; members: Member[]; isSelf: boolean; manage: boolean; onChanged: () => void };
-
-const revokeDescriptions: Record<MemberScope["kind"], (isSelf: boolean) => string> = {
-  project: (isSelf) => `${isSelf ? "あなた自身は" : "このHumanは"}次の操作からこのProjectを参照・変更できなくなります。作成済みの内容は変更されません。再び参加するには新しい招待が必要です。`,
-  workspace: (isSelf) => `${isSelf ? "あなた自身は" : "このHumanは"}次の操作からこのWorkspaceを参照・変更できなくなります。所属ProjectのMembershipとWorkの権限は変わりません。再び参加するにはWorkspaceのownerが追加し直します。`,
-};
-
-/**
- * Member 1件（Project / Workspace）。ownerだけRole変更・取消の導線を出す。最後のownerは導線を無効にする
- * （serverも`409 LAST_OWNER`で拒否する）。
- */
-export const MemberRow = ({ scope, member, members, isSelf, manage, onChanged }: MemberRowProps) => {
-  const notFound = notFoundOf(scope);
-  const descriptions = scopeRoleDescriptions(scope);
-  const { membership, human } = member;
-  const [role, setRole] = useState<HumanRole>(membership.role);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-  const lastOwner = isLastOwner(members, member);
-  useEffect(() => setRole(membership.role), [membership.role]);
-  const revoke = useReasonAction(async () => {
-    await request<{ membership: Membership }>(scopeMembersPath(scope, membership.id), deleteInit);
-    onChanged();
-  }, (classified) => describeActionFailure(classified, notFound));
-  // 失敗しても選択したRoleは維持し、そのまま再送信できる。
-  const changeRole = async (event: FormEvent) => {
-    event.preventDefault();
-    setError(null);
-    setPending(true);
-    try {
-      await request<{ membership: Membership }>(scopeMembersPath(scope, membership.id), changeRoleInit(role));
-      onChanged();
-    } catch (failure) {
-      setError(describeActionFailure(classifyError(failure), notFound));
-    } finally {
-      setPending(false);
-    }
-  };
-  const selectId = `member-role-${membership.id}`;
-  return (
-    <li>
-      <div>
-        <strong>{human.displayName}</strong>{isSelf && <> <span className="status-badge muted">あなた</span></>}
-        <small>{human.email}</small>
-        <small>{humanRoleLabels[membership.role]}（{descriptions[membership.role]}）</small>
-      </div>
-      {manage && (
-        <form className="member-role-form" onSubmit={changeRole}>
-          <Field label={`${human.displayName}のRole`} labelHidden>
-            <Select id={selectId} size="sm" value={role} disabled={lastOwner} onChange={(event) => setRole(event.target.value as HumanRole)}>
-              {humanRoleOptions.map((option) => <option key={option} value={option}>{humanRoleLabels[option]}</option>)}
-            </Select>
-          </Field>
-          <Button type="submit" variant="secondary" size="sm" pending={pending} disabled={lastOwner || role === membership.role}>{pending ? "変更中..." : "Roleを変更"}</Button>
-          <Button variant="secondary" size="sm" tone="danger" disabled={lastOwner} aria-expanded={revoke.confirming} onClick={revoke.open}>取り消す</Button>
-        </form>
-      )}
-      {manage && lastOwner && <p className="section-note member-note">{memberScopeLabels[scope.kind]}の最後のownerのため、Role変更と取消はできません。</p>}
-      {error && <div className="member-note"><StateCard tone="error" role="alert">{error}</StateCard></div>}
-      {manage && revoke.confirming && (
-        <ReasonPanel
-          action={revoke}
-          title={`${human.displayName} のMembershipを取り消しますか？`}
-          description={revokeDescriptions[scope.kind](isSelf)}
-          confirmLabel="取り消す"
-          pendingLabel="取消中..."
-        />
-      )}
-    </li>
-  );
-};
 
 const InvitationRow = ({ projectId, invitation, manage, onChanged }: { projectId: string; invitation: Invitation; manage: boolean; onChanged: () => void }) => {
   const status = invitationDisplayStatus(invitation, Date.now());
@@ -125,7 +46,7 @@ const InvitationRow = ({ projectId, invitation, manage, onChanged }: { projectId
         <ReasonPanel
           action={revoke}
           title={`${invitation.email} への招待を取り消しますか？`}
-          description="取り消した招待リンクではProjectに参加できなくなります。必要なら新しい招待を発行してください。"
+          description="取り消した招待リンクでは参加できなくなります。必要なら新しい招待を発行してください。"
           confirmLabel="取り消す"
           pendingLabel="取消中..."
         />
@@ -161,7 +82,11 @@ const IssuedInvitation = ({ issued, onDismiss }: { issued: InvitationResponse; o
   );
 };
 
-const InvitationSection = ({ projectId, readOnly }: { projectId: string; readOnly: boolean }) => {
+/**
+ * Projectからの招待（所属Workspaceのowner）。受諾すると所属WorkspaceのMembershipになり、配下の全Projectを同じRoleで利用する（ADR 0003）。
+ * Memberの一覧・Role変更・除外はWorkspaceの設定で行い、ここには置かない。`readOnly`（archivedのProject）では一覧だけを表示する。
+ */
+export const ProjectInvitationSection = ({ projectId, workspaceId, readOnly }: { projectId: string; workspaceId: string; readOnly: boolean }) => {
   const [invitations, setInvitations] = useState<Invitation[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
@@ -200,9 +125,9 @@ const InvitationSection = ({ projectId, readOnly }: { projectId: string; readOnl
   };
 
   return (
-    <>
-      <h3 id="invitation-heading">招待</h3>
-      <p className="section-note">招待はメールで送られません。発行したリンクを相手へ渡してください。受諾できるのは一度だけです。</p>
+    <section className="detail-section" aria-labelledby="invitation-heading">
+      <h2 id="invitation-heading">招待</h2>
+      <p className="section-note">参加するとWorkspaceのMemberになり、配下のすべてのProjectを同じRoleで利用できます。Memberの一覧・Role変更・除外は<Link to={workspacePath(workspaceId, "settings")}>Workspaceの設定</Link>で行います。招待はメールで送られません。発行したリンクを相手へ渡してください。受諾できるのは一度だけです。</p>
       {loadError ? <ErrorState message={`招待の読み込みに失敗しました: ${loadError}`} /> : invitations === null ? <Loading /> : invitations.length ? (
         <ul className="grant-list" aria-labelledby="invitation-heading">
           {invitations.map((invitation) => <InvitationRow key={invitation.id} projectId={projectId} invitation={invitation} manage={!readOnly} onChanged={() => void load()} />)}
@@ -215,7 +140,7 @@ const InvitationSection = ({ projectId, readOnly }: { projectId: string; readOnl
           <Field label="メールアドレス" required description="招待する相手がログインに使うアカウントのメールアドレス。">
             <TextInput {...fieldProps(invalid, "field-email", formId)} type="email" required maxLength={320} autoComplete="off" value={email} onChange={(event) => setEmail(event.target.value)} />
           </Field>
-          <Field label="Role" required>
+          <Field label="Role" required description="Workspaceと配下のすべてのProjectに適用されます。">
             <Select {...fieldProps(invalid, "field-role", formId)} value={role} onChange={(event) => setRole(event.target.value as HumanRole)}>
               {humanRoleOptions.map((option) => <option key={option} value={option}>{humanRoleLabels[option]}（{humanRoleDescriptions[option]}）</option>)}
             </Select>
@@ -230,49 +155,6 @@ const InvitationSection = ({ projectId, readOnly }: { projectId: string; readOnl
           </div>
         </form>
       )}
-    </>
-  );
-};
-
-/**
- * Project Membership（docs/step-6-human-auth-design.md）。一覧はviewer以上、招待・Role変更・取消はownerだけに出す。
- * `readOnly`（archivedのProject）では一覧だけを表示する。自分のRole変更・取消の後は`onSelfChanged`で
- * Project（`myRole`）を読み直し、導線を新しいRoleへ揃える。
- */
-export const MembershipSection = ({
-  projectId,
-  currentHumanId,
-  manage,
-  readOnly = false,
-  onSelfChanged,
-}: {
-  projectId: string;
-  currentHumanId: string | null;
-  manage: boolean;
-  readOnly?: boolean;
-  onSelfChanged: () => void;
-}) => {
-  const [members, setMembers] = useState<Member[] | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const load = useCallback(
-    () =>
-      request<{ members: Member[] }>(scopeMembersPath({ kind: "project", id: projectId }))
-        .then((body) => { setMembers(body.members); setLoadError(null); })
-        .catch((reason: unknown) => setLoadError(loadFailureMessage(classifyError(reason), projectNotFound))),
-    [projectId],
-  );
-  useEffect(() => { void load(); }, [load]);
-  const editable = manage && !readOnly;
-  return (
-    <section className="detail-section" aria-labelledby="member-heading">
-      <h2 id="member-heading">Member</h2>
-      <p className="section-note">このProjectを利用できるHumanです。{manage ? "Role変更・取消は次の操作から反映されます。" : "Memberの招待・Role変更はProjectのownerが行います。"}</p>
-      {loadError ? <ErrorState message={`Memberの読み込みに失敗しました: ${loadError}`} /> : members === null ? <Loading /> : (
-        <ul className="grant-list" aria-labelledby="member-heading">
-          {members.map((member) => <MemberRow key={member.membership.id} scope={{ kind: "project", id: projectId }} member={member} members={members} isSelf={member.human.id === currentHumanId} manage={editable} onChanged={() => (member.human.id === currentHumanId ? onSelfChanged() : void load())} />)}
-        </ul>
-      )}
-      {manage && <InvitationSection projectId={projectId} readOnly={readOnly} />}
     </section>
   );
 };

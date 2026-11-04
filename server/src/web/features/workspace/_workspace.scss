@@ -86,3 +86,6 @@
 .agent-intro p + p { margin-top: var(--space-2xs); }
 // 方向の過去の一覧で、リンクにしない項目。
 .plain-item { .past-intents & { @include list-item; } }
+
+// 開けない導線の代わりに出す理由（Projectが無い等）。
+.locked-note { color: var(--color-text-secondary); font-size: var(--text-note); line-height: 1.6; }

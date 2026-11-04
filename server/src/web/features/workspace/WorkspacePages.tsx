@@ -14,11 +14,11 @@ import { CredentialSection } from "../credential";
 import { DirectionPanel, loadDirection, loadOutcomeDetail } from "../direction";
 import { AgentSettingsSection } from "../grant";
 import { humanRoleLabels, WorkspaceMembershipSection, type HumanRole } from "../member";
-import { archiveInit, describeArchiveFailure, parseListStatus, projectsApiPath, ProjectListSwitch, summarizeReason, validateArchiveReason, type Project, type ProjectStatus } from "../project";
+import { archiveInit, describeArchiveFailure, parseListStatus, ProjectListSwitch, summarizeReason, validateArchiveReason, type ProjectStatus } from "../project";
 import { useWorkspaceNavigation } from "./WorkspaceContext";
 import { DirectionIntents, WorkspaceOutcomeDetail } from "./WorkspaceDirection";
 import { WorkspaceOverview } from "./WorkspaceOverview";
-import { chooseHomeWorkspace, withProjectAccess, workspaceSectionLabels, type Workspace, type WorkspaceProject } from "./workspace";
+import { chooseHomeWorkspace, workspaceSectionLabels, type Workspace, type WorkspaceProject } from "./workspace";
 import { loadProjects } from "./workspaceProjects";
 
 /** 読込の状態。`key`は取得対象（URLのID・status）で、入力が変わった最初のrenderから前の結果を出さない。 */
@@ -101,15 +101,13 @@ const useWorkspaceProjects = (workspaceId: string, status: ProjectStatus) =>
   useLoad(
     `${workspaceId}/${status}`,
     () =>
-      Promise.all([
-        request<{ projects: WorkspaceProject[] }>(workspaceApiPath(workspaceId, `/projects${status === "archived" ? "?status=archived" : ""}`)),
-        request<{ projects: Project[] }>(projectsApiPath(status)),
-      ]).then(([workspace, member]) => withProjectAccess(workspace.projects, new Set(member.projects.map(({ id }) => id)))),
+      request<{ projects: WorkspaceProject[] }>(workspaceApiPath(workspaceId, `/projects${status === "archived" ? "?status=archived" : ""}`))
+        .then(({ projects }) => projects),
     workspaceNotFound,
   );
 
 /**
- * Workspaceの管理（編集はadministrator以上、archiveはowner）。Workspace Membershipの`myRole`で導線を出し、Project Roleからは継承しない。
+ * Workspaceの管理（編集はadministrator以上、archiveはowner）。Workspace Membershipの`myRole`で導線を出す。
  * archiveすると一覧（Selector）から外れ、Directionの変更とProjectの追加ができなくなる。所属Projectのarchiveはしない。
  */
 const ManageSection = ({ workspace, myRole, reload }: { workspace: Workspace; myRole: HumanRole; reload: () => void }) => {
@@ -153,7 +151,7 @@ const OverviewContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
 
 /**
  * 方向。Mission・Vision、Intent（Active・過去）→ Outcome → Target Project別のWork、Principles・Constraints。いずれもWorkspaceが正本で、
- * Target別のStory・Taskは件数だけを出し、本文は各OutcomeのWorkspace詳細でProject Membershipにより読む。
+ * Target別のStory・Taskは件数だけを出し、本文は各OutcomeのWorkspace詳細で各ProjectのExecution閲覧から読む。
  */
 const DirectionContent = ({ workspace }: { workspace: Workspace }) => {
   const { value, error } = useLoad(workspace.id, () => Promise.all([loadDirection(workspace.id), settle(loadProjects(workspace.id), workspaceNotFound)]), workspaceNotFound);
@@ -173,7 +171,7 @@ const DirectionContent = ({ workspace }: { workspace: Workspace }) => {
 
 const outcomeNotFound = "Outcomeが見つからないか、このWorkspaceを閲覧する権限がありません。";
 
-/** WorkspaceのOutcome詳細。Outcome・Target別の還流・EvaluationはWorkspace Membership、Story・TaskはProject Membershipで読む。 */
+/** WorkspaceのOutcome詳細。Outcome・Target別の還流・Evaluationと、Target ProjectのStory・Taskを同じWorkspace Membershipで読む。 */
 const OutcomeContent = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
   const { intentId = "", outcomeId = "" } = useParams();
   const { value, error } = useLoad(`${workspace.id}/${intentId}/${outcomeId}`, () => Promise.all([loadOutcomeDetail(workspace.id, intentId, outcomeId, outcomeNotFound), settle(loadProjects(workspace.id), workspaceNotFound)]), outcomeNotFound);
@@ -181,10 +179,7 @@ const OutcomeContent = ({ workspace, myRole }: { workspace: Workspace; myRole: H
   return !value ? <Loading /> : <WorkspaceOutcomeDetail workspaceId={workspace.id} data={value[0]} projects={value[1]} canEdit={workspaceDirectionAccess(workspace, myRole) === "allowed"} />;
 };
 
-/**
- * WorkspaceのProject一覧。Workspace Membershipで所属Project全体を見られるが、Project詳細はProject Membershipで認可されるため、
- * Membershipの無いProjectはリンクにせず理由を出す。
- */
+/** WorkspaceのProject一覧。Workspace Memberは配下のすべてのProjectを同じRoleで開ける（ADR 0003）。 */
 const ProjectsContent = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
   const status = parseListStatus(useSearchParams()[0].get("status"));
   const { value, error } = useWorkspaceProjects(workspace.id, status);
@@ -200,24 +195,21 @@ const ProjectsContent = ({ workspace, myRole }: { workspace: Workspace; myRole: 
         <StateCard>{status === "archived" ? <p>アーカイブ済みのProjectはありません。</p> : workspace.status === "archived" ? <p>このWorkspaceにactiveなProjectはありません。アーカイブ済みのWorkspaceにはProjectを追加できません。</p> : canCreate ? <><p>このWorkspaceにactiveなProjectはまだありません。Missionを実現する実行の単位としてProjectを追加します。</p><Link to={workspaceProjectCreatePath(workspace.id)} className="text-link">Projectを追加 →</Link></> : <p>このWorkspaceにactiveなProjectはありません。WorkspaceへのProjectの追加はWorkspaceのadministratorが行います。</p>}</StateCard>
       ) : (
         <section className="project-grid" aria-label={`${value.length}件のProject`}>
-          {value.map(({ project, canOpen }) => {
-            const body = <><p className="card-label">Project</p><h2>{project.name}</h2>{project.description && <p>{project.description}</p>}{project.status === "archived" && <div className="mission-preview archive-preview"><span>アーカイブの理由</span>{summarizeReason(project.archiveReason)}</div>}{!canOpen && <p className="locked-note">Project Membershipが無いため詳細は開けません。Projectのownerに招待を依頼してください。</p>}<time>{new Date(project.updatedAt).toLocaleDateString("ja-JP")} 更新</time></>;
-            return canOpen ? <Link className="project-card" to={`/projects/${project.id}`} key={project.id}>{body}</Link> : <article className="project-card locked" key={project.id}>{body}</article>;
-          })}
+          {value.map((project) => (
+            <Link className="project-card" to={`/projects/${project.id}`} key={project.id}><p className="card-label">Project</p><h2>{project.name}</h2>{project.description && <p>{project.description}</p>}{project.status === "archived" && <div className="mission-preview archive-preview"><span>アーカイブの理由</span>{summarizeReason(project.archiveReason)}</div>}<time>{new Date(project.updatedAt).toLocaleDateString("ja-JP")} 更新</time></Link>
+          ))}
         </section>
       )}
     </>
   );
 };
 
-/**
- * 所属Projectのview（記録・設定）への導線。Project詳細はProject Membershipで認可するため、Membershipの無いProjectはリンクにせず理由を出す。
- */
+/** 所属Projectのview（記録・設定）への導線。 */
 const ProjectViewLinks = ({ workspace, view, hint }: { workspace: Workspace; view: "records" | "settings"; hint: string }) => {
   const { value, error } = useWorkspaceProjects(workspace.id, "active");
   return error ? <ErrorState message={`Projectの読み込みに失敗しました: ${error}`} /> : !value ? <Loading /> : value.length === 0 ? <p className="unset">activeなProjectはありません。</p> : (
     <ul className="link-list workspace-project-links">
-      {value.map(({ project, canOpen }) => <li key={project.id}>{canOpen ? <Link to={projectViewPath(project.id, view)}><span>{project.name}</span><small>{hint}</small></Link> : <p><span>{project.name}</span><small>Project Membershipが無いため開けません</small></p>}</li>)}
+      {value.map((project) => <li key={project.id}><Link to={projectViewPath(project.id, view)}><span>{project.name}</span><small>{hint}</small></Link></li>)}
     </ul>
   );
 };
@@ -239,7 +231,7 @@ const useWorkspaceResources = (workspaceId: string) => {
 };
 
 /**
- * 記録。WorkspaceのActivity（Directionの判断の履歴）と、各ProjectのActivity（Workの履歴）への導線。Project ActivityはProject Membershipで
+ * 記録。WorkspaceのActivity（Directionの判断の履歴）と、各ProjectのActivity（Workの履歴）への導線。Project ActivityもWorkspace Membershipで
  * 各Projectの「記録」から読み、Workspaceの一覧には混ぜない。
  */
 const ActivityContent = ({ workspace }: { workspace: Workspace }) => {
@@ -249,7 +241,7 @@ const ActivityContent = ({ workspace }: { workspace: Workspace }) => {
       {ready ? <ActivitySection scope={{ kind: "workspace", workspaceId: workspace.id }} resources={resources} /> : <Loading />}
       <section className="detail-section" aria-labelledby="workspace-project-activity-heading">
         <h2 id="workspace-project-activity-heading">Projectの記録</h2>
-        <p className="section-note">Story・Taskの起票・レビュー・受入などWorkの履歴は、Projectごとに記録されます。Project Membershipのあるactive Projectから開けます。</p>
+        <p className="section-note">Story・Taskの起票・レビュー・受入などWorkの履歴は、Projectごとに記録されます。各activeなProjectから開けます。</p>
         <ProjectViewLinks workspace={workspace} view="records" hint="Projectの記録を開く" />
       </section>
     </>
@@ -276,7 +268,7 @@ const AgentsContent = ({ workspace, myRole }: { workspace: Workspace; myRole: Hu
 
 /**
  * 設定。Workspace scopeのMember（Workspace Membership）・Direction Agent（Workspace Grant）・Workspace Credentialと、Project別の
- * アクセス（各Projectの設定）への導線。WorkspaceとProjectの権限は互いに継承しないため、ProjectのMember・Role割当・Credentialは
+ * アクセス（各Projectの設定）への導線。ProjectのAgentのRole割当・Credentialは
  * ここで変更しない。導線の表示は`myRole`で決め、拒否は常にserverが行う。
  */
 const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; myRole: HumanRole; reload: () => void }) => {
@@ -288,7 +280,7 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
   return (
     <>
       <div className="fixed-note">
-        <p>ここではWorkspace（Mission・Direction）を利用するHumanと、Directionを担うAgentを管理します。WorkspaceのRoleは所属ProjectのStory・Taskの権限を与えず、ProjectのRoleもWorkspaceの権限を与えません。</p>
+        <p>ここではWorkspaceと配下のすべてのProjectを利用するHumanと、Directionを担うAgentを管理します。HumanのRoleは配下のすべてのProjectに同じく適用されます。ProjectのAgent・Credentialは各Projectの設定で管理します。</p>
       </div>
       <WorkspaceMembershipSection
         key={myRole}
@@ -307,8 +299,8 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
       )}
       <section className="detail-section" aria-labelledby="workspace-project-access-heading">
         <h2 id="workspace-project-access-heading">Projectのアクセス</h2>
-        <p className="section-note">ProjectのMember・招待、Story・Taskを担うAgent（Manager・Worker・Reviewer）の割当とCredentialは、Projectごとの設定で管理します。Workspaceのowner・administratorでも、Project Membershipが無いProjectは開けません。</p>
-        <ProjectViewLinks workspace={workspace} view="settings" hint="Member・Agent・Credentialを開く" />
+        <p className="section-note">Story・Taskを担うAgent（Manager・Worker・Reviewer）の割当とCredentialは、Projectごとの設定で管理します。HumanのMemberとRoleは上のMemberで管理し、配下のすべてのProjectに適用されます。</p>
+        <ProjectViewLinks workspace={workspace} view="settings" hint="Agent・Credential・招待を開く" />
       </section>
     </>
   );

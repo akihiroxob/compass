@@ -2,7 +2,6 @@ import { KyselyConsultationStore } from "@compass/collaboration";
 import {
   listGrantedRoles,
   projectRoles,
-  writeProjectOwnerMembership,
   writeWorkspaceOwnerMembership,
   type AccessProjectReaders,
   type AccessWorkspaceReaders,
@@ -49,13 +48,12 @@ import {
   isProjectArchived,
   findArchivedProjectIds,
   isWorkspaceArchived,
-  listProjectIdsInCreationOrder,
   listWorkspaceIdsInCreationOrder,
   listWorkspaceProjectIds,
   listWorkspaceProjectResourceIds,
   projectExists,
   SQLiteProjectRepository,
-  type OwnerMembershipWriters,
+  type WorkspaceOwnerMembershipWriter,
   type ProjectChangeObserver,
   type ProjectRepositoryReferenceFinder,
 } from "@compass/organization";
@@ -125,13 +123,13 @@ export const workExternalReaders: WorkExternalReaders = (executor) => {
   };
 };
 
-/** AccessがMembership・Grant・Credentialの書込と同じtransactionで読む、Project状態（Organization）。 */
+/** AccessがGrant・Credential・招待の書込と同じtransactionで読む、Project状態と所属Workspace（Organization）。 */
 export const accessProjectReaders: AccessProjectReaders = (executor) => {
   const database = asOrganizationDatabase(executor);
   return {
     exists: (projectId) => projectExists(database, projectId),
     isArchived: (projectId) => isProjectArchived(database, projectId),
-    listIdsInCreationOrder: () => listProjectIdsInCreationOrder(database),
+    findWorkspaceId: (projectId) => findProjectWorkspaceId(database, projectId),
   };
 };
 
@@ -169,11 +167,9 @@ export const directionWorkspaceReaders: DirectionWorkspaceReaders = (executor) =
   isArchived: (workspaceId) => isWorkspaceArchived(asOrganizationDatabase(executor), workspaceId),
 });
 
-/** OrganizationのWorkspace・Project作成のtransactionで、作成者の初期owner Membership（Access）を書く。 */
-export const ownerMembershipWriters: OwnerMembershipWriters = {
-  project: (transaction, input) => writeProjectOwnerMembership(asAccessTransaction(transaction), input),
-  workspace: (transaction, input) => writeWorkspaceOwnerMembership(asAccessTransaction(transaction), input),
-};
+/** OrganizationのWorkspace作成（Projectと同時の作成を含む）のtransactionで、作成者の初期owner Membership（Access）を書く。 */
+export const workspaceOwnerMembershipWriter: WorkspaceOwnerMembershipWriter = (transaction, input) =>
+  writeWorkspaceOwnerMembership(asAccessTransaction(transaction), input);
 
 /** OrganizationがRepositoryを外すtransactionで、ADR Handoff Request/Reference（Direction）からの参照を読む。 */
 export const projectRepositoryReferenceFinder: ProjectRepositoryReferenceFinder = (transaction, repositoryIds) =>

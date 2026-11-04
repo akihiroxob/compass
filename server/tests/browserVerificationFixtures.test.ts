@@ -113,9 +113,14 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
           const research = await app.request(`${base}/research-requests/${scenario.researchRequestId}`, { headers: { Cookie: viewer } });
           assert.equal(research.status, 200);
         }
+        if (scenario.scenario === "no-target") {
+          assert.equal((await app.request(base, { headers: { Cookie: viewer } })).status, 404);
+        }
         if (scenario.projects.length) {
-          assert.equal((await app.request(`/api/projects/${scenario.projects[0]!.id}/execution`, { headers: { Cookie: viewer } })).status, 200);
-          assert.equal((await app.request(`/api/projects/${scenario.projects[1]!.id}/execution`, { headers: { Cookie: viewer } })).status, 404);
+          // viewerはWorkspace Membershipで配下のProject A・Bを同じRoleで参照する。
+          for (const project of scenario.projects) {
+            assert.equal((await app.request(`/api/projects/${project.id}/execution`, { headers: { Cookie: viewer } })).status, 200);
+          }
           const session = await app.request("/api/auth/session", { headers: { Cookie: viewer } });
           const { csrfToken } = await session.json();
           assert.equal((await app.request(base, { method: "PATCH", headers: {

@@ -89,6 +89,6 @@ export const Cards: Story = {
   parameters: { docs: { description: { story: "カードの一覧。内容の高さだけを持ち、親のgridが列数と間隔を決める。" } } },
   render: () => <section className="project-grid" aria-label="カードの例">
     <Link className="project-card" to="/p/1"><p className="card-label">Project</p><h2>カードA</h2><p>説明（fixture）</p><time>更新日</time></Link>
-    <article className="project-card locked"><p className="card-label">Project</p><h2>開けないカード</h2><p className="locked-note">Membershipが無い場合の表示</p><time>更新日</time></article>
+    <Link className="project-card" to="/p/2"><p className="card-label">Project</p><h2>カードB</h2><time>更新日</time></Link>
   </section>,
 };

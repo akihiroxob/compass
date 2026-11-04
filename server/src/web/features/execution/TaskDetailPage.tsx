@@ -7,7 +7,7 @@ import { ErrorState, Loading, StateCard } from "../../components/StateCard";
 import { Button, Field, LinkButton, TextArea } from "../../components/ui";
 import { consultationPath, projectViewPath, taskEditPath } from "../../paths";
 import { useProjectOperation, useProjectOperationState } from "../access";
-import { membersPath, type Member } from "../member";
+import { loadMemberNames } from "../member";
 import { TaskOutcomeSection } from "./TaskOutcomeSection";
 import { ChangeItem } from "./ExecutionSection";
 import { statusBadgeClass } from "../../statusTone";
@@ -250,8 +250,8 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
   // Human operatorの表示名。取得できなくても画面は出す（IDの先頭で表示する）。
   useEffect(() => {
     let current = true;
-    request<{ members: Member[] }>(membersPath(projectId))
-      .then(({ members }) => { if (current) setHumanNames({ projectId, names: new Map(members.map((member) => [member.human.id, member.human.displayName])) }); })
+    loadMemberNames({ kind: "project", projectId })
+      .then((names) => { if (current) setHumanNames({ projectId, names }); })
       .catch(() => undefined);
     return () => { current = false; };
   }, [projectId]);

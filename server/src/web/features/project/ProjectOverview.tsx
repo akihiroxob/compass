@@ -54,7 +54,7 @@ const notFound = "Projectが見つからないか、閲覧する権限があり�
 
 /**
  * 所属WorkspaceのDirectionの閲覧。`workspaceId`はWorkspace Membershipで閲覧できる場合だけ持ち、閲覧できない・取得に失敗した場合は理由を持つ。
- * DirectionはProject Membershipから継承しない。
+ * Directionも同じWorkspace Membershipで認可する。
  */
 export type OverviewDirectionAccess = { workspaceId: string } | { workspaceId: null; message: string };
 

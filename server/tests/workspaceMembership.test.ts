@@ -40,7 +40,7 @@ const bootstrapOwner = async (services: Services) => {
   return { ...result, actor: actorOf(result.human.id) };
 };
 
-/** ProjectのMemberとして招待・登録する（Workspace Memberの追加対象になる）。 */
+/** Projectから招待・登録する。受諾すると所属WorkspaceのMembership（配下の全Projectに同じRole）になる。 */
 const inviteToProject = async (services: Services, owner: HumanActor, projectId: string, email: string, role: HumanRole) => {
   const { token } = await services.createProjectInvitationUseCase.execute(owner, projectId, { email, role });
   const result = await login(services, google(`${email}-sub`, email), token);
@@ -94,37 +94,70 @@ test("Actor付きのProject・Workspace作成は作成者のowner Membershipを�
   await database.destroy();
 });
 
-test("Workspace Membershipの認可は未所属・別Workspace・存在しないWorkspaceを404、Role不足を403にし、権限表どおりに操作できる", async () => {
+test("Workspace MembershipのRole水準を配下の既存・新規Projectの参照・編集・管理に同じく適用し、別Workspaceは404にする", async () => {
   const { database, services } = await setup();
   const owner = await bootstrapOwner(services);
   const { project, workspaceId } = await createOwnedProject(services, owner.actor);
   const other = await createOwnedProject(services, owner.actor, "Other");
+  const sibling = await services.human.createWorkspaceProject.execute(owner.actor, workspaceId, { name: "Sibling" });
 
-  const actors: Record<Exclude<HumanRole, "owner">, HumanActor> = {
-    administrator: await inviteToProject(services, owner.actor, project.id, "admin@example.com", "viewer"),
-    editor: await inviteToProject(services, owner.actor, project.id, "editor@example.com", "viewer"),
-    viewer: await inviteToProject(services, owner.actor, project.id, "viewer@example.com", "owner"),
+  const actors: Record<HumanRole, HumanActor> = {
+    owner: owner.actor,
+    administrator: await inviteToProject(services, owner.actor, project.id, "admin@example.com", "administrator"),
+    editor: await inviteToProject(services, owner.actor, sibling.id, "editor@example.com", "editor"),
+    viewer: await inviteToProject(services, owner.actor, project.id, "viewer@example.com", "viewer"),
   };
-  // Project MemberであってもWorkspaceの権限は持たない（継承しない）。
-  for (const actor of Object.values(actors)) {
-    await assert.rejects(services.human.getWorkspace.execute(actor, workspaceId), rejectsWith("NOT_FOUND"));
-    assert.deepEqual((await services.human.listWorkspaces.execute(actor)).map(({ id }) => id), []);
-  }
-  for (const [role, actor] of Object.entries(actors)) {
-    await services.human.addWorkspaceMember.execute(owner.actor, workspaceId, { humanUserId: actor.humanUserId, role });
-  }
-
-  // 閲覧はviewer以上。別Workspace・存在しないWorkspaceは区別せず404。
-  assert.equal((await services.human.getWorkspace.execute(actors.viewer, workspaceId)).myRole, "viewer");
+  // 招待後に作ったProjectにも、追加操作なしで同じRoleが適用される。
+  const created = await services.human.createWorkspaceProject.execute(actors.administrator, workspaceId, {
+    name: "Created later",
+    mission: "ignored",
+  });
+  assert.equal(created.mission, "Alpha mission");
   assert.equal((await services.human.listWorkspaceMembers.execute(actors.viewer, workspaceId)).length, 4);
-  await assert.rejects(services.human.getWorkspace.execute(actors.viewer, other.workspaceId), rejectsWith("NOT_FOUND"));
-  await assert.rejects(services.human.getWorkspace.execute(actors.viewer, "missing"), rejectsWith("NOT_FOUND"));
-  await assert.rejects(
-    services.human.updateWorkspace.execute(actors.administrator, other.workspaceId, { vision: "x" }),
-    rejectsWith("NOT_FOUND"),
-  );
 
-  // Mission等の更新・Project作成はadministrator以上、archive・member管理はowner。
+  const authorization = services.humanProjectAuthorizationService;
+  const allowed = async (actor: HumanActor, projectId: string, operation: Parameters<typeof authorization.authorize>[2]) =>
+    authorization.authorize(actor, projectId, operation).then(() => true, (error: { code?: string }) => {
+      assert.equal(error.code, "FORBIDDEN");
+      return false;
+    });
+  // 参照はviewer、Work・Directionの編集はeditor、Project編集・Agent設定はadministrator、archive・招待はowner。
+  const expected: Record<HumanRole, Record<"project.read" | "execution.plan" | "project.update" | "grant.manage" | "project.archive", boolean>> = {
+    owner: { "project.read": true, "execution.plan": true, "project.update": true, "grant.manage": true, "project.archive": true },
+    administrator: { "project.read": true, "execution.plan": true, "project.update": true, "grant.manage": true, "project.archive": false },
+    editor: { "project.read": true, "execution.plan": true, "project.update": false, "grant.manage": false, "project.archive": false },
+    viewer: { "project.read": true, "execution.plan": false, "project.update": false, "grant.manage": false, "project.archive": false },
+  };
+  for (const [role, actor] of Object.entries(actors) as [HumanRole, HumanActor][]) {
+    for (const projectId of [project.id, sibling.id, created.id]) {
+      assert.equal((await services.human.getProject.execute(actor, projectId)).myRole, role);
+      for (const [operation, result] of Object.entries(expected[role]) as [keyof (typeof expected)[HumanRole], boolean][]) {
+        assert.equal(await allowed(actor, projectId, operation), result, `${role} ${operation} ${projectId}`);
+      }
+    }
+    assert.deepEqual(
+      (await services.human.listProjects.execute(actor)).map(({ id }) => id).sort(),
+      role === "owner" ? [project.id, sibling.id, created.id, other.project.id].sort() : [project.id, sibling.id, created.id].sort(),
+    );
+  }
+  // 実際のuse caseでも同じ水準で拒否・許可する。
+  await assert.rejects(
+    services.human.createExecutionStory.execute(actors.viewer, created.id, { title: "By viewer" }),
+    rejectsWith("FORBIDDEN", { requiredRole: "editor", projectId: created.id }),
+  );
+  assert.equal((await services.human.createExecutionStory.execute(actors.editor, created.id, { title: "By editor" })).title, "By editor");
+  assert.equal((await services.human.updateProject.execute(actors.administrator, sibling.id, { description: "Updated" })).description, "Updated");
+
+  // 別Workspace（Other）のProject・存在しないProjectは、どのRoleでも区別せず404。
+  for (const actor of [actors.administrator, actors.editor, actors.viewer]) {
+    for (const projectId of [other.project.id, "missing"]) {
+      await assert.rejects(services.human.getProject.execute(actor, projectId), rejectsWith("NOT_FOUND"));
+      await assert.rejects(services.human.listExecution.execute(actor, projectId), rejectsWith("NOT_FOUND"));
+    }
+    await assert.rejects(services.human.getWorkspace.execute(actor, other.workspaceId), rejectsWith("NOT_FOUND"));
+  }
+
+  // Workspace操作の権限表（Mission等の更新・Project作成はadministrator以上、archive・member管理はowner）。
   await assert.rejects(
     services.human.updateWorkspace.execute(actors.editor, workspaceId, { vision: "V" }),
     rejectsWith("FORBIDDEN", { requiredRole: "administrator", workspaceId }),
@@ -138,14 +171,11 @@ test("Workspace Membershipの認可は未所属・別Workspace・存在しない
     services.human.archiveWorkspace.execute(actors.administrator, workspaceId, { reason: "r" }),
     rejectsWith("FORBIDDEN", { requiredRole: "owner", workspaceId }),
   );
+  const viewerMembership = (await memberOf(services, owner.actor, workspaceId, actors.viewer.humanUserId))!.membership;
   await assert.rejects(
-    services.human.addWorkspaceMember.execute(actors.administrator, workspaceId, {
-      humanUserId: actors.viewer.humanUserId,
-      role: "owner",
-    }),
-    rejectsWith("FORBIDDEN"),
+    services.human.changeWorkspaceMemberRole.execute(actors.administrator, workspaceId, viewerMembership.id, { role: "owner" }),
+    rejectsWith("FORBIDDEN", { requiredRole: "owner", workspaceId }),
   );
-  // Direction管理（editor以上）の認可。Directionの入口はWorkspace scope化（Story 03）で接続する。
   await services.humanWorkspaceAuthorizationService.authorize(actors.editor, workspaceId, "direction.write");
   await assert.rejects(
     services.humanWorkspaceAuthorizationService.authorize(actors.viewer, workspaceId, "direction.write"),
@@ -154,60 +184,11 @@ test("Workspace Membershipの認可は未所属・別Workspace・存在しない
   await database.destroy();
 });
 
-test("Workspace memberの追加は所属ProjectのMemberに限り、Project Workの権限を自動で与えない", async () => {
+test("WorkspaceでのRole変更・除外は配下の全Projectへの次の操作から反映し、最後のWorkspace ownerの降格・除外はLAST_OWNERで拒否する", async () => {
   const { database, services } = await setup();
   const owner = await bootstrapOwner(services);
   const { project, workspaceId } = await createOwnedProject(services, owner.actor);
-  const other = await createOwnedProject(services, owner.actor, "Other");
-  const outsider = await inviteToProject(services, owner.actor, other.project.id, "outsider@example.com", "editor");
-
-  // 別WorkspaceのProject Member・存在しないHumanは区別せず404。入力の検証は400。
-  for (const humanUserId of [outsider.humanUserId, "missing"]) {
-    await assert.rejects(
-      services.human.addWorkspaceMember.execute(owner.actor, workspaceId, { humanUserId, role: "viewer" }),
-      rejectsWith("NOT_FOUND"),
-    );
-  }
-  await assert.rejects(
-    services.human.addWorkspaceMember.execute(owner.actor, workspaceId, { humanUserId: "", role: "guest" }),
-    rejectsWith("VALIDATION_ERROR"),
-  );
-
-  const member = await inviteToProject(services, owner.actor, project.id, "member@example.com", "viewer");
-  const added = await services.human.addWorkspaceMember.execute(owner.actor, workspaceId, {
-    humanUserId: member.humanUserId,
-    role: "editor",
-  });
-  assert.deepEqual([added.role, added.createdByHumanUserId], ["editor", owner.actor.humanUserId]);
-  await assert.rejects(
-    services.human.addWorkspaceMember.execute(owner.actor, workspaceId, { humanUserId: member.humanUserId, role: "viewer" }),
-    rejectsWith("CONFLICT", { conflict: "ALREADY_MEMBER" }),
-  );
-  // Workspaceのeditorになっても、ProjectのRoleはviewerのまま（Project Membershipを変えない）。
-  assert.equal((await services.human.getProject.execute(member, project.id)).myRole, "viewer");
-
-  // 既存WorkspaceへのProject作成。作成者はProjectのownerになるが、他のWorkspace memberはProjectへ入れない。
-  const created = await services.human.createWorkspaceProject.execute(owner.actor, workspaceId, {
-    name: "Second",
-    description: "Another execution boundary",
-    mission: "ignored",
-  });
-  assert.equal(created.mission, "Alpha mission");
-  assert.equal((await services.human.getProject.execute(owner.actor, created.id)).myRole, "owner");
-  await assert.rejects(services.human.getProject.execute(member, created.id), rejectsWith("NOT_FOUND"));
-  await assert.rejects(services.human.listExecution.execute(member, created.id), rejectsWith("NOT_FOUND"));
-  assert.equal((await services.human.listWorkspaceMembers.execute(owner.actor, workspaceId)).length, 2);
-  await assert.rejects(
-    services.human.createWorkspaceProject.execute(owner.actor, "missing", { name: "X" }),
-    rejectsWith("NOT_FOUND"),
-  );
-  await database.destroy();
-});
-
-test("最後のWorkspace ownerの降格・取消はLAST_OWNERで拒否し、取消したmemberはWorkspaceを参照できない", async () => {
-  const { database, services } = await setup();
-  const owner = await bootstrapOwner(services);
-  const { project, workspaceId } = await createOwnedProject(services, owner.actor);
+  const sibling = await services.human.createWorkspaceProject.execute(owner.actor, workspaceId, { name: "Sibling" });
   const ownerMembership = (await memberOf(services, owner.actor, workspaceId, owner.actor.humanUserId))!.membership;
 
   await assert.rejects(
@@ -219,26 +200,42 @@ test("最後のWorkspace ownerの降格・取消はLAST_OWNERで拒否し、取�
     rejectsWith("CONFLICT", { conflict: "LAST_OWNER" }),
   );
 
-  const second = await inviteToProject(services, owner.actor, project.id, "second@example.com", "viewer");
-  const secondMembership = await services.human.addWorkspaceMember.execute(owner.actor, workspaceId, {
-    humanUserId: second.humanUserId,
-    role: "owner",
-  });
+  const editor = await inviteToProject(services, owner.actor, project.id, "editor@example.com", "editor");
+  const editorMembership = (await memberOf(services, owner.actor, workspaceId, editor.humanUserId))!.membership;
+  await services.human.createExecutionStory.execute(editor, sibling.id, { title: "Before" });
+  // 降格すると、どのProjectでも次の操作から新しいRoleで認可する（Project側に古いRoleは残らない）。
+  await services.human.changeWorkspaceMemberRole.execute(owner.actor, workspaceId, editorMembership.id, { role: "viewer" });
+  for (const projectId of [project.id, sibling.id]) {
+    assert.equal((await services.human.getProject.execute(editor, projectId)).myRole, "viewer");
+    await assert.rejects(services.human.createExecutionStory.execute(editor, projectId, { title: "After" }), rejectsWith("FORBIDDEN"));
+  }
+  // 除外すると、配下の全ProjectとWorkspaceを参照できない。
+  await services.human.revokeWorkspaceMember.execute(owner.actor, workspaceId, editorMembership.id);
+  for (const projectId of [project.id, sibling.id]) {
+    await assert.rejects(services.human.getProject.execute(editor, projectId), rejectsWith("NOT_FOUND"));
+  }
+  assert.deepEqual(await services.human.listProjects.execute(editor), []);
+
+  const second = await inviteToProject(services, owner.actor, project.id, "second@example.com", "owner");
   // 他に有効なownerがいれば自己降格できる。別Workspace・取消済みのMembership IDは404。
   const demoted = await services.human.changeWorkspaceMemberRole.execute(owner.actor, workspaceId, ownerMembership.id, {
     role: "viewer",
   });
   assert.equal(demoted.role, "viewer");
+  await assert.rejects(services.human.archiveProject.execute(owner.actor, project.id, { reason: "r" }), rejectsWith("FORBIDDEN"));
   const revoked = await services.human.revokeWorkspaceMember.execute(second, workspaceId, ownerMembership.id);
   assert.equal(revoked.revokedByHumanUserId, second.humanUserId);
   await assert.rejects(services.human.getWorkspace.execute(owner.actor, workspaceId), rejectsWith("NOT_FOUND"));
+  await assert.rejects(services.human.getProject.execute(owner.actor, project.id), rejectsWith("NOT_FOUND"));
   await assert.rejects(
     services.human.revokeWorkspaceMember.execute(second, workspaceId, ownerMembership.id),
     rejectsWith("NOT_FOUND"),
   );
-  // Workspaceの取消はProject Membershipに影響しない（Projectのowner・last-owner保護はそのまま）。
-  assert.equal((await services.human.getProject.execute(owner.actor, project.id)).myRole, "owner");
-  assert.equal(secondMembership.role, "owner");
+  const secondMembership = (await memberOf(services, second, workspaceId, second.humanUserId))!.membership;
+  await assert.rejects(
+    services.human.revokeWorkspaceMember.execute(second, workspaceId, secondMembership.id),
+    rejectsWith("CONFLICT", { conflict: "LAST_OWNER" }),
+  );
   await database.destroy();
 });
 
@@ -247,19 +244,11 @@ test("archivedのWorkspaceは参照できるが、Membershipの変更とProject�
   const owner = await bootstrapOwner(services);
   const { project, workspaceId } = await createOwnedProject(services, owner.actor);
   const member = await inviteToProject(services, owner.actor, project.id, "member@example.com", "viewer");
-  const membership = await services.human.addWorkspaceMember.execute(owner.actor, workspaceId, {
-    humanUserId: member.humanUserId,
-    role: "viewer",
-  });
-  const another = await inviteToProject(services, owner.actor, project.id, "another@example.com", "viewer");
+  const membership = (await memberOf(services, owner.actor, workspaceId, member.humanUserId))!.membership;
   await services.human.archiveWorkspace.execute(owner.actor, workspaceId, { reason: "Done" });
   const before = await database.selectFrom("workspace_membership").selectAll().orderBy("id").execute();
 
   const archived = rejectsWith("CONFLICT", { workspaceStatus: "archived" });
-  await assert.rejects(
-    services.human.addWorkspaceMember.execute(owner.actor, workspaceId, { humanUserId: another.humanUserId, role: "viewer" }),
-    archived,
-  );
   await assert.rejects(
     services.human.changeWorkspaceMemberRole.execute(owner.actor, workspaceId, membership.id, { role: "editor" }),
     archived,
@@ -270,20 +259,22 @@ test("archivedのWorkspaceは参照できるが、Membershipの変更とProject�
   assert.equal((await database.selectFrom("project").select("id").execute()).length, 1);
 
   assert.equal((await services.human.getWorkspace.execute(member, workspaceId)).workspace.status, "archived");
+  assert.equal((await services.human.getProject.execute(member, project.id)).myRole, "viewer");
   assert.deepEqual((await services.human.listWorkspaces.execute(member)).map(({ id }) => id), []);
   assert.deepEqual((await services.human.listWorkspaces.execute(member, "archived")).map(({ id }) => id), [workspaceId]);
   await database.destroy();
 });
 
-test("owner不在のWorkspaceはplatform ownerのログインでProjectと同じく補完し、補完は冪等", async () => {
+test("owner不在のWorkspaceはplatform ownerのログインで補完し、配下Projectも同じMembershipで利用でき、補完は冪等", async () => {
   const { database, services } = await setup();
   // Actorなし（MCP・CLI）で作られたProjectとWorkspaceはowner不在。
   const project = await services.createProjectUseCase.execute({ name: "Orphan", mission: "M" });
   const workspace = await services.human.createWorkspace.execute({ name: "Empty", mission: "M" });
 
   const owner = await bootstrapOwner(services);
-  assert.deepEqual(owner.adoptedProjectIds, [project.id]);
   assert.equal(owner.adoptedWorkspaceIds.length, 2);
+  assert.ok(owner.adoptedWorkspaceIds.includes(project.workspaceId));
+  assert.equal((await services.human.getProject.execute(owner.actor, project.id)).myRole, "owner");
   assert.ok(owner.adoptedWorkspaceIds.includes(workspace.id));
   for (const workspaceId of owner.adoptedWorkspaceIds) {
     const membership = await services.humanWorkspaceAuthorizationService.requireWorkspaceRole(owner.actor, workspaceId, "owner");
