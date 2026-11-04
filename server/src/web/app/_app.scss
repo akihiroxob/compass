@@ -1,4 +1,4 @@
-// appの画面合成（未定義のURLの画面、sidebarの参加中のProjectへのリンク）。
+// appの画面合成（未定義のURLの画面、メニューの下端のWorkspaceを横断する入口）。
 @use "../styles/mixins" as *;
 
 .not-found {
@@ -9,5 +9,5 @@
   color: var(--color-text-secondary);
   font-size: var(--text-note);
   font-weight: 700;
-  @include narrow { .app-sidebar-footer & { display: none; } }
+  @include narrow { display: flex; align-items: center; min-height: var(--control-icon-size); }
 }

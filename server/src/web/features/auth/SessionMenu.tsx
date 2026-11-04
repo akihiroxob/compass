@@ -2,7 +2,18 @@ import { useState } from "react";
 import { useSession } from "./SessionContext";
 import { Button } from "../../components/ui";
 
-/** ログイン中だけ、Humanの表示名とlogoutを出す。logoutの失敗はその場に表示する。 */
+const initial = (displayName: string) => Array.from(displayName.trim())[0] ?? "?";
+
+/** 狭い画面のheaderに置く名前アイコン（表示名の先頭の文字）。表示名・logoutはメニューのSessionMenuにある。 */
+export const SessionAvatar = () => {
+  const session = useSession();
+  if (!session) return null;
+  return <span className="session-avatar" role="img" aria-label={`${session.human.displayName}でログイン中`} title={session.human.email}>{initial(session.human.displayName)}</span>;
+};
+
+/**
+ * ログイン中だけ、Humanの名前アイコン（表示名の先頭の文字）・表示名とlogoutを出す。logoutの失敗はその場に表示する。
+ */
 export const SessionMenu = () => {
   const session = useSession();
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +31,8 @@ export const SessionMenu = () => {
   };
   return (
     <div className="session-menu">
-      <span title={session.human.email}>{session.human.displayName}</span>
+      <span className="session-avatar" aria-hidden="true">{initial(session.human.displayName)}</span>
+      <span className="session-name" title={session.human.email}>{session.human.displayName}</span>
       <Button variant="secondary" size="sm" pending={pending} onClick={() => void logout()}>
         {pending ? "ログアウト中..." : "ログアウト"}
       </Button>

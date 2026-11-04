@@ -34,6 +34,7 @@ export const States: Story = {
     <Field label="説明のエラー"><TextArea aria-invalid="true" aria-label="説明のエラー" /></Field>
     <Field label="無効な選択"><Select disabled><option>選択できません</option></Select></Field>
     <Field label="選択のエラー"><Select aria-invalid="true"><option>選択してください</option></Select></Field>
+    <Field label="長い選択肢（矢印と文字の領域を分ける）"><Select defaultValue="long"><option value="long">とても長いWorkspaceの名前で、矢印の手前で省略されることを確認する選択肢</option></Select></Field>
     <Fieldset legend="無効な選択肢" disabled><Checkbox defaultChecked>チェック済み</Checkbox><Checkbox>未チェック</Checkbox></Fieldset>
   </div>,
 };

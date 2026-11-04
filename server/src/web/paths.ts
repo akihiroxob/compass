@@ -50,8 +50,12 @@ export const workspaceProjectsPath = (workspaceId: string, status: "active" | "a
   `${workspacePath(workspaceId, "projects")}${status === "archived" ? "?status=archived" : ""}`;
 
 /** Project詳細のview。`?view=`で表し、再読込・共有・戻るで同じviewへ戻る。 */
-export const projectViews = ["overview", "direction", "work", "consultations", "records", "settings"] as const;
+export const projectViews = ["overview", "work", "releases", "settings", "direction", "consultations", "records"] as const;
 export type ProjectView = (typeof projectViews)[number];
+
+/** メニューでProject名の下に一段下げて並べるview（概要・開発詳細・リリース履歴・設定）。ほかのviewは各画面の導線から開く。 */
+export const projectMenuViews = ["overview", "work", "releases", "settings"] as const satisfies readonly ProjectView[];
+export type ProjectMenuView = (typeof projectMenuViews)[number];
 
 /** viewのURL。`hash`はview内の要素（Task・Role行など）のid。 */
 export const projectViewPath = (projectId: string, view: ProjectView, hash?: string) =>

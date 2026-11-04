@@ -23,8 +23,8 @@
 | 起動 | `app/main.tsx` | `index.html`の入口。`StrictMode`・`BrowserRouter`・全体のstyle（`app/main.scss`）を読み、`App`を描画する |
 | routing | `app/App.tsx` | 全routeを定義し、各Featureの画面を公開入口から割り当てる。`/login`・`/invite`は`PublicLayout`、それ以外（未定義のURLの`NotFoundPage`を含む）は`AuthenticatedLayout`の子route |
 | Session無しの枠 | `app/AppLayout.tsx`の`PublicLayout` | Shellのheaderに`SessionMenu`（auth）だけを出す。Session復元中・接続失敗は、同じ枠（`PublicFrame`）を`AuthGate`の`layout`として渡して表示する |
-| ログイン後の枠 | `app/AppLayout.tsx`の`AuthenticatedLayout` | `AuthGate`（auth。Sessionの復元・未ログイン時のログイン画面への移動）→ `WorkspaceNavigationProvider`（workspace。URLから現在のWorkspace）→ Shellの順に合成し、Shellの`navigation`へ`WorkspaceSwitcher`・`WorkspaceNav`、`footer`へ参加中のProject、`session`へ`SessionMenu`を渡す。画面は`Outlet`へ描画する |
-| 枠の表示 | `components/Shell.tsx` | brand・sidebar・本文の配置とskip linkだけを持つ表示部品。`navigation`を渡すとsidebar、省略するとheaderだけになる |
+| ログイン後の枠 | `app/AppLayout.tsx`の`AuthenticatedLayout` | `AuthGate`（auth。Sessionの復元・未ログイン時のログイン画面への移動）→ `WorkspaceNavigationProvider`（workspace。URLから現在のWorkspace）→ Shellの順に合成し、Shellの`switcher`へ`WorkspaceSwitcher`、`navigation`へ`WorkspaceNav`・`WorkspaceProjectNav`、`footer`へ横断した判断待ち・参加中のProject・Workspaceの作成、`session`へ`SessionMenu`、`account`へ`SessionAvatar`を渡す。画面は`Outlet`へ描画する |
+| 枠の表示 | `components/Shell.tsx` | 上端のheader（brand・Session）・メニュー・本文の配置とskip linkだけを持つ表示部品。`navigation`を渡すとDesktopは左のメニュー、狭い画面（700px以下）はheaderの名前アイコン（`account`）の右のメニューボタンから右端の`Dialog`で同じメニューと`session`を開く。省略するとheaderだけになる |
 | 認可ゲート | `features/access/`の`ProjectOperationGate`・`WorkspaceDirectionGate` | 作成・編集の画面を直接開いたときに操作できなければ、フォームの代わりに理由と戻り先を出す。枠はroute layoutが持つ |
 
 Featureの画面は`<main>`から始まる本文だけを返し、Shell・Providerを自分で包まない。ログイン後の画面間の移動ではShellとProviderを保持し、本文だけを差し替える。
@@ -58,8 +58,10 @@ Feature内のfileは自身の`index`を経由せず内部fileを直接参照す�
 | `Field` | `label`・`required`（「必須」の表示）・`description`（説明）・`labelHidden`（読み上げだけのlabel）・`layout`（`stack`既定・`inline`）・`children`（入力部品1つ） | 入力を包む`<label class="field">`。説明もlabelに含めて読み上げる |
 | `TextInput` | `<input>`の標準属性とref（`className`・`style`・`size`を除く）、`type`（`text`既定・`email`・`url`・`search`・`password`・`number`・`tel`）・`size` | `<input class="input">`。`required`で`aria-required="true"`も付く |
 | `TextArea` | `<textarea>`の標準属性とref（`className`・`style`を除く） | `<textarea class="textarea">`。高さは`rows` |
-| `Select` | `<select>`の標準属性とref（`className`・`style`・`size`・`multiple`を除く）、`size`。選択肢は`<option>`・`<optgroup>`を子に渡す | `<select class="select">` |
+| `Select` | `<select>`の標準属性とref（`className`・`style`・`size`・`multiple`を除く）、`size`。選択肢は`<option>`・`<optgroup>`を子に渡す | `<select class="select">`。nativeの矢印を消し、共通の矢印を右端から`--field-select-arrow-inset`（14px）内側に描き、右paddingを`--field-select-padding-right`（42px）にして文字と矢印の領域を分ける |
 | `Checkbox` | `<input type="checkbox">`の標準属性とref、`children`（label） | `<label class="checkbox">`で包んだcheckbox |
+| `IconButton` | `<button>`の標準属性とref（`className`・`style`・`children`・`aria-label`を除く）、`icon`（`close`・`menu`）・`label`（読み上げ名、必須） | `<button class="icon-button" aria-label>`とSVGのアイコン。操作領域は`--control-icon-size`（44px）の正方形 |
+| `Dialog` | `open`・`onClose`・`title`（読み上げ名。`header`が無ければ見出し）・`header`（×と同じ行に置く内容）・`placement`（`center`既定・`end`）・`id`・`children` | nativeの`<dialog class="dialog">`を`showModal`で開く。右上の×（`IconButton`、読み上げ名「閉じる」）・Escape・背景のclickで`onClose`を呼び、閉じた後は開いた操作へfocusを戻す。文字の「閉じる」ボタンは置かない。`end`は右端の全高 |
 | `Fieldset` | `<fieldset>`の標準属性とref（`className`・`style`を除く）、`legend`・`required`（`true`で「必須」、文字列でその文言）・`children`（複数の入力部品） | `<fieldset class="fieldset">`と`<legend>`。`Field`と同じ必須表示 |
 
 URLで表す遷移と表示切替はリンクのままにし、新しいタブ・戻る・再読込でも同じ表示になる。部品は外側余白・幅・配置を持たないため、`className`・`style`を受け取らない。
@@ -81,10 +83,13 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 | 画面へ移るボタンの見た目の導線（作成・編集・ホームへ・別タブでログイン） | `LinkButton`（`target="_blank"`等の`Link`のpropsを渡せる） |
 | 一覧の表示の切替（status・絞り込み） | `ViewSwitch` |
 | 本文・一覧・カードの中のリンク、戻る・パンくず | 通常の`Link`（`text-link`・`back-link`・`breadcrumb`・カードのclass）。ボタンにしない |
-| 画面の間のナビゲーション（Workspaceのナビゲーション・Project詳細のview） | `nav`内の`Link`。Workspaceのナビゲーションは`nav-link` mixin（選択中はブランドの面）、Project詳細のviewは下線のタブ（`.project-view-nav`）。`aria-current="page"`で現在地を示す。表示切替の部品にしない |
+| 画面の間のナビゲーション（Workspaceのメニュー・Projectの階層） | `nav`内の`Link`。`nav-link` mixin（選択中はブランドの面）で`aria-current="page"`、開いているProjectは`aria-current="location"`。Project詳細に上部のタブは置かない。表示切替の部品にしない |
+| モーダル | `Dialog`。閉じる操作は右上の×だけ |
 | 開閉する詳細（Role定義・過去のIntent等） | `details`・`summary` |
 
-`<button>`の個別の例外は、Workspaceの切替のdialogを開くカード（`features/workspace/WorkspaceSwitcher.tsx`の`workspace-switch`）だけとする。現在のWorkspaceの名前を示すWorkspace固有の表示で、操作ボタンのsize契約を持たないため。
+`<button>`の個別の例外は置かない（`uiButtonExceptions`は空）。Workspaceの切替は`Select`を使う。
+
+個別の対象（Story・Repository等）に紐づく操作はその対象のカード・区画の中、ページ全体の操作（追加・再読込等）はページ上部に置き、操作だけの独立した区画を作らない。
 
 ### フォームの組立て
 
@@ -122,7 +127,7 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 | 文字の階層 | h1 32px/44・h2（区画の見出し）18px・h3 16px（700）、本文14px/1.6、注記13px、ラベル12px（固定のラベルは大文字・字間.08em。Workspace名等の実データを含むeyebrowは大文字へ変換しない） | `--text-h1`〜`--text-label`・`--line-height-*` |
 | 余白・密度 | 4px基準の`--space-*`（4/8/12/16/24/36px）。区画のpaddingは24px（狭い画面16px）、区画の間・列の間は16px、見出しの下の要素は8〜12px、本文上端は36px | `--space-*` |
 | 一覧 | 行ごとに囲まず、区画の白い面の中で罫線（`--color-line-soft`）と内側余白12px/8pxで区切る。行全体のリンクはhoverで淡い青灰色の面にする。囲みは区画・カード・入力の組・会話の発言だけが持つ | `list-item`・`list-link`・`divided-list`（`_mixins.scss`） |
-| 画面の構成 | Mission・Visionをブランドの濃い面の帯（`DirectionPanel`）で本文より先に置き、概要とTask詳細は主列（次の行動・要対応・現在地・履歴）と補助列（境界・件数・担当・管理）の2列にする。Projectのview切替は下線のタブで、sidebarのナビゲーション（ブランドの面）・表示切替（`ViewSwitch`）と区別する | `PageColumns`・`.direction-panel`・`.project-view-nav` |
+| 画面の構成 | Mission・Visionをブランドの濃い面の帯（`DirectionPanel`）で本文より先に置き、概要とTask詳細は主列（次の行動・要対応・現在地・履歴）と補助列（境界・件数・担当・管理）の2列にする。Projectのviewはメニューの階層で切り替え、表示切替（`ViewSwitch`）と区別する | `PageColumns`・`.direction-panel` |
 | 角丸 | 操作・入力は6px、入力の組・Story card 8px、区画・Projectカード・帯10px。pillは状態badgeだけ（文字は大文字へ変換しない） | `--control-radius`・`--radius-*` |
 
 操作部品の状態は次のとおり。disabledは`--control-disabled-opacity`で薄くし、hoverを変化させない。pendingは`Button`だけが持ち、disabledと`aria-busy="true"`・`cursor: progress`、文言は利用側が切り替える。focusはすべての操作・入力で`--focus-ring`（3px・offset 2px）の実線を出す。
@@ -160,12 +165,12 @@ Sassの入口は`app/main.scss`（`app/main.tsx`が読む）で、共有 → 部
 | 共有 | `styles/_tokens.scss`・`_mixins.scss` | CSS変数のトークン（`:root`）・breakpoint、mixin（`control-size`・`control-shape`・`heading`・`nav-link`・`list-link`等） |
 | 共有 | `styles/_base.scss` | reset・要素の既定値（`main`の幅、`fieldset`、焦点表示、`details`の開閉、reduced-motion）。要素へのselectorはここだけ |
 | 共有 | `styles/_layout.scss` | 複数のFeature・appが使うlayout・区画・操作列（`.action-row`・`.list-toolbar`・`.form-actions`）・一覧・カード・文字の型・状態badge |
-| 基本部品 | `components/ui/_button.scss`・`_view-switch.scss`・`_field.scss` | Button・LinkButton・ViewSwitch・Field・Fieldset・入力部品の内側の見た目と状態 |
+| 基本部品 | `components/ui/_button.scss`・`_view-switch.scss`・`_field.scss`・`_icon-button.scss`・`_dialog.scss` | Button・LinkButton・ViewSwitch・Field・Fieldset・入力部品・IconButton・Dialogの内側の見た目と状態 |
 | 組合せUI | `components/_shell.scss`・`_state-card.scss`・`_reason-panel.scss`・`_list-inputs.scss`・`_page-columns.scss` | Shell・StateCard・ConfirmPanel・ListInputs・PageColumnsの見た目 |
-| app | `app/_app.scss` | 未定義のURLの画面、sidebarの横断した判断待ち・参加中のProjectへのリンク |
+| app | `app/_app.scss` | 未定義のURLの画面、メニューの下端の横断した判断待ち・参加中のProject・Workspaceの作成へのリンク |
 | Feature | `features/<機能>/_<機能>.scss` | そのFeatureだけが使うclass（Shellのslotに置くSession・Workspaceの切替/ナビゲーションの見た目を含む） |
 
-1つのFeatureだけが使うclassはそのFeatureのpartialへ、2つ以上のFeature・appが使うclassは`styles/_layout.scss`へ置く。利用側の文脈による調整（例: `.app-sidebar .session-menu`）は、調整されるclassを所有するpartialに書く。
+1つのFeatureだけが使うclassはそのFeatureのpartialへ、2つ以上のFeature・appが使うclassは`styles/_layout.scss`へ置く。利用側の文脈による調整（例: `.app-menu-footer .session-menu`）は、調整されるclassを所有するpartialに書く。
 
 ## 構造検査（`npm run check:ui`）
 
@@ -174,7 +179,7 @@ rootの`npm run check:ui`は`server`の同名scriptへ委譲し、検査自体�
 - 依存方向（web全体の`.ts`・`.tsx`）: 共通層からFeature・app、Featureからappへの依存がない。他Featureへは`features/<機能>/index.ts(x)`・`model.ts`の公開入口だけを使う。Feature内から自身の`index`を経由しない。`model.ts`から`.tsx`へ推移的に辿れない。公開入口を経由したものを含め、Feature間の依存が循環しない（循環の各辺のimportを示す）。`import`・`export ... from`（型だけを含む）・文字列の`import()`・`require()`・`import("x")`型を、TypeScriptのbundler解決とweb tsconfigの`paths`で実際のfileへ解決して判定するため、alias・再exportの経由も検出する。web内で解決できないlocal importと文字列でない`import()`は失敗にする。app・Feature・共通層のいずれかのsourceが無い（空走査）と失敗する。
 - `components/ui`: Feature・app等への依存がない。
 - コントラスト（`tests/uiTokens.test.ts`）: [視覚方針](#視覚方針)の色の組合せがWCAG AAの基準を満たし、ブランド色と状態色が別の値である。
-- 操作・入力（`components/ui`を除くweb全体の`.tsx`）: nativeの`<button>`・`<input>`・`<textarea>`・`<select>`を使わない。例外は`<input type="hidden">`（ログインのform POSTで`returnTo`・招待tokenを運ぶ）と、上記の`<button className="workspace-switch">`だけで、例外の対象が見つからなければ失敗する。基本部品へ`className`・`style`を渡さない。`.list-toolbar`内に`a`・`Link`・`NavLink`・`button`を直接置かず、部品はすべて同じ`size`を文字列で指定する。
+- 操作・入力（`components/ui`を除くweb全体の`.tsx`）: nativeの`<button>`・`<input>`・`<textarea>`・`<select>`を使わない。例外は`<input type="hidden">`（ログインのform POSTで`returnTo`・招待tokenを運ぶ）だけ。`<button>`の個別の例外（`uiButtonExceptions`）は対象が見つからなければ失敗する。基本部品へ`className`・`style`を渡さない。`.list-toolbar`内に`a`・`Link`・`NavLink`・`button`を直接置かず、部品はすべて同じ`size`を文字列で指定する。
 - size契約（SCSS）: `control-size`の全宣言（補間`#{$size}`を含む）の値が`0`か`--control-*`トークンだけで、`min-height`・`padding`・`font-size`を定め、md・smのトークンが定義されている。表示切替・入力・文字だけのボタンの部品と`.list-toolbar`内のbutton類に外側余白を持たせない。`.input`・`.textarea`・`.select`・`.text-button`・`.button`・`.secondary-button`のsizeは、どのselectorからも`0`か`--control-*`・`--field-*`トークンだけで指定する。`.list-switch`のselectorを使わない（表示切替は`ViewSwitch`）。
 - classの所有（SCSSとTSX）: 入れ子と`&`を展開したselectorが定義するclassごとに、定義するpartialは1つだけ。部品・組合せUIのclassへ所有partialの外から指定できるのは配置（幅・flex・grid・字体。組合せUIには外側余白も）だけ。`styles/_base.scss`・`_tokens.scss`以外の最上位のselectorはclassから始める。部品・組合せUI・app・Featureのpartialのclassはその所有者のsource（`className`と、class名を組み立てる式の文字列。attributeに渡したslotのJSXを含む）だけが使い、`styles/`の共有classは2つ以上の所有者が使う。どこからも使わないclassを残さない。
 - 旧視覚表現（`checkLegacyVisuals`）: `--radius-pill`は`.status-badge`だけ、`transform`（hoverで持ち上げる動き）は使わない、`text-transform: uppercase`は`caps-label` mixinだけで指定する。

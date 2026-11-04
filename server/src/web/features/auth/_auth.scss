@@ -2,17 +2,47 @@
 @use "../../styles/mixins" as *;
 
 .session-menu {
+  position: relative;
+  .app-menu-footer & { justify-content: flex-start; }
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
+  min-width: 0;
   font-size: var(--text-note);
-  > span:first-child { color: var(--color-text-secondary); font-weight: 700; }
-  .app-sidebar & { justify-content: flex-start; }
-  @include narrow { > span:first-child { display: none; } }
 }
-.session-menu-error { flex-basis: 100%; color: var(--color-danger); text-align: right; }
+.session-avatar {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  color: var(--color-brand);
+  background: var(--color-brand-soft);
+  font-weight: 700;
+}
+.session-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+// headerの高さを変えないよう、Sessionの下に重ねて出す。
+.session-menu-error {
+  position: absolute;
+  top: calc(100% + var(--space-xs));
+  right: 0;
+  z-index: 1;
+  width: min(20rem, 80vw);
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-danger-line);
+  border-radius: var(--radius-sm);
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
 .session-banner {
   position: sticky;
   top: 0;

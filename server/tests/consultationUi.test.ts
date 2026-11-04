@@ -43,8 +43,8 @@ test("判断待ちはProject詳細のviewで、絞り込みの既定はHumanの�
   assert.equal(consultationApiPath(project, "c1", "/resolution"), "/api/projects/p1/consultations/c1/resolution");
 });
 
-test("Workspace相談はWorkspaceの「判断待ち」とWorkspace配下の詳細で、Web APIもWorkspaceのpath", () => {
-  assert.equal(workspaceSectionLabels.consultations, "判断待ち");
+test("Workspace相談はWorkspaceの「対応待ち」とWorkspace配下の詳細で、Web APIもWorkspaceのpath", () => {
+  assert.equal(workspaceSectionLabels.consultations, "対応待ち");
   assert.equal(consultationListPath(workspace), "/workspaces/w1/consultations");
   assert.equal(consultationDetailPath(workspace, "c1"), "/workspaces/w1/consultations/c1");
   assert.equal(consultationDetailPath(project, "c1"), "/projects/p1/consultations/c1");

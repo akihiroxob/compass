@@ -100,6 +100,13 @@ $breakpoint-narrow: 700px;
   --field-disabled-background: var(--color-subtle);
   --field-readonly-background: var(--color-note);
   --control-disabled-opacity: .55;
+  // アイコンだけのボタン（components/uiのIconButton。閉じる×・メニュー）の操作領域。タップ・クリックの目標は44px以上にする。
+  --control-icon-size: 2.75rem;
+  // Selectの下矢印。右端から`inset`内側に置き、文字の領域は右paddingで矢印と分ける（ページごとに位置を調整しない）。
+  --field-select-arrow-inset: .875rem;
+  --field-select-arrow-size: .3125rem;
+  --field-select-padding-right: 2.625rem;
+  --field-select-arrow-color: var(--color-text-muted);
 
   // 角丸・影。pill（`--radius-pill`）は状態badgeだけに使う。
   --radius-sm: .375rem;

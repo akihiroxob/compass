@@ -254,7 +254,7 @@ export const WorkspaceOverview = ({ workspace, myRole, manage }: { workspace: Wo
         <h2 id="workspace-position-heading">現在地</h2>
         {data.direction.ok ? <CurrentPosition workspaceId={workspace.id} direction={data.direction.value} projects={data.projects} /> : <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${data.direction.error}`} />}
         {outcomes && outcomes.length > 0 && <p className="section-note">Taskの件数は状態だけを数えたもので、Agentの稼働やClaimの有効性を示しません。Claimの状況は各Projectの概要で確認します。</p>}
-        <Link to={workspacePath(workspace.id, "direction")} className="text-link">方向を開く →</Link>
+        <Link to={workspacePath(workspace.id, "direction")} className="text-link">Outcomeを開く →</Link>
       </section>
       <section className="detail-section" aria-labelledby="workspace-recent-heading">
         <h2 id="workspace-recent-heading">最近の記録</h2>
@@ -271,7 +271,7 @@ export const WorkspaceOverview = ({ workspace, myRole, manage }: { workspace: Wo
       <section className="detail-section" aria-labelledby="workspace-overview-agents-heading">
         <h2 id="workspace-overview-agents-heading">Agent</h2>
         <p className="section-note">Agentの稼働状況は、この画面では判断しません。Role割当・Credential・Claimは稼働を示さないため、担当待ちは「要対応」に、Role割当・Credential・保持中のClaimはAgent画面に出します。</p>
-        <Link to={workspacePath(workspace.id, "agents")} className="text-link">Agentを開く →</Link>
+        <Link to={workspacePath(workspace.id, "agents")} className="text-link">Agent管理を開く →</Link>
       </section>
       {manage}
     </>
