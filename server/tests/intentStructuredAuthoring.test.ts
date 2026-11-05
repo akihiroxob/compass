@@ -139,6 +139,11 @@ test("Workspace EditorのWeb APIとStrategistの公開MCPが同じ構造化Inten
     assert.deepEqual(intentActivities.map((activity) => [activity.type, activity.principalId, activity.role]), [
       ["intent.created", `human:${editor.humanUserId}`, "operator"],
     ]);
+    const second = await callTool(kit.remoteApp, tokens.strategist, "create_intent", { workspaceId: workspace.id, title: "第二の目標", desiredState: "別の状態" }, "strategist");
+    assert.equal(second.isError, undefined);
+    assert.equal(second.structuredContent.status, "active");
+    const both = await callTool(kit.remoteApp, tokens.strategist, "list_intents", { workspaceId: workspace.id }, "strategist");
+    assert.deepEqual(both.structuredContent.intents.map((item: Json) => item.id), [second.structuredContent.id, intent.id]);
     await kit.database.destroy();
 
     // 同じDB fileを開き直した新しいServerでも、全項目が保持される。
@@ -147,7 +152,7 @@ test("Workspace EditorのWeb APIとStrategistの公開MCPが同じ構造化Inten
       const afterRestart = ((await (await requestAs(restarted.webApp, editor)(`/api/workspaces/${workspace.id}/intents/${intent.id}`)).json()) as { intent: Json }).intent;
       assert.deepEqual(afterRestart, viaWeb);
       const mcpAfterRestart = await callTool(restarted.remoteApp, tokens.strategist, "list_intents", { workspaceId: workspace.id }, "strategist");
-      assert.deepEqual(mcpAfterRestart.structuredContent.intents, [viaWeb]);
+      assert.deepEqual(mcpAfterRestart.structuredContent.intents, [second.structuredContent, viaWeb]);
     } finally {
       await restarted.database.destroy();
     }

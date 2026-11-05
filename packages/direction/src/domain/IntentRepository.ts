@@ -24,7 +24,6 @@ export type UpdateIntentInput = {
 
 export type CreateIntentResult =
   | { kind: "created"; intent: Intent }
-  | { kind: "active_exists"; activeIntentId: string }
   | WorkspaceArchivedResult;
 
 /** 更新・放棄の結果。対象がWorkspace配下に無い場合と、Activeでない場合を区別する。 */
@@ -41,7 +40,7 @@ export type MeaningLockedResult = { kind: "meaning_locked"; fields: string[] };
 export type UpdateIntentResult = ChangeIntentResult | MeaningLockedResult;
 
 export interface IntentRepository {
-  /** Workspaceにつきactiveは最大1件。既にあれば作成せず、そのIDを返す。 */
+  /** 既存のIntentを変更せず、新しいactive Intentを作成する。 */
   create(workspaceId: string, input: CreateIntentInput): Promise<CreateIntentResult>;
   /** 指定したWorkspace配下のIntentを新しい順で返す。 */
   findByWorkspace(workspaceId: string): Promise<Intent[]>;

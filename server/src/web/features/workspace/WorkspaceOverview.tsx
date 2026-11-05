@@ -21,7 +21,7 @@ import {
   type AttentionItem,
   type AttentionKind,
   type AttentionRef,
-  type DirectionData,
+  type DirectionData, type IntentDirectionData,
   type OutcomePosition,
   type OverviewResearch,
   type TargetWork,
@@ -101,7 +101,9 @@ export const TargetRow = ({ target, projects }: { target: TargetWork; projects: 
 );
 
 /** 現在地: Active Intent → Active Outcome → Target Project別のWork → 評価可能性。Taskの受入をOutcomeの達成として出さない。 */
-const CurrentPosition = ({ workspaceId, direction, projects }: { workspaceId: string; direction: DirectionData; projects: Part<OverviewProject[]> }) => {
+const CurrentPosition = (props: { workspaceId: string; direction: DirectionData; projects: Part<OverviewProject[]> }) => props.direction.directions.length === 0 ? <p className="unset">ActiveなIntentはありません。</p> : <>{props.direction.directions.map((direction) => <IntentPosition key={direction.activeIntent!.id} {...props} direction={direction} />)}</>;
+
+const IntentPosition = ({ workspaceId, direction, projects }: { workspaceId: string; direction: IntentDirectionData; projects: Part<OverviewProject[]> }) => {
   const intentProject = pickOpenProject([], openProjects(projects));
   if (!direction.activeIntent) return <p className="unset">ActiveなIntentはありません。</p>;
   return (
@@ -160,7 +162,9 @@ const HumanAction = ({ workspaceId, item, intentId, projectId, canWrite }: { wor
   return intentId ? <LinkButton size="sm" to={outcomePath(projectId, intentId, "new")}>Outcomeを登録</LinkButton> : null;
 };
 
-const Attention = ({ workspace, myRole, direction, research, projects }: { workspace: Workspace; myRole: HumanRole; direction: DirectionData; research: Part<OverviewResearch[]>; projects: Part<OverviewProject[]> }) => {
+const Attention = (props: { workspace: Workspace; myRole: HumanRole; direction: DirectionData; research: Part<OverviewResearch[]>; projects: Part<OverviewProject[]> }) => <>{(props.direction.directions.length > 0 ? props.direction.directions : [{ activeIntent: null, pastIntents: [], outcomes: [], otherOutcomes: [], pendingPastOutcomes: [] }]).map((direction, index) => <IntentAttention key={direction.activeIntent?.id ?? "empty"} {...props} direction={direction} research={props.research.ok ? { ok: true, value: props.research.value.filter((request) => request.originIntentId === direction.activeIntent?.id || (request.originIntentId === null && index === 0)) } : props.research} />)}</>;
+
+const IntentAttention = ({ workspace, myRole, direction, research, projects }: { workspace: Workspace; myRole: HumanRole; direction: IntentDirectionData; research: Part<OverviewResearch[]>; projects: Part<OverviewProject[]> }) => {
   if (workspace.status === "archived") return <p className="unset">アーカイブ済みのため、要対応はありません。</p>;
   const attention = planWorkspaceAttention({
     activeIntent: direction.activeIntent && { id: direction.activeIntent.id, title: direction.activeIntent.title },

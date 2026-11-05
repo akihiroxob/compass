@@ -23,7 +23,7 @@ const release = acquireProcessLock(config.stateDir);
 const state = (workspaceId: string): WorkspaceOrchestrationState => ({
   workspace: { id: workspaceId, name: workspaceId, status: "active" },
   projects: [],
-  activeIntent: { id: `${workspaceId}-intent`, status: "active", updatedAt: 1 },
+  activeIntents: [{ id: `${workspaceId}-intent`, status: "active", updatedAt: 1 }],
   outcomes: [],
   intentResearchRequests: [],
   openResearchRequests: [],

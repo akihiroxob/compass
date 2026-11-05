@@ -33,7 +33,7 @@ test("Workspace owns Intent/Outcome; active Intent and entity references are iso
     const intent = await direction.createIntentUseCase.execute(a.id, intentInput);
     assert.equal(intent.workspaceId, a.id);
     assert.equal("projectId" in intent, false);
-    await assert.rejects(direction.createIntentUseCase.execute(a.id, intentInput), { code: "CONFLICT" });
+    await direction.createIntentUseCase.execute(a.id, intentInput);
     await direction.createIntentUseCase.execute(b.id, intentInput);
     await assert.rejects(direction.createOutcomeUseCase.execute(b.id, intent.id, outcomeInput), { code: "NOT_FOUND" });
     const outcome = await direction.createOutcomeUseCase.execute(a.id, intent.id, outcomeInput);
@@ -41,7 +41,7 @@ test("Workspace owns Intent/Outcome; active Intent and entity references are iso
     assert.equal(outcome.successCriteria.length, 1);
     await assert.rejects(direction.getOutcomeUseCase.execute(b.id, intent.id, outcome.id), { code: "NOT_FOUND" });
     const activity = await database.selectFrom("activity").selectAll().where("workspace_id", "=", a.id).execute();
-    assert.equal(activity.length, 2);
+    assert.equal(activity.length, 3);
     assert.ok(activity.every(row => row.project_id === null));
   } finally {
     await database.destroy();
@@ -56,7 +56,7 @@ const setup = async (path = ":memory:") => {
   return { database, services, workspace, direction: services.workspaceDirection };
 };
 
-test("new schema has Workspace ownership columns, composite FK and Workspace active uniqueness", async () => {
+test("new schema has Workspace ownership columns, composite FK and multiple active Intents", async () => {
   const { database, direction, workspace } = await setup();
   try {
     for (const table of ["intent", "outcome"]) {
@@ -68,8 +68,8 @@ test("new schema has Workspace ownership columns, composite FK and Workspace act
     const b = await new CreateWorkspaceUseCase(new SQLiteWorkspaceRepository(asOrganizationDatabase(database))).execute({ name: "B", mission: "B" });
     await assert.rejects(sql`insert into outcome (id, workspace_id, intent_id, title, description, rationale, status, created_at, updated_at)
       values ('cross-workspace', ${b.id}, ${intent.id}, 'T', 'D', 'R', 'active', 1, 1)`.execute(database), /FOREIGN KEY/);
-    await assert.rejects(sql`insert into intent (id, workspace_id, title, desired_state, status, created_at, updated_at)
-      values ('duplicate', ${workspace.id}, 'T', 'D', 'active', 1, 1)`.execute(database), /UNIQUE/);
+    await sql`insert into intent (id, workspace_id, title, desired_state, status, created_at, updated_at)
+      values ('duplicate', ${workspace.id}, 'T', 'D', 'active', 1, 1)`.execute(database);
     await assert.rejects(sql`insert into intent (id, workspace_id, title, desired_state, status, created_at, updated_at)
       values ('missing', 'missing-workspace', 'T', 'D', 'active', 1, 1)`.execute(database), /FOREIGN KEY/);
     assert.deepEqual((await sql`pragma foreign_key_check`.execute(database)).rows, []);

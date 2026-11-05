@@ -4,7 +4,7 @@ import { classifyError, loadFailureMessage, request, settle } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading, StateCard } from "../../components/StateCard";
 import { Button, LinkButton } from "../../components/ui";
-import { projectViewPath, workspaceApiPath, workspaceCreatePath, workspaceEditPath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath, type WorkspaceSection } from "../../paths";
+import { projectViewPath, workspaceApiPath, workspaceCreatePath, workspaceEditPath, workspaceIntentCreatePath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath, type WorkspaceSection } from "../../paths";
 import { canOperateWorkspace, workspaceDirectionAccess } from "../access";
 import { ActivitySection } from "../activity";
 import { WorkspaceAgentDetail, WorkspaceAgentList } from "../agent";
@@ -161,6 +161,7 @@ const DirectionContent = ({ workspace, myRole }: { workspace: Workspace; myRole:
       <section className="detail-section intent-section" aria-labelledby="workspace-direction-intent-heading">
         <h2 id="workspace-direction-intent-heading">Intent・Outcome</h2>
         <p className="section-note">IntentはHumanが今実現したい状態、OutcomeはIntentへ近づくために達成すべき観測可能な状態です。OutcomeはWorkspaceに属し、Target ProjectのStoryが貢献します。</p>
+        {workspaceDirectionAccess(workspace, myRole) === "allowed" && <div className="action-row"><LinkButton size="sm" to={workspaceIntentCreatePath(workspace.id)}>目標を作成</LinkButton></div>}
         {error ? <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${error}`} /> : !value ? <Loading /> : <DirectionIntents workspaceId={workspace.id} direction={value[0]} projects={value[1]} canEdit={workspaceDirectionAccess(workspace, myRole) === "allowed"} />}
       </section>
       <TextList title="Principles" values={workspace.principles} />

@@ -367,7 +367,7 @@ export const createMcpServer = (
       title: "Create Intent",
       description:
         "Create an active Intent (business goal) in a Workspace. " + intentFieldsDescription + " " +
-        "A Workspace has at most one active Intent; creating another while one is active fails with CONFLICT. " +
+        "A Workspace can have multiple active Intents; creating one does not abandon or modify the others. " +
         "Creating an Intent does not start Strategist or Research. An archived Workspace fails with CONFLICT (workspaceStatus archived). " +
         "Requires Authorization: Bearer <AgentName> with a Strategist Grant of the Workspace (with X-Compass-Active-Role it must be " +
         "strategist; Project Grants do not count); UNAUTHENTICATED / FORBIDDEN otherwise. The Activity records the Strategist as the actor.",
@@ -507,7 +507,7 @@ export const createMcpServer = (
       title: "Get Strategist Context",
       description:
         "Get what a Strategist needs to decide the next Outcome: the Workspace (Mission, Vision, Principles, Constraints, status), " +
-        "its active Intent (null if none), every Outcome under that Intent including cancelled ones, " +
+        "the selected Intent (specify intentId; omission is accepted only with at most one Active Intent), every Outcome under that Intent including cancelled ones, " +
         "projects (the Workspace's active Projects in creation order: id, name, description as the Project purpose, and " +
         "Repository / Resource references with name, url and kind; Resource content is not included), outcomeTargets (the current " +
         "Target Projects of those Outcomes, in Outcome order then set order, with projectStatus active | archived; use them with " +
@@ -522,9 +522,9 @@ export const createMcpServer = (
         "of the Execution Summary and Evidence references at evaluation time), newest first; decisionId is the Direction Decision " +
         "already based on it, or null while it still awaits a re-plan or Intent completion decision. unavailable lists inputs that " +
         "are not implemented yet (evidence: Evidence content itself); do not assume or invent them. Requires Authorization: Bearer <AgentName> with a strategist Grant in the Workspace (UNAUTHENTICATED / FORBIDDEN otherwise).",
-      inputSchema: { workspaceId: z.string().min(1) },
+      inputSchema: { workspaceId: z.string().min(1), intentId: z.string().min(1).optional() },
     },
-    ({ workspaceId }) => execute(() => services.getStrategistContextUseCase.execute(principal, workspaceId)),
+    ({ workspaceId, intentId }) => execute(() => services.getStrategistContextUseCase.execute(principal, workspaceId, intentId)),
   );
   server.registerTool(
     "get_research_request",

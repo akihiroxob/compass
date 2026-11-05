@@ -56,6 +56,7 @@ export type WorkspaceDispatch = {
   key: string;
   workspaceId: string;
   projectId: string | null;
+  intentId?: string;
   role: DispatchRole;
   subject: DispatchSubject;
   /** 起動理由の要約。Operational Log と起動する Role への手掛かりに使い、判断内容は含めない。 */
@@ -101,79 +102,82 @@ export const planWorkspaceDispatches = (state: WorkspaceOrchestrationState): Wor
   const workspaceId = state.workspace.id;
   const dispatches: WorkspaceDispatch[] = [];
   /** Workspace Role の起動。key は `<workspaceId>:<role>:<subject kind>:<subject id>` に状態の版（`suffix`）を付ける。 */
-  const workspaceDispatch = (role: DispatchRole, subject: DispatchSubject, suffix: string, reason: string) =>
+  const workspaceDispatch = (role: DispatchRole, subject: DispatchSubject, suffix: string, reason: string, intentId?: string) =>
     dispatches.push({
       key: `${workspaceId}:${role}:${subject.kind}:${subject.id}${suffix}`,
       workspaceId,
       projectId: null,
       role,
       subject,
+      ...(intentId ? { intentId } : {}),
       reason,
     });
 
   for (const request of state.openResearchRequests) {
-    workspaceDispatch("researcher", { kind: "research_request", id: request.id }, "", `Research Request is ${request.status}`);
+    workspaceDispatch("researcher", { kind: "research_request", id: request.id }, "", `Research Request is ${request.status}`, request.originIntentId ?? undefined);
   }
 
-  const intent = state.activeIntent;
-  if (!intent) return dispatches;
+  for (const intent of state.activeIntents) {
+    const outcomes = state.outcomes.filter((outcome) => outcome.intentId === intent.id);
+    const intentResearchRequests = state.intentResearchRequests.filter((request) => request.originIntentId === intent.id);
+    for (const outcome of outcomes) {
+      const pending = pendingEvaluationOf(outcome);
+      if (pending) {
+        workspaceDispatch(
+          "strategist",
+          { kind: "evaluation", id: pending.id },
+          "",
+          `Outcome ${outcome.id} has an Evaluation awaiting a Direction Decision`, intent.id,
+        );
+      }
+      if (!isLive(outcome)) continue;
+      const subject: DispatchSubject = { kind: "outcome", id: outcome.id };
 
-  for (const outcome of state.outcomes) {
-    const pending = pendingEvaluationOf(outcome);
-    if (pending) {
-      workspaceDispatch(
-        "strategist",
-        { kind: "evaluation", id: pending.id },
-        "",
-        `Outcome ${outcome.id} has an Evaluation awaiting a Direction Decision`,
-      );
+      if (outcome.evaluability.status === "no_targets") {
+        workspaceDispatch("strategist", subject, ":no_targets", "Outcome has no Target Project", intent.id);
+        continue;
+      }
+      if (outcome.evaluability.status === "replan_required") {
+        // Target の構成と未完了の Target から版を作る。再計画で状態が変われば新しい key、何も変えなければ再起動しない。
+        const version = fingerprint([
+          ...outcome.targets.map((target) => `target:${target.projectId}`),
+          ...outcome.evaluability.unfinishedTargets.map((target) => `unfinished:${target.projectId}:${target.projectStatus}:${target.reason}`),
+        ]);
+        const archived = outcome.evaluability.unfinishedTargets.filter((target) => target.projectStatus === "archived");
+        workspaceDispatch(
+          "strategist",
+          subject,
+          `:replan:${version}`,
+          `Archived Target Project ${archived.map((target) => target.projectId).join(", ")} has unfinished Execution`, intent.id,
+        );
+      }
+      for (const target of outcome.targets) {
+        if (target.projectStatus !== "active" || !isUndecomposed(target)) continue;
+        dispatches.push({
+          key: `${workspaceId}:${target.projectId}:manager:outcome:${outcome.id}`,
+          workspaceId,
+          projectId: target.projectId,
+          role: "manager",
+          intentId: intent.id,
+          subject,
+          reason: target.work === null ? "Target Project has no Story for the Outcome" : "Target Project's Stories have no Task",
+        });
+      }
+      if (outcome.evaluability.status === "evaluable" && hasUnevaluatedExecution(outcome)) {
+        const cursors = outcome.targets.map((target) => `${target.projectId}=${target.execution?.executionCursor ?? ""}`);
+        workspaceDispatch(
+          "evaluator",
+          subject,
+          `:${fingerprint(cursors)}`,
+          `All ${outcome.targets.length} Target Projects reflected Execution that is not evaluated`, intent.id,
+        );
+      }
     }
-    if (!isLive(outcome)) continue;
-    const subject: DispatchSubject = { kind: "outcome", id: outcome.id };
 
-    if (outcome.evaluability.status === "no_targets") {
-      workspaceDispatch("strategist", subject, ":no_targets", "Outcome has no Target Project");
-      continue;
+    if (intentNeedsStrategist(outcomes, intentResearchRequests)) {
+      const { version, reason } = intentStrategistOf(outcomes, intentResearchRequests);
+      workspaceDispatch("strategist", { kind: "intent", id: intent.id }, `:${version}`, reason, intent.id);
     }
-    if (outcome.evaluability.status === "replan_required") {
-      // Target の構成と未完了の Target から版を作る。再計画で状態が変われば新しい key、何も変えなければ再起動しない。
-      const version = fingerprint([
-        ...outcome.targets.map((target) => `target:${target.projectId}`),
-        ...outcome.evaluability.unfinishedTargets.map((target) => `unfinished:${target.projectId}:${target.projectStatus}:${target.reason}`),
-      ]);
-      const archived = outcome.evaluability.unfinishedTargets.filter((target) => target.projectStatus === "archived");
-      workspaceDispatch(
-        "strategist",
-        subject,
-        `:replan:${version}`,
-        `Archived Target Project ${archived.map((target) => target.projectId).join(", ")} has unfinished Execution`,
-      );
-    }
-    for (const target of outcome.targets) {
-      if (target.projectStatus !== "active" || !isUndecomposed(target)) continue;
-      dispatches.push({
-        key: `${workspaceId}:${target.projectId}:manager:outcome:${outcome.id}`,
-        workspaceId,
-        projectId: target.projectId,
-        role: "manager",
-        subject,
-        reason: target.work === null ? "Target Project has no Story for the Outcome" : "Target Project's Stories have no Task",
-      });
-    }
-    if (outcome.evaluability.status === "evaluable" && hasUnevaluatedExecution(outcome)) {
-      const cursors = outcome.targets.map((target) => `${target.projectId}=${target.execution?.executionCursor ?? ""}`);
-      workspaceDispatch(
-        "evaluator",
-        subject,
-        `:${fingerprint(cursors)}`,
-        `All ${outcome.targets.length} Target Projects reflected Execution that is not evaluated`,
-      );
-    }
-  }
-
-  if (intentNeedsStrategist(state.outcomes, state.intentResearchRequests)) {
-    const { version, reason } = intentStrategistOf(state.outcomes, state.intentResearchRequests);
-    workspaceDispatch("strategist", { kind: "intent", id: intent.id }, `:${version}`, reason);
   }
   return dispatches;
 };
