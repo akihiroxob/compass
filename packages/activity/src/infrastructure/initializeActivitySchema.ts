@@ -48,6 +48,12 @@ export const initializeActivitySchema = async (database: Kysely<ActivityDatabase
     .columns(["scope", "workspace_id", "cursor"])
     .execute();
   await database.schema
+    .createIndex("activity_workspace_stream_idx")
+    .ifNotExists()
+    .on("activity")
+    .columns(["workspace_id", "occurred_at", "cursor"])
+    .execute();
+  await database.schema
     .createIndex("activity_corrects_idx")
     .ifNotExists()
     .on("activity")

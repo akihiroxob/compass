@@ -18,14 +18,25 @@ export type WorkChangeFact = {
 };
 
 /**
- * canonical Activityにする状態変更と、その種別・要約。Claimの取得・更新・期限切れ、編集、Storyの着手は
- * 実行の追跡（Change Log）であり、後から経緯を理解するための意味的な出来事ではないため対象外とする。
+ * canonical Activityにする状態変更と、その種別・要約。業務上の出来事（起票・着手・作業完了・レビュー・差戻し・受入・取消）だけを対象にする。
+ * Claimの更新・解放・期限切れ・競合、編集、Reviewer / 受入担当のClaim、期限切れClaimの引き継ぎは実行の追跡（Change Log）であり、
+ * 後から経緯を理解するための意味的な出来事ではないため対象外とする。`when`がある種別は、その条件を満たすChangeだけが対象。
  */
-const workActivities: Record<string, { type: string; summary: (title: string) => string }> = {
+const workActivities: Record<
+  string,
+  { type: string; summary: (title: string) => string; when?: (payload: Record<string, unknown>) => boolean }
+> = {
   STORY_CREATED: { type: "story.created", summary: (title) => `Story「${title}」を起票した` },
+  STORY_STARTED: { type: "story.started", summary: (title) => `Story「${title}」に着手した` },
   STORY_COMPLETED: { type: "story.completed", summary: (title) => `Story「${title}」が完了した` },
   STORY_CANCELED: { type: "story.canceled", summary: (title) => `Story「${title}」を取り消した` },
   TASK_CREATED: { type: "task.created", summary: (title) => `Task「${title}」を起票した` },
+  // Taskの着手は、work Claimの最初の取得（未着手 / 差戻しからの開始）だけ。期限切れClaimの引き継ぎ・Reviewer / 受入のClaimは含めない。
+  TASK_CLAIMED: {
+    type: "task.started",
+    summary: (title) => `Task「${title}」に着手した`,
+    when: (payload) => payload.claimCommand === "claim_task" && payload.path === "normal",
+  },
   TASK_COMPLETED: { type: "task.completed", summary: (title) => `Task「${title}」の作業を完了し、レビューへ進めた` },
   TASK_REVIEWED: { type: "task.reviewed", summary: (title) => `Task「${title}」のレビューを承認した` },
   TASK_ACCEPTED: { type: "task.accepted", summary: (title) => `Task「${title}」を受け入れた` },
@@ -34,6 +45,12 @@ const workActivities: Record<string, { type: string; summary: (title: string) =>
 };
 
 export const canonicalWorkChangeTypes = Object.keys(workActivities);
+
+/** このChangeをcanonical Activityにするか（種別と、種別ごとの条件）。 */
+export const isCanonicalWorkChange = (type: string, payload: Record<string, unknown>): boolean => {
+  const definition = workActivities[type];
+  return definition !== undefined && (definition.when?.(payload) ?? true);
+};
 
 const maximumSummaryTitleLength = 200;
 
@@ -49,7 +66,7 @@ export const recordCanonicalWorkActivity = async (
   newId: () => string = randomUUID,
 ): Promise<void> => {
   const definition = workActivities[change.type];
-  if (!definition) return;
+  if (!definition || !isCanonicalWorkChange(change.type, change.payload)) return;
   const title =
     change.subject.title.length > maximumSummaryTitleLength
       ? `${change.subject.title.slice(0, maximumSummaryTitleLength)}…`
