@@ -161,6 +161,8 @@ export type ActivityStreamPage = {
   nextCursor: string | null;
   /** 位置を除く条件に一致する件数。 */
   matchedCount: number;
+  /** 種別以外の条件に一致する記録の種別（絞り込みの候補。現在のページに限らない）。 */
+  types: string[];
 };
 
 /**
@@ -179,7 +181,7 @@ export class ListWorkspaceActivityStreamUseCase {
     const { from, to, workspaceOnly, ...parsed } = parseActivityStreamQuery(input);
     const target = { kind: ActivityScope.WORKSPACE, id: workspaceId };
     if (!(await this.scopes.find(target))) throw targetNotFound(target);
-    const { activities, matchedCount } = await this.store.listWorkspaceStream(workspaceId, {
+    const { activities, matchedCount, types } = await this.store.listWorkspaceStream(workspaceId, {
       limit: parsed.limit,
       ...(parsed.after === undefined ? {} : { after: parsed.after }),
       ...(parsed.before === undefined ? {} : { before: parsed.before }),
@@ -195,7 +197,7 @@ export class ListWorkspaceActivityStreamUseCase {
     const nextCursor = parsed.after !== undefined
       ? (position ?? formatActivityStreamCursor(parsed.after))
       : activities.length === parsed.limit ? position : null;
-    return { activities: activities.map(toActivitySummary), nextCursor, matchedCount };
+    return { activities: activities.map(toActivitySummary), nextCursor, matchedCount, types };
   }
 }
 

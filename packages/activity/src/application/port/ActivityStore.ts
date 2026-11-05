@@ -62,9 +62,9 @@ export interface ActivityStore {
   listWorkspace(workspaceId: string, query: ActivityQuery): Promise<Activity[]>;
   /**
    * Workspace共通と所属全Project（archivedを含む）のActivityを、発生時刻と`cursor`の順（`after`があれば昇順、なければ降順）で返す。
-   * 別Workspaceとsystem scopeは含めない。`matchedCount`は位置を除いた条件に一致する件数。
+   * 別Workspaceとsystem scopeは含めない。`matchedCount`は位置を除いた条件に一致する件数、`types`は種別以外の条件に一致する記録の種別（昇順、重複なし）。
    */
-  listWorkspaceStream(workspaceId: string, query: ActivityStreamQuery): Promise<{ activities: Activity[]; matchedCount: number }>;
+  listWorkspaceStream(workspaceId: string, query: ActivityStreamQuery): Promise<{ activities: Activity[]; matchedCount: number; types: string[] }>;
   maxWorkspaceCursor(workspaceId: string): Promise<number>;
   /** このActivityを訂正したActivity（`cursor`の昇順）。 */
   listCorrections(activityId: string): Promise<Activity[]>;

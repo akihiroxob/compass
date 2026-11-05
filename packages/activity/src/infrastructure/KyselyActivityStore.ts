@@ -115,7 +115,6 @@ export class KyselyActivityStore implements ActivityStore {
       .where("scope", "in", ["workspace", "project"]);
     if (query.projectId !== undefined) filtered = filtered.where("project_id", "=", query.projectId);
     if (query.workspaceOnly) filtered = filtered.where("scope", "=", "workspace");
-    if (query.type !== undefined) filtered = filtered.where("type", "=", query.type);
     if (query.occurredFrom !== undefined) filtered = filtered.where("occurred_at", ">=", query.occurredFrom);
     if (query.occurredTo !== undefined) filtered = filtered.where("occurred_at", "<=", query.occurredTo);
     if (query.text !== undefined) {
@@ -124,6 +123,9 @@ export class KyselyActivityStore implements ActivityStore {
         sql<boolean>`(summary like ${pattern} escape '\\' or coalesce(body, '') like ${pattern} escape '\\' or type like ${pattern} escape '\\' or principal_id like ${pattern} escape '\\')`,
       );
     }
+    // 種別の候補は、種別以外の条件に一致する記録の種別（現在のページに限らない）。
+    const typeRows = await filtered.select("type").distinct().orderBy("type", "asc").execute();
+    if (query.type !== undefined) filtered = filtered.where("type", "=", query.type);
     const counted = await filtered.select((builder) => builder.fn.countAll().as("count")).executeTakeFirst();
     let select = filtered.selectAll();
     if (query.after !== undefined) {
@@ -140,7 +142,7 @@ export class KyselyActivityStore implements ActivityStore {
       select = select.orderBy("occurred_at", "desc").orderBy("cursor", "desc");
     }
     const rows = await select.limit(query.limit).execute();
-    return { activities: rows.map(toActivity), matchedCount: Number(counted?.count ?? 0) };
+    return { activities: rows.map(toActivity), matchedCount: Number(counted?.count ?? 0), types: typeRows.map(({ type }) => type) };
   }
 
   async listCorrections(activityId: string): Promise<Activity[]> {

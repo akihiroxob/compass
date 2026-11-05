@@ -6,7 +6,19 @@ import {
   activityTypeLabel,
   activityListReducer,
   activityTypeSearch,
+  activityPeriodRange,
+  activityRecordSearch,
+  activityStreamPath,
+  activityStreamSearch,
+  activityStreamTypeOptions,
+  activityTypeNote,
   appendActivityPage,
+  clearedActivityStreamSearch,
+  groupActivitiesByDate,
+  hasActivityStreamFilter,
+  isActivityPeriodInvalid,
+  parseActivityRecord,
+  parseActivityStreamFilter,
   describeReference,
   initialActivityList,
   parseActivityTypeFilter,
@@ -155,4 +167,63 @@ test("追加読込の失敗は現在の条件の一覧を残してエラーを�
   assert.equal(state.activities?.length, 1);
   state = activityListReducer(state, { kind: "moreStarted", generation: 0 });
   assert.equal(state.moreError, null);
+});
+
+// ---- Workspace横断の記録。条件はURLに持ち、「すべて」と「Workspace共通」を別のAPI条件にする。 ----
+
+const noFilter = { target: null, type: null, q: "", from: null, to: null };
+
+test("横断一覧のURLは、すべての記録・Workspace共通・Projectを別の条件で渡す", () => {
+  assert.equal(activityStreamPath("w1", noFilter), "/api/workspaces/w1/activity-stream?limit=20");
+  assert.equal(activityStreamPath("w1", { ...noFilter, target: "workspace" }), "/api/workspaces/w1/activity-stream?limit=20&workspaceOnly=true");
+  assert.equal(activityStreamPath("w1", { ...noFilter, target: "p1", type: "task.accepted", q: "認可 設計" }, { before: "10.5", limit: 5 }), "/api/workspaces/w1/activity-stream?limit=5&before=10.5&projectId=p1&type=task.accepted&q=%E8%AA%8D%E5%8F%AF+%E8%A8%AD%E8%A8%88");
+});
+
+test("条件はURLのqueryから読み、形式外は条件なしとして扱い、条件以外のqueryを残して置き換える", () => {
+  const filter = parseActivityStreamFilter(new URLSearchParams("target=p1&type=task.accepted&q=%20abc%20&from=2026-11-01&to=2026-11-05&record=a1"));
+  assert.deepEqual(filter, { target: "p1", type: "task.accepted", q: "abc", from: "2026-11-01", to: "2026-11-05" });
+  assert.deepEqual(parseActivityStreamFilter(new URLSearchParams("type=Bad..Type&from=2026-13-40&to=yesterday&target=")), noFilter);
+  assert.equal(hasActivityStreamFilter(noFilter), false);
+  assert.equal(hasActivityStreamFilter({ ...noFilter, q: "x" }), true);
+  const current = new URLSearchParams("target=p1&q=abc&record=a1");
+  assert.equal(activityStreamSearch(current, { target: null }), "?q=abc&record=a1");
+  assert.equal(activityStreamSearch(current, { type: "task.created" }), "?target=p1&q=abc&record=a1&type=task.created");
+  assert.equal(clearedActivityStreamSearch(current), "?record=a1");
+  assert.equal(clearedActivityStreamSearch(new URLSearchParams("target=p1")), "");
+});
+
+test("期間は日付の端を含む時刻へ換え、開始日が終了日より後なら不正にする", () => {
+  const range = activityPeriodRange({ from: "2026-11-01", to: "2026-11-01" });
+  assert.equal(range.to! - range.from!, 24 * 60 * 60 * 1000 - 1);
+  assert.deepEqual(activityPeriodRange({ from: null, to: null }), {});
+  assert.equal(isActivityPeriodInvalid({ from: "2026-11-02", to: "2026-11-01" }), true);
+  assert.equal(isActivityPeriodInvalid({ from: "2026-11-01", to: "2026-11-01" }), false);
+  assert.equal(isActivityPeriodInvalid({ from: "2026-11-01", to: null }), false);
+});
+
+test("詳細はURLの記録IDとProjectで開き、閉じても一覧の条件が残る", () => {
+  const current = new URLSearchParams("target=p1&q=abc");
+  const opened = activityRecordSearch(current, { id: "a1", projectId: "p1" });
+  assert.equal(opened, "?target=p1&q=abc&record=a1&recordProject=p1");
+  assert.deepEqual(parseActivityRecord(new URLSearchParams(opened), "w1"), { id: "a1", scope: { kind: "project", projectId: "p1" } });
+  assert.deepEqual(parseActivityRecord(new URLSearchParams("record=a2"), "w1"), { id: "a2", scope: { kind: "workspace", workspaceId: "w1" } });
+  assert.equal(parseActivityRecord(new URLSearchParams("q=x"), "w1"), null);
+  assert.equal(activityRecordSearch(new URLSearchParams(opened), null), "?target=p1&q=abc");
+});
+
+test("一覧は新しい順を保って日付ごとにまとめ、Taskの受入は公開・Outcome達成と別の事実だと注記する", () => {
+  const at = (iso: string, id: string) => ({ id, occurredAt: new Date(iso).getTime() }) as ActivitySummary;
+  const groups = groupActivitiesByDate([at("2026-11-02T10:00:00", "c"), at("2026-11-02T09:00:00", "b"), at("2026-11-01T23:00:00", "a")]);
+  assert.deepEqual(groups.map(({ date, activities }) => [date, activities.map(({ id }) => id)]), [["2026-11-02", ["c", "b"]], ["2026-11-01", ["a"]]]);
+  assert.match(activityTypeNote("task.accepted") ?? "", /公開.*Outcomeの達成を意味しません/);
+  assert.equal(activityTypeNote("story.created"), null);
+});
+
+test("横断一覧の種別候補は固定の状態変更にサーバー全体の種別と選択中の種別を加える", () => {
+  const labels = (options: ReturnType<typeof activityStreamTypeOptions>) => options.find(({ label }) => label === "その他の記録")?.types.map(({ type }) => type);
+  assert.equal(labels(activityStreamTypeOptions(null, null)), undefined);
+  assert.equal(labels(activityStreamTypeOptions(["task.created", "intent.created"], null)), undefined);
+  assert.deepEqual(labels(activityStreamTypeOptions(["task.created", "consultation.followup_requested", "consultation.followup_reflected"], null)), ["consultation.followup_reflected", "consultation.followup_requested"]);
+  assert.deepEqual(labels(activityStreamTypeOptions(null, "research.summary")), ["research.summary"]);
+  assert.deepEqual(labels(activityStreamTypeOptions(["research.summary"], "research.summary")), ["research.summary"]);
 });

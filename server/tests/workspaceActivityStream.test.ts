@@ -163,6 +163,12 @@ test("Workspace共通と配下全Projectの業務Activityを漏れ・重複な�
     assert.ok(projectB.activities.every((item: Json) => item.projectId === b.id));
     assert.equal(projectB.matchedCount, projectB.activities.length);
     assert.deepEqual(await only(`?type=task.rejected`), ["task.rejected"]);
+    // 種別の候補は、種別以外の条件に一致する全体の種別（limitや選択中の種別に狭められない）。
+    const typesOf = async (query: string) => (await stream(app, viewer, workspace.id, query)).types as string[];
+    const everyType = [...new Set(all.map((item: Json) => item.type as string))].sort();
+    assert.deepEqual(await typesOf(`?limit=1`), everyType);
+    assert.deepEqual(await typesOf(`?type=task.rejected&limit=1`), everyType);
+    assert.deepEqual(await typesOf(`?workspaceOnly=true`), ["intent.created", "research.summary"]);
     assert.deepEqual(await only(`?q=${encodeURIComponent("Task B1")}&limit=100`).then((list: string[]) => [...list].sort()), [
       "task.completed", "task.created", "task.rejected", "task.reviewed", "task.started",
     ]);
