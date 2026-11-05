@@ -9,8 +9,10 @@ import { credentialStatusTones } from "../credential";
 import { formatTime, taskStatusLabels, taskStatusTones } from "../execution";
 import { grantRoleLabels } from "../grant";
 import type { HumanRole } from "../member";
+import { ExecutionFact, executionObservationNote } from "./AgentExecution";
 import { AgentRegisterDialog } from "./AgentRegisterDialog";
 import { AgentRoleSection } from "./AgentRoles";
+import { agentExecutionOf, type AgentExecution } from "./agentRuns";
 import { principalCredentialLabels, scopeSummary, workspaceAgentRoles, type PrincipalCredential, type WorkspaceAgent } from "./agents";
 import { useWorkspaceAgents, type LoadedWorkspaceAgents } from "./useWorkspaceAgents";
 
@@ -35,9 +37,6 @@ export const FailedProjects = ({ loaded }: { loaded: LoadedWorkspaceAgents }) =>
     </StateCard>
   );
 
-/** 実行状況（Agentプロセスの稼働・停止・エラー）は未接続。Grant・Credential・Claimから推測しない。 */
-export const executionUnknownNote = "実行状況（Agentプロセスの稼働・待機・エラー）はまだ取得していません。Role割当・Credential・Claimからは稼働を推測しません。";
-
 export const CredentialFact = ({ credential }: { credential: PrincipalCredential | null }) =>
   credential === null ? <span className="unset">Workspaceのadministrator以上が確認できます</span> : (
     <>
@@ -55,7 +54,7 @@ export const RoleBadges = ({ agent }: { agent: Pick<WorkspaceAgent, "roles"> }) 
 const directionOnly = (agent: WorkspaceAgent) => agent.claims.length === 0 && agent.roles.length > 0 && agent.roles.every((role) => workspaceAgentRoles.some((candidate) => candidate === role));
 
 /** 一覧の1件。担当範囲はProject名1件と「ほかN件」の1行で、全件は詳細で出す。 */
-const AgentCard = ({ workspaceId, agent }: { workspaceId: string; agent: WorkspaceAgent }) => {
+const AgentCard = ({ workspaceId, agent, execution }: { workspaceId: string; agent: WorkspaceAgent; execution: AgentExecution }) => {
   const summary = scopeSummary(agent.scopes);
   const [claim, ...otherClaims] = agent.claims;
   return (
@@ -68,6 +67,7 @@ const AgentCard = ({ workspaceId, agent }: { workspaceId: string; agent: Workspa
         </p>
       </div>
       <dl className="agent-card-facts">
+        <div><dt>実行状況</dt><dd><ExecutionFact execution={execution} /></dd></div>
         <div><dt>Credential</dt><dd><CredentialFact credential={agent.credential} /></dd></div>
         <div>
           <dt>現在の作業（Claim）</dt>
@@ -86,7 +86,7 @@ const AgentCard = ({ workspaceId, agent }: { workspaceId: string; agent: Workspa
 };
 
 /**
- * WorkspaceのAgent管理（一覧）。Principalごとに、Role・担当範囲・Credential・現在の作業（Claim）を分けて出す。
+ * WorkspaceのAgent管理（一覧）。Principalごとに、Role・担当範囲・実行状況（報告された観測）・Credential・現在の作業（Claim）を分けて出す。
  * 登録はPCの画面上部に置き（狭い画面では出さない）、表示の有無は導線だけで、認可はserverが行う。
  */
 export const WorkspaceAgentList = ({ workspace, myRole }: { workspace: AgentWorkspace; myRole: HumanRole }) => {
@@ -98,7 +98,7 @@ export const WorkspaceAgentList = ({ workspace, myRole }: { workspace: AgentWork
     <>
       <div className="fixed-note agent-intro">
         <p><strong>Role</strong>はAgentの責務、<strong>Grant</strong>はWorkspaceまたはProjectでそのRoleを担当できる割当、<strong>Credential</strong>はAgentがCompassへ接続する資格、<strong>Claim</strong>はAgentが今保持しているTaskの期限付きの作業権です。</p>
-        <p>{executionUnknownNote}</p>
+        <p>{executionObservationNote}</p>
       </div>
       <AgentsToolbar fetchedAt={loaded?.fetchedAt ?? null} pending={pending} onReload={reload}>
         {canRegister && loaded && <span className="agent-pc-only"><Button size="md" onClick={() => setRegistering(true)}>Agentを登録</Button></span>}
@@ -108,7 +108,7 @@ export const WorkspaceAgentList = ({ workspace, myRole }: { workspace: AgentWork
           <FailedProjects loaded={loaded} />
           {loaded.agents.principals.length ? (
             <ul className="agent-list" aria-label="Agent">
-              {loaded.agents.principals.map((agent) => <AgentCard key={agent.principalId} workspaceId={workspace.id} agent={agent} />)}
+              {loaded.agents.principals.map((agent) => <AgentCard key={agent.principalId} workspaceId={workspace.id} agent={agent} execution={agentExecutionOf(agent.principalId, loaded.runs)} />)}
             </ul>
           ) : (
             <StateCard>

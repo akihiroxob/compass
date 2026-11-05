@@ -90,6 +90,8 @@ export const summarizeWorkspaceAgents = (input: {
   workspaceCredentials: readonly Credential[] | null;
   projects: readonly ProjectAgentSource[];
   now: number;
+  /** 観測だけが残るPrincipalも履歴へ辿れるようにする。担当Role・scopeはGrantからだけ決める。 */
+  observedPrincipalIds?: readonly string[];
 }): WorkspaceAgents => {
   const { workspace, workspaceGrants, workspaceCredentials, projects, now } = input;
   const workspaceScope: AgentScope = { kind: "workspace", id: workspace.id, name: workspace.name };
@@ -101,7 +103,7 @@ export const summarizeWorkspaceAgents = (input: {
   const grants = new Map<string, AgentGrant[]>();
   const credentials = new Map<string, (Credential & { scopeName: string })[]>();
   const claims = new Map<string, PrincipalClaim[]>();
-  const principalIds = new Set<string>();
+  const principalIds = new Set<string>(input.observedPrincipalIds);
   const push = <T,>(map: Map<string, T[]>, key: string, value: T) => map.set(key, [...(map.get(key) ?? []), value]);
   let reclaimableCount = 0;
   for (const source of sources) {

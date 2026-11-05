@@ -1105,6 +1105,38 @@ export const createMcpServer = (
       ),
   );
 
+  server.registerTool(
+    "record_agent_run",
+    {
+      title: "Record Agent Run",
+      description:
+        "For a runner (Ralph, Orchestrator): record an observation of one Agent run - event started (once, with a runner-generated " +
+        "unique runId), observed (the run is still being observed; extends staleAfterSeconds, default 1800) or finished (result " +
+        "succeeded | failed with an optional reason such as the exit code). Times are the Server's. It is an observation reported by the " +
+        "runner, not proof that a process is alive, and it is not written to Activity. With an Agent Credential (or a trusted-local Agent " +
+        "name) the run is the caller's own: X-Compass-Active-Role is required and the Principal must hold that Role's Grant in scope " +
+        "(an Agent Credential only in its own scope). With a Runtime Credential that has the agent:run:write scope of the same " +
+        "Workspace / Project, pass principalId and role of the started Agent; that Principal must hold the Role Grant in scope. A resend " +
+        "of the same runId is idempotent (recorded: false); the same runId for another Principal, scope or Role, or a different result " +
+        "for a finished run, fails with CONFLICT. observed / finished without started fails with NOT_FOUND. Credentials in reason are " +
+        "redacted. workRef (task, intent, outcome, evaluation, research_request, consultation) is optional.",
+      inputSchema: {
+        runId: z.string(),
+        scope: z.object({ kind: z.enum(["workspace", "project"]), id: z.string() }),
+        event: z.enum(["started", "observed", "finished"]),
+        source: z.enum(["ralph", "orchestrator"]),
+        principalId: z.string().optional(),
+        role: z.enum(projectRoles).optional(),
+        provider: z.string().optional(),
+        workRef: z.object({ kind: z.string(), id: z.string() }).optional(),
+        staleAfterSeconds: z.number().optional(),
+        result: z.enum(["succeeded", "failed"]).optional(),
+        reason: z.string().optional(),
+      },
+    },
+    (input) => execute(() => services.recordAgentRunUseCase.execute(caller, authorization.activeRole, input)),
+  );
+
   registerExecutionTools(withToolContext(server, "work"), services, caller);
   registerActivityTools(server, services, caller);
   registerConsultationTools(withToolContext(server, "collaboration"), services, caller);

@@ -157,3 +157,11 @@ node --import tsx "$PREPARATION/scripts/prepare-browser-verification.mjs" \
 参照プロトタイプは、管理者がRalphのProject設定（`verification.browser.profiles`）へ`prototype` profileを登録した環境でだけ起動できる。このRepositoryの`.ralph/config.json`には`prototype` profileが登録されている。別環境で未登録profileが拒否された場合は、未登録であることと必要な設定を記録し、別の起動方法で代替しない。登録済みなら`start_browser_preview({"profile":"prototype"})`で起動する。想定する参照先は`/Users/aokayama/git/compass-prototype`、localhostに限定したViteの専用portで、製品のDB・MCPは使わない。停止済みの固定URLへ依存せず、返されたURLを使用する。参照コードは編集しない。Repository外の参照資料なので、比較時にファイル内容のdigest等で参照版を記録する。
 
 同時に起動できるpreviewは一つである。先にプロトタイプの対応画面をDesktopと狭幅で操作し、画像・画面名・viewport・参照版を`artifactDirectory`へ保存して停止する。続いてprofileを省略して製品previewを起動し、同じ画面・viewport・操作で比較する。保存画像を実見して採用した配置・情報密度・操作導線と意図した差を記録する。参照にない画面も製品側のACに従って独立確認する。参照prototypeが起動しても製品ACの成功にはならない。
+
+## Agent実行観測の専用検証
+
+Worker・Reviewer・Managerは、返された専用previewのOwner Web APIで検証用PrincipalのGrantを作り、同じoriginのMCP `record_agent_run`を制御可能なテストadapterとして呼び出してよい。対象はmanifestのWorkspace・Project、`preview-`で始まる検証用Principalと新規run IDだけとする。`tools/list`の現在の入力契約とGrant・activeRoleを照合し、Agentは自分のrunだけ、Runtime Credentialは同じscopeの`agent:run:write`でだけ報告する。このAccess操作の許可は、上記Work・Collaborationの分類Policyとは別枠で、他のAccess操作をMCPへ開放しない。HumanのGrant・Credential管理はOwnerのWeb APIを使う。tokenは一時的な呼出しだけに使い、画像・操作記録・manifestへ保存しない。
+
+`started`→`finished(succeeded)`、`finished(failed)`、`started`だけ（`staleAfterSeconds: 30`を実際に経過させる）、報告なしのPrincipalを用意する。再読込で作業中・待機・エラー・不明（観測途絶／観測なし）と時刻・理由・run参照を確認する。同じ開始の再送は`recorded: false`、別scopeの同じrun IDは`CONFLICT`を確認する。取得不能はブラウザのネットワーク遮断で確認し、API応答を置き換えない。
+
+このadapterのMCP報告はProviderの実行を証明しない。製品Ralph・Orchestratorの接続は関連するプロセス結合テストの記録と区別し、実Providerの継続自律運転は別の検証とする。

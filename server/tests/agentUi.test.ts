@@ -11,6 +11,7 @@ import {
   summarizeWorkspaceAgents,
   workspaceAgentRoles,
 } from "../src/web/features/agent/agents.ts";
+import { agentExecutionLabels, agentExecutionOf, agentExecutionReason, agentRunsPath, formatElapsed, type AgentRun } from "../src/web/features/agent/agentRuns.ts";
 import { parseShellLocation } from "../src/web/features/workspace/workspace.ts";
 import { workspaceAgentPath } from "../src/web/paths.ts";
 import type { Credential } from "../src/web/features/credential/credentials.ts";
@@ -172,4 +173,60 @@ test("PrincipalのCredentialは有効を優先し、無ければ期限切れ・�
     { status: "active", expiresAt: now + 20 },
   );
   assert.deepEqual(principalCredential("a", [{ ...credential("a"), kind: "runtime" }, credential("b")], now), { status: "none", expiresAt: null });
+});
+
+// UI-E2: 実行状況は報告された実行観測だけから決め、Grant・Credential・Claimからは推測しない。
+const run = (overrides: Partial<AgentRun> = {}): AgentRun => ({
+  runId: "run-1", scope: { kind: "project", id: "p1" }, principalId: "w1", role: "worker", source: "ralph", provider: "claude", workRef: null,
+  reporter: { kind: "agent", principalId: "w1" }, status: "running", startedAt: now - 120_000, observedAt: now - 60_000, staleAt: now + 60_000,
+  endedAt: null, reason: null, observation: "running", ...overrides,
+});
+const time = (value: number) => `t${value}`;
+
+test("実行状況: 報告が無いPrincipalは不明（観測なし）、取得失敗は取得不能で、Grant・Credential・Claimがあっても作業中にしない", () => {
+  const agents = summarizeWorkspaceAgents({
+    workspace: { id: "w", name: "W" }, workspaceGrants: [], workspaceCredentials: [],
+    projects: [{ project: { id: "p1", name: "P1" }, grants: [grant("w1", "worker")], credentials: [credential("w1")], tasks: [task("t1", { status: "doing", activeClaim: held("w1") })] }],
+    now,
+  });
+  const agent = agents.principals[0];
+  assert.equal(agent.claims.length, 1);
+  assert.equal(agent.credential?.status, "active");
+  const none = agentExecutionOf(agent.principalId, { asOf: now, runs: [run({ principalId: "other" })] });
+  assert.equal(none.kind, "none");
+  assert.equal(agentExecutionLabels[none.kind], "不明（観測なし）");
+  const unavailable = agentExecutionOf(agent.principalId, { error: "通信に失敗しました" });
+  assert.equal(unavailable.kind, "unavailable");
+  assert.match(agentExecutionReason(unavailable, time), /通信に失敗しました/);
+  assert.notEqual(agentExecutionLabels.unavailable, agentExecutionLabels.none);
+});
+
+test("実行状況: 期限内の実行中を優先し、観測途絶・正常終了・異常終了を時刻と理由付きで区別する", () => {
+  const stale = run({ runId: "old", observation: "stale", observedAt: now - 3 * 60 * 60_000, staleAt: now - 60_000 });
+  const running = run({ runId: "new", scope: { kind: "project", id: "p2" } });
+  const both = agentExecutionOf("w1", { asOf: now, runs: [stale, running] });
+  assert.equal(both.kind, "running");
+  assert.equal("run" in both && both.run.runId, "new");
+  assert.match(agentExecutionReason(both, time), new RegExp(`最終観測 t${now - 60_000}`));
+
+  const onlyStale = agentExecutionOf("w1", { asOf: now, runs: [stale] });
+  assert.equal(onlyStale.kind, "stale");
+  assert.equal(agentExecutionLabels.stale, "不明（観測途絶）");
+  assert.match(agentExecutionReason(onlyStale, time), /3時間報告がありません。稼働中とは断定しません/);
+
+  const failed = agentExecutionOf("w1", { asOf: now, runs: [run({ status: "failed", observation: "failed", endedAt: now - 5_000, reason: "exit 2" })] });
+  assert.equal(agentExecutionLabels[failed.kind], "エラー");
+  assert.match(agentExecutionReason(failed, time), new RegExp(`t${now - 5_000}に異常終了: exit 2`));
+  const succeeded = agentExecutionOf("w1", { asOf: now, runs: [run({ status: "succeeded", observation: "succeeded", endedAt: now - 5_000 })] });
+  assert.equal(agentExecutionLabels[succeeded.kind], "待機");
+  assert.match(agentExecutionReason(succeeded, time), /正常終了。その後の実行は報告されていません/);
+  // 最後に報告のあった終了が代表になる（古い異常終了より新しい正常終了）。
+  const latest = agentExecutionOf("w1", { asOf: now, runs: [run({ runId: "a", status: "failed", observation: "failed", observedAt: now - 10_000, endedAt: now - 10_000 }), run({ runId: "b", status: "succeeded", observation: "succeeded", observedAt: now - 1_000, endedAt: now - 1_000 })] });
+  assert.equal(latest.kind, "succeeded");
+});
+
+test("実行観測のAPI pathと経過時間の表示", () => {
+  assert.equal(agentRunsPath("w"), "/api/workspaces/w/agent-runs");
+  assert.equal(agentRunsPath("w", "a b"), "/api/workspaces/w/agent-runs?principalId=a%20b");
+  assert.deepEqual([30_000, 5 * 60_000, 90 * 60_000, 2 * 60 * 60_000, 50 * 60 * 60_000].map(formatElapsed), ["1分未満", "5分", "1時間30分", "2時間", "2日"]);
 });

@@ -41,7 +41,7 @@ devはループバックだけでlistenする。終了は`Ctrl+C`。静的build�
 | preview | `server/.storybook/preview.tsx`。製品と同じ`app/main.scss`と`MemoryRouter`を使う。認証・Workspace Providerは基本部品に不要なので起動しない |
 | Foundations | `styles/Tokens.stories.tsx`。`styles/_tokens.scss?raw`から名前・値を生成し、見本は製品のCSS変数で描画。色・状態色・文字・余白・control size・角丸・影・動きの値一覧を二重管理しない |
 | Components | `components/ui/*.stories.tsx`。製品と同じ`components/ui/index.ts`からButton/LinkButton、入力、Field/Fieldset、ViewSwitch、IconButton、Dialogを使用 |
-| Patterns | `components/Patterns.stories.tsx`。既存の操作列・フォーム・ConfirmPanel・StateCard・PageColumns・罫線区切りの一覧・Projectカードを使用。APIに依存せずローカル状態で入力・確認・完了を用意。`features/direction/DirectionPanel.stories.tsx`はMission・Visionの帯とPageColumnsの組合せ |
+| Patterns | `components/Patterns.stories.tsx`。既存の操作列・フォーム・ConfirmPanel・StateCard・PageColumns・罫線区切りの一覧・Projectカードを使用。APIに依存せずローカル状態で入力・確認・完了を用意。`features/direction/DirectionPanel.stories.tsx`はMission・Visionの帯とPageColumnsの組合せ。`features/agent/AgentExecution.stories.tsx`はAgent一覧・詳細の実行状況（作業中・正常／異常終了・観測途絶・観測なし・取得不能） |
 
 カタログ用の部品・SCSSは持たない。Foundationsのinline styleはtoken見本の描画だけに用い、基本部品のstyleを上書きしない。状態例は対応する部品/トークンの近くに置き、製品の公開入口からexportしない。将来Contextが必要な部品を追加する場合も、必要範囲だけをpreviewで用意し、実運用APIや秘密をfixtureへ持ち込まない。
 
