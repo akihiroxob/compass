@@ -180,6 +180,9 @@ POLL_INTERVAL_SECONDS="$(jq -er '.pollIntervalSeconds // 300 | numbers | select(
 RETRY_INITIAL_SECONDS="$(jq -er '.retry.initialSeconds // 300 | numbers | select(. >= 1) | floor' "$CONFIG_PATH")"
 RETRY_TOKEN_LIMIT_SECONDS="$(jq -er '.retry.tokenLimitSeconds // 1800 | numbers | select(. >= 1) | floor' "$CONFIG_PATH")"
 IDLE_HEARTBEAT_SECONDS="$(jq -er '.logging.idleHeartbeatSeconds // 3600 | numbers | select(. >= 1) | floor' "$CONFIG_PATH")"
+# 実行観測の報告間隔。報告が3間隔分途絶えると、Serverは観測途絶（稼働中と断定しない）として扱う。
+RALPH_RUN_HEARTBEAT_SECONDS="$(jq -er '.observation.heartbeatSeconds // 300 | numbers | select(. >= 10 and . <= 28800) | floor' "$CONFIG_PATH")"
+RALPH_RUN_STALE_AFTER_SECONDS=$((RALPH_RUN_HEARTBEAT_SECONDS * 3))
 export RALPH_CONFIG_PATH="$CONFIG_PATH"
 
 # Worker / Reviewerは別Principal・別Credentialで接続する。tokenは値ではなく環境変数名を設定に書き、
@@ -240,6 +243,9 @@ rendered_prompt="$RALPH_TMP_DIR/prompt.md"
 
 cleanup() {
   local exit_status=$?
+  if [[ -n "$RALPH_RUN_HEARTBEAT_PID" ]]; then
+    kill "$RALPH_RUN_HEARTBEAT_PID" 2>/dev/null || true
+  fi
   if [[ -n "$RALPH_SLEEP_PID" ]]; then
     kill "$RALPH_SLEEP_PID" 2>/dev/null || true
   fi
@@ -453,12 +459,14 @@ while true; do
     continue
   fi
   ralph_log '%sを起動します。\n' "$role"
+  backend_run_started
   # Agentの実行中にSIGTERMを受けた場合は、Agentの終了を待ってから次を起動せずに終了する。
   if provider_run "$rendered_prompt" "$RALPH_EXECUTION_ROOT"; then
     provider_status=0
   else
     provider_status=$?
   fi
+  backend_run_finished "$provider_status"
   if (( provider_status != 0 )); then
     PROVIDER_TOKEN_LIMIT_RESET_PARSED=false
     PROVIDER_TOKEN_LIMIT_RETRY_SECONDS=""

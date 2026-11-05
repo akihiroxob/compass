@@ -9,7 +9,8 @@
 - [ADR 0004 TaskのPR](adr/0004-task-pull-request-verification.md): TaskのPRをServerがGitHubで確認した事実として保持し、成果物参照と区別する決定。
 - [ADR 0005 PRの照合](adr/0005-task-pull-request-transition-verification.md): PRのあるTaskの完了・レビュー・受入で、現在のPR・レビューしたhead・merge SHA・必須CI・レビュー根拠のコメントを照合する決定。
 - [ADR 0006 複数Active Intent](adr/0006-multiple-active-intents.md): 目標別の現在状態・Context・dispatchの分離。
-- [ADR 0007 Intentの観測値](adr/0007-intent-metric-observations.md): 目標の観測項目（単位・目標値・鮮度）と版付きの時系列をDirectionに保持し、未計測・取得失敗・古い観測を区別する決定。
+- [ADR 0007 Workspace横断のActivity](adr/0007-workspace-activity-stream.md): Workspace共通と配下全Projectの業務Activityの横断取得、業務イベントの判定規則、Change Log / Operational Logとの境界、cursor。
+- [ADR 0008 Intentの観測値](adr/0008-intent-metric-observations.md): 目標の観測項目（単位・目標値・鮮度）と版付きの時系列をDirectionに保持し、未計測・取得失敗・古い観測を区別する決定。
 - [Direction・Workの境界](lv6-unification-design.md)
 - [Research・Decision・ADR](research-decision-adr-design.md)
 
@@ -48,3 +49,5 @@
 - [デザインシステムとUIカタログの実装計画](planning/design-system-implementation-plan.md): ムードボード・プロトタイプの参照、配色と視覚方向、実部品を共有するカタログ、画面適用の受入境界とWacha登録先。登録と実装完了を区別する。実装済みの現行の方針・運用は[Web UIの視覚方針](web-ui.md#視覚方針)と[UIカタログ](ui-catalog.md)。
 
 現行文書へ過去の案・段階別の作業記録を併記しない。過去情報はGit履歴から参照する。
+
+- [Agent実行観測](agent-run-observation.md): Ralph／Orchestratorのrun記録・認可・Agent画面への接続。

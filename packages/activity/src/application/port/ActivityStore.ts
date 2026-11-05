@@ -25,6 +25,27 @@ export type ActivityQuery = {
   ref?: { kind: ActivityEntityKind | "project_resource"; id: string };
 };
 
+/** 横断取得の位置。発生時刻と取得位置（`cursor`）の組で、同時刻のActivityにも全順序を与える。 */
+export type ActivityStreamPosition = { occurredAt: number; cursor: number };
+
+export type ActivityStreamQuery = {
+  /** この位置より後（昇順）。差分取得用。 */
+  after?: ActivityStreamPosition;
+  /** この位置より前（降順）。新しい順のページング用。`after`とは同時に使わない。 */
+  before?: ActivityStreamPosition;
+  limit: number;
+  /** このProjectの記録だけ。 */
+  projectId?: string;
+  /** Workspace共通（Projectに属さない）の記録だけ。`projectId`とは同時に使わない。 */
+  workspaceOnly?: boolean;
+  type?: string;
+  /** 発生時刻の範囲（両端を含む）。 */
+  occurredFrom?: number;
+  occurredTo?: number;
+  /** summary・body・type・principalIdの部分一致（大文字小文字を区別しない）。 */
+  text?: string;
+};
+
 /** Activityの保存。追記だけで、更新・削除は持たない。 */
 export interface ActivityStore {
   /**
@@ -39,6 +60,11 @@ export interface ActivityStore {
   listProject(projectId: string, query: ActivityQuery): Promise<Activity[]>;
   /** Workspace scopeのみ。同じWorkspaceに所属するProject Activityは含めない。 */
   listWorkspace(workspaceId: string, query: ActivityQuery): Promise<Activity[]>;
+  /**
+   * Workspace共通と所属全Project（archivedを含む）のActivityを、発生時刻と`cursor`の順（`after`があれば昇順、なければ降順）で返す。
+   * 別Workspaceとsystem scopeは含めない。`matchedCount`は位置を除いた条件に一致する件数。
+   */
+  listWorkspaceStream(workspaceId: string, query: ActivityStreamQuery): Promise<{ activities: Activity[]; matchedCount: number }>;
   maxWorkspaceCursor(workspaceId: string): Promise<number>;
   /** このActivityを訂正したActivity（`cursor`の昇順）。 */
   listCorrections(activityId: string): Promise<Activity[]>;

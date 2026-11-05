@@ -46,7 +46,7 @@ Intent作成はResearch Requestを作らない。OrchestratorがActive Intentで
 
 ## 観測項目と時系列
 
-Intentの到達点・推移を確かめるため、Intentごとに観測項目（Metric）と、その対象期間ごとの観測値を保持する。型は [IntentMetric.ts](../packages/direction/src/domain/IntentMetric.ts)、入力規則は [intentMetricSchema.ts](../packages/direction/src/application/intentMetricSchema.ts)。Outcomeの成功条件・評価とは別の記録で、Intent → Outcome → Story／Taskの階層や独立したSuccess Metrics管理UIを追加しない。外部の分析サービスとの接続は前提にせず、取得した値と出所を公開入口から記録する。判断は [ADR 0007](adr/0007-intent-metric-observations.md)。
+Intentの到達点・推移を確かめるため、Intentごとに観測項目（Metric）と、その対象期間ごとの観測値を保持する。型は [IntentMetric.ts](../packages/direction/src/domain/IntentMetric.ts)、入力規則は [intentMetricSchema.ts](../packages/direction/src/application/intentMetricSchema.ts)。Outcomeの成功条件・評価とは別の記録で、Intent → Outcome → Story／Taskの階層や独立したSuccess Metrics管理UIを追加しない。外部の分析サービスとの接続は前提にせず、取得した値と出所を公開入口から記録する。判断は [ADR 0008](adr/0008-intent-metric-observations.md)。
 
 ### 観測項目
 

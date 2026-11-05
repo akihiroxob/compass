@@ -117,6 +117,8 @@ const topLevelLabels: Record<string, string> = {
   targetDate: "目標日",
   reason: "放棄の理由",
   hypothesis: "仮説",
+  problems: "課題",
+  expectedRevision: "更新の版",
   rationale: "判断理由",
   successCriteria: "成功条件",
   principalId: "Agent名",
@@ -130,6 +132,12 @@ const linkFieldLabels: Record<string, string> = {
   description: "内容",
   measurement: "測定方法",
   target: "目標値",
+  statement: "課題",
+  evidenceStatus: "根拠の状態",
+  observation: "観測",
+  causeHypothesis: "原因の仮説",
+  solutionHypothesis: "解決策の仮説",
+  evidence: "根拠",
 };
 
 /** サーバーのissue path（例 `repositories.0.url`）を、フォームのaria-labelと同じ表記へ変換する。 */
@@ -174,6 +182,8 @@ const conflictMessages: Record<string, string> = {
   STORY_CLOSED: "完了・取消済みのStoryは編集・Task追加できません。",
   STALE_REVISION: "表示後に相談が更新されました。最新の会話を読み込んでから、もう一度操作してください。",
   CONSULTATION_CLOSED: "この相談は解決済みまたは取消済みです。方針を変える場合は新しい相談として扱います。",
+  OUTCOME_STALE_REVISION: "表示後にOutcomeが更新されました。入力内容は残っています。最新の内容を開き直してから、もう一度保存してください。",
+  EVIDENCE_SUPERSEDED: "新しい版に置き換えられたResearchの結論は関連付けられません。最新の版を選んでください。",
   IDEMPOTENCY_CONFLICT: "同じ操作が別の内容で送信済みです。画面を再読込して状態を確認してください。",
 };
 

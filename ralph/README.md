@@ -114,3 +114,7 @@ node /path/to/compass/ralph/runtime/consultation-context.mjs /path/to/runtime.js
 同じworktreeのRunnerは`runtime/worktree-lock.py`のOS lockで排他化します。Runner停止後も旧Agentへ継承した専用fd（9以上。logging用の3/4とは分離）がlogging/providerを通してlockを保持し、旧Agentが終了するまで新Runnerを拒否します。adapterから同じworktreeを起動する場合もこのlock契約を使います。別Task/Role全体をpauseする仕組みはありません。Python 3（POSIXの`fcntl`）・Node.js・gitを使用します。
 
 受入段階の相談再開には、任意の`roles.manager`設定（`tokenEnv`・provider・command）と`ralph run manager --config <path>`を使います。Manager自身のPrincipal/Project Credentialで元の`acceptance` Claimを取得し、Role Contextに従って判断します。`auto`の通常順は従来どおりReviewer→Workerで、Managerを自動的に追加しません。
+
+## Agent実行観測
+
+provider起動前・終了後と実行中の観測をServerへ報告し、WorkspaceのAgent管理へ表示する。`observation.heartbeatSeconds`は10〜28800秒（既定300秒）、観測途絶の期限は3間隔。報告失敗でもAgent実行は継続する。詳細は[Agent実行観測](../docs/agent-run-observation.md)を参照する。

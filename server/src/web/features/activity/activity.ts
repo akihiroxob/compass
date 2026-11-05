@@ -57,11 +57,12 @@ export const activitySourceLabels: Record<ActivitySummary["source"], string> = {
  */
 export const activityTypeGroups: Record<ActivityScope["kind"], { label: string; types: { type: string; label: string }[] }[]> = {
   project: [
-    { label: "Story", types: [{ type: "story.created", label: "Storyの起票" }, { type: "story.completed", label: "Storyの完了" }, { type: "story.canceled", label: "Storyの取消" }] },
+    { label: "Story", types: [{ type: "story.created", label: "Storyの起票" }, { type: "story.started", label: "Storyの着手" }, { type: "story.completed", label: "Storyの完了" }, { type: "story.canceled", label: "Storyの取消" }] },
     {
       label: "Task",
       types: [
         { type: "task.created", label: "Taskの起票" },
+        { type: "task.started", label: "Taskの着手" },
         { type: "task.completed", label: "Taskの作業完了" },
         { type: "task.reviewed", label: "Taskのレビュー承認" },
         { type: "task.accepted", label: "Taskの受入" },

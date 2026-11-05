@@ -1,4 +1,4 @@
-# ADR 0007: Intentの観測値を版付きの時系列としてDirectionに保持する
+# ADR 0008: Intentの観測値を版付きの時系列としてDirectionに保持する
 
 - 状態: 承認
 - 対象: Direction / Server（MCP・Web API）/ Role

@@ -174,3 +174,7 @@ Project相談はWorkspace Direction dispatch・Intent・Outcomeから独立し�
 ## Workspace相談へのStrategist応答
 
 `workspaces[]`に設定したWorkspaceは、同じWorkspace Runtime Credential（`runtime:state:read`）で`get_workspace_consultation_state`も読み、未処理の相談ID・入力版ごとに`<workspaceId>:strategist:consultation:<id>:<inputRevision>`をkeyにStrategistを起動します。所属Projectの相談は含まず、archivedのWorkspaceでは起動しません。Strategistへは`workspaces[].agentEnv`を加え、`COMPASS_PROJECT_ID`を渡さず、`get_workspace_role_context`と相談toolへ`workspaceId`を渡すよう指示します。読取りに失敗した周回は失敗として記録し、dispatch記録を整理しません。正常終了しても同じ入力版が未処理なら、Project相談と同じくbackoff・試行上限で再試行します。
+
+## Agent実行観測
+
+Agent管理への実行状況の接続は[Agent実行観測](../docs/agent-run-observation.md)を参照する。対象scopeのRuntime Credentialへ`agent:run:write`を加え、`agentPrincipals`に実際に起動するAgentのPrincipalを設定する。未設定・報告不能は不明のままで、GrantやCredentialから稼働を推測しない。

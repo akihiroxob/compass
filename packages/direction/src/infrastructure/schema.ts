@@ -29,8 +29,34 @@ export type OutcomeTable = {
   cancel_reason: string | null;
   /** 判断したDirection DecisionのID。FKは意図的に付けない（direction_decision.outcome_idとの循環参照を避けるため）。 */
   origin_decision_id: string | null;
+  /** 更新のたびに1増える版（作成時1）。 */
+  revision: number;
   created_at: number;
   updated_at: number;
+};
+
+/** Outcomeの課題（Problem Statement）と根拠の状態・観測・原因の仮説・解決策の仮説。Outcomeの一部として置換で更新する。 */
+export type OutcomeProblemTable = {
+  id: string;
+  workspace_id: string;
+  outcome_id: string;
+  position: number;
+  statement: string;
+  evidence_status: "insufficient" | "observed" | "refuted";
+  observation: string | null;
+  cause_hypothesis: string | null;
+  solution_hypothesis: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+/** 課題の根拠参照。同じWorkspaceのResearch Finding・Synthesisのどちらか1つを複合FKで参照する。 */
+export type OutcomeProblemEvidenceTable = {
+  problem_id: string;
+  workspace_id: string;
+  position: number;
+  finding_id: string | null;
+  synthesis_id: string | null;
 };
 
 export type SuccessCriterionTable = {
@@ -364,6 +390,8 @@ export type DirectionDatabase = {
   intent: IntentTable;
   outcome: OutcomeTable;
   success_criterion: SuccessCriterionTable;
+  outcome_problem: OutcomeProblemTable;
+  outcome_problem_evidence: OutcomeProblemEvidenceTable;
   outcome_target_project: OutcomeTargetProjectTable;
   research_request: ResearchRequestTable;
   research_result: ResearchResultTable;

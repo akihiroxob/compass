@@ -104,6 +104,9 @@ import {
   GrantWorkspaceRoleUseCase,
   RevokeWorkspaceRoleUseCase,
   ListWorkspaceGrantsUseCase,
+  ListWorkspaceAgentRunsUseCase,
+  RecordAgentRunUseCase,
+  SQLiteAgentRunRepository,
   SQLiteWorkspaceGrantRepository,
   RoleScopeAuthorizationService,
   GrantProjectRoleUseCase,
@@ -155,6 +158,7 @@ import {
   GetActivityUseCase,
   KyselyActivityStore,
   ListActivitiesUseCase,
+  ListWorkspaceActivityStreamUseCase,
   RecordActivityUseCase,
   type ActivityUnitOfWork,
 } from "@compass/activity";
@@ -300,6 +304,7 @@ export const createApplicationServices = (
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
   const workspaceGrantRepository = new SQLiteWorkspaceGrantRepository(accessDatabase, accessWorkspaceReaders, clock);
   const roleScopeAuthorizationService = new RoleScopeAuthorizationService(workspaceGrantRepository, projectGrantRepository);
+  const agentRunRepository = new SQLiteAgentRunRepository(accessDatabase, clock);
   const accessCredentialRepository = new SQLiteAccessCredentialRepository(accessDatabase, accessProjectReaders, accessWorkspaceReaders);
   const getProjectUseCase = new GetProjectUseCase(projectRepository);
   // Activity（意味のある履歴）。Change Log・Operational Logとは別のtableで、Project・Workspaceの状態はOrganizationのreaderで読む。
@@ -310,6 +315,8 @@ export const createApplicationServices = (
   const getActivityUseCase = new GetActivityUseCase(ActivityScope.PROJECT, activityScopes, activityStore);
   const listWorkspaceActivitiesUseCase = new ListActivitiesUseCase(ActivityScope.WORKSPACE, activityScopes, activityStore);
   const getWorkspaceActivityUseCase = new GetActivityUseCase(ActivityScope.WORKSPACE, activityScopes, activityStore);
+  // Workspace共通と所属全Projectを横断して読むHuman向けの一覧。Agentの入口には公開しない（Agentのscope認可は広げない）。
+  const listWorkspaceActivityStreamUseCase = new ListWorkspaceActivityStreamUseCase(activityScopes, activityStore);
   const activityUnitOfWork: ActivityUnitOfWork = {
     execute: (work) => applicationDatabase.transaction().execute((transaction) =>
       work(new KyselyActivityStore(asActivityDatabase(transaction)), activityScopeReader(transaction)),
@@ -605,6 +612,13 @@ export const createApplicationServices = (
     grantWorkspaceRoleUseCase: new GrantWorkspaceRoleUseCase(new GetWorkspaceUseCase(workspaceRepository), workspaceGrantRepository),
     revokeWorkspaceRoleUseCase: new RevokeWorkspaceRoleUseCase(new GetWorkspaceUseCase(workspaceRepository), workspaceGrantRepository),
     listWorkspaceGrantsUseCase: new ListWorkspaceGrantsUseCase(new GetWorkspaceUseCase(workspaceRepository), workspaceGrantRepository),
+    // Agentの実行観測（Ralph・Orchestratorの報告）。Activityには書かず、Grant・Credential・Claimから導かない。
+    recordAgentRunUseCase: new RecordAgentRunUseCase(agentRunRepository, workspaceGrantRepository, projectGrantRepository, clock),
+    listWorkspaceAgentRunsUseCase: new ListWorkspaceAgentRunsUseCase(
+      async (workspaceId) => (await new ListWorkspaceProjectsUseCase(workspaceRepository, projectRepository).execute(workspaceId)).map(({ id }) => id),
+      agentRunRepository,
+      clock,
+    ),
     grantProjectRoleUseCase: new GrantProjectRoleUseCase(accessProjects, projectGrantRepository),
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(accessProjects, projectGrantRepository),
     listProjectGrantsUseCase: new ListProjectGrantsUseCase(accessProjects, projectGrantRepository),
@@ -736,9 +750,12 @@ export const createApplicationServices = (
     // Workspace Activity閲覧（Workspace Membership）。所属ProjectのActivityは含めず、Web UIからは記録しない。
     listWorkspaceActivities: workspaceAuthorized("workspace.read", listWorkspaceActivitiesUseCase),
     getWorkspaceActivity: workspaceAuthorized("workspace.read", getWorkspaceActivityUseCase),
+    listWorkspaceActivityStream: workspaceAuthorized("workspace.read", listWorkspaceActivityStreamUseCase),
     // Workspace Direction Role（strategist / researcher / evaluator）のAgent Grant（Workspace Membership）。Project Grantは含めず、
     // Project Grantからは継承しない。付与・取消はadministrator以上。
     listWorkspaceGrants: workspaceAuthorized("grant.read", services.listWorkspaceGrantsUseCase),
+    // Agentの実行観測（Workspaceとactiveな所属Project）。Workspace Membership（viewer以上）で読む。記録はMCPだけ。
+    listWorkspaceAgentRuns: workspaceAuthorized("workspace.read", services.listWorkspaceAgentRunsUseCase),
     grantWorkspaceRole: workspaceAuthorized("grant.manage", services.grantWorkspaceRoleUseCase),
     revokeWorkspaceRole: workspaceAuthorized("grant.manage", services.revokeWorkspaceRoleUseCase),
     grantProjectRole: authorized("grant.manage", services.grantProjectRoleUseCase),
