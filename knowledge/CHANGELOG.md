@@ -19,3 +19,10 @@
 - 根拠: 元になった task ID・レビュー指摘・事象への参照
 - 見送り理由: rejected / deferred の場合のみ
 ```
+
+## 2026-11-05
+
+- 種別: adopted
+- 対象: knowledge/tips/github-workflow.md / skills/implement-task.md / skills/review-task.md / skills/accept-task.md
+- 内容: PRのあるTaskのWorker（登録・再登録）、Reviewer（head固定・根拠コメント・必須check・merge・reviewed_taskの照合値）、Manager（merge commitでのAC確認・verification）の手順と照合失敗時の再確認を追加し、各Skillから参照する。
+- 根拠: Task ded25ca7-af29-4189-aaa1-533ae98a91bc（UI-G2）、ADR 0005

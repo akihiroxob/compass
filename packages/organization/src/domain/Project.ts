@@ -2,6 +2,11 @@ export type ProjectRepositoryLink = {
   id: string;
   name: string;
   url: string;
+  /**
+   * このRepositoryのPRをレビュー完了とする前に成功を必須とするGitHubのcheck名（check run名・commit statusのcontext）。
+   * 空ならCIを必須にしない（ADR 0005）。
+   */
+  requiredChecks: string[];
 };
 
 export type ProjectResource = {

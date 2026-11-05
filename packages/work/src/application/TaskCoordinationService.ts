@@ -14,7 +14,15 @@ import type {
 } from "./port/DirectionReferenceLookupPort.ts";
 import type { AcceptedDeliverable, ChangeRecord, StoryRecord, TaskClaimRecord, TaskPullRequestRecord, TaskRecord, WorkStore } from "./port/WorkStore.ts";
 import type { PullRequestGateway } from "./port/PullRequestGateway.ts";
-import { parseGitHubRepositoryUrl, repositoryFullName, type GitHubRepositoryName, type PullRequestSnapshot } from "../domain/PullRequest.ts";
+import {
+  parseGitHubRepositoryUrl,
+  repositoryFullName,
+  unsatisfiedRequiredChecks,
+  type GitHubRepositoryName,
+  type PullRequestCheck,
+  type PullRequestReviewEvidence,
+  type PullRequestSnapshot,
+} from "../domain/PullRequest.ts";
 
 export type TaskAvailability = "work" | "review" | "acceptance";
 
@@ -101,6 +109,11 @@ const pullRequestDto = (row: TaskPullRequestRecord, current: boolean) => ({
   workClaimId: row.work_claim_id,
   principalId: row.principal_id,
   verifiedAt: row.verified_at,
+  reviewedHeadSha: row.reviewed_head_sha,
+  reviewCommentId: row.review_comment_id,
+  reviewCommentUrl: row.review_comment_url,
+  acceptedMergeSha: row.accepted_merge_sha,
+  acceptanceEvidence: row.acceptance_evidence,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
   current,
@@ -116,6 +129,90 @@ const pullRequestFacts = (snapshot: PullRequestSnapshot) => ({
   merge_sha: snapshot.mergeSha,
   author: snapshot.author,
 });
+
+/** 完了・レビュー・受入でPRを照合する操作（Change・errorの`operation`）。 */
+type PullRequestOperation = "complete_task" | "reviewed_task" | "accept_task" | "operator_accept";
+
+/** 照合のためtransactionの外でGitHubから読んだ事実。`rowId`は読んだ時点の現在のPR。 */
+type FetchedPullRequest = {
+  rowId: string;
+  pr: PullRequestSnapshot;
+  reviewEvidence: PullRequestReviewEvidence[];
+  checks: PullRequestCheck[];
+};
+
+export type ReviewedTaskOptions = { expectedHeadSha?: string; reviewCommentId?: number };
+/** PRのあるTaskの受入で、Managerが照合したmerge SHAと、ACごとの確認の根拠。 */
+export type AcceptanceVerification = { mergeSha: string; evidence: string };
+
+const fullSha = /^[a-f0-9]{40}$/;
+
+const unreviewed = {
+  reviewed_head_sha: null, review_comment_id: null, review_comment_url: null, accepted_merge_sha: null, acceptance_evidence: null,
+};
+
+const pullRequestRef = (row: TaskPullRequestRecord) => ({ repository: row.repository, number: row.number, url: row.url });
+
+/** 状態遷移のChangeに残す、照合したPRの事実（UIの「対象Commit」等の根拠）。 */
+const pullRequestSummary = (row: TaskPullRequestRecord, pr: PullRequestSnapshot) => ({
+  repository: row.repository, number: row.number, url: pr.url, state: pr.state, headSha: pr.headSha, baseBranch: pr.baseBranch, mergeSha: pr.mergeSha,
+});
+
+/** 照合の失敗ごとの再確認方法。Roleが包括的な文言で止まらず、次の操作を選べるようにする。 */
+const recheckGuide = {
+  github_retry: "GitHubを読めず、何も記録していない。GitHubの復旧後に同じ入力・同じrequestIdで再送する。最後に確認した事実はlist_task_pull_requestsで読める",
+  github_config: "再送では解消しない。PRのRepository・番号とServerのGitHub設定（COMPASS_GITHUB_TOKEN）を確認し、解消しなければreject_task / release_claimで理由を残す",
+  retry: "PRの記録が照合中に変わった。list_task_pull_requestsで現在のPRを確認し、新しいrequestIdで再実行する",
+  register: "現在のWork Claimでregister_task_pull_requestにopen・非draftのPRを登録（同じPRなら再登録）してからcomplete_taskする",
+  merge_failed: "PRがmergeされていない。merge失敗・競合・branch保護の理由をGitHubで確認し、Workerの修正が必要ならreject_taskで差し戻す（修正後のheadを再レビューする）",
+  closed: "PRがmergeされずにcloseされた。reject_taskで差し戻し、Workerが新しいPRを登録する",
+  new_head: "レビューしたheadと異なるcommitが現在のPRのheadになっている。新しいheadを再レビューし、そのSHAで根拠コメントを残してから再実行する。merge済みならreject_taskで差し戻す",
+  review_comment: "現在のReview Claim・レビューしたhead SHA・decision \"approve\"の印を持つPRコメントを投稿し、そのcomment IDをreviewCommentIdに指定する",
+  checks: "必須checkの成功を確認できない。GitHubでhead SHAのCI結果を確認し、失敗ならreject_taskで差し戻す。未完了なら完了後に再実行する",
+  base_changed: "PRのbase branchが登録時と異なる。WorkerがPRを確認して再登録する必要があるためreject_taskで差し戻す",
+  not_reviewed: "PRのあるTaskはReviewerがreviewed_taskでレビュー対象headとmergeを照合してから受け入れる。Reviewerのレビューを待つ",
+  acceptance: "list_task_pull_requestsのcurrent PRのmergeShaを対象にACを確認し、verification（mergeSha・evidence）を指定してaccept_taskする",
+} as const;
+
+const pullRequestError = (
+  code: "PULL_REQUEST_NOT_READY" | "INVALID_INPUT",
+  operation: PullRequestOperation,
+  taskId: string,
+  row: TaskPullRequestRecord,
+  message: string,
+  recheck: keyof typeof recheckGuide,
+  facts: Record<string, unknown> = {},
+) =>
+  new CoordinationError(code, `${operation}: ${message} (Task ${taskId}, ${row.repository}#${row.number})`, {
+    operation, taskId, pullRequest: pullRequestRef(row), ...facts, recheck: recheckGuide[recheck],
+  });
+
+const parseReviewedTaskOptions = (options: ReviewedTaskOptions): ReviewedTaskOptions => {
+  const { expectedHeadSha, reviewCommentId } = options;
+  if (expectedHeadSha !== undefined && !fullSha.test(expectedHeadSha.toLowerCase())) {
+    throw new CoordinationError("INVALID_INPUT", "expectedHeadSha must be a full 40-character commit SHA");
+  }
+  if (reviewCommentId !== undefined && (!Number.isSafeInteger(reviewCommentId) || reviewCommentId < 1)) {
+    throw new CoordinationError("INVALID_INPUT", "reviewCommentId must be a positive integer");
+  }
+  return {
+    ...(expectedHeadSha !== undefined ? { expectedHeadSha: expectedHeadSha.toLowerCase() } : {}),
+    ...(reviewCommentId !== undefined ? { reviewCommentId } : {}),
+  };
+};
+
+const maxAcceptanceEvidenceLength = 10_000;
+
+const parseAcceptanceVerification = (input: AcceptanceVerification | undefined): AcceptanceVerification | null => {
+  if (input === undefined) return null;
+  const mergeSha = typeof input.mergeSha === "string" ? input.mergeSha.trim().toLowerCase() : "";
+  const evidence = typeof input.evidence === "string" ? input.evidence.trim() : "";
+  if (!fullSha.test(mergeSha)) throw new CoordinationError("INVALID_INPUT", "verification.mergeSha must be a full 40-character commit SHA");
+  if (!evidence || evidence.length > maxAcceptanceEvidenceLength) {
+    throw new CoordinationError("INVALID_INPUT", `verification.evidence is required (at most ${maxAcceptanceEvidenceLength} characters)`);
+  }
+  return { mergeSha, evidence };
+};
 
 export type RegisterTaskPullRequestInput = { taskId: string; claimId: string; repositoryId: string; number: number };
 
@@ -779,6 +876,12 @@ export class TaskCoordinationService {
         `Principal ${principalId} cannot accept its own completed work`,
       );
     }
+    // PRのあるTaskは、Reviewerがレビュー対象headとmergeを照合するまで受入へ進めない（Reviewer工程を省けない）。
+    const pullRequest = task.status === TaskStatus.IN_REVIEW ? await this.currentPullRequest(store, taskId) : null;
+    if (pullRequest) {
+      throw pullRequestError("PULL_REQUEST_NOT_READY", actorRole === "operator" ? "operator_accept" : "accept_task", taskId, pullRequest,
+        "a Task with a pull request cannot skip reviewed_task", "not_reviewed", { status: task.status, headSha: pullRequest.head_sha });
+    }
     const fromStatus = task.status;
     const claim = await this.insertClaim(store, taskId, principalId, now);
     if (fromStatus === TaskStatus.IN_REVIEW) {
@@ -1102,7 +1205,12 @@ export class TaskCoordinationService {
     );
   }
 
+  /**
+   * PRのあるTaskは、現在のWork Claimで登録したopen・非draftのPRをGitHubで確かめてから`in_review`へ進める（GitHubの読取はtransactionの外）。
+   * PRの無いTaskは従来どおり。
+   */
   async completeTask(principalId: string, taskId: string, claimId: string, requestId: string) {
+    const fetched = await this.fetchPullRequestForVerification(principalId, { toolName: "complete_task", requestId }, taskId, "complete_task", WorkRole.WORKER);
     return this.store.transaction(async (store) =>
       this.withReceipt(store, principalId, "complete_task", requestId, { taskId, claimId }, async () => {
         const claim = await this.assertCurrentClaim(store, principalId, taskId, claimId);
@@ -1118,6 +1226,7 @@ export class TaskCoordinationService {
           );
         }
         const now = this.clock();
+        const pullRequest = await this.verifyPullRequestForCompletion(store, taskId, claimId, fetched, now);
         await store.updateTask(taskId, {
             status: TaskStatus.IN_REVIEW,
             assignee: null,
@@ -1132,7 +1241,7 @@ export class TaskCoordinationService {
           entityId: taskId,
           principalId,
           claimId,
-          payload: { actorRole: "worker", fromStatus: TaskStatus.DOING, toStatus: TaskStatus.IN_REVIEW },
+          payload: { actorRole: "worker", fromStatus: TaskStatus.DOING, toStatus: TaskStatus.IN_REVIEW, ...(pullRequest ? { pullRequest } : {}) },
           occurredAt: now,
         });
         return { taskId, claimId, status: TaskStatus.IN_REVIEW };
@@ -1227,8 +1336,9 @@ export class TaskCoordinationService {
           await store.updateTaskPullRequest(latest.id, { ...pullRequestFacts(previous), repository_id: latest.repository_id,
             work_claim_id: latest.work_claim_id, principal_id: latest.principal_id, verified_at: now, updated_at: now });
         }
+        // 登録・再登録したPRは未レビュー。以前のレビュー・受入の照合結果を新しいWork Claimへ持ち越さない。
         const facts = { ...pullRequestFacts(pr), repository_id: parsed.repositoryId, work_claim_id: parsed.claimId,
-          principal_id: principalId, verified_at: now, updated_at: now };
+          principal_id: principalId, verified_at: now, updated_at: now, ...unreviewed };
         const id = existing?.id ?? crypto.randomUUID();
         if (existing) await store.updateTaskPullRequest(id, facts);
         else await store.insertTaskPullRequest({ id, task_id: parsed.taskId, project_id: task.project_id, repository, number: parsed.number,
@@ -1263,9 +1373,200 @@ export class TaskCoordinationService {
     return { current, previous };
   }
 
-  async reviewedTask(principalId: string, taskId: string, claimId: string, requestId: string) {
+  /** Taskの現在のPR（登録順の最後）。PRの無いTaskはnullで、GitHubと照合しない従来の経路で進む。 */
+  private async currentPullRequest(store: WorkStore, taskId: string) {
+    return (await store.listTaskPullRequests(taskId)).at(-1) ?? null;
+  }
+
+  /**
+   * 完了・レビュー・受入の照合のため、SQLiteのtransactionの外でGitHubを読む。PRの無いTask・同じ`requestId`の再送（受付記録あり）は
+   * GitHubを読まずnull。`review`ではレビュー根拠のPRコメントと、Repositoryに必須checkがあるときだけhead SHAのCI結果も読む。
+   * GitHubの失敗は、操作・Task・PR・最後に確認した事実・再確認方法を付けて返す（何も記録しない）。
+   */
+  private async fetchPullRequestForVerification(
+    principalId: string,
+    request: { toolName: string; requestId: string } | null,
+    taskId: string,
+    operation: PullRequestOperation,
+    role: WorkRole | null,
+  ): Promise<FetchedPullRequest | null> {
+    if (request && (await this.store.findReceipt(principalId, request.toolName, request.requestId))) return null;
+    const task = await this.getTask(this.store, taskId);
+    const row = await this.currentPullRequest(this.store, taskId);
+    if (!row) return null;
+    // GitHubを読む前に、Project Grantの無い呼出しを拒否する（Human operatorは入口が認可済み）。
+    if (role) await this.requireRole(this.store, task.project_id, principalId, role);
+    const repository = parseOwnerName(row.repository);
+    try {
+      if (!this.pullRequests || !repository) {
+        throw new CoordinationError("GITHUB_UNAVAILABLE", "GitHub integration is not configured on this server");
+      }
+      const pr = await this.pullRequests.getPullRequest(repository, row.number);
+      if (operation !== "reviewed_task") return { rowId: row.id, pr, reviewEvidence: [], checks: [] };
+      const required = (await this.store.projects.findRequiredChecks(task.project_id, row.repository_id)) ?? [];
+      const [reviewEvidence, checks] = await Promise.all([
+        this.pullRequests.listReviewEvidence(repository, row.number),
+        required.length ? this.pullRequests.listChecks(repository, pr.headSha) : Promise.resolve([]),
+      ]);
+      return { rowId: row.id, pr, reviewEvidence, checks };
+    } catch (error) {
+      if (!(error instanceof CoordinationError)) throw error;
+      throw new CoordinationError(
+        error.code,
+        `${operation}: could not verify ${row.repository}#${row.number} of Task ${taskId} on GitHub (${error.message}); nothing was recorded`,
+        {
+          operation,
+          taskId,
+          pullRequest: pullRequestRef(row),
+          lastVerified: { state: row.state, headSha: row.head_sha, mergeSha: row.merge_sha, verifiedAt: row.verified_at },
+          github: { code: error.code, message: error.message },
+          recheck: recheckGuide[error.code === "GITHUB_UNAVAILABLE" ? "github_retry" : "github_config"],
+        },
+      );
+    }
+  }
+
+  /** transactionの中で、現在のPRが読んだ時点から変わっていないこと（同じ行・Repository・番号・base branch）を確かめる。PRの無いTaskはnull。 */
+  private async verifiedPullRequest(store: WorkStore, taskId: string, fetched: FetchedPullRequest | null, operation: PullRequestOperation) {
+    const row = await this.currentPullRequest(store, taskId);
+    if (!row) return null;
+    if (!fetched || fetched.rowId !== row.id || fetched.pr.repository !== row.repository || fetched.pr.number !== row.number) {
+      throw pullRequestError("PULL_REQUEST_NOT_READY", operation, taskId, row, "the Task's current pull request changed during verification", "retry");
+    }
+    if (fetched.pr.baseBranch !== row.base_branch) {
+      throw pullRequestError("PULL_REQUEST_NOT_READY", operation, taskId, row,
+        `the base branch changed from ${row.base_branch} to ${fetched.pr.baseBranch}`, "base_changed",
+        { registeredBaseBranch: row.base_branch, baseBranch: fetched.pr.baseBranch, state: fetched.pr.state, headSha: fetched.pr.headSha });
+    }
+    return { row, ...fetched };
+  }
+
+  /** 完了: 現在のWork Claimで登録した、open・非draftのPR。確認した事実（現在のhead）を保存し、レビュー・受入の照合結果を消す。 */
+  private async verifyPullRequestForCompletion(store: WorkStore, taskId: string, claimId: string, fetched: FetchedPullRequest | null, now: number) {
+    const verified = await this.verifiedPullRequest(store, taskId, fetched, "complete_task");
+    if (!verified) return null;
+    const { row, pr } = verified;
+    if (row.work_claim_id !== claimId) {
+      throw pullRequestError("PULL_REQUEST_NOT_READY", "complete_task", taskId, row,
+        "the current pull request was registered under another Work Claim", "register",
+        { workClaimId: claimId, registeredWorkClaimId: row.work_claim_id, state: pr.state, headSha: pr.headSha });
+    }
+    if (pr.state !== "open" || pr.draft) {
+      throw pullRequestError("PULL_REQUEST_NOT_READY", "complete_task", taskId, row,
+        `the current pull request is ${pr.draft && pr.state === "open" ? "a draft" : pr.state}`, "register",
+        { state: pr.state, draft: pr.draft, headSha: pr.headSha, mergeSha: pr.mergeSha });
+    }
+    await store.updateTaskPullRequest(row.id, { ...pullRequestFacts(pr), verified_at: now, updated_at: now, ...unreviewed });
+    return pullRequestSummary(row, pr);
+  }
+
+  /**
+   * レビュー: Reviewerがレビューしたhead（`expectedHeadSha`）のままmergeされ、現在のReview Claim・そのhead・承認を示すPRコメント
+   * （`reviewCommentId`）があり、Repositoryの必須checkがそのheadで成功していること。必須checkが無ければCIを確認しない。
+   */
+  private async verifyPullRequestForReview(
+    store: WorkStore,
+    task: TaskRecord,
+    claimId: string,
+    options: ReviewedTaskOptions,
+    fetched: FetchedPullRequest | null,
+    now: number,
+  ) {
+    const verified = await this.verifiedPullRequest(store, task.id, fetched, "reviewed_task");
+    if (!verified) return null;
+    const { row, pr, reviewEvidence, checks } = verified;
+    const fail = (message: string, recheck: keyof typeof recheckGuide, facts: Record<string, unknown>) =>
+      pullRequestError("PULL_REQUEST_NOT_READY", "reviewed_task", task.id, row, message, recheck, facts);
+    const { expectedHeadSha, reviewCommentId } = options;
+    if (!expectedHeadSha || !reviewCommentId) {
+      throw pullRequestError("INVALID_INPUT", "reviewed_task", task.id, row,
+        "expectedHeadSha and reviewCommentId are required for a Task with a pull request", "review_comment",
+        { state: pr.state, headSha: pr.headSha });
+    }
+    if (pr.headSha !== expectedHeadSha) {
+      throw fail(`the pull request head is ${pr.headSha}, not the reviewed head ${expectedHeadSha}`, "new_head",
+        { expectedHeadSha, headSha: pr.headSha, state: pr.state, mergeSha: pr.mergeSha });
+    }
+    if (pr.state !== "merged") {
+      throw fail(`the pull request is ${pr.state}${pr.draft ? " (draft)" : ""} and not merged`, pr.state === "open" ? "merge_failed" : "closed",
+        { expectedHeadSha, headSha: pr.headSha, state: pr.state, mergeSha: null });
+    }
+    const evidence = reviewEvidence.find((item) => item.commentId === reviewCommentId);
+    const expected = { taskId: task.id, claimId, headSha: expectedHeadSha, decision: "approve" };
+    if (!evidence || evidence.taskId !== expected.taskId || evidence.claimId !== claimId ||
+      evidence.headSha !== expectedHeadSha || evidence.decision !== "approve") {
+      throw fail(`pull request comment ${reviewCommentId} is not an approval for this Task, Review Claim and head`, "review_comment", {
+        reviewCommentId,
+        expectedMarker: expected,
+        foundMarker: evidence ? { taskId: evidence.taskId, claimId: evidence.claimId, headSha: evidence.headSha, decision: evidence.decision, url: evidence.url } : null,
+        headSha: pr.headSha,
+        mergeSha: pr.mergeSha,
+      });
+    }
+    const required = await store.projects.findRequiredChecks(task.project_id, row.repository_id);
+    if (required === null) {
+      throw fail("the pull request's Repository is no longer registered in the Project", "github_config", { repositoryId: row.repository_id });
+    }
+    const unsatisfied = unsatisfiedRequiredChecks(checks, required);
+    if (unsatisfied.length) {
+      throw fail(`required checks did not succeed on ${pr.headSha}: ${unsatisfied.map(({ name }) => name).join(", ")}`, "checks",
+        { headSha: pr.headSha, mergeSha: pr.mergeSha, requiredChecks: required, unsatisfiedChecks: unsatisfied });
+    }
+    await store.updateTaskPullRequest(row.id, {
+      ...pullRequestFacts(pr), verified_at: now, updated_at: now,
+      reviewed_head_sha: pr.headSha, review_comment_id: evidence.commentId, review_comment_url: evidence.url,
+    });
+    return { ...pullRequestSummary(row, pr), requiredChecks: required, reviewCommentUrl: evidence.url };
+  }
+
+  /**
+   * 受入: `reviewed_task`で照合したheadのままmergeされていること。Managerは照合したmerge SHAと根拠（`verification`）を指定し、
+   * 現在のmerge SHAと一致する場合だけ受け入れる。Human operatorはレビュー済みの現在のmerge SHAを受け入れる。
+   */
+  private async verifyPullRequestForAcceptance(
+    store: WorkStore,
+    taskId: string,
+    actorRole: ActivityActorRole,
+    verification: AcceptanceVerification | null,
+    fetched: FetchedPullRequest | null,
+    now: number,
+  ) {
+    const operation: PullRequestOperation = actorRole === "operator" ? "operator_accept" : "accept_task";
+    const verified = await this.verifiedPullRequest(store, taskId, fetched, operation);
+    if (!verified) {
+      if (verification) throw new CoordinationError("INVALID_INPUT", `${operation}: verification applies only to a Task with a pull request (Task ${taskId})`);
+      return null;
+    }
+    const { row, pr } = verified;
+    const fail = (message: string, recheck: keyof typeof recheckGuide, facts: Record<string, unknown> = {}) =>
+      pullRequestError("PULL_REQUEST_NOT_READY", operation, taskId, row, message, recheck,
+        { reviewedHeadSha: row.reviewed_head_sha, headSha: pr.headSha, state: pr.state, mergeSha: pr.mergeSha, ...facts });
+    if (!row.reviewed_head_sha) throw fail("the pull request has not been verified by reviewed_task", "not_reviewed");
+    if (pr.headSha !== row.reviewed_head_sha) throw fail(`the pull request head ${pr.headSha} is not the reviewed head ${row.reviewed_head_sha}`, "new_head");
+    if (pr.state !== "merged" || !pr.mergeSha) throw fail(`the pull request is ${pr.state} and not merged`, "merge_failed");
+    if (actorRole !== "operator" && !verification) {
+      throw pullRequestError("INVALID_INPUT", operation, taskId, row, "verification (mergeSha and evidence) is required for a Task with a pull request",
+        "acceptance", { mergeSha: pr.mergeSha });
+    }
+    if (verification && verification.mergeSha !== pr.mergeSha) {
+      throw fail(`the verified merge SHA ${verification.mergeSha} is not the pull request's merge SHA ${pr.mergeSha}`, "acceptance",
+        { expectedMergeSha: verification.mergeSha });
+    }
+    await store.updateTaskPullRequest(row.id, {
+      ...pullRequestFacts(pr), verified_at: now, updated_at: now, accepted_merge_sha: pr.mergeSha, acceptance_evidence: verification?.evidence ?? null,
+    });
+    return { ...pullRequestSummary(row, pr), reviewedHeadSha: row.reviewed_head_sha };
+  }
+
+  /**
+   * PRのあるTaskは、Reviewerがレビューしたhead（`expectedHeadSha`）・現在のReview Claimの承認コメント（`reviewCommentId`）・
+   * 必須check・mergeをGitHubで照合してから`wait_accept`へ進める。PRの無いTaskは従来どおり。
+   */
+  async reviewedTask(principalId: string, taskId: string, claimId: string, requestId: string, options: ReviewedTaskOptions = {}) {
+    const parsed = parseReviewedTaskOptions(options);
+    const fetched = await this.fetchPullRequestForVerification(principalId, { toolName: "reviewed_task", requestId }, taskId, "reviewed_task", WorkRole.REVIEWER);
     return this.store.transaction(async (store) =>
-      this.withReceipt(store, principalId, "reviewed_task", requestId, { taskId, claimId }, async () => {
+      this.withReceipt(store, principalId, "reviewed_task", requestId, { taskId, claimId, ...parsed }, async () => {
         await this.assertCurrentClaim(store, principalId, taskId, claimId);
         const task = await this.getTask(store, taskId);
         await this.requireRole(store, task.project_id, principalId, WorkRole.REVIEWER);
@@ -1273,6 +1574,7 @@ export class TaskCoordinationService {
           throw new CoordinationError("INVALID_TASK_STATUS", `Task ${taskId} is not in_review`);
         }
         const now = this.clock();
+        const pullRequest = await this.verifyPullRequestForReview(store, task, claimId, parsed, fetched, now);
         await store.updateTask(taskId, { status: TaskStatus.WAIT_ACCEPT, updated_at: now });
         await store.deleteConsultationWait(taskId);
         await store.updateClaim(claimId, { state: "completed", released_at: now, release_reason: "task_reviewed" });
@@ -1282,7 +1584,7 @@ export class TaskCoordinationService {
           entityId: taskId,
           principalId,
           claimId,
-          payload: { actorRole: "reviewer", fromStatus: TaskStatus.IN_REVIEW, toStatus: TaskStatus.WAIT_ACCEPT },
+          payload: { actorRole: "reviewer", fromStatus: TaskStatus.IN_REVIEW, toStatus: TaskStatus.WAIT_ACCEPT, ...(pullRequest ? { pullRequest } : {}) },
           occurredAt: now,
         });
         return { taskId, claimId, status: TaskStatus.WAIT_ACCEPT };
@@ -1321,13 +1623,15 @@ export class TaskCoordinationService {
     taskId: string,
     claimId: string,
     actorRole: ActivityActorRole,
-    deliverables: AcceptedDeliverable[] = [],
+    deliverables: AcceptedDeliverable[],
+    pullRequestCheck: { fetched: FetchedPullRequest | null; verification: AcceptanceVerification | null },
   ) {
     const task = await this.getTask(store, taskId);
     if (task.status !== TaskStatus.WAIT_ACCEPT) {
       throw new CoordinationError("INVALID_TASK_STATUS", `Task ${taskId} is not wait_accept`);
     }
     const now = this.clock();
+    const pullRequest = await this.verifyPullRequestForAcceptance(store, taskId, actorRole, pullRequestCheck.verification, pullRequestCheck.fetched, now);
     await store.updateTask(taskId, {
         status: TaskStatus.ACCEPTED,
         reject_reason: null,
@@ -1343,7 +1647,10 @@ export class TaskCoordinationService {
       principalId,
       claimId,
       // 受入成果物は受入証跡としてChangeへ残す（相談の文書反映の参照登録は、これと一致する参照だけを受け付ける）。
-      payload: { actorRole, fromStatus: TaskStatus.WAIT_ACCEPT, toStatus: TaskStatus.ACCEPTED, ...(deliverables.length ? { deliverables } : {}) },
+      payload: {
+        actorRole, fromStatus: TaskStatus.WAIT_ACCEPT, toStatus: TaskStatus.ACCEPTED, ...(deliverables.length ? { deliverables } : {}),
+        ...(pullRequest ? { pullRequest, ...(pullRequestCheck.verification ? { verification: pullRequestCheck.verification } : {}) } : {}),
+      },
       occurredAt: now,
     });
     await this.syncStoryAfterAcceptance(
@@ -1362,16 +1669,25 @@ export class TaskCoordinationService {
    * `deliverables`は任意の受入成果物（Repository・完全なcommit SHA・変更したpath・PR URL）。RepositoryはTaskのProjectに登録済みで、
    * PR URLはそのRepositoryのpull requestに限る。指定がなければ従来どおり成果物なしで受け入れる。
    */
-  async acceptTask(principalId: string, taskId: string, claimId: string, requestId: string, deliverablesInput?: unknown) {
+  async acceptTask(
+    principalId: string,
+    taskId: string,
+    claimId: string,
+    requestId: string,
+    deliverablesInput?: unknown,
+    verificationInput?: AcceptanceVerification,
+  ) {
     const deliverables = parseAcceptedDeliverables(deliverablesInput);
-    const receiptInput = deliverables.length ? { taskId, claimId, deliverables } : { taskId, claimId };
+    const verification = parseAcceptanceVerification(verificationInput);
+    const receiptInput = { taskId, claimId, ...(deliverables.length ? { deliverables } : {}), ...(verification ? { verification } : {}) };
+    const fetched = await this.fetchPullRequestForVerification(principalId, { toolName: "accept_task", requestId }, taskId, "accept_task", WorkRole.MANAGER);
     return this.store.transaction(async (store) =>
       this.withReceipt(store, principalId, "accept_task", requestId, receiptInput, async () => {
         await this.assertCurrentClaim(store, principalId, taskId, claimId);
         const task = await this.getTask(store, taskId);
         await this.requireRole(store, task.project_id, principalId, WorkRole.MANAGER);
         await assertDeliverablesBelongTo(deliverables, (repositoryId) => store.projects.findRepository(task.project_id, repositoryId));
-        return this.acceptTaskCore(store, principalId, taskId, claimId, "manager", deliverables);
+        return this.acceptTaskCore(store, principalId, taskId, claimId, "manager", deliverables, { fetched, verification });
       }),
     );
   }
@@ -1510,10 +1826,13 @@ export class TaskCoordinationService {
 
   /** `in_review` / `wait_accept`のTaskを受入Claimの取得と同じtransactionで受け入れる。Claim中（期限内）なら`CLAIM_CONFLICT`。 */
   async acceptTaskAsOperator(principalId: string, projectId: string, taskId: string) {
+    // PRのあるTaskは、GitHubを読む前に対象がProjectに属することを確かめる（別ProjectのTask IDは存在しない扱い）。
+    await this.getOperatorTask(this.store, projectId, taskId);
+    const fetched = await this.fetchPullRequestForVerification(principalId, null, taskId, "operator_accept", null);
     return this.store.transaction(async (store) => {
       await this.getOperatorTask(store, projectId, taskId);
       const claim = await this.claimAcceptanceCore(store, principalId, taskId, "operator");
-      return this.acceptTaskCore(store, principalId, taskId, claim.claimId, "operator");
+      return this.acceptTaskCore(store, principalId, taskId, claim.claimId, "operator", [], { fetched, verification: null });
     });
   }
 

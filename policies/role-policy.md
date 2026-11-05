@@ -68,7 +68,7 @@ Execution の tool は旧 Wacha の契約を維持し、エラーを `{ error: {
 | `IDEMPOTENCY_CONFLICT` | 同じ `requestId`（または同じ Story の `correlationId`）を異なる入力で使った | 新しい `requestId` で、意図した入力を送り直す |
 | `GITHUB_UNAVAILABLE` | GitHub を読めなかった（応答なし・timeout・rate limit・5xx・不正な応答。`retryable: true`）。何も記録していない | 時間をおいて同じ入力・同じ `requestId` で再送する |
 | `GITHUB_ACCESS_DENIED` / `PULL_REQUEST_NOT_FOUND` | GitHub が権限不足で拒否した、PR が存在しない・見えない | 再送せず、Repository・番号・Server の GitHub 設定を確認して報告する |
-| `PULL_REQUEST_NOT_READY` | PR が登録の条件を満たさない（別 Repository・open でない・draft・別 Task に登録済み・現在の open PR が残っている） | PR を直すか、条件を満たす PR を登録する |
+| `PULL_REQUEST_NOT_READY` | PR が操作の条件を満たさない。登録（別 Repository・open でない・draft・別 Task に登録済み・現在の open PR が残っている）、完了・レビュー・受入の照合（後述） | `error.details` の `recheck` に従う。PR を直す・再登録する・差し戻す |
 
 ## Execution の Claim と状態遷移
 
@@ -80,6 +80,8 @@ Execution の tool は旧 Wacha の契約を維持し、エラーを `{ error: {
 - `complete_task` は、同じ Principal と同じ Claim の `add_task_comment` が無いと拒否される。実施内容と検証結果をコメントに残す
 - PR を作る Task では、Worker が現在の Work Claim で `register_task_pull_request`（`repositoryId` は Project に登録した GitHub Repository、Story に Repository があればそれ）を呼ぶ。Server が GitHub で確認した open・非 draft の PR だけを保存し、`list_task_pull_requests` が登録順の履歴（最後が `current`）と head / base / merge の事実・確認時刻を返す。受入成果物やコメントの PR URL は確認済み PR として扱わない
 - `register_task_pull_request` の応答が失われたら、同じ入力・同じ `requestId` で再送するか `list_task_pull_requests` で確認する。同じ `requestId` の再送は GitHub を読まずに記録済みの結果を返す
+- PR を登録した Task は、完了・レビュー・受入で Server が GitHub の現在の事実を照合する（ADR 0005。手順は `knowledge/tips/github-workflow.md`）。`complete_task` は現在の Work Claim で登録した open・非 draft の PR、`reviewed_task` はレビューした head（`expectedHeadSha`）のままの merge・現在の Review Claim とその head を承認するPRコメント（`reviewCommentId`）・Repository の `requiredChecks`（空なら CI を必須にしない）の成功、`accept_task` はレビュー済み head の merge SHA と一致する `verification`（`mergeSha`・`evidence`）を求める。GitHub の Approve は使わず、同じ GitHub アカウントのコメントを根拠にできる。PR のある Task は `in_review` から直接受入へ進めない。PR を登録していない Task は照合されない
+- 照合の失敗は `error.details` に操作・Task・PR・期待した / 実際の SHA・state・不足した check・再確認方法（`recheck`）を持つ。`recheck` に従って次の操作を選び、GitHub の結果を反映できなかったという包括的な報告だけで止めない
 - 最新の `complete_task` を行った Principal は、同じ Task の `claim_review` / `claim_acceptance` を取れない（Role を複数持っても回避できない）
 - `reject_task` の意味は状態で変わる。`in_review` は reviewer による実装・検証観点の差し戻し、`wait_accept` は manager による要件・受入観点の差し戻し。reason に不足点、危険性、再レビュー（再受入）条件を残す
 - `manager` は `in_review` の Task に `claim_acceptance` して Reviewer 工程を省ける。`wait_accept` へ進み、Change Log に `manager_direct_review` が残る

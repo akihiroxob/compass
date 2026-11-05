@@ -310,7 +310,8 @@ export const registerExecutionTools = (server: ToolRegistrar, services: Operatio
     {
       title: "Claim Acceptance",
       description:
-        "Acquire an acceptance Claim. An in_review Task is atomically moved to wait_accept as a Manager direct review.",
+        "Acquire an acceptance Claim. An in_review Task is atomically moved to wait_accept as a Manager direct review, except a Task " +
+        "with a registered pull request, which must first pass reviewed_task (PULL_REQUEST_NOT_READY).",
       inputSchema: { taskId: z.string().min(1), requestId: requestIdSchema },
     },
     ({ taskId, requestId }) => asPrincipal((principalId) => coordination.claimAcceptance(principalId, taskId, requestId)),
@@ -353,7 +354,11 @@ export const registerExecutionTools = (server: ToolRegistrar, services: Operatio
     "complete_task",
     {
       title: "Complete Task",
-      description: "Complete work under the current Claim and move the Task to in_review.",
+      description:
+        "Complete work under the current Claim and move the Task to in_review. For a Task with a registered pull request, the server " +
+        "re-reads the current PR on GitHub and requires an open, non-draft PR registered under this Work Claim (re-register the same PR " +
+        "with register_task_pull_request after a new Claim); its current head is recorded for review. Tasks without a pull request keep " +
+        "the plain path. Failures return error.details (operation, taskId, pullRequest, states/SHAs, recheck).",
       inputSchema: { taskId: z.string().min(1), claimId: claimIdSchema, requestId: requestIdSchema },
     },
     ({ taskId, claimId, requestId }) =>
@@ -363,11 +368,24 @@ export const registerExecutionTools = (server: ToolRegistrar, services: Operatio
     "reviewed_task",
     {
       title: "Reviewed Task",
-      description: "Approve implementation under the current Review Claim.",
-      inputSchema: { taskId: z.string().min(1), claimId: claimIdSchema, requestId: requestIdSchema },
+      description:
+        "Approve implementation under the current Review Claim. For a Task with a registered pull request: review the PR head, post a PR " +
+        "comment containing <!-- compass-task-review: {\"taskId\":\"…\",\"claimId\":\"<this Review Claim>\",\"headSha\":\"<reviewed head>\"," +
+        "\"decision\":\"approve\"} --> (a GitHub Approve is not required; the same GitHub account as the Worker may post it), merge the PR " +
+        "on GitHub at that head, then call this with expectedHeadSha and reviewCommentId. The server verifies on GitHub that the PR is " +
+        "merged at expectedHeadSha, the comment matches this Task/Claim/head, and the Repository's requiredChecks (none = CI not " +
+        "required) succeeded on that head. A failed or conflicting merge, a new head, a closed PR or failing checks are rejected with " +
+        "error.details (operation, taskId, pullRequest, SHAs, state, recheck); nothing is recorded.",
+      inputSchema: {
+        taskId: z.string().min(1),
+        claimId: claimIdSchema,
+        expectedHeadSha: z.string().regex(/^[a-fA-F0-9]{40}$/).optional().describe("Full head SHA you reviewed (Tasks with a pull request)"),
+        reviewCommentId: z.number().int().positive().optional().describe("GitHub comment ID of your review marker (Tasks with a pull request)"),
+        requestId: requestIdSchema,
+      },
     },
-    ({ taskId, claimId, requestId }) =>
-      asPrincipal((principalId) => coordination.reviewedTask(principalId, taskId, claimId, requestId)),
+    ({ taskId, claimId, requestId, expectedHeadSha, reviewCommentId }) =>
+      asPrincipal((principalId) => coordination.reviewedTask(principalId, taskId, claimId, requestId, { expectedHeadSha, reviewCommentId })),
   );
   server.registerTool(
     "accept_task",
@@ -378,18 +396,25 @@ export const registerExecutionTools = (server: ToolRegistrar, services: Operatio
         "verified: [{ repositoryId (registered in the Task's Project), commitSha (full 40-character SHA of the accepted change, e.g. " +
         "the merge commit), paths (Repository-relative files changed), pullRequestUrl ({Repository URL}/pull/{number}, or null; " +
         "must be null for a Repository without an http(s) URL) }]. They are kept on the TASK_ACCEPTED change as references only; " +
-        "record_consultation_artifact accepts only a path / commit / PR that matches them.",
+        "record_consultation_artifact accepts only a path / commit / PR that matches them. For a Task with a registered pull request, " +
+        "verification { mergeSha, evidence } is required: check the AC against the merge commit of the reviewed head (list_task_pull_requests " +
+        "current.mergeSha) and give per-criterion evidence; the server re-reads GitHub and accepts only when the PR is merged at the head " +
+        "verified by reviewed_task and mergeSha matches. Otherwise error.details states what differs and how to recheck.",
       inputSchema: {
         taskId: z.string().min(1),
         claimId: claimIdSchema,
         deliverables: z
           .array(z.object({ repositoryId: z.string(), commitSha: z.string(), paths: z.array(z.string()), pullRequestUrl: z.string().nullable().optional() }))
           .optional(),
+        verification: z
+          .object({ mergeSha: z.string().regex(/^[a-fA-F0-9]{40}$/), evidence: z.string().trim().min(1).max(10_000) })
+          .optional()
+          .describe("Tasks with a pull request: the merge SHA you verified and the acceptance evidence"),
         requestId: requestIdSchema,
       },
     },
-    ({ taskId, claimId, deliverables, requestId }) =>
-      asPrincipal((principalId) => coordination.acceptTask(principalId, taskId, claimId, requestId, deliverables)),
+    ({ taskId, claimId, deliverables, verification, requestId }) =>
+      asPrincipal((principalId) => coordination.acceptTask(principalId, taskId, claimId, requestId, deliverables, verification)),
   );
   server.registerTool(
     "reject_task",

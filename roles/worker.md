@@ -58,6 +58,10 @@ Story の作成・編集・中止、Task の編集・中止、Review、最終受
 
 `complete_task` は、同じ Principal と同じ Claim で作成したコメントがない場合に拒否される。
 
+## PR を作る Task
+
+Repository を変更する Task は、branch と open・非 draft の PR を作り、手順 7 の前に現在の Work Claim で `register_task_pull_request` する。PR を登録した Task は、`complete_task` で Server が GitHub の現在の PR を照合する（現在の Work Claim で登録した open・非 draft の PR であること）。差し戻し後は同じ open PR を修正して新しい Work Claim で再登録し、merge 後の差し戻しでは新しい PR を作る。手順と失敗時の再確認は `implement-task` Skill の `tips/github-workflow.md` に従う。
+
 ## Story の参照情報
 
 Outcome から作られた Story（`list_stories`）は次を持つ。Task の目的と完了条件を判断する根拠として読む。

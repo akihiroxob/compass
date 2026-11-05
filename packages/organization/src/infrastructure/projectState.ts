@@ -46,6 +46,24 @@ export const findProjectRepository = (database: Queryable, projectId: string, re
     .where("project_id", "=", projectId)
     .executeTakeFirst();
 
+/**
+ * Projectに登録されたRepositoryのPRレビューで成功を必須とするGitHubのcheck名（空ならCIを必須にしない）。
+ * 未登録・別ProjectのRepositoryはnull。
+ */
+export const findProjectRepositoryRequiredChecks = async (
+  database: Queryable,
+  projectId: string,
+  repositoryId: string,
+): Promise<string[] | null> => {
+  const row = await database
+    .selectFrom("project_repository_link")
+    .select("required_checks")
+    .where("id", "=", repositoryId)
+    .where("project_id", "=", projectId)
+    .executeTakeFirst();
+  return row ? (JSON.parse(row.required_checks) as string[]) : null;
+};
+
 /** Projectの所属WorkspaceのConstraints（正本）。並び順を保つ。Projectが無ければ空。 */
 export const findProjectWorkspaceConstraints = async (database: Queryable, projectId: string): Promise<string[]> => {
   const rows = await database

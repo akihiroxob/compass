@@ -14,6 +14,8 @@ import { withToolContext } from "./toolContext.ts";
 
 const nullableText = (maximum: number) => z.string().max(maximum).nullable().optional();
 const namedLink = { name: z.string(), url: z.string() };
+/** RepositoryのPRレビューで成功を必須とするGitHubのcheck名。省略時は作成なら空（CI不要）、更新なら既存行の値を維持する。 */
+const repositoryLink = { ...namedLink, requiredChecks: z.array(z.string()).optional() };
 
 const projectInputSchema = {
   name: z.string(),
@@ -22,7 +24,7 @@ const projectInputSchema = {
   vision: nullableText(2_000),
   principles: z.array(z.string()).optional(),
   constraints: z.array(z.string()).optional(),
-  repositories: z.array(z.object(namedLink)).optional(),
+  repositories: z.array(z.object(repositoryLink)).optional(),
   resources: z.array(z.object({ ...namedLink, kind: nullableText(100) })).optional(),
 };
 
@@ -30,7 +32,7 @@ const projectUpdateSchema = {
   projectId: z.string().min(1),
   name: z.string().optional(),
   description: nullableText(1_000),
-  repositories: z.array(z.object({ id: z.string().optional(), ...namedLink })).optional(),
+  repositories: z.array(z.object({ id: z.string().optional(), ...repositoryLink })).optional(),
   resources: z
     .array(z.object({ id: z.string().optional(), ...namedLink, kind: nullableText(100) }))
     .optional(),

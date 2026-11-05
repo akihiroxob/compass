@@ -20,5 +20,5 @@ Repositoryを変更するTaskでは、Worker→Reviewer→Managerが同じPRとS
 ## 影響
 
 - MCPは`register_task_pull_request`・`list_task_pull_requests`を公開する。Human向けのPR表示は別のUI Taskで同じapplication層へ接続する。
-- 完了・レビュー・受入の際のPR / SHAの照合、CIの必要条件、Role手順への接続は、この記録を前提に別途行う。
+- 完了・レビュー・受入の際のPR / SHAの照合、CIの必要条件、Role手順への接続は[ADR 0005](0005-task-pull-request-transition-verification.md)で、この記録を前提に行う。
 - 現行の契約は[実装状況](../implementation-status.md#executionの現行契約)に記す。

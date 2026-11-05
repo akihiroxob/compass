@@ -100,6 +100,13 @@ export type TaskPullRequestRecord = {
   principal_id: string;
   /** GitHubで確認した時刻。 */
   verified_at: number;
+  /** `reviewed_task`で照合したレビュー対象のhead SHAと、その根拠のPRコメント（現在のReview Claimに紐づく承認）。未レビューはnull。 */
+  reviewed_head_sha: string | null;
+  review_comment_id: number | null;
+  review_comment_url: string | null;
+  /** `accept_task`で照合したmerge SHAと受入の根拠。未受入はnull。 */
+  accepted_merge_sha: string | null;
+  acceptance_evidence: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -168,6 +175,8 @@ export interface ProjectStateReader {
   isArchived(projectId: string): Promise<boolean>;
   /** Projectに登録されたRepository（未登録・別ProjectのRepositoryはnull）。受入成果物の検査に使う。 */
   findRepository(projectId: string, repositoryId: string): Promise<{ id: string; url: string } | null>;
+  /** RepositoryのPRレビューで成功を必須とするGitHubのcheck名（空ならCIを必須にしない）。未登録・別ProjectのRepositoryはnull。 */
+  findRequiredChecks(projectId: string, repositoryId: string): Promise<string[] | null>;
 }
 
 /**
@@ -259,7 +268,7 @@ export interface WorkStore {
   /** GitHubのRepository・番号で登録済みのPR（Project・Taskを問わない）。 */
   findPullRequestByNumber(repository: string, number: number): Promise<TaskPullRequestRecord | null>;
   insertTaskPullRequest(record: TaskPullRequestRecord): Promise<void>;
-  updateTaskPullRequest(id: string, patch: Omit<TaskPullRequestRecord, "id" | "task_id" | "project_id" | "repository" | "number" | "sequence" | "created_at">): Promise<void>;
+  updateTaskPullRequest(id: string, patch: Partial<Omit<TaskPullRequestRecord, "id" | "task_id" | "project_id" | "repository" | "number" | "sequence" | "created_at">>): Promise<void>;
 
   findReceipt(principalId: string, toolName: string, requestId: string): Promise<CommandReceiptRecord | null>;
   insertReceipt(receipt: CommandReceiptRecord): Promise<void>;

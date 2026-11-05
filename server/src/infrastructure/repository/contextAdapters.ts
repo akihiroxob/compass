@@ -42,6 +42,7 @@ import {
 } from "@compass/direction";
 import {
   findProjectRepository,
+  findProjectRepositoryRequiredChecks,
   findProjectWorkspaceId,
   findWorkspaceStatus,
   findProjectWorkspaceConstraints,
@@ -116,6 +117,7 @@ export const workExternalReaders: WorkExternalReaders = (executor) => {
       exists: (projectId) => projectExists(organization, projectId),
       isArchived: (projectId) => isProjectArchived(organization, projectId),
       findRepository: async (projectId, repositoryId) => (await findProjectRepository(organization, projectId, repositoryId)) ?? null,
+      findRequiredChecks: (projectId, repositoryId) => findProjectRepositoryRequiredChecks(organization, projectId, repositoryId),
     },
     outcomeTargets: {
       isTarget: (outcomeId, projectId) => isOutcomeTargetProject(direction, outcomeId, projectId),

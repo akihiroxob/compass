@@ -13,6 +13,16 @@ const namedLinkSchema = z.object({
   url: webUrl,
 });
 
+/**
+ * PRのレビュー時に成功を必須とするGitHubのcheck名。空配列（既定）はCIを必須にしない。前後の空白を除き、重複を除いて保存する。
+ */
+const requiredChecksSchema = z
+  .array(trimmedText("requiredChecks", 200))
+  .max(20)
+  .transform((names) => [...new Set(names)]);
+
+const repositorySchema = namedLinkSchema.extend({ requiredChecks: requiredChecksSchema.default([]) });
+
 const principleSchema = trimmedText("principle", 500);
 const constraintSchema = trimmedText("constraint", 500);
 const resourceSchema = namedLinkSchema.extend({ kind: optionalText(100) });
@@ -24,7 +34,7 @@ export const createProjectSchema = z.object({
   vision: optionalText(2_000),
   principles: z.array(principleSchema).max(20).default([]),
   constraints: z.array(constraintSchema).max(20).default([]),
-  repositories: z.array(namedLinkSchema).max(20).default([]),
+  repositories: z.array(repositorySchema).max(20).default([]),
   resources: z.array(resourceSchema).max(50).default([]),
 });
 
@@ -59,7 +69,11 @@ export const updateProjectSchema = z
   .object({
     name: trimmedText("name", 100).optional(),
     description: clearableText(1_000).optional(),
-    repositories: z.array(namedLinkSchema.extend({ id: optionalId })).max(20).superRefine(uniqueIds).optional(),
+    repositories: z
+      .array(namedLinkSchema.extend({ id: optionalId, requiredChecks: requiredChecksSchema.optional() }))
+      .max(20)
+      .superRefine(uniqueIds)
+      .optional(),
     resources: z.array(resourceSchema.extend({ id: optionalId })).max(50).superRefine(uniqueIds).optional(),
   })
   .refine((input) => Object.values(input).some((value) => value !== undefined), {
