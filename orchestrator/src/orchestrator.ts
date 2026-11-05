@@ -1,4 +1,5 @@
-import type { CompassStateReader } from "./compassClient.ts";
+import { randomUUID } from "node:crypto";
+import type { AgentRunReport, CompassStateReader } from "./compassClient.ts";
 import type { OrchestratorConfig, RoleCommand, WorkspaceConfig } from "./config.ts";
 import { decideLaunch, finishRecord, type DispatchPolicy, type DispatchStore } from "./dispatchStore.ts";
 import { terminateAgent, type AgentLauncher } from "./launcher.ts";
@@ -138,6 +139,34 @@ export class Orchestrator {
     return (await this.reader.getProjectConsultationState(project.projectId, project.token)).consultations;
   }
 
+  /**
+   * 起動した Agent の実行観測を記録する先。scope は dispatch の scope（Workspace Role は Workspace、manager は Project）で、その scope の
+   * Runtime Credential（`agent:run:write`）と設定した Principal を使う。どちらかが無ければ記録しない理由を返す（Workspace の Credential で
+   * Project の実行を記録しない）。
+   */
+  private observationOf(workspace: WorkspaceConfig | null, dispatch: WorkspaceDispatch): { token: string; principalId: string; scope: AgentRunReport["scope"] } | string {
+    if (dispatch.projectId === null) {
+      const principalId = workspace?.agentPrincipals?.[dispatch.role as "strategist" | "researcher" | "evaluator"];
+      if (!workspace || !principalId) return `workspaces[].agentPrincipals.${dispatch.role} is not configured`;
+      return { token: workspace.token, principalId, scope: { kind: "workspace", id: workspace.workspaceId } };
+    }
+    const project = (this.config.consultationProjects ?? []).find(({ projectId }) => projectId === dispatch.projectId) ?? workspace?.projects.find(({ projectId }) => projectId === dispatch.projectId);
+    const principalId = dispatch.role === "manager" ? project?.agentPrincipals?.manager : undefined;
+    if (!principalId) return `agentPrincipals.${dispatch.role} of Project ${dispatch.projectId} is not configured`;
+    if (!project?.token) return `Project ${dispatch.projectId} has no Runtime Credential (tokenEnv) to record runs`;
+    return { token: project.token, principalId, scope: { kind: "project", id: project.projectId } };
+  }
+
+  /** 実行観測を報告する。失敗しても起動・終了の処理は止めず、Operational Log に残す（Credential の値は含めない）。 */
+  private async report(observation: Exclude<ReturnType<Orchestrator["observationOf"]>, string>, report: Omit<AgentRunReport, "scope" | "principalId" | "source">) {
+    if (!this.reader.recordAgentRun) return;
+    try {
+      await this.reader.recordAgentRun({ ...report, scope: observation.scope, principalId: observation.principalId, source: "orchestrator" }, observation.token);
+    } catch (error) {
+      this.log("run_observation_failed", { runId: report.runId, event: report.event, error: "Run observation could not be recorded (check scope, Grant and agent:run:write)" });
+    }
+  }
+
   private tryLaunch(workspace: WorkspaceConfig | null, dispatch: WorkspaceDispatch, report: TickReport): string | null {
     const command = this.commandOf(workspace, dispatch);
     if (typeof command === "string") return command;
@@ -171,6 +200,15 @@ export class Orchestrator {
     // PID を記録してから Role のコマンドを始める。記録前に停止すると Agent はコマンドを実行せずに終わるため、
     // PID の無い記録を回収して次の試行を起動しても、同じ dispatch を同時に動かさない。
     launched.start();
+    // 実行観測。lease（と停止の猶予）を過ぎても終了の報告が無ければ、Server は観測途絶として扱う。
+    const observation = this.observationOf(workspace, dispatch);
+    const runId = `orch-${randomUUID()}`;
+    const started = typeof observation === "string"
+      ? (this.log("run_observation_skipped", { key: dispatch.key, role: dispatch.role, reason: observation }), Promise.resolve())
+      : this.report(observation, {
+        runId, event: "started", role: dispatch.role, workRef: { kind: dispatch.subject.kind, id: dispatch.subject.id },
+        staleAfterSeconds: Math.min(24 * 60 * 60, Math.ceil((this.config.leaseMs + this.config.terminateGraceMs) / 1000) + 60),
+      });
     report.launched.push(dispatch);
     this.log("dispatch_launched", {
       key: dispatch.key,
@@ -192,6 +230,10 @@ export class Orchestrator {
         } catch (error) { result = { ok: false, error: (error as Error).message }; }
       }
       this.store.set(dispatch.key, finishRecord(decision.attempt, result, this.clock(), this.policy));
+      if (typeof observation !== "string") {
+        await started;
+        await this.report(observation, { runId, event: "finished", role: dispatch.role, result: result.ok ? "succeeded" : "failed", ...(result.ok ? {} : { reason: result.error }) });
+      }
       this.running.delete(dispatch.key);
       this.log(result.ok ? "dispatch_succeeded" : "dispatch_failed", {
         key: dispatch.key,

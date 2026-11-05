@@ -12,7 +12,7 @@ import {
 import {
   ActivityScope,
   KyselyActivityStore,
-  canonicalWorkChangeTypes,
+  isCanonicalWorkChange,
   recordCanonicalDirectionActivity,
   recordCanonicalProjectActivity,
   recordCanonicalWorkActivity,
@@ -191,14 +191,15 @@ const activityWorkspaceId = async (executor: Parameters<typeof asOrganizationDat
 export const workChangeActivityObserver: WorkChangeObserver = (executor) => {
   const store = new KyselyActivityStore(asActivityDatabase(executor));
   return async (notice) => {
-    if (notice.subject === null || !canonicalWorkChangeTypes.includes(notice.type)) return;
+    const payload = JSON.parse(notice.payload) as Record<string, unknown>;
+    if (notice.subject === null || !isCanonicalWorkChange(notice.type, payload)) return;
     await recordCanonicalWorkActivity(store, {
       workspaceId: await activityWorkspaceId(executor, notice.project_id),
       cursor: notice.cursor,
       projectId: notice.project_id,
       type: notice.type,
       principalId: notice.principal_id,
-      payload: JSON.parse(notice.payload) as Record<string, unknown>,
+      payload,
       occurredAt: notice.occurred_at,
       subject: notice.subject,
     });

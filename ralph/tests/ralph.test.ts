@@ -5,6 +5,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
+import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -264,10 +265,22 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
           .map((line) => JSON.parse(line) as AgentLaunch)
       : [];
 
+  // Ralphが報告した実行観測。ServerのDBを読取専用で開いて確認する（Ralph自身はDBへ触れない）。
+  type RecordedRun = { principal_id: string; role: string; scope_kind: string; scope_id: string; source: string; provider: string | null; reporter_kind: string; status: string; reason: string | null; work_kind: string | null };
+  const agentRuns = (): RecordedRun[] => {
+    const database = new DatabaseSync(join(directory, "compass.db"), { readOnly: true });
+    try {
+      return database.prepare("select * from agent_run order by started_at, rowid").all() as RecordedRun[];
+    } finally {
+      database.close();
+    }
+  };
+
   return {
     directory,
     projectId,
     taskId,
+    agentRuns,
     mcp,
     taskStatus,
     writeConfig,
@@ -320,6 +333,14 @@ test("Worker / Reviewerを別Principal・別Credentialで起動し、作業・�
     assert.equal(idle.code, 0, idle.stderr);
     assert.match(idle.stdout, /対象がないため終了します/);
     assert.equal(it.launches().length, 2);
+    // 起動ごとに、そのRoleのPrincipal・activeRole・Projectで開始と終了を報告する。対象なしの確認では報告しない。
+    assert.deepEqual(
+      it.agentRuns().map((run) => [run.principal_id, run.role, run.scope_kind, run.scope_id, run.source, run.provider, run.reporter_kind, run.status]),
+      [
+        ["worker-1", "worker", "project", it.projectId, "ralph", "claude", "agent", "succeeded"],
+        ["reviewer-1", "reviewer", "project", it.projectId, "ralph", "codex", "agent", "succeeded"],
+      ],
+    );
   } finally {
     await it.teardown();
   }
@@ -349,6 +370,11 @@ test("provider失敗を再試行し、停止したAgentのClaimは期限後に�
     const loop = it.startRalph(["auto"], { actions: { worker: ["fail", "claim-only", "complete"] } });
     const loopExit = exited(loop);
     await waitFor(async () => (await it.taskStatus()) === "wait_accept", "the Task to be reviewed");
+    // レビュー完了はProvider終了と終了報告より先に成立する。対象Reviewer runの終了記録まで待ってから停止する。
+    await waitFor(
+      () => it.agentRuns().some((run) => run.principal_id === "reviewer-1" && run.status === "succeeded"),
+      "the reviewer run to be finished",
+    );
     loop.kill("SIGTERM");
     const result = await loopExit;
     assert.equal(result.code, 143, result.stderr);
@@ -358,6 +384,11 @@ test("provider失敗を再試行し、停止したAgentのClaimは期限後に�
       ["worker:fail", "worker:claim-only", "worker:complete", "reviewer:approve"],
     );
     assert.match(result.stderr, /workerが終了コード 3 で終了しました。 1秒後に再試行します。/);
+    // 異常終了は終了理由付きで報告し、再試行は別のrunになる。
+    assert.deepEqual(
+      it.agentRuns().map((run) => [run.principal_id, run.status, run.reason]),
+      [["worker-1", "failed", "終了コード 3"], ["worker-1", "succeeded", null], ["worker-1", "succeeded", null], ["reviewer-1", "succeeded", null]],
+    );
   } finally {
     await it.teardown();
   }

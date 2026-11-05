@@ -260,9 +260,13 @@ test("achievedへ遷移する公開操作は存在しない", async () => {
   assert.deepEqual(names.sort(), [
     "abandonIntentUseCase",
     "createIntentUseCase",
+    // 観測項目・観測値の定義・記録・参照はIntentの状態を変えない。
+    "defineIntentMetricUseCase",
     "getIntentUseCase",
+    "listIntentMetricsUseCase",
     "listIntentRevisionsUseCase",
     "listIntentsUseCase",
+    "recordIntentMetricObservationsUseCase",
     "updateIntentUseCase",
   ]);
   const project = await services.createProjectUseCase.execute(projectInput);

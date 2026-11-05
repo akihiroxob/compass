@@ -3,7 +3,7 @@ import { InvitePage, LoginPage } from "../features/auth";
 import { ConsultationDetailPage, ConsultationInboxPage } from "../features/consultation";
 import { StoryCreatePage, StoryEditPage, TaskCreatePage, TaskDetailPage, TaskEditPage } from "../features/execution";
 import { IntentCreatePage, IntentDetailPage, IntentEditPage, WorkspaceIntentCreatePage, WorkspaceIntentEditPage } from "../features/intent";
-import { OutcomeCreatePage, OutcomeDetailPage, OutcomeEditPage } from "../features/outcome";
+import { OutcomeCreatePage, OutcomeDetailPage, OutcomeEditPage, WorkspaceOutcomeCreatePage, WorkspaceOutcomeEditPage } from "../features/outcome";
 import { ProjectDetailPage, ProjectEditPage, ProjectListPage } from "../features/project";
 import { ResearchRequestDetailPage } from "../features/research";
 import { WorkspaceActivityPage, WorkspaceAgentPage, WorkspaceAgentsPage, WorkspaceBreadcrumbItems, WorkspaceConsultationsPage, WorkspaceCreatePage, WorkspaceDirectionPage, WorkspaceEditPage, WorkspaceHomePage, WorkspaceOutcomePage, WorkspaceOverviewPage, WorkspaceProjectCreatePage, WorkspaceProjectsPage, WorkspaceSettingsPage } from "../features/workspace";
@@ -28,7 +28,9 @@ export const App = () => (
       <Route path="/workspaces/:workspaceId/direction" element={<WorkspaceDirectionPage />} />
       <Route path="/workspaces/:workspaceId/direction/intents/new" element={<WorkspaceIntentCreatePage />} />
       <Route path="/workspaces/:workspaceId/direction/intents/:intentId/edit" element={<WorkspaceIntentEditPage />} />
+      <Route path="/workspaces/:workspaceId/direction/intents/:intentId/outcomes/new" element={<WorkspaceOutcomeCreatePage />} />
       <Route path="/workspaces/:workspaceId/direction/intents/:intentId/outcomes/:outcomeId" element={<WorkspaceOutcomePage />} />
+      <Route path="/workspaces/:workspaceId/direction/intents/:intentId/outcomes/:outcomeId/edit" element={<WorkspaceOutcomeEditPage />} />
       <Route path="/workspaces/:workspaceId/consultations" element={<WorkspaceConsultationsPage />} />
       <Route path="/workspaces/:workspaceId/consultations/:consultationId" element={<ConsultationDetailPage />} />
       <Route path="/workspaces/:workspaceId/projects" element={<WorkspaceProjectsPage />} />

@@ -90,6 +90,8 @@ export const summarizeWorkspaceAgents = (input: {
   workspaceCredentials: readonly Credential[] | null;
   projects: readonly ProjectAgentSource[];
   now: number;
+  /** 観測だけが残るPrincipalも履歴へ辿れるようにする。担当Role・scopeはGrantからだけ決める。 */
+  observedPrincipalIds?: readonly string[];
 }): WorkspaceAgents => {
   const { workspace, workspaceGrants, workspaceCredentials, projects, now } = input;
   const workspaceScope: AgentScope = { kind: "workspace", id: workspace.id, name: workspace.name };
@@ -101,7 +103,7 @@ export const summarizeWorkspaceAgents = (input: {
   const grants = new Map<string, AgentGrant[]>();
   const credentials = new Map<string, (Credential & { scopeName: string })[]>();
   const claims = new Map<string, PrincipalClaim[]>();
-  const principalIds = new Set<string>();
+  const principalIds = new Set<string>(input.observedPrincipalIds);
   const push = <T,>(map: Map<string, T[]>, key: string, value: T) => map.set(key, [...(map.get(key) ?? []), value]);
   let reclaimableCount = 0;
   for (const source of sources) {
@@ -200,3 +202,14 @@ export const registrationIssues = (input: { principalId: string; role: AgentRole
   else if (projectAgentRoles.some((role) => role === input.role) && input.projectIds.length === 0) issues.push("担当するProjectを1つ以上選んでください。");
   return issues;
 };
+
+/**
+ * 一覧の欠け。読み込めなかったProject・実行観測があれば、そこにだけ現れるAgent（例: Grant等が無く実行観測だけが残るPrincipal）は一覧に含まれない。
+ * 欠けがある間は、Agentの0件・不存在を断定しない。
+ */
+export type AgentListGap = { kind: "project"; id: string; name: string; error: string } | { kind: "runs"; error: string };
+
+export const agentListGaps = (input: { failedProjects: readonly { project: { id: string; name: string }; error: string }[]; runs: { error: string } | { asOf: number } }): AgentListGap[] => [
+  ...input.failedProjects.map(({ project, error }) => ({ kind: "project" as const, id: project.id, name: project.name, error })),
+  ...("error" in input.runs ? [{ kind: "runs" as const, error: input.runs.error }] : []),
+];

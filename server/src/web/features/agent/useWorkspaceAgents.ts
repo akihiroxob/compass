@@ -6,6 +6,7 @@ import { credentialsPath, scopeCredentialsPath, type Credential } from "../crede
 import { executionPath, type ExecutionOverview } from "../execution";
 import { grantsPath, scopeGrantsPath } from "../grant";
 import type { HumanRole } from "../member";
+import { agentRunsPath, type AgentRuns } from "./agentRuns";
 import { summarizeWorkspaceAgents, type ProjectAgentSource, type ScopeGrant, type WorkspaceAgents } from "./agents";
 
 export type AgentProject = { id: string; name: string };
@@ -16,6 +17,8 @@ export type LoadedWorkspaceAgents = {
   projects: AgentProject[];
   /** 読み込めなかったProject。そのProjectのGrant・Credential・Claimは一覧に含まれていない（0件とは扱わない）。 */
   failedProjects: { project: AgentProject; error: string }[];
+  /** 実行観測（Ralph・Orchestratorの報告）。取得できなければ`error`で、観測なし・停止とは区別する。 */
+  runs: AgentRuns | { error: string };
   fetchedAt: number;
 };
 
@@ -31,7 +34,7 @@ const loadProject = (project: AgentProject, showCredentials: boolean): Promise<P
 
 /**
  * WorkspaceのAgent管理の読込。Workspace Grant・Workspace Credentialと、activeな所属ProjectごとのProject Grant・Project Credential・
- * Claim（`execution`）を既存のWeb APIから読み、Principalごとにまとめる。CredentialはWorkspaceのadministrator以上にだけ読む
+ * Claim（`execution`）と、Workspaceの実行観測（`agent-runs`）を既存のWeb APIから読み、Principalごとにまとめる。CredentialはWorkspaceのadministrator以上にだけ読む
  * （Project CredentialもWorkspace MembershipのRoleで認可される）。Projectごとの読込失敗は空と区別して残す。
  */
 export const useWorkspaceAgents = (workspace: { id: string; name: string }, myRole: HumanRole) => {
@@ -46,13 +49,15 @@ export const useWorkspaceAgents = (workspace: { id: string; name: string }, myRo
       request<{ grants: ScopeGrant[] }>(scopeGrantsPath(scope)),
       showCredentials ? request<{ credentials: Credential[] }>(scopeCredentialsPath(scope)) : Promise.resolve(null),
       request<{ projects: AgentProject[] }>(workspaceApiPath(workspace.id, "/projects")),
+      settle(request<AgentRuns>(agentRunsPath(workspace.id)), "実行観測を読む権限がありません。"),
     ])
-      .then(async ([{ grants }, credentials, { projects }]) => {
+      .then(async ([{ grants }, credentials, { projects }, runsPart]) => {
         const parts = await Promise.all(projects.map((project) => settle(loadProject(project, showCredentials), projectNotFound).then((part) => ({ project, part }))));
         const loadedProjects = parts.flatMap(({ part }) => (part.ok ? [part.value] : []));
         const failedProjects = parts.flatMap(({ project, part }) => (part.ok ? [] : [{ project, error: part.error }]));
-        const agents = summarizeWorkspaceAgents({ workspace, workspaceGrants: grants, workspaceCredentials: credentials?.credentials ?? null, projects: loadedProjects, now: fetchedAt });
-        if (isCurrent()) setState({ key, loaded: { agents, projects, failedProjects, fetchedAt }, error: null, pending: false });
+        const agents = summarizeWorkspaceAgents({ workspace, workspaceGrants: grants, workspaceCredentials: credentials?.credentials ?? null, projects: loadedProjects, now: fetchedAt, observedPrincipalIds: runsPart.ok ? runsPart.value.runs.map((run) => run.principalId) : [] });
+        const runs = runsPart.ok ? runsPart.value : { error: runsPart.error };
+        if (isCurrent()) setState({ key, loaded: { agents, projects, failedProjects, runs, fetchedAt }, error: null, pending: false });
       })
       .catch((reason: unknown) => {
         if (isCurrent()) setState({ key, loaded: null, error: loadFailureMessage(classifyError(reason), "Workspaceが見つからないか、このWorkspaceを閲覧する権限がありません。"), pending: false });

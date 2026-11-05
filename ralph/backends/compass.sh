@@ -120,6 +120,7 @@ backend_prepare_consultation_resumption() {
       continue
     fi
     RALPH_EXECUTION_ROOT="$(jq -r '.worktreePath' <<<"$actual")"
+    RALPH_RUN_TASK_ID="$task_id"
     printf '\n相談からの再開Context（Claim取得済み。Taskを選択・Claimし直さない）:\n' >>"$rendered_prompt"
     jq '.result.structuredContent' <<<"$response" >>"$rendered_prompt"
     printf '\n保存済みContextを読み、全相談の現在の結論・現在のTask要件・PR/SHAと照合して再判断する。旧blocked結果を再送しない。保存済み検証を変更後のSHAに流用しない。\n' >>"$rendered_prompt"
@@ -127,4 +128,85 @@ backend_prepare_consultation_resumption() {
   done < <(jq -c '.resumptions[]? | select(.state == "ready")' <<<"$summary")
   # 全再開候補が失敗しても、通常候補があればAgentの選択へ進む。
   (( $(jq '.availableCount - .readyCount' <<<"$summary") > 0 ))
+}
+
+# Agentの実行観測（`record_agent_run`）。起動するRoleのAgent Credentialと`X-Compass-Active-Role`で、このProjectの自分の実行だけを報告する。
+# 観測の報告はAgentの稼働の証明ではない。報告に失敗してもAgentの実行は止めない（Operational Logへ残す）。
+RALPH_RUN_ID=""
+RALPH_RUN_TASK_ID=""
+RALPH_RUN_HEARTBEAT_PID=""
+
+backend_record_run() {
+  local event="$1"
+  local result="${2:-}"
+  local reason="${3:-}"
+  local arguments
+  [[ -n "$RALPH_RUN_ID" ]] || return 0
+  arguments="$(jq -cn \
+    --arg run_id "$RALPH_RUN_ID" \
+    --arg project_id "$COMPASS_PROJECT_ID" \
+    --arg event "$event" \
+    --arg provider "$AGENT_PROVIDER" \
+    --arg task_id "$RALPH_RUN_TASK_ID" \
+    --argjson stale "$RALPH_RUN_STALE_AFTER_SECONDS" \
+    --arg result "$result" \
+    --arg reason "$reason" \
+    '{runId: $run_id, scope: {kind: "project", id: $project_id}, event: $event, source: "ralph"}
+      + (if $event == "started" then {provider: $provider} + (if $task_id != "" then {workRef: {kind: "task", id: $task_id}} else {} end) else {} end)
+      + (if $event == "finished" then {result: $result} + (if $reason != "" then {reason: $reason} else {} end) else {staleAfterSeconds: $stale} end)')"
+  # 関数呼出しにredirectを付けない（実行中にSIGTERMを受けると、退避されたloggingのfdが残りcleanupが終わらない）。
+  local response
+  response="$(mcp_call 'record_agent_run' "$arguments")" || {
+    ralph_log_error '実行観測（%s）を記録できませんでした。Agentの実行は続けます。run=%s\n' "$event" "$RALPH_RUN_ID"
+    return 0
+  }
+  : "$response"
+}
+
+backend_run_started() {
+  RALPH_RUN_ID="ralph-$(date +%s)-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+  backend_record_run started
+  # 実行中は間隔ごとに観測を報告する。Ralphが停止して報告が途絶えると、Serverは観測途絶として扱う。
+  # 観測の報告はloopの子プロセスで行う。worktree lock・loggingのpipe等の継承fdを閉じ、Runnerの停止・強制終了後に
+  # lockや出力を保持しない。loopが無くなれば報告をやめ、Serverは観測途絶として扱う。
+  local loop_pid=$$
+  (
+    exec </dev/null >>"$RALPH_LOG_FILE" 2>&1
+    for fd_path in /dev/fd/*; do
+      fd="${fd_path##*/}"
+      if [[ "$fd" =~ ^[0-9]+$ ]] && (( fd > 2 )); then eval "exec ${fd}>&-" 2>/dev/null || true; fi
+    done
+    RALPH_LOGGING_ACTIVE=false
+    heartbeat_sleep_pid=""
+    trap 'kill "$heartbeat_sleep_pid" 2>/dev/null; exit 0' TERM
+    while kill -0 "$loop_pid" 2>/dev/null; do
+      sleep "$RALPH_RUN_HEARTBEAT_SECONDS" &
+      heartbeat_sleep_pid=$!
+      wait "$heartbeat_sleep_pid"
+      kill -0 "$loop_pid" 2>/dev/null || exit 0
+      backend_record_run observed
+    done
+  ) &
+  RALPH_RUN_HEARTBEAT_PID=$!
+}
+
+backend_stop_run_heartbeat() {
+  if [[ -n "$RALPH_RUN_HEARTBEAT_PID" ]]; then
+    kill "$RALPH_RUN_HEARTBEAT_PID" 2>/dev/null || true
+    wait "$RALPH_RUN_HEARTBEAT_PID" || true
+    RALPH_RUN_HEARTBEAT_PID=""
+  fi
+}
+
+backend_run_finished() {
+  local exit_status="$1"
+  local reason="${2:-}"
+  backend_stop_run_heartbeat
+  if (( exit_status == 0 )); then
+    backend_record_run finished succeeded
+  else
+    backend_record_run finished failed "${reason:-終了コード ${exit_status}}"
+  fi
+  RALPH_RUN_ID=""
+  RALPH_RUN_TASK_ID=""
 }

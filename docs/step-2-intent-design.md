@@ -40,7 +40,7 @@ Intentは`version`（作成時1。内容が変わる保存のたびに+1。内�
 
 Outcome・Direction Decision・Outcome Evaluationは作成時の`intentVersion`を保持し、後から書き換えない（Evaluationは評価したOutcomeの`intentVersion`）。Outcome作成（`create_outcome`）と判断（`create_direction_decision` / `decide_next_outcome`）は判断の元にした`intentVersion`が必須で、省略は入力エラー、現在版と異なれば`CONFLICT`にする（省略して現在版へ暗黙に付け替えない）。`update_outcome`の`intentVersion`は現在版を確認した記録で任意だが、指定すれば現在版と一致が必要。`update_outcome`で現在版を渡すと、そのOutcomeの`intentVersion`を現在版へ進める（確認の記録）。
 
-`meaningVersion`が未完了（active）Outcomeの`intentVersion`より新しい場合、そのOutcomeは、Strategistの判断（Decision）の根拠になった後でも、再計画対象（Orchestration Stateの`outcomes[].intentRevised`・Web UIの「再計画対象」）になる。Work・Task・Outcomeの状態は自動で変えず、StrategistがOutcomeを現在版で確認・取消・作り直しのいずれかで判断する。目標の終端（`abandon_intent`はOutcomeを`cancelled`にする）はOutcome・Taskを達成・完了にしない。判断の背景は [ADR 0007](adr/0007-intent-versioning.md)。
+`meaningVersion`が未完了（active）Outcomeの`intentVersion`より新しい場合、そのOutcomeは、Strategistの判断（Decision）の根拠になった後でも、再計画対象（Orchestration Stateの`outcomes[].intentRevised`・Web UIの「再計画対象」）になる。Work・Task・Outcomeの状態は自動で変えず、StrategistがOutcomeを現在版で確認・取消・作り直しのいずれかで判断する。目標の終端（`abandon_intent`はOutcomeを`cancelled`にする）はOutcome・Taskを達成・完了にしない。判断の背景は [ADR 0008](adr/0008-intent-versioning.md)。
 
 Web UIの編集フォームは画面を開いた時点の`version`を送り、変更理由（任意。Outcomeがある目標の意味変更では必須）を添える。競合時は入力を保持したまま「最新の内容を読み込む」で利用者が読み直しを選び、自動で上書きしない。Intent詳細と方向の目標カードに変更履歴（現在の版・変更者・理由・意味変更の版）を出す。
 
@@ -53,3 +53,50 @@ Intent作成はResearch Requestを作らない。OrchestratorがActive Intentで
 `get_workspace_orchestration_state`は`activeIntents`を新しい順に返し、全Active IntentのOutcomeを`intentId`付きで返す。Intent配下のResearch・最新Evaluation・判断はそれぞれのIntentで読む。Orchestratorは各Intentの進行中Outcome・Research・判断待ちEvaluationを個別に判定し、別目標の完了・待機で対象目標を止めない。Researchを一律必須にしない。
 
 `get_strategist_context({ workspaceId, intentId })`は指定したIntentのOutcome・Research・Evaluation・Targetだけを返す。別WorkspaceのIntentは`NOT_FOUND`。`intentId`省略はActive Intentが0〜1件のときに限り、複数件なら`CONFLICT`として`list_intents`からの明示選択を求める。dispatchの`intentId`・`COMPASS_INTENT_ID`をContext取得に使う。Workspace/ProjectのGrantとCredentialの境界は維持する。
+
+## 観測項目と時系列
+
+Intentの到達点・推移を確かめるため、Intentごとに観測項目（Metric）と、その対象期間ごとの観測値を保持する。型は [IntentMetric.ts](../packages/direction/src/domain/IntentMetric.ts)、入力規則は [intentMetricSchema.ts](../packages/direction/src/application/intentMetricSchema.ts)。Outcomeの成功条件・評価とは別の記録で、Intent → Outcome → Story／Taskの階層や独立したSuccess Metrics管理UIを追加しない。外部の分析サービスとの接続は前提にせず、取得した値と出所を公開入口から記録する。判断は [ADR 0008](adr/0008-intent-metric-observations.md)。
+
+### 観測項目
+
+| 項目 | 規則 |
+| --- | --- |
+| `key` | Intent内で一意。英小文字・数字・`_`・`-`・`.`の1〜64文字（先頭は英小文字・数字） |
+| `name` | 1〜100文字 |
+| `unit` | 1〜30文字（例: `円`・`人`・`%`）。観測値はこの単位で記録する。観測値がある項目の単位は変更できない（`CONFLICT`、`reason: unit_locked`） |
+| `targetValue` | 任意の有限数。明示した値だけを保存し、Intentの説明文（`desiredState`等）の数字から生成しない。数値の目標が無ければ`null` |
+| `staleAfterDays` | 1〜366の整数。最新の観測の対象期間の終了日（UTCの暦日）からこの日数を超えると古い観測（`stale`） |
+| `revision` | 定義の版。同じ定義の再送は変えず（`unchanged`）、名前・単位・目標値・期限の変更で1増える（`updated`） |
+
+### 観測値
+
+| 項目 | 規則 |
+| --- | --- |
+| `periodStart` / `periodEnd` | 実在する暦日の`YYYY-MM-DD`。両端を含み、366日まで。日次は同じ日 |
+| `status` | `observed`（値を取得した）または`failed`（取得を試みて失敗した） |
+| `value` | `observed`では必須の有限数（ゼロも有効な値）。`failed`では指定できない（ゼロ・推測値で代替しない） |
+| `failureReason` | `failed`では必須（2,000文字まで）、`observed`では指定できない |
+| `source` | `name`（必須、200文字まで）と任意の`uri`（http(s)、認証情報を含むURLは拒否）。参照だけで本文を保存しない |
+| `observedAt` | 値を取得した時刻（epoch milliseconds）。未来（5分を超える）と、対象期間の開始より前（UTCの暦日で1日の時差を許容）は拒否する |
+| `revision` | 対象期間ごとの版。同じ対象期間の既存のいずれかの版と同じ内容（状態・値・理由・出所・観測時刻）の要求は再送として新しい版を作らず（`unchanged`、応答は現在の最新版）、訂正後に遅れて届いた旧要求でも訂正を巻き戻さない。どの版とも違えば次の版を追記する（`revised`）。観測時刻まで同一の値へ戻す訂正は再送と区別できないため、訂正は新しい観測時刻で送る。過去の版は書き換えない |
+
+1回の記録は1〜100件で、同じ対象期間を重複させない。記録者（Bearerから解決したPrincipal）と記録時刻を保存する。activeなIntentだけに定義・記録でき、achieved / abandonedのIntentとarchivedのWorkspaceは`CONFLICT`。観測値の記録はActivity・Runtime eventを作らず、Outcomeの評価・Intentの完了を意味しない。
+
+### 読み取り
+
+`list_intent_metrics`とWeb APIの`GET /api/workspaces/:workspaceId/intents/:intentId/metrics`は、観測項目（定義順）ごとに次を返す。
+
+- `current.state`: `unmeasured`（観測なし）・`failed`（最新の対象期間が取得失敗）・`stale`（最新の値が古い）・`observed`（期限内の値。ゼロを含む）。`current.latest`は最新の対象期間の最新版（失敗を含む）、`current.lastObserved`は値を取得できた最新の観測。
+- `series`: `from`〜`to`（`YYYY-MM-DD`、既定は今日（UTC）までの30日、366日まで）と重なる対象期間の最新版。観測の無い期間は含めず、失敗は`value: null`のまま含む。利用側はゼロ・補間値で埋めない。
+- 観測項目が未定義なら`metrics: []`。比率・達成度は計算しない。
+
+### 公開入口と対象Role
+
+| 操作 | MCP | Web API | 認可 |
+| --- | --- | --- | --- |
+| 観測項目の定義・更新 | `define_intent_metric` | なし | WorkspaceのStrategist Grant |
+| 観測値の記録 | `record_intent_metric_observations` | なし | WorkspaceのEvaluator Grant |
+| 参照 | `list_intent_metrics` | `GET /api/workspaces/:workspaceId/intents/:intentId/metrics` | MCPはWorkspaceの参照（remote mode・activeRole指定時はWorkspace Role Grant）、Web APIはWorkspace Membership（viewer以上） |
+
+Project Grantからは継承しない。別WorkspaceのIntentは`NOT_FOUND`、別WorkspaceのGrantは`FORBIDDEN`。Human向けの定義・記録の画面は無い。

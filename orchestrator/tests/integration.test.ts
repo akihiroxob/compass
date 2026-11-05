@@ -153,7 +153,7 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
   for (const [projectId, principal] of [[projectIds[0]!, "manager-a"], [projectIds[1]!, "manager-b"]]) await cli("grant", projectId!, principal!, "manager");
 
   // OrchestratorはWorkspace Runtime Credentialで状態を読む。AgentはRole・scopeごとのAgent Credentialを使う。
-  const orchestratorToken = (await web(`/api/workspaces/${workspaceId}/credentials`, { kind: "runtime", principalId: "orchestrator", scopes: ["runtime:state:read"] })).token as string;
+  const orchestratorToken = (await web(`/api/workspaces/${workspaceId}/credentials`, { kind: "runtime", principalId: "orchestrator", scopes: ["runtime:state:read", "agent:run:write"] })).token as string;
   const directionToken = (await web(`/api/workspaces/${workspaceId}/credentials`, { kind: "agent", principalId: "direction-agent" })).token as string;
   const managerTokens = [
     (await web(`/api/projects/${projectIds[0]}/credentials`, { kind: "agent", principalId: "manager-a" })).token as string,
@@ -173,6 +173,7 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
   const workspaceConfig = {
     workspaceId,
     tokenEnv: "ORCHESTRATOR_TOKEN",
+    agentPrincipals: { strategist: "direction-agent", researcher: "direction-agent", evaluator: "direction-agent" },
     agentEnv: { FAKE_AGENT_TOKEN: directionToken },
     projects: projectIds.map((projectId, index) => ({ projectId, agentEnv: { FAKE_AGENT_TOKEN: managerTokens[index]! } })),
   };
@@ -313,6 +314,16 @@ test(
       assert.equal(first!.projectId, null, "a Workspace Role is not given a Project ID");
       assert.ok(first!.key.startsWith(`${kit.workspaceId}:strategist:intent:`));
       assert.equal(first!.attempt, 1);
+
+      const { json: observation } = await kit.webRequest("GET", `/api/workspaces/${kit.workspaceId}/agent-runs`);
+      const run = observation.runs.find((run: Json) => run.role === "strategist");
+      assert.equal(run.principalId, "direction-agent");
+      assert.equal(run.source, "orchestrator");
+      assert.equal(run.status, "succeeded");
+      assert.equal(run.observation, "succeeded");
+      assert.equal(run.scope.id, kit.workspaceId);
+      assert.equal(run.workRef.kind, "intent");
+      assert.ok(run.endedAt >= run.startedAt);
 
       // 2. 未終了のResearchだけを見てResearcherを起動する（fixtureはnot_neededで終える）。
       await kit.runOnce();

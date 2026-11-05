@@ -42,7 +42,7 @@ const screenPath = (scope: ActivityScope, workspaceId: string, screen: NonNullab
       : researchRequestPath(scope.projectId, screen.id);
 };
 
-const ReferenceItem = ({ scope, activity, reference, resources }: { scope: ActivityScope; activity: ActivitySummary; reference: ActivityReference; resources: readonly ProjectResourceLink[] | null }) => {
+export const ReferenceItem = ({ scope, activity, reference, resources }: { scope: ActivityScope; activity: ActivitySummary; reference: ActivityReference; resources: readonly ProjectResourceLink[] | null }) => {
   const view = describeReference(reference, resources, activity.refs);
   const screen = view.screen ? screenPath(scope, activity.workspaceId, view.screen) : null;
   const label = view.href ? (
@@ -182,7 +182,7 @@ export const ActivitySection = ({ scope, resources, related }: { scope: Activity
     const { generation } = list;
     dispatch({ kind: "moreStarted", generation });
     try {
-      const page = await request<ActivityPage>(activitiesPath(scope, { beforeCursor: nextCursor, type }));
+      const page = await request<ActivityPage>(activitiesPath(scope, { beforeCursor: Number(nextCursor), type }));
       dispatch({ kind: "moreLoaded", generation, page });
     } catch (reason) {
       dispatch({ kind: "moreFailed", generation, message: `古いActivityを読み込めませんでした: ${loadFailureMessage(classifyError(reason), notFound)}` });

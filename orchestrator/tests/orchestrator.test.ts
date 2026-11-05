@@ -74,7 +74,7 @@ const setup = async (overrides: Partial<OrchestratorConfig> = {}) => {
   };
   const launcher = new FakeLauncher();
   const create = () => new Orchestrator(config, reader, launcher, new DispatchStore(directory), () => clock.now, () => undefined);
-  return { directory, states, clock, launcher, create, cleanup: () => rm(directory, { recursive: true, force: true }) };
+  return { directory, states, clock, launcher, reader, create, cleanup: () => rm(directory, { recursive: true, force: true }) };
 };
 
 const settle = () => new Promise((resolve) => setImmediate(resolve));
@@ -342,4 +342,33 @@ test("Workspace相談は同じWorkspace Runtime Credentialで読み、入力版�
     pending = true; revision = 4; workspaceStatus = "archived";
     assert.equal((await runner.tick()).launched.length, 0);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test("実行観測は開始・正常終了・失敗を同じrunで報告し、報告不能でも実行を止めない", async () => {
+  const kit = await setup({ workspaces: [{ workspaceId: "w-1", tokenEnv: "RUNTIME_TOKEN", token: "runtime-1", agentEnv: {}, projects: [], agentPrincipals: { strategist: "strategist-1" } }] });
+  const reports: { report: import("../src/compassClient.ts").AgentRunReport; token: string }[] = [];
+  kit.reader.recordAgentRun = async (report, token) => { reports.push({ report, token }); };
+  try {
+    const orchestrator = kit.create();
+    await orchestrator.tick();
+    kit.launcher.launches[0]!.finish({ ok: false, error: "exit 2" });
+    await orchestrator.drain();
+    assert.deepEqual(reports.map(({ report }) => [report.event, report.result]), [["started", undefined], ["finished", "failed"]]);
+    assert.equal(reports[0]!.report.runId, reports[1]!.report.runId);
+    assert.equal(reports[0]!.report.principalId, "strategist-1");
+    assert.deepEqual(reports[0]!.report.scope, { kind: "workspace", id: "w-1" });
+    assert.equal(reports[0]!.token, "runtime-1");
+    kit.clock.now += 500;
+    await orchestrator.tick();
+    kit.launcher.launches[1]!.finish({ ok: true });
+    await orchestrator.drain();
+    assert.equal(reports[3]!.report.result, "succeeded");
+    assert.notEqual(reports[0]!.report.runId, reports[2]!.report.runId);
+    kit.reader.recordAgentRun = async () => { throw new Error("observation unavailable"); };
+    kit.states.set("w-1", { ...baseState("w-1"), activeIntents: [{ id: "new-intent", status: "active", version: 1, meaningVersion: 1, updatedAt: 2 }] });
+    assert.equal((await orchestrator.tick()).launched.length, 1);
+    kit.launcher.launches[2]!.finish({ ok: true });
+    await orchestrator.drain();
+  } finally { await kit.cleanup(); }
 });

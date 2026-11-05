@@ -797,6 +797,7 @@ test("initializeSchemaは再実行してもResearchとProject / Intent / Outcome
 
   // Research導入前のDB（Researchのtableが無い）でも、追加して既存のデータを保つ。
   for (const table of [
+    "outcome_problem_evidence",
     "runtime_event",
     "research_synthesis_finding",
     "research_synthesis",

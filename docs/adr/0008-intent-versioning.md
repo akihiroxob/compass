@@ -1,4 +1,4 @@
-# ADR 0007: 目標（Intent）の版と変更履歴で根拠を保つ
+# ADR 0008: 目標（Intent）の版と変更履歴で根拠を保つ
 
 - 状態: 承認
 - 対象: Direction / Orchestrator / Server / Web UI
