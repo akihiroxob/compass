@@ -29,14 +29,16 @@
   gap: var(--space-md);
   padding-left: 0;
   list-style: none;
-  dd { overflow-wrap: anywhere; white-space: pre-wrap; }
+  > li { min-width: 0; }
+  h3, dd { overflow-wrap: anywhere; }
+  dd { min-width: 0; white-space: pre-wrap; }
 }
 .problem-evidence-list {
   display: grid;
   gap: var(--space-xs);
   padding-left: 0;
   list-style: none;
-  li { display: grid; gap: .15rem; overflow-wrap: anywhere; }
+  li { display: grid; gap: .15rem; min-width: 0; overflow-wrap: anywhere; }
   > li > .text-button { justify-self: start; }
 }
 .problem-evidence-kind { color: var(--color-text-muted); font-size: var(--font-size-sm); }
