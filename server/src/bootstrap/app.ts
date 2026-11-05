@@ -308,6 +308,16 @@ export const createApp = (
       ),
     }),
   );
+  // Intentの観測項目と、現在の観測状態・時系列（Workspace member）。`from`・`to`（`YYYY-MM-DD`）で範囲を指定し、既定は今日までの30日。
+  // 観測の無い期間は含めず、未計測・取得失敗・古い観測は`current.state`で区別する。
+  app.get("/api/workspaces/:workspaceId/intents/:intentId/metrics", async (c) =>
+    c.json(
+      await human.listIntentMetrics.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("intentId"), {
+        ...(c.req.query("from") === undefined ? {} : { from: c.req.query("from") }),
+        ...(c.req.query("to") === undefined ? {} : { to: c.req.query("to") }),
+      }),
+    ),
+  );
   app.get("/api/workspaces/:workspaceId/adr-references", async (c) =>
     c.json({ references: await human.listAdrReferences.execute(await actorOf(c), c.req.param("workspaceId")) }),
   );

@@ -344,6 +344,44 @@ export type OutcomeEvaluationTable = {
 };
 
 /**
+ * Intentの観測項目（Direction所有）。`(intent_id, key)`で一意。単位・目標値・鮮度の期限を明示的に持ち、説明文から生成しない。
+ */
+export type IntentMetricTable = {
+  id: string;
+  workspace_id: string;
+  intent_id: string;
+  key: string;
+  name: string;
+  unit: string;
+  target_value: number | null;
+  stale_after_days: number;
+  revision: number;
+  created_by_principal_id: string;
+  created_at: number;
+  updated_at: number;
+};
+
+/**
+ * 観測項目の観測値。対象期間（暦日）ごとの版を追記し、更新しない。`(metric_id, period_start, period_end, revision)`で一意。
+ * `observed`は値あり、`failed`は値なし・理由あり（checkで保証）。
+ */
+export type IntentMetricObservationTable = {
+  id: string;
+  metric_id: string;
+  period_start: string;
+  period_end: string;
+  revision: number;
+  status: "observed" | "failed";
+  value: number | null;
+  failure_reason: string | null;
+  source_name: string;
+  source_uri: string | null;
+  observed_at: number;
+  principal_id: string;
+  recorded_at: number;
+};
+
+/**
  * Directionが所有するtable。単一SQLite fileの一部で、serverが他Contextのtableと合成する。
  * Workspace所有の`workspace_id`、artifactとExecutionの発生元の`project_id`のFK先はOrganizationが所有する。
  * DirectionはWorkspace/Projectの状態をserverが渡すreaderで読む。
@@ -374,4 +412,6 @@ export type DirectionDatabase = {
   outcome_execution_summary: OutcomeExecutionSummaryTable;
   outcome_execution_evidence: OutcomeExecutionEvidenceTable;
   outcome_evaluation: OutcomeEvaluationTable;
+  intent_metric: IntentMetricTable;
+  intent_metric_observation: IntentMetricObservationTable;
 };

@@ -10,6 +10,7 @@
 - [ADR 0005 PRの照合](adr/0005-task-pull-request-transition-verification.md): PRのあるTaskの完了・レビュー・受入で、現在のPR・レビューしたhead・merge SHA・必須CI・レビュー根拠のコメントを照合する決定。
 - [ADR 0006 複数Active Intent](adr/0006-multiple-active-intents.md): 目標別の現在状態・Context・dispatchの分離。
 - [ADR 0007 Workspace横断のActivity](adr/0007-workspace-activity-stream.md): Workspace共通と配下全Projectの業務Activityの横断取得、業務イベントの判定規則、Change Log / Operational Logとの境界、cursor。
+- [ADR 0008 Intentの観測値](adr/0008-intent-metric-observations.md): 目標の観測項目（単位・目標値・鮮度）と版付きの時系列をDirectionに保持し、未計測・取得失敗・古い観測を区別する決定。
 - [Direction・Workの境界](lv6-unification-design.md)
 - [Research・Decision・ADR](research-decision-adr-design.md)
 
@@ -20,7 +21,7 @@
 - [Managerのブラウザ検証データ](browser-verification.md): 対象SHAの専用DB準備・シナリオ・確認範囲。
 - [README](../README.md): 起動・接続・操作・検証。
 - [Project](step-1-project-design.md)
-- [Intent](step-2-intent-design.md)
+- [Intent](step-2-intent-design.md): 項目・状態・更新と、観測項目・版付きの観測値（時系列）の契約・公開入口・対象Role。
 - [Outcome・成功条件](step-3-outcome-design.md)
 - [Agent認可・Instruction配信](step-4-strategist-role-design.md)
 - [Project archive](step-5-project-archive-design.md)
