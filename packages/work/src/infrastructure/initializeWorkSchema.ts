@@ -157,6 +157,29 @@ export const initializeWorkSchema = async (database: Kysely<WorkDatabase>): Prom
     .addUniqueConstraint("task_pull_request_task_sequence_unique", ["task_id", "sequence"])
     .execute();
 
+  // 公開確認の原記録（追記専用）。PR・受入とは別の事実で、同じ公開先・revision・確認日時の再送は1件に収束する。
+  await database.schema.createTable("publication_record").ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", projectId)
+    .addColumn("repository_id", "text", (column) => column.notNull())
+    .addColumn("target", "text", (column) => column.notNull())
+    .addColumn("target_url", "text")
+    .addColumn("revision", "text", (column) => column.notNull())
+    .addColumn("method", "text")
+    .addColumn("evidence", "text", (column) => column.notNull())
+    .addColumn("observed_at", "integer", (column) => column.notNull())
+    .addColumn("received_at", "integer", (column) => column.notNull())
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addUniqueConstraint("publication_record_observation_unique", ["project_id", "repository_id", "target", "revision", "observed_at"])
+    .execute();
+  // 記録時に判定した、公開revisionと変更の対象Commitの関係。判定できなかったCommitは行を持たない。
+  await database.schema.createTable("publication_revision").ifNotExists()
+    .addColumn("publication_id", "text", (column) => column.notNull().references("publication_record.id").onDelete("cascade"))
+    .addColumn("commit_sha", "text", (column) => column.notNull())
+    .addColumn("relation", "text", (column) => column.notNull().check(sql`relation in ('included','not_included')`))
+    .addPrimaryKeyConstraint("publication_revision_pk", ["publication_id", "commit_sha"])
+    .execute();
+
   await database.schema
     .createTable("change_log")
     .ifNotExists()

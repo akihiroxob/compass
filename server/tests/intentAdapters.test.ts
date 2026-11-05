@@ -186,7 +186,7 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
       "list_stories", "get_outcome_handoff_context", "list_tasks", "list_task_comments", "list_task_pull_requests", "register_task_pull_request", "list_changes",
       "issue_story", "edit_story", "complete_story", "cancel_story", "issue_task", "edit_task", "cancel_task",
       "claim_task", "claim_review", "claim_acceptance", "renew_claim", "release_claim",
-      "add_task_comment", "complete_task", "reviewed_task", "accept_task", "reject_task",
+      "add_task_comment", "complete_task", "reviewed_task", "accept_task", "reject_task", "record_publication",
       // Activity（意味のある履歴）。
       "record_activity", "list_activities", "get_activity",
       "record_workspace_activity", "list_workspace_activities", "get_workspace_activity",

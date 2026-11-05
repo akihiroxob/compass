@@ -81,6 +81,19 @@ PRを登録したTaskは、完了・レビュー・受入でServerが現在のPR
 
 DirectionとWorkは公開index（`@compass/direction`・`@compass/work`）とapplication portで接続し、DirectionはWorkに依存しない。WorkはProject状態・Role Grantを`WorkStore`の読取port（`ProjectStateReader`・`ProjectGrantReader`）で、Claim・状態遷移と同じtransactionの中で読む。実装はserverが配線し（`server/src/infrastructure/repository/contextAdapters.ts`）、Workは`project`・`project_grant`のtableを直接扱わない。Directionのuse caseが要求するRole・Runtime scopeの認可も、Directionのportへserverの認可serviceを渡す。境界は [executionBoundary.test.ts](../server/tests/executionBoundary.test.ts) で静的に検証する。Workの規則の単体テストは`packages/work/tests/`、Workspace・Projectの単体テスト（Project作成・更新・archive、Mission等のWorkspaceへの読書き、新規DBの`project`定義と再初期化）は`packages/organization/tests/`にある。Direction固有のpackage単体テストは無く、Directionの振る舞いは`server/tests/`で検証する。
 
+## 公開確認とリリース履歴の現行契約
+
+[ADR 0006](adr/0006-publication-confirmation.md)に従い、公開確認を開発受入と別の原記録としてWorkが保持する（`publication_record`・`publication_revision`）。
+
+- 記録（Runtime）: Web API `POST /api/projects/:projectId/publications`・MCP `record_publication`（`compass/caller: runtime`）。入力は`repositoryId`（Projectに登録したRepository）・`revision`（完全なcommit SHA）・`target`（公開先の参照、100文字まで）・`targetUrl`（任意。認証情報なしのhttp(s)）・`method`（任意の方式ラベル）・`observedAt`（未来でないepoch ms）・`evidence`（1〜20件の`{ kind: deployment | ci | url, uri }`）。Project Runtime Credentialの`publication:write`（trusted-localはProjectの`runtime` Grantを持つRuntime名も）で認可する。
+- 応答: 新規は201・`recorded: true`、同じRepository・公開先・revision・確認日時の再送は200・`recorded: false`で同じ記録を返し、内容が違えば409。古い確認日時の記録は`superseded: true`で残す。Repositoryに無いrevision・入力不正・未登録Repositoryは400、archivedのProjectは409、GitHubを読めなければ503（`GITHUB_UNAVAILABLE`・retryable。何も記録しない）、GitHubの権限不足は502。
+- 包含の判定: 記録時に、同じRepositoryの変更の対象Commit（新しい変更から100件）をGitHubのcompare（`GitHubPullRequestGateway`が実装する`RevisionGateway`）でrevisionと比べ、`includedCommits`・`notIncludedCommits`として保存する。GitHub以外のRepositoryは同一SHAだけを判定する。
+- 取得（Human）: Web API `GET /api/projects/:projectId/releases`（所属WorkspaceのMembership viewer以上。archivedのProjectも参照可）。`publicationSource`（`configured`・有効な`publication:write`のRuntime Credentialの有無・記録件数）、`changes`（PRを登録したTask・受入成果物のある受入済みTaskを、受入・更新の新しい順に）、`publications`（原記録。確認日時の新しい順、公開先ごとの最新に`current: true`）を返す。
+- 各変更は`task`・`story`（`outcomeId`）・`development`（`accepted` / `not_accepted`・受入日時・受入者）・`pullRequest`（番号・URL・state・merge SHA・受入で照合したmerge SHA）・`revisions`（対象Commitと由来）・`publication`（`status`・`reason`・`publishedAt`・公開先ごとの`targets`）を持つ。
+- 公開状況は公開記録だけから導出し、mergeや受入を公開済みにしない。状態と理由はADR 0006の定義どおり（`published` / `not_published` / `unconfirmed`と`not_configured` / `no_revision` / `no_record` / `not_compared`）。
+- 入力元はProjectの「設定」で、Runtime Credentialに「公開確認の記録」（`publication:write`）を付けて発行する。方式別の設定画面は無い。
+- 検証: 判定規則・再送・古い通知・GitHub失敗は`packages/work/tests/publication.test.ts`。公開API・MCP・Credential認可と、G2の公開MCPで準備した受入済み／未mergeのTaskとの組合せは`server/tests/publicationHttp.test.ts`（GitHub互換のloopback server）。
+
 ## Web UIのShellとWorkspace Selector
 
 ログイン後の画面は、appのroute layout（`server/src/web/app/AppLayout.tsx`）が表示部品のShell（`server/src/web/components/Shell.tsx`）へWorkspace Selector・メニュー・Sessionを合成した枠に置く。上端のheaderにブランドとSession（名前アイコン・表示名・ログアウト）を置く。Desktopは左のメニューにWorkspace Selector・Workspaceのメニュー・Project・横断した判断待ち（`/consultations`）・参加中のProject・Workspaceの作成を置く。狭い画面（700px以下）はheaderに名前アイコンとその右のメニューボタン（44px・`aria-expanded`）だけを置き、右端の`Dialog`で同じメニューとSession（ログアウト）を開く。×はWorkspace Selectorと同じ行に置き、Escape・背景・×・画面の移動で閉じて、メニューボタンへfocusを戻す。ヘッダー下に別のナビゲーションは置かない。先頭に「本文へ移動」のskip linkを置く。ログイン画面・Session復元中はheaderだけを出す。
@@ -123,7 +136,7 @@ Workspaceの「設定」（`/workspaces/:workspaceId/settings`。`features/works
 
 ## Project詳細（Web UI）
 
-Project詳細は`?view=`で「概要」（`overview`。既定・不正値も概要）・「開発詳細」（`work`）・「リリース履歴」（`releases`）・「設定」（`settings`）と、各画面の導線から開く「方向」（`direction`）・「判断待ち」（`consultations`）・「記録」（`records`）に分け、表示中のviewのsectionだけを読み込む。viewの切替はShellのメニューのProjectの階層で行い、上部のタブは置かない。Hero（概要はProject名、他のviewはview名を見出しにし、Project名・状態・自分のRole）とarchivedの通知は全viewに出す。リリース履歴は開発受入と公開確認の記録をまだ取得できないため、件数・公開状況を推測せず未接続と開発詳細への導線だけを出す。他viewのTask・Role行へは`?view=work#execution-task-…`・`?view=settings#agent-role-…`で辿り、読込後に移動してfocusする。decodeできないhash（例 `#%`）は無視し、viewを通常どおり表示する。
+Project詳細は`?view=`で「概要」（`overview`。既定・不正値も概要）・「開発詳細」（`work`）・「リリース履歴」（`releases`）・「設定」（`settings`）と、各画面の導線から開く「方向」（`direction`）・「判断待ち」（`consultations`）・「記録」（`records`）に分け、表示中のviewのsectionだけを読み込む。viewの切替はShellのメニューのProjectの階層で行い、上部のタブは置かない。Hero（概要はProject名、他のviewはview名を見出しにし、Project名・状態・自分のRole）とarchivedの通知は全viewに出す。リリース履歴の画面は[公開確認とリリース履歴](#公開確認とリリース履歴の現行契約)の取得APIへまだ接続していないため、件数・公開状況を推測せず未接続と開発詳細への導線だけを出す。他viewのTask・Role行へは`?view=work#execution-task-…`・`?view=settings#agent-role-…`で辿り、読込後に移動してfocusする。decodeできないhash（例 `#%`）は無視し、viewを通常どおり表示する。
 
 - 概要（S10-03。`features/project/ProjectOverview.tsx`、判定は`overview.ts`）: Projectを実行境界として、実行境界・貢献するOutcome・実行状況・次の行動・Claim保持中・最近の記録を出す。部分ごとに取得失敗・空・閲覧不可を区別し、取得時刻と再読込を出す。HeroのPurpose（description）は概要では実行境界へ移す。
   - 実行境界: Purpose（未設定ならProjectの編集への案内）と、Repository・Resourceの外部リンク。Mission等とIntent・Outcomeは所属Workspaceのものと示し、Workspace Membershipで閲覧できれば所属Workspaceの方向へのリンクを出す。
@@ -249,10 +262,11 @@ UI方針・token・部品・カタログの4つの正本と、カタログ・製
 - 結合テスト（`ralph/tests/ralph.test.ts`、Orchestratorと接続するWorkspace境界のE2E）のRalphの起動先はfixture。Ralphが実Agent（Codex）を起動してTaskを処理したのは、[相談の統合検証](#相談の統合検証)の専用環境での`ralph run <role> --once`（相談からの再開Worker、文書反映のWorker / Reviewer / Manager、ローカルの検証用Repository）だけ。Claude Code providerでの処理、PR作成・GitHub連携を含むWorker → Reviewer → Managerの運転、pollingを続ける常駐ループは未検証。実CLIはMCP接続のheader（Authorization・`X-Compass-Active-Role`）の送信だけを手動で確認した。remote modeのAgent Credentialでの接続は自動テストの対象外。
 - 実Runtimeが実Agentを起動し続ける継続したLv6自律運転は未接続・未検証（上記の専用環境での相談の実Agent検証は、範囲を限った単発の起動である）。`server/tests/support/lv6Runtime.ts`等のfixtureを自律運転の実証としない。
 - Intent・Outcome・成功条件の登録・編集のWeb UIは所属Projectの画面（`/projects/:projectId/intents/…`）だけにあり、Workspaceの「方向」には登録の導線が無い。保存はWorkspace scopeのWeb APIへ行うが、activeなProjectのまだないWorkspaceではWeb UIからIntentを登録できない（Workspace概要は「登録画面を開けるactiveなProjectがありません」と表示する）。Workspace配下の登録画面は未実装。
+- 公開確認は契約・判定・取得APIまでで、実際のCD・デプロイサービス（Cloudflare・GitHub Actions等）からの送信と実GitHubのcompareでの判定は未検証（自動テストはGitHub互換のloopback server）。リリース履歴のWeb UIは未接続。
 - 実Googleとの接続確認は自動テストの対象外。
 
 ## 現在のRuntime API
 
-`fetch_runtime_events` / `ack_runtime_event`は現在利用可能。eventの取得・ackにはconsumer単位のcursorと配送状態がある。`list_changes`はExecutionの変更を取得し、`record_execution_evidence`はサーバーが現在状態から導出した結果とEvidence参照をDirectionへ還流する。
+`fetch_runtime_events` / `ack_runtime_event`は現在利用可能。eventの取得・ackにはconsumer単位のcursorと配送状態がある。`list_changes`はExecutionの変更を取得し、`record_execution_evidence`はサーバーが現在状態から導出した結果とEvidence参照をDirectionへ還流する。`record_publication`（Web API `POST /api/projects/:projectId/publications`）は公開先で確認したrevisionと根拠の参照を公開確認の原記録として残す。
 
 これらは現在の接続契約である。Orchestratorはeventではなく`get_workspace_orchestration_state`の現在状態で起動を判断し、Activity cursor・event cursorをworkflow checkpointにしない。Project基準の`get_orchestration_state`は除いた。Workspace単位の`get_workspace_orchestration_state`（Workspace Runtime Credentialのscope `runtime:state:read`だけ。Project Credential・trusted-localのAgent名は不可）は、Workspace・activeなProject・Active Intent・Outcome（Target別の`projectStatus`・Work件数・還流状態、全Targetの`evaluability`、最新EvaluationのProject別評価cursorと判断の有無）・Research Requestを同じ方針（ID・状態・件数だけ、読取専用、cursor非依存）で返す。archivedのWorkspaceは状態だけを返し、archivedのProjectは`projects`から除いてTargetとしてだけ示す。dispatch規則`planWorkspaceDispatches`（S08-02）はこの応答を入力にし、Orchestratorの周回がWorkspace Runtime Credentialで読む（S08-03）。既存Runtime APIをActivityとして流用しない。

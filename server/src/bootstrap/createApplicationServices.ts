@@ -85,10 +85,13 @@ import {
   GetExecutionTaskUseCase,
   KyselyWorkStore,
   ListExecutionUseCase,
+  ListProjectReleasesUseCase,
   ListRecentExecutionChangesUseCase,
+  RecordPublicationUseCase,
   RejectExecutionTaskUseCase,
   TaskCoordinationService,
   type PullRequestGateway,
+  type RevisionGateway,
 } from "@compass/work";
 import {
   AuthenticateAccessCredentialUseCase,
@@ -136,6 +139,7 @@ import {
   ListHumanWorkspacesUseCase,
   ListWorkspaceMembersUseCase,
   RevokeWorkspaceMemberUseCase,
+  credentialStatus,
   executionRoles,
   humanOperatorPrincipalId,
   workspaceRoles,
@@ -223,8 +227,11 @@ export const createApplicationServices = (
   humanAuth: { initialOwnerEmail: string | null; identityProvider?: HumanIdentityProvider | null } = {
     initialOwnerEmail: null,
   },
-  /** 外部連携のadapter。`pullRequests`はGitHubのPR読取で、無ければPR登録をGITHUB_UNAVAILABLEで拒否する。 */
-  integrations: { pullRequests?: PullRequestGateway | null } = {},
+  /**
+   * 外部連携のadapter。`pullRequests`はGitHubのPR読取で、無ければPR登録をGITHUB_UNAVAILABLEで拒否する。
+   * `revisions`はGitHubのcommitの関係の読取で、無ければGitHub Repositoryの公開記録をGITHUB_UNAVAILABLEで拒否する。
+   */
+  integrations: { pullRequests?: PullRequestGateway | null; revisions?: RevisionGateway | null } = {},
 ) => {
   // Project（Workspaceを含む）はOrganizationが所有する。Projectのarchiveも同じtransactionでcanonical Activityへ投影する。
   const projectRepository = new SQLiteProjectRepository(
@@ -348,6 +355,13 @@ export const createApplicationServices = (
     undefined,
     integrations.pullRequests ?? null,
   );
+  // 公開確認（Runtimeの原記録）とリリース履歴の読取。開発の受入・PRのmergeとは別の事実として、Workの記録から導出する。
+  const recordPublicationUseCase = new RecordPublicationUseCase(workStore, integrations.revisions ?? null, clock);
+  const listProjectReleasesUseCase = new ListProjectReleasesUseCase(workStore, async (projectId) => {
+    const now = clock();
+    return (await accessCredentialRepository.listByScope({ kind: "project", id: projectId })).some((credential) =>
+      credential.kind === "runtime" && credential.scopes.includes("publication:write") && credentialStatus(credential, now) === "active");
+  });
   // Direction → Executionは読取専用ポート（Execution自身のtableだけを読む）を通す。Direction側の還流先は自身のRepository。
   const executionSummaryService = new ExecutionSummaryService(workStore);
   const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders);
@@ -474,6 +488,13 @@ export const createApplicationServices = (
           const principalId = await runtimeAuthorization.requireScope(caller, projectId, "execution:evidence:write");
           const workspaceId = await projectWorkspaceId(projectRepository, projectId);
           return workspaceDirection.recordExecutionEvidenceUseCase.execute(principalId, workspaceId, projectId, outcomeId, input);
+        },
+      },
+      // 公開確認（Runtime）。Project Runtime Credentialの`publication:write`で認可し、記録した主体を原記録に残す。
+      recordPublicationUseCase: {
+        execute: async (caller: Parameters<typeof runtimeAuthorization.requireScope>[0], projectId: string, input: unknown) => {
+          const principalId = await runtimeAuthorization.requireScope(caller, projectId, "publication:write");
+          return recordPublicationUseCase.execute(principalId, projectId, input);
         },
       },
       // Workspace単位の現在状態。Workspace Runtime Credentialのscopeだけで認可し、Project Credentialから継承しない。
@@ -734,6 +755,8 @@ export const createApplicationServices = (
     listExecution: authorized("project.read", services.listExecutionUseCase),
     getExecutionTask: authorized("project.read", services.getExecutionTaskUseCase),
     listRecentExecutionChanges: authorized("project.read", services.listRecentExecutionChangesUseCase),
+    // リリース履歴（開発の受入と公開確認を別の項目で返す）。archivedのProjectも参照できる。公開記録の入力はRuntimeだけ。
+    listProjectReleases: authorized("project.read", listProjectReleasesUseCase),
     // Activity閲覧。archivedのProjectも参照できる。記録はAgentのMCP（record_activity）とcanonical生成だけで、Web UIからは記録しない。
     listActivities: authorized("project.read", listActivitiesUseCase),
     getActivity: authorized("project.read", getActivityUseCase),

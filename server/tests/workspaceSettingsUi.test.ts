@@ -50,7 +50,7 @@ test("Workspace Credentialのpathとscope選択肢はWorkspaceのRuntime入口�
   assert.equal(scopeCredentialsPath(workspace, "c-1"), "/api/workspaces/ws-1/credentials/c-1");
   assert.equal(rotateCredentialPath(workspace, "c-1"), "/api/workspaces/ws-1/credentials/c-1/rotate");
   assert.deepEqual(runtimeScopeOptionsFor("workspace").map(({ scope }) => scope), ["runtime:event:read", "runtime:event:ack", "runtime:state:read"]);
-  assert.equal(runtimeScopeOptionsFor("project").length, 6);
+  assert.equal(runtimeScopeOptionsFor("project").length, 7);
 });
 
 test("Workspace memberのpathとRole説明はWorkspaceのもので、Project単位のMember pathは持たない", () => {

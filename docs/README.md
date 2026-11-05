@@ -8,6 +8,7 @@
 - [ADR 0003 Humanの所属・権限](adr/0003-workspace-human-membership.md): HumanのMember管理をWorkspaceへ集約し、配下全Projectへ同じRoleを適用する決定。認可・Member管理（Role変更・除外）は実装済みで、Workspace scopeの招待・参加は未実装。
 - [ADR 0004 TaskのPR](adr/0004-task-pull-request-verification.md): TaskのPRをServerがGitHubで確認した事実として保持し、成果物参照と区別する決定。
 - [ADR 0005 PRの照合](adr/0005-task-pull-request-transition-verification.md): PRのあるTaskの完了・レビュー・受入で、現在のPR・レビューしたhead・merge SHA・必須CI・レビュー根拠のコメントを照合する決定。
+- [ADR 0006 公開確認](adr/0006-publication-confirmation.md): 公開確認をRuntimeの原記録としてWorkが保持し、公開記録だけから開発受入と別に公開状況（公開済み・未公開・確認できず）を導出する決定。
 - [Direction・Workの境界](lv6-unification-design.md)
 - [Research・Decision・ADR](research-decision-adr-design.md)
 

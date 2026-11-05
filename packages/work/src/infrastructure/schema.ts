@@ -3,6 +3,8 @@ import type { Generated } from "kysely";
 import type {
   ChangeRecord,
   CommandReceiptRecord,
+  PublicationRecord,
+  PublicationRevisionRecord,
   StoryRecord,
   TaskClaimRecord,
   TaskCommentRecord,
@@ -28,5 +30,7 @@ export type WorkDatabase = {
   task_claim: TaskClaimTable;
   task_pull_request: TaskPullRequestTable;
   change_log: ChangeLogTable;
+  publication_record: PublicationRecord;
+  publication_revision: PublicationRevisionRecord;
   command_receipt: CommandReceiptTable;
 };

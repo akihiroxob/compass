@@ -9,6 +9,8 @@ import type {
   EntityCorrelation,
   OutcomeTargetReader,
   ProjectGrantReader,
+  PublicationRecord,
+  PublicationRevisionRecord,
   ProjectStateReader,
   StoryRecord,
   TaskClaimRecord,
@@ -441,6 +443,42 @@ export class KyselyWorkStore implements WorkStore {
   async findPullRequestByNumber(repository: string, number: number): Promise<TaskPullRequestRecord | null> {
     return (await this.db.selectFrom("task_pull_request").selectAll().where("repository", "=", repository)
       .where("number", "=", number).executeTakeFirst()) ?? null;
+  }
+
+  listProjectPullRequests(projectId: string): Promise<TaskPullRequestRecord[]> {
+    return this.db.selectFrom("task_pull_request").selectAll().where("project_id", "=", projectId)
+      .orderBy("task_id").orderBy("sequence", "asc").execute();
+  }
+
+  async listAcceptances(projectId: string): Promise<ChangeRecord[]> {
+    const rows = await this.db.selectFrom("change_log").selectAll().where("project_id", "=", projectId)
+      .where("type", "=", "TASK_ACCEPTED").orderBy("cursor", "asc").execute();
+    return rows.map(toChange);
+  }
+
+  async findPublication(
+    key: Pick<PublicationRecord, "project_id" | "repository_id" | "target" | "revision" | "observed_at">,
+  ): Promise<PublicationRecord | null> {
+    return (await this.db.selectFrom("publication_record").selectAll()
+      .where("project_id", "=", key.project_id).where("repository_id", "=", key.repository_id).where("target", "=", key.target)
+      .where("revision", "=", key.revision).where("observed_at", "=", key.observed_at).executeTakeFirst()) ?? null;
+  }
+
+  async insertPublication(record: PublicationRecord, revisions: PublicationRevisionRecord[]): Promise<void> {
+    await this.db.insertInto("publication_record").values(record).execute();
+    if (revisions.length > 0) await this.db.insertInto("publication_revision").values(revisions).execute();
+  }
+
+  listPublications(projectId: string): Promise<PublicationRecord[]> {
+    return this.db.selectFrom("publication_record").selectAll().where("project_id", "=", projectId)
+      .orderBy("observed_at", "desc").orderBy("received_at", "desc").orderBy("id", "desc").execute();
+  }
+
+  listPublicationRevisions(projectId: string): Promise<PublicationRevisionRecord[]> {
+    return this.db.selectFrom("publication_revision")
+      .innerJoin("publication_record", "publication_record.id", "publication_revision.publication_id")
+      .select(["publication_revision.publication_id", "publication_revision.commit_sha", "publication_revision.relation"])
+      .where("publication_record.project_id", "=", projectId).execute();
   }
 
   async insertTaskPullRequest(record: TaskPullRequestRecord): Promise<void> {
