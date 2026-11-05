@@ -26,7 +26,7 @@ const DecisionCard = ({ projectId, decision }: { projectId: string; decision: Di
       </p>
     )}
     <small>
-      {new Date(decision.createdAt).toLocaleString("ja-JP")} 判断（{decision.principalId}）
+      {new Date(decision.createdAt).toLocaleString("ja-JP")} 判断（{decision.principalId}） ・ 目標 v{decision.intentVersion}
     </small>
   </article>
 );

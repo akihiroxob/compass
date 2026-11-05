@@ -15,6 +15,8 @@ export type Outcome = {
   id: string;
   workspaceId: string;
   intentId: string;
+  /** このOutcomeが根拠にしている目標（Intent）の版。 */
+  intentVersion: number;
   title: string;
   description: string;
   hypothesis: string | null;
@@ -90,3 +92,10 @@ export const outcomeEmptyMessage = (intentStatus: string, access: ProjectOperati
     ? `${head}Strategistが判断して登録するとここに表示されます。Humanが判断した場合は「Outcomeを登録」から登録できます。`
     : `${head}Strategistが判断して登録するとここに表示されます。`;
 };
+
+/** 目標の意味（実現したい状態・達成条件）が、このOutcomeの根拠にした版より後に変わった未完了のOutcomeは再計画の対象。 */
+export const isReplanTarget = (outcome: Pick<Outcome, "status" | "intentVersion">, intent: { meaningVersion: number }): boolean =>
+  outcome.status === "active" && outcome.intentVersion < intent.meaningVersion;
+
+export const replanNote = (outcome: Pick<Outcome, "intentVersion">, intent: { meaningVersion: number }): string =>
+  `目標の意味が v${outcome.intentVersion} から v${intent.meaningVersion} へ変更されました。Strategistが現在の目標で確認・取消・作り直しを判断します。`;

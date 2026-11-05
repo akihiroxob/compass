@@ -40,6 +40,10 @@ export const createIntentSchema = z.object({
  */
 export const updateIntentSchema = z
   .object({
+    /** 編集の元にした版。古い編集画面・古い判断は現在版と異なるため競合になる。 */
+    expectedVersion: z.number().int().min(1),
+    /** 変更理由。Outcomeを持つIntentの意味を変える場合は必須。 */
+    reason: clearableText(2_000).optional(),
     title: trimmedText("title", 100).optional(),
     desiredState: trimmedText("desiredState", 2_000).optional(),
     background: clearableText(2_000).optional(),
@@ -48,11 +52,15 @@ export const updateIntentSchema = z
     completionDefinition: clearableText(2_000).optional(),
     targetDate: clearableDate.optional(),
   })
-  .refine((input) => Object.values(input).some((value) => value !== undefined), {
+  .refine(({ expectedVersion: _version, reason: _reason, ...fields }) => Object.values(fields).some((value) => value !== undefined), {
     message: "at least one field to update is required",
   });
 
-export const abandonIntentSchema = z.object({ reason: optionalText(2_000) });
+export const abandonIntentSchema = z.object({
+  reason: optionalText(2_000),
+  /** 指定した場合は現在版との一致を条件にする。 */
+  expectedVersion: z.number().int().min(1).optional(),
+});
 
 export type AbandonIntentInput = z.infer<typeof abandonIntentSchema>;
 
@@ -60,7 +68,7 @@ export const parseCreateIntentInput = (input: unknown): CreateIntentInput =>
   parseWith(createIntentSchema, input, "Intent");
 
 export const parseUpdateIntentInput = (input: unknown): UpdateIntentInput =>
-  parseWith(updateIntentSchema, input, "Intent");
+  parseWith(updateIntentSchema, input, "Intent") as UpdateIntentInput;
 
 export const parseAbandonIntentInput = (input: unknown): AbandonIntentInput =>
   parseWith(abandonIntentSchema, input, "Intent");

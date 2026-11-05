@@ -22,7 +22,7 @@ IntentはHumanが現在実現したい状態。Workspaceの継続的な存在理
 
 ## 更新と操作
 
-activeの間だけ部分更新できる。未指定の項目は変更せず、任意項目は`null`または空文字でクリアする。Outcomeを持つIntentはdesiredState / completionDefinitionを変更できない（title・背景・対象・制約・目標日は変更できる）。archived Workspaceでは書込を拒否する（WorkspaceのarchiveはWorkspace ownerが行い、Projectのarchiveでは変わらない）。
+activeの間だけ部分更新できる。未指定の項目は変更せず、任意項目は`null`または空文字でクリアする。更新は編集の元にした`expectedVersion`（現在の`version`）を必須とし、現在版と異なれば何も変えず`CONFLICT`（`conflict: intent_version`・`currentVersion`）を返す。Outcomeを持つIntentのdesiredState / completionDefinitionを変えるときは`reason`が必須（無ければ`VALIDATION_ERROR`）で、title・背景・対象・制約・目標日は理由なしで変えられる。archived Workspaceでは書込を拒否する（WorkspaceのarchiveはWorkspace ownerが行い、Projectのarchiveでは変わらない）。
 
 `intent_complete`も、Intentを更新するtransaction内で所属Workspaceのarchiveを検査する。WorkspaceだけarchivedでProjectがactiveでも`CONFLICT`（`workspaceStatus: archived`）を返し、Intent・Decision・Activityを変更しない。
 
@@ -33,6 +33,16 @@ HumanはWorkspaceの「Outcome」（方向）画面で、ページ上部の「�
 MCPの`create_intent` / `update_intent`は、外部MCPクライアントでHumanと整理した目標をAgentが登録する正規の入口で、trusted-local・remoteの両modeで公開する。対象WorkspaceのStrategist Grant（`X-Compass-Active-Role`指定時は`strategist`）を要求し、Worker・Reviewer等のProject Role、別WorkspaceのGrant、Grantの無いPrincipalは`FORBIDDEN`。操作者はStrategist（Agent）として記録し、Humanの操作として扱わない。trusted-localのBearer・activeRoleなしの保守呼出しだけはGrantを問わず、操作者は`system`になる。`abandon_intent`はHuman管理操作としてtrusted-localだけに登録し、WorkspaceのDirection Role Grantを持つPrincipalとactiveRole指定を拒否する。remote modeのMCPには`abandon_intent`等のHuman管理toolを公開しない。
 
 保存は新規DBのschemaで定義する。項目を追加したschemaは旧DBへ列を補わないため、開発DBは再作成する。
+
+## 版と変更履歴
+
+Intentは`version`（作成時1。内容が変わる保存のたびに+1。内容が変わらない保存は進めない）と`meaningVersion`（実現したい状態・達成条件が最後に変わった版）を持つ。版ごとの内容・`meaningChanged`・`reason`・変更主体（`changedBy` / `changedByRole`）は追記専用の`intent_revision`に残り、`GET /api/workspaces/:workspaceId/intents/:intentId/revisions`とMCP `list_intent_revisions`で新しい順に読める。変更主体は認可済みの入口が固定した主体で、Humanは`human:{humanUserId}`（operator）、Agentは各Principalとroleであり、Agentの操作をHumanとして記録しない。
+
+Outcome・Direction Decision・Outcome Evaluationは作成時の`intentVersion`を保持し、後から書き換えない（Evaluationは評価したOutcomeの`intentVersion`）。Outcome作成、判断（`create_direction_decision` / `decide_next_outcome`）、`update_outcome`は任意の`intentVersion`を受け取り、現在版と異なれば`CONFLICT`にする。`update_outcome`で現在版を渡すと、そのOutcomeの`intentVersion`を現在版へ進める（確認の記録）。
+
+`meaningVersion`が未完了（active）Outcomeの`intentVersion`より新しい場合、そのOutcomeは再計画対象（Orchestration Stateの`outcomes[].intentRevised`・Web UIの「再計画対象」）になる。Work・Task・Outcomeの状態は自動で変えず、StrategistがOutcomeを現在版で確認・取消・作り直しのいずれかで判断する。目標の終端（`abandon_intent`はOutcomeを`cancelled`にする）はOutcome・Taskを達成・完了にしない。判断の背景は [ADR 0007](adr/0007-intent-versioning.md)。
+
+Web UIの編集フォームは画面を開いた時点の`version`を送り、変更理由（任意。Outcomeがある目標の意味変更では必須）を添える。競合時は入力を保持したまま「最新の内容を読み込む」で利用者が読み直しを選び、自動で上書きしない。Intent詳細と方向の目標カードに変更履歴（現在の版・変更者・理由・意味変更の版）を出す。
 
 ## Researchとの接続
 

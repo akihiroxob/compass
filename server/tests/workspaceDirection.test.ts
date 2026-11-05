@@ -18,6 +18,7 @@ import { directionWorkspaceReaders, projectRepositoryReferenceFinder } from "../
 
 import { createSignedInApp, seedLegacyProjectGrant, seedWorkspaceGrant } from "./support/humanSession.ts";
 
+const actor = { principalId: "tester", role: "operator" };
 const intentInput = { title: "Direction", desiredState: "Shared direction" };
 const outcomeInput = { title: "Result", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }] };
 
@@ -66,8 +67,8 @@ test("new schema has Workspace ownership columns, composite FK and multiple acti
     }
     const intent = await direction.createIntentUseCase.execute(workspace.id, intentInput);
     const b = await new CreateWorkspaceUseCase(new SQLiteWorkspaceRepository(asOrganizationDatabase(database))).execute({ name: "B", mission: "B" });
-    await assert.rejects(sql`insert into outcome (id, workspace_id, intent_id, title, description, rationale, status, created_at, updated_at)
-      values ('cross-workspace', ${b.id}, ${intent.id}, 'T', 'D', 'R', 'active', 1, 1)`.execute(database), /FOREIGN KEY/);
+    await assert.rejects(sql`insert into outcome (id, workspace_id, intent_id, intent_version, title, description, rationale, status, created_at, updated_at)
+      values ('cross-workspace', ${b.id}, ${intent.id}, 1, 'T', 'D', 'R', 'active', 1, 1)`.execute(database), /FOREIGN KEY/);
     await sql`insert into intent (id, workspace_id, title, desired_state, status, created_at, updated_at)
       values ('duplicate', ${workspace.id}, 'T', 'D', 'active', 1, 1)`.execute(database);
     await assert.rejects(sql`insert into intent (id, workspace_id, title, desired_state, status, created_at, updated_at)
@@ -104,7 +105,9 @@ test("Workspace updates preserve fixed success criteria and Intent meaning; aban
   try {
     const intent = await direction.createIntentUseCase.execute(workspace.id, intentInput);
     const outcome = await direction.createOutcomeUseCase.execute(workspace.id, intent.id, outcomeInput);
-    await assert.rejects(direction.updateIntentUseCase.execute(workspace.id, intent.id, { desiredState: "Different" }), { code: "CONFLICT" });
+    await assert.rejects(direction.updateIntentUseCase.execute(workspace.id, intent.id, { expectedVersion: 1, desiredState: "Different" }), { code: "VALIDATION_ERROR" });
+    await direction.updateIntentUseCase.execute(workspace.id, intent.id, { expectedVersion: 1, desiredState: "Different", reason: "Direction changed" });
+    assert.equal((await direction.getOutcomeUseCase.execute(workspace.id, intent.id, outcome.id)).intentVersion, 1, "Outcomeは作成時の版を保持する");
     await assert.rejects(direction.updateOutcomeUseCase.execute(workspace.id, intent.id, outcome.id, { successCriteria: [] }), { code: "CONFLICT" });
     const changed = await direction.updateOutcomeUseCase.execute(workspace.id, intent.id, outcome.id, { title: "New title" });
     assert.deepEqual(changed.successCriteria, outcome.successCriteria);
@@ -137,8 +140,8 @@ test("Workspace archive is guarded by canonical repositories inside the write tr
     const intents = new SQLiteIntentRepository(asDirectionDatabase(database), directionWorkspaceReaders);
     const outcomes = new SQLiteOutcomeRepository(asDirectionDatabase(database), directionWorkspaceReaders);
     const archived = { kind: "workspace_archived" };
-    assert.deepEqual(await intents.create(workspace.id, { ...intentInput, background: null, audience: null, constraints: null, completionDefinition: null, targetDate: null }), archived);
-    assert.deepEqual(await intents.update(workspace.id, intent.id, { title: "Changed" }), archived);
+    assert.deepEqual(await intents.create(workspace.id, { ...intentInput, background: null, audience: null, constraints: null, completionDefinition: null, targetDate: null }, actor), archived);
+    assert.deepEqual(await intents.update(workspace.id, intent.id, { expectedVersion: 1, title: "Changed" }, actor), archived);
     assert.deepEqual(await intents.abandon(workspace.id, intent.id, "R"), archived);
     assert.deepEqual(await outcomes.cancel(workspace.id, intent.id, outcome.id, "R"), archived);
     await assert.rejects(direction.updateOutcomeUseCase.execute(workspace.id, intent.id, outcome.id, { title: "Changed" }), { code: "CONFLICT", details: { workspaceStatus: "archived" } });

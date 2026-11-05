@@ -17,6 +17,8 @@ export type OutcomeProperties = {
   id: string;
   workspaceId: string;
   intentId: string;
+  /** 作成または最後に再確認した時点のIntentの版。Intentの`meaningVersion`より古い未完了のOutcomeは再計画の対象。 */
+  intentVersion: number;
   title: string;
   description: string;
   hypothesis: string | null;
@@ -34,6 +36,7 @@ export class Outcome {
   readonly id: string;
   readonly workspaceId: string;
   readonly intentId: string;
+  readonly intentVersion: number;
   readonly title: string;
   readonly description: string;
   readonly hypothesis: string | null;
@@ -49,6 +52,7 @@ export class Outcome {
     this.id = properties.id;
     this.workspaceId = properties.workspaceId;
     this.intentId = properties.intentId;
+    this.intentVersion = properties.intentVersion;
     this.title = properties.title;
     this.description = properties.description;
     this.hypothesis = properties.hypothesis;

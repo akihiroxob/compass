@@ -198,6 +198,7 @@ test("EvaluatorがInstructionとContextを取得し、Criterionごとの判定�
   assert.equal(saved.recorded, true);
   const evaluation = saved.evaluation;
   assert.equal(evaluation.result, "achieved");
+  assert.equal(evaluation.intentVersion, 1, "評価は、Outcomeが根拠にしたIntentの版を保持する");
   assert.equal(evaluation.outcomeId, outcome.id);
   assert.equal(evaluation.principalId, "ev");
   assert.equal(evaluation.runRef, "run-1");
@@ -447,7 +448,7 @@ test("Evaluatorは Outcome定義・Execution結果・Project / Intent・Grantを
     ["issue_story", { projectId: project.id, title: "x", outcomeId: outcome.id, requestId: "story-by-ev" }],
     ["update_project", { projectId: project.id, name: "renamed" }],
     ["create_intent", { workspaceId: project.workspaceId, title: "x", desiredState: "x" }],
-    ["update_intent", { workspaceId: project.workspaceId, intentId: intent.id, title: "x" }],
+    ["update_intent", { expectedVersion: 1, workspaceId: project.workspaceId, intentId: intent.id, title: "x" }],
     ["abandon_intent", { workspaceId: project.workspaceId, intentId: intent.id }],
     ["create_direction_decision", { workspaceId: project.workspaceId, intentId: intent.id, type: "intent_complete", judgment: "x", reason: "x", requestKey: "k", runRef: "r" }],
   ];

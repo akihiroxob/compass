@@ -17,6 +17,8 @@ const usedSynthesisSchema = z.object({
 
 const decisionCommonSchema = {
   intentId: idText,
+  /** 判断の元にしたIntentの版。指定した場合は現在版と一致するときだけ記録でき、古い版の判断は競合になる。 */
+  intentVersion: z.number().int().min(1).optional(),
   judgment: trimmedText("judgment", 2_000),
   reason: trimmedText("reason", 4_000),
   options: z.array(trimmedText("option", 1_000)).max(20).default([]),
@@ -100,7 +102,7 @@ export const createDirectionDecisionSchema = z
 
 /** successCriteriaを含むOutcome入力は既存のcreateOutcomeSchemaをそのまま使い、固定Success Criteriaの規則を重複させない。 */
 export const decideNextOutcomeSchema = z
-  .object({ ...decisionCommonSchema, outcome: createOutcomeSchema })
+  .object({ ...decisionCommonSchema, outcome: createOutcomeSchema.omit({ intentVersion: true }) })
   .superRefine(checkUniqueReferences);
 
 export const parseCreateDirectionDecisionInput = (input: unknown): CreateDirectionDecisionInput =>

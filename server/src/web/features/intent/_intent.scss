@@ -20,3 +20,11 @@
 }
 .intent-context-fields { gap: var(--space-md); }
 .intent-context-facts { gap: 0 var(--space-md); }
+
+// 目標の変更履歴（版・変更主体・理由）。新しい版から順に、区切り線で並べる。
+.revision-list {
+  @include divided-list;
+  margin-top: var(--space-xs);
+  li { @include list-item; }
+  p { margin: 0 0 var(--space-2xs); }
+}

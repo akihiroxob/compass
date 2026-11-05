@@ -10,6 +10,7 @@ import type { CreateOutcomeInput } from "./OutcomeRepository.ts";
 export type CreateDirectionDecisionInput = {
   type: DirectionDecisionRecordType;
   intentId: string;
+  intentVersion?: number;
   judgment: string;
   reason: string;
   options: string[];
@@ -30,6 +31,7 @@ export type CreateDirectionDecisionInput = {
 export type DecideNextOutcomeInput = {
   outcome: CreateOutcomeInput;
   intentId: string;
+  intentVersion?: number;
   judgment: string;
   reason: string;
   options: string[];
@@ -60,6 +62,8 @@ type DirectionDecisionWriteRejection =
   | { kind: "deadline_in_past"; deadlineAt: number }
   | { kind: "intent_not_found" }
   | { kind: "intent_not_active"; status: IntentStatus }
+  /** 判断の元にしたIntentの版が現在版と異なる。 */
+  | { kind: "intent_version_conflict"; currentVersion: number }
   | InvalidResearchReferenceResult
   | SynthesisVersionMismatchResult
   /** `evaluationId`が、再評価で置き換えられた古い評価を指す。 */

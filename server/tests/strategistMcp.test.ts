@@ -307,7 +307,7 @@ test("StrategistのGrantを持つPrincipalはProjectの管理toolとIntentの放
     assert.equal(denied.structuredContent.error.code, "FORBIDDEN", name);
   }
   // Intentの登録・更新は対象WorkspaceのStrategistに許可する。複数のActive Intentを作成でき、既存のIntentを変更しない。
-  const updated = await callTool(app, "update_intent", { workspaceId, intentId, title: "By strategist", background: "Why" }, "strat-1");
+  const updated = await callTool(app, "update_intent", { expectedVersion: 1, workspaceId, intentId, title: "By strategist", background: "Why" }, "strat-1");
   assert.equal(updated.isError, undefined);
   assert.deepEqual([updated.structuredContent.title, updated.structuredContent.background], ["By strategist", "Why"]);
   const another = await callTool(app, "create_intent", { workspaceId, title: "T", desiredState: "D" }, "strat-1");
@@ -317,7 +317,7 @@ test("StrategistのGrantを持つPrincipalはProjectの管理toolとIntentの放
   // Grantの無いWorkspace・Grantの無いPrincipalは、Intentを登録・更新できない。
   for (const [name, args, principal] of [
     ["create_intent", { workspaceId: otherWorkspaceId, title: "T", desiredState: "D" }, "strat-1"],
-    ["update_intent", { workspaceId, intentId, title: "By other" }, "someone"],
+    ["update_intent", { expectedVersion: 1, workspaceId, intentId, title: "By other" }, "someone"],
   ] as [string, object, string][]) {
     const denied = await callTool(app, name, args, principal);
     assert.equal(denied.structuredContent.error.code, "FORBIDDEN", `${name} by ${principal}`);
@@ -329,7 +329,7 @@ test("StrategistのGrantを持つPrincipalはProjectの管理toolとIntentの放
   // 別WorkspaceのStrategistは、Grantを持たないWorkspaceのProjectを従来どおり操作できる（Grantの範囲はWorkspace scope）。
   assert.equal((await callTool(app, "update_project", { projectId: otherId, name: "Q2" }, "strat-1")).isError, undefined);
   // trusted-localのBearerなしの保守呼出しは従来どおり。
-  assert.equal((await callTool(app, "update_intent", { workspaceId, intentId, title: "By operator" })).isError, undefined);
+  assert.equal((await callTool(app, "update_intent", { expectedVersion: 2, workspaceId, intentId, title: "By operator" })).isError, undefined);
   assert.equal((await callTool(app, "abandon_intent", { workspaceId, intentId })).isError, undefined);
   await database.destroy();
 });

@@ -22,6 +22,7 @@ const toEvaluation = (row: Selectable<OutcomeEvaluationTable>): OutcomeEvaluatio
   workspaceId: row.workspace_id,
   outcomeId: row.outcome_id,
   intentId: row.intent_id,
+  intentVersion: row.intent_version,
   result: row.result,
   criteria: JSON.parse(row.criteria) as OutcomeEvaluation["criteria"],
   snapshot: JSON.parse(row.snapshot) as OutcomeEvaluation["snapshot"],
@@ -91,7 +92,7 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
       const outcome = await transaction
         .selectFrom("outcome")
-        .select(["title", "status"])
+        .select(["title", "status", "intent_version"])
         .where("id", "=", request.outcomeId)
         .where("workspace_id", "=", workspaceId)
         .executeTakeFirstOrThrow();
@@ -116,6 +117,7 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
           workspace_id: workspaceId,
           outcome_id: request.outcomeId,
           intent_id: input.intentId,
+          intent_version: outcome.intent_version,
           result: input.result,
           criteria: JSON.stringify(input.criteria),
           snapshot: JSON.stringify(input.snapshot),

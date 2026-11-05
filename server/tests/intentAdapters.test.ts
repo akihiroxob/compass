@@ -55,7 +55,7 @@ test("Web APIでIntentを作成・一覧・詳細・更新・放棄でき、Proj
   const got = (await (await app.request(`/api/workspaces/${workspaceId}/intents/${intent.id}`)).json()) as IntentBody;
   assert.deepEqual(got.intent, intent);
 
-  const patched = await send(app, "PATCH", `/api/workspaces/${workspaceId}/intents/${intent.id}`, JSON.stringify({ completionDefinition: "" }));
+  const patched = await send(app, "PATCH", `/api/workspaces/${workspaceId}/intents/${intent.id}`, JSON.stringify({ expectedVersion: 1, completionDefinition: "" }));
   assert.equal(patched.status, 200);
   const patchedIntent = ((await patched.json()) as IntentBody).intent;
   assert.equal(patchedIntent.completionDefinition, null);
@@ -116,7 +116,7 @@ test("Web APIは不正入力を400、Project/Intentなしを区別した404、�
   const noIntent = await app.request(`${path}/missing`);
   assert.equal(noIntent.status, 404);
   assert.match(((await noIntent.json()) as ErrorBody).error.message, /^Intent missing/);
-  assert.equal((await send(app, "PATCH", `${path}/missing`, JSON.stringify({ title: "x" }))).status, 404);
+  assert.equal((await send(app, "PATCH", `${path}/missing`, JSON.stringify({ expectedVersion: 1, title: "x" }))).status, 404);
   assert.equal((await send(app, "POST", `${path}/missing/abandon`)).status, 404);
 
   const duplicate = await send(app, "POST", path, JSON.stringify({ title: "Second", desiredState: "Second" }));
@@ -124,7 +124,7 @@ test("Web APIは不正入力を400、Project/Intentなしを区別した404、�
   assert.notEqual(((await duplicate.json()) as IntentBody).intent.id, first.id);
 
   await send(app, "POST", `${path}/${first.id}/abandon`);
-  const afterAbandon = await send(app, "PATCH", `${path}/${first.id}`, JSON.stringify({ title: "Edit" }));
+  const afterAbandon = await send(app, "PATCH", `${path}/${first.id}`, JSON.stringify({ expectedVersion: 1, title: "Edit" }));
   assert.equal(afterAbandon.status, 409);
   const afterAbandonError = ((await afterAbandon.json()) as ErrorBody).error;
   assert.equal(afterAbandonError.code, "CONFLICT");
@@ -146,7 +146,7 @@ test("別WorkspaceのURLでIntentを参照・更新・放棄すると404で、�
   const viaB = `/api/workspaces/${workspaceB}/intents/${intent.id}`;
   for (const response of [
     await app.request(viaB),
-    await send(app, "PATCH", viaB, JSON.stringify({ title: "Hijacked" })),
+    await send(app, "PATCH", viaB, JSON.stringify({ expectedVersion: 1, title: "Hijacked" })),
     await send(app, "POST", `${viaB}/abandon`),
   ]) {
     assert.equal(response.status, 404);
@@ -171,7 +171,7 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
     (JSON.parse(toolsData.slice(6)).result.tools as { name: string }[]).map((tool) => tool.name),
     [
       "create_project", "update_project", "list_projects", "get_project",
-      "create_intent", "list_intents", "get_intent", "update_intent", "abandon_intent",
+      "create_intent", "list_intents", "get_intent", "update_intent", "list_intent_revisions", "abandon_intent",
       "get_role_instructions", "get_role_context", "get_workspace_role_context", "list_skills", "get_skill_context", "get_strategist_context", "get_research_request", "create_outcome", "list_outcomes", "get_outcome", "update_outcome", "cancel_outcome",
       "set_outcome_target", "unset_outcome_target", "list_outcome_targets", "list_outcome_target_executions", "list_outcome_target_work",
       "create_direction_decision", "decide_next_outcome",
@@ -207,9 +207,9 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
   assert.deepEqual(viaApi.intent, created.structuredContent);
 
   // WebでPATCHした内容はMCPで見え、MCPの更新はWebに反映される。
-  await send(app, "PATCH", `/api/workspaces/${workspaceId}/intents/${intentId}`, JSON.stringify({ title: "Edited on Web" }));
+  await send(app, "PATCH", `/api/workspaces/${workspaceId}/intents/${intentId}`, JSON.stringify({ expectedVersion: 1, title: "Edited on Web" }));
   assert.equal((await callTool(app, "get_intent", { workspaceId, intentId })).structuredContent.title, "Edited on Web");
-  const mcpUpdated = await callTool(app, "update_intent", { workspaceId, intentId, desiredState: "Edited via MCP", completionDefinition: null });
+  const mcpUpdated = await callTool(app, "update_intent", { expectedVersion: 2, workspaceId, intentId, desiredState: "Edited via MCP", completionDefinition: null });
   assert.equal(mcpUpdated.isError, undefined);
   const afterMcp = ((await (await app.request(`/api/workspaces/${workspaceId}/intents/${intentId}`)).json()) as IntentBody).intent;
   assert.equal(afterMcp.desiredState, "Edited via MCP");
@@ -224,7 +224,7 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
     invalid.structuredContent.error.issues.map((issue: { path: string }) => issue.path),
     ["title", "desiredState"],
   );
-  assert.equal((await callTool(app, "update_intent", { workspaceId, intentId })).structuredContent.error.code, "VALIDATION_ERROR");
+  assert.equal((await callTool(app, "update_intent", { expectedVersion: 1, workspaceId, intentId })).structuredContent.error.code, "VALIDATION_ERROR");
 
   const duplicate = await callTool(app, "create_intent", { workspaceId, title: "Second", desiredState: "Second" });
   assert.equal(duplicate.isError, undefined);
@@ -241,7 +241,7 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
   const abandoned = await callTool(app, "abandon_intent", { workspaceId, intentId, reason: "Done here" });
   assert.equal(abandoned.structuredContent.status, "abandoned");
   assert.equal(abandoned.structuredContent.abandonedReason, "Done here");
-  const editAfter = await callTool(app, "update_intent", { workspaceId, intentId, title: "x" });
+  const editAfter = await callTool(app, "update_intent", { expectedVersion: 1, workspaceId, intentId, title: "x" });
   assert.equal(editAfter.structuredContent.error.code, "CONFLICT");
   assert.equal(editAfter.structuredContent.error.status, "abandoned");
   const viaApiAfter = ((await (await app.request(`/api/workspaces/${workspaceId}/intents/${intentId}`)).json()) as IntentBody).intent;

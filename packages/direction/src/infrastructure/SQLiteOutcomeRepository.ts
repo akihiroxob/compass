@@ -4,6 +4,7 @@ import type { Outcome } from "../domain/Outcome.ts";
 import type {
   ChangeOutcomeResult,
   CreateOutcomeResult,
+  UpdateOutcomeResult,
   OutcomeRepository,
 } from "../domain/OutcomeRepository.ts";
 import type { CreateOutcomeInput, UpdateOutcomeInput } from "../domain/OutcomeRepository.ts";
@@ -28,12 +29,15 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
       if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
       const intent = await transaction
         .selectFrom("intent")
-        .select("status")
+        .select(["status", "version"])
         .where("id", "=", intentId)
         .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
+      if (input.intentVersion !== undefined && input.intentVersion !== intent.version) {
+        return { kind: "intent_version_conflict", currentVersion: intent.version };
+      }
 
       const now = Date.now();
       const outcome = await insertOutcomeRow(
@@ -106,12 +110,15 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     intentId: string,
     outcomeId: string,
     changes: UpdateOutcomeInput,
-  ): Promise<ChangeOutcomeResult> {
+  ): Promise<UpdateOutcomeResult> {
     // undefinedの項目はKyselyがSETから除外するため、未指定の列は変更されない。
-    return this.changeActive(workspaceId, intentId, outcomeId, {
-      title: changes.title,
-      hypothesis: changes.hypothesis,
-    });
+    return this.changeActive(
+      workspaceId,
+      intentId,
+      outcomeId,
+      { title: changes.title, hypothesis: changes.hypothesis },
+      changes.intentVersion,
+    );
   }
 
   async cancel(
@@ -120,10 +127,13 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     outcomeId: string,
     reason: string,
   ): Promise<ChangeOutcomeResult> {
-    return this.changeActive(workspaceId, intentId, outcomeId, {
+    const result = await this.changeActive(workspaceId, intentId, outcomeId, {
       status: "cancelled",
       cancel_reason: reason,
     });
+    // 版の確認を指定しない取消は競合にならない。
+    if (result.kind === "intent_version_conflict") throw new Error("unreachable: cancel does not confirm an Intent version");
+    return result;
   }
 
   /** Workspace・Intent配下のactiveなOutcomeだけを、状態確認と同一transactionで更新する。 */
@@ -134,16 +144,20 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     changes: Partial<
       Pick<Selectable<OutcomeTable>, "title" | "hypothesis" | "status" | "cancel_reason">
     >,
-  ): Promise<ChangeOutcomeResult> {
-    return this.database.transaction().execute(async (transaction): Promise<ChangeOutcomeResult> => {
+    confirmedIntentVersion?: number,
+  ): Promise<UpdateOutcomeResult> {
+    return this.database.transaction().execute(async (transaction): Promise<UpdateOutcomeResult> => {
       if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
       const intent = await transaction
         .selectFrom("intent")
-        .select("id")
+        .select(["id", "version"])
         .where("id", "=", intentId)
         .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
+      if (confirmedIntentVersion !== undefined && confirmedIntentVersion !== intent.version) {
+        return { kind: "intent_version_conflict", currentVersion: intent.version };
+      }
 
       const existing = await transaction
         .selectFrom("outcome")
@@ -156,7 +170,11 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
 
       const row = await transaction
         .updateTable("outcome")
-        .set({ ...changes, updated_at: Date.now() })
+        .set({
+          ...changes,
+          ...(confirmedIntentVersion === undefined ? {} : { intent_version: confirmedIntentVersion }),
+          updated_at: Date.now(),
+        })
         .where("id", "=", outcomeId)
         .returningAll()
         .executeTakeFirstOrThrow();

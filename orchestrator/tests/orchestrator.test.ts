@@ -14,7 +14,7 @@ import type { WorkspaceOrchestrationOutcome, WorkspaceOrchestrationState } from 
 const baseState = (workspaceId: string): WorkspaceOrchestrationState => ({
   workspace: { id: workspaceId, name: workspaceId, status: "active" },
   projects: [],
-  activeIntents: [{ id: `${workspaceId}-intent`, status: "active", updatedAt: 1 }],
+  activeIntents: [{ id: `${workspaceId}-intent`, status: "active", version: 1, meaningVersion: 1, updatedAt: 1 }],
   outcomes: [],
   intentResearchRequests: [],
   openResearchRequests: [],
@@ -27,6 +27,8 @@ const undecomposed = (id: string, projectIds: string[]): WorkspaceOrchestrationO
   intentId: "w-1-intent",
   status: "active",
   updatedAt: 1,
+  intentVersion: 1,
+  intentRevised: null,
   targets: projectIds.map((projectId) => ({ projectId, projectStatus: "active", work: null, execution: null })),
   evaluability: {
     status: "awaiting_execution",

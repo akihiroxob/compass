@@ -336,10 +336,10 @@ test("権限なし・別Project・Grant取消・Bearerなし・Role不一致・�
       }
       // 職務分離: Strategist Grantを持つPrincipalはIntentを放棄できない（Human管理操作）。登録・更新は所属WorkspaceのStrategistに許可する。
       assert.equal(errorCode(await call(client, "abandon_intent", { workspaceId, intentId })), "FORBIDDEN");
-      assert.equal((await call(client, "update_intent", { workspaceId, intentId, title: "Renamed" })).isError, undefined);
+      assert.equal((await call(client, "update_intent", { expectedVersion: 1, workspaceId, intentId, title: "Renamed" })).isError, undefined);
     });
     await withAgent(server.baseUrl, "strat-q", async (client) => {
-      assert.equal(errorCode(await call(client, "update_intent", { workspaceId, intentId, title: "By other Workspace" })), "FORBIDDEN");
+      assert.equal(errorCode(await call(client, "update_intent", { expectedVersion: 1, workspaceId, intentId, title: "By other Workspace" })), "FORBIDDEN");
     });
     const workerGrant = await api(server.baseUrl, "POST", `/api/projects/${projectId}/grants`, { principalId: "agent-w", role: "admin" });
     assert.equal(workerGrant.status, 400);

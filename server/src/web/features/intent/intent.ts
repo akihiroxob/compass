@@ -13,8 +13,26 @@ export type Intent = {
   targetDate: string | null;
   status: IntentStatus;
   abandonedReason: string | null;
+  /** 保存のたびに進む版。編集は、画面を開いた時点の版を`expectedVersion`にして保存する。 */
+  version: number;
+  /** 実現したい状態・達成条件が最後に変わった版。 */
+  meaningVersion: number;
   createdAt: number;
   updatedAt: number;
+};
+
+/** 版ごとの内容・変更主体・理由（追記専用）。 */
+export type IntentRevision = {
+  intentId: string;
+  version: number;
+  title: string;
+  desiredState: string;
+  completionDefinition: string | null;
+  meaningChanged: boolean;
+  reason: string | null;
+  changedBy: string;
+  changedByRole: string;
+  createdAt: number;
 };
 
 /** フォームの項目。保存時はそのまま送り、空欄の任意項目はserverが未設定（null）として保存する。 */
@@ -37,7 +55,8 @@ export const formValuesFromIntent = (intent: Intent): IntentFormValues =>
   Object.fromEntries(intentFormFields.map((field) => [field, intent[field] ?? ""])) as IntentFormValues;
 
 /** 項目の表示名。フォーム・詳細・入力エラーで同じ名前を使う。 */
-export const intentFieldLabels: Record<IntentFormField, string> = {
+export const intentFieldLabels: Record<IntentFormField | "reason", string> = {
+  reason: "変更理由",
   title: "目標名",
   desiredState: "実現したい状態",
   background: "背景",

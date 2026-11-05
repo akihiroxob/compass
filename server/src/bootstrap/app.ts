@@ -155,6 +155,11 @@ export const createApp = (
       intent: await human.getIntent.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("intentId")),
     }),
   );
+  app.get("/api/workspaces/:workspaceId/intents/:intentId/revisions", async (c) =>
+    c.json({
+      revisions: await human.listIntentRevisions.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("intentId")),
+    }),
+  );
   app.patch("/api/workspaces/:workspaceId/intents/:intentId", async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Intent");

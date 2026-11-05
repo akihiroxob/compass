@@ -26,6 +26,7 @@ type App = ReturnType<typeof createApp>;
 type Body = Record<string, any>;
 type ToolResult = { isError?: boolean; structuredContent: Body };
 
+const actor = { principalId: "tester", role: "operator" };
 const outcomeInput = {
   title: "No duplicate claims",
   description: "Claims are exclusive.",
@@ -192,8 +193,8 @@ test("AC-6 archivedのIntent作成・更新・放棄は409。存在しないinte
   const base = `/api/workspaces/${project.workspaceId}/intents`;
   const attempts: [string, string, unknown][] = [
     ["POST", base, { title: "New", desiredState: "State" }],
-    ["PATCH", `${base}/${intent.id}`, { title: "Changed" }],
-    ["PATCH", `${base}/missing`, { title: "Changed" }],
+    ["PATCH", `${base}/${intent.id}`, { expectedVersion: 1, title: "Changed" }],
+    ["PATCH", `${base}/missing`, { expectedVersion: 1, title: "Changed" }],
     ["POST", `${base}/${intent.id}/abandon`, { reason: "x" }],
     ["POST", `${base}/missing/abandon`, {}],
   ];
@@ -329,8 +330,8 @@ test("AC-11 Repositoryを直接呼んでも、archivedのProjectには何も書�
   const grants = new SQLiteProjectGrantRepository(asAccessDatabase(database), accessProjectReaders);
   const archived = { kind: "project_archived" };
   assert.deepEqual(await projects.update(project.id, { name: "Changed" }), archived);
-  assert.deepEqual(await intents.create(project.workspaceId, { title: "T", desiredState: "S", background: null, audience: null, constraints: null, completionDefinition: null, targetDate: null }), { kind: "workspace_archived" });
-  assert.deepEqual(await intents.update(project.workspaceId, intent.id, { title: "Changed" }), { kind: "workspace_archived" });
+  assert.deepEqual(await intents.create(project.workspaceId, { title: "T", desiredState: "S", background: null, audience: null, constraints: null, completionDefinition: null, targetDate: null }, actor), { kind: "workspace_archived" });
+  assert.deepEqual(await intents.update(project.workspaceId, intent.id, { expectedVersion: 1, title: "Changed" }, actor), { kind: "workspace_archived" });
   assert.deepEqual(await intents.abandon(project.workspaceId, intent.id, "x"), { kind: "workspace_archived" });
   assert.deepEqual(await outcomes.create(project.workspaceId, intent.id, { ...outcomeInput, hypothesis: null, successCriteria: [{ description: "d", measurement: "m", target: null }] }), { kind: "workspace_archived" });
   assert.deepEqual(await outcomes.update(project.workspaceId, intent.id, outcome.id, { title: "Changed" }), { kind: "workspace_archived" });
@@ -411,7 +412,7 @@ test("AC-15 archivedの書込MCP toolはisErrorのCONFLICT（projectStatus / wor
   const writes: [string, object, string | undefined][] = [
     ["update_project", { projectId: project.id, name: "Changed" }, undefined],
     ["create_intent", { workspaceId: project.workspaceId, title: "T", desiredState: "S" }, undefined],
-    ["update_intent", { ...ids, title: "Changed" }, undefined],
+    ["update_intent", { expectedVersion: 1, ...ids, title: "Changed" }, undefined],
     ["abandon_intent", { ...ids, reason: "x" }, undefined],
     ["create_outcome", { ...ids, ...outcomeInput }, "strat-1"],
     ["update_outcome", { ...ids, outcomeId: outcome.id, title: "Changed" }, "strat-1"],
@@ -455,7 +456,7 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       "abandon_intent", "ack_runtime_event", "cancel_outcome", "complete_research_request", "create_adr_handoff_request",
       "create_direction_decision", "create_intent",
       "create_outcome", "create_project", "decide_next_outcome", "fetch_runtime_events",
-      "get_intent", "get_workspace_orchestration_state", "get_outcome", "get_project", "get_research_request", "get_researcher_context", "get_role_instructions", "get_role_context", "get_workspace_role_context", "list_skills", "get_skill_context",
+      "get_intent", "list_intent_revisions", "get_workspace_orchestration_state", "get_outcome", "get_project", "get_research_request", "get_researcher_context", "get_role_instructions", "get_role_context", "get_workspace_role_context", "list_skills", "get_skill_context",
       "get_outcome_execution_summary", "get_evaluator_context", "record_outcome_evaluation", "get_strategist_context", "list_adr_references", "list_intents", "list_outcomes", "list_projects",
       "list_research_requests", "record_adr_reference",
       // Target Projectの設定・解除はOutcomeとProjectの関連だけで、Projectのarchive・削除ではない。

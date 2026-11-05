@@ -17,8 +17,32 @@ export type IntentProperties = {
   targetDate: string | null;
   status: IntentStatus;
   abandonedReason: string | null;
+  /** 保存のたびに1ずつ増える版。作成時は1。 */
+  version: number;
+  /** 意味（desiredState / completionDefinition）が最後に変わった版。 */
+  meaningVersion: number;
   createdAt: number;
   updatedAt: number;
+};
+
+/** Intentの版ごとの内容と、変更した主体・理由。古いOutcome・判断・評価は作成時の版をここで参照する。 */
+export type IntentRevision = {
+  intentId: string;
+  workspaceId: string;
+  version: number;
+  title: string;
+  desiredState: string;
+  background: string | null;
+  audience: string | null;
+  constraints: string | null;
+  completionDefinition: string | null;
+  targetDate: string | null;
+  /** この版でdesiredState / completionDefinitionが変わったか。 */
+  meaningChanged: boolean;
+  reason: string | null;
+  changedBy: string;
+  changedByRole: string;
+  createdAt: number;
 };
 
 export class Intent {
@@ -33,6 +57,8 @@ export class Intent {
   readonly targetDate: string | null;
   readonly status: IntentStatus;
   readonly abandonedReason: string | null;
+  readonly version: number;
+  readonly meaningVersion: number;
   readonly createdAt: number;
   readonly updatedAt: number;
 
@@ -48,6 +74,8 @@ export class Intent {
     this.targetDate = properties.targetDate;
     this.status = properties.status;
     this.abandonedReason = properties.abandonedReason;
+    this.version = properties.version;
+    this.meaningVersion = properties.meaningVersion;
     this.createdAt = properties.createdAt;
     this.updatedAt = properties.updatedAt;
   }

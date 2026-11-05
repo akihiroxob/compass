@@ -121,7 +121,7 @@ test("各Roleは権限表で許可されたCommandだけが成功し、不足は
   }
 
   const commands: { label: string; method: string; path: string; body?: unknown; minimum: HumanRole; ok: number }[] = [
-    { label: "update intent", method: "PATCH", path: `${workspaceBase}/intents/${intent.id}`, body: { title: "I2" }, minimum: "editor", ok: 200 },
+    { label: "update intent", method: "PATCH", path: `${workspaceBase}/intents/${intent.id}`, body: { expectedVersion: 1, title: "I2" }, minimum: "editor", ok: 200 },
     { label: "update outcome", method: "PATCH", path: outcomePath, body: { title: "O2" }, minimum: "editor", ok: 200 },
     { label: "update project", method: "PATCH", path: base, body: { description: "changed" }, minimum: "administrator", ok: 200 },
     { label: "grant", method: "POST", path: `${base}/grants`, body: { principalId: "agent-1", role: "manager" }, minimum: "administrator", ok: 201 },

@@ -57,6 +57,10 @@ Intent を作成しても Research Request は自動で作られない。Orchest
 7. 情報が十分なら `decide_next_outcome` で Direction Decision と Outcome を同時に登録する。`rationale` に、なぜこの Outcome を選んだかを書く
 8. 必要なら `list_outcomes` / `get_outcome` で保存結果を確認する
 
+## Intent の意味が変わった Outcome の再計画
+
+起動指示の対象が Outcome で、理由が「Intent meaning changed」のときは、Intent の意味（`desiredState`・`completionDefinition`）が Outcome の根拠にした版より後に変わっている。`get_intent` と `list_intent_revisions` で変更の内容・理由・変更者を読み、現在の Intent に対して Outcome（`description`・Success Criteria）がまだ有効かを判断する。有効なら `update_outcome` に現在の `version` を `intentVersion` で渡して確認を記録する。無効なら `cancel_outcome` で取り消し、`decide_next_outcome` / `create_outcome`（`intentVersion` に現在版）で作り直す。進行中の Task は Strategist が書き換えず、取消・作り直しの後の Work は Manager が扱う。古い版の `intentVersion` を渡した判断は `CONFLICT` になるため、現在版を読み直す。
+
 ## Evaluation を受けた再計画・Intent 完了
 
 Runtime は "outcome_evaluated" イベント（`evaluationId` 付き）で Strategist を起動する。`evaluations` のうち `decisionId` が `null` のものが判断待ちで、判断した Decision には必ず `evaluationId` を付ける。1 つの Evaluation を根拠にできる Decision は 1 件だけで、2 件目は `CONFLICT`（`reason: evaluation_already_decided`）になる。重複起動されたら、`decisionId` を確認して何もせず終了する。
@@ -159,7 +163,7 @@ Target の Project が archive されても、Target・既存 Story・Evidence �
 - `create_outcome`
 - `decide_next_outcome`（`type: "next_outcome"` の Decision と Outcome を同時に登録）
 - `create_direction_decision`（"additional_research" / "intent_complete" / "intent_abandon" / "policy_proposal" / "adr_candidate"）
-- `update_outcome`（`title` と `hypothesis` のみ）
+- `update_outcome`（`title` と `hypothesis`、および現在の Intent 版を確認した記録の `intentVersion`）
 - `cancel_outcome`（理由必須）
 - `set_outcome_target` / `unset_outcome_target` / `list_outcome_targets`（Target Project の設定・解除・参照）
 - `list_outcome_target_work`（Target 別の Work 要約の参照）
@@ -172,7 +176,7 @@ Target の Project が archive されても、Target・既存 Story・Evidence �
 ## Forbidden
 
 - Project の変更と Intent の放棄: `update_project` / `abandon_intent`（Workspace の Strategist の Grant を持つ Principal は `FORBIDDEN` になる）
-- Orchestrator から起動された判断・再計画の中での `create_intent` / `update_intent`。Intent の意味を自分の判断で書き換えない
+- Orchestrator から起動された判断・再計画の中での `create_intent` / `update_intent`。Intent の意味を自分の判断で書き換えない（`intentRevised` の再計画は、現在の Intent を前提に Outcome を確認・取消・作り直す）
 - Task への分解、実行、Runtime の起動
 - Evidence の捏造。`unavailable` の項目や、取得していない情報を根拠として書かない
 - 自己評価: 自分が作った Outcome の達成判定や成功条件の充足判定をしない（Evaluator の責務）。Outcome を `achieved` などにする経路は無い
@@ -195,7 +199,7 @@ Human と外部 MCP クライアント（Codex 等）で相談して目標を整
 
 - 必須: `title`（100 文字まで）・`desiredState`（2,000 文字まで）。任意: `background`・`audience`（対象・範囲）・`constraints`・`completionDefinition`（各 2,000 文字まで）、`targetDate`（`YYYY-MM-DD`）。未指定の任意項目は未設定、更新で `null` または空文字を渡すとクリアする
 - Human と合意した内容だけを登録する。外部の会話の全文は保存しない。操作者は Credential の Principal（Strategist）として記録され、Human の操作としては扱われない
-- Active な Intent は Workspace 内に複数存在できる。対象Intent IDを明示し、他目標の状態を対象目標の判断に流用しない。Outcome を持つ Intent の `desiredState`・`completionDefinition` は変更できない（`CONFLICT`）
+- Active な Intent は Workspace 内に複数存在できる。対象Intent IDを明示し、他目標の状態を対象目標の判断に流用しない。`update_intent` は編集の元にした `expectedVersion`（`get_intent` の `version`）を必須とし、他で更新済みなら `CONFLICT`（`conflict: intent_version`・`currentVersion`）になる。現在の内容を `get_intent` / `list_intent_revisions` で読み直し、確認してから再実行する。Outcome を持つ Intent の `desiredState`・`completionDefinition` は理由（`reason`）を付ければ変更でき、既存の Outcome・評価・判断は元の版（`intentVersion`）を参照し続ける
 - 登録は Strategist や Research を起動しない。その後の判断は Orchestrator からの通常の起動で行う
 
 ## Role の意味

@@ -87,6 +87,7 @@ const hasUnevaluatedExecution = (outcome: WorkspaceOrchestrationOutcome) => {
  * - 未終了の Research Request → researcher（Workspace）
  * - 判断待ちの最新 Evaluation → strategist（Workspace・Evaluation）
  * - 進行中の Outcome（active・最新 Evaluation が未判断または無い）について:
+ *   - Intent の意味が Outcome の根拠にした版より後に変わった（`intentRevised`）→ strategist（Workspace・Outcome）へ再計画。進行中の作業は止めない
  *   - Target なし（`no_targets`）→ strategist（Workspace・Outcome）。Target Project の選択は Strategist が行う
  *   - archived の Target に未還流・`incomplete` が残る（`replan_required`）→ strategist（Workspace・Outcome）へ再計画。
  *     他の active な Target があっても起動する。Target 解除・再割当・Outcome の見直しは Strategist が判断する
@@ -133,6 +134,17 @@ export const planWorkspaceDispatches = (state: WorkspaceOrchestrationState): Wor
       if (!isLive(outcome)) continue;
       const subject: DispatchSubject = { kind: "outcome", id: outcome.id };
 
+      if (outcome.intentRevised) {
+        // 目標の意味が変わった。進行中の作業は止めず、Strategist が現在の Intent で Outcome を確認・取消・作り直す再計画対象にする。
+        // 版ごとに key が変わるため、同じ版では再起動せず、さらに意味が変われば再度起動する。
+        workspaceDispatch(
+          "strategist",
+          subject,
+          `:intent_revised:${outcome.intentRevised.meaningVersion}`,
+          `Intent meaning changed at version ${outcome.intentRevised.meaningVersion}; Outcome is based on version ${outcome.intentRevised.outcomeIntentVersion}`,
+          intent.id,
+        );
+      }
       if (outcome.evaluability.status === "no_targets") {
         workspaceDispatch("strategist", subject, ":no_targets", "Outcome has no Target Project", intent.id);
         continue;

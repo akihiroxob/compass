@@ -57,12 +57,15 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
 
       const intent = await transaction
         .selectFrom("intent")
-        .select(["status", "completion_definition"])
+        .select(["status", "version", "completion_definition"])
         .where("id", "=", input.intentId)
         .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
+      if (input.intentVersion !== undefined && input.intentVersion !== intent.version) {
+        return { kind: "intent_version_conflict", currentVersion: intent.version };
+      }
       // 完了定義の無いIntentは、Outcomeの達成を完了と照合できない。完了定義はHumanがupdate_intent等で与える。
       if (input.type === "intent_complete" && intent.completion_definition === null) {
         return { kind: "no_completion_definition" };
@@ -156,12 +159,15 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
 
       const intent = await transaction
         .selectFrom("intent")
-        .select("status")
+        .select(["status", "version"])
         .where("id", "=", input.intentId)
         .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
+      if (input.intentVersion !== undefined && input.intentVersion !== intent.version) {
+        return { kind: "intent_version_conflict", currentVersion: intent.version };
+      }
 
       const referenceCheck = await validateResearchReferences(
         transaction,

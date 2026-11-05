@@ -1,4 +1,5 @@
 import { ConflictError, NotFoundError, ValidationError } from "@compass/shared";
+import { versionConflict } from "./intentVersionConflict.ts";
 import { WorkspaceArchivedError } from "@compass/organization";
 
 /** Decision作成で共通の拒否結果。`created` / `replayed`はそれぞれのuse caseが扱う。 */
@@ -8,6 +9,7 @@ type CommonDecisionRejection =
   | { kind: "deadline_in_past"; deadlineAt: number }
   | { kind: "intent_not_found" }
   | { kind: "intent_not_active"; status: string }
+  | { kind: "intent_version_conflict"; currentVersion: number }
   | { kind: "invalid_reference"; reference: "synthesis" | "finding" | "evaluation"; ids: string[] }
   | { kind: "evaluation_not_latest"; evaluationId: string; latestEvaluationId: string }
   | { kind: "evaluation_already_decided"; evaluationId: string; decisionId: string }
@@ -33,6 +35,7 @@ export const throwDirectionDecisionRejection = (
       { status: rejection.status },
     );
   }
+  if (rejection.kind === "intent_version_conflict") throw versionConflict(intentId, rejection.currentVersion);
   if (rejection.kind === "key_conflict") {
     throw new ConflictError(`requestKey ${rejection.requestKey} was already used with different content`, {
       requestKey: rejection.requestKey,

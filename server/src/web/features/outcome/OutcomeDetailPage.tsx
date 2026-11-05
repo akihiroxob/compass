@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { jsonPost, request } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
@@ -8,17 +9,28 @@ import { useProjectWorkspaceDirection } from "../access";
 import { statusBadgeClass } from "../../statusTone";
 import { OutcomeLoopSection } from "./OutcomeLoopSection";
 import { useOutcomePage } from "./useOutcomePage";
+import { isReplanTarget, replanNote } from "./outcome";
 import { Button, LinkButton } from "../../components/ui";
+
+/** 所属Intentの意味の版（再計画対象の判定用）。読めない間は判定せず、再計画対象を出さない。 */
+const useIntentMeaningVersion = (workspaceId: string | null, intentId: string) => {
+  const [meaningVersion, setMeaningVersion] = useState<number | null>(null);
+  useEffect(() => {
+    if (workspaceId === null) return;
+    request<{ intent: { meaningVersion: number } }>(workspaceApiPath(workspaceId, `/intents/${intentId}`)).then(({ intent }) => setMeaningVersion(intent.meaningVersion)).catch(() => setMeaningVersion(null));
+  }, [workspaceId, intentId]);
+  return meaningVersion;
+};
 
 export const OutcomeDetailPage = () => {
   const { projectId = "", intentId = "", outcomeId = "" } = useParams(); const direction = useProjectWorkspaceDirection(projectId); const { workspaceId } = direction;
-  const page = useOutcomePage(workspaceId, intentId, outcomeId); const { outcome, setOutcome } = page; const error = direction.access === "error" ? direction.message : page.error; const editable = direction.access === "allowed";
+  const intentMeaning = useIntentMeaningVersion(workspaceId, intentId); const page = useOutcomePage(workspaceId, intentId, outcomeId); const { outcome, setOutcome } = page; const error = direction.access === "error" ? direction.message : page.error; const editable = direction.access === "allowed";
   const cancel = useReasonAction(
     async (reason) => { if (workspaceId !== null) setOutcome((await request<{ outcome: Outcome }>(workspaceApiPath(workspaceId, `/intents/${intentId}/outcomes/${outcomeId}/cancel`), jsonPost({ reason }))).outcome); },
     (classified) => classified.kind === "validation" ? classified.issues.map((issue) => `取消の理由: ${issue.message}`).join(" / ") : classified.kind === "not_found" ? "Outcomeが見つかりません。" : classified.message,
   );
   return <main className="narrow"><Link to={intentPath(projectId, intentId)} className="back-link">← Intent詳細</Link>{error ? <ErrorState message={error} /> : !outcome ? <Loading /> : <>
-    <div className="detail-hero"><p className="eyebrow">Outcome</p><h1>{outcome.title}</h1><p><span className={statusBadgeClass(outcome.status === "active" ? "progress" : "muted")}>{outcomeStatusLabels[outcome.status]}</span></p><time>{new Date(outcome.updatedAt).toLocaleString("ja-JP")} 更新</time></div>
+    <div className="detail-hero"><p className="eyebrow">Outcome</p><h1>{outcome.title}</h1><p><span className={statusBadgeClass(outcome.status === "active" ? "progress" : "muted")}>{outcomeStatusLabels[outcome.status]}</span></p><time>{new Date(outcome.updatedAt).toLocaleString("ja-JP")} 更新 ・ 目標 v{outcome.intentVersion}</time> {intentMeaning !== null && isReplanTarget(outcome, { meaningVersion: intentMeaning }) && <p role="status"><span className={statusBadgeClass("warning")}>再計画対象</span> {replanNote(outcome, { meaningVersion: intentMeaning })}</p>}</div>
     <section className="detail-section"><dl className="intent-facts"><dt>達成すべき状態</dt><dd>{outcome.description}</dd><dt>仮説</dt><dd>{outcome.hypothesis ?? <span className="unset">未設定</span>}</dd><dt>判断理由（Strategistの判断）</dt><dd>{outcome.rationale}</dd></dl></section>
     <section className="detail-section" aria-labelledby="criteria-heading"><h2 id="criteria-heading">成功条件</h2><p className="section-note">成功条件は作成時に固定されます。変更する場合は、このOutcomeを取り消して新しいOutcomeを作成します。</p><ol className="criteria-list">{outcome.successCriteria.map((criterion) => <li key={criterion.id}><p className="criterion-title">{criterion.description}</p><dl><dt>測定方法</dt><dd>{criterion.measurement}</dd>{criterion.target && <><dt>目標値</dt><dd>{criterion.target}</dd></>}</dl></li>)}</ol></section>
     <OutcomeLoopSection projectId={projectId} workspaceId={outcome.workspaceId} intentId={intentId} outcomeId={outcome.id} />

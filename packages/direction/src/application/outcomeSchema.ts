@@ -12,6 +12,8 @@ export type SuccessCriterionInput = z.infer<typeof successCriterionSchema>;
 
 /** 成功条件はOutcomeの作成時に固定する。0件のOutcomeは登録できない。 */
 export const createOutcomeSchema = z.object({
+  /** 判断の元にしたIntentの版。指定した場合は現在版と一致するときだけ作成できる。 */
+  intentVersion: z.number().int().min(1).optional(),
   title: trimmedText("title", 100),
   description: trimmedText("description", 2_000),
   hypothesis: optionalText(2_000),
@@ -24,6 +26,8 @@ export const createOutcomeSchema = z.object({
 
 /** activeなOutcomeで変更できる項目。hypothesisは`null`または空文字でクリアできる。 */
 const updateOutcomeSchema = z.object({
+  /** Intentの現在版を確認したことの記録。指定した場合は現在版と一致するときだけ更新でき、再計画の対象から外れる。 */
+  intentVersion: z.number().int().min(1).optional(),
   title: trimmedText("title", 100).optional(),
   hypothesis: clearableText(2_000).optional(),
 });

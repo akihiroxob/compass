@@ -376,7 +376,7 @@ test("Researcherは Outcome・Project基盤設定・Intent を変更できない
   });
   await rejected("update_project", { projectId: project.id, mission: "Loosen everything", constraints: [] });
   await rejected("create_intent", { workspaceId: project.workspaceId, title: "New", desiredState: "New" });
-  await rejected("update_intent", { workspaceId: project.workspaceId, intentId: intent.id, title: "Changed" });
+  await rejected("update_intent", { expectedVersion: 1, workspaceId: project.workspaceId, intentId: intent.id, title: "Changed" });
   await rejected("abandon_intent", { workspaceId: project.workspaceId, intentId: intent.id });
   await rejected("create_direction_decision", {
     workspaceId: project.workspaceId,
