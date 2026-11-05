@@ -154,6 +154,7 @@ import {
   GetActivityUseCase,
   KyselyActivityStore,
   ListActivitiesUseCase,
+  ListWorkspaceActivityStreamUseCase,
   RecordActivityUseCase,
   type ActivityUnitOfWork,
 } from "@compass/activity";
@@ -310,6 +311,8 @@ export const createApplicationServices = (
   const getActivityUseCase = new GetActivityUseCase(ActivityScope.PROJECT, activityScopes, activityStore);
   const listWorkspaceActivitiesUseCase = new ListActivitiesUseCase(ActivityScope.WORKSPACE, activityScopes, activityStore);
   const getWorkspaceActivityUseCase = new GetActivityUseCase(ActivityScope.WORKSPACE, activityScopes, activityStore);
+  // Workspace共通と所属全Projectを横断して読むHuman向けの一覧。Agentの入口には公開しない（Agentのscope認可は広げない）。
+  const listWorkspaceActivityStreamUseCase = new ListWorkspaceActivityStreamUseCase(activityScopes, activityStore);
   const activityUnitOfWork: ActivityUnitOfWork = {
     execute: (work) => applicationDatabase.transaction().execute((transaction) =>
       work(new KyselyActivityStore(asActivityDatabase(transaction)), activityScopeReader(transaction)),
@@ -722,6 +725,7 @@ export const createApplicationServices = (
     // Workspace Activity閲覧（Workspace Membership）。所属ProjectのActivityは含めず、Web UIからは記録しない。
     listWorkspaceActivities: workspaceAuthorized("workspace.read", listWorkspaceActivitiesUseCase),
     getWorkspaceActivity: workspaceAuthorized("workspace.read", getWorkspaceActivityUseCase),
+    listWorkspaceActivityStream: workspaceAuthorized("workspace.read", listWorkspaceActivityStreamUseCase),
     // Workspace Direction Role（strategist / researcher / evaluator）のAgent Grant（Workspace Membership）。Project Grantは含めず、
     // Project Grantからは継承しない。付与・取消はadministrator以上。
     listWorkspaceGrants: workspaceAuthorized("grant.read", services.listWorkspaceGrantsUseCase),

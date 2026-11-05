@@ -9,6 +9,7 @@
 - [ADR 0004 TaskのPR](adr/0004-task-pull-request-verification.md): TaskのPRをServerがGitHubで確認した事実として保持し、成果物参照と区別する決定。
 - [ADR 0005 PRの照合](adr/0005-task-pull-request-transition-verification.md): PRのあるTaskの完了・レビュー・受入で、現在のPR・レビューしたhead・merge SHA・必須CI・レビュー根拠のコメントを照合する決定。
 - [ADR 0006 複数Active Intent](adr/0006-multiple-active-intents.md): 目標別の現在状態・Context・dispatchの分離。
+- [ADR 0007 Workspace横断のActivity](adr/0007-workspace-activity-stream.md): Workspace共通と配下全Projectの業務Activityの横断取得、業務イベントの判定規則、Change Log / Operational Logとの境界、cursor。
 - [Direction・Workの境界](lv6-unification-design.md)
 - [Research・Decision・ADR](research-decision-adr-design.md)
 
