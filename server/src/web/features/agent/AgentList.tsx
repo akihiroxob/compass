@@ -13,7 +13,7 @@ import { ExecutionFact, executionObservationNote } from "./AgentExecution";
 import { AgentRegisterDialog } from "./AgentRegisterDialog";
 import { AgentRoleSection } from "./AgentRoles";
 import { agentExecutionOf, type AgentExecution } from "./agentRuns";
-import { principalCredentialLabels, scopeSummary, workspaceAgentRoles, type PrincipalCredential, type WorkspaceAgent } from "./agents";
+import { agentListGaps, principalCredentialLabels, scopeSummary, workspaceAgentRoles, type AgentListGap, type PrincipalCredential, type WorkspaceAgent } from "./agents";
 import { useWorkspaceAgents, type LoadedWorkspaceAgents } from "./useWorkspaceAgents";
 
 export type AgentWorkspace = { id: string; name: string; status: "active" | "archived" };
@@ -27,15 +27,33 @@ export const AgentsToolbar = ({ fetchedAt, pending, onReload, children }: { fetc
   </div>
 );
 
-/** 読み込めなかったProject。そのProjectのGrant・Credential・Claimは含まれていないため、0件・なしと断定しない。 */
-export const FailedProjects = ({ loaded }: { loaded: LoadedWorkspaceAgents }) =>
-  loaded.failedProjects.length === 0 ? null : (
+/**
+ * 読み込めなかった情報源。読み込めなかったProjectのGrant・Credential・Claimと、取得できなかった実行観測は表示に含まれず、
+ * そこにだけ現れるAgentは一覧から欠けるため、0件・不存在と断定しない。
+ */
+export const IncompleteSources = ({ gaps }: { gaps: readonly AgentListGap[] }) => {
+  const projects = gaps.flatMap((gap) => (gap.kind === "project" ? [gap] : []));
+  const runs = gaps.find((gap) => gap.kind === "runs");
+  if (gaps.length === 0) return null;
+  return (
     <StateCard tone="error" role="alert">
-      <p className="error-title">{loaded.failedProjects.length}件のProjectを読み込めませんでした</p>
-      <ul>{loaded.failedProjects.map(({ project, error }) => <li key={project.id}>{project.name}: {error}</li>)}</ul>
-      <p>これらのProjectのRole割当・Credential・Claimは表示に含まれていません。再読込してください。</p>
+      {projects.length > 0 && (
+        <>
+          <p className="error-title">{projects.length}件のProjectを読み込めませんでした</p>
+          <ul>{projects.map(({ id, name, error }) => <li key={id}>{name}: {error}</li>)}</ul>
+          <p>これらのProjectのRole割当・Credential・Claimは表示に含まれていません。</p>
+        </>
+      )}
+      {runs && (
+        <>
+          <p className="error-title">実行観測を取得できませんでした: {runs.error}</p>
+          <p>各Agentの実行状況は取得不能とし、稼働・停止は判断していません。実行観測だけが残るAgentは表示に含まれていない可能性があります。</p>
+        </>
+      )}
+      <p>表示は不完全です。再読込してください。</p>
     </StateCard>
   );
+};
 
 export const CredentialFact = ({ credential }: { credential: PrincipalCredential | null }) =>
   credential === null ? <span className="unset">Workspaceのadministrator以上が確認できます</span> : (
@@ -105,14 +123,14 @@ export const WorkspaceAgentList = ({ workspace, myRole }: { workspace: AgentWork
       </AgentsToolbar>
       {error ? <ErrorState message={`Agentの読み込みに失敗しました: ${error}`} /> : !loaded ? <Loading /> : (
         <>
-          <FailedProjects loaded={loaded} />
+          <IncompleteSources gaps={agentListGaps(loaded)} />
           {loaded.agents.principals.length ? (
             <ul className="agent-list" aria-label="Agent">
               {loaded.agents.principals.map((agent) => <AgentCard key={agent.principalId} workspaceId={workspace.id} agent={agent} execution={agentExecutionOf(agent.principalId, loaded.runs)} />)}
             </ul>
           ) : (
             <StateCard>
-              <p>このWorkspaceと、activeな所属ProjectにAgentは登録されていません。</p>
+              <p>{agentListGaps(loaded).length > 0 ? "読み込めた範囲に表示できるAgentはありません。読み込めなかった情報があるため、Agentがいないとは断定できません。" : "このWorkspaceと、activeな所属ProjectにAgentは登録されていません。"}</p>
               {canRegister && <p className="agent-pc-only">「Agentを登録」でAgent名にRoleを割り当てます。</p>}
             </StateCard>
           )}

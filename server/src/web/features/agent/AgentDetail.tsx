@@ -10,9 +10,9 @@ import { formatTime, taskStatusLabels, taskStatusTones } from "../execution";
 import { GrantRow, grantRoleLabels } from "../grant";
 import type { HumanRole } from "../member";
 import { AgentExecutionSection, AgentRunHistorySection } from "./AgentExecution";
-import { AgentsToolbar, CredentialFact, FailedProjects, RoleBadges, type AgentWorkspace } from "./AgentList";
+import { AgentsToolbar, CredentialFact, IncompleteSources, RoleBadges, type AgentWorkspace } from "./AgentList";
 import { AgentRegisterDialog } from "./AgentRegisterDialog";
-import { agentScopeGroups, claimsWithoutGrant, credentialBinding, type AgentScope, type WorkspaceAgent } from "./agents";
+import { agentListGaps, agentScopeGroups, claimsWithoutGrant, credentialBinding, type AgentScope, type WorkspaceAgent } from "./agents";
 import { agentExecutionOf } from "./agentRuns";
 import { useWorkspaceAgents, type LoadedWorkspaceAgents } from "./useWorkspaceAgents";
 
@@ -181,8 +181,13 @@ export const WorkspaceAgentDetail = ({ workspace, myRole, principalId }: { works
       </AgentsToolbar>
       {error ? <ErrorState message={`Agentの読み込みに失敗しました: ${error}`} /> : !loaded ? <Loading /> : (
         <>
-          <FailedProjects loaded={loaded} />
-          {!agent ? (
+          <IncompleteSources gaps={agentListGaps(loaded)} />
+          {!agent && agentListGaps(loaded).length > 0 ? (
+            <StateCard>
+              <p><code>{principalId}</code> の情報を取得できませんでした。読み込めなかった情報（上記）にだけ含まれるAgentの可能性があり、存在しないとは断定できません。再読込してください。</p>
+              <p><Link to={workspacePath(workspace.id, "agents")} className="text-link">Agent管理の一覧へ →</Link></p>
+            </StateCard>
+          ) : !agent ? (
             <StateCard>
               <p>このWorkspaceに <code>{principalId}</code> というAgentは見つかりません。Grant・期限内のClaim・有効なCredential・実行観測がすべて無いAgentは表示されません。</p>
               <p><Link to={workspacePath(workspace.id, "agents")} className="text-link">Agent管理の一覧へ →</Link></p>

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  agentListGaps,
   agentScopeGroups,
   claimsWithoutGrant,
   credentialBinding,
@@ -199,6 +200,21 @@ test("実行状況: 報告が無いPrincipalは不明（観測なし）、取得
   assert.equal(unavailable.kind, "unavailable");
   assert.match(agentExecutionReason(unavailable, time), /通信に失敗しました/);
   assert.notEqual(agentExecutionLabels.unavailable, agentExecutionLabels.none);
+});
+
+test("観測だけが残るPrincipal: 観測を取得できれば一覧に出し、取得できなければ欠けとして残して不存在と断定しない", () => {
+  const base = { workspace: { id: "w", name: "W" }, workspaceGrants: [], workspaceCredentials: [], projects: [], now };
+  const observed = summarizeWorkspaceAgents({ ...base, observedPrincipalIds: ["e2-only"] });
+  assert.deepEqual(observed.principals.map((agent) => agent.principalId), ["e2-only"]);
+  assert.deepEqual(agentListGaps({ failedProjects: [], runs: { asOf: now } }), []);
+  // 取得失敗時は集約に現れないが、欠け（runs）が残るため、画面は0件・不存在を断定しない。
+  const failed = summarizeWorkspaceAgents({ ...base, observedPrincipalIds: [] });
+  assert.equal(failed.principals.length, 0);
+  assert.deepEqual(agentListGaps({ failedProjects: [], runs: { error: "通信に失敗しました" } }), [{ kind: "runs", error: "通信に失敗しました" }]);
+  assert.deepEqual(
+    agentListGaps({ failedProjects: [{ project: { id: "p1", name: "P1" }, error: "権限がありません" }], runs: { error: "e" } }).map((gap) => gap.kind),
+    ["project", "runs"],
+  );
 });
 
 test("実行状況: 期限内の実行中を優先し、観測途絶・正常終了・異常終了を時刻と理由付きで区別する", () => {

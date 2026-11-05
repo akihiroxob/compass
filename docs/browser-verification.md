@@ -162,6 +162,6 @@ node --import tsx "$PREPARATION/scripts/prepare-browser-verification.mjs" \
 
 Worker・Reviewer・Managerは、返された専用previewのOwner Web APIで検証用PrincipalのGrantを作り、同じoriginのMCP `record_agent_run`を制御可能なテストadapterとして呼び出してよい。対象はmanifestのWorkspace・Project、`preview-`で始まる検証用Principalと新規run IDだけとする。`tools/list`の現在の入力契約とGrant・activeRoleを照合し、Agentは自分のrunだけ、Runtime Credentialは同じscopeの`agent:run:write`でだけ報告する。このAccess操作の許可は、上記Work・Collaborationの分類Policyとは別枠で、他のAccess操作をMCPへ開放しない。HumanのGrant・Credential管理はOwnerのWeb APIを使う。tokenは一時的な呼出しだけに使い、画像・操作記録・manifestへ保存しない。
 
-`started`→`finished(succeeded)`、`finished(failed)`、`started`だけ（`staleAfterSeconds: 30`を実際に経過させる）、報告なしのPrincipalを用意する。再読込で作業中・待機・エラー・不明（観測途絶／観測なし）と時刻・理由・run参照を確認する。同じ開始の再送は`recorded: false`、別scopeの同じrun IDは`CONFLICT`を確認する。取得不能はブラウザのネットワーク遮断で確認し、API応答を置き換えない。
+`started`→`finished(succeeded)`、`finished(failed)`、`started`だけ（`staleAfterSeconds: 30`を実際に経過させる）、報告なしのPrincipalを用意する。再読込で作業中・待機・エラー・不明（観測途絶／観測なし）と時刻・理由・run参照を確認する。同じ開始の再送は`recorded: false`、別scopeの同じrun IDは`CONFLICT`を確認する。取得不能はブラウザのネットワーク遮断で確認し、API応答を置き換えない。Grantを取り消して観測だけが残るPrincipalも用意し、`agent-runs`遮断時に一覧が欠けを明示し、詳細（初回直接アクセス・再読込）が不存在と断定せず、遮断解除で復帰することを確認する。
 
 このadapterのMCP報告はProviderの実行を証明しない。製品Ralph・Orchestratorの接続は関連するプロセス結合テストの記録と区別し、実Providerの継続自律運転は別の検証とする。

@@ -202,3 +202,14 @@ export const registrationIssues = (input: { principalId: string; role: AgentRole
   else if (projectAgentRoles.some((role) => role === input.role) && input.projectIds.length === 0) issues.push("担当するProjectを1つ以上選んでください。");
   return issues;
 };
+
+/**
+ * 一覧の欠け。読み込めなかったProject・実行観測があれば、そこにだけ現れるAgent（例: Grant等が無く実行観測だけが残るPrincipal）は一覧に含まれない。
+ * 欠けがある間は、Agentの0件・不存在を断定しない。
+ */
+export type AgentListGap = { kind: "project"; id: string; name: string; error: string } | { kind: "runs"; error: string };
+
+export const agentListGaps = (input: { failedProjects: readonly { project: { id: string; name: string }; error: string }[]; runs: { error: string } | { asOf: number } }): AgentListGap[] => [
+  ...input.failedProjects.map(({ project, error }) => ({ kind: "project" as const, id: project.id, name: project.name, error })),
+  ...("error" in input.runs ? [{ kind: "runs" as const, error: input.runs.error }] : []),
+];

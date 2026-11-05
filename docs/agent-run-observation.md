@@ -15,7 +15,7 @@ MCP `record_agent_run`は`runId`・`scope: { kind, id }`・`source: ralph | orch
 
 Humanの`GET /api/workspaces/:workspaceId/agent-runs`はWorkspace Membership viewer以上に公開する。Workspaceとactiveな所属Projectの、Principal・scope・Roleごとの最新runを返す。`?principalId=`はそのPrincipalの履歴を新しい開始順で最大20件返す。`asOf`はServerの読取時刻。`observation`は期限内の実行中`running`、観測途絶`stale`、正常終了`succeeded`、異常終了`failed`。
 
-Agent一覧・詳細は期限内の実行中を優先し、無ければ最終観測が新しいrunを代表とする。正常終了は前回の終了の報告として「待機」、異常終了は「エラー」、途絶・報告なしは理由付きの「不明」、読込失敗は「取得不能」と表示する。未接続をゼロ・停止・成功に置き換えない。詳細の履歴からRole・scope・run ID・報告元・作業参照・時刻・理由を確認できる。
+Agent一覧・詳細は期限内の実行中を優先し、無ければ最終観測が新しいrunを代表とする。正常終了は前回の終了の報告として「待機」、異常終了は「エラー」、途絶・報告なしは理由付きの「不明」、読込失敗は「取得不能」と表示する。実行観測・Projectを読み込めなかった場合は一覧・詳細に欠けを明示し、観測だけが残るPrincipalを含め、Agentの0件・不存在を断定しない。未接続をゼロ・停止・成功に置き換えない。詳細の履歴からRole・scope・run ID・報告元・作業参照・時刻・理由を確認できる。
 
 ## Runnerの接続
 
