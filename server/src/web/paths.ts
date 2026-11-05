@@ -33,6 +33,9 @@ export type WorkspaceSection = (typeof workspaceSections)[number];
 export const workspacePath = (workspaceId: string, section: WorkspaceSection = "overview") =>
   `/workspaces/${workspaceId}${section === "overview" ? "" : `/${section}`}`;
 
+/** WorkspaceのAgent詳細。一覧はWorkspaceの「Agent管理」。principalIdは`/`や空白を含み得るためURLエンコードする。 */
+export const workspaceAgentPath = (workspaceId: string, principalId: string) => `${workspacePath(workspaceId, "agents")}/${encodeURIComponent(principalId)}`;
+
 /** Workspace相談の詳細画面。一覧はWorkspaceの「判断待ち」。 */
 export const workspaceConsultationPath = (workspaceId: string, consultationId: string) => `${workspacePath(workspaceId, "consultations")}/${consultationId}`;
 

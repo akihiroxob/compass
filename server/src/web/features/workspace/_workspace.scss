@@ -63,8 +63,6 @@
 }
 .workspace-intent { margin: 0 0 var(--space-md); font-weight: 700; overflow-wrap: anywhere; }
 .attention-refs { display: block; flex-basis: 100%; overflow-wrap: anywhere; }
-.agent-intro p { margin: 0; }
-.agent-intro p + p { margin-top: var(--space-2xs); }
 // 方向の過去の一覧で、リンクにしない項目。
 .plain-item { .past-intents & { @include list-item; } }
 

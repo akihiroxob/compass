@@ -83,6 +83,8 @@ export const parseShellLocation = (pathname: string, search = ""): ShellLocation
             ? "direction"
           : rest === "consultations" && /^[^/]+$/.test(subPage)
             ? "consultations"
+          : rest === "agents" && /^[^/]+$/.test(subPage)
+            ? "agents"
           : subPage === "" ? workspaceSections.find((value) => value === rest && value !== "overview") ?? null : null;
     return { kind: "workspace", workspaceId: id, section };
   }

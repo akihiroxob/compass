@@ -1,1 +1,2 @@
-export { ProjectAgentsSection, WorkspaceAgentsSection } from "./AgentSections";
+export { WorkspaceAgentDetail } from "./AgentDetail";
+export { WorkspaceAgentList } from "./AgentList";
