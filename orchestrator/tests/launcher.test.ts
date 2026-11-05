@@ -144,9 +144,10 @@ test("Workspace単位の設定を読み、Project単位の旧設定（projects[]
         tokenEnv: "WORKSPACE_RUNTIME_TOKEN",
         token: "secret",
         agentEnv: { AGENT_MCP_CONFIG: "/etc/w-1.json" },
+        agentPrincipals: {},
         projects: [
-          { projectId: "p-a", agentEnv: { AGENT_MCP_CONFIG: "/etc/p-a.json" } },
-          { projectId: "p-b", agentEnv: {} },
+          { projectId: "p-a", agentEnv: { AGENT_MCP_CONFIG: "/etc/p-a.json" }, agentPrincipals: {} },
+          { projectId: "p-b", agentEnv: {}, agentPrincipals: {} },
         ],
       },
     ]);
