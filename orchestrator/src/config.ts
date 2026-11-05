@@ -13,6 +13,16 @@ const roleCommandSchema = z.object({
 /** scope（Workspace / Project）ごとに Agent へ加える環境変数。その scope の Agent Credential を使う MCP 設定 file の path 等を渡す。 */
 const agentEnvSchema = z.record(z.string(), z.string()).default({});
 
+/**
+ * 起動するAgentのPrincipal（scopeの`agentEnv`で渡すAgent Credentialの持ち主）。実行観測（`record_agent_run`）の記録に使い、
+ * 無ければそのRoleの実行は記録しない（Agent一覧では観測なしになる）。ServerはそのPrincipalがscopeでそのRoleのGrantを持つかを検証する。
+ */
+const principalIdSchema = z.string().trim().min(1).max(100);
+const workspaceAgentPrincipalsSchema = z.strictObject({
+  strategist: principalIdSchema.optional(), researcher: principalIdSchema.optional(), evaluator: principalIdSchema.optional(),
+}).default({});
+const projectAgentPrincipalsSchema = z.strictObject({ manager: principalIdSchema.optional() }).default({});
+
 const configSchema = z.strictObject({
   serverUrl: z.url(),
   /** 起動記録と process lock を置く directory。設定 file からの相対 path。 */
@@ -26,23 +36,25 @@ const configSchema = z.strictObject({
   /** lease 切れ・timeout で Agent を停止するとき、SIGTERM から SIGKILL へ切り替えるまでの猶予。 */
   terminateGraceMs: z.number().int().min(0).default(10_000),
   consultationProjects: z.array(z.strictObject({
-    projectId: z.string().trim().min(1), tokenEnv: z.string().trim().min(1), agentEnv: agentEnvSchema,
+    projectId: z.string().trim().min(1), tokenEnv: z.string().trim().min(1), agentEnv: agentEnvSchema, agentPrincipals: projectAgentPrincipalsSchema,
   })).default([]),
   workspaces: z
     .array(
       z.strictObject({
         workspaceId: z.string().trim().min(1),
-        /** Server への Bearer（Workspace Runtime Credential、scope `runtime:state:read`）を読む環境変数名。 */
+        /** Server への Bearer（Workspace Runtime Credential、scope `runtime:state:read`。実行観測の記録には `agent:run:write` も）を読む環境変数名。 */
         tokenEnv: z.string().trim().min(1),
         /** Workspace Role（strategist / researcher / evaluator）の Agent へ加える環境変数。Workspace の Agent Credential を使う設定を渡す。 */
         agentEnv: agentEnvSchema,
+        agentPrincipals: workspaceAgentPrincipalsSchema,
         /** manager を起動する Project。ここに無い Target Project の manager は起動しない（Workspace の Credential で代用しない）。 */
         projects: z
           .array(
             z.strictObject({
               projectId: z.string().trim().min(1),
-              /** Project相談の読取用Runtime Credential。Workspaceから継承しない。 */
+              /** Project相談の読取・Project scopeの実行観測の記録用Runtime Credential。Workspaceから継承しない。 */
               tokenEnv: z.string().trim().min(1).optional(),
+              agentPrincipals: projectAgentPrincipalsSchema,
               /** その Project の manager の Agent へ加える環境変数。Project の Agent Credential を使う設定を渡す。 */
               agentEnv: agentEnvSchema,
             }),
@@ -58,12 +70,15 @@ export type RoleCommand = z.infer<typeof roleCommandSchema>;
 
 type ParsedConfig = z.infer<typeof configSchema>;
 
-export type WorkspaceConfig = Omit<ParsedConfig["workspaces"][number], "projects"> & { token: string;
-  projects: (ParsedConfig["workspaces"][number]["projects"][number] & { token?: string })[] };
+/** 設定fileでは既定値`{}`になる。プログラムから渡す設定では省略でき、省略時は実行観測を記録しない。 */
+type WithOptionalPrincipals<T extends { agentPrincipals: unknown }> = Omit<T, "agentPrincipals"> & { agentPrincipals?: T["agentPrincipals"] };
+
+export type WorkspaceConfig = WithOptionalPrincipals<Omit<ParsedConfig["workspaces"][number], "projects">> & { token: string;
+  projects: (WithOptionalPrincipals<ParsedConfig["workspaces"][number]["projects"][number]> & { token?: string })[] };
 
 export type OrchestratorConfig = Omit<ParsedConfig, "workspaces" | "consultationProjects"> & {
   workspaces: WorkspaceConfig[];
-  consultationProjects?: (ParsedConfig["consultationProjects"][number] & { token: string })[];
+  consultationProjects?: (WithOptionalPrincipals<ParsedConfig["consultationProjects"][number]> & { token: string })[];
 };
 
 export class ConfigError extends Error {}

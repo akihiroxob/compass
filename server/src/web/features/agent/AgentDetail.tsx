@@ -9,10 +9,12 @@ import { AgentCredentialDialog, CredentialRow, IssuedToken, type IssuedCredentia
 import { formatTime, taskStatusLabels, taskStatusTones } from "../execution";
 import { GrantRow, grantRoleLabels } from "../grant";
 import type { HumanRole } from "../member";
-import { AgentsToolbar, CredentialFact, executionUnknownNote, FailedProjects, RoleBadges, type AgentWorkspace } from "./AgentList";
+import { AgentExecutionSection, AgentRunHistorySection } from "./AgentExecution";
+import { AgentsToolbar, CredentialFact, IncompleteSources, RoleBadges, type AgentWorkspace } from "./AgentList";
 import { AgentRegisterDialog } from "./AgentRegisterDialog";
-import { agentScopeGroups, claimsWithoutGrant, credentialBinding, type AgentScope, type WorkspaceAgent } from "./agents";
-import { useWorkspaceAgents } from "./useWorkspaceAgents";
+import { agentListGaps, agentScopeGroups, claimsWithoutGrant, credentialBinding, type AgentScope, type WorkspaceAgent } from "./agents";
+import { agentExecutionOf } from "./agentRuns";
+import { useWorkspaceAgents, type LoadedWorkspaceAgents } from "./useWorkspaceAgents";
 
 const scopeKindLabel = (scope: Pick<AgentScope, "kind">) => (scope.kind === "workspace" ? "Workspace" : "Project");
 const scopeHome = (scope: AgentScope) => (scope.kind === "workspace" ? workspacePath(scope.id) : projectViewPath(scope.id, "overview"));
@@ -109,26 +111,28 @@ const CredentialsSection = ({ workspace, agent, now, canManageCredential, onChan
   );
 };
 
-/** 担当（Role・担当範囲）と実行状況。実行状況は未接続で、Grant・Credential・Claimから推測しない。 */
-const Overview = ({ agent }: { agent: WorkspaceAgent }) => (
-  <div className="agent-detail-grid">
-    <section className="detail-section" aria-labelledby="agent-assignment-heading">
-      <h2 id="agent-assignment-heading">担当</h2>
-      <dl className="agent-facts">
-        <div><dt>Role</dt><dd><RoleBadges agent={agent} /></dd></div>
-        <div>
-          <dt>担当範囲（{agent.scopes.length}件）</dt>
-          <dd>{agent.scopes.length ? <ul className="agent-scope-links">{agent.scopes.map((scope) => <li key={`${scope.kind}/${scope.id}`}><ScopeLink scope={scope} /></li>)}</ul> : <span className="unset">担当範囲なし</span>}</dd>
-        </div>
-      </dl>
-    </section>
-    <section className="detail-section" aria-labelledby="agent-execution-heading">
-      <h2 id="agent-execution-heading">実行状況</h2>
-      <p><span className={statusBadgeClass("waiting")}>未接続</span></p>
-      <p className="section-note">{executionUnknownNote}</p>
-    </section>
-  </div>
-);
+/** 担当（Role・担当範囲）と実行状況（報告された観測）。実行状況はGrant・Credential・Claimから推測しない。 */
+const scopeNameOf = (workspace: AgentWorkspace, loaded: LoadedWorkspaceAgents) => (scope: { kind: "workspace" | "project"; id: string }) =>
+  scope.kind === "workspace" ? (scope.id === workspace.id ? workspace.name : scope.id) : (loaded.projects.find((project) => project.id === scope.id)?.name ?? scope.id);
+
+const Overview = ({ workspace, agent, loaded }: { workspace: AgentWorkspace; agent: WorkspaceAgent; loaded: LoadedWorkspaceAgents }) => {
+  const scopeName = scopeNameOf(workspace, loaded);
+  return (
+    <div className="agent-detail-grid">
+      <section className="detail-section" aria-labelledby="agent-assignment-heading">
+        <h2 id="agent-assignment-heading">担当</h2>
+        <dl className="agent-facts">
+          <div><dt>Role</dt><dd><RoleBadges agent={agent} /></dd></div>
+          <div>
+            <dt>担当範囲（{agent.scopes.length}件）</dt>
+            <dd>{agent.scopes.length ? <ul className="agent-scope-links">{agent.scopes.map((scope) => <li key={`${scope.kind}/${scope.id}`}><ScopeLink scope={scope} /></li>)}</ul> : <span className="unset">担当範囲なし</span>}</dd>
+          </div>
+        </dl>
+      </section>
+      <AgentExecutionSection execution={agentExecutionOf(agent.principalId, loaded.runs)} scopeName={scopeName} />
+    </div>
+  );
+};
 
 const ClaimSection = ({ agent }: { agent: WorkspaceAgent }) => {
   const orphaned = claimsWithoutGrant(agent);
@@ -177,16 +181,22 @@ export const WorkspaceAgentDetail = ({ workspace, myRole, principalId }: { works
       </AgentsToolbar>
       {error ? <ErrorState message={`Agentの読み込みに失敗しました: ${error}`} /> : !loaded ? <Loading /> : (
         <>
-          <FailedProjects loaded={loaded} />
-          {!agent ? (
+          <IncompleteSources gaps={agentListGaps(loaded)} />
+          {!agent && agentListGaps(loaded).length > 0 ? (
             <StateCard>
-              <p>このWorkspaceに <code>{principalId}</code> というAgentは見つかりません。Grant・期限内のClaim・有効なCredentialがすべて無いAgentは表示されません。</p>
+              <p><code>{principalId}</code> の情報を取得できませんでした。読み込めなかった情報（上記）にだけ含まれるAgentの可能性があり、存在しないとは断定できません。再読込してください。</p>
+              <p><Link to={workspacePath(workspace.id, "agents")} className="text-link">Agent管理の一覧へ →</Link></p>
+            </StateCard>
+          ) : !agent ? (
+            <StateCard>
+              <p>このWorkspaceに <code>{principalId}</code> というAgentは見つかりません。Grant・期限内のClaim・有効なCredential・実行観測がすべて無いAgentは表示されません。</p>
               <p><Link to={workspacePath(workspace.id, "agents")} className="text-link">Agent管理の一覧へ →</Link></p>
             </StateCard>
           ) : (
             <>
-              <Overview agent={agent} />
+              <Overview workspace={workspace} agent={agent} loaded={loaded} />
               <ClaimSection agent={agent} />
+              <AgentRunHistorySection workspaceId={workspace.id} principalId={agent.principalId} reloadKey={loaded.fetchedAt} scopeName={scopeNameOf(workspace, loaded)} />
               <GrantSection workspace={workspace} agent={agent} now={loaded.fetchedAt} canManageGrant={canManageGrant} canManageCredential={canManageCredential} onChanged={reload} />
               <CredentialsSection workspace={workspace} agent={agent} now={loaded.fetchedAt} canManageGrant={canManageGrant} canManageCredential={canManageCredential} onChanged={reload} />
               {canManageGrant && (

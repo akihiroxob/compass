@@ -2,7 +2,23 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { ProjectConsultationState, WorkspaceConsultationState, WorkspaceOrchestrationState } from "./state.ts";
 
+/** `record_agent_run`の入力（Runtime Credentialで、起動したAgentのPrincipal・Roleを指定する）。 */
+export type AgentRunReport = {
+  runId: string;
+  scope: { kind: "workspace" | "project"; id: string };
+  event: "started" | "finished";
+  source: "orchestrator";
+  principalId: string;
+  role: string;
+  workRef?: { kind: string; id: string };
+  staleAfterSeconds?: number;
+  result?: "succeeded" | "failed";
+  reason?: string;
+};
+
 export interface CompassStateReader {
+  /** 実行観測の記録。未実装の読み手（テスト用）では記録しない。 */
+  recordAgentRun?(report: AgentRunReport, token: string): Promise<void>;
   getProjectConsultationState?(projectId: string, token: string): Promise<ProjectConsultationState>;
   getWorkspaceConsultationState?(workspaceId: string, token: string): Promise<WorkspaceConsultationState>;
   getWorkspaceOrchestrationState(workspaceId: string, token: string): Promise<WorkspaceOrchestrationState>;
@@ -20,9 +36,14 @@ export class CompassToolError extends Error {
 /**
  * Compass Server の `/mcp` から Workspace の現在状態（`get_workspace_orchestration_state`）を Workspace Runtime Credential で読む。
  * 操作 Context は常に `runtime` に固定する（`X-Compass-Active-Role`）。Orchestrator は読むだけで、Direction / Work の状態を書き換えない。
+ * 書くのは起動した Agent の実行観測（`record_agent_run`）だけで、Activity・Work の状態ではない。
  */
 export class McpCompassStateReader implements CompassStateReader {
   constructor(private readonly serverUrl: string) {}
+
+  async recordAgentRun(report: AgentRunReport, token: string): Promise<void> {
+    await this.call("record_agent_run", report, token);
+  }
 
   async getProjectConsultationState(projectId: string, token: string): Promise<ProjectConsultationState> {
     return this.call("get_project_consultation_state", { projectId }, token) as Promise<ProjectConsultationState>;
@@ -36,7 +57,7 @@ export class McpCompassStateReader implements CompassStateReader {
     return this.call("get_workspace_orchestration_state", { workspaceId }, token) as Promise<WorkspaceOrchestrationState>;
   }
 
-  private async call(name: string, args: Record<string, string>, token: string): Promise<unknown> {
+  private async call(name: string, args: Record<string, unknown>, token: string): Promise<unknown> {
     const client = new Client({ name: "compass-orchestrator", version: "0.1.0" });
     const transport = new StreamableHTTPClientTransport(new URL("/mcp", this.serverUrl), {
       requestInit: { headers: { Authorization: `Bearer ${token}`, "X-Compass-Active-Role": "runtime" } },

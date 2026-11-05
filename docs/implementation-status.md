@@ -100,10 +100,10 @@ DirectionとWorkは公開index（`@compass/direction`・`@compass/work`）とapp
 
 ## Workspace Agent管理（Web UI）
 
-Workspaceの「Agent管理」（一覧`/workspaces/:workspaceId/agents`・詳細`/workspaces/:workspaceId/agents/:principalId`。`features/agent/`）は、Workspace Grant・Workspace Credentialと、activeな所属ProjectごとのProject Grant・Project Credential・Claim（`execution`）を既存のWeb APIから読み、Principalごとにまとめる（判定は`features/agent/agents.ts`）。Project別のMemberは使わず、閲覧・操作の導線はWorkspace Membershipの`myRole`で決め、拒否は常にserverが行う。Agent GrantのscopeはWorkspace / Projectのまま扱い、互いに継承しない。
+Workspaceの「Agent管理」（一覧`/workspaces/:workspaceId/agents`・詳細`/workspaces/:workspaceId/agents/:principalId`。`features/agent/`）は、Workspace Grant・Workspace Credentialと、activeな所属ProjectごとのProject Grant・Project Credential・Claim（`execution`）を既存のWeb APIから読み、実行観測を加えてPrincipalごとにまとめる（判定は`features/agent/agents.ts`・`agentRuns.ts`。観測だけが残るPrincipalも表示し、実行観測・Projectを読み込めなければ欠けを明示して0件・不存在を断定しない）。Project別のMemberは使わず、閲覧・操作の導線はWorkspace Membershipの`myRole`で決め、拒否は常にserverが行う。Agent GrantのscopeはWorkspace / Projectのまま扱い、互いに継承しない。
 
 - 一覧: Principalごとに名前（詳細へのリンク）・Role・担当範囲・Credential・現在の作業（Claim）を別の項目で出す。担当範囲は先頭1件（Workspace担当は「Workspace」）と「ほかN件」の1行とし、全件は詳細で出す。Credentialはadministrator以上だけに状態を出し、それ以外は判断しない。読めなかったProjectは0件と扱わず名前と理由を出す。期限切れClaimの`doing`は再取得待ちの件数で出す。
-- 詳細: 担当（Role・全担当範囲とWorkspace / Projectへのリンク）、実行状況、現在の作業（Claim。対応Roleの無いClaimは注記）、scope別のGrant、scope別のAgent Credentialを分けて出す。実行状況（Agentプロセスの稼働・待機・エラー）は未接続と表示し、Grant・Credential・Claimから推測しない。
+- 詳細: 担当（Role・全担当範囲とWorkspace / Projectへのリンク）、実行状況、現在の作業（Claim。対応Roleの無いClaimは注記）、scope別のGrant、scope別のAgent Credentialを分けて出す。実行状況はRalph／Orchestratorのrun報告から作業中・待機・エラー・不明（観測なし／観測途絶）・取得不能を区別し、観測時刻・経過・終了理由とrunの根拠を出す。Grant・Credential・Claimからプロセスの稼働を推測しない。
 - 登録（Grant付与）: PCの一覧上部の「Agentを登録」と詳細の「Roleを割り当てる」（Dialog）で、Agent名・Role・担当範囲（Workspace RoleはこのWorkspace、Project Roleは1つ以上のProject）を指定し、既存のGrant API（`POST /api/workspaces/:workspaceId/grants`・`POST /api/projects/:projectId/grants`）を1件ずつ呼ぶ。一部が失敗した場合はscopeごとの結果を残す。Credentialの発行・Agentの起動はしない。
 - Credential: 詳細のPCだけに発行（Dialog。tokenは発行直後にDialog内で一度だけ表示）・rotation・取消を出す。Agent Credentialは1つのscopeに束縛されるため、Grant・有効なCredentialが1つのscopeにあるAgentだけに発行の導線を出す。複数scopeのAgentは`PRINCIPAL_BOUND_ELSEWHERE`になる旨を示し、発行しない。Runtime Credentialは扱わない（Workspace「設定」・Project「設定」で扱う）。
 - 複数Grant: UIの登録は1つのRoleを割り当てる運用を想定するが、同一Principalの複数Role・複数scopeのGrantは現在の契約で有効なため、黙って削除せず、全件と「1回の実行のRoleは1つ（activeRole）」「Credentialは1 scope」の制約を詳細に出す。不要なGrantは個別に取り消す。

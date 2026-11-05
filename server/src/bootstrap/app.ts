@@ -264,6 +264,11 @@ export const createApp = (
     const { grant, created } = await human.grantWorkspaceRole.execute(actor, c.req.param("workspaceId"), input);
     return c.json({ grant, created }, created ? 201 : 200);
   });
+  // Agentの実行観測（Ralph・Orchestratorの報告）。Workspace Membership（viewer以上）で読み、`principalId`でそのAgentの履歴に絞る。
+  app.get("/api/workspaces/:workspaceId/agent-runs", async (c) => {
+    const principalId = c.req.query("principalId");
+    return c.json(await human.listWorkspaceAgentRuns.execute(await actorOf(c), c.req.param("workspaceId"), principalId === undefined ? {} : { principalId }));
+  });
   app.delete(`${workspaceGrantsPath}/:role/:principalId`, async (c) => {
     const actor = await actorOf(c);
     const revoked = await human.revokeWorkspaceRole.execute(actor, c.req.param("workspaceId"), {

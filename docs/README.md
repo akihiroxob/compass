@@ -47,3 +47,5 @@
 - [デザインシステムとUIカタログの実装計画](planning/design-system-implementation-plan.md): ムードボード・プロトタイプの参照、配色と視覚方向、実部品を共有するカタログ、画面適用の受入境界とWacha登録先。登録と実装完了を区別する。実装済みの現行の方針・運用は[Web UIの視覚方針](web-ui.md#視覚方針)と[UIカタログ](ui-catalog.md)。
 
 現行文書へ過去の案・段階別の作業記録を併記しない。過去情報はGit履歴から参照する。
+
+- [Agent実行観測](agent-run-observation.md): Ralph／Orchestratorのrun記録・認可・Agent画面への接続。
