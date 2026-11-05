@@ -78,12 +78,12 @@ export class DefineIntentMetricUseCase {
 
 export type RecordIntentMetricObservationsResponse = {
   metric: IntentMetric;
-  /** 入力順。`created`は新しい対象期間、`revised`は既存の対象期間の新しい版、`unchanged`は最新版と同じ内容の再送。 */
+  /** 入力順。`created`は新しい対象期間、`revised`は既存の対象期間の新しい版、`unchanged`は同じ対象期間の既存のいずれかの版と同じ内容の再送（応答は最新版）。 */
   observations: IntentMetricObservationRecord[];
 };
 
 /**
- * 定義済みの観測項目へ、対象期間ごとの観測値（取得失敗を含む）を記録する。同じ対象期間の最新版と同じ内容は新しい版を作らず、
+ * 定義済みの観測項目へ、対象期間ごとの観測値（取得失敗を含む）を記録する。同じ対象期間の既存のいずれかの版と同じ内容（観測時刻を含む）は再送として新しい版を作らず、
  * 内容が違えば次の版として追記する。過去の版は書き換えない。
  */
 export class RecordIntentMetricObservationsUseCase {

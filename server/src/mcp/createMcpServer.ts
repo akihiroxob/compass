@@ -1193,8 +1193,10 @@ export const createMcpServer = (
         "periodEnd (YYYY-MM-DD, inclusive, at most 366 days; a daily value uses the same date), status observed with a finite value " +
         "(in the Metric's unit; zero is a real value) or status failed with failureReason and no value (never substitute zero or an " +
         "estimate), source = { name, uri? (http(s), no credentials) } and observedAt (epoch milliseconds when the value was taken; not " +
-        "in the future and not before the period started). Each period keeps append-only revisions: the same content as its latest " +
-        "revision is unchanged (no duplicate), different content becomes the next revision (revised). Results are returned in input " +
+        "in the future and not before the period started). Each period keeps append-only revisions: content (status, value, reason, " +
+        "source, observedAt) identical to any existing revision of that period is a resend and is unchanged (no new revision, the " +
+        "response is the latest revision, and a delayed resend never rolls back a correction); anything else becomes the next revision " +
+        "(revised). Send a correction that returns to an earlier value with a new observedAt. Results are returned in input " +
         "order with kind created | revised | unchanged. Recording does not add Activity, evaluate an Outcome or complete the Intent. " +
         "An unknown metricKey or an Intent of another Workspace fails with NOT_FOUND; invalid values, periods or times fail with " +
         "VALIDATION_ERROR; a non-active Intent (reason intent_not_active) or an archived Workspace fails with CONFLICT. " +

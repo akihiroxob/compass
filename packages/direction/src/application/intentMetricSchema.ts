@@ -90,9 +90,12 @@ const observationSchema = (now: number) =>
         if (input.failureReason === null) issue("failureReason", "failureReason is required when status is failed");
       }
       if (!isCalendarDate(input.periodStart) || !isCalendarDate(input.periodEnd)) return;
+      // 不正な観測時刻はフィールド側で検証エラーになっている。Dateで表せない値は以降の時刻演算へ進めない。
+      const observedAtUsable = Number.isInteger(input.observedAt) && input.observedAt > 0 && input.observedAt <= maximumEpochMilliseconds;
       const days = calendarDaysBetween(input.periodStart, input.periodEnd);
       if (days < 0) issue("periodEnd", "periodEnd must not be before periodStart");
       else if (days + 1 > maximumPeriodDays) issue("periodEnd", `the period must be ${maximumPeriodDays} days or shorter`);
+      if (!observedAtUsable) return;
       if (input.observedAt > now + clockSkewMilliseconds) {
         issue("observedAt", "observedAt must not be in the future");
         return;

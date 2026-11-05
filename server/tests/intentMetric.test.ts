@@ -124,6 +124,13 @@ test("a Metric and its daily series are recorded once, revised on change and per
       observations: [daily("2026-11-04", 1, { observedAt: 8_640_000_000_000_001 })],
     }, "ev"));
     assert.equal(outOfRange.code, "VALIDATION_ERROR");
+    for (const observedAt of [-8_640_000_000_000_001, -8_640_000_000_000_000, -1, 0, 8_640_000_000_000_000]) {
+      const invalid = errorOf(await callTool(kit.app, "record_intent_metric_observations", {
+        ...args,
+        observations: [daily("2026-11-04", 1, { observedAt })],
+      }, "ev"));
+      assert.equal(invalid.code, "VALIDATION_ERROR", `observedAt ${observedAt}`);
+    }
     assert.equal((await kit.database.selectFrom("intent_metric_observation").select("id").execute()).length, 4);
     await kit.database.destroy();
 
