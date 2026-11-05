@@ -166,6 +166,7 @@ Target の Project が archive されても、Target・既存 Story・Evidence �
 - `list_outcome_target_executions`（Target 別の Execution Summary・Evidence 参照の参照）
 - `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`（type が "adr_candidate" の Decision の Wacha 引き渡しと結果の記録）
 - 読み取りの `list_intents` / `get_intent`（`list_projects` / `get_project` は Project の Grant がある範囲だけ）
+- `define_intent_metric` / `list_intent_metrics`（Intent の観測項目の定義と、観測値・推移の参照。下記「目標の観測項目」）
 - `create_intent` / `update_intent`: 外部 MCP クライアントで Human と相談して整理した目標（Intent）を登録・更新するときだけ使う（下記「目標の登録・更新」）
 - Workspace 相談（`workspaceId` を指定）: `create_consultation` / `list_consultations` / `get_consultation` / `acquire_consultation_lease` / `reply_consultation` / `resolve_consultation` / `cancel_consultation`、解決済みの結論の引継ぎ先 Project の明示 `hand_off_consultation`
 
@@ -188,6 +189,12 @@ Mission・Principles・既存の Intent / Evaluation から決められない Di
 - 結論の整理（`resolve_consultation`）と取消は Strategist だけが行える。Researcher / Evaluator は Workspace 相談の作成・参照・応答はできるが、結論の整理・取消はできない
 - 結論を Project の仕様・Policy・ADR へ反映する必要があれば、反映すべき Project と内容を結論に明記し、解決後に `hand_off_consultation` でその Project を引継ぎ先に明示する。明示した Project の Manager だけが結論を読み、文書反映 Task を起票する。Strategist は Work Task を起票しない
 - 結論を Outcome・Direction Decision へ反映するのは通常の Direction の操作で行う。Human の明示決定（Web UI）を Strategist の判断として記録し直さない
+
+## 目標の観測項目
+
+Intent の進み具合を観測値で確かめる必要があるとき、`define_intent_metric` で観測項目（`key`・`name`・`unit`・任意の `targetValue`・`staleAfterDays`）を定義する。Intent の説明文の数字を目標値として抜き出さず、Human と合意した目標値だけを `targetValue` に入れる（数値の目標が無ければ `null`）。同じ `key` で送り直すと定義を更新し、観測値がある項目の単位は変えられない（`CONFLICT`、`reason: unit_locked`）。観測値の記録は Evaluator の責務で、Strategist は記録しない。
+
+`list_intent_metrics` の `current.state` は `unmeasured`（観測なし）・`failed`（最新の取得失敗）・`stale`（古い観測）・`observed` を区別する。観測の無い期間・失敗を、ゼロ・達成・悪化として判断の根拠にしない。単純な前後差を施策の効果と断定しない。
 
 ## 目標の登録・更新
 

@@ -17,6 +17,7 @@ import {
   CreateOutcomeUseCase,
   CreateResearchRequestUseCase,
   DecideNextOutcomeUseCase,
+  DefineIntentMetricUseCase,
   DirectionAgentRole,
   DirectionReferenceLookupService,
   FetchRuntimeEventsUseCase,
@@ -30,6 +31,7 @@ import {
   GetStrategistContextUseCase,
   ListAdrReferencesUseCase,
   ListDirectionDecisionsUseCase,
+  ListIntentMetricsUseCase,
   ListIntentsUseCase,
   ListOutcomeEvaluationsUseCase,
   ListOutcomeTargetProjectsUseCase,
@@ -41,12 +43,14 @@ import {
   ListRuntimeEventsUseCase,
   RecordAdrReferenceUseCase,
   RecordExecutionEvidenceUseCase,
+  RecordIntentMetricObservationsUseCase,
   RecordOutcomeEvaluationUseCase,
   RegisterResearchResultUseCase,
   RegisterResearchSynthesisUseCase,
   UnsetOutcomeTargetProjectUseCase,
   SQLiteAdrHandoffRepository,
   SQLiteDirectionDecisionRepository,
+  SQLiteIntentMetricRepository,
   SQLiteIntentRepository,
   SQLiteOutcomeEvaluationRepository,
   SQLiteOutcomeExecutionRepository,
@@ -357,6 +361,7 @@ export const createApplicationServices = (
     directionProjectReaders,
     directionChangeObserver,
   );
+  const intentMetricRepository = new SQLiteIntentMetricRepository(directionDatabase, directionWorkspaceReaders);
   const workspaceContexts = {
     getResearcherContextUseCase: new GetResearcherContextUseCase(workspaceRepository, workspaceIntentRepository, workspaceResearchRepository),
     getStrategistContextUseCase: new GetStrategistContextUseCase(workspaceRepository, workspaceIntentRepository, workspaceOutcomeRepository,
@@ -382,6 +387,10 @@ export const createApplicationServices = (
     listRuntimeEventsUseCase: new ListRuntimeEventsUseCase(workspaceRepository, runtimeEventRepository),
     fetchRuntimeEventsUseCase: new FetchRuntimeEventsUseCase(workspaceRepository, runtimeEventRepository),
     ackRuntimeEventUseCase: new AckRuntimeEventUseCase(workspaceRepository, runtimeEventRepository, clock),
+    // Intentの観測項目と時系列。定義はStrategist、記録はEvaluator、参照はWorkspaceの参照者（認可は入口側）。
+    defineIntentMetricUseCase: new DefineIntentMetricUseCase(workspaceRepository, intentMetricRepository, clock),
+    recordIntentMetricObservationsUseCase: new RecordIntentMetricObservationsUseCase(workspaceRepository, intentMetricRepository, clock),
+    listIntentMetricsUseCase: new ListIntentMetricsUseCase(workspaceRepository, intentMetricRepository, clock),
   };
   const humanAccountRepository = new SQLiteHumanAccountRepository(
     accessDatabase,
@@ -498,6 +507,20 @@ export const createApplicationServices = (
           return workspaceDirection.recordOutcomeEvaluationUseCase.execute(workspaceId, principalId, outcomeId, input);
         },
       },
+      // Intentの観測項目の定義（単位・目標値・鮮度の期限）はStrategist、観測値の記録はEvaluatorのWorkspace Grantで認可する。
+      // Project Grantからは継承しない。来歴のPrincipalはBearerから解決した値だけ。
+      defineIntentMetricUseCase: {
+        execute: async (principal: string | null, workspaceId: string, intentId: string, input: unknown) => {
+          const principalId = await roleScopeAuthorization.requireRole(principal, { kind: "workspace", id: workspaceId }, DirectionAgentRole.STRATEGIST);
+          return workspaceDirection.defineIntentMetricUseCase.execute(workspaceId, principalId, intentId, input);
+        },
+      },
+      recordIntentMetricObservationsUseCase: {
+        execute: async (principal: string | null, workspaceId: string, intentId: string, input: unknown) => {
+          const principalId = await roleScopeAuthorization.requireRole(principal, { kind: "workspace", id: workspaceId }, DirectionAgentRole.EVALUATOR);
+          return workspaceDirection.recordIntentMetricObservationsUseCase.execute(workspaceId, principalId, intentId, input);
+        },
+      },
       getResearcherContextUseCase: workspaceRoleContext(DirectionAgentRole.RESEARCHER, workspaceContexts.getResearcherContextUseCase),
       getRoleContextUseCase: new GetRoleContextUseCase(
         projectAuthorization,
@@ -566,6 +589,7 @@ export const createApplicationServices = (
     createDirectionDecisionUseCase: workspaceDirection.createDirectionDecisionUseCase,
     decideNextOutcomeUseCase: workspaceDirection.decideNextOutcomeUseCase,
     listDirectionDecisionsUseCase: workspaceDirection.listDirectionDecisionsUseCase,
+    listIntentMetricsUseCase: workspaceDirection.listIntentMetricsUseCase,
     // ADR依頼・参照はWorkspace所有で、対象artifactのProject（`projectId`）は入力で明示する。
     createAdrHandoffRequestUseCase: workspaceDirection.createAdrHandoffRequestUseCase,
     recordAdrReferenceUseCase: workspaceDirection.recordAdrReferenceUseCase,
@@ -703,6 +727,7 @@ export const createApplicationServices = (
     listResearchRequests: workspaceAuthorized("workspace.read", services.listResearchRequestsUseCase),
     getResearchRequest: workspaceAuthorized("workspace.read", services.getResearchRequestUseCase),
     listDirectionDecisions: workspaceAuthorized("workspace.read", services.listDirectionDecisionsUseCase),
+    listIntentMetrics: workspaceAuthorized("workspace.read", services.listIntentMetricsUseCase),
     listAdrReferences: workspaceAuthorized("workspace.read", services.listAdrReferencesUseCase),
     listOutcomeEvaluations: workspaceAuthorized("workspace.read", services.listOutcomeEvaluationsUseCase),
     listOutcomeTargetProjects: workspaceAuthorized("workspace.read", services.listOutcomeTargetProjectsUseCase),
