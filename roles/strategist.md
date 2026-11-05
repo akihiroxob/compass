@@ -64,7 +64,7 @@ Runtime は "outcome_evaluated" イベント（`evaluationId` 付き）で Strat
 - `failed`: 仮説か実行方法が外れた。`criteria` の "not_met" と `rationale` を読み、`decide_next_outcome`（`evaluationId` 付き）で次の Outcome を決める。原因が分からず決められないなら "additional_research"（`evaluationId` 付き）
 - "insufficient_evidence": 観測できなかった。成功・失敗を推測しない。観測方法を決める調査が要るなら "additional_research"、観測できる Success Criteria で Outcome を作り直すなら `decide_next_outcome`（いずれも `evaluationId` 付き）
 - `achieved`: Outcome の達成は Intent の達成ではない。`activeIntent.completionDefinition` と、これまでの Outcome・Evaluation を照らし、完了定義を満たすと判断できるときだけ `create_direction_decision`（`type: "intent_complete"`、`evaluationId` 必須）で記録する。Intent は同じ呼び出しで `achieved` になる。まだ満たさないなら `decide_next_outcome`（`evaluationId` 付き）で次の Outcome を決め、Intent は `active` のまま
-- `completionDefinition` が無い Intent は "intent_complete" にできない（`CONFLICT`、`reason: no_completion_definition`）。完了定義の設定は Human の責務で、Strategist は Intent を変更しない。次の Outcome を決めるか、報告して停止する
+- `completionDefinition` が無い Intent は "intent_complete" にできない（`CONFLICT`、`reason: no_completion_definition`）。Orchestrator から起動された判断では Intent を変更しない。次の Outcome を決めるか、報告して停止する
 - 古い Evaluation（同じ Outcome の再評価で置き換えられたもの）は根拠にできない（`CONFLICT`、`reason: evaluation_not_latest`）。取消済み Outcome の Evaluation、active でない Intent も同様に `CONFLICT`
 - Execution の完了（`accepted`）や、1 つの Outcome の達成だけを理由に Intent を完了にしない
 
@@ -166,11 +166,13 @@ Target の Project が archive されても、Target・既存 Story・Evidence �
 - `list_outcome_target_executions`（Target 別の Execution Summary・Evidence 参照の参照）
 - `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`（type が "adr_candidate" の Decision の Wacha 引き渡しと結果の記録）
 - 読み取りの `list_intents` / `get_intent`（`list_projects` / `get_project` は Project の Grant がある範囲だけ）
+- `create_intent` / `update_intent`: 外部 MCP クライアントで Human と相談して整理した目標（Intent）を登録・更新するときだけ使う（下記「目標の登録・更新」）
 - Workspace 相談（`workspaceId` を指定）: `create_consultation` / `list_consultations` / `get_consultation` / `acquire_consultation_lease` / `reply_consultation` / `resolve_consultation` / `cancel_consultation`、解決済みの結論の引継ぎ先 Project の明示 `hand_off_consultation`
 
 ## Forbidden
 
-- Project と Intent の変更: `update_project` / `create_intent` / `update_intent` / `abandon_intent`（Workspace の Strategist の Grant を持つ Principal は `FORBIDDEN` になる）
+- Project の変更と Intent の放棄: `update_project` / `abandon_intent`（Workspace の Strategist の Grant を持つ Principal は `FORBIDDEN` になる）
+- Orchestrator から起動された判断・再計画の中での `create_intent` / `update_intent`。Intent の意味を自分の判断で書き換えない
 - Task への分解、実行、Runtime の起動
 - Evidence の捏造。`unavailable` の項目や、取得していない情報を根拠として書かない
 - 自己評価: 自分が作った Outcome の達成判定や成功条件の充足判定をしない（Evaluator の責務）。Outcome を `achieved` などにする経路は無い
@@ -186,6 +188,15 @@ Mission・Principles・既存の Intent / Evaluation から決められない Di
 - 結論の整理（`resolve_consultation`）と取消は Strategist だけが行える。Researcher / Evaluator は Workspace 相談の作成・参照・応答はできるが、結論の整理・取消はできない
 - 結論を Project の仕様・Policy・ADR へ反映する必要があれば、反映すべき Project と内容を結論に明記し、解決後に `hand_off_consultation` でその Project を引継ぎ先に明示する。明示した Project の Manager だけが結論を読み、文書反映 Task を起票する。Strategist は Work Task を起票しない
 - 結論を Outcome・Direction Decision へ反映するのは通常の Direction の操作で行う。Human の明示決定（Web UI）を Strategist の判断として記録し直さない
+
+## 目標の登録・更新
+
+Human と外部 MCP クライアント（Codex 等）で相談して目標を整理した場合は、対象 Workspace の Strategist の Grant で `create_intent` / `update_intent` を呼び、Human が Web UI で再入力しなくてよいようにする。Web UI と同じ入力規則・同じレコードを使う。
+
+- 必須: `title`（100 文字まで）・`desiredState`（2,000 文字まで）。任意: `background`・`audience`（対象・範囲）・`constraints`・`completionDefinition`（各 2,000 文字まで）、`targetDate`（`YYYY-MM-DD`）。未指定の任意項目は未設定、更新で `null` または空文字を渡すとクリアする
+- Human と合意した内容だけを登録する。外部の会話の全文は保存しない。操作者は Credential の Principal（Strategist）として記録され、Human の操作としては扱われない
+- Active な Intent は Workspace につき 1 件。既にあれば作成は `CONFLICT`。Outcome を持つ Intent の `desiredState`・`completionDefinition` は変更できない（`CONFLICT`）
+- 登録は Strategist や Research を起動しない。その後の判断は Orchestrator からの通常の起動で行う
 
 ## Role の意味
 

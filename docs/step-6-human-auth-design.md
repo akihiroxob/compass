@@ -99,7 +99,8 @@ trusted-localではAgent名のBearerも許可するが、`cmp_`形式は常にCr
 
 | tool分類 | 契約 |
 | --- | --- |
-| Project作成・更新、Intent作成・更新・放棄 | 登録しない。HumanはWeb UIを使用 |
+| Project作成・更新、Intent放棄 | Human管理操作のため登録しない。HumanはWeb UIを使用 |
+| `create_intent` / `update_intent` | 登録する。対象WorkspaceのWorkspace Agent CredentialとStrategist Grant（`RoleScopeAuthorizationService`）を要求し、`X-Compass-Active-Role`指定時は`strategist`に限る。Project Grant・別WorkspaceのGrant・他のDirection Roleは`FORBIDDEN`。操作者はStrategist（Agent）として記録し、Humanの操作として扱わない。項目・入力規則はWeb UIと共通（[Intentの現行仕様](step-2-intent-design.md)） |
 | Direction参照 | Agent Credentialと対象WorkspaceのDirection Role Grant（`RoleScopeAuthorizationService`）を要求。Project Grantでは参照できない |
 | Project一覧 | Grantのあるactive Projectだけを返す |
 | `get_role_instructions` | 機密を含まない静的文書。認証不要 |

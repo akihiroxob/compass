@@ -5,13 +5,21 @@ import type { WorkspaceArchivedResult } from "./WorkspaceArchivedResult.ts";
 export type CreateIntentInput = {
   title: string;
   desiredState: string;
+  background: string | null;
+  audience: string | null;
+  constraints: string | null;
   completionDefinition: string | null;
+  targetDate: string | null;
 };
 
 export type UpdateIntentInput = {
   title?: string;
   desiredState?: string;
+  background?: string | null;
+  audience?: string | null;
+  constraints?: string | null;
   completionDefinition?: string | null;
+  targetDate?: string | null;
 };
 
 export type CreateIntentResult =

@@ -159,8 +159,8 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
     (await web(`/api/projects/${projectIds[0]}/credentials`, { kind: "agent", principalId: "manager-a" })).token as string,
     (await web(`/api/projects/${projectIds[1]}/credentials`, { kind: "agent", principalId: "manager-b" })).token as string,
   ];
-  await mcp("admin", "create_intent", {
-    workspaceId,
+  // 目標（Intent）もHumanがWeb UIと同じWeb APIで登録する。MCPの登録はWorkspaceのStrategistだけに許可される。
+  await web(`/api/workspaces/${workspaceId}/intents`, {
     title: "Exclusive claims",
     desiredState: "One owner per Task",
     completionDefinition: "Every Target Project enforces one owner per Task",

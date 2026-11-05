@@ -137,7 +137,7 @@ test("Workspace archive is guarded by canonical repositories inside the write tr
     const intents = new SQLiteIntentRepository(asDirectionDatabase(database), directionWorkspaceReaders);
     const outcomes = new SQLiteOutcomeRepository(asDirectionDatabase(database), directionWorkspaceReaders);
     const archived = { kind: "workspace_archived" };
-    assert.deepEqual(await intents.create(workspace.id, { ...intentInput, completionDefinition: null }), archived);
+    assert.deepEqual(await intents.create(workspace.id, { ...intentInput, background: null, audience: null, constraints: null, completionDefinition: null, targetDate: null }), archived);
     assert.deepEqual(await intents.update(workspace.id, intent.id, { title: "Changed" }), archived);
     assert.deepEqual(await intents.abandon(workspace.id, intent.id, "R"), archived);
     assert.deepEqual(await outcomes.cancel(workspace.id, intent.id, outcome.id, "R"), archived);

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request, type Part } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { intentPath, outcomePath, workspaceOutcomePath, workspacePath } from "../../paths";
+import { intentPath, outcomePath, workspaceIntentCreatePath, workspaceIntentEditPath, workspaceOutcomePath, workspacePath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import {
   buildOutcomeExecution,
@@ -19,7 +19,7 @@ import {
   type TargetContribution,
 } from "../direction";
 import { EvidenceList, executionPath, executionStateLabels, formatTime, StoryList, verdictLabels, verdictTones, type ExecutionOverview, type OutcomeExecutionRecord } from "../execution";
-import { IntentFacts, intentStatusLabels } from "../intent";
+import { IntentEmpty, IntentFacts, intentStatusLabels } from "../intent";
 import { EvaluationCard, outcomeStatusLabels, type Outcome } from "../outcome";
 import { openProjects, ProjectName, TargetRow } from "./WorkspaceOverview";
 import type { OverviewProject } from "./workspaceProjects";
@@ -31,11 +31,14 @@ const outcomeTone = (outcome: Pick<Outcome, "status">) => (outcome.status === "a
  * 方向のIntent・Outcome。Active Intent → Active Outcome → Target Project別のWorkを並べ、各OutcomeはWorkspaceのOutcome詳細へ辿る。
  * Targetが無いActive OutcomeはStrategistの判断待ちとして出す。Taskの件数は状態だけで、Outcomeの達成を示さない。
  */
-export const DirectionIntents = ({ workspaceId, direction, projects }: { workspaceId: string; direction: DirectionData; projects: Part<OverviewProject[]> }) => (
+export const DirectionIntents = ({ workspaceId, direction, projects, canEdit }: { workspaceId: string; direction: DirectionData; projects: Part<OverviewProject[]>; canEdit: boolean }) => (
   <>
     {direction.activeIntent ? (
       <article className="intent-card">
-        <span className={statusBadgeClass("progress")}>{intentStatusLabels.active}</span>
+        <div className="intent-card-head">
+          <span className={statusBadgeClass("progress")}>{intentStatusLabels.active}</span>
+          {canEdit && <LinkButton variant="secondary" size="sm" to={workspaceIntentEditPath(workspaceId, direction.activeIntent.id)}>編集</LinkButton>}
+        </div>
         <h3>{direction.activeIntent.title}</h3>
         <IntentFacts intent={direction.activeIntent} />
         <p className="section-label">Active Outcome（{direction.outcomes.length}件）</p>
@@ -67,7 +70,12 @@ export const DirectionIntents = ({ workspaceId, direction, projects }: { workspa
         )}
         {direction.outcomes.length > 0 && <p className="section-note">Taskの件数は状態だけを数えたもので、Agentの稼働やOutcomeの達成を示しません。達成はEvidenceにもとづくEvaluationで判断します。</p>}
       </article>
-    ) : <p className="unset">ActiveなIntentはありません。</p>}
+    ) : (
+      <IntentEmpty>
+        <p className="unset">{canEdit ? "Activeな目標はありません。" : "Activeな目標はありません。目標の作成はWorkspaceのEditor以上が行います。"}</p>
+        {canEdit && <LinkButton to={workspaceIntentCreatePath(workspaceId)}>目標を作成</LinkButton>}
+      </IntentEmpty>
+    )}
     {direction.pastIntents.length > 0 && <details className="past-intents"><summary>過去のIntent（{direction.pastIntents.length}件）</summary><ul>{direction.pastIntents.map((intent) => <li key={intent.id} className="plain-item"><span className="status-badge muted">{intentStatusLabels[intent.status]}</span> {intent.title}</li>)}</ul></details>}
   </>
 );

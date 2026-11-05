@@ -13,7 +13,11 @@ const intent = (overrides: Partial<Intent>): Intent => ({
   workspaceId: "w1",
   title: "Title",
   desiredState: "State",
+  background: null,
+  audience: null,
+  constraints: null,
   completionDefinition: null,
+  targetDate: null,
   status: "active",
   abandonedReason: null,
   createdAt: 1,
@@ -22,9 +26,13 @@ const intent = (overrides: Partial<Intent>): Intent => ({
 });
 
 test("保存済みIntentから編集フォームの初期値を作り、未設定は空欄にする", () => {
-  assert.deepEqual(formValuesFromIntent(intent({})), { title: "Title", desiredState: "State", completionDefinition: "" });
-  assert.equal(formValuesFromIntent(intent({ completionDefinition: "Done" })).completionDefinition, "Done");
-  assert.deepEqual(emptyIntentFormValues, { title: "", desiredState: "", completionDefinition: "" });
+  const blank = { background: "", audience: "", constraints: "", completionDefinition: "", targetDate: "" };
+  assert.deepEqual(formValuesFromIntent(intent({})), { title: "Title", desiredState: "State", ...blank });
+  assert.deepEqual(
+    formValuesFromIntent(intent({ background: "Why", audience: "Who", constraints: "Limits", completionDefinition: "Done", targetDate: "2027-03-31" })),
+    { title: "Title", desiredState: "State", background: "Why", audience: "Who", constraints: "Limits", completionDefinition: "Done", targetDate: "2027-03-31" },
+  );
+  assert.deepEqual(emptyIntentFormValues, { title: "", desiredState: "", ...blank });
 });
 
 test("Activeなintentと過去のIntentを分け、過去は受け取った順を保つ", () => {
@@ -39,7 +47,10 @@ test("Activeなintentと過去のIntentを分け、過去は受け取った順�
 test("Intent項目のissue pathをフォームのラベルへ対応づける", () => {
   assert.equal(formatIssuePath("title"), "タイトル");
   assert.equal(formatIssuePath("desiredState"), "実現したい状態");
-  assert.equal(formatIssuePath("completionDefinition"), "完了の定義");
+  assert.equal(formatIssuePath("completionDefinition"), "達成条件");
+  assert.equal(formatIssuePath("background"), "背景");
+  assert.equal(formatIssuePath("audience"), "対象");
+  assert.equal(formatIssuePath("targetDate"), "目標日");
   assert.equal(formatIssuePath("reason"), "放棄の理由");
 });
 

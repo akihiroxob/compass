@@ -44,6 +44,10 @@ export const workspaceCreatePath = "/workspaces/new";
 export const workspaceEditPath = (workspaceId: string) => `${workspacePath(workspaceId)}/edit`;
 export const workspaceProjectCreatePath = (workspaceId: string) => `${workspacePath(workspaceId, "projects")}/new`;
 
+/** Workspaceの方向でのIntent（ビジネス目標）の作成・編集。 */
+export const workspaceIntentCreatePath = (workspaceId: string) => `${workspacePath(workspaceId, "direction")}/intents/new`;
+export const workspaceIntentEditPath = (workspaceId: string, intentId: string) => `${workspacePath(workspaceId, "direction")}/intents/${intentId}/edit`;
+
 /** Workspaceの方向のOutcome詳細。Outcomeは所属Intentとともに指す（Web APIのpathと同じ）。 */
 export const workspaceOutcomePath = (workspaceId: string, intentId: string, outcomeId: string) =>
   `${workspacePath(workspaceId, "direction")}/intents/${intentId}/outcomes/${outcomeId}`;

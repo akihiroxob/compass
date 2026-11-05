@@ -68,3 +68,11 @@
 
 // 開けない導線の代わりに出す理由（Projectが無い等）。
 .locked-note { color: var(--color-text-secondary); font-size: var(--text-note); line-height: 1.6; }
+
+// 方向のActive Intentのカード上端。状態と、そのカードの目標の編集導線を並べる。
+.intent-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
