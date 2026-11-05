@@ -33,8 +33,8 @@ const scopeLabel = (scope: CredentialScope) => (scope.kind === "workspace" ? "Wo
 const notFoundOf = (scope: CredentialScope) => `${scopeLabel(scope)}または対象のCredentialが見つかりません。画面を再読み込みしてください。`;
 const formatTime = (epochMs: number) => new Date(epochMs).toLocaleString("ja-JP");
 
-/** 発行・rotation直後だけtokenを表示する（serverはhashしか保存しないため、再表示できない）。 */
-const IssuedToken = ({ issued, onDismiss }: { issued: IssuedCredential; onDismiss: () => void }) => {
+/** 発行・rotation直後だけtokenを表示する（serverはhashしか保存しないため、再表示できない）。Dialogの中では`onDismiss`を省き、×で閉じる。 */
+export const IssuedToken = ({ issued, onDismiss }: { issued: IssuedCredential; onDismiss?: () => void }) => {
   const [copied, setCopied] = useState<string | null>(null);
   const copy = async () => {
     try {
@@ -53,7 +53,7 @@ const IssuedToken = ({ issued, onDismiss }: { issued: IssuedCredential; onDismis
         <TextInput readOnly autoFocus value={issued.token} onFocus={(event) => event.target.select()} />
       </Field>
       <div className="form-actions">
-        <Button variant="secondary" onClick={onDismiss}>閉じる</Button>
+        {onDismiss && <Button variant="secondary" onClick={onDismiss}>閉じる</Button>}
         <Button onClick={() => void copy()}>tokenをコピー</Button>
       </div>
       {copied && <p className="grant-notice">{copied}</p>}
@@ -67,10 +67,14 @@ type CredentialRowProps = {
   readOnly: boolean;
   onChanged: () => void;
   onRotated: (issued: IssuedCredential) => void;
+  /** 見出し（省略時はPrincipal）。Agent詳細ではscopeの名前を出す。 */
+  title?: string;
+  /** rotation・取消の操作列に付けるclass（Agent管理で狭い画面に操作を置かない等、配置は利用側が決める）。 */
+  actionsClassName?: string;
 };
 
 /** Credential 1件。有効なものだけrotation・取消の導線を出す。取消はarchivedのscopeでも行える。 */
-const CredentialRow = ({ scope, credential, readOnly, onChanged, onRotated }: CredentialRowProps) => {
+export const CredentialRow = ({ scope, credential, readOnly, onChanged, onRotated, title, actionsClassName }: CredentialRowProps) => {
   const notFound = notFoundOf(scope);
   const status = credentialStatus(credential, Date.now());
   const [rotating, setRotating] = useState(false);
@@ -98,12 +102,12 @@ const CredentialRow = ({ scope, credential, readOnly, onChanged, onRotated }: Cr
   return (
     <li>
       <div>
-        <strong>{credential.principalId}</strong> <span className={statusBadgeClass(credentialStatusTones[status])}>{credentialStatusLabels[status]}</span>
+        <strong>{title ?? credential.principalId}</strong> <span className={statusBadgeClass(credentialStatusTones[status])}>{credentialStatusLabels[status]}</span>
         <small>{credentialKindLabels[credential.kind]}・<code>{credential.prefix}…</code>{credential.kind === "runtime" && <>・{credential.scopes.join(", ")}</>}</small>
         <small>{formatTime(credential.createdAt)} 発行・{formatTime(credential.revokedAt ?? credential.expiresAt)} {credential.revokedAt === null ? "まで有効" : "に取消"}・最終利用 {credential.lastUsedAt === null ? "なし" : formatTime(credential.lastUsedAt)}</small>
       </div>
       {status === "active" && (
-        <div className="action-row">
+        <div className={actionsClassName ? `action-row ${actionsClassName}` : "action-row"}>
           {!readOnly && <Button variant="secondary" size="sm" aria-expanded={rotating} onClick={() => setRotating(true)}>rotation</Button>}
           <Button variant="secondary" size="sm" tone="danger" aria-expanded={revoke.confirming} onClick={revoke.open}>取り消す</Button>
         </div>

@@ -7,7 +7,7 @@ import { Button, LinkButton } from "../../components/ui";
 import { projectViewPath, workspaceApiPath, workspaceCreatePath, workspaceEditPath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath, type WorkspaceSection } from "../../paths";
 import { canOperateWorkspace, workspaceDirectionAccess } from "../access";
 import { ActivitySection } from "../activity";
-import { ProjectAgentsSection, WorkspaceAgentsSection } from "../agent";
+import { WorkspaceAgentDetail, WorkspaceAgentList } from "../agent";
 import { ConsultationSection } from "../consultation";
 import { useSession } from "../auth";
 import { CredentialSection } from "../credential";
@@ -64,7 +64,7 @@ export const WorkspaceHomePage = () => {
  * Workspaceの画面の共通枠。URLのWorkspaceをWorkspace Membershipで取得し、閲覧できなければ一覧に無いWorkspaceと同じく
  * 理由だけを出す（未所属・不在はserverが区別せず404）。見出しにWorkspace名・項目・状態・自分のRoleを出す。
  */
-const WorkspaceFrame = ({ section, children }: { section: WorkspaceSection; children: (workspace: Workspace, myRole: HumanRole, reload: () => void) => ReactNode }) => {
+const WorkspaceFrame = ({ section, title, children }: { section: WorkspaceSection; title?: string; children: (workspace: Workspace, myRole: HumanRole, reload: () => void) => ReactNode }) => {
   const { workspaceId = "" } = useParams();
   // archive等で状態が変わった後に取り直す。再取得中は読み込み中を出し、古い状態の操作を残さない。
   const [revision, setRevision] = useState(0);
@@ -75,7 +75,7 @@ const WorkspaceFrame = ({ section, children }: { section: WorkspaceSection; chil
         <>
           <div className="detail-hero project-hero">
             <p className="eyebrow">Workspace · {value.workspace.name}</p>
-            <h1>{section === "overview" ? value.workspace.name : workspaceSectionLabels[section]}</h1>
+            <h1>{title ?? (section === "overview" ? value.workspace.name : workspaceSectionLabels[section])}</h1>
             {value.workspace.status === "archived" && <p><span className="status-badge muted">アーカイブ済み</span></p>}
             <p className="section-note">あなたのWorkspaceでのRole: {humanRoleLabels[value.myRole]}</p>
           </div>
@@ -249,24 +249,6 @@ const ActivityContent = ({ workspace }: { workspace: Workspace }) => {
 };
 
 /**
- * Agent。WorkspaceのDirection Role（Workspace Grant・Workspace Credential）と、所属ProjectのExecution Role（Project Grant・
- * Project Credential・TaskのClaim）をscopeごとに分けて出す。Grant・Credential・ClaimのいずれからもAgentの稼働を推測しない。
- */
-const AgentsContent = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
-  const { value, error } = useWorkspaceProjects(workspace.id, "active");
-  return (
-    <>
-      <div className="fixed-note agent-intro">
-        <p><strong>Grant</strong>はAgentが担当できるRole、<strong>Credential</strong>はAgentがCompassへ接続する資格、<strong>Claim</strong>はAgentが今保持しているTaskの期限付きの作業権です。</p>
-        <p>それぞれ別の状態で、いずれもAgentプロセスが稼働していることを示しません。</p>
-      </div>
-      <WorkspaceAgentsSection workspace={workspace} myRole={myRole} />
-      {error ? <ErrorState message={`Projectの読み込みに失敗しました: ${error}`} /> : <ProjectAgentsSection projects={value} />}
-    </>
-  );
-};
-
-/**
  * 設定。Workspace scopeのMember（Workspace Membership）・Direction Agent（Workspace Grant）・Workspace Credentialと、Project別の
  * アクセス（各Projectの設定）への導線。ProjectのAgentのRole割当・Credentialは
  * ここで変更しない。導線の表示は`myRole`で決め、拒否は常にserverが行う。
@@ -280,7 +262,7 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
   return (
     <>
       <div className="fixed-note">
-        <p>ここではWorkspaceと配下のすべてのProjectを利用するHumanと、Directionを担うAgentを管理します。HumanのRoleは配下のすべてのProjectに同じく適用されます。ProjectのAgent・Credentialは各Projectの設定で管理します。</p>
+        <p>ここではWorkspaceと配下のすべてのProjectを利用するHumanと、Directionを担うAgentを管理します。HumanのRoleは配下のすべてのProjectに同じく適用されます。Workspace・全ProjectのAgentの一覧・登録・Credentialは<Link to={workspacePath(workspace.id, "agents")}>Agent管理</Link>でまとめて扱えます（Runtime Credentialはここと各Projectの設定で扱います）。</p>
       </div>
       <WorkspaceMembershipSection
         key={myRole}
@@ -299,7 +281,7 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
       )}
       <section className="detail-section" aria-labelledby="workspace-project-access-heading">
         <h2 id="workspace-project-access-heading">Projectのアクセス</h2>
-        <p className="section-note">Story・Taskを担うAgent（Manager・Worker・Reviewer）の割当とCredentialは、Projectごとの設定で管理します。HumanのMemberとRoleは上のMemberで管理し、配下のすべてのProjectに適用されます。</p>
+        <p className="section-note">Story・Taskを担うAgent（Manager・Worker・Reviewer）の割当とCredentialは、Agent管理または各Projectの設定で管理します。HumanのMemberとRoleは上のMemberで管理し、配下のすべてのProjectに適用されます。</p>
         <ProjectViewLinks workspace={workspace} view="settings" hint="Agent・Credential・招待を開く" />
       </section>
     </>
@@ -312,5 +294,9 @@ export const WorkspaceOutcomePage = () => <WorkspaceFrame section="direction">{(
 export const WorkspaceConsultationsPage = () => <WorkspaceFrame section="consultations">{(workspace) => <ConsultationSection scope={{ kind: "workspace", workspaceId: workspace.id }} />}</WorkspaceFrame>;
 export const WorkspaceProjectsPage = () => <WorkspaceFrame section="projects">{(workspace, myRole) => <ProjectsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceActivityPage = () => <WorkspaceFrame section="activity">{(workspace) => <ActivityContent workspace={workspace} />}</WorkspaceFrame>;
-export const WorkspaceAgentsPage = () => <WorkspaceFrame section="agents">{(workspace, myRole) => <AgentsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
+export const WorkspaceAgentsPage = () => <WorkspaceFrame section="agents">{(workspace, myRole) => <WorkspaceAgentList workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
+export const WorkspaceAgentPage = () => {
+  const { principalId = "" } = useParams();
+  return <WorkspaceFrame section="agents" title={principalId}>{(workspace, myRole) => <WorkspaceAgentDetail key={principalId} workspace={workspace} myRole={myRole} principalId={principalId} />}</WorkspaceFrame>;
+};
 export const WorkspaceSettingsPage = () => <WorkspaceFrame section="settings">{(workspace, myRole, reload) => <SettingsContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
