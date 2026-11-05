@@ -211,6 +211,7 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
                 role: string;
                 workspaceId: string;
                 projectId: string | null;
+                intentId: string | null;
                 subject: string;
                 key: string;
                 attempt: number;
@@ -482,7 +483,7 @@ test(
 
       // Intentは達成済みになり、Active Intentの無いWorkspaceでは何も起動しない。
       const finalState = await kit.state();
-      assert.equal(finalState.activeIntent, null);
+      assert.deepEqual(finalState.activeIntents, []);
       await kit.runOnce();
       assert.equal(kit.launches().length, 7);
     } finally {
@@ -639,7 +640,7 @@ test(
       await kit.runOnce();
       assert.deepEqual(kit.launches().slice(6).map(({ role }) => role), ["evaluator", "strategist"]);
       const final = await kit.state();
-      assert.equal(final.activeIntent, null);
+      assert.deepEqual(final.activeIntents, []);
 
       // 7. 終了後の再起動でも、archivedのProject・Work履歴・Activityを同じIDで参照でき、何も再起動しない。
       const afterRun = await snapshot();
@@ -741,3 +742,34 @@ test(
     }
   },
 );
+
+
+test("複数目標を独立したadapter実行へ渡し、再実行と一方の放棄で他方の仕事を失わない", { skip: loopbackSkip, timeout: 120_000 }, async () => {
+  const kit = await setup();
+  try {
+    const original = (await kit.state()).activeIntents[0].id as string;
+    const second = await kit.mcp(kit.directionToken, "create_intent", { workspaceId: kit.workspaceId, title: "Independent goal", desiredState: "Independent state" }, "strategist");
+    for (let round = 0; round < 8; round++) await kit.runOnce();
+    const launches = kit.launches();
+    for (const intentId of [original, second.id]) {
+      assert.equal(launches.filter((launch) => launch.intentId === intentId && launch.role === "strategist").length, 2);
+      assert.equal(launches.filter((launch) => launch.intentId === intentId && launch.role === "researcher").length, 1);
+      assert.equal(launches.filter((launch) => launch.intentId === intentId && launch.role === "manager").length, 2);
+    }
+    assert.equal(new Set(launches.map((launch) => launch.key)).size, launches.length, "同じ対象と版を二重起動しない");
+    assert.ok(launches.every((launch) => launch.credentialVisible === false));
+    const before = await kit.state();
+    assert.equal(before.activeIntents.length, 2);
+    assert.equal(before.outcomes.length, 2);
+    for (const outcome of before.outcomes) assert.ok(outcome.targets.every((target: Json) => target.work?.taskCount === 1));
+    const abandoned = await kit.webRequest("POST", `/api/workspaces/${kit.workspaceId}/intents/${original}/abandon`, { reason: "Finish only this goal" });
+    assert.equal(abandoned.status, 200);
+    await kit.runOnce();
+    assert.equal(kit.launches().length, launches.length);
+    const after = await kit.state();
+    assert.deepEqual(after.activeIntents.map((intent: Json) => intent.id), [second.id]);
+    assert.deepEqual(after.outcomes, before.outcomes.filter((outcome: Json) => outcome.intentId === second.id));
+    const context = await kit.mcp(kit.directionToken, "get_strategist_context", { workspaceId: kit.workspaceId, intentId: second.id }, "strategist");
+    assert.equal(context.activeIntent.status, "active");
+  } finally { await kit.stop(); }
+});

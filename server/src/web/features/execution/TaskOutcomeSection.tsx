@@ -35,7 +35,7 @@ type OutcomeData = {
 
 /**
  * Outcomeの所属Intentを探す。Workspace所有のOutcomeはIntent配下のWeb APIで読むため、Intentごとに一覧を読む
- * （WorkspaceのIntentは少数で、Active Intentは最大1件）。
+ * （複数のActive Intentと終端IntentのOutcomeを対象にする）。
  */
 const loadOutcomeRef = async (workspaceId: string, outcomeId: string): Promise<TaskOutcomeRef | null> => {
   const { intents } = await request<{ intents: { id: string }[] }>(workspaceApiPath(workspaceId, "/intents"));

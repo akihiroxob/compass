@@ -14,7 +14,7 @@ import type { WorkspaceOrchestrationOutcome, WorkspaceOrchestrationState } from 
 const baseState = (workspaceId: string): WorkspaceOrchestrationState => ({
   workspace: { id: workspaceId, name: workspaceId, status: "active" },
   projects: [],
-  activeIntent: { id: `${workspaceId}-intent`, status: "active", updatedAt: 1 },
+  activeIntents: [{ id: `${workspaceId}-intent`, status: "active", updatedAt: 1 }],
   outcomes: [],
   intentResearchRequests: [],
   openResearchRequests: [],
@@ -24,6 +24,7 @@ const baseState = (workspaceId: string): WorkspaceOrchestrationState => ({
 /** Target A / B の Story が無い（未分解の）進行中の Outcome。 */
 const undecomposed = (id: string, projectIds: string[]): WorkspaceOrchestrationOutcome => ({
   id,
+  intentId: "w-1-intent",
   status: "active",
   updatedAt: 1,
   targets: projectIds.map((projectId) => ({ projectId, projectStatus: "active", work: null, execution: null })),
@@ -165,7 +166,7 @@ test("状態を読めないWorkspaceは他のWorkspaceの起動を妨げず、�
     await orchestrator.drain();
 
     kit.states.set("w-1", new Error("FORBIDDEN"));
-    kit.states.set("w-2", { ...baseState("w-2"), activeIntent: null });
+    kit.states.set("w-2", { ...baseState("w-2"), activeIntents: [] });
     const report = await orchestrator.tick();
     assert.deepEqual(report.failedWorkspaces, [{ workspaceId: "w-1", error: "FORBIDDEN" }]);
     const keys = Object.keys(new DispatchStore(kit.directory).all());
@@ -293,7 +294,7 @@ test("Workspace相談は同じWorkspace Runtime Credentialで読み、入力版�
   let workspaceStatus = "active";
   const now = 1_000;
   const reader: CompassStateReader = {
-    getWorkspaceOrchestrationState: async (workspaceId) => ({ ...baseState(workspaceId), activeIntent: null }),
+    getWorkspaceOrchestrationState: async (workspaceId) => ({ ...baseState(workspaceId), activeIntents: [] }),
     getWorkspaceConsultationState: async (workspaceId, token) => {
       assert.equal(workspaceId, "w-1"); assert.equal(token, "runtime-1");
       if (failRead) throw new Error("FORBIDDEN");

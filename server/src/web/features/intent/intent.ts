@@ -53,8 +53,8 @@ export const intentStatusLabels: Record<IntentStatus, string> = {
   abandoned: "Abandoned",
 };
 
-/** Workspaceにつきactiveは最大1件。それ以外（過去のIntent）は新しい順のまま返す。 */
-export const splitIntents = (intents: Intent[]): { active: Intent | null; past: Intent[] } => ({
-  active: intents.find((intent) => intent.status === "active") ?? null,
+/** Active・過去のIntentをそれぞれ新しい順のまま返す。 */
+export const splitIntents = (intents: Intent[]): { active: Intent[]; past: Intent[] } => ({
+  active: intents.filter((intent) => intent.status === "active"),
   past: intents.filter((intent) => intent.status !== "active"),
 });

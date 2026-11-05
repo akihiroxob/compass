@@ -632,9 +632,6 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     .addColumn("updated_at", "integer", (column) => column.notNull())
     .execute();
 
-  // Active Intentは Workspaceにつき最大1件。アプリケーション層の検査に加えてDBでも強制する。
-  await sql`create unique index if not exists intent_one_active_per_workspace
-    on intent (workspace_id) where status = 'active'`.execute(database);
   await database.schema
     .createIndex("intent_workspace_id_idx")
     .ifNotExists()

@@ -140,7 +140,7 @@ const ContributionItem = ({ projectId, workspaceId, contribution, stories }: { p
 const Contributions = ({ projectId, direction, data }: { projectId: string; direction: OverviewDirectionAccess; data: OverviewData }) => {
   if (direction.workspaceId === null || data.direction === null) return <p className="unset">所属WorkspaceのDirectionを閲覧できないため、貢献するOutcomeを表示できません。{"message" in direction && <> {direction.message}</>}</p>;
   if (!data.direction.ok) return <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${data.direction.error}`} />;
-  if (!data.direction.value.activeIntent) return <p className="unset">所属WorkspaceにActiveなIntentがありません。IntentはWorkspaceの方向でHumanが登録します。</p>;
+  if (data.direction.value.activeIntents.length === 0) return <p className="unset">所属WorkspaceにActiveなIntentがありません。IntentはWorkspaceの方向でHumanが登録します。</p>;
   const { items, unknown } = projectContributions(data.direction.value.outcomes, projectId);
   const stories = data.execution.ok ? data.execution.value.stories : null;
   return (

@@ -104,29 +104,18 @@ test("不正な入力はVALIDATION_ERRORで拒否し、保存しない", async (
   await database.destroy();
 });
 
-test("Active Intentは1 Projectにつき最大1件で、2件目はCONFLICTになり既存は変わらない", async () => {
+test("同じWorkspaceへ複数Active Intentを作成しても既存のIntentを変更しない", async () => {
   const { database, services } = await setup();
-  const project = await services.createProjectUseCase.execute(projectInput);
-  const first = await services.createIntentUseCase.execute(project.workspaceId, intentInput);
-
-  await assert.rejects(
-    services.createIntentUseCase.execute(project.workspaceId, { title: "Second", desiredState: "Second" }),
-    (error: { code?: string; details?: Record<string, string> }) => {
-      assert.equal(error.code, "CONFLICT");
-      assert.equal(error.details?.activeIntentId, first.id);
-      return true;
-    },
-  );
-  assert.deepEqual(await services.listIntentsUseCase.execute(project.workspaceId), [first]);
-
-  // 別Projectにはそれぞれ1件のActiveを持てる。
-  const other = await services.createProjectUseCase.execute({ ...projectInput, name: "Other" });
-  const otherIntent = await services.createIntentUseCase.execute(other.workspaceId, intentInput);
-  assert.notEqual(otherIntent.id, first.id);
-  await database.destroy();
+  try {
+    const project = await services.createProjectUseCase.execute(projectInput);
+    const first = await services.createIntentUseCase.execute(project.workspaceId, intentInput);
+    const second = await services.createIntentUseCase.execute(project.workspaceId, { title: "Second", desiredState: "Second" });
+    assert.deepEqual(await services.listIntentsUseCase.execute(project.workspaceId), [second, first]);
+    assert.equal((await services.getIntentUseCase.execute(project.workspaceId, first.id)).status, "active");
+  } finally { await database.destroy(); }
 });
 
-test("DBの部分一意indexが、application層を経由しない2件目のActiveも拒否する", async () => {
+test("DBは複数Activeを許可し、不正な状態は拒否する", async () => {
   const { database, services } = await setup();
   const project = await services.createProjectUseCase.execute(projectInput);
   const first = await services.createIntentUseCase.execute(project.workspaceId, intentInput);
@@ -134,7 +123,7 @@ test("DBの部分一意indexが、application層を経由しない2件目のActi
     sql`insert into intent (id, workspace_id, title, desired_state, status, created_at, updated_at)
       values (${crypto.randomUUID()}, ${project.workspaceId}, 't', 'd', ${status}, 1, 1)`.execute(database);
 
-  await assert.rejects(insert("active"), /UNIQUE/);
+  await insert("active");
   await assert.rejects(insert("draft"), /CHECK/);
   // 非activeは複数あってよい。
   await services.abandonIntentUseCase.execute(project.workspaceId, first.id);

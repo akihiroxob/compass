@@ -7,7 +7,7 @@ import { intentPath, workspaceApiPath, workspacePath } from "../../paths";
 import { IntentForm } from "./IntentForm";
 import { useIntentPage } from "./useIntentPage";
 
-const createLede = "必須なのは目標名と実現したい状態です。目標は所属Workspaceのもので、Activeな目標は1つのWorkspaceにつき1件までです。保存してもAgentは起動しません。";
+const createLede = "必須なのは目標名と実現したい状態です。目標は所属Workspaceのもので、複数の目標を同時に進められます。保存してもAgentは起動しません。";
 const editLede = "変更した内容は保存するまで反映されません。キャンセルすると保存済みの内容のままです。";
 
 const createIntent = (workspaceId: string) => async (values: IntentFormValues) =>

@@ -306,11 +306,14 @@ test("StrategistのGrantを持つPrincipalはProjectの管理toolとIntentの放
     assert.equal(denied.isError, true, name);
     assert.equal(denied.structuredContent.error.code, "FORBIDDEN", name);
   }
-  // Intentの登録・更新は対象WorkspaceのStrategistに許可する。Active Intentがあれば作成は業務規則でCONFLICT。
+  // Intentの登録・更新は対象WorkspaceのStrategistに許可する。複数のActive Intentを作成でき、既存のIntentを変更しない。
   const updated = await callTool(app, "update_intent", { workspaceId, intentId, title: "By strategist", background: "Why" }, "strat-1");
   assert.equal(updated.isError, undefined);
   assert.deepEqual([updated.structuredContent.title, updated.structuredContent.background], ["By strategist", "Why"]);
-  assert.equal((await callTool(app, "create_intent", { workspaceId, title: "T", desiredState: "D" }, "strat-1")).structuredContent.error.code, "CONFLICT");
+  const another = await callTool(app, "create_intent", { workspaceId, title: "T", desiredState: "D" }, "strat-1");
+  assert.equal(another.isError, undefined);
+  assert.equal(another.structuredContent.status, "active");
+  assert.notEqual(another.structuredContent.id, intentId);
   // Grantの無いWorkspace・Grantの無いPrincipalは、Intentを登録・更新できない。
   for (const [name, args, principal] of [
     ["create_intent", { workspaceId: otherWorkspaceId, title: "T", desiredState: "D" }, "strat-1"],

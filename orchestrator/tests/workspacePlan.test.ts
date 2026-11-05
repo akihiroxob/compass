@@ -25,7 +25,7 @@ const stateOf = (overrides: Partial<WorkspaceOrchestrationState> = {}): Workspac
     { id: "p-a", name: "A" },
     { id: "p-b", name: "B" },
   ],
-  activeIntent: { id: "i-1", status: "active", updatedAt: 1 },
+  activeIntents: [{ id: "i-1", status: "active", updatedAt: 1 }],
   outcomes: [],
   intentResearchRequests: [],
   openResearchRequests: [],
@@ -72,6 +72,7 @@ const outcome = (
   overrides: Partial<WorkspaceOrchestrationOutcome> = {},
 ): WorkspaceOrchestrationOutcome => ({
   id,
+  intentId: "i-1",
   status: "active",
   updatedAt: 1,
   targets,
@@ -101,6 +102,7 @@ test("A/B TargetでBだけStoryが無ければBのmanagerだけを起動し、ke
       workspaceId,
       projectId: "p-b",
       role: "manager",
+      intentId: "i-1",
       subject: { kind: "outcome", id: "o-1" },
       reason: "Target Project has no Story for the Outcome",
     },
@@ -217,8 +219,8 @@ test("archivedのWorkspaceでは何も起動せず、Active Intentが無けれ�
     [],
   );
   const watch = { ...research("r-2", "running"), kind: "project_watch", originIntentId: null };
-  assert.deepEqual(roles(stateOf({ activeIntent: null, openResearchRequests: [watch] })), ["researcher:research_request:r-2"]);
-  assert.deepEqual(roles(stateOf({ activeIntent: null })), []);
+  assert.deepEqual(roles(stateOf({ activeIntents: [], openResearchRequests: [watch] })), ["researcher:research_request:r-2"]);
+  assert.deepEqual(roles(stateOf({ activeIntents: [] })), []);
 });
 
 test("再計画後の状態から次のRoleを起動し、同じ状態ではdispatch記録で重複起動しない", async () => {
@@ -281,4 +283,21 @@ test("再計画後の状態から次のRoleを起動し、同じ状態ではdisp
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+
+test("複数IntentのResearch・評価・Target待ちを分離し、別目標の終端で起動対象を消さない", () => {
+  const intents = ["i-1", "i-2", "i-3"].map((id) => ({ id, status: "active", updatedAt: 1 }));
+  const waiting = research("r-1", "requested");
+  const state = stateOf({ activeIntents: intents, outcomes: [outcome("o-2", [], { intentId: "i-2" })], intentResearchRequests: [waiting], openResearchRequests: [waiting] });
+  const planned = planWorkspaceDispatches(state);
+  assert.deepEqual(planned.map(({ intentId, role, subject }) => [intentId, role, subject.id]), [
+    ["i-1", "researcher", "r-1"], ["i-2", "strategist", "o-2"], ["i-3", "strategist", "i-3"],
+  ]);
+  const next = planWorkspaceDispatches({ ...state, activeIntents: intents.slice(1), intentResearchRequests: [], openResearchRequests: [] });
+  assert.deepEqual(next, planned.slice(1), "別Intentが終端になってもkeyと対象は同じ");
+  const evaluated = outcome("o-3", [], { intentId: "i-3", status: "achieved", latestEvaluation: { id: "e-3", decisionId: null, createdAt: 1, targets: [] } });
+  const after = planWorkspaceDispatches({ ...state, outcomes: [...state.outcomes, evaluated] });
+  assert.ok(after.some((dispatch) => dispatch.intentId === "i-3" && dispatch.subject.id === "e-3"));
+  assert.ok(after.some((dispatch) => dispatch.intentId === "i-2" && dispatch.subject.id === "o-2"));
 });

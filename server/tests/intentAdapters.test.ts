@@ -92,7 +92,7 @@ test("放棄は本文なしでも理由なしとして受け付け、壊れたJS
   await database.destroy();
 });
 
-test("Web APIは不正入力を400、Project/Intentなしを区別した404、Active重複と非Activeへの変更を409で返す", async () => {
+test("Web APIは不正入力を400、Project/Intentなしを区別した404、複数Activeを作成でき非Activeへの変更を409で返す", async () => {
   const { database, app } = await setup();
   const { projectId, workspaceId } = await createProject(app);
   const path = `/api/workspaces/${workspaceId}/intents`;
@@ -120,10 +120,8 @@ test("Web APIは不正入力を400、Project/Intentなしを区別した404、Ac
   assert.equal((await send(app, "POST", `${path}/missing/abandon`)).status, 404);
 
   const duplicate = await send(app, "POST", path, JSON.stringify({ title: "Second", desiredState: "Second" }));
-  assert.equal(duplicate.status, 409);
-  const duplicateError = ((await duplicate.json()) as ErrorBody).error;
-  assert.equal(duplicateError.code, "CONFLICT");
-  assert.equal(duplicateError.activeIntentId, first.id);
+  assert.equal(duplicate.status, 201);
+  assert.notEqual(((await duplicate.json()) as IntentBody).intent.id, first.id);
 
   await send(app, "POST", `${path}/${first.id}/abandon`);
   const afterAbandon = await send(app, "PATCH", `${path}/${first.id}`, JSON.stringify({ title: "Edit" }));
@@ -229,9 +227,8 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
   assert.equal((await callTool(app, "update_intent", { workspaceId, intentId })).structuredContent.error.code, "VALIDATION_ERROR");
 
   const duplicate = await callTool(app, "create_intent", { workspaceId, title: "Second", desiredState: "Second" });
-  assert.equal(duplicate.isError, true);
-  assert.equal(duplicate.structuredContent.error.code, "CONFLICT");
-  assert.equal(duplicate.structuredContent.error.activeIntentId, intentId);
+  assert.equal(duplicate.isError, undefined);
+  assert.notEqual(duplicate.structuredContent.id, intentId);
 
   const { workspaceId: otherWorkspace } = await createProject(app, "Other");
   const crossProject = await callTool(app, "get_intent", { workspaceId: otherWorkspace, intentId });

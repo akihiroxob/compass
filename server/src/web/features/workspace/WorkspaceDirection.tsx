@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request, type Part } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { intentPath, outcomePath, workspaceIntentCreatePath, workspaceIntentEditPath, workspaceOutcomePath, workspacePath } from "../../paths";
+import { intentPath, outcomePath, workspaceIntentEditPath, workspaceOutcomePath, workspacePath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import {
   buildOutcomeExecution,
@@ -15,6 +15,7 @@ import {
   targetContributions,
   WorkCounts,
   type DirectionData,
+  type IntentDirectionData,
   type OutcomeDetailData,
   type TargetContribution,
 } from "../direction";
@@ -31,7 +32,12 @@ const outcomeTone = (outcome: Pick<Outcome, "status">) => (outcome.status === "a
  * 方向のIntent・Outcome。Active Intent → Active Outcome → Target Project別のWorkを並べ、各OutcomeはWorkspaceのOutcome詳細へ辿る。
  * Targetが無いActive OutcomeはStrategistの判断待ちとして出す。Taskの件数は状態だけで、Outcomeの達成を示さない。
  */
-export const DirectionIntents = ({ workspaceId, direction, projects, canEdit }: { workspaceId: string; direction: DirectionData; projects: Part<OverviewProject[]>; canEdit: boolean }) => (
+export const DirectionIntents = (props: { workspaceId: string; direction: DirectionData; projects: Part<OverviewProject[]>; canEdit: boolean }) => <>
+  {props.direction.directions.length > 0 ? props.direction.directions.map((direction) => <IntentDirection key={direction.activeIntent!.id} {...props} direction={direction} />) : <IntentDirection {...props} direction={{ activeIntent: null, pastIntents: [], outcomes: [], otherOutcomes: [], pendingPastOutcomes: [] }} />}
+  {props.direction.pastIntents.length > 0 && <details className="past-intents"><summary>過去のIntent（{props.direction.pastIntents.length}件）</summary><ul>{props.direction.pastIntents.map((intent) => <li key={intent.id}>{intentStatusLabels[intent.status]} {intent.title}</li>)}</ul></details>}
+</>;
+
+const IntentDirection = ({ workspaceId, direction, projects, canEdit }: { workspaceId: string; direction: IntentDirectionData; projects: Part<OverviewProject[]>; canEdit: boolean }) => (
   <>
     {direction.activeIntent ? (
       <article className="intent-card">
@@ -73,7 +79,6 @@ export const DirectionIntents = ({ workspaceId, direction, projects, canEdit }: 
     ) : (
       <IntentEmpty>
         <p className="unset">{canEdit ? "Activeな目標はありません。" : "Activeな目標はありません。目標の作成はWorkspaceのEditor以上が行います。"}</p>
-        {canEdit && <LinkButton to={workspaceIntentCreatePath(workspaceId)}>目標を作成</LinkButton>}
       </IntentEmpty>
     )}
     {direction.pastIntents.length > 0 && <details className="past-intents"><summary>過去のIntent（{direction.pastIntents.length}件）</summary><ul>{direction.pastIntents.map((intent) => <li key={intent.id} className="plain-item"><span className="status-badge muted">{intentStatusLabels[intent.status]}</span> {intent.title}</li>)}</ul></details>}
