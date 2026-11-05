@@ -113,6 +113,17 @@ test("a Metric and its daily series are recorded once, revised on change and per
     }, "ev"));
     assert.equal(corrected.observations[0].kind, "revised");
     assert.equal(corrected.observations[0].observation.revision, 2);
+    // 訂正を挟んだ旧要求の遅延再送は版を増やさず、現在値も戻さない。
+    const late = ok(await callTool(kit.app, "record_intent_metric_observations", args, "ev"));
+    assert.deepEqual(late.observations.map((item: any) => item.kind), ["unchanged", "unchanged", "unchanged"]);
+    assert.equal(late.observations[2].observation.revision, 2);
+    assert.equal(late.observations[2].observation.value, 155_000);
+    // Dateで表せない観測時刻は例外ではなく構造化した検証エラーにする。
+    const outOfRange = errorOf(await callTool(kit.app, "record_intent_metric_observations", {
+      ...args,
+      observations: [daily("2026-11-04", 1, { observedAt: 8_640_000_000_000_001 })],
+    }, "ev"));
+    assert.equal(outOfRange.code, "VALIDATION_ERROR");
     assert.equal((await kit.database.selectFrom("intent_metric_observation").select("id").execute()).length, 4);
     await kit.database.destroy();
 

@@ -182,16 +182,17 @@ export class SQLiteIntentMetricRepository implements IntentMetricRepository {
 
       const records: IntentMetricObservationRecord[] = [];
       for (const input of observations) {
-        const current = await transaction
+        const revisions = await transaction
           .selectFrom("intent_metric_observation")
           .selectAll()
           .where("metric_id", "=", metric.id)
           .where("period_start", "=", input.periodStart)
           .where("period_end", "=", input.periodEnd)
           .orderBy("revision", "desc")
-          .limit(1)
-          .executeTakeFirst();
-        if (current && sameContent(current, input)) {
+          .execute();
+        const current = revisions[0];
+        // 訂正後に届いた過去版と同一の要求（観測時刻を含む）は遅延再送として扱い、訂正を巻き戻さない。
+        if (current && revisions.some((revision) => sameContent(revision, input))) {
           records.push({ kind: "unchanged", observation: toObservation(current) });
           continue;
         }

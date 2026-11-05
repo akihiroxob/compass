@@ -34,7 +34,7 @@ export type DefineIntentMetricResult =
   | { kind: "unit_locked"; unit: string }
   | IntentMetricWriteRejection;
 
-/** 観測値1件の記録結果。`unchanged`は同じ対象期間の最新版と同じ内容の再送で、新しい版を作らない。 */
+/** 観測値1件の記録結果。`unchanged`は同じ対象期間の既存のいずれかの版と同じ内容の再送で、新しい版を作らない（応答は最新版）。 */
 export type IntentMetricObservationRecord = {
   kind: "created" | "revised" | "unchanged";
   observation: IntentMetricObservation;

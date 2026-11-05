@@ -69,7 +69,7 @@ Intentの到達点・推移を確かめるため、Intentごとに観測項目�
 | `failureReason` | `failed`では必須（2,000文字まで）、`observed`では指定できない |
 | `source` | `name`（必須、200文字まで）と任意の`uri`（http(s)、認証情報を含むURLは拒否）。参照だけで本文を保存しない |
 | `observedAt` | 値を取得した時刻（epoch milliseconds）。未来（5分を超える）と、対象期間の開始より前（UTCの暦日で1日の時差を許容）は拒否する |
-| `revision` | 対象期間ごとの版。最新版と同じ内容（状態・値・理由・出所・観測時刻）の再送は新しい版を作らず（`unchanged`）、内容が違えば次の版を追記する（`revised`）。過去の版は書き換えない |
+| `revision` | 対象期間ごとの版。同じ対象期間の既存のいずれかの版と同じ内容（状態・値・理由・出所・観測時刻）の要求は再送として新しい版を作らず（`unchanged`、応答は現在の最新版）、訂正後に遅れて届いた旧要求でも訂正を巻き戻さない。どの版とも違えば次の版を追記する（`revised`）。観測時刻まで同一の値へ戻す訂正は再送と区別できないため、訂正は新しい観測時刻で送る。過去の版は書き換えない |
 
 1回の記録は1〜100件で、同じ対象期間を重複させない。記録者（Bearerから解決したPrincipal）と記録時刻を保存する。activeなIntentだけに定義・記録でき、achieved / abandonedのIntentとarchivedのWorkspaceは`CONFLICT`。観測値の記録はActivity・Runtime eventを作らず、Outcomeの評価・Intentの完了を意味しない。
 

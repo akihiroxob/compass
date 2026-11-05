@@ -32,6 +32,8 @@ const sourceUri = trimmedText("source.uri", 2_000)
 const maximumPeriodDays = 366;
 /** 観測時刻の未来方向の許容（時計のずれ）。 */
 const clockSkewMilliseconds = 5 * 60_000;
+/** Dateで表せる最大のepoch milliseconds。超える値はDate変換前に拒否する。 */
+const maximumEpochMilliseconds = 8_640_000_000_000_000;
 /** 1回に記録できる観測値の件数。 */
 const maximumObservations = 100;
 /** 時系列の取得範囲の既定（日数）と上限。 */
@@ -74,7 +76,8 @@ const observationSchema = (now: number) =>
       observedAt: z
         .number({ error: "observedAt must be epoch milliseconds" })
         .int("observedAt must be an integer epoch milliseconds value")
-        .positive("observedAt must be a positive epoch milliseconds value"),
+        .positive("observedAt must be a positive epoch milliseconds value")
+        .max(maximumEpochMilliseconds, "observedAt is out of the supported time range"),
     })
     .superRefine((input, context) => {
       const issue = (path: string, message: string) => context.addIssue({ code: "custom", path: [path], message });
@@ -90,7 +93,10 @@ const observationSchema = (now: number) =>
       const days = calendarDaysBetween(input.periodStart, input.periodEnd);
       if (days < 0) issue("periodEnd", "periodEnd must not be before periodStart");
       else if (days + 1 > maximumPeriodDays) issue("periodEnd", `the period must be ${maximumPeriodDays} days or shorter`);
-      if (input.observedAt > now + clockSkewMilliseconds) issue("observedAt", "observedAt must not be in the future");
+      if (input.observedAt > now + clockSkewMilliseconds) {
+        issue("observedAt", "observedAt must not be in the future");
+        return;
+      }
       // 対象期間が始まる前に観測したことにしない。タイムゾーン差として1日だけ許容する（UTCの暦日で比較）。
       if (input.periodStart > addCalendarDays(utcCalendarDate(input.observedAt), 1)) {
         issue("periodStart", "the period must have started by observedAt");
