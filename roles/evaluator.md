@@ -91,7 +91,8 @@ Strategist が `define_intent_metric` で定義した Intent の観測項目へ�
 
 - 1 件ごとに対象期間（`periodStart` / `periodEnd`、`YYYY-MM-DD`、日次は同じ日）、`observedAt`（値を取得した時刻）を指定する。値は定義の単位で記録する
 - 取得できた値は `status: "observed"` と `value`（ゼロも有効な値）。取得できなかったら `status: "failed"` と `failureReason` で残し、ゼロ・前回値・推測値を入れない。観測していない期間は記録しない
-- 同じ内容の再送は `unchanged` で重複しない。値を訂正するときは同じ対象期間を送り直し、次の版（`revised`）になる。過去の版は書き換わらない
+- 同じ対象期間の既存のいずれかの版と内容（状態・値・理由・出所・`observedAt`）まで同一の要求は再送として `unchanged` になり、新しい版を作らない。応答は常に最新版で、訂正後に遅れて届いた旧要求でも訂正は巻き戻らない
+- 値を訂正するときは同じ対象期間を、違う内容かつ新しい `observedAt` で送り直す（次の版 `revised`）。過去の値へ戻す訂正も、`observedAt` が過去の版と同じだと `unchanged` になり保存されないため、新しい観測時刻で送る。過去の版は書き換わらない
 - 観測値の記録は Outcome の評価・Intent の完了判定ではない。Outcome の評価は従来どおり `record_outcome_evaluation` で行う
 
 ## Role の意味
