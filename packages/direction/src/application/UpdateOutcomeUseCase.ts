@@ -6,8 +6,9 @@ import { ConflictError, NotFoundError } from "@compass/shared";
 import { WorkspaceArchivedError } from "@compass/organization";
 
 /**
- * activeなOutcomeのtitleとhypothesisだけを更新する。
+ * activeなOutcomeのtitle・hypothesis・課題（根拠・解決策の仮説）だけを更新する。
  * 成功条件・description・rationaleは作成時に固定され、入力に含まれた場合は黙って無視せず拒否する。
+ * `expectedRevision`が現在の版と異なれば、古い版を前提にした更新として拒否する。
  */
 export class UpdateOutcomeUseCase {
   constructor(
@@ -40,6 +41,12 @@ export class UpdateOutcomeUseCase {
     }
     if (result.kind === "outcome_not_found") {
       throw new NotFoundError(`Outcome ${outcomeId} was not found in Intent ${intentId}`);
+    }
+    if (result.kind === "stale_revision") {
+      throw new ConflictError(
+        `Outcome ${outcomeId} has been updated (current revision ${result.currentRevision}); reload it and apply the change again`,
+        { conflict: "OUTCOME_STALE_REVISION", currentRevision: String(result.currentRevision) },
+      );
     }
     if (result.kind === "not_active") {
       throw new ConflictError(`Outcome ${outcomeId} is ${result.status} and can no longer be edited`, {

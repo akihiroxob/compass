@@ -52,6 +52,12 @@ export const workspaceIntentEditPath = (workspaceId: string, intentId: string) =
 export const workspaceOutcomePath = (workspaceId: string, intentId: string, outcomeId: string) =>
   `${workspacePath(workspaceId, "direction")}/intents/${intentId}/outcomes/${outcomeId}`;
 
+/** Workspaceのビジネス目標（Intent）へのOutcomeの追加と、Outcomeの編集。 */
+export const workspaceOutcomeCreatePath = (workspaceId: string, intentId: string) =>
+  `${workspacePath(workspaceId, "direction")}/intents/${intentId}/outcomes/new`;
+export const workspaceOutcomeEditPath = (workspaceId: string, intentId: string, outcomeId: string) =>
+  `${workspaceOutcomePath(workspaceId, intentId, outcomeId)}/edit`;
+
 /** WorkspaceのProject一覧。activeは既定のためqueryを付けない。 */
 export const workspaceProjectsPath = (workspaceId: string, status: "active" | "archived" = "active") =>
   `${workspacePath(workspaceId, "projects")}${status === "archived" ? "?status=archived" : ""}`;

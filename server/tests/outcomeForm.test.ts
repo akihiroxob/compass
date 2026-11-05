@@ -25,6 +25,8 @@ const outcome = (overrides: Partial<Outcome>): Outcome => ({
     { id: "c1", outcomeId: "o1", position: 0, description: "First", measurement: "Measured", target: null },
     { id: "c2", outcomeId: "o1", position: 1, description: "Second", measurement: "Observed", target: "= 0" },
   ],
+  problems: [],
+  revision: 1,
   createdAt: 1,
   updatedAt: 1,
   ...overrides,
@@ -44,6 +46,21 @@ test("保存済みOutcomeから編集フォームの初期値を作り、未設�
     { description: "First", measurement: "Measured", target: "" },
     { description: "Second", measurement: "Observed", target: "= 0" },
   ]);
+});
+
+test("編集フォームの初期値は課題の観測と原因の仮説を別の欄に保ち、根拠参照を引き継ぐ", () => {
+  const evidence = [{ kind: "research_finding" as const, id: "f1", requestId: "r1", summary: "離脱", superseded: false }];
+  const values = formValuesFromOutcome(
+    outcome({
+      problems: [
+        { id: "p1", outcomeId: "o1", position: 0, statement: "課題", evidenceStatus: "observed", observation: "step 2で離脱", causeHypothesis: null, solutionHypothesis: "入力を減らす", evidence },
+      ],
+    }),
+  );
+  assert.deepEqual(values.problems, [
+    { id: "p1", statement: "課題", evidenceStatus: "observed", observation: "step 2で離脱", causeHypothesis: "", solutionHypothesis: "入力を減らす", evidence },
+  ]);
+  assert.deepEqual(emptyOutcomeFormValues.problems, []);
 });
 
 test("ActiveなOutcomeとそれ以外を分け、受け取った順を保つ", () => {

@@ -9,7 +9,7 @@ import type {
 import type { CreateOutcomeInput, UpdateOutcomeInput } from "../domain/OutcomeRepository.ts";
 import type { DirectionDatabase, OutcomeTable } from "./schema.ts";
 import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
-import { insertOutcomeRow, loadOutcomes } from "./outcomeRecord.ts";
+import { insertOutcomeRow, loadOutcomes, replaceOutcomeProblems } from "./outcomeRecord.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 export class SQLiteOutcomeRepository implements OutcomeRepository {
@@ -108,10 +108,13 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     changes: UpdateOutcomeInput,
   ): Promise<ChangeOutcomeResult> {
     // undefinedの項目はKyselyがSETから除外するため、未指定の列は変更されない。
-    return this.changeActive(workspaceId, intentId, outcomeId, {
-      title: changes.title,
-      hypothesis: changes.hypothesis,
-    });
+    return this.changeActive(
+      workspaceId,
+      intentId,
+      outcomeId,
+      { title: changes.title, hypothesis: changes.hypothesis },
+      { expectedRevision: changes.expectedRevision, problems: changes.problems },
+    );
   }
 
   async cancel(
@@ -119,11 +122,14 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     intentId: string,
     outcomeId: string,
     reason: string,
-  ): Promise<ChangeOutcomeResult> {
-    return this.changeActive(workspaceId, intentId, outcomeId, {
+  ): Promise<Exclude<ChangeOutcomeResult, { kind: "stale_revision" }>> {
+    // 取消は版を指定しないため、stale_revisionにはならない。
+    const result = await this.changeActive(workspaceId, intentId, outcomeId, {
       status: "cancelled",
       cancel_reason: reason,
     });
+    if (result.kind === "stale_revision") throw new Error("unreachable: cancel does not check the revision");
+    return result;
   }
 
   /** Workspace・Intent配下のactiveなOutcomeだけを、状態確認と同一transactionで更新する。 */
@@ -134,6 +140,7 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     changes: Partial<
       Pick<Selectable<OutcomeTable>, "title" | "hypothesis" | "status" | "cancel_reason">
     >,
+    options: { expectedRevision?: number | undefined; problems?: UpdateOutcomeInput["problems"] } = {},
   ): Promise<ChangeOutcomeResult> {
     return this.database.transaction().execute(async (transaction): Promise<ChangeOutcomeResult> => {
       if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
@@ -147,16 +154,23 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
 
       const existing = await transaction
         .selectFrom("outcome")
-        .select("status")
+        .select(["status", "revision"])
         .where("id", "=", outcomeId)
         .where("intent_id", "=", intentId)
         .executeTakeFirst();
       if (!existing) return { kind: "outcome_not_found" };
       if (existing.status !== "active") return { kind: "not_active", status: existing.status };
+      if (options.expectedRevision !== undefined && options.expectedRevision !== existing.revision) {
+        return { kind: "stale_revision", currentRevision: existing.revision };
+      }
 
+      const now = Date.now();
+      if (options.problems !== undefined) {
+        await replaceOutcomeProblems(transaction, workspaceId, outcomeId, options.problems, now);
+      }
       const row = await transaction
         .updateTable("outcome")
-        .set({ ...changes, updated_at: Date.now() })
+        .set({ ...changes, revision: existing.revision + 1, updated_at: now })
         .where("id", "=", outcomeId)
         .returningAll()
         .executeTakeFirstOrThrow();
