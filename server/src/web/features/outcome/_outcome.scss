@@ -17,3 +17,26 @@
   > .text-button { justify-self: start; }
 }
 .criterion-evidence { display: block; overflow-wrap: anywhere; }
+// 課題1件の入力の組。成功条件の組と同じく枠の内側で縦に並べる。
+.problem-row {
+  display: grid;
+  gap: var(--space-xs);
+  > .text-button { justify-self: start; }
+}
+// 課題の一覧と根拠参照。長い本文・IDは折り返す。
+.problem-list {
+  display: grid;
+  gap: var(--space-md);
+  padding-left: 0;
+  list-style: none;
+  dd { overflow-wrap: anywhere; white-space: pre-wrap; }
+}
+.problem-evidence-list {
+  display: grid;
+  gap: var(--space-xs);
+  padding-left: 0;
+  list-style: none;
+  li { display: grid; gap: .15rem; overflow-wrap: anywhere; }
+  > li > .text-button { justify-self: start; }
+}
+.problem-evidence-kind { color: var(--color-text-muted); font-size: var(--font-size-sm); }

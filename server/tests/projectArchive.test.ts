@@ -332,7 +332,7 @@ test("AC-11 Repositoryを直接呼んでも、archivedのProjectには何も書�
   assert.deepEqual(await intents.create(project.workspaceId, { title: "T", desiredState: "S", background: null, audience: null, constraints: null, completionDefinition: null, targetDate: null }), { kind: "workspace_archived" });
   assert.deepEqual(await intents.update(project.workspaceId, intent.id, { title: "Changed" }), { kind: "workspace_archived" });
   assert.deepEqual(await intents.abandon(project.workspaceId, intent.id, "x"), { kind: "workspace_archived" });
-  assert.deepEqual(await outcomes.create(project.workspaceId, intent.id, { ...outcomeInput, hypothesis: null, successCriteria: [{ description: "d", measurement: "m", target: null }] }), { kind: "workspace_archived" });
+  assert.deepEqual(await outcomes.create(project.workspaceId, intent.id, { ...outcomeInput, hypothesis: null, problems: [], successCriteria: [{ description: "d", measurement: "m", target: null }] }), { kind: "workspace_archived" });
   assert.deepEqual(await outcomes.update(project.workspaceId, intent.id, outcome.id, { title: "Changed" }), { kind: "workspace_archived" });
   assert.deepEqual(await outcomes.cancel(project.workspaceId, intent.id, outcome.id, "x"), { kind: "workspace_archived" });
   assert.deepEqual(await grants.grant(project.id, "strat-2", "strategist"), archived);

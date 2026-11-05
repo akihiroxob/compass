@@ -671,6 +671,7 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     // 発端のDirection Decision。FKは付けない。direction_decision.outcome_id → outcome.idとの循環を、outcome行を先に作ってから
     // Decision行を作る順序で解決しており、outcome側の逆参照は監査目的の平文IDで十分なため。
     .addColumn("origin_decision_id", "text")
+    .addColumn("revision", "integer", (column) => column.notNull().defaultTo(1).check(sql`revision >= 1`))
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addColumn("updated_at", "integer", (column) => column.notNull())
     .execute();
@@ -700,6 +701,48 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     .ifNotExists()
     .on("success_criterion")
     .columns(["outcome_id", "position"])
+    .execute();
+
+  // Outcomeの課題と根拠参照。根拠は同じWorkspaceのResearch Finding・Synthesisだけを複合FKで参照し、別Workspaceの記録を結び付けられない。
+  await database.schema
+    .createTable("outcome_problem")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("workspace_id", "text", (column) => column.notNull())
+    .addUniqueConstraint("outcome_problem_id_workspace_unique", ["id", "workspace_id"])
+    .addColumn("outcome_id", "text", (column) => column.notNull())
+    .addForeignKeyConstraint("outcome_problem_outcome_workspace_fk", ["outcome_id", "workspace_id"], "outcome", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .addColumn("position", "integer", (column) => column.notNull())
+    .addColumn("statement", "text", (column) => column.notNull())
+    .addColumn("evidence_status", "text", (column) =>
+      column.notNull().check(sql`evidence_status in ('insufficient', 'observed', 'refuted')`),
+    )
+    .addColumn("observation", "text")
+    .addColumn("cause_hypothesis", "text")
+    .addColumn("solution_hypothesis", "text")
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addColumn("updated_at", "integer", (column) => column.notNull())
+    .execute();
+  await database.schema
+    .createIndex("outcome_problem_outcome_position_idx")
+    .unique()
+    .ifNotExists()
+    .on("outcome_problem")
+    .columns(["outcome_id", "position"])
+    .execute();
+  await database.schema
+    .createTable("outcome_problem_evidence")
+    .ifNotExists()
+    .addColumn("problem_id", "text", (column) => column.notNull())
+    .addColumn("workspace_id", "text", (column) => column.notNull())
+    .addForeignKeyConstraint("outcome_problem_evidence_problem_fk", ["problem_id", "workspace_id"], "outcome_problem", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .addColumn("position", "integer", (column) => column.notNull())
+    .addColumn("finding_id", "text")
+    .addForeignKeyConstraint("outcome_problem_evidence_finding_fk", ["finding_id", "workspace_id"], "research_finding", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .addColumn("synthesis_id", "text")
+    .addForeignKeyConstraint("outcome_problem_evidence_synthesis_fk", ["synthesis_id", "workspace_id"], "research_synthesis", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .addPrimaryKeyConstraint("outcome_problem_evidence_pk", ["problem_id", "position"])
+    .addCheckConstraint("outcome_problem_evidence_one_ref", sql`(finding_id is null) <> (synthesis_id is null)`)
     .execute();
 
   // OutcomeのTarget Project。ProjectとOutcomeのWorkspace一致はRepositoryが書込と同一transactionで検査する。
