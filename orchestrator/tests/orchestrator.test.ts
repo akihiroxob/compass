@@ -364,7 +364,7 @@ test("実行観測は開始・正常終了・失敗を同じrunで報告し、�
     assert.equal(reports[3]!.report.result, "succeeded");
     assert.notEqual(reports[0]!.report.runId, reports[2]!.report.runId);
     kit.reader.recordAgentRun = async () => { throw new Error("observation unavailable"); };
-    kit.states.set("w-1", { ...baseState("w-1"), activeIntent: { id: "new-intent", status: "active", updatedAt: 2 } });
+    kit.states.set("w-1", { ...baseState("w-1"), activeIntents: [{ id: "new-intent", status: "active", updatedAt: 2 }] });
     assert.equal((await orchestrator.tick()).launched.length, 1);
     kit.launcher.launches[2]!.finish({ ok: true });
     await orchestrator.drain();
