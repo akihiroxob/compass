@@ -1,2 +1,3 @@
 export { ActivitySection, RecentActivityList } from "./ActivitySection";
 export { activitiesPath, type ActivityPage, type ActivitySummary } from "./activity";
+export { WorkspaceActivityStream, type ActivityTargetProject } from "./ActivityStream";

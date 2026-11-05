@@ -16,3 +16,33 @@
   margin-top: var(--space-md);
   @include narrow { .field, .select { flex: 1 1 100%; } }
 }
+
+// Workspaceの記録（横断一覧）。条件・件数・日付ごとの一覧・詳細。
+.activity-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-xs) var(--space-sm);
+  margin-top: var(--space-sm);
+  .field { flex: 1 1 18rem; }
+  @include narrow { .field, .button { flex: 1 1 100%; } }
+}
+.activity-result-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  min-height: 2rem;
+  font-variant-numeric: tabular-nums;
+}
+.activity-day {
+  margin-top: var(--space-md);
+  h3 { margin-bottom: var(--space-xs); font-size: var(--text-body); color: var(--color-text-muted); }
+}
+.activity-title { font-weight: 600; overflow-wrap: anywhere; }
+.activity-detail {
+  overflow-wrap: anywhere;
+  h3 { margin-top: var(--space-md); }
+}
+.activity-detail-summary { font-weight: 600; }
