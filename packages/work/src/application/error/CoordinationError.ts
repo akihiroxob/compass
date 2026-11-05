@@ -18,7 +18,10 @@ export type CoordinationErrorCode =
   | "GITHUB_ACCESS_DENIED"
   /** GitHubにそのRepository・PRが無い、または見えない。 */
   | "PULL_REQUEST_NOT_FOUND"
-  /** PRの事実が登録の条件（Repository・open・draftでない・他Task未登録等）を満たさない。 */
+  /**
+   * PRの事実が操作の条件を満たさない。登録（Repository・open・draftでない・他Task未登録等）、完了（現在のWork Claimで登録したopen PR）、
+   * レビュー（レビューしたheadのmerge・承認コメント・必須check）、受入（レビュー済みheadのmerge SHA・根拠）。
+   */
   | "PULL_REQUEST_NOT_READY";
 
 const retryableCodes = new Set<CoordinationErrorCode>(["CLAIM_CONFLICT", "GITHUB_UNAVAILABLE"]);
@@ -26,9 +29,14 @@ const retryableCodes = new Set<CoordinationErrorCode>(["CLAIM_CONFLICT", "GITHUB
 export class CoordinationError extends Error {
   readonly retryable: boolean;
 
+  /**
+   * @param details 失敗の対象と事実（PR照合では操作・Task・PR・期待 / 実際のSHA・状態・不足したcheck・再確認方法）。
+   *   Agentが包括的な文言で止まらず次の操作を選べるよう、結果の`error.details`へそのまま返す。認証情報を入れない。
+   */
   constructor(
     readonly code: CoordinationErrorCode,
     message: string,
+    readonly details?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "CoordinationError";
@@ -40,6 +48,7 @@ export class CoordinationError extends Error {
       code: this.code,
       message: this.message,
       retryable: this.retryable,
+      ...(this.details ? { details: this.details } : {}),
     };
   }
 }

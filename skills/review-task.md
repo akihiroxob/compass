@@ -2,7 +2,7 @@
 name: review-task
 description: in_review の task を、完了条件・既存構成・設計原則・変更範囲の観点で検証し、受け入れ可能性を明確に判定する。
 status: active
-version: 5
+version: 6
 requiredKnowledge:
   - principles/development-principles.md
   - principles/ai-native-ddd.md
@@ -10,6 +10,7 @@ requiredKnowledge:
   - tips/reviewing.md
   - tips/task-writing.md
   - tips/verification.md
+  - tips/github-workflow.md
   - tips/incremental-design.md
 requiredTools:
   - compass:list_tasks
@@ -20,6 +21,7 @@ requiredTools:
   - compass:reviewed_task
   - compass:reject_task
   - compass:issue_task
+  - compass:list_task_pull_requests
 ---
 
 # review-task
@@ -41,7 +43,8 @@ reviewer は「好み」で見るのではなく、この task を通したあ�
 7. フロントエンド変更がある場合は、`knowledge/principles/frontend-architecture.md` を基準に構成を確認する。
 8. 指摘がある場合は、具体的な不足・危険性・再レビュー条件を添えて Markdown 形式の `add_task_comment` をする。
 9. 設計の軋み（重複の反復、同一ファイルの肥大、歪んだ最小差分の反復。`knowledge/tips/incremental-design.md` 参照）に気づいた場合は、その場で直させず、`[design-strain]` を title 先頭に付け、発見元Taskと完了条件を記載した技術的follow-upを `issue_task` で登録する。軋み自体はtaskの完了条件を満たしている限りreject理由にしない。
-10. 受け入れ可能なら同じClaimで `reviewed_task`、追加修正が必要なら理由付きで `reject_task` を実行する。判定せず中断する場合は `release_claim` する。
+10. PR のある Task は `knowledge/tips/github-workflow.md` の Reviewer の手順で、レビューした head を示す根拠コメント・必須 check・merge を確認し、`reviewed_task` に `expectedHeadSha`・`reviewCommentId` を渡す。
+11. 受け入れ可能なら同じClaimで `reviewed_task`、追加修正が必要なら理由付きで `reject_task` を実行する。判定せず中断する場合は `release_claim` する。
 
 ## Review Checklist
 

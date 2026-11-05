@@ -137,13 +137,15 @@ Task-to-Task 依存関係は初期実装に含めない。順序制約が必要�
 1. `list_tasks({ projectId, filter: { availableFor: "acceptance" } })` を呼ぶ
 2. Task、親 Story、worker / reviewer コメント、成果を確認して対象を選ぶ
 3. 一意な `requestId` で `claim_acceptance` を呼び、`claimId` を保持する
-4. 要件どおりなら `accept_task({ taskId, claimId, requestId })` を呼ぶ
+4. 要件どおりなら `accept_task({ taskId, claimId, requestId })` を呼ぶ（PR のある Task は `verification` も渡す。後述）
 5. 不足があれば `reject_task({ taskId, claimId, reason, requestId })` を呼ぶ
 6. 判断せず中断するなら `release_claim({ claimId, reason, requestId })` を呼ぶ
 
 `wait_accept` の Task は reviewer 済みの通常経路である。
 
-`in_review` の Task を直接選ぶこともできる。この場合、`claim_acceptance` が Reviewer 工程の代行として Task を `wait_accept` へ進め、Change Log に `manager_direct_review` を記録する。その後は同じ Claim で `accept_task` または `reject_task` を呼ぶ。
+`in_review` の Task を直接選ぶこともできる。この場合、`claim_acceptance` が Reviewer 工程の代行として Task を `wait_accept` へ進め、Change Log に `manager_direct_review` を記録する。その後は同じ Claim で `accept_task` または `reject_task` を呼ぶ。PR を登録した Task は Reviewer がレビュー対象 head と merge を照合するまで直接受け入れられない。
+
+PR のある Task は、`list_task_pull_requests` の `current` のレビュー済み head（`reviewedHeadSha`）と merge SHA（`mergeSha`）を確認し、merge commit を対象に AC と統合後の動作を確認する。`accept_task` の `verification` に確認した merge SHA と AC ごとの根拠（`evidence`）を渡し、Server がレビュー済み head の merge SHA と一致することを照合する。merge 済み・Reviewer の承認だけを根拠にしない。merge 後の差し戻しは同じ Task の新しい PR で対応させる。手順は `accept-task` Skill の `tips/github-workflow.md` に従う。
 
 最新の `complete_task` と同じ Principal は、複数 Role を持っていても自己受入できない。
 

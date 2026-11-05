@@ -11,7 +11,7 @@ export type CreateProjectInput = {
   vision: string | null;
   principles: string[];
   constraints: string[];
-  repositories: { name: string; url: string }[];
+  repositories: { name: string; url: string; requiredChecks: string[] }[];
   resources: { name: string; url: string; kind: string | null }[];
 };
 
@@ -30,7 +30,8 @@ export type CreateWorkspaceProjectResult =
 export type UpdateProjectInput = {
   name?: string;
   description?: string | null;
-  repositories?: { id?: string; name: string; url: string }[];
+  /** `requiredChecks`を省略した既存行（`id`一致）は保存済みの値を維持し、新しい行は空（CI不要）にする。 */
+  repositories?: { id?: string; name: string; url: string; requiredChecks?: string[] }[];
   resources?: { id?: string; name: string; url: string; kind: string | null }[];
 };
 

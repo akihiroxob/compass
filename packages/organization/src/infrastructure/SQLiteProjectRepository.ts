@@ -17,6 +17,9 @@ import { writeWorkspace } from "./writeWorkspace.ts";
 
 type Queryable = Kysely<OrganizationDatabase> | Transaction<OrganizationDatabase>;
 
+/** 保存した`required_checks`（JSON配列）。 */
+const parseRequiredChecks = (value: string): string[] => JSON.parse(value) as string[];
+
 /**
  * 指定したRepositoryのうち、ADR Handoff Request/Reference（Directionが所有するtable）から参照されているものがあれば
  * そのIDを1件返す。OrganizationはDirectionのtableを直接扱わず、serverが同じtransactionで読む実装を配線する。
@@ -194,7 +197,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
     if (!row) return null;
 
     const [repositories, resources] = await Promise.all([
-      this.database.selectFrom("project_repository_link").select(["id", "name", "url"])
+      this.database.selectFrom("project_repository_link").select(["id", "name", "url", "required_checks"])
         .where("project_id", "=", projectId).orderBy("sort_order").execute(),
       this.database.selectFrom("project_resource").select(["id", "name", "url", "kind"])
         .where("project_id", "=", projectId).orderBy("sort_order").execute(),
@@ -205,7 +208,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
       workspaceId: row.workspace_id,
       name: row.name,
       description: row.description,
-      repositories,
+      repositories: repositories.map(({ required_checks, ...link }) => ({ ...link, requiredChecks: parseRequiredChecks(required_checks) })),
       resources,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -279,8 +282,8 @@ export class SQLiteProjectRepository implements ProjectRepository {
 
     if (input.repositories.length) {
       await transaction.insertInto("project_repository_link").values(
-        input.repositories.map((item, sortOrder) => ({
-          id: crypto.randomUUID(), project_id: id, ...item, sort_order: sortOrder,
+        input.repositories.map(({ requiredChecks, ...item }, sortOrder) => ({
+          id: crypto.randomUUID(), project_id: id, ...item, required_checks: JSON.stringify(requiredChecks), sort_order: sortOrder,
         })),
       ).execute();
     }
@@ -325,15 +328,17 @@ export class SQLiteProjectRepository implements ProjectRepository {
         .where("project_id", "=", projectId).execute()).map(({ id }) => id),
     );
     const retained = new Set<string>();
-    for (const [sortOrder, { id, name, url }] of items.entries()) {
+    for (const [sortOrder, { id, name, url, requiredChecks }] of items.entries()) {
+      // requiredChecksを省略した既存行は保存済みの値を維持する（undefinedはKyselyがSETから除外する）。
+      const requiredChecksJson = requiredChecks === undefined ? undefined : JSON.stringify(requiredChecks);
       if (id !== undefined && existingIds.has(id)) {
         retained.add(id);
         await transaction.updateTable("project_repository_link")
-          .set({ name, url, sort_order: sortOrder })
+          .set({ name, url, sort_order: sortOrder, required_checks: requiredChecksJson })
           .where("id", "=", id).where("project_id", "=", projectId).execute();
       } else {
         await transaction.insertInto("project_repository_link")
-          .values({ id: crypto.randomUUID(), project_id: projectId, name, url, sort_order: sortOrder })
+          .values({ id: crypto.randomUUID(), project_id: projectId, name, url, required_checks: requiredChecksJson ?? "[]", sort_order: sortOrder })
           .execute();
       }
     }

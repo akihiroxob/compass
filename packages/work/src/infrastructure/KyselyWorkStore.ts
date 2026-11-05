@@ -449,7 +449,7 @@ export class KyselyWorkStore implements WorkStore {
 
   async updateTaskPullRequest(
     id: string,
-    patch: Omit<TaskPullRequestRecord, "id" | "task_id" | "project_id" | "repository" | "number" | "sequence" | "created_at">,
+    patch: Partial<Omit<TaskPullRequestRecord, "id" | "task_id" | "project_id" | "repository" | "number" | "sequence" | "created_at">>,
   ): Promise<void> {
     await this.db.updateTable("task_pull_request").set(patch).where("id", "=", id).execute();
   }

@@ -1,8 +1,16 @@
 import { CoordinationError } from "../application/error/CoordinationError.ts";
 import type { PullRequestGateway } from "../application/port/PullRequestGateway.ts";
-import type { GitHubRepositoryName, PullRequestSnapshot } from "../domain/PullRequest.ts";
+import {
+  parseReviewMarker,
+  type GitHubRepositoryName,
+  type PullRequestCheck,
+  type PullRequestReviewEvidence,
+  type PullRequestSnapshot,
+} from "../domain/PullRequest.ts";
 
 const shaPattern = /^[a-f0-9]{40}$/i;
+/** 一覧の読取上限（100件 × page数）。超えたら一部だけで判断しない。 */
+const maxPages = 20;
 
 type JsonObject = Record<string, unknown>;
 const isObject = (value: unknown): value is JsonObject => typeof value === "object" && value !== null && !Array.isArray(value);
@@ -24,7 +32,7 @@ export type GitHubPullRequestGatewayOptions = {
   request?: typeof fetch;
 };
 
-/** GitHub REST APIからPRを1件読む。書込みはしない。 */
+/** GitHub REST APIからPR・コメント・CI結果を読む。書込み（merge・コメント）はしない。 */
 export class GitHubPullRequestGateway implements PullRequestGateway {
   private readonly apiBaseUrl: string;
   private readonly token: string | null;
@@ -38,8 +46,8 @@ export class GitHubPullRequestGateway implements PullRequestGateway {
     this.request = options.request ?? fetch;
   }
 
-  async getPullRequest(repository: GitHubRepositoryName, number: number): Promise<PullRequestSnapshot> {
-    const path = `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/pulls/${number}`;
+  /** GitHub REST APIを1回読む。HTTPの失敗は`GITHUB_*`・`PULL_REQUEST_NOT_FOUND`に分け、本文はJSONとして返す。 */
+  private async get(path: string, notFound: string): Promise<unknown> {
     let response: Response;
     try {
       response = await this.request(`${this.apiBaseUrl}${path}`, {
@@ -57,21 +65,86 @@ export class GitHubPullRequestGateway implements PullRequestGateway {
     }
     if (!response.ok) {
       const limited = response.status === 429 || response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after");
-      if (!limited && response.status === 404) {
-        throw new CoordinationError("PULL_REQUEST_NOT_FOUND", `Pull request ${repository.owner}/${repository.name}#${number} was not found or is not visible`);
-      }
+      if (!limited && response.status === 404) throw new CoordinationError("PULL_REQUEST_NOT_FOUND", notFound);
       if (!limited && (response.status === 401 || response.status === 403)) {
         throw new CoordinationError("GITHUB_ACCESS_DENIED", `GitHub denied access (HTTP ${response.status})`);
       }
       throw new CoordinationError("GITHUB_UNAVAILABLE", `GitHub returned HTTP ${response.status}`);
     }
-    let body: unknown;
     try {
-      body = await response.json();
+      return await response.json();
     } catch {
       throw new CoordinationError("GITHUB_UNAVAILABLE", "GitHub returned an invalid response");
     }
+  }
+
+  /** 一覧APIを最後のpageまで読む。上限を超えたら一部だけで判断せず`GITHUB_UNAVAILABLE`にする。 */
+  private async pages(path: string, notFound: string, key?: string): Promise<unknown[]> {
+    const entries: unknown[] = [];
+    for (let page = 1; page <= maxPages; page += 1) {
+      const body = await this.get(`${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`, notFound);
+      const items = key ? (isObject(body) ? body[key] : undefined) : body;
+      if (!Array.isArray(items)) throw new CoordinationError("GITHUB_UNAVAILABLE", "GitHub returned an invalid list response");
+      entries.push(...items);
+      if (items.length < 100) return entries;
+    }
+    throw new CoordinationError("GITHUB_UNAVAILABLE", `GitHub list exceeded ${maxPages * 100} entries`);
+  }
+
+  private repositoryPath(repository: GitHubRepositoryName) {
+    return `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}`;
+  }
+
+  async getPullRequest(repository: GitHubRepositoryName, number: number): Promise<PullRequestSnapshot> {
+    const body = await this.get(`${this.repositoryPath(repository)}/pulls/${number}`,
+      `Pull request ${repository.owner}/${repository.name}#${number} was not found or is not visible`);
     return this.toSnapshot(body, number);
+  }
+
+  async listReviewEvidence(repository: GitHubRepositoryName, number: number): Promise<PullRequestReviewEvidence[]> {
+    const comments = await this.pages(`${this.repositoryPath(repository)}/issues/${number}/comments`,
+      `Pull request ${repository.owner}/${repository.name}#${number} was not found or is not visible`);
+    return comments.flatMap((comment) => {
+      if (!isObject(comment)) throw new CoordinationError("GITHUB_UNAVAILABLE", "GitHub returned an invalid comment");
+      const body = stringField(comment, "body");
+      const marker = body === null ? null : parseReviewMarker(body);
+      if (!marker) return [];
+      const url = stringField(comment, "html_url");
+      const author = stringField(objectField(comment, "user"), "login");
+      const commentId = comment.id;
+      if (typeof commentId !== "number" || !Number.isSafeInteger(commentId) || url === null || author === null) {
+        throw new CoordinationError("GITHUB_UNAVAILABLE", "GitHub returned an invalid comment");
+      }
+      return [{ commentId, url, author, ...marker }];
+    });
+  }
+
+  async listChecks(repository: GitHubRepositoryName, sha: string): Promise<PullRequestCheck[]> {
+    const path = this.repositoryPath(repository);
+    const notFound = `Commit ${sha} was not found in ${repository.owner}/${repository.name}`;
+    const [runs, statuses] = await Promise.all([
+      this.pages(`${path}/commits/${sha}/check-runs?filter=latest`, notFound, "check_runs"),
+      this.pages(`${path}/commits/${sha}/statuses`, notFound),
+    ]);
+    const invalid = () => new CoordinationError("GITHUB_UNAVAILABLE", "GitHub returned an invalid check");
+    const checks: PullRequestCheck[] = runs.map((run) => {
+      if (!isObject(run)) throw invalid();
+      const name = stringField(run, "name");
+      const status = stringField(run, "status");
+      const conclusion = stringField(run, "conclusion");
+      if (name === null || status === null) throw invalid();
+      return { name, state: status === "completed" ? conclusion ?? "pending" : "pending" };
+    });
+    // commit statusは新しい順に返る。contextごとに最新の1件だけを使う。
+    const latest = new Map<string, string>();
+    for (const status of statuses) {
+      if (!isObject(status)) throw invalid();
+      const context = stringField(status, "context");
+      const state = stringField(status, "state");
+      if (context === null || state === null) throw invalid();
+      if (!latest.has(context)) latest.set(context, state);
+    }
+    return [...checks, ...[...latest].map(([name, state]) => ({ name, state }))];
   }
 
   /** 応答は信頼せず、保存する事実の型をすべて実行時に検証する。不正な応答は再確認できる`GITHUB_UNAVAILABLE`にする。 */

@@ -47,6 +47,14 @@ class FakeGitHub implements PullRequestGateway {
     if (!pr) throw new CoordinationError("PULL_REQUEST_NOT_FOUND", "not found");
     return pr;
   }
+
+  async listReviewEvidence() {
+    return assert.fail("PR登録でレビュー根拠を読んではならない");
+  }
+
+  async listChecks() {
+    return assert.fail("PR登録でCI結果を読んではならない");
+  }
 }
 
 const openDatabase = () => {
@@ -70,6 +78,7 @@ const createService = (gateway: PullRequestGateway | null = github) =>
         exists: async () => true,
         isArchived: async (projectId) => archived.has(projectId),
         findRepository: async (projectId, repositoryId) => repositories.get(`${projectId}:${repositoryId}`) ?? null,
+        findRequiredChecks: async (projectId, repositoryId) => (repositories.has(`${projectId}:${repositoryId}`) ? [] : null),
       },
       outcomeTargets: { isTarget: async () => assert.fail("PR登録でOutcome Targetを読んではならない") },
     })),

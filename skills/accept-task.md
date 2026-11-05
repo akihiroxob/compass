@@ -2,11 +2,12 @@
 name: accept-task
 description: manager が Task の成果を要件と Project 全体の整合性に照らして最終受入し、Accept または Reject を判断する。
 status: active
-version: 2
+version: 3
 requiredKnowledge:
   - tips/acceptance.md
   - tips/task-writing.md
   - tips/verification.md
+  - tips/github-workflow.md
 requiredTools:
   - compass:list_stories
   - compass:list_tasks
@@ -18,6 +19,7 @@ requiredTools:
   - compass:add_task_comment
   - compass:accept_task
   - compass:reject_task
+  - compass:list_task_pull_requests
 ---
 
 # accept-task
@@ -38,6 +40,7 @@ reviewer の実装レビューを追認するのではなく、「この成果�
 6. 判断根拠と確認した証拠を整理する。補足を残す必要があれば `add_task_comment` を使う。
 7. 両方を満たす場合だけ `accept_task` を呼ぶ。不足があれば、期待との差分と再受入条件を reason に含めて `reject_task` を呼ぶ。
    Repository の成果物を受け入れる場合（相談の文書反映Taskなど）は、確認した Repository・完全な commit SHA・変更した path・PR URL を `deliverables` に受入成果物として残す。確認していない成果物は記載しない。
+   PR のある Task は `knowledge/tips/github-workflow.md` の Manager の手順で、レビュー済み head の merge commit を対象に AC を確認し、`verification`（merge SHA・根拠）を渡す。
 8. 判断材料が取得できず判定を中断する場合は、理由を添えて `release_claim` を呼ぶ。
 
 ## Success Criteria
