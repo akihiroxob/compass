@@ -13,7 +13,7 @@ import {
   activitySourceLabels,
   activityStreamPath,
   activityStreamSearch,
-  activityStreamTypeGroups,
+  activityStreamTypeOptions,
   activityStreamTypeLabel,
   activityTypeNote,
   clearedActivityStreamSearch,
@@ -129,7 +129,7 @@ export const WorkspaceActivityStream = ({ workspaceId, projects, resources }: { 
   const invalidPeriod = isActivityPeriodInvalid(filter);
   const filterKey = `${workspaceId}#${JSON.stringify(filter)}`;
   const [list, dispatch] = useReducer(activityListReducer, filterKey, initialActivityList);
-  const { activities, nextCursor, matchedCount, error, moreError, pending, reachedEnd } = list.key === filterKey ? list : initialActivityList(filterKey);
+  const { activities, nextCursor, matchedCount, types, error, moreError, pending, reachedEnd } = list.key === filterKey ? list : initialActivityList(filterKey);
   const generationRef = useRef(0);
   useEffect(() => {
     const generation = ++generationRef.current;
@@ -156,7 +156,6 @@ export const WorkspaceActivityStream = ({ workspaceId, projects, resources }: { 
   const open = (target: Pick<ActivitySummary, "id" | "projectId"> | null) => navigate({ search: activityRecordSearch(searchParams, target) });
   const filtered = hasActivityStreamFilter(filter);
   const knownTarget = filter.target === null || filter.target === workspaceCommonTarget || projects?.some(({ id }) => id === filter.target) === true;
-  const knownType = filter.type === null || activityStreamTypeLabel(filter.type) !== null;
   return (
     <section className="detail-section" aria-labelledby="activity-heading">
       <h2 id="activity-heading">Activity</h2>
@@ -177,12 +176,11 @@ export const WorkspaceActivityStream = ({ workspaceId, projects, resources }: { 
         <Field label="種別" layout="inline">
           <Select size="sm" value={filter.type ?? ""} onChange={(event) => apply({ type: event.target.value || null })}>
             <option value="">すべて</option>
-            {activityStreamTypeGroups.map((group) => (
+            {activityStreamTypeOptions(types, filter.type).map((group) => (
               <optgroup key={group.label} label={group.label}>
                 {group.types.map((item) => <option key={item.type} value={item.type}>{item.label}</option>)}
               </optgroup>
             ))}
-            {!knownType && <optgroup label="記録"><option value={filter.type!}>{filter.type}</option></optgroup>}
           </Select>
         </Field>
         <Field label="開始日" layout="inline"><TextInput type="date" size="sm" value={filter.from ?? ""} max={filter.to ?? undefined} onChange={(event) => apply({ from: event.target.value || null })} /></Field>
@@ -215,7 +213,9 @@ export const WorkspaceActivityStream = ({ workspaceId, projects, resources }: { 
                       onClick={(event) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey) { event.preventDefault(); open(activity); } }}
                     >{activity.summary}</Link>
                     <small>
-                      {typeText(activity.type)} ・ {targetLabel(activity, projects)} ・ {describePrincipal(activity.principalId)}（{activity.role}） ・ {formatTime(activity.occurredAt)}
+                      {filter.type === null
+                        ? <Link to={{ search: activityStreamSearch(searchParams, { type: activity.type }) }}>{typeText(activity.type)}<span className="visually-hidden">（この種別だけを表示）</span></Link>
+                        : typeText(activity.type)} ・ {targetLabel(activity, projects)} ・ {describePrincipal(activity.principalId)}（{activity.role}） ・ {formatTime(activity.occurredAt)}
                     </small>
                   </li>
                 ))}

@@ -10,6 +10,7 @@ import {
   activityRecordSearch,
   activityStreamPath,
   activityStreamSearch,
+  activityStreamTypeOptions,
   activityTypeNote,
   appendActivityPage,
   clearedActivityStreamSearch,
@@ -216,4 +217,13 @@ test("一覧は新しい順を保って日付ごとにまとめ、Taskの受入�
   assert.deepEqual(groups.map(({ date, activities }) => [date, activities.map(({ id }) => id)]), [["2026-11-02", ["c", "b"]], ["2026-11-01", ["a"]]]);
   assert.match(activityTypeNote("task.accepted") ?? "", /公開.*Outcomeの達成を意味しません/);
   assert.equal(activityTypeNote("story.created"), null);
+});
+
+test("横断一覧の種別候補は固定の状態変更にサーバー全体の種別と選択中の種別を加える", () => {
+  const labels = (options: ReturnType<typeof activityStreamTypeOptions>) => options.find(({ label }) => label === "その他の記録")?.types.map(({ type }) => type);
+  assert.equal(labels(activityStreamTypeOptions(null, null)), undefined);
+  assert.equal(labels(activityStreamTypeOptions(["task.created", "intent.created"], null)), undefined);
+  assert.deepEqual(labels(activityStreamTypeOptions(["task.created", "consultation.followup_requested", "consultation.followup_reflected"], null)), ["consultation.followup_reflected", "consultation.followup_requested"]);
+  assert.deepEqual(labels(activityStreamTypeOptions(null, "research.summary")), ["research.summary"]);
+  assert.deepEqual(labels(activityStreamTypeOptions(["research.summary"], "research.summary")), ["research.summary"]);
 });

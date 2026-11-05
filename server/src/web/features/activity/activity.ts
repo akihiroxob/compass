@@ -24,7 +24,7 @@ export type ActivitySummary = {
 };
 
 export type Activity = Omit<ActivitySummary, "hasBody"> & { body: string | null };
-export type ActivityPage = { activities: ActivitySummary[]; nextCursor: number | string | null; matchedCount?: number };
+export type ActivityPage = { activities: ActivitySummary[]; nextCursor: number | string | null; matchedCount?: number; types?: string[] };
 export type ActivityDetail = { activity: Activity; corrections: ActivitySummary[] };
 
 /** Projectに登録済みのRepository・Resource。`project_resource`参照の表示名・URLを引く。 */
@@ -168,6 +168,8 @@ export type ActivityListState = {
   nextCursor: number | string | null;
   /** 条件に一致する件数（横断一覧だけ）。 */
   matchedCount: number | null;
+  /** 種別の候補（種別以外の条件に一致する、サーバー全体の種別）。 */
+  types: string[] | null;
   error: string | null;
   moreError: string | null;
   pending: boolean;
@@ -189,6 +191,7 @@ export const initialActivityList = (key: string, generation = 0): ActivityListSt
   activities: null,
   nextCursor: null,
   matchedCount: null,
+  types: null,
   error: null,
   moreError: null,
   pending: false,
@@ -200,7 +203,7 @@ export const activityListReducer = (state: ActivityListState, action: ActivityLi
   if (action.generation !== state.generation) return state;
   switch (action.kind) {
     case "loaded":
-      return { ...state, activities: action.page.activities, nextCursor: action.page.nextCursor, matchedCount: action.page.matchedCount ?? null };
+      return { ...state, activities: action.page.activities, nextCursor: action.page.nextCursor, matchedCount: action.page.matchedCount ?? null, types: action.page.types ?? null };
     case "failed":
       return { ...state, error: action.message };
     case "moreStarted":
@@ -220,7 +223,7 @@ export const activityListReducer = (state: ActivityListState, action: ActivityLi
 
 // ---- Workspace横断Activity（`GET /api/workspaces/:workspaceId/activity-stream`）。条件はURLのqueryで持ち、再読込・共有・詳細からの復帰で保たれる。 ----
 
-export type ActivityStreamPage = { activities: ActivitySummary[]; nextCursor: string | null; matchedCount: number };
+export type ActivityStreamPage = { activities: ActivitySummary[]; nextCursor: string | null; matchedCount: number; types: string[] };
 
 /**
  * 横断一覧の条件。`target`はnull=すべての記録（Workspace共通と所属全Project）、`"workspace"`=Workspace共通だけ、それ以外はProjectのID。
@@ -291,6 +294,16 @@ export const activityStreamPath = (workspaceId: string, filter: ActivityStreamFi
 
 /** 横断一覧の種別。Work（Project）とDirection（Workspace）の状態変更を並べる。明示記録の種別は自由なため、一覧の種別から絞り込む。 */
 export const activityStreamTypeGroups = [...activityTypeGroups.project, ...activityTypeGroups.workspace];
+/**
+ * 種別選択の候補。固定の状態変更の種別に、サーバーが返した種別（明示記録・相談等）と選択中の種別を加える。
+ * 状態変更の種別は一覧に無くても選べる（固定の区分）。その他は「記録」区分にまとめる。
+ */
+export const activityStreamTypeOptions = (serverTypes: readonly string[] | null, selected: string | null): { label: string; types: { type: string; label: string }[] }[] => {
+  const extra = new Set(serverTypes ?? []);
+  if (selected !== null) extra.add(selected);
+  const others = [...extra].filter((type) => activityStreamTypeLabel(type) === null).sort();
+  return others.length === 0 ? activityStreamTypeGroups : [...activityStreamTypeGroups, { label: "その他の記録", types: others.map((type) => ({ type, label: type })) }];
+};
 export const activityStreamTypeLabel = (type: string): string | null => activityTypeLabel("project", type) ?? activityTypeLabel("workspace", type);
 
 /** 記録1件の詳細を引くscope。Workspace共通はWorkspace、Projectの記録はProjectのActivity。 */
