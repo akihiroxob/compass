@@ -10,10 +10,10 @@ import { LinkButton } from "../../components/ui";
 
 // ---- Outcome（Step 3）。Evaluation・Execution・Decision・Research・Strategistは未実装のため、達成率や進行状況を表示しない。 ----
 
-/** 所属WorkspaceのIntentのOutcome一覧の取得。Project詳細とIntent詳細の両方が使う。 */
-const useOutcomes = (workspaceId: string, intentId: string) => {
+/** 所属WorkspaceのIntentのOutcome一覧の取得。Project詳細とIntent詳細の両方が使う。syncKeyが変わると再取得する（Intentの放棄・意味更新など、Outcomeの状態へ波及する操作の後）。 */
+const useOutcomes = (workspaceId: string, intentId: string, syncKey = "") => {
   const [state, setState] = useState<{ outcomes: Outcome[] | null; error: string | null }>({ outcomes: null, error: null });
-  useEffect(() => { request<{ outcomes: Outcome[] }>(workspaceApiPath(workspaceId, `/intents/${intentId}/outcomes`)).then(({ outcomes }) => setState({ outcomes, error: null })).catch((reason: unknown) => setState({ outcomes: null, error: loadFailureMessage(classifyError(reason), "WorkspaceまたはIntentが見つかりません。") })); }, [workspaceId, intentId]);
+  useEffect(() => { request<{ outcomes: Outcome[] }>(workspaceApiPath(workspaceId, `/intents/${intentId}/outcomes`)).then(({ outcomes }) => setState({ outcomes, error: null })).catch((reason: unknown) => setState({ outcomes: null, error: loadFailureMessage(classifyError(reason), "WorkspaceまたはIntentが見つかりません。") })); }, [workspaceId, intentId, syncKey]);
   return state;
 };
 
@@ -27,7 +27,7 @@ export const ActiveOutcomes = ({ projectId, workspaceId, intentId, meaningVersio
 
 export const OutcomeSection = ({ projectId, workspaceId, intent, access }: { projectId: string; workspaceId: string; intent: { id: string; status: string; meaningVersion?: number }; access: ProjectOperationAccess | "loading" | "error" }) => {
   const readOnly = access !== "allowed";
-  const { outcomes, error } = useOutcomes(workspaceId, intent.id); const { active, past } = splitOutcomes(outcomes ?? []);
+  const { outcomes, error } = useOutcomes(workspaceId, intent.id, `${intent.status}:${intent.meaningVersion ?? ""}`); const { active, past } = splitOutcomes(outcomes ?? []);
   return <section className="detail-section" aria-labelledby="outcome-heading"><h2 id="outcome-heading">Outcome</h2><p className="section-note">Intentへ近づくために達成すべき、観測可能な状態です。Strategist（またはHuman）の判断結果として、成功条件とともに登録します。</p>
     {error ? <ErrorState message={`Outcomeの読み込みに失敗しました: ${error}`} /> : outcomes === null ? <Loading /> : <>
       {active.length ? <OutcomeLinks projectId={projectId} outcomes={active} meaningVersion={intent.meaningVersion} /> : <p className="unset">{outcomeEmptyMessage(intent.status, access, past.length > 0)}</p>}
