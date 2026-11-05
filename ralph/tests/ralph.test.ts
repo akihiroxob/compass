@@ -370,6 +370,11 @@ test("provider失敗を再試行し、停止したAgentのClaimは期限後に�
     const loop = it.startRalph(["auto"], { actions: { worker: ["fail", "claim-only", "complete"] } });
     const loopExit = exited(loop);
     await waitFor(async () => (await it.taskStatus()) === "wait_accept", "the Task to be reviewed");
+    // レビュー完了はProvider終了と終了報告より先に成立する。対象Reviewer runの終了記録まで待ってから停止する。
+    await waitFor(
+      () => it.agentRuns().some((run) => run.principal_id === "reviewer-1" && run.status === "succeeded"),
+      "the reviewer run to be finished",
+    );
     loop.kill("SIGTERM");
     const result = await loopExit;
     assert.equal(result.code, 143, result.stderr);
