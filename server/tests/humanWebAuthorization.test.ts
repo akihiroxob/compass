@@ -50,7 +50,7 @@ const seedProject = async (ctx: Setup, name = "Compass") => {
       await send(ctx, owner, "POST", `/api/workspaces/${project.workspaceId}/intents/${intent.id}/outcomes`, {
         title: "O",
         description: "D",
-        rationale: "R",
+        intentVersion: 1, rationale: "R",
         successCriteria: [{ description: "C", measurement: "M" }],
       }),
     )

@@ -100,7 +100,7 @@ const seedProject = async ({ database, services, app }: Kit, completionDefinitio
 const outcomeInput = () => ({
   title: next("Outcome"),
   description: "Claims are exclusive.",
-  rationale: "Rework",
+  intentVersion: 1, rationale: "Rework",
   successCriteria: [
     { description: "criterion 1", measurement: "Measure 1", target: "= 0" },
     { description: "criterion 2", measurement: "Measure 2" },
@@ -169,7 +169,7 @@ const seedEvaluated = async (kit: Kit, verdicts: Verdict[], completionDefinition
 const decisionArgs = (workspaceId: string, intentId: string, overrides: Record<string, unknown> = {}) => ({
   workspaceId,
   intentId,
-  judgment: "Decide from the Evaluation",
+  intentVersion: 1, judgment: "Decide from the Evaluation",
   reason: "The Evaluation shows the observed result",
   requestKey: next("decision"),
   runRef: "run-strategist",

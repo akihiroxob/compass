@@ -123,7 +123,7 @@ const decisionArgs = (workspaceId: string, intentId: string, overrides: object =
   workspaceId,
   intentId,
   type: "additional_research",
-  judgment: "Need more evidence before choosing an Outcome",
+  intentVersion: 1, judgment: "Need more evidence before choosing an Outcome",
   reason: "The current Synthesis leaves the renew-storm risk unresolved",
   options: ["Proceed now", "Request more research"],
   research: {
@@ -259,7 +259,7 @@ test("decide_next_outcomeはDecisionとOutcomeを1回のtransactionで保存し�
   const outcomeInput = {
     title: "No duplicate claims",
     description: "Claims are exclusive.",
-    rationale: "Duplicate claims cause rework.",
+    intentVersion: 1, rationale: "Duplicate claims cause rework.",
     successCriteria: [{ description: "duplicate_claim_count = 0", measurement: "Count duplicates", target: "= 0" }],
   };
 
@@ -269,7 +269,7 @@ test("decide_next_outcomeはDecisionとOutcomeを1回のtransactionで保存し�
     {
       workspaceId: project.workspaceId,
       intentId: intent.id,
-      judgment: "Adopt lease-based claiming as the next Outcome",
+      intentVersion: 1, judgment: "Adopt lease-based claiming as the next Outcome",
       reason: "Synthesis shows leases avoid stuck claims",
       options: ["Do nothing", "Adopt lease-based claiming"],
       usedSyntheses: [{ synthesisId, version: 1 }],
@@ -300,7 +300,7 @@ test("decide_next_outcomeはDecisionとOutcomeを1回のtransactionで保存し�
     {
       workspaceId: project.workspaceId,
       intentId: intent.id,
-      judgment: "Adopt lease-based claiming as the next Outcome",
+      intentVersion: 1, judgment: "Adopt lease-based claiming as the next Outcome",
       reason: "Synthesis shows leases avoid stuck claims",
       options: ["Do nothing", "Adopt lease-based claiming"],
       usedSyntheses: [{ synthesisId, version: 1 }],
@@ -322,7 +322,7 @@ test("decide_next_outcomeはDecisionとOutcomeを1回のtransactionで保存し�
     {
       workspaceId: project.workspaceId,
       intentId: intent.id,
-      judgment: "Adopt lease-based claiming as the next Outcome",
+      intentVersion: 1, judgment: "Adopt lease-based claiming as the next Outcome",
       reason: "Synthesis shows leases avoid stuck claims",
       requestKey: "next-outcome-1",
       runRef: "strategist-run-2",
@@ -362,14 +362,14 @@ test("create_direction_decision・decide_next_outcomeはStrategist Grant必須�
   const nextOutcomeArgs = {
     workspaceId: project.workspaceId,
     intentId: intent.id,
-    judgment: "J",
+    intentVersion: 1, judgment: "J",
     reason: "R",
     requestKey: "guarded-next-outcome",
     runRef: "run-1",
     outcome: {
       title: "T",
       description: "D",
-      rationale: "R",
+      intentVersion: 1, rationale: "R",
       successCriteria: [{ description: "d", measurement: "m" }],
     },
   };

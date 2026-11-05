@@ -80,7 +80,7 @@ const grant = async (database: ReturnType<typeof createDatabase>, app: App, proj
 const outcomeInput = {
   title: "No duplicate claims",
   description: "Claims are exclusive.",
-  rationale: "Duplicate claims cause rework.",
+  intentVersion: 1, rationale: "Duplicate claims cause rework.",
   successCriteria: [
     { description: "duplicate_claim_count = 0", measurement: "Count duplicates", target: "= 0" },
     { description: "Audited", measurement: "Change log entry exists" },

@@ -38,9 +38,9 @@ MCPの`create_intent` / `update_intent`は、外部MCPクライアントでHuman
 
 Intentは`version`（作成時1。内容が変わる保存のたびに+1。内容が変わらない保存は進めない）と`meaningVersion`（実現したい状態・達成条件が最後に変わった版）を持つ。版ごとの内容・`meaningChanged`・`reason`・変更主体（`changedBy` / `changedByRole`）は追記専用の`intent_revision`に残り、`GET /api/workspaces/:workspaceId/intents/:intentId/revisions`とMCP `list_intent_revisions`で新しい順に読める。変更主体は認可済みの入口が固定した主体で、Humanは`human:{humanUserId}`（operator）、Agentは各Principalとroleであり、Agentの操作をHumanとして記録しない。
 
-Outcome・Direction Decision・Outcome Evaluationは作成時の`intentVersion`を保持し、後から書き換えない（Evaluationは評価したOutcomeの`intentVersion`）。Outcome作成、判断（`create_direction_decision` / `decide_next_outcome`）、`update_outcome`は任意の`intentVersion`を受け取り、現在版と異なれば`CONFLICT`にする。`update_outcome`で現在版を渡すと、そのOutcomeの`intentVersion`を現在版へ進める（確認の記録）。
+Outcome・Direction Decision・Outcome Evaluationは作成時の`intentVersion`を保持し、後から書き換えない（Evaluationは評価したOutcomeの`intentVersion`）。Outcome作成（`create_outcome`）と判断（`create_direction_decision` / `decide_next_outcome`）は判断の元にした`intentVersion`が必須で、省略は入力エラー、現在版と異なれば`CONFLICT`にする（省略して現在版へ暗黙に付け替えない）。`update_outcome`の`intentVersion`は現在版を確認した記録で任意だが、指定すれば現在版と一致が必要。`update_outcome`で現在版を渡すと、そのOutcomeの`intentVersion`を現在版へ進める（確認の記録）。
 
-`meaningVersion`が未完了（active）Outcomeの`intentVersion`より新しい場合、そのOutcomeは再計画対象（Orchestration Stateの`outcomes[].intentRevised`・Web UIの「再計画対象」）になる。Work・Task・Outcomeの状態は自動で変えず、StrategistがOutcomeを現在版で確認・取消・作り直しのいずれかで判断する。目標の終端（`abandon_intent`はOutcomeを`cancelled`にする）はOutcome・Taskを達成・完了にしない。判断の背景は [ADR 0007](adr/0007-intent-versioning.md)。
+`meaningVersion`が未完了（active）Outcomeの`intentVersion`より新しい場合、そのOutcomeは、Strategistの判断（Decision）の根拠になった後でも、再計画対象（Orchestration Stateの`outcomes[].intentRevised`・Web UIの「再計画対象」）になる。Work・Task・Outcomeの状態は自動で変えず、StrategistがOutcomeを現在版で確認・取消・作り直しのいずれかで判断する。目標の終端（`abandon_intent`はOutcomeを`cancelled`にする）はOutcome・Taskを達成・完了にしない。判断の背景は [ADR 0007](adr/0007-intent-versioning.md)。
 
 Web UIの編集フォームは画面を開いた時点の`version`を送り、変更理由（任意。Outcomeがある目標の意味変更では必須）を添える。競合時は入力を保持したまま「最新の内容を読み込む」で利用者が読み直しを選び、自動で上書きしない。Intent詳細と方向の目標カードに変更履歴（現在の版・変更者・理由・意味変更の版）を出す。
 

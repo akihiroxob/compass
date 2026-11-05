@@ -36,7 +36,7 @@ const execFileAsync = promisify(execFile);
 const outcomeInput = {
   title: "No duplicate claims",
   description: "Claims are exclusive.",
-  rationale: "Duplicate claims cause rework.",
+  intentVersion: 1, rationale: "Duplicate claims cause rework.",
   successCriteria: [
     { description: "duplicate_claim_count = 0", measurement: "Count duplicates", target: "= 0" },
     { description: "Audited", measurement: "Change log entry exists" },
@@ -350,9 +350,9 @@ test("権限なし・別Project・Grant取消・Bearerなし・Role不一致・�
 
     // 取消後は、同じAgentが次の呼び出しから拒否される（サーバー再起動なし）。作成済みOutcomeは残る。
     await withAgent(server.baseUrl, "strat-p", async (client) => {
-      assert.equal((await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput })).isError, undefined);
+      assert.equal((await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput, intentVersion: 2 })).isError, undefined);
       await revokeGrant(workspaceId, "strat-p");
-      assert.equal(errorCode(await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput })), "FORBIDDEN");
+      assert.equal(errorCode(await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput, intentVersion: 2 })), "FORBIDDEN");
       assert.equal(errorCode(await call(client, "get_strategist_context", { workspaceId })), "FORBIDDEN");
     });
 

@@ -11,7 +11,12 @@ export type DispatchSubject = { kind: "intent" | "evaluation" | "research_reques
 
 const openResearchStatuses = new Set(["requested", "running"]);
 
-type OutcomeProgress = { id: string; status: string; latestEvaluation: { id: string; decisionId: string | null } | null };
+type OutcomeProgress = {
+  id: string;
+  status: string;
+  latestEvaluation: { id: string; decisionId: string | null } | null;
+  intentRevised?: { meaningVersion: number } | null;
+};
 
 /** 最新 Evaluation が Direction Decision の根拠になった Outcome は、Strategist の判断で次へ進んだもの。 */
 const isDecided = (outcome: OutcomeProgress) => outcome.latestEvaluation?.decisionId != null;
@@ -31,7 +36,7 @@ const fingerprint = (parts: string[]) => createHash("sha256").update([...parts].
  */
 const intentStrategistOf = (outcomes: readonly OutcomeProgress[], intentResearchRequests: readonly OrchestrationResearchRequest[]) => ({
   version: fingerprint([
-    ...outcomes.map((outcome) => `outcome:${outcome.id}:${outcome.status}:${outcome.latestEvaluation?.id ?? ""}`),
+    ...outcomes.map((outcome) => `outcome:${outcome.id}:${outcome.status}:${outcome.latestEvaluation?.id ?? ""}:${outcome.intentRevised?.meaningVersion ?? ""}`),
     ...intentResearchRequests.map((request) => `research:${request.id}:${request.status}`),
   ]),
   reason:
@@ -131,11 +136,10 @@ export const planWorkspaceDispatches = (state: WorkspaceOrchestrationState): Wor
           `Outcome ${outcome.id} has an Evaluation awaiting a Direction Decision`, intent.id,
         );
       }
-      if (!isLive(outcome)) continue;
       const subject: DispatchSubject = { kind: "outcome", id: outcome.id };
 
       if (outcome.intentRevised) {
-        // 目標の意味が変わった。進行中の作業は止めず、Strategist が現在の Intent で Outcome を確認・取消・作り直す再計画対象にする。
+        // 目標の意味が変わった。進行中の作業は止めず、Strategist が現在の Intent で Outcome を確認・取消・作り直す再計画対象にする。判断済み（Decisionの根拠になった）active Outcomeも対象で、意味の版を key に含めるため変更前の起動記録とは衝突しない。
         // 版ごとに key が変わるため、同じ版では再起動せず、さらに意味が変われば再度起動する。
         workspaceDispatch(
           "strategist",
@@ -145,6 +149,8 @@ export const planWorkspaceDispatches = (state: WorkspaceOrchestrationState): Wor
           intent.id,
         );
       }
+      if (!isLive(outcome)) continue;
+
       if (outcome.evaluability.status === "no_targets") {
         workspaceDispatch("strategist", subject, ":no_targets", "Outcome has no Target Project", intent.id);
         continue;

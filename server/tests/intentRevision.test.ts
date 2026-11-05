@@ -82,7 +82,7 @@ const seedWorkspace = async ({ database, services, app }: Kit) => {
 const outcomeInput = () => ({
   title: next("Hidden outcome title"),
   description: "Hidden outcome description",
-  rationale: "Hidden rationale",
+  intentVersion: 1, rationale: "Hidden rationale",
   successCriteria: [{ description: "Hidden criterion", measurement: "Hidden measurement" }],
 });
 
@@ -169,10 +169,21 @@ test("目標の見直しは版・変更主体・理由を残し、Outcome・判�
     assert.equal(await taskStatus(), "todo");
 
     // 古い版の判断は競合にし、現在版の判断として扱わない。現在版なら判断は版を保持する。
-    const decision = { workspaceId: workspace.id, intentId: intent.id, type: "policy_proposal", judgment: "方針案", reason: "理由", requestKey: next("decision"), runRef: "run-1" };
+    const decision = { workspaceId: workspace.id, intentId: intent.id, type: "policy_proposal", intentVersion: 1, judgment: "方針案", reason: "理由", requestKey: next("decision"), runRef: "run-1" };
     assert.equal(errorCode(await callTool(app, "create_direction_decision", { ...decision, intentVersion: 1 }, "str")), "CONFLICT");
     const decided = ok(await callTool(app, "create_direction_decision", { ...decision, intentVersion: 3 }, "str"));
     assert.equal(decided.decision.intentVersion, 3);
+    // 版を省略した判断・Outcome作成は、現在版への暗黙の付け替えをせず拒否する（省略・古い版・現在版を区別する）。
+    const withoutVersion = <T extends { intentVersion: number }>({ intentVersion: _omitted, ...rest }: T) => rest;
+    const omittedDecision = await callTool(app, "create_direction_decision", withoutVersion({ ...decision, requestKey: next("decision-omitted") }), "str");
+    assert.equal(omittedDecision.isError, true);
+    assert.match(JSON.stringify(omittedDecision), /intentVersion/);
+    const omittedOutcome = await callTool(app, "create_outcome", withoutVersion({ workspaceId: workspace.id, intentId: intent.id, ...outcomeInput() }), "str");
+    assert.equal(omittedOutcome.isError, true);
+    assert.match(JSON.stringify(omittedOutcome), /intentVersion/);
+    const omittedNext = await callTool(app, "decide_next_outcome", withoutVersion({ ...decision, requestKey: next("next-omitted"), outcome: outcomeInput() }), "str");
+    assert.equal(omittedNext.isError, true);
+    assert.equal(ok(await callTool(app, "list_outcomes", { workspaceId: workspace.id, intentId: intent.id }, "str")).outcomes.length, 1, "省略した作成は何も保存しない");
     assert.equal(errorCode(await callTool(app, "create_outcome", { workspaceId: workspace.id, intentId: intent.id, ...outcomeInput(), intentVersion: 1 }, "str")), "CONFLICT");
 
     // Strategistが現在版を確認すると再計画対象から外れる。古い版での確認は競合。

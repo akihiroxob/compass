@@ -80,7 +80,7 @@ const outcomeCreateSchema = {
   successCriteria: z.array(
     z.object({ description: z.string(), measurement: z.string(), target: z.string().nullable().optional() }),
   ),
-  intentVersion: z.number().int().optional(),
+  intentVersion: z.number().int(),
 };
 
 const outcomeUpdateSchema = {
@@ -141,7 +141,7 @@ const usedSynthesisRefSchema = z.object({ synthesisId: z.string().min(1), versio
 const directionDecisionCommonSchema = {
   workspaceId: z.string().min(1),
   intentId: z.string().min(1),
-  intentVersion: z.number().int().optional(),
+  intentVersion: z.number().int(),
   judgment: z.string(),
   reason: z.string(),
   options: z.array(z.string()).optional(),

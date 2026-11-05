@@ -326,7 +326,7 @@ try {
     for (const role of ['strategist', 'evaluator']) await services.grantWorkspaceRoleUseCase.execute(workspace.id, { principalId: identities[role], role });
     const intent = await direction.createIntentUseCase.execute(workspace.id, { title: `${name} Intent`, desiredState: '各Projectの貢献と判断根拠が追跡できる' });
     const outcome = await direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
-      title: `${name} Outcome`, description: 'Managerの表示・参照検証専用。実運用の成果ではない。', rationale: '画面受入の前提データ',
+      title: `${name} Outcome`, description: 'Managerの表示・参照検証専用。実運用の成果ではない。', intentVersion: 1, rationale: '画面受入の前提データ',
       successCriteria: [
         { description: 'Target別のStoryとEvidenceを参照できる', measurement: 'Project別の保存データと画面リンクを照合する', target: '全Target' },
         { description: '権限に応じてWorkと編集導線が制限される', measurement: 'ownerとviewerで実API・実画面を比較する', target: '越権なし' },
@@ -359,7 +359,7 @@ try {
         criteria: outcome.successCriteria.map((criterion, index) => ({ criterionId: criterion.id, verdict: index === 0 ? 'met' : 'not_met',
           rationale: index === 0 ? '専用fixtureの保存済み参照' : '比較表示用の未充足判定。製品の不具合判定ではない。', evidenceIds })) });
       const decision = await direction.createDirectionDecisionUseCase.execute(workspace.id, identities.strategist, { intentId: intent.id, evaluationId: saved.evaluation.id,
-        type: 'additional_research', judgment: '権限差の検証条件を追加調査する', reason: '画面上でEvaluationとDecisionの関連を確認するfixture',
+        type: 'additional_research', intentVersion: 1, judgment: '権限差の検証条件を追加調査する', reason: '画面上でEvaluationとDecisionの関連を確認するfixture',
         requestKey: key('decision'), runRef: 'browser-preview-fixture', usedSyntheses: [{ synthesisId: synthesis.id, version: synthesis.version }],
         research: { question: 'viewerの見え方を比較する', scope: '専用プレビューのみ', completionCondition: 'アクセス制御を独立に検証できる', budgetTotal: 10 } });
       Object.assign(entry, { researchRequestId: request.id, evaluationId: saved.evaluation.id, decisionId: decision.decision.id,

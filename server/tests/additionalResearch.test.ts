@@ -88,7 +88,7 @@ const decisionArgs = (workspaceId: string, intentId: string, overrides: object =
   workspaceId,
   intentId,
   type: "additional_research",
-  judgment: "Evidence is insufficient to choose an Outcome",
+  intentVersion: 1, judgment: "Evidence is insufficient to choose an Outcome",
   reason: "The renew-storm risk is unresolved",
   options: ["Proceed now", "Research first"],
   research: plan,

@@ -59,7 +59,7 @@ Intent を作成しても Research Request は自動で作られない。Orchest
 
 ## Intent の意味が変わった Outcome の再計画
 
-起動指示の対象が Outcome で、理由が「Intent meaning changed」のときは、Intent の意味（`desiredState`・`completionDefinition`）が Outcome の根拠にした版より後に変わっている。`get_intent` と `list_intent_revisions` で変更の内容・理由・変更者を読み、現在の Intent に対して Outcome（`description`・Success Criteria）がまだ有効かを判断する。有効なら `update_outcome` に現在の `version` を `intentVersion` で渡して確認を記録する。無効なら `cancel_outcome` で取り消し、`decide_next_outcome` / `create_outcome`（`intentVersion` に現在版）で作り直す。進行中の Task は Strategist が書き換えず、取消・作り直しの後の Work は Manager が扱う。古い版の `intentVersion` を渡した判断は `CONFLICT` になるため、現在版を読み直す。
+起動指示の対象が Outcome で、理由が「Intent meaning changed」のときは、Intent の意味（`desiredState`・`completionDefinition`）が Outcome の根拠にした版より後に変わっている。`get_intent` と `list_intent_revisions` で変更の内容・理由・変更者を読み、現在の Intent に対して Outcome（`description`・Success Criteria）がまだ有効かを判断する。有効なら `update_outcome` に現在の `version` を `intentVersion` で渡して確認を記録する。無効なら `cancel_outcome` で取り消し、`decide_next_outcome` / `create_outcome`（`intentVersion` に現在版）で作り直す。進行中の Task は Strategist が書き換えず、取消・作り直しの後の Work は Manager が扱う。`create_outcome`・`create_direction_decision`・`decide_next_outcome` は判断の元にした `intentVersion`（`get_intent` の `version`）が必須で、省略は入力エラー、古い版は `CONFLICT` になるため、現在版を読み直す。
 
 ## Evaluation を受けた再計画・Intent 完了
 

@@ -35,7 +35,7 @@ type App = ReturnType<typeof createApp>;
 const outcomeInput = {
   title: "Result",
   description: "Result",
-  rationale: "Reason",
+  intentVersion: 1, rationale: "Reason",
   successCriteria: [{ description: "Done", measurement: "Check" }],
 };
 

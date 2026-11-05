@@ -82,7 +82,7 @@ const seedWorkspace = async ({ database, services, app }: Kit) => {
 const outcomeInput = () => ({
   title: next("Hidden outcome title"),
   description: "Hidden outcome description",
-  rationale: "Hidden rationale",
+  intentVersion: 1, rationale: "Hidden rationale",
   successCriteria: [{ description: "Hidden criterion", measurement: "Hidden measurement" }],
 });
 

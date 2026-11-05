@@ -322,3 +322,23 @@ test("Intentの意味が変わった未完了Outcomeは版ごとにStrategistの
   );
   assert.equal(withEmptyTarget.length, 2, "Targetなしの判断と再計画は別のkeyで起動する");
 });
+
+test("判断済みのactive Outcomeも意味の版が変われば再計画し、変更前の起動記録とkeyが衝突しない", () => {
+  const evaluation = { id: "e-1", decisionId: "d-1", createdAt: 1, targets: [] };
+  const state = (meaningVersion: number) =>
+    stateOf({
+      activeIntents: [{ id: "i-1", status: "active", version: meaningVersion, meaningVersion, updatedAt: 1 }],
+      outcomes: [
+        outcome("o-1", [target("p-a")], {
+          intentVersion: 1,
+          latestEvaluation: evaluation,
+          intentRevised: meaningVersion > 1 ? { outcomeIntentVersion: 1, meaningVersion } : null,
+        }),
+      ],
+    });
+  const before = planWorkspaceDispatches(state(1));
+  const after = planWorkspaceDispatches(state(2));
+  assert.ok(after.some(({ subject, key }) => subject.kind === "outcome" && /:intent_revised:2$/.test(key)), "判断済みでも再計画対象");
+  const beforeKeys = new Set(before.map(({ key }) => key));
+  assert.ok(after.every(({ key }) => !beforeKeys.has(key)), "変更前に成功した起動のkeyと一致しない");
+});

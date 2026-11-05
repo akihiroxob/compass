@@ -14,7 +14,7 @@ const outcomeInput = {
   title: "No duplicate claims",
   description: "Claims are exclusive.",
   hypothesis: "Exclusive claims make parallel work safe.",
-  rationale: "Duplicate claims are the main source of rework.",
+  intentVersion: 1, rationale: "Duplicate claims are the main source of rework.",
   successCriteria: [
     { description: "duplicate_claim_count = 0", measurement: "Count duplicate claims in the change log", target: "= 0" },
     { description: "All claims are audited", measurement: "Every claim has a change log entry" },
@@ -83,7 +83,7 @@ test("入力はtrimされ、hypothesis・targetの省略と空文字はnullに�
     title: "  Title  ",
     description: " D ",
     hypothesis: "   ",
-    rationale: " R ",
+    intentVersion: 1, rationale: " R ",
     successCriteria: [{ description: " c ", measurement: " m ", target: " " }],
   });
   assert.equal(created.title, "Title");
@@ -108,7 +108,7 @@ test("不正な入力はVALIDATION_ERRORで拒否し、OutcomeもCriterionも保
     [{ ...outcomeInput, title: "x".repeat(101) }, "title"],
     [{ ...outcomeInput, description: " " }, "description"],
     [{ ...outcomeInput, description: "x".repeat(2_001) }, "description"],
-    [{ ...outcomeInput, rationale: "" }, "rationale"],
+    [{ ...outcomeInput, intentVersion: 1, rationale: "" }, "rationale"],
     [{ ...outcomeInput, hypothesis: "x".repeat(2_001) }, "hypothesis"],
     [{ ...outcomeInput, successCriteria: [] }, "successCriteria"],
     [{ ...outcomeInput, successCriteria: criteria(11) }, "successCriteria"],
@@ -182,7 +182,7 @@ test("固定項目を含む更新はCONFLICTで拒否し、Outcomeと成功条�
     [{ successCriteria: [] }, "successCriteria"],
     [{ description: "Changed" }, "description"],
     [{ rationale: "Changed" }, "rationale"],
-    [{ title: "Renamed", description: "Changed", rationale: "Changed" }, "description,rationale"],
+    [{ title: "Renamed", description: "Changed", intentVersion: 1, rationale: "Changed" }, "description,rationale"],
   ];
   for (const [input, fixedFields] of attempts) {
     await assert.rejects(
@@ -381,7 +381,7 @@ test("Outcomeを持つIntentの意味変更は理由付きで新しい版にな�
   });
   assert.deepEqual([free.version, free.meaningVersion], [2, 2]);
 
-  const outcome = await services.createOutcomeUseCase.execute(project.workspaceId, intent.id, outcomeInput);
+  const outcome = await services.createOutcomeUseCase.execute(project.workspaceId, intent.id, { ...outcomeInput, intentVersion: 2 });
   assert.equal(outcome.intentVersion, 2);
   const reasonRequired = rejectsWith("VALIDATION_ERROR");
   await assert.rejects(services.updateIntentUseCase.execute(project.workspaceId, intent.id, { expectedVersion: 2, desiredState: "Changed" }), reasonRequired);

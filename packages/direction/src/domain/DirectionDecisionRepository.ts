@@ -10,7 +10,7 @@ import type { CreateOutcomeInput } from "./OutcomeRepository.ts";
 export type CreateDirectionDecisionInput = {
   type: DirectionDecisionRecordType;
   intentId: string;
-  intentVersion?: number;
+  intentVersion: number;
   judgment: string;
   reason: string;
   options: string[];
@@ -29,9 +29,9 @@ export type CreateDirectionDecisionInput = {
 };
 
 export type DecideNextOutcomeInput = {
-  outcome: CreateOutcomeInput;
+  outcome: Omit<CreateOutcomeInput, "intentVersion">;
   intentId: string;
-  intentVersion?: number;
+  intentVersion: number;
   judgment: string;
   reason: string;
   options: string[];

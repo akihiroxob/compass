@@ -20,7 +20,7 @@ import { createSignedInApp, seedLegacyProjectGrant, seedWorkspaceGrant } from ".
 
 const actor = { principalId: "tester", role: "operator" };
 const intentInput = { title: "Direction", desiredState: "Shared direction" };
-const outcomeInput = { title: "Result", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }] };
+const outcomeInput = { title: "Result", description: "Result", intentVersion: 1, rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }] };
 
 test("Workspace owns Intent/Outcome; active Intent and entity references are isolated by Workspace", async () => {
   const database = createDatabase(":memory:");

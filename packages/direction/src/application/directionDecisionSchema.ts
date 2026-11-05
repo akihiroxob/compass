@@ -17,8 +17,8 @@ const usedSynthesisSchema = z.object({
 
 const decisionCommonSchema = {
   intentId: idText,
-  /** 判断の元にしたIntentの版。指定した場合は現在版と一致するときだけ記録でき、古い版の判断は競合になる。 */
-  intentVersion: z.number().int().min(1).optional(),
+  /** 判断の元にしたIntentの版（必須）。現在版と一致するときだけ記録でき、古い版の判断は競合になる。省略して現在版へ暗黙に付け替えない。 */
+  intentVersion: z.number().int().min(1),
   judgment: trimmedText("judgment", 2_000),
   reason: trimmedText("reason", 4_000),
   options: z.array(trimmedText("option", 1_000)).max(20).default([]),

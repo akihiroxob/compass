@@ -378,7 +378,7 @@ test("Directionの重要な状態変更は同じtransactionで操作者付きの
   const decideInput = {
     workspaceId: project.workspaceId,
     intentId: intent.id,
-    judgment: "OIDCから着手する",
+    intentVersion: 2, judgment: "OIDCから着手する",
     reason: "既存IdPを使える",
     requestKey: "decide-1",
     runRef: "run-1",

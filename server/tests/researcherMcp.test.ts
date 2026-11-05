@@ -371,7 +371,7 @@ test("Researcherは Outcome・Project基盤設定・Intent を変更できない
     intentId: intent.id,
     title: "T",
     description: "D",
-    rationale: "R",
+    intentVersion: 1, rationale: "R",
     successCriteria: [{ description: "d", measurement: "m" }],
   });
   await rejected("update_project", { projectId: project.id, mission: "Loosen everything", constraints: [] });
@@ -382,7 +382,7 @@ test("Researcherは Outcome・Project基盤設定・Intent を変更できない
     workspaceId: project.workspaceId,
     intentId: intent.id,
     type: "additional_research",
-    judgment: "J",
+    intentVersion: 1, judgment: "J",
     reason: "R",
     research: { question: "Q", scope: "S", completionCondition: "C", budgetTotal: 10 },
     requestKey: "researcher-attempt-1",
@@ -391,14 +391,14 @@ test("Researcherは Outcome・Project基盤設定・Intent を変更できない
   await rejected("decide_next_outcome", {
     workspaceId: project.workspaceId,
     intentId: intent.id,
-    judgment: "J",
+    intentVersion: 1, judgment: "J",
     reason: "R",
     requestKey: "researcher-attempt-2",
     runRef: "run-1",
     outcome: {
       title: "T",
       description: "D",
-      rationale: "R",
+      intentVersion: 1, rationale: "R",
       successCriteria: [{ description: "d", measurement: "m" }],
     },
   });

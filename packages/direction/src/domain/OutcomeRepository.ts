@@ -4,8 +4,8 @@ import type { WorkspaceArchivedResult } from "./WorkspaceArchivedResult.ts";
 
 /** 検証済みの入力。検証規則（zod schema）はapplication層が持ち、parseの戻り値がこの型を満たすことを型検査で保証する。 */
 export type CreateOutcomeInput = {
-  /** 判断の元にしたIntentの版。指定した場合は現在版との一致を条件にし、古い版の判断は競合にする。 */
-  intentVersion?: number;
+  /** 判断の元にしたIntentの版（必須）。現在版との一致を条件にし、古い版の判断は競合にする。 */
+  intentVersion: number;
   title: string;
   description: string;
   hypothesis: string | null;

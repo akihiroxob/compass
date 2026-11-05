@@ -63,7 +63,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
-      if (input.intentVersion !== undefined && input.intentVersion !== intent.version) {
+      if (input.intentVersion !== intent.version) {
         return { kind: "intent_version_conflict", currentVersion: intent.version };
       }
       // 完了定義の無いIntentは、Outcomeの達成を完了と照合できない。完了定義はHumanがupdate_intent等で与える。
@@ -165,7 +165,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
-      if (input.intentVersion !== undefined && input.intentVersion !== intent.version) {
+      if (input.intentVersion !== intent.version) {
         return { kind: "intent_version_conflict", currentVersion: intent.version };
       }
 
@@ -197,7 +197,7 @@ export class SQLiteDirectionDecisionRepository implements DirectionDecisionRepos
         input.intentId,
         outcomeId,
         decisionId,
-        input.outcome,
+        { ...input.outcome, intentVersion: input.intentVersion },
         now,
         this.changeObserver,
       );

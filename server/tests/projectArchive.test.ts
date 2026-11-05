@@ -30,7 +30,7 @@ const actor = { principalId: "tester", role: "operator" };
 const outcomeInput = {
   title: "No duplicate claims",
   description: "Claims are exclusive.",
-  rationale: "Duplicate claims cause rework.",
+  intentVersion: 1, rationale: "Duplicate claims cause rework.",
   successCriteria: [{ description: "duplicate_claim_count = 0", measurement: "Count duplicates", target: "= 0" }],
 };
 
@@ -333,7 +333,7 @@ test("AC-11 Repositoryを直接呼んでも、archivedのProjectには何も書�
   assert.deepEqual(await intents.create(project.workspaceId, { title: "T", desiredState: "S", background: null, audience: null, constraints: null, completionDefinition: null, targetDate: null }, actor), { kind: "workspace_archived" });
   assert.deepEqual(await intents.update(project.workspaceId, intent.id, { expectedVersion: 1, title: "Changed" }, actor), { kind: "workspace_archived" });
   assert.deepEqual(await intents.abandon(project.workspaceId, intent.id, "x"), { kind: "workspace_archived" });
-  assert.deepEqual(await outcomes.create(project.workspaceId, intent.id, { ...outcomeInput, hypothesis: null, successCriteria: [{ description: "d", measurement: "m", target: null }] }), { kind: "workspace_archived" });
+  assert.deepEqual(await outcomes.create(project.workspaceId, intent.id, { ...outcomeInput, intentVersion: 1, hypothesis: null, successCriteria: [{ description: "d", measurement: "m", target: null }] }), { kind: "workspace_archived" });
   assert.deepEqual(await outcomes.update(project.workspaceId, intent.id, outcome.id, { title: "Changed" }), { kind: "workspace_archived" });
   assert.deepEqual(await outcomes.cancel(project.workspaceId, intent.id, outcome.id, "x"), { kind: "workspace_archived" });
   assert.deepEqual(await grants.grant(project.id, "strat-2", "strategist"), archived);

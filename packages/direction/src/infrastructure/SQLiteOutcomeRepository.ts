@@ -35,7 +35,7 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
-      if (input.intentVersion !== undefined && input.intentVersion !== intent.version) {
+      if (input.intentVersion !== intent.version) {
         return { kind: "intent_version_conflict", currentVersion: intent.version };
       }
 
