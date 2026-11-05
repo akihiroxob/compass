@@ -68,6 +68,7 @@ const publicationDto = (record: PublicationRecord, revisions: PublicationRevisio
     method: record.method,
     observedAt: record.observed_at,
     receivedAt: record.received_at,
+    sequence: record.sequence,
     principalId: record.principal_id,
     evidence: JSON.parse(record.evidence) as PublicationEvidence[],
     /** 記録時に判定した対象Commit。どちらにも無いCommitは判定していない。 */
@@ -177,6 +178,7 @@ export class RecordPublicationUseCase {
         method: input.method,
         evidence: JSON.stringify(input.evidence),
         received_at: this.clock(),
+        sequence: await store.nextPublicationSequence(projectId),
         principal_id: principalId,
       };
       const revisions = [...relations].map(([commit_sha, relation]) => ({ publication_id: record.id, commit_sha, relation }));
@@ -214,7 +216,7 @@ export class RecordPublicationUseCase {
   }
 
   private async superseded(store: WorkStore, record: PublicationRecord) {
-    const toObservation = (row: PublicationRecord) => ({ id: row.id, observedAt: row.observed_at, receivedAt: row.received_at });
+    const toObservation = (row: PublicationRecord) => ({ observedAt: row.observed_at, sequence: row.sequence });
     return (await store.listPublications(record.project_id)).some((other) =>
       other.id !== record.id && other.target === record.target && other.repository_id === record.repository_id &&
       isNewerObservation(toObservation(other), toObservation(record)));
@@ -274,7 +276,7 @@ export class ListProjectReleasesUseCase {
       repositoryId: record.repository_id,
       target: record.target,
       observedAt: record.observed_at,
-      receivedAt: record.received_at,
+      sequence: record.sequence,
       relations: new Map(revisions.filter((revision) => revision.publication_id === record.id)
         .map((revision) => [revision.commit_sha, revision.relation] as const)),
     }));

@@ -169,7 +169,9 @@ export const initializeWorkSchema = async (database: Kysely<WorkDatabase>): Prom
     .addColumn("evidence", "text", (column) => column.notNull())
     .addColumn("observed_at", "integer", (column) => column.notNull())
     .addColumn("received_at", "integer", (column) => column.notNull())
+    .addColumn("sequence", "integer", (column) => column.notNull())
     .addColumn("principal_id", "text", (column) => column.notNull())
+    .addUniqueConstraint("publication_record_sequence_unique", ["project_id", "sequence"])
     .addUniqueConstraint("publication_record_observation_unique", ["project_id", "repository_id", "target", "revision", "observed_at"])
     .execute();
   // 記録時に判定した、公開revisionと変更の対象Commitの関係。判定できなかったCommitは行を持たない。

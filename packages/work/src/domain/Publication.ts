@@ -35,8 +35,8 @@ export type PublicationObservation = {
   repositoryId: string;
   target: string;
   observedAt: number;
-  /** 受信順（同じ確認日時の記録の後勝ち）。 */
-  receivedAt: number;
+  /** 受付順（Project内で単調増加する永続化した連番。同じ確認日時の記録の後勝ち）。 */
+  sequence: number;
   relations: ReadonlyMap<string, CommitRelation>;
 };
 
@@ -52,9 +52,9 @@ export type TargetPublication = {
   publishedAt: number | null;
 };
 
-/** 同じ公開先・Repositoryでは、確認日時（同時刻は受信順）の新しい記録が現在の状態を表す。古い通知が後から届いても現在を戻さない。 */
-export const isNewerObservation = (a: Pick<PublicationObservation, "observedAt" | "receivedAt" | "id">, b: typeof a) =>
-  a.observedAt !== b.observedAt ? a.observedAt > b.observedAt : a.receivedAt !== b.receivedAt ? a.receivedAt > b.receivedAt : a.id > b.id;
+/** 同じ公開先・Repositoryでは、確認日時（同時刻は永続化した受付順）の新しい記録が現在の状態を表す。古い通知が後から届いても現在を戻さない。 */
+export const isNewerObservation = (a: Pick<PublicationObservation, "observedAt" | "sequence">, b: typeof a) =>
+  a.observedAt !== b.observedAt ? a.observedAt > b.observedAt : a.sequence > b.sequence;
 
 const allIncluded = (observation: PublicationObservation, commits: readonly string[]) =>
   commits.every((commit) => observation.relations.get(commit) === "included");

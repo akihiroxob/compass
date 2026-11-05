@@ -471,7 +471,13 @@ export class KyselyWorkStore implements WorkStore {
 
   listPublications(projectId: string): Promise<PublicationRecord[]> {
     return this.db.selectFrom("publication_record").selectAll().where("project_id", "=", projectId)
-      .orderBy("observed_at", "desc").orderBy("received_at", "desc").orderBy("id", "desc").execute();
+      .orderBy("observed_at", "desc").orderBy("sequence", "desc").execute();
+  }
+
+  async nextPublicationSequence(projectId: string): Promise<number> {
+    const row = await this.db.selectFrom("publication_record").select((eb) => eb.fn.max("sequence").as("max"))
+      .where("project_id", "=", projectId).executeTakeFirst();
+    return Number(row?.max ?? 0) + 1;
   }
 
   listPublicationRevisions(projectId: string): Promise<PublicationRevisionRecord[]> {

@@ -288,3 +288,36 @@ test("GitHubのcompare・commit応答を包含関係に変換し、無いcommit�
   assert.equal(await gateway.commitExists(repository, sha("c")), true);
   assert.equal(await gateway.commitExists(repository, sha("9")), false);
 });
+
+test("同じ確認日時・同じ受付時刻の通知は永続化した受付順で判定し、UUIDの大小に依存しない（異なるrevision・ロールバック・再送）", async () => {
+  const task = await seedTask("task", { pr: { number: 1, state: "merged", mergeSha: sha("c"), acceptedMergeSha: sha("c") } });
+  history.history = [sha("1"), sha("a"), sha("b"), sha("c"), sha("d")];
+  now = 20_000;
+  const same = { observedAt: 19_000 };
+  const currentRevisions = async () => (await releases()).publications.filter((publication) => publication.current).map((publication) => publication.revision);
+
+  // 受付順の2件目のUUIDが小さくなるようにしても、後に受け付けた記録が現在になる。
+  const originalUuid = crypto.randomUUID;
+  const uuids = ["ffffffff-ffff-4fff-8fff-ffffffffffff", "00000000-0000-4000-8000-000000000000"];
+  try {
+    (crypto as { randomUUID: () => string }).randomUUID = () => uuids.shift() ?? originalUuid.call(crypto);
+    const first = await record("deployer", { ...same, revision: sha("b") });
+    const second = await record("deployer", { ...same, revision: sha("c") });
+    assert.deepEqual([first.superseded, second.superseded], [false, false]);
+  } finally {
+    (crypto as { randomUUID: () => string }).randomUUID = originalUuid;
+  }
+  assert.deepEqual(await currentRevisions(), [sha("c")], "後から受け付けた記録が現在");
+  assert.equal((await changeOf(task)).publication.status, "published");
+
+  // 同時刻のロールバック通知（対象を含まないrevision）は、後に受け付ければ未公開に戻る。
+  await record("deployer", { ...same, revision: sha("a") });
+  assert.equal((await changeOf(task)).publication.status, "not_published");
+
+  // 古い再送は新しい記録を戻さず、順序も変えない。
+  const resent = await record("deployer", { ...same, revision: sha("c") });
+  assert.equal(resent.recorded, false);
+  assert.equal(resent.superseded, true);
+  assert.equal((await changeOf(task)).publication.status, "not_published");
+  assert.deepEqual(await currentRevisions(), [sha("a")]);
+});

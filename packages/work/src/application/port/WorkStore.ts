@@ -132,6 +132,8 @@ export type PublicationRecord = {
   observed_at: number;
   /** Compassが受け付けた時刻。 */
   received_at: number;
+  /** Project内で単調増加する受付順。同じ確認日時の記録の新旧を決める（時刻やIDの大小に依存しない）。 */
+  sequence: number;
   /** 記録したRuntime Credentialの主体。 */
   principal_id: string;
 };
@@ -309,6 +311,8 @@ export interface WorkStore {
 
   /** 同じ（Project・Repository・公開先・revision・確認日時）の公開記録。 */
   findPublication(key: Pick<PublicationRecord, "project_id" | "repository_id" | "target" | "revision" | "observed_at">): Promise<PublicationRecord | null>;
+  /** Project内で次の公開記録の受付順（transaction内で採番する）。 */
+  nextPublicationSequence(projectId: string): Promise<number>;
   insertPublication(record: PublicationRecord, revisions: PublicationRevisionRecord[]): Promise<void>;
   /** Projectの公開記録（確認日時・受信時刻の新しい順）。 */
   listPublications(projectId: string): Promise<PublicationRecord[]>;
