@@ -53,6 +53,9 @@ export const emptyOutcomeFormValues: OutcomeFormValues = {
   successCriteria: [emptyCriterion],
 };
 
+/** 作成リクエストの本文。判断の元にしたIntent版を必ず含め、サーバーが現在版と照合できるようにする。 */
+export const createOutcomeBody = (values: OutcomeFormValues, intentVersion: number) => ({ ...values, intentVersion });
+
 /** 保存済みOutcomeから編集フォームの初期値を作る。編集できるのはtitleとhypothesisだけで、他は表示専用。 */
 export const formValuesFromOutcome = (outcome: Outcome): OutcomeFormValues => ({
   title: outcome.title,

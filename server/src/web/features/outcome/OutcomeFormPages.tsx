@@ -2,12 +2,21 @@ import { Link, useParams } from "react-router-dom";
 import { jsonInit, jsonPost, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { WorkspaceDirectionGate } from "../access";
-import { emptyOutcomeFormValues, formValuesFromOutcome, outcomeStatusLabels, type Outcome } from "./outcome";
+import { createOutcomeBody, emptyOutcomeFormValues, formValuesFromOutcome, outcomeStatusLabels, type Outcome } from "./outcome";
 import { intentPath, outcomePath, workspaceApiPath } from "../../paths";
+import { useIntentPage } from "../intent/useIntentPage";
 import { OutcomeForm } from "./OutcomeForm";
 import { useOutcomePage } from "./useOutcomePage";
 
-export const OutcomeCreatePage = () => { const { projectId = "", intentId = "" } = useParams(); return <WorkspaceDirectionGate scope={{ projectId }} back={{ to: intentPath(projectId, intentId), label: "← Intent詳細" }}>{(workspaceId) => <OutcomeForm projectId={projectId} intentId={intentId} mode="create" initial={emptyOutcomeFormValues} heading={{ eyebrow: "New outcome", title: "Outcomeを登録", lede: "Strategist（またはHuman）の判断結果として、Intentへ近づくためのOutcomeと成功条件を登録します。Researchは必須ではありません。" }} submitLabel="Outcomeを登録" pendingLabel="登録中..." cancelTo={intentPath(projectId, intentId)} save={async (values) => (await request<{ outcome: Outcome }>(workspaceApiPath(workspaceId, `/intents/${intentId}/outcomes`), jsonPost(values))).outcome} />}</WorkspaceDirectionGate>; };
+export const OutcomeCreatePage = () => { const { projectId = "", intentId = "" } = useParams(); return <WorkspaceDirectionGate scope={{ projectId }} back={{ to: intentPath(projectId, intentId), label: "← Intent詳細" }}>{(workspaceId) => <OutcomeCreateForm projectId={projectId} workspaceId={workspaceId} intentId={intentId} />}</WorkspaceDirectionGate>; };
+
+/** 判断元のIntent版は画面を開いた時点のものを保持して送る。送信時に現在版へ付け替えず、更新されていればサーバーが競合として拒否する。 */
+const OutcomeCreateForm = ({ projectId, workspaceId, intentId }: { projectId: string; workspaceId: string; intentId: string }) => {
+  const { intent, error } = useIntentPage(workspaceId, intentId);
+  if (error) return <main className="narrow"><Link to={intentPath(projectId, intentId)} className="back-link">← Intent詳細</Link><ErrorState message={error} /></main>;
+  if (!intent) return <main className="narrow"><Loading /></main>;
+  return <OutcomeForm projectId={projectId} intentId={intentId} mode="create" initial={emptyOutcomeFormValues} heading={{ eyebrow: "New outcome", title: "Outcomeを登録", lede: `目標の版 ${intent.version} を根拠に、Strategist（またはHuman）の判断結果として、Intentへ近づくためのOutcomeと成功条件を登録します。Researchは必須ではありません。` }} submitLabel="Outcomeを登録" pendingLabel="登録中..." cancelTo={intentPath(projectId, intentId)} save={async (values) => (await request<{ outcome: Outcome }>(workspaceApiPath(workspaceId, `/intents/${intentId}/outcomes`), jsonPost(createOutcomeBody(values, intent.version)))).outcome} />;
+};
 
 export const OutcomeEditPage = () => { const { projectId = "", intentId = "", outcomeId = "" } = useParams(); return <WorkspaceDirectionGate scope={{ projectId }} back={{ to: outcomePath(projectId, intentId, outcomeId), label: "← Outcome詳細" }}>{(workspaceId) => <OutcomeEditForm projectId={projectId} workspaceId={workspaceId} intentId={intentId} outcomeId={outcomeId} />}</WorkspaceDirectionGate>; };
 
