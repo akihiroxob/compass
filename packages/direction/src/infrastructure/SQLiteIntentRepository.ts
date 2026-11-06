@@ -40,14 +40,6 @@ export class SQLiteIntentRepository implements IntentRepository {
   async create(workspaceId: string, input: CreateIntentInput): Promise<CreateIntentResult> {
     return this.database.transaction().execute(async (transaction): Promise<CreateIntentResult> => {
       if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
-      const active = await transaction
-        .selectFrom("intent")
-        .select("id")
-        .where("workspace_id", "=", workspaceId)
-        .where("status", "=", "active")
-        .executeTakeFirst();
-      if (active) return { kind: "active_exists", activeIntentId: active.id };
-
       const now = Date.now();
       const row = await transaction
         .insertInto("intent")

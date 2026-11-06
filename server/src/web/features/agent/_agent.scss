@@ -40,7 +40,7 @@
 .agent-toolbar .agent-fetched-at { margin-right: auto; color: var(--color-text-muted); font-size: var(--text-note); font-variant-numeric: tabular-nums; }
 .agent-roles { display: flex; flex-wrap: wrap; gap: var(--space-2xs); }
 
-// 一覧。PCは「名前・Role・担当範囲」「Credential」「現在の作業」の3列、狭い画面は縦に積む。
+// 一覧。PCは「名前・Role・担当範囲」と「実行状況・Credential・現在の作業」の列、狭い画面は縦に積む。
 .agent-list { gap: var(--space-sm); margin-bottom: var(--space-lg); }
 .agent-card {
   @include panel;
@@ -76,7 +76,7 @@
 }
 .agent-card-facts {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, .8fr) minmax(0, 1.3fr);
   gap: var(--space-sm) var(--space-md);
   @include narrow { grid-template-columns: minmax(0, 1fr); }
 }
@@ -110,3 +110,26 @@
 // `.section-note`は見出し直下用の負のmarginを持つため、状態の行の後では通常の間隔に戻す。
 .agent-credential-summary + .section-note { margin-top: var(--space-xs); }
 .agent-warning { margin: var(--space-sm) 0 0; color: var(--color-danger); font-size: var(--text-note); }
+
+// 実行状況（報告された観測）。badgeの後に観測時刻・理由、詳細ではrunの根拠と履歴を並べる。
+.agent-card-facts .agent-execution-reason { line-height: 1.5; overflow-wrap: anywhere; }
+.agent-execution-state { margin: 0 0 var(--space-sm); line-height: 1.6; overflow-wrap: anywhere; }
+.agent-execution-state + .agent-run-facts { margin-bottom: var(--space-sm); }
+.agent-run-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2xs) var(--space-sm);
+  margin: 0;
+  font-size: var(--text-note);
+  > div { display: contents; }
+  dt { color: var(--color-text-muted); }
+  dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  @include narrow { grid-template-columns: minmax(0, 1fr); dd { margin-bottom: var(--space-2xs); } }
+}
+.agent-run-list {
+  @include unstyled-list;
+  display: grid;
+  gap: var(--space-sm);
+  > li { @include list-item; display: grid; gap: var(--space-xs); justify-items: start; }
+  .agent-run-facts { width: 100%; }
+}

@@ -1,6 +1,7 @@
 import { optionalText, parseWith, trimmedText } from "@compass/shared";
 import { z } from "zod";
 import { activityEntityKinds, type ActivityReference, type ActivityTarget, type ActivityTargetKind } from "../domain/Activity.ts";
+import type { ActivityStreamPosition } from "./port/ActivityStore.ts";
 
 export const maximumActivitySummaryLength = 500;
 export const maximumActivityBodyLength = 20_000;
@@ -101,3 +102,46 @@ const activityQuerySchema = z
 export type ActivityQueryInput = z.input<typeof activityQuerySchema>;
 
 export const parseActivityQuery = (input: unknown) => parseWith(activityQuerySchema, input ?? {}, "Activity query");
+
+export const maximumActivitySearchLength = 200;
+
+/** 横断取得の位置。`{発生時刻}.{cursor}`の不透明な文字列で、応答の`nextCursor`をそのまま渡す。 */
+const streamCursorPattern = /^(\d{1,16})\.(\d{1,16})$/;
+export const formatActivityStreamCursor = ({ occurredAt, cursor }: ActivityStreamPosition): string => `${occurredAt}.${cursor}`;
+
+const streamCursor = z
+  .string()
+  .regex(streamCursorPattern, "cursor must be a value returned as nextCursor")
+  .transform((value): ActivityStreamPosition => {
+    const [, occurredAt, cursor] = streamCursorPattern.exec(value)!;
+    return { occurredAt: Number(occurredAt), cursor: Number(cursor) };
+  });
+
+const activityStreamQuerySchema = z
+  .object({
+    after: streamCursor.optional(),
+    before: streamCursor.optional(),
+    limit: z.number().int().min(1).max(maximumActivityPageSize).default(defaultActivityPageSize),
+    projectId: identifier("projectId").optional(),
+    workspaceOnly: z.boolean().optional(),
+    type: activityType.optional(),
+    from: z.number().int().min(0).optional(),
+    to: z.number().int().min(0).optional(),
+    text: trimmedText("text", maximumActivitySearchLength).optional(),
+  })
+  .strict()
+  .refine((query) => query.after === undefined || query.before === undefined, {
+    message: "after and before cannot be combined",
+    path: ["before"],
+  })
+  .refine((query) => query.projectId === undefined || query.workspaceOnly !== true, {
+    message: "projectId and workspaceOnly cannot be combined",
+    path: ["workspaceOnly"],
+  })
+  .refine((query) => query.from === undefined || query.to === undefined || query.from <= query.to, {
+    message: "from must not be later than to",
+    path: ["to"],
+  });
+
+export type ActivityStreamQueryInput = z.input<typeof activityStreamQuerySchema>;
+export const parseActivityStreamQuery = (input: unknown) => parseWith(activityStreamQuerySchema, input ?? {}, "Activity stream query");

@@ -39,9 +39,9 @@ test("Activeなintentと過去のIntentを分け、過去は受け取った順�
   const active = intent({ id: "a" });
   const abandoned = intent({ id: "b", status: "abandoned" });
   const achieved = intent({ id: "c", status: "achieved" });
-  assert.deepEqual(splitIntents([active, abandoned, achieved]), { active, past: [abandoned, achieved] });
-  assert.deepEqual(splitIntents([abandoned]), { active: null, past: [abandoned] });
-  assert.deepEqual(splitIntents([]), { active: null, past: [] });
+  assert.deepEqual(splitIntents([active, abandoned, achieved]), { active: [active], past: [abandoned, achieved] });
+  assert.deepEqual(splitIntents([abandoned]), { active: [], past: [abandoned] });
+  assert.deepEqual(splitIntents([]), { active: [], past: [] });
 });
 
 test("Intent項目のissue pathをフォームのラベルへ対応づける", () => {

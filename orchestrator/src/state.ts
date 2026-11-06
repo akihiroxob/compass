@@ -25,6 +25,7 @@ export type WorkspaceOrchestrationTarget = {
 
 export type WorkspaceOrchestrationOutcome = {
   id: string;
+  intentId: string;
   status: string;
   updatedAt: number;
   /** 現在の Target（設定順）。空なら Target なし。 */
@@ -45,7 +46,7 @@ export type WorkspaceOrchestrationState = {
   workspace: { id: string; name: string; status: string };
   /** Workspace の active な Project。archived の Project は Target としてだけ現れる。 */
   projects: { id: string; name: string }[];
-  activeIntent: { id: string; status: string; updatedAt: number } | null;
+  activeIntents: { id: string; status: string; updatedAt: number }[];
   outcomes: WorkspaceOrchestrationOutcome[];
   intentResearchRequests: OrchestrationResearchRequest[];
   openResearchRequests: OrchestrationResearchRequest[];

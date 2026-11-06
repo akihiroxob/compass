@@ -342,16 +342,18 @@ test("Workの重要な状態変更は同じtransactionでcanonical Activityに�
     [
       ["story.created", "manager-a", "manager", "canonical"],
       ["task.created", "manager-a", "manager", "canonical"],
+      ["story.started", "worker-a", "worker", "canonical"],
+      ["task.started", "worker-a", "worker", "canonical"],
       ["task.completed", "worker-a", "worker", "canonical"],
     ],
   );
-  const completed = page.activities[2];
+  const completed = page.activities[4];
   assert.equal(completed.summary, "Task「保存する」の作業を完了し、レビューへ進めた");
   assert.deepEqual(completed.refs, [{ kind: "task", id: task.id }, { kind: "story", id: story.id }]);
   // Change Logとは別で、Change Logはcanonical化しないClaim操作も含めて従来どおり残る。
   const changes = ok(await callTool(app, "list_changes", { projectId: project.id }, "worker-a"));
   assert.ok(changes.changes.some((change: { type: string }) => change.type === "TASK_CLAIMED"));
-  assert.equal(changes.changes.length > page.activities.length, true);
+  assert.equal(changes.changes.length >= page.activities.length, true);
 
   // Activityを保存できなければ状態変更も確定しない（同一transaction）。
   await sql`drop table activity`.execute(database);

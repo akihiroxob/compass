@@ -168,7 +168,7 @@ const runStrategist = async (connection: Connection, tokens: Tokens, workspaceId
   const { principal, token } = tokens.strategist;
   return withMcp(connection, principal, token, async (call) => {
     const { intentId } = event;
-    const context = await call("get_strategist_context", { workspaceId });
+    const context = await call("get_strategist_context", { workspaceId, intentId });
     if (context.activeIntent?.id !== intentId) return "intent is no longer active";
     const common = { workspaceId, intentId, runRef: `strategist:${event.id}` };
 

@@ -4,9 +4,9 @@ import { classifyError, loadFailureMessage, request, settle } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading, StateCard } from "../../components/StateCard";
 import { Button, LinkButton } from "../../components/ui";
-import { projectViewPath, workspaceApiPath, workspaceCreatePath, workspaceEditPath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath, type WorkspaceSection } from "../../paths";
+import { projectViewPath, workspaceApiPath, workspaceCreatePath, workspaceEditPath, workspaceIntentCreatePath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath, type WorkspaceSection } from "../../paths";
 import { canOperateWorkspace, workspaceDirectionAccess } from "../access";
-import { ActivitySection } from "../activity";
+import { WorkspaceActivityStream } from "../activity";
 import { WorkspaceAgentDetail, WorkspaceAgentList } from "../agent";
 import { ConsultationSection } from "../consultation";
 import { useSession } from "../auth";
@@ -161,6 +161,7 @@ const DirectionContent = ({ workspace, myRole }: { workspace: Workspace; myRole:
       <section className="detail-section intent-section" aria-labelledby="workspace-direction-intent-heading">
         <h2 id="workspace-direction-intent-heading">Intent・Outcome</h2>
         <p className="section-note">IntentはHumanが今実現したい状態、OutcomeはIntentへ近づくために達成すべき観測可能な状態です。OutcomeはWorkspaceに属し、Target ProjectのStoryが貢献します。</p>
+        {workspaceDirectionAccess(workspace, myRole) === "allowed" && <div className="action-row"><LinkButton size="sm" to={workspaceIntentCreatePath(workspace.id)}>目標を作成</LinkButton></div>}
         {error ? <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${error}`} /> : !value ? <Loading /> : <DirectionIntents workspaceId={workspace.id} direction={value[0]} projects={value[1]} canEdit={workspaceDirectionAccess(workspace, myRole) === "allowed"} />}
       </section>
       <TextList title="Principles" values={workspace.principles} />
@@ -215,37 +216,27 @@ const ProjectViewLinks = ({ workspace, view, hint }: { workspace: Workspace; vie
 };
 
 /**
- * Workspace Activityの`project_resource`参照の表示先。Workspaceの所属Project（archivedを含む）に登録済みのRepository・Resourceで、
- * Workspace Membershipで読める。取得できなければnull（参照はIDだけを出す）。
+ * Workspaceの記録の対象Projectと`project_resource`参照の表示先。Workspaceの所属Project（archivedを含む）で、Workspace Membershipで読める。
+ * 取得できなければnull（Project名・参照はIDだけを出す）。
  */
-const useWorkspaceResources = (workspaceId: string) => {
+const useWorkspaceActivityTargets = (workspaceId: string) => {
   const { value, error } = useLoad(
-    `${workspaceId}/resources`,
-    () =>
-      Promise.all(["", "?status=archived"].map((query) => request<{ projects: WorkspaceProject[] }>(workspaceApiPath(workspaceId, `/projects${query}`)))).then((pages) =>
-        pages.flatMap(({ projects }) => projects.flatMap((project) => [...project.repositories, ...project.resources])),
-      ),
+    `${workspaceId}/activity-targets`,
+    () => loadProjects(workspaceId).then((items) => items.map(({ project }) => project)),
     workspaceNotFound,
   );
-  return error ? { ready: true, resources: null } : { ready: value !== null, resources: value };
+  if (error) return { ready: true, projects: null, resources: null };
+  return {
+    ready: value !== null,
+    projects: value?.map((project) => ({ id: project.id, name: project.name, archived: project.status === "archived" })) ?? null,
+    resources: value?.flatMap((project) => [...project.repositories, ...project.resources]) ?? null,
+  };
 };
 
-/**
- * 記録。WorkspaceのActivity（Directionの判断の履歴）と、各ProjectのActivity（Workの履歴）への導線。Project ActivityもWorkspace Membershipで
- * 各Projectの「記録」から読み、Workspaceの一覧には混ぜない。
- */
+/** 記録。Workspace共通と所属全Projectの業務Activityを横断して検索・絞り込み・詳細まで辿る。 */
 const ActivityContent = ({ workspace }: { workspace: Workspace }) => {
-  const { ready, resources } = useWorkspaceResources(workspace.id);
-  return (
-    <>
-      {ready ? <ActivitySection scope={{ kind: "workspace", workspaceId: workspace.id }} resources={resources} /> : <Loading />}
-      <section className="detail-section" aria-labelledby="workspace-project-activity-heading">
-        <h2 id="workspace-project-activity-heading">Projectの記録</h2>
-        <p className="section-note">Story・Taskの起票・レビュー・受入などWorkの履歴は、Projectごとに記録されます。各activeなProjectから開けます。</p>
-        <ProjectViewLinks workspace={workspace} view="records" hint="Projectの記録を開く" />
-      </section>
-    </>
-  );
+  const { ready, projects, resources } = useWorkspaceActivityTargets(workspace.id);
+  return ready ? <WorkspaceActivityStream workspaceId={workspace.id} projects={projects} resources={resources} /> : <Loading />;
 };
 
 /**

@@ -47,6 +47,7 @@ const accessTables = [
   "auth_login_attempt",
   "project_invitation",
   "access_credential",
+  "agent_run",
   "workspace_membership",
 ];
 

@@ -11,7 +11,7 @@ Workspace ごとに Compass Server の現在状態を読み、次に起動すべ
 
 ## 起動規則
 
-Server の `get_workspace_orchestration_state` の応答に対して次の規則で起動します（handoff v2「20」）。
+Server の `get_workspace_orchestration_state` の`activeIntents`全件に対し、`outcomes[].intentId`とResearchの`originIntentId`で分離して次の規則で起動します（handoff v2「20」）。
 
 | 現在状態 | 起動する Role | 対象 | dispatch key |
 | --- | --- | --- | --- |
@@ -22,6 +22,8 @@ Server の `get_workspace_orchestration_state` の応答に対して次の規則
 | 進行中の Outcome の active Target で、その Project に Story、または Task が無い | `manager` | Target Project・Outcome | `<workspaceId>:<projectId>:manager:outcome:<id>` |
 | 全 Target から還流し `incomplete` が無く（`evaluable`。archive 前に還流を終えた Target を含む）、最新 Evaluation の Project 別 cursor と一致しない。一部の Project の完了だけでは起動しない | `evaluator` | Workspace・Outcome | `<workspaceId>:evaluator:outcome:<id>:<Project別cursorの版>` |
 | 上記の無い Active Intent（進行中の Outcome・未終了の Research・判断待ちの Evaluation が無い。作成直後を含む） | `strategist` | Workspace・Intent | `<workspaceId>:strategist:intent:<id>:<状態の版>` |
+
+各dispatchは関連する`intentId`を持ち、promptと`COMPASS_INTENT_ID`へ渡します。Strategistは`get_strategist_context({ workspaceId, intentId })`で対象だけを読みます。別目標の完了・Research待ちで他目標を停止しません。相談・Intent由来でないResearchにはIntent IDを付けません。
 
 最新 Evaluation が判断済みの Outcome は進行中とみなしません。archived の Workspace では何も起動せず、archived Project の manager は起動しません。Intent 作成時に Research Request は自動で作られず、Research の要否は起動された Strategist が判断します。どの Project を Target にするか、Target の解除・再割当・Outcome の見直し、Story の分割は起動された Role が判断し、Orchestrator は推論しません。同じ状態からは同じ key になり、再計画で状態が変われば新しい key になります。
 
@@ -91,6 +93,7 @@ Agent Credential の値を設定 file に直接書かず、Agent 側の MCP 設�
 | `COMPASS_SERVER_URL` | Server の URL |
 | `COMPASS_WORKSPACE_ID` | 対象 Workspace |
 | `COMPASS_PROJECT_ID` | manager の対象 Project。Workspace Role には渡さない |
+| `COMPASS_INTENT_ID` | 関連するIntent ID。相談・Intent由来でないResearchには渡さない |
 | `COMPASS_ROLE` | Role |
 | `COMPASS_SUBJECT_KIND`・`COMPASS_SUBJECT_ID` | 対象（`intent` / `evaluation` / `research_request` / `outcome` と ID） |
 | `COMPASS_DISPATCH_KEY`・`COMPASS_DISPATCH_ATTEMPT` | dispatch key と試行回数 |
@@ -171,3 +174,7 @@ Project相談はWorkspace Direction dispatch・Intent・Outcomeから独立し�
 ## Workspace相談へのStrategist応答
 
 `workspaces[]`に設定したWorkspaceは、同じWorkspace Runtime Credential（`runtime:state:read`）で`get_workspace_consultation_state`も読み、未処理の相談ID・入力版ごとに`<workspaceId>:strategist:consultation:<id>:<inputRevision>`をkeyにStrategistを起動します。所属Projectの相談は含まず、archivedのWorkspaceでは起動しません。Strategistへは`workspaces[].agentEnv`を加え、`COMPASS_PROJECT_ID`を渡さず、`get_workspace_role_context`と相談toolへ`workspaceId`を渡すよう指示します。読取りに失敗した周回は失敗として記録し、dispatch記録を整理しません。正常終了しても同じ入力版が未処理なら、Project相談と同じくbackoff・試行上限で再試行します。
+
+## Agent実行観測
+
+Agent管理への実行状況の接続は[Agent実行観測](../docs/agent-run-observation.md)を参照する。対象scopeのRuntime Credentialへ`agent:run:write`を加え、`agentPrincipals`に実際に起動するAgentのPrincipalを設定する。未設定・報告不能は不明のままで、GrantやCredentialから稼働を推測しない。

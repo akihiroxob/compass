@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request, type Part } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { intentPath, outcomePath, workspaceIntentCreatePath, workspaceIntentEditPath, workspaceOutcomePath, workspacePath } from "../../paths";
+import { intentPath, outcomePath, researchRequestPath, workspaceIntentEditPath, workspaceOutcomeCreatePath, workspaceOutcomeEditPath, workspaceOutcomePath, workspacePath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import {
   buildOutcomeExecution,
@@ -15,12 +15,13 @@ import {
   targetContributions,
   WorkCounts,
   type DirectionData,
+  type IntentDirectionData,
   type OutcomeDetailData,
   type TargetContribution,
 } from "../direction";
 import { EvidenceList, executionPath, executionStateLabels, formatTime, StoryList, verdictLabels, verdictTones, type ExecutionOverview, type OutcomeExecutionRecord } from "../execution";
 import { IntentEmpty, IntentFacts, intentStatusLabels } from "../intent";
-import { EvaluationCard, outcomeStatusLabels, type Outcome } from "../outcome";
+import { EvaluationCard, OutcomeProblems, outcomeStatusLabels, type Outcome } from "../outcome";
 import { openProjects, ProjectName, TargetRow } from "./WorkspaceOverview";
 import type { OverviewProject } from "./workspaceProjects";
 import { LinkButton } from "../../components/ui";
@@ -31,7 +32,12 @@ const outcomeTone = (outcome: Pick<Outcome, "status">) => (outcome.status === "a
  * 方向のIntent・Outcome。Active Intent → Active Outcome → Target Project別のWorkを並べ、各OutcomeはWorkspaceのOutcome詳細へ辿る。
  * Targetが無いActive OutcomeはStrategistの判断待ちとして出す。Taskの件数は状態だけで、Outcomeの達成を示さない。
  */
-export const DirectionIntents = ({ workspaceId, direction, projects, canEdit }: { workspaceId: string; direction: DirectionData; projects: Part<OverviewProject[]>; canEdit: boolean }) => (
+export const DirectionIntents = (props: { workspaceId: string; direction: DirectionData; projects: Part<OverviewProject[]>; canEdit: boolean }) => <>
+  {props.direction.directions.length > 0 ? props.direction.directions.map((direction) => <IntentDirection key={direction.activeIntent!.id} {...props} direction={direction} />) : <IntentDirection {...props} direction={{ activeIntent: null, pastIntents: [], outcomes: [], otherOutcomes: [], pendingPastOutcomes: [] }} />}
+  {props.direction.pastIntents.length > 0 && <details className="past-intents"><summary>過去のIntent（{props.direction.pastIntents.length}件）</summary><ul>{props.direction.pastIntents.map((intent) => <li key={intent.id}>{intentStatusLabels[intent.status]} {intent.title}</li>)}</ul></details>}
+</>;
+
+const IntentDirection = ({ workspaceId, direction, projects, canEdit }: { workspaceId: string; direction: IntentDirectionData; projects: Part<OverviewProject[]>; canEdit: boolean }) => (
   <>
     {direction.activeIntent ? (
       <article className="intent-card">
@@ -41,7 +47,10 @@ export const DirectionIntents = ({ workspaceId, direction, projects, canEdit }: 
         </div>
         <h3>{direction.activeIntent.title}</h3>
         <IntentFacts intent={direction.activeIntent} />
-        <p className="section-label">Active Outcome（{direction.outcomes.length}件）</p>
+        <div className="intent-card-head">
+          <p className="section-label">Active Outcome（{direction.outcomes.length}件）</p>
+          {canEdit && <LinkButton variant="secondary" size="sm" to={workspaceOutcomeCreatePath(workspaceId, direction.activeIntent.id)}>Outcomeを追加</LinkButton>}
+        </div>
         {direction.outcomes.length === 0 ? <p className="unset">ActiveなOutcomeはありません。Strategist（またはHuman）がIntentから観測可能なOutcomeを登録します。</p> : (
           <ul className="outcome-positions">
             {direction.outcomes.map((position) => {
@@ -73,7 +82,6 @@ export const DirectionIntents = ({ workspaceId, direction, projects, canEdit }: 
     ) : (
       <IntentEmpty>
         <p className="unset">{canEdit ? "Activeな目標はありません。" : "Activeな目標はありません。目標の作成はWorkspaceのEditor以上が行います。"}</p>
-        {canEdit && <LinkButton to={workspaceIntentCreatePath(workspaceId)}>目標を作成</LinkButton>}
       </IntentEmpty>
     )}
     {direction.pastIntents.length > 0 && <details className="past-intents"><summary>過去のIntent（{direction.pastIntents.length}件）</summary><ul>{direction.pastIntents.map((intent) => <li key={intent.id} className="plain-item"><span className="status-badge muted">{intentStatusLabels[intent.status]}</span> {intent.title}</li>)}</ul></details>}
@@ -142,15 +150,17 @@ export const WorkspaceOutcomeDetail = ({ workspaceId, data, projects, canEdit }:
         <p className="eyebrow">Outcome</p>
         <h2 id="outcome-position-heading">{outcome.title}</h2>
         <p><span className={statusBadgeClass(outcomeTone(outcome))}>{outcomeStatusLabels[outcome.status]}</span>{stage && <> <span className={statusBadgeClass(stage.tone)}>{stage.label}</span></>}</p>
-        <dl className="intent-facts"><dt>達成すべき状態</dt><dd>{outcome.description}</dd><dt>仮説</dt><dd>{outcome.hypothesis ?? <span className="unset">未設定</span>}</dd><dt>判断理由（Strategistの判断）</dt><dd>{outcome.rationale}</dd></dl>
+        {canEdit && outcome.status === "active" && <div className="action-row"><LinkButton variant="secondary" size="sm" to={workspaceOutcomeEditPath(workspaceId, outcome.intentId, outcome.id)}>編集</LinkButton></div>}
+        <dl className="intent-facts"><dt>目指す変化</dt><dd>{outcome.description}</dd><dt>目標への貢献仮説</dt><dd>{outcome.hypothesis ?? <span className="unset">未設定</span>}</dd><dt>判断理由（Strategistの判断）</dt><dd>{outcome.rationale}</dd></dl>
         {outcome.status === "cancelled" && <><h3>取消の理由</h3><p>{outcome.cancelReason}</p></>}
         {openProject ? (
           <div className="action-row">
             <LinkButton variant="secondary" size="sm" to={intentPath(openProject, outcome.intentId)}>Intent詳細（Research・Direction Decision）</LinkButton>
-            {canEdit && outcome.status === "active" && <LinkButton variant="secondary" size="sm" to={outcomePath(openProject, outcome.intentId, outcome.id)}>Outcomeの編集・取消</LinkButton>}
+            {canEdit && outcome.status === "active" && <LinkButton variant="secondary" size="sm" to={outcomePath(openProject, outcome.intentId, outcome.id)}>Outcomeの取消</LinkButton>}
           </div>
-        ) : <p className="locked-note">Intentの詳細（Research・Direction Decision）とOutcomeの編集はProjectの画面から開きます。開けるProjectがありません。</p>}
+        ) : <p className="locked-note">Intentの詳細（Research・Direction Decision）とOutcomeの取消はProjectの画面から開きます。開けるProjectがありません。</p>}
       </section>
+      <OutcomeProblems problems={outcome.problems} evidenceTo={(requestId) => (openProject ? researchRequestPath(openProject, requestId) : null)} />
       <section className="detail-section" aria-labelledby="workspace-criteria-heading">
         <h2 id="workspace-criteria-heading">成功条件</h2>
         <p className="section-note">判定は最新のEvaluationの結果です。根拠とEvidenceは下の「Evaluation」で確認します。</p>

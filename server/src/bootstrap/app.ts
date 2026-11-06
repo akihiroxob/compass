@@ -266,6 +266,11 @@ export const createApp = (
     const { grant, created } = await human.grantWorkspaceRole.execute(actor, c.req.param("workspaceId"), input);
     return c.json({ grant, created }, created ? 201 : 200);
   });
+  // Agentの実行観測（Ralph・Orchestratorの報告）。Workspace Membership（viewer以上）で読み、`principalId`でそのAgentの履歴に絞る。
+  app.get("/api/workspaces/:workspaceId/agent-runs", async (c) => {
+    const principalId = c.req.query("principalId");
+    return c.json(await human.listWorkspaceAgentRuns.execute(await actorOf(c), c.req.param("workspaceId"), principalId === undefined ? {} : { principalId }));
+  });
   app.delete(`${workspaceGrantsPath}/:role/:principalId`, async (c) => {
     const actor = await actorOf(c);
     const revoked = await human.revokeWorkspaceRole.execute(actor, c.req.param("workspaceId"), {
@@ -304,6 +309,16 @@ export const createApp = (
         c.req.param("intentId"),
       ),
     }),
+  );
+  // Intentの観測項目と、現在の観測状態・時系列（Workspace member）。`from`・`to`（`YYYY-MM-DD`）で範囲を指定し、既定は今日までの30日。
+  // 観測の無い期間は含めず、未計測・取得失敗・古い観測は`current.state`で区別する。
+  app.get("/api/workspaces/:workspaceId/intents/:intentId/metrics", async (c) =>
+    c.json(
+      await human.listIntentMetrics.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("intentId"), {
+        ...(c.req.query("from") === undefined ? {} : { from: c.req.query("from") }),
+        ...(c.req.query("to") === undefined ? {} : { to: c.req.query("to") }),
+      }),
+    ),
   );
   app.get("/api/workspaces/:workspaceId/adr-references", async (c) =>
     c.json({ references: await human.listAdrReferences.execute(await actorOf(c), c.req.param("workspaceId")) }),
@@ -418,6 +433,25 @@ export const createApp = (
       await human.listWorkspaceActivities.execute(await actorOf(c), c.req.param("workspaceId"), activityListQuery(c)),
     ),
   );
+  // Workspace共通と所属全Project（archivedを含む）の業務Activityの横断一覧。Workspace Membership（viewer以上）で認可する。
+  // `before` / `after`は応答の`nextCursor`、`from` / `to`は発生時刻（epoch ms）、`projectId` / `workspaceOnly=true`は対象、`q`は検索語。
+  app.get("/api/workspaces/:workspaceId/activity-stream", async (c) => {
+    const text = c.req.query("q")?.trim();
+    const textFilter = text === undefined || text === "" ? {} : { text };
+    return c.json(
+      await human.listWorkspaceActivityStream.execute(await actorOf(c), c.req.param("workspaceId"), {
+        limit: queryNumber(c.req.query("limit")),
+        from: queryNumber(c.req.query("from")),
+        to: queryNumber(c.req.query("to")),
+        ...(c.req.query("before") === undefined ? {} : { before: c.req.query("before") }),
+        ...(c.req.query("after") === undefined ? {} : { after: c.req.query("after") }),
+        ...(c.req.query("projectId") === undefined ? {} : { projectId: c.req.query("projectId") }),
+        ...(c.req.query("workspaceOnly") === undefined ? {} : { workspaceOnly: c.req.query("workspaceOnly") === "true" }),
+        ...(c.req.query("type") === undefined ? {} : { type: c.req.query("type") }),
+        ...textFilter,
+      }),
+    );
+  });
   app.get("/api/workspaces/:workspaceId/activities/:activityId", async (c) =>
     c.json(await human.getWorkspaceActivity.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("activityId"))),
   );

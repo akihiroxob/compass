@@ -332,7 +332,7 @@ test("AC-11 Repositoryを直接呼んでも、archivedのProjectには何も書�
   assert.deepEqual(await intents.create(project.workspaceId, { title: "T", desiredState: "S", background: null, audience: null, constraints: null, completionDefinition: null, targetDate: null }), { kind: "workspace_archived" });
   assert.deepEqual(await intents.update(project.workspaceId, intent.id, { title: "Changed" }), { kind: "workspace_archived" });
   assert.deepEqual(await intents.abandon(project.workspaceId, intent.id, "x"), { kind: "workspace_archived" });
-  assert.deepEqual(await outcomes.create(project.workspaceId, intent.id, { ...outcomeInput, hypothesis: null, successCriteria: [{ description: "d", measurement: "m", target: null }] }), { kind: "workspace_archived" });
+  assert.deepEqual(await outcomes.create(project.workspaceId, intent.id, { ...outcomeInput, hypothesis: null, problems: [], successCriteria: [{ description: "d", measurement: "m", target: null }] }), { kind: "workspace_archived" });
   assert.deepEqual(await outcomes.update(project.workspaceId, intent.id, outcome.id, { title: "Changed" }), { kind: "workspace_archived" });
   assert.deepEqual(await outcomes.cancel(project.workspaceId, intent.id, outcome.id, "x"), { kind: "workspace_archived" });
   assert.deepEqual(await grants.grant(project.id, "strat-2", "strategist"), archived);
@@ -474,8 +474,12 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       "wait_for_consultation", "list_consultation_resumptions", "resume_consultation_task", "confirm_consultation_continuation", "get_project_consultation_state",
       "acquire_consultation_lease", "cancel_consultation", "create_consultation", "get_consultation", "list_consultations",
       "reply_consultation", "resolve_consultation", "get_workspace_consultation_state",
+      // Runtime Credentialによる実行観測の追記。
+      "record_agent_run",
       // 文書反映は引継ぎ先・依頼・成果物参照の追記だけ。
       "hand_off_consultation", "get_consultation_handoff_context", "request_consultation_followup", "record_consultation_artifact",
+      // Intentの観測値は対象期間ごとの版の追記だけで、削除・書換のtoolは無い。
+      "define_intent_metric", "list_intent_metrics", "record_intent_metric_observations",
     ].sort(),
   );
   const listTool = tools.find(({ name }) => name === "list_projects");

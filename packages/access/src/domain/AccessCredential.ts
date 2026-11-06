@@ -22,6 +22,8 @@ export const runtimeScopes = [
   "execution:summary:read",
   "runtime:state:read",
   "publication:write",
+  /** Agentの実行観測（開始・観測・終了）の記録。Credentialのscopeで、そのscopeのGrantを持つPrincipalの実行だけを記録できる。 */
+  "agent:run:write",
 ] as const;
 export type RuntimeScope = (typeof runtimeScopes)[number];
 
