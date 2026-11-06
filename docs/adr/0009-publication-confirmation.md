@@ -23,6 +23,6 @@ Projectのリリース履歴では、何を提供したかを細かく残し、�
 
 ## 影響
 
-- Human向けにリリース履歴の取得（Web API `GET /api/projects/:projectId/releases`、所属WorkspaceのMembership）を提供する。Web UIのリリース履歴への接続は別Taskで同じ応答を使う。
+- Human向けにリリース履歴の取得（Web API `GET /api/projects/:projectId/releases`、所属WorkspaceのMembership）を提供する。Web UIのリリース履歴（Project詳細の`releases`）は同じ応答を読む。
 - 確認日時の新旧で現在を決めるため、時刻の大きく狂った入力元は誤った現在を作り得る。未来の確認日時は拒否する。
 - 現行の契約は[実装状況](../implementation-status.md#公開確認とリリース履歴の現行契約)、Runtimeの手順は`roles/runtime.md`に記す。

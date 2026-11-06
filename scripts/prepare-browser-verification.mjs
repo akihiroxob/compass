@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** Dedicated Manager preview fixtures. Product records use the inspected checkout's application services. */
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { mkdir, open, readFile, realpath, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -39,6 +40,8 @@ await reserved.close();
 const { createDatabase } = await targetModule('server/src/bootstrap/database/createDatabase.ts');
 const { initializeSchema } = await targetModule('server/src/bootstrap/database/initializeSchema.ts');
 const { createApplicationServices } = await targetModule('server/src/bootstrap/createApplicationServices.ts');
+const { deriveCsrfToken } = await targetModule('packages/access/src/index.ts');
+const { GitHubPullRequestGateway } = await targetModule('packages/work/src/index.ts');
 const database = createDatabase(databasePath);
 const identities = { manager: 'preview-manager', worker: 'preview-worker', reviewer: 'preview-reviewer', strategist: 'preview-strategist', evaluator: 'preview-evaluator' };
 const viewerEmail = 'preview-viewer@example.test';
@@ -267,6 +270,81 @@ const prepareConsultationLifecycle = async (services, owner, client, entry, insp
   };
 };
 // Web API responses before the preview server starts on the same DB file; the preview is the restarted server.
+
+// Release history: accepted Tasks with deliverable commits, a loopback GitHub (commit existence and ancestry only) and
+// publication records sent through the public Web API with a dedicated Project Runtime Credential (`publication:write`).
+// Published (included), unpublished (not included) and unconfirmed (history not comparable) all come from recorded observations.
+const releaseCommit = (index) => index.toString(16).padStart(40, '0');
+const releaseHistoryShas = [];
+const releaseGithub = createServer((request, response) => {
+  const url = new URL(request.url ?? '', 'http://localhost');
+  const send = (status, body) => response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+  let match = /^\/repos\/preview-org\/release-demo\/commits\/([a-f0-9]{40})$/.exec(url.pathname);
+  if (match) return releaseHistoryShas.includes(match[1]) ? send(200, { sha: match[1] }) : send(422, { message: 'No commit found' });
+  match = /^\/repos\/preview-org\/release-demo\/compare\/([a-f0-9]{40})\.\.\.([a-f0-9]{40})$/.exec(url.pathname);
+  if (match) {
+    const [base, head] = [releaseHistoryShas.indexOf(match[1]), releaseHistoryShas.indexOf(match[2])];
+    return base < 0 || head < 0 ? send(404, { message: 'Not Found' }) : send(200, { status: base === head ? 'identical' : base < head ? 'ahead' : 'behind' });
+  }
+  return send(404, { message: 'Not Found' });
+});
+await new Promise((resolveListen) => releaseGithub.listen(0, '127.0.0.1', resolveListen));
+const releaseApiBaseUrl = `http://127.0.0.1:${releaseGithub.address().port}`;
+const releaseCounts = { published: 12, notPublished: 10, unconfirmed: 2 };
+const prepareReleaseHistory = async (services, owner, app) => {
+  const work = services.taskCoordinationService;
+  const workspace = await services.human.createWorkspace.execute({ name: '[受入] リリース履歴', mission: '開発の受入と公開の確認を別の根拠で辿る' }, owner);
+  const intent = await services.workspaceDirection.createIntentUseCase.execute(workspace.id, { title: 'リリース履歴 Intent', desiredState: '変更が公開されたかを根拠から確認できる' });
+  const outcome = await services.workspaceDirection.createOutcomeUseCase.execute(workspace.id, intent.id, {
+    title: 'リリース履歴 Outcome', description: '公開状況の表示検証専用。実運用の成果ではない。', rationale: '画面受入の前提データ',
+    successCriteria: [{ description: '公開済み・未公開・確認できずを区別できる', measurement: '公開記録と画面を照合する', target: '捏造なし' }] });
+  const project = await services.human.createWorkspaceProject.execute(owner, workspace.id, { name: '[受入] リリース履歴 Project',
+    repositories: [{ name: 'release-demo', url: 'https://github.com/preview-org/release-demo' }] });
+  for (const role of ['manager', 'worker', 'reviewer']) await services.grantProjectRoleUseCase.execute(project.id, { principalId: identities[role], role });
+  await services.workspaceDirection.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, project.id);
+  const repository = project.repositories[0];
+  const total = releaseCounts.published + releaseCounts.notPublished + releaseCounts.unconfirmed;
+  const story = await work.issueStory(identities.manager, { projectId: project.id, outcomeId: outcome.id, title: 'リリース履歴の確認用Story' }, key('story'));
+  const tasks = [];
+  for (let index = 1; index <= total; index += 1) {
+    const task = await work.issueTask(identities.manager, { projectId: project.id, storyId: story.id, taskKey: `release-${index}`, title: `リリース変更 ${index}` }, key('task'));
+    const claim = await work.claimTask(identities.worker, task.id, key('claim'));
+    await work.addTaskComment(identities.worker, task.id, claim.claimId, `リリース変更 ${index} の実装メモ: src/change-${index}.ts を追加し、題名にない確認手順を記録した。画面検証専用の決定的fixtureで、実Agentの成果ではない。`, key('comment'));
+    await work.completeTask(identities.worker, task.id, claim.claimId, key('complete'));
+    const review = await work.claimReview(identities.reviewer, task.id, key('review'));
+    await work.reviewedTask(identities.reviewer, task.id, review.claimId, key('reviewed'));
+    const acceptance = await work.claimAcceptance(identities.manager, task.id, key('acceptance'));
+    await work.acceptTask(identities.manager, task.id, acceptance.claimId, key('accept'),
+      [{ repositoryId: repository.id, commitSha: releaseCommit(index), paths: [`src/change-${index}.ts`], pullRequestUrl: null }]);
+    tasks.push({ index, taskId: task.id, commitSha: releaseCommit(index) });
+  }
+  // The loopback history knows the first (published + unpublished) commits; the last ones are unknown to it (not comparable).
+  const comparable = releaseCounts.published + releaseCounts.notPublished;
+  for (let index = 1; index <= comparable; index += 1) releaseHistoryShas.push(releaseCommit(index));
+  const origin = 'http://localhost';
+  const signedIn = await app.request(`${origin}/auth/local/login`, { method: 'POST', redirect: 'manual', headers: { Origin: origin }, body: new URLSearchParams({ email: ownerEmail }) });
+  const cookie = signedIn.headers.get('set-cookie')?.match(/compass_session=[^;]+/)?.[0];
+  if (!cookie) throw new Error('Preview owner could not sign in for release preparation');
+  const issued = await app.request(`${origin}/api/projects/${project.id}/credentials`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json', Origin: origin, 'X-Compass-CSRF': deriveCsrfToken(cookie.split('=')[1]) },
+    body: JSON.stringify({ kind: 'runtime', principalId: 'preview-deployer', scopes: ['publication:write'] }) });
+  if (issued.status !== 201) throw new Error(`Runtime credential could not be issued: ${issued.status} ${await issued.text()}`);
+  const { token } = await issued.json();
+  const publish = async (revision, observedAt) => {
+    const response = await app.request(`${origin}/api/projects/${project.id}/publications`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repositoryId: repository.id, revision, target: 'production', targetUrl: 'https://release-demo.example.test', method: 'preview-fixture', observedAt,
+        evidence: [{ kind: 'deployment', uri: 'https://example.test/fixtures/release-demo/deployments/1' }] }) });
+    if (response.status !== 201 && response.status !== 200) throw new Error(`Publication could not be recorded: ${response.status}`);
+    return (await response.json()).publication.id;
+  };
+  // The production deployment contains the first commits only; later accepted commits are not included (unpublished).
+  const publicationId = await publish(releaseCommit(releaseCounts.published), Date.now() - 60_000);
+  return { projectId: project.id, workspaceId: workspace.id, intentId: intent.id, outcomeId: outcome.id, repositoryId: repository.id, publicationId, counts: releaseCounts,
+    apiPath: `/projects/${project.id}/releases`, screenPath: `/projects/${project.id}?view=releases`, tasks,
+    expected: { published: tasks.slice(0, releaseCounts.published).map(({ taskId }) => taskId),
+      notPublished: tasks.slice(releaseCounts.published, comparable).map(({ taskId }) => taskId),
+      unconfirmed: tasks.slice(comparable).map(({ taskId }) => taskId) },
+    note: '公開記録はRuntime Credential（publication:write）の公開APIで追加した。公開済みはHEAD履歴に含まれる変更、未公開は含まれない変更、確認できずは履歴を比較できない変更。効果の評価ではない。' };
+};
 const persistenceSnapshot = async (app, entries) => {
   const origin = 'http://localhost';
   const signedIn = await app.request(`${origin}/auth/local/login`, { method: 'POST', redirect: 'manual', headers: { Origin: origin },
@@ -281,11 +359,14 @@ const persistenceSnapshot = async (app, entries) => {
   return responses;
 };
 let observedTools = [];
+let releaseHistory;
 let preparation;
 let persistence;
 try {
   await initializeSchema(database);
-  const services = createApplicationServices(database, undefined, undefined, { initialOwnerEmail: ownerEmail });
+  const releaseGithubGateway = new GitHubPullRequestGateway({ apiBaseUrl: releaseApiBaseUrl });
+  const services = createApplicationServices(database, undefined, undefined, { initialOwnerEmail: ownerEmail },
+    { pullRequests: releaseGithubGateway, revisions: releaseGithubGateway });
   const login = await services.localDevLoginUseCase.execute({ email: ownerEmail, previousSessionToken: null });
   if (login.kind !== 'logged_in') throw new Error('Preview owner could not be registered');
   const owner = { kind: 'human', humanUserId: login.session.humanUserId };
@@ -367,9 +448,10 @@ try {
     }
     scenarios.push(entry);
   }
+  releaseHistory = await prepareReleaseHistory(services, owner, app);
   preparation = { endpointPath: '/mcp', actors: identities,
-    projectIds: scenarios.flatMap(({ projects }) => projects.map(({ id }) => id)),
-    workspaceIds: scenarios.map(({ workspaceId }) => workspaceId), operationPolicy: previewOperationPolicy };
+    projectIds: [...scenarios.flatMap(({ projects }) => projects.map(({ id }) => id)), releaseHistory.projectId],
+    workspaceIds: [...scenarios.map(({ workspaceId }) => workspaceId), releaseHistory.workspaceId], operationPolicy: previewOperationPolicy };
   // Read the inspected revision's public MCP contract; permission comes from the policy, not from listed names.
   const client = createPreviewMcpClient({ origin: 'http://localhost', preparation, fetch: (url, init) => app.request(url, init) });
   observedTools = (await client.listTools('manager')).map(classifyTool);
@@ -391,9 +473,10 @@ try {
     partial.consultationLifecycle = { status: 'unavailable', kind: error.kind, tool: error.tool, message: error.message };
   }
   persistence = { takenAt: new Date().toISOString(), responses: await persistenceSnapshot(app, [
-    ...(partial.consultationLifecycle.stages ?? []), ...(evaluated.consultationReflection.consultations ?? [])]) };
+    ...(partial.consultationLifecycle.stages ?? []), ...(evaluated.consultationReflection.consultations ?? []), { path: releaseHistory.apiPath }]) };
 } finally {
   await database.destroy();
+  await new Promise((resolveClose) => releaseGithub.close(resolveClose));
 }
 const scriptSha256 = createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex');
 const manifest = { schemaVersion: 1, purpose: 'browser-verification-fixtures', headSha, preparationScriptSha256: scriptSha256,
@@ -413,7 +496,7 @@ const manifest = { schemaVersion: 1, purpose: 'browser-verification-fixtures', h
     instructions: 'Read policyPath. Use only the dedicated preview URL and these preview actors. Any current tool classified by operationPolicy is permitted within projectIds/workspaceIds; execution Task/Claim, operational MCP and Human management tools are outside this permission.',
   },
   login: { mode: 'trusted-local', ownerEmail, viewerEmail, instructions: 'ログイン画面からemailを入力する。viewerは[受入] 一部Project未着手・[受入] 複数Targetと評価根拠のWorkspaceのviewer（配下のProject A・Bとも同じRole）で、[受入] TargetなしのWorkspaceは未所属。' },
-  scenarios, limitations: ['データ準備は公開APIによる管理操作のAC検証ではない', '判定・Evidenceは表示確認用fixtureであり、実Agentの自律運転や実成果を示さない'] };
+  releaseHistory, scenarios, limitations: ['データ準備は公開APIによる管理操作のAC検証ではない', '判定・Evidenceは表示確認用fixtureであり、実Agentの自律運転や実成果を示さない'] };
 const manifestPath = join(data, 'browser-fixtures.json');
 // The preview server reopens this DB file, so comparing its Web API responses with this snapshot checks a same-DB restart.
 const persistencePath = join(data, 'persistence-before-restart.json');

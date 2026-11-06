@@ -4,6 +4,7 @@ export { EvidenceList } from "./EvidenceList";
 export { ExecutionSection, StoryList } from "./ExecutionSection";
 export { StoryCreatePage, StoryEditPage, TaskCreatePage, TaskEditPage } from "./ExecutionItemFormPages";
 export { TaskDetailPage, type TaskProject, type WorkspaceCrumbs } from "./TaskDetailPage";
+export { loadOutcomeRef } from "./TaskOutcomeSection";
 export {
   evaluationResultLabels,
   evaluationResultTones,
