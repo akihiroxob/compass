@@ -14,6 +14,7 @@ import type {
   ProjectStateReader,
   StoryRecord,
   TaskClaimRecord,
+  CompletionNote,
   TaskCommentRecord,
   TaskPullRequestRecord,
   TaskRecord,
@@ -372,6 +373,33 @@ export class KyselyWorkStore implements WorkStore {
       .where("type", "=", "TASK_COMPLETED")
       .orderBy("cursor", "desc")
       .execute();
+  }
+
+  async listCompletionNotes(projectId: string): Promise<CompletionNote[]> {
+    const completions = await this.db
+      .selectFrom("change_log")
+      .select(["entity_id", "principal_id", "claim_id", "occurred_at"])
+      .where("project_id", "=", projectId)
+      .where("type", "=", "TASK_COMPLETED")
+      .orderBy("cursor", "asc")
+      .execute();
+    const latest = new Map(completions.map((row) => [row.entity_id, row]));
+    if (latest.size === 0) return [];
+    const comments = await this.db
+      .selectFrom("task_comment")
+      .innerJoin("task", "task.id", "task_comment.task_id")
+      .selectAll("task_comment")
+      .where("task.project_id", "=", projectId)
+      .orderBy("task_comment.created_at", "asc")
+      .execute();
+    const notes = new Map<string, CompletionNote>();
+    for (const comment of comments) {
+      const completion = latest.get(comment.task_id);
+      if (!completion || !completion.claim_id || comment.claim_id !== completion.claim_id || comment.principal_id !== completion.principal_id) continue;
+      if (comment.created_at > completion.occurred_at) continue;
+      notes.set(comment.task_id, { task_id: comment.task_id, comment_id: comment.id, body: comment.body, author: comment.author, created_at: comment.created_at });
+    }
+    return [...notes.values()];
   }
 
   async listEntityChanges(projectId: string, entityId: string): Promise<ChangeRecord[]> {

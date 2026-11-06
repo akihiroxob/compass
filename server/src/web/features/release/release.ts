@@ -20,6 +20,8 @@ export type ReleaseRevision = { repositoryId: string; commitSha: string; source:
 export type ReleaseChange = {
   task: { id: string; title: string; status: string; storyId: string | null; updatedAt: number };
   story: { id: string; title: string; outcomeId: string | null } | null;
+  /** 完了したWorkerの実装・検証メモ（原記録はTaskのコメント）。無ければnull。題名では代用しない。 */
+  summary: { commentId: string; body: string; truncated: boolean; author: string | null; recordedAt: number } | null;
   development: { status: "accepted" | "not_accepted"; acceptedAt: number | null; acceptedBy: string | null };
   pullRequest: {
     repositoryId: string;
@@ -175,9 +177,10 @@ export const releaseSearch = (current: URLSearchParams, patch: Partial<ReleaseFi
 
 export const clearedReleaseSearch = (current: URLSearchParams): string => releaseSearch(current, { q: "", publication: "all" });
 
-/** 題名・Story・PR番号・Repository・Commit（前方一致）・公開先・主体の部分一致。空白区切りはすべてを満たす（AND）。 */
+/** 題名・変更の要約・Story・PR番号・Repository・Commit（前方一致）・公開先・主体の部分一致。空白区切りはすべてを満たす（AND）。 */
 const searchText = (change: ReleaseChange): string => [
   change.task.title,
+  change.summary?.body ?? "",
   change.story?.title ?? "",
   change.pullRequest ? `#${change.pullRequest.number} ${change.pullRequest.number} ${change.pullRequest.repository}` : "",
   ...change.revisions.map((revision) => revision.commitSha),
@@ -206,4 +209,11 @@ export const countByPublication = (changes: readonly ReleaseChange[]): Record<Pu
   const counts: Record<PublicationStatus, number> = { published: 0, not_published: 0, unconfirmed: 0 };
   for (const change of changes) counts[change.publication.status] += 1;
   return counts;
+};
+
+/** 一覧に出す要約の抜粋。空白を畳み、長い場合は省略する。要約が無ければnull。 */
+export const summaryExcerpt = (change: ReleaseChange, length = 140): string | null => {
+  if (!change.summary) return null;
+  const text = change.summary.body.replace(/\s+/g, " ").trim();
+  return text.length > length ? `${text.slice(0, length)}…` : text;
 };

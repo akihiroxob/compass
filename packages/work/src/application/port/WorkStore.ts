@@ -181,6 +181,8 @@ export type CommandReceiptRecord = {
  * 受入成果物（受入証跡）。`accept_task`で受け入れたManagerが確認したRepository・完全なcommit SHA・変更したpath・PR URLの参照で、
  * TASK_ACCEPTEDのChangeに残す。本文は持たない。
  */
+export type CompletionNote = { task_id: string; comment_id: string; body: string; author: string | null; created_at: number };
+
 export type AcceptedDeliverable = { repositoryId: string; commitSha: string; paths: string[]; pullRequestUrl: string | null };
 
 /** Outcomeに相関付いたStory・Taskの変更へ付ける相関。 */
@@ -286,6 +288,11 @@ export interface WorkStore {
   findLatestCompleter(taskId: string): Promise<string | null>;
   /** Projectの`TASK_COMPLETED`を新しい順に返す。 */
   listCompletions(projectId: string): Promise<Pick<ChangeRecord, "entity_id" | "principal_id">[]>;
+  /**
+   * Projectの各Taskについて、最新の`TASK_COMPLETED`の時点までに、その完了したClaimと主体が残した最後のコメント（実装・検証メモ）。
+   * 変更の要約の原記録。メモが無いTaskは含まない。
+   */
+  listCompletionNotes(projectId: string): Promise<CompletionNote[]>;
   /** `cursor`の昇順。 */
   listEntityChanges(projectId: string, entityId: string): Promise<ChangeRecord[]>;
   /** `afterCursor`より後を`cursor`の昇順で`limit`件。 */

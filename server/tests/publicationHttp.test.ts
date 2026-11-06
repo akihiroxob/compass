@@ -135,6 +135,12 @@ test("Runtimeの公開確認を開発受入と別の記録として残し、Huma
     assert.equal(unconfigured.publicationSource.configured, false);
     assert.deepEqual(statusOf(unconfigured, first), ["accepted", "unconfirmed", "not_configured"]);
     assert.deepEqual(statusOf(unconfigured, pending), ["not_accepted", "unconfirmed", "not_configured"]);
+    // 変更の要約は、完了したWorkerの実装・検証メモ（Taskコメント）が原記録で、題名とは別に返る。
+    const summaryOf = (history: Awaited<ReturnType<typeof releases>>, taskId: string) =>
+      history.changes.find((change: { task: { id: string } }) => change.task.id === taskId)?.summary;
+    assert.deepEqual({ ...summaryOf(unconfigured, first), commentId: "<id>", recordedAt: 0 },
+      { commentId: "<id>", body: "実装と検証", truncated: false, author: "worker-a", recordedAt: 0 });
+    assert.ok(typeof summaryOf(unconfigured, first).commentId === "string");
 
     // 専用のRuntime主体（publication:writeだけ）を発行すると、記録がなくても入力元ありとして「公開記録なし」で確認できず。
     const issue = async (principalId: string, scopes: string[]) => {

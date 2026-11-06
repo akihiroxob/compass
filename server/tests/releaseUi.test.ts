@@ -17,6 +17,7 @@ import {
   releaseSearch,
   type PublicationRecordView,
   type PublicationStatus,
+  summaryExcerpt,
   type ReleaseChange,
 } from "../src/web/features/release/release.ts";
 
@@ -25,6 +26,7 @@ import {
 const change = (id: string, status: PublicationStatus, patch: Partial<ReleaseChange> = {}, acceptedAt: number | null = 1_000): ReleaseChange => ({
   task: { id, title: `変更 ${id}`, status: "accepted", storyId: "s1", updatedAt: 500 },
   story: { id: "s1", title: "ログインを改善する", outcomeId: "o1" },
+  summary: { commentId: `c-${id}`, body: `${id} の実装メモ\n題名にない変更内容`, truncated: false, author: "worker", recordedAt: 900 },
   development: { status: acceptedAt === null ? "not_accepted" : "accepted", acceptedAt, acceptedBy: acceptedAt === null ? null : "manager" },
   pullRequest: { repositoryId: "r1", repository: "acme/widget", number: 7, url: "https://github.com/acme/widget/pull/7", state: "merged", headSha: "a".repeat(40), mergeSha: "b".repeat(40), reviewedHeadSha: null, acceptedMergeSha: null },
   revisions: [{ repositoryId: "r1", commitSha: `${id}`.padEnd(40, "0"), source: "pull_request_merge" }],
@@ -112,4 +114,14 @@ test("CommitのURLはGitHubのRepositoryだけに作る", () => {
   assert.equal(commitUrl("https://github.com/acme/widget.git", sha), `https://github.com/acme/widget/commit/${sha}`);
   assert.equal(commitUrl("https://gitlab.example/acme/widget", sha), null);
   assert.equal(commitUrl(undefined, sha), null);
+});
+
+test("変更の要約は原記録の本文を抜粋し、無ければ題名で代用せずnullを返し、検索の対象にする", () => {
+  const withSummary = change("t1", "published");
+  assert.equal(summaryExcerpt(withSummary), "t1 の実装メモ 題名にない変更内容");
+  assert.equal(summaryExcerpt({ ...withSummary, summary: { ...withSummary.summary!, body: "あ".repeat(300) } }, 10), `${"あ".repeat(10)}…`);
+  const without = change("t2", "published", { summary: null });
+  assert.equal(summaryExcerpt(without), null);
+  const filter = { q: "題名にない", publication: "all" as const, page: 1 };
+  assert.deepEqual(filterReleaseChanges([withSummary, without], filter).map(({ task }) => task.id), ["t1"]);
 });

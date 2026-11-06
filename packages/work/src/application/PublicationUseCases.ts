@@ -14,6 +14,7 @@ import { CoordinationError } from "./error/CoordinationError.ts";
 import type { RevisionGateway } from "./port/RevisionGateway.ts";
 import type {
   AcceptedDeliverable,
+  CompletionNote,
   PublicationRecord,
   PublicationRevisionRecord,
   TaskPullRequestRecord,
@@ -251,6 +252,25 @@ export class RecordPublicationUseCase {
   }
 }
 
+/** 変更の要約として返す本文の上限。全文の原記録はTaskのコメント（`commentId`）にある。 */
+export const maximumChangeSummaryLength = 2000;
+
+/**
+ * 変更の要約。完了したWorkerが実装・検証メモとして残したコメントを原記録とし、題名や状態から作らない。
+ * メモが無い場合は`null`で、要約が無いことを示す。
+ */
+const changeSummary = (note: CompletionNote | undefined) => {
+  if (!note) return null;
+  const body = note.body.trim();
+  return {
+    commentId: note.comment_id,
+    body: body.slice(0, maximumChangeSummaryLength),
+    truncated: body.length > maximumChangeSummaryLength,
+    author: note.author,
+    recordedAt: note.created_at,
+  };
+};
+
 /**
  * Projectのリリース履歴の取得（Human向け読取。認可は入口のMembership）。変更（Task・PR・対象Commit）ごとに、開発の受入と公開の状況を
  * 別の項目として返す。公開の状況は公開記録だけから判定し、PRのmerge・Taskの受入を公開済みとしない。原記録（`publications`）も返す。
@@ -264,12 +284,14 @@ export class ListProjectReleasesUseCase {
 
   async execute(projectId: string) {
     if (!(await this.store.projects.exists(projectId))) throw new NotFoundError(`Project ${projectId} was not found`);
-    const [changes, records, revisions, sourceConfigured] = await Promise.all([
+    const [changes, records, revisions, sourceConfigured, notes] = await Promise.all([
       projectChanges(this.store, projectId),
       this.store.listPublications(projectId),
       this.store.listPublicationRevisions(projectId),
       this.publicationSourceConfigured(projectId),
+      this.store.listCompletionNotes(projectId),
     ]);
+    const noteByTask = new Map(notes.map((note) => [note.task_id, note]));
     const configured = sourceConfigured || records.length > 0;
     const observations: PublicationObservation[] = records.map((record) => ({
       id: record.id,
@@ -296,6 +318,7 @@ export class ListProjectReleasesUseCase {
         return {
           task: { id: task.id, title: task.title, status: task.status, storyId: task.story_id, updatedAt: task.updated_at },
           story: story ? { id: story.id, title: story.title, outcomeId: story.outcome_ref } : null,
+          summary: changeSummary(noteByTask.get(task.id)),
           development: {
             status: task.status === TaskStatus.ACCEPTED ? "accepted" as const : "not_accepted" as const,
             acceptedAt: acceptance?.acceptedAt ?? null,

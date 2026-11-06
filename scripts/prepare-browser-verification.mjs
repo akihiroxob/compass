@@ -309,7 +309,7 @@ const prepareReleaseHistory = async (services, owner, app) => {
   for (let index = 1; index <= total; index += 1) {
     const task = await work.issueTask(identities.manager, { projectId: project.id, storyId: story.id, taskKey: `release-${index}`, title: `リリース変更 ${index}` }, key('task'));
     const claim = await work.claimTask(identities.worker, task.id, key('claim'));
-    await work.addTaskComment(identities.worker, task.id, claim.claimId, '画面検証専用の決定的fixture。実Agentの成果ではない。', key('comment'));
+    await work.addTaskComment(identities.worker, task.id, claim.claimId, `リリース変更 ${index} の実装メモ: src/change-${index}.ts を追加し、題名にない確認手順を記録した。画面検証専用の決定的fixtureで、実Agentの成果ではない。`, key('comment'));
     await work.completeTask(identities.worker, task.id, claim.claimId, key('complete'));
     const review = await work.claimReview(identities.reviewer, task.id, key('review'));
     await work.reviewedTask(identities.reviewer, task.id, review.claimId, key('reviewed'));
@@ -339,7 +339,7 @@ const prepareReleaseHistory = async (services, owner, app) => {
   // The production deployment contains the first commits only; later accepted commits are not included (unpublished).
   const publicationId = await publish(releaseCommit(releaseCounts.published), Date.now() - 60_000);
   return { projectId: project.id, workspaceId: workspace.id, intentId: intent.id, outcomeId: outcome.id, repositoryId: repository.id, publicationId, counts: releaseCounts,
-    path: `/projects/${project.id}/releases`, tasks,
+    apiPath: `/projects/${project.id}/releases`, screenPath: `/projects/${project.id}?view=releases`, tasks,
     expected: { published: tasks.slice(0, releaseCounts.published).map(({ taskId }) => taskId),
       notPublished: tasks.slice(releaseCounts.published, comparable).map(({ taskId }) => taskId),
       unconfirmed: tasks.slice(comparable).map(({ taskId }) => taskId) },
@@ -473,7 +473,7 @@ try {
     partial.consultationLifecycle = { status: 'unavailable', kind: error.kind, tool: error.tool, message: error.message };
   }
   persistence = { takenAt: new Date().toISOString(), responses: await persistenceSnapshot(app, [
-    ...(partial.consultationLifecycle.stages ?? []), ...(evaluated.consultationReflection.consultations ?? []), { path: releaseHistory.path }]) };
+    ...(partial.consultationLifecycle.stages ?? []), ...(evaluated.consultationReflection.consultations ?? []), { path: releaseHistory.apiPath }]) };
 } finally {
   await database.destroy();
   await new Promise((resolveClose) => releaseGithub.close(resolveClose));

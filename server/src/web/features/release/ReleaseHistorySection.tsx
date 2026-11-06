@@ -30,6 +30,7 @@ import {
   relationOf,
   releasePageSize,
   releaseSearch,
+  summaryExcerpt,
   releasesPath,
   shortSha,
   type PublicationFilter,
@@ -141,6 +142,18 @@ const ReleaseDetail = ({ project, change, history, onOpen }: { project: ReleaseP
     <div className="release-detail">
       <p className="release-detail-summary">{change.task.title}</p>
       <p><DevelopmentBadge change={change} /> <PublicationBadge change={change} /></p>
+      <h3>変更の要約</h3>
+      {change.summary === null
+        ? <p className="unset">完了時の実装メモが記録されていないため、変更の要約はありません。題名とTaskの記録から確認してください。</p>
+        : (
+          <>
+            <p className="release-summary-body">{change.summary.body}{change.summary.truncated ? "…" : ""}</p>
+            <small>
+              完了時の実装メモ ・ {change.summary.author ? `${change.summary.author} ・ ` : ""}{formatTime(change.summary.recordedAt)}
+              {change.summary.truncated ? "（一部のみ表示）" : ""} ・ <Link to={taskPath(project.id, change.task.id)}>Taskのコメントで全文を見る</Link>
+            </small>
+          </>
+        )}
       <h3>開発の受入</h3>
       <dl className="intent-facts">
         <dt>状態</dt><dd>{developmentLabels[development.status]}（Task: {change.task.status}）</dd>
@@ -274,6 +287,9 @@ export const ReleaseHistorySection = ({ project }: { project: ReleaseProject }) 
                   to={{ search: releaseSearch(searchParams, { change: change.task.id }) }}
                   onClick={(event) => { if (!event.metaKey && !event.ctrlKey && !event.shiftKey) { event.preventDefault(); apply({ change: change.task.id }); } }}
                 >{change.task.title}</Link>
+                {summaryExcerpt(change) !== null
+                  ? <p className="release-summary-excerpt">{summaryExcerpt(change)}</p>
+                  : <p className="release-summary-excerpt unset">変更の要約は記録されていません</p>}
                 <small>
                   <DevelopmentBadge change={change} /> <PublicationBadge change={change} />
                   {" "}{change.story ? `${change.story.title} ・ ` : ""}{change.pullRequest ? `PR #${change.pullRequest.number} ・ ` : ""}

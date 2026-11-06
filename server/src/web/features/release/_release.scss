@@ -41,6 +41,8 @@
   h3 { margin-top: var(--space-md); }
 }
 .release-detail-summary { font-weight: 600; }
+.release-summary-body { margin: 0 0 var(--space-2xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.release-summary-excerpt { margin: var(--space-2xs) 0; font-size: var(--text-small); overflow-wrap: anywhere; }
 .release-refs { margin: .45rem 0 var(--space-xs); padding-left: 1.1rem; font-size: var(--text-small); li { margin: .15rem 0; } }
 .release-records { @include divided-list; }
 .release-record {
