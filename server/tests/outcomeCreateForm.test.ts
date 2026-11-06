@@ -8,6 +8,7 @@ import { createApplicationServices } from "../src/bootstrap/createApplicationSer
 import { asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createOutcome } from "../src/web/features/outcome/createOutcome.ts";
 import { createOutcomeBody, emptyCriterion, emptyOutcomeFormValues } from "../src/web/features/outcome/outcome.ts";
 import { createSignedInApp } from "./support/humanSession.ts";
 
@@ -44,4 +45,17 @@ test("フォームの本文は判断元のIntent版を含み、登録できる�
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("実フォームの保存関数は保持したIntent版をPOST本文へ含める", async () => {
+  const calls: { path: string; body: Record<string, unknown> }[] = [];
+  const fetchImpl = async (path: string, init?: RequestInit) => {
+    calls.push({ path, body: JSON.parse(String(init?.body)) as Record<string, unknown> });
+    return new Response(JSON.stringify({ outcome: { id: "o1" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+  };
+  await createOutcome("w1", "i1", 7, fetchImpl)(values);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].path, "/api/workspaces/w1/intents/i1/outcomes");
+  assert.equal(calls[0].body.intentVersion, 7);
+  assert.equal(calls[0].body.title, "Form outcome");
 });
