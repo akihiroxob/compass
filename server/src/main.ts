@@ -21,17 +21,20 @@ const start = async () => {
   const authConfig = loadHumanAuthConfig(process.env, { port });
   const database = createDatabase();
   await initializeSchema(database);
+  // GitHubの読取（読取専用）。tokenは任意で、値をログへ出さない。API URLは検証用のGitHub互換adapterへ向けるときだけ指定する。
+  const github = new GitHubPullRequestGateway({
+    apiBaseUrl: process.env.COMPASS_GITHUB_API_URL || undefined,
+    token: process.env.COMPASS_GITHUB_TOKEN || null,
+  });
   const services = createApplicationServices(database, undefined, undefined, {
     initialOwnerEmail: authConfig.initialOwnerEmail,
     identityProvider: authConfig.google
       ? new GoogleOidcIdentityProvider(authConfig.google)
       : null,
   }, {
-    // GitHubのPR読取（読取専用）。tokenは任意で、値をログへ出さない。API URLは検証用のGitHub互換adapterへ向けるときだけ指定する。
-    pullRequests: new GitHubPullRequestGateway({
-      apiBaseUrl: process.env.COMPASS_GITHUB_API_URL || undefined,
-      token: process.env.COMPASS_GITHUB_TOKEN || null,
-    }),
+    // PRの事実（完了・レビュー・受入の照合）と、公開記録のrevisionに変更のCommitが含まれるかの判定。
+    pullRequests: github,
+    revisions: github,
   });
   assertBootstrapConfigured(
     authConfig,

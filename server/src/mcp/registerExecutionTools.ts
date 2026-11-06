@@ -4,7 +4,7 @@ import { agentPrincipalOf, type Caller } from "@compass/access";
 import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
 import { StoryStatus, TaskStatus } from "@compass/work";
 import { execute } from "./toolExecution.ts";
-import type { ToolRegistrar } from "./toolContext.ts";
+import { runtimeToolMeta, type ToolRegistrar } from "./toolContext.ts";
 
 const requestIdSchema = z.string().min(1).describe("Caller-generated idempotency key");
 const claimIdSchema = z.string().uuid().describe("Current Task Claim ID");
@@ -24,7 +24,7 @@ const taskStatusSchema = z.enum([
  * `list_projects`・`get_role_instructions`は移植せず、Directionの既存toolを使う。
  * 認可・状態遷移・冪等性はapplication service（TaskCoordinationService）が持ち、ここはPrincipalを渡すだけ。
  * PrincipalなしはUNAUTHENTICATED（PrincipalはBearerのAgent Credential・trusted-localのAgent名から解決し、tool入力からは受け取らない）。
- * Runtime Credentialは`list_changes`だけを`execution:change:read` scopeで呼べる。
+ * Runtime Credentialは`list_changes`を`execution:change:read`、`record_publication`を`publication:write` scopeで呼べる。
  */
 export const registerExecutionTools = (server: ToolRegistrar, services: OperationServices, caller: Caller) => {
   const coordination = services.taskCoordinationService;
@@ -430,5 +430,37 @@ export const registerExecutionTools = (server: ToolRegistrar, services: Operatio
     },
     ({ taskId, claimId, reason, requestId }) =>
       asPrincipal((principalId) => coordination.rejectTask(principalId, taskId, claimId, reason, requestId)),
+  );
+  server.registerTool(
+    "record_publication",
+    {
+      title: "Record Publication",
+      description:
+        "For an external Runtime (CD, deploy notification or liveness check): record that a revision of a Repository registered on the " +
+        "Project was confirmed as published at a target. The same contract is used for every deploy method: repositoryId, revision (full " +
+        "40-character commit SHA), target (a publication target reference such as production, up to 100 characters), targetUrl (optional " +
+        "http/https URL without credentials), method (optional label such as cloudflare-pages, not used for decisions), observedAt (epoch " +
+        "ms when the Runtime confirmed it, not in the future) and evidence (1-20 references { kind: deployment | ci | url, uri }; never " +
+        "content). The record is kept as an append-only raw record. Whether each change (a Task's merged pull request or accepted " +
+        "deliverable commit) is contained in the revision is decided by Compass from the GitHub history (compare), not from the Runtime; " +
+        "a revision missing from the Repository fails with VALIDATION_ERROR and GITHUB_UNAVAILABLE (retryable) records nothing. " +
+        "Resending the same repositoryId, target, revision and observedAt returns the same record (recorded false); different content for " +
+        "them fails with CONFLICT. An older observedAt than the target's latest record is kept but does not change the current status " +
+        "(superseded true). A merged pull request or an accepted Task is never treated as published without a record. " +
+        "Requires a Runtime Credential (Authorization: Bearer cmp_runtime...) of the Project with the publication:write scope; in " +
+        "trusted-local mode Bearer <RuntimeName> with a runtime Grant is also accepted (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: {
+        projectId: z.string().min(1),
+        repositoryId: z.string().min(1),
+        revision: z.string(),
+        target: z.string(),
+        targetUrl: z.string().nullable().optional(),
+        method: z.string().nullable().optional(),
+        observedAt: z.number(),
+        evidence: z.array(z.object({ kind: z.string(), uri: z.string() })),
+      },
+      _meta: runtimeToolMeta,
+    },
+    ({ projectId, ...input }) => execute(() => services.recordPublicationUseCase.execute(caller, projectId, input)),
   );
 };

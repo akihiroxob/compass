@@ -8,6 +8,7 @@ import { createMcpServer } from "../mcp/createMcpServer.ts";
 import { ACTIVE_ROLE_HEADER, MalformedAuthorizationError, resolveActiveRole, resolveCaller } from "../auth/resolvePrincipal.ts";
 import { ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError, ValidationError } from "@compass/shared";
 import { parseProjectStatusFilter, parseWorkspaceStatusFilter } from "@compass/organization";
+import { CoordinationError } from "@compass/work";
 import type { CredentialScope, HumanActor } from "@compass/access";
 import { applicationServices, type ApplicationServices } from "./container.ts";
 import {
@@ -34,6 +35,7 @@ export const createApp = (
     "/api/workspaces/:workspaceId/runtime-events",
     "/api/workspaces/:workspaceId/runtime-events/*",
     "/api/projects/:projectId/outcomes/:outcomeId/execution-evidence",
+    "/api/projects/:projectId/publications",
   ]) {
     app.use(path, bearerCors);
   }
@@ -357,6 +359,18 @@ export const createApp = (
       ),
     );
   });
+  // 公開確認の記録（Runtime）。CD・デプロイ通知・稼働確認が、公開先で確認したrevisionと根拠の参照を送る。方式によらず同じ契約。
+  // Project Runtime Credentialの`publication:write`で認可し、Session Cookieでは受け付けない。規則はMCPと同じuse caseが持つ。
+  app.post("/api/projects/:projectId/publications", async (c) => {
+    const caller = await callerOf(c);
+    const input = await readJsonBody(c.req.raw, "Publication");
+    const result = await operationServicesOf(c).recordPublicationUseCase.execute(caller, c.req.param("projectId"), input);
+    return c.json(result, result.recorded ? 201 : 200);
+  });
+  // リリース履歴（所属WorkspaceのMembership）。変更ごとに開発の受入と公開の状況を別の項目で返し、公開記録の原記録も返す。
+  app.get("/api/projects/:projectId/releases", async (c) =>
+    c.json(await human.listProjectReleases.execute(await actorOf(c), c.req.param("projectId"))),
+  );
   // Human向けの読取（所属WorkspaceのMembership）。還流済みのProjectのExecutionの結果・Evidence参照を返す（還流前は`record: null`）。
   app.get("/api/projects/:projectId/outcomes/:outcomeId/execution-summary", async (c) =>
     c.json({
@@ -707,6 +721,10 @@ export const createApp = (
     }
     if (error instanceof ForbiddenError) {
       return c.json({ error: { code: error.code, message: error.message, ...error.details } }, 403);
+    }
+    // Web API・Runtime向けAPIで外部（GitHub）の事実を確認できなかった失敗。読めなければ503（retryable）、権限の不足は502。
+    if (error instanceof CoordinationError && (error.code === "GITHUB_UNAVAILABLE" || error.code === "GITHUB_ACCESS_DENIED")) {
+      return c.json({ error: error.toJSON() }, error.code === "GITHUB_UNAVAILABLE" ? 503 : 502);
     }
     console.error(error);
     return c.json({ error: { code: "INTERNAL_ERROR", message: "Internal Server Error" } }, 500);

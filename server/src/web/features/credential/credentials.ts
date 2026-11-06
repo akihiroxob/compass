@@ -9,7 +9,8 @@ export type RuntimeScope =
   | "execution:evidence:write"
   | "execution:summary:read"
   | "runtime:state:read"
-  | "agent:run:write";
+  | "agent:run:write"
+  | "publication:write";
 
 export type Credential = {
   id: string;
@@ -37,6 +38,7 @@ export const runtimeScopeOptions: { scope: RuntimeScope; label: string }[] = [
   { scope: "execution:summary:read", label: "還流済みExecution Summaryの取得" },
   { scope: "runtime:state:read", label: "Orchestrator向け現在状態の取得" },
   { scope: "agent:run:write", label: "Agentの実行観測の記録" },
+  { scope: "publication:write", label: "公開確認の記録" },
 ];
 export const allRuntimeScopes = runtimeScopeOptions.map((option) => option.scope);
 
@@ -86,7 +88,7 @@ export const rotateCredentialPath = (scope: CredentialScope, credentialId: strin
 
 /**
  * scopeで意味のあるRuntime scope。Workspace Runtimeはeventの取得・ackとOrchestrator向け現在状態、Agentの実行観測の記録（両scope）、Project Runtimeは
- * ExecutionのChange・Evidence還流・Summaryを使う（Project基準の現在状態は互換のため残る）。
+ * ExecutionのChange・Evidence還流・Summary・公開確認の記録を使う（Project基準の現在状態は互換のため残る）。
  */
 const workspaceRuntimeScopes: readonly RuntimeScope[] = ["runtime:event:read", "runtime:event:ack", "runtime:state:read", "agent:run:write"];
 export const runtimeScopeOptionsFor = (kind: CredentialScope["kind"]) =>
