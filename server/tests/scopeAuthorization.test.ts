@@ -59,7 +59,7 @@ const setup = async () => {
   const outcome = await services.createOutcomeUseCase.execute(workspace.id, intent.id, {
     title: "Outcome",
     description: "D",
-    rationale: "R",
+    intentVersion: 1, rationale: "R",
     successCriteria: [{ description: "C", measurement: "M" }],
   });
   await services.grantProjectRoleUseCase.execute(project.id, { principalId: "planner", role: "manager" });

@@ -44,6 +44,8 @@ export type DirectionDecision = {
   id: string;
   workspaceId: string;
   intentId: string;
+  /** 判断した時点の目標（Intent）の版。 */
+  intentVersion: number;
   outcomeId: string | null;
   /** 根拠にしたOutcome Evaluation（Task 36）。Evaluationを根拠にしない判断は`null`。 */
   evaluationId: string | null;

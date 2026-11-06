@@ -25,7 +25,7 @@ const stateOf = (overrides: Partial<WorkspaceOrchestrationState> = {}): Workspac
     { id: "p-a", name: "A" },
     { id: "p-b", name: "B" },
   ],
-  activeIntents: [{ id: "i-1", status: "active", updatedAt: 1 }],
+  activeIntents: [{ id: "i-1", status: "active", version: 1, meaningVersion: 1, updatedAt: 1 }],
   outcomes: [],
   intentResearchRequests: [],
   openResearchRequests: [],
@@ -75,6 +75,8 @@ const outcome = (
   intentId: "i-1",
   status: "active",
   updatedAt: 1,
+  intentVersion: 1,
+  intentRevised: null,
   targets,
   evaluability: evaluabilityOf(targets),
   latestEvaluation: null,
@@ -287,7 +289,7 @@ test("再計画後の状態から次のRoleを起動し、同じ状態ではdisp
 
 
 test("複数IntentのResearch・評価・Target待ちを分離し、別目標の終端で起動対象を消さない", () => {
-  const intents = ["i-1", "i-2", "i-3"].map((id) => ({ id, status: "active", updatedAt: 1 }));
+  const intents = ["i-1", "i-2", "i-3"].map((id) => ({ id, status: "active", version: 1, meaningVersion: 1, updatedAt: 1 }));
   const waiting = research("r-1", "requested");
   const state = stateOf({ activeIntents: intents, outcomes: [outcome("o-2", [], { intentId: "i-2" })], intentResearchRequests: [waiting], openResearchRequests: [waiting] });
   const planned = planWorkspaceDispatches(state);
@@ -300,4 +302,43 @@ test("複数IntentのResearch・評価・Target待ちを分離し、別目標の
   const after = planWorkspaceDispatches({ ...state, outcomes: [...state.outcomes, evaluated] });
   assert.ok(after.some((dispatch) => dispatch.intentId === "i-3" && dispatch.subject.id === "e-3"));
   assert.ok(after.some((dispatch) => dispatch.intentId === "i-2" && dispatch.subject.id === "o-2"));
+});
+
+test("Intentの意味が変わった未完了Outcomeは版ごとにStrategistの再計画対象とし、進行中の作業は止めない", () => {
+  const revised = (meaningVersion: number) =>
+    outcome("o-1", [target("p-a")], { intentVersion: 1, intentRevised: { outcomeIntentVersion: 1, meaningVersion } });
+  const state = (meaningVersion: number) =>
+    stateOf({
+      activeIntents: [{ id: "i-1", status: "active", version: meaningVersion, meaningVersion, updatedAt: 1 }],
+      outcomes: [revised(meaningVersion)],
+    });
+  const first = planWorkspaceDispatches(state(2));
+  assert.deepEqual(first.map(({ role, subject }) => [role, subject.kind, subject.id]), [["strategist", "outcome", "o-1"]]);
+  assert.match(first[0]!.key, /:intent_revised:2$/);
+  assert.deepEqual(planWorkspaceDispatches(state(2)).map(({ key }) => key), first.map(({ key }) => key), "同じ版では同じkey");
+  assert.notEqual(planWorkspaceDispatches(state(3))[0]!.key, first[0]!.key, "さらに意味が変われば新しいkey");
+  const withEmptyTarget = planWorkspaceDispatches(
+    stateOf({ outcomes: [outcome("o-1", [], { intentRevised: { outcomeIntentVersion: 1, meaningVersion: 2 } })] }),
+  );
+  assert.equal(withEmptyTarget.length, 2, "Targetなしの判断と再計画は別のkeyで起動する");
+});
+
+test("判断済みのactive Outcomeも意味の版が変われば再計画し、変更前の起動記録とkeyが衝突しない", () => {
+  const evaluation = { id: "e-1", decisionId: "d-1", createdAt: 1, targets: [] };
+  const state = (meaningVersion: number) =>
+    stateOf({
+      activeIntents: [{ id: "i-1", status: "active", version: meaningVersion, meaningVersion, updatedAt: 1 }],
+      outcomes: [
+        outcome("o-1", [target("p-a")], {
+          intentVersion: 1,
+          latestEvaluation: evaluation,
+          intentRevised: meaningVersion > 1 ? { outcomeIntentVersion: 1, meaningVersion } : null,
+        }),
+      ],
+    });
+  const before = planWorkspaceDispatches(state(1));
+  const after = planWorkspaceDispatches(state(2));
+  assert.ok(after.some(({ subject, key }) => subject.kind === "outcome" && /:intent_revised:2$/.test(key)), "判断済みでも再計画対象");
+  const beforeKeys = new Set(before.map(({ key }) => key));
+  assert.ok(after.every(({ key }) => !beforeKeys.has(key)), "変更前に成功した起動のkeyと一致しない");
 });

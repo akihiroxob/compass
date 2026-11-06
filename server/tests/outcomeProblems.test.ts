@@ -6,6 +6,7 @@ import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts"
 
 const start = 1_800_000_000_000;
 const outcomeInput = {
+  intentVersion: 1,
   title: "No duplicate claims",
   description: "Claims are exclusive.",
   rationale: "Duplicate claims cause rework.",

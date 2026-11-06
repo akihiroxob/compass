@@ -56,6 +56,13 @@ export type WorkspaceOrchestrationOutcome = {
   intentId: string;
   status: OutcomeStatus;
   updatedAt: number;
+  /** Outcomeが根拠にしているIntentの版。 */
+  intentVersion: number;
+  /**
+   * Intentの意味（実現したい状態・達成条件）が、このOutcomeの根拠にした版より後に変わった未完了Outcomeの再計画対象。
+   * 影響がなければnull。Strategistが`update_outcome`で現在版を確認するか、取消して作り直すと外れる。
+   */
+  intentRevised: { outcomeIntentVersion: number; meaningVersion: number } | null;
   /** 現在のTarget（設定順）。空ならTargetなし。 */
   targets: WorkspaceOrchestrationTarget[];
   /** 全Targetから見た評価可能性。`replan_required`は未完了のarchived Targetを持つ（Project ID・状態・理由だけ）。 */
@@ -82,7 +89,7 @@ export type WorkspaceOrchestrationState = {
   workspace: Pick<Workspace, "id" | "name" | "status">;
   /** WorkspaceのactiveなProject（作成順）。 */
   projects: { id: string; name: string }[];
-  activeIntents: { id: string; status: IntentStatus; updatedAt: number }[];
+  activeIntents: { id: string; status: IntentStatus; version: number; meaningVersion: number; updatedAt: number }[];
   /** Active Intent配下の全状態のOutcome（新しい順）。Active Intentが無ければ空。 */
   outcomes: WorkspaceOrchestrationOutcome[];
   /** Active Intentを発端とする全状態のResearch Request（新しい順）。Active Intentが無ければ空。 */
@@ -175,6 +182,11 @@ export class GetWorkspaceOrchestrationStateUseCase<TCaller> {
           intentId: activeIntent.id,
           status: outcome.status,
           updatedAt: outcome.updatedAt,
+          intentVersion: outcome.intentVersion,
+          intentRevised:
+            outcome.status === "active" && outcome.intentVersion < activeIntent.meaningVersion
+              ? { outcomeIntentVersion: outcome.intentVersion, meaningVersion: activeIntent.meaningVersion }
+              : null,
           targets: executions.map(({ projectId, projectStatus, execution }) => ({
             projectId,
             projectStatus,
@@ -200,7 +212,7 @@ export class GetWorkspaceOrchestrationStateUseCase<TCaller> {
     }
     return {
       ...base,
-      activeIntents: activeIntents.map(({ id, status, updatedAt }) => ({ id, status, updatedAt })),
+      activeIntents: activeIntents.map(({ id, status, version, meaningVersion, updatedAt }) => ({ id, status, version, meaningVersion, updatedAt })),
       outcomes,
       intentResearchRequests: requests
         .filter((request) => activeIntents.some((intent) => request.originIntentId === intent.id))

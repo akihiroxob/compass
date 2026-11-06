@@ -112,7 +112,7 @@ const seed = async (kit: Kit) => {
   })))).intent as { id: string };
   const outcome = ok(await callTool(kit.app, "create_outcome", {
     workspaceId: workspaceA.id, intentId: intent.id, title: "Onboarding under a day", description: "New teams onboard quickly.",
-    rationale: "Adoption depends on onboarding.", successCriteria: [{ description: "median onboarding < 1 day", measurement: "Survey" }],
+    intentVersion: 1, rationale: "Adoption depends on onboarding.", successCriteria: [{ description: "median onboarding < 1 day", measurement: "Survey" }],
   }, "strategist-a", "strategist")).outcome as { id: string };
   return { workspaceA, workspaceB, projectA1, projectB1, humans, as, intent, outcome };
 };

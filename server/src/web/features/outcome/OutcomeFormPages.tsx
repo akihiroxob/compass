@@ -1,17 +1,16 @@
 import { Link, useParams } from "react-router-dom";
-import { jsonInit, jsonPost, request } from "../../api";
+import { jsonInit, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { WorkspaceDirectionGate } from "../access";
 import { emptyOutcomeFormValues, formValuesFromOutcome, outcomeStatusLabels, problemsInput, type Outcome, type OutcomeFormValues } from "./outcome";
 import { intentPath, outcomePath, workspaceApiPath, workspaceOutcomePath, workspacePath } from "../../paths";
+import { createOutcome } from "./createOutcome";
 import { OutcomeForm } from "./OutcomeForm";
+import { useIntentVersion } from "./useIntentVersion";
 import { useOutcomePage } from "./useOutcomePage";
 
 const createLede = "選んだビジネス目標に結び付けて、Outcomeと成功条件、課題ごとの根拠・解決策の仮説を登録します。Researchは必須ではありません。保存してもAgentは起動しません。";
 const editLede = "変更した内容は保存するまで反映されません。キャンセルすると保存済みの内容のままです。";
-
-const createOutcome = (workspaceId: string, intentId: string) => async (values: OutcomeFormValues) =>
-  (await request<{ outcome: Outcome }>(workspaceApiPath(workspaceId, `/intents/${intentId}/outcomes`), jsonPost({ ...values, problems: problemsInput(values.problems) }))).outcome;
 
 /** 課題は一覧全体の置換のため、読み込んだ版を`expectedRevision`として送り、他での更新を上書きしない。 */
 const updateOutcome = (workspaceId: string, outcome: Outcome) => async (values: OutcomeFormValues) =>
@@ -39,9 +38,13 @@ const workspacePlacement = (workspaceId: string, intentId: string, outcomeId?: s
 
 const conflictLink = (placement: Placement) => <Link to={placement.conflictTo.to} className="text-link">{placement.conflictTo.label}</Link>;
 
-const CreateForm = ({ workspaceId, intentId, placement }: { workspaceId: string; intentId: string; placement: Placement }) => (
-  <OutcomeForm workspaceId={workspaceId} mode="create" initial={emptyOutcomeFormValues} heading={{ eyebrow: "New outcome", title: "Outcomeを追加", lede: createLede }} submitLabel="Outcomeを追加" pendingLabel="追加中..." cancelTo={placement.back.to} save={createOutcome(workspaceId, intentId)} savedTo={placement.savedTo} detailTo={placement.detailTo} conflictAction={conflictLink(placement)} />
-);
+/** フォームを開いた時点のIntent版を保持して送る。送信時に現在版へ付け替えないため、入力中に目標が更新されていれば409になる。 */
+const CreateForm = ({ workspaceId, intentId, placement }: { workspaceId: string; intentId: string; placement: Placement }) => {
+  const { version, error } = useIntentVersion(workspaceId, intentId);
+  if (error) return <main className="narrow"><Link to={placement.back.to} className="back-link">{placement.back.label}</Link><ErrorState message={error} /></main>;
+  if (version === null) return <main className="narrow"><Loading /></main>;
+  return <OutcomeForm workspaceId={workspaceId} mode="create" initial={emptyOutcomeFormValues} heading={{ eyebrow: "New outcome", title: "Outcomeを追加", lede: createLede }} submitLabel="Outcomeを追加" pendingLabel="追加中..." cancelTo={placement.back.to} save={createOutcome(workspaceId, intentId, version)} savedTo={placement.savedTo} detailTo={placement.detailTo} conflictAction={conflictLink(placement)} />;
+};
 
 const EditForm = ({ workspaceId, intentId, outcomeId, placement }: { workspaceId: string; intentId: string; outcomeId: string; placement: Placement }) => {
   const { outcome, error } = useOutcomePage(workspaceId, intentId, outcomeId);

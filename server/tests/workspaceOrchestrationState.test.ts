@@ -82,7 +82,7 @@ const seedWorkspace = async ({ database, services, app }: Kit) => {
 const outcomeInput = () => ({
   title: next("Hidden outcome title"),
   description: "Hidden outcome description",
-  rationale: "Hidden rationale",
+  intentVersion: 1, rationale: "Hidden rationale",
   successCriteria: [{ description: "Hidden criterion", measurement: "Hidden measurement" }],
 });
 
@@ -139,7 +139,7 @@ test("get_workspace_orchestration_stateはWorkspace・Outcome Target別のWork /
     const request = await requestIntentResearch(kit.services, workspace.id, intent.id);
     const researching = await state();
     const requestFact = { id: request.id, kind: "decision", status: "requested", originIntentId: intent.id, originOutcomeId: null, updatedAt: request.updatedAt };
-    assert.deepEqual(researching.activeIntents, [{ id: intent.id, status: "active", updatedAt: intent.updatedAt }]);
+    assert.deepEqual(researching.activeIntents, [{ id: intent.id, status: "active", version: 1, meaningVersion: 1, updatedAt: intent.updatedAt }]);
     assert.deepEqual(researching.openResearchRequests, [requestFact]);
     assert.deepEqual(researching.intentResearchRequests, [requestFact]);
     await kit.services.completeResearchRequestUseCase.execute(workspace.id, request.id, { conclusion: "not_needed", stopReason: "Known" });
@@ -155,7 +155,7 @@ test("get_workspace_orchestration_stateはWorkspace・Outcome Target別のWork /
     assert.deepEqual(planned.openResearchRequests, []);
     assert.deepEqual(planned.outcomes.map((outcome: any) => outcome.id), [untargeted.id, shared.id], "Outcomeは新しい順");
     assert.deepEqual(planned.outcomes[0], {
-      id: untargeted.id, intentId: intent.id, status: "active", updatedAt: untargeted.updatedAt, targets: [],
+      id: untargeted.id, intentId: intent.id, status: "active", updatedAt: untargeted.updatedAt, intentVersion: 1, intentRevised: null, targets: [],
       evaluability: { status: "no_targets", unfinishedTargets: [] }, latestEvaluation: null,
     });
     assert.deepEqual(planned.outcomes[1].targets, [

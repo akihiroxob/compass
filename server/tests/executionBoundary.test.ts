@@ -39,6 +39,7 @@ const serverFiles = sourcesOf("server/src");
 
 const workTables = ["task_consultation_wait", "story", "task", "task_claim", "task_comment", "task_pull_request", "change_log", "command_receipt", "publication_record", "publication_revision"];
 const accessTables = [
+  "agent_run",
   "project_grant",
   "workspace_grant",
   "human_user",

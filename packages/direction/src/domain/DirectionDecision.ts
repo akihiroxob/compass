@@ -30,6 +30,8 @@ export type DirectionDecision = {
   readonly id: string;
   readonly workspaceId: string;
   readonly intentId: string;
+  /** 判断した時点のIntentの版。内容はIntent revisionで参照する。 */
+  readonly intentVersion: number;
   readonly outcomeId: string | null;
   /** 根拠にしたOutcome Evaluation。Evaluationを経ない判断はnull。 */
   readonly evaluationId: string | null;

@@ -94,6 +94,8 @@ export type OutcomeEvaluation = {
   workspaceId: string;
   outcomeId: string;
   intentId: string;
+  /** 評価したOutcomeが根拠にしていたIntentの版。内容はIntent revisionで参照する。 */
+  intentVersion: number;
   result: EvaluationResult;
   criteria: CriterionEvaluation[];
   snapshot: EvaluationSnapshot;

@@ -110,7 +110,7 @@ test("Workspace EditorのWeb APIとStrategistの公開MCPが同じ構造化Inten
     // StrategistはMCPで同じレコードを読み、UIで入れた値を再入力せず一部だけ更新できる。
     const viaMcp = await callTool(kit.remoteApp, tokens.strategist, "get_intent", { workspaceId: workspace.id, intentId: intent.id }, "strategist");
     assert.deepEqual(pick(viaMcp.structuredContent), fullInput);
-    const updated = await callTool(kit.remoteApp, tokens.strategist, "update_intent", {
+    const updated = await callTool(kit.remoteApp, tokens.strategist, "update_intent", { expectedVersion: 1,
       workspaceId: workspace.id, intentId: intent.id, audience: "有料利用を検討する既存の無料会員。", targetDate: "2027-06-30", constraints: "",
     }, "strategist");
     assert.equal(updated.isError, undefined, JSON.stringify(updated.structuredContent));
@@ -120,7 +120,7 @@ test("Workspace EditorのWeb APIとStrategistの公開MCPが同じ構造化Inten
     assert.deepEqual(viaWeb, updated.structuredContent);
 
     // 同じ入力規則: 必須（目標名・実現したい状態）・上限・暦日を、Web APIとMCPが同じissue pathで拒否する。
-    const invalid = { title: " ", desiredState: "", background: "x".repeat(2_001), targetDate: "2027-02-30" };
+    const invalid = { expectedVersion: 2, title: " ", desiredState: "", background: "x".repeat(2_001), targetDate: "2027-02-30" };
     const webInvalid = await asEditor(`/api/workspaces/${workspace.id}/intents/${intent.id}`, { method: "PATCH", headers: json, body: JSON.stringify(invalid) });
     assert.equal(webInvalid.status, 400);
     const webIssues = ((await webInvalid.json()) as { error: { issues: { path: string }[] } }).error.issues.map(({ path }) => path);
@@ -129,7 +129,7 @@ test("Workspace EditorのWeb APIとStrategistの公開MCPが同じ構造化Inten
     assert.deepEqual(mcpInvalid.structuredContent.error.issues.map(({ path }: { path: string }) => path), webIssues);
     assert.deepEqual(webIssues, ["title", "desiredState", "background", "targetDate"]);
     for (const targetDate of ["2027/03/31", "2027-3-31", "2027-03-31T00:00:00Z"]) {
-      const rejected = await callTool(kit.remoteApp, tokens.strategist, "update_intent", { workspaceId: workspace.id, intentId: intent.id, targetDate }, "strategist");
+      const rejected = await callTool(kit.remoteApp, tokens.strategist, "update_intent", { expectedVersion: 2, workspaceId: workspace.id, intentId: intent.id, targetDate }, "strategist");
       assert.equal(rejected.structuredContent.error.code, "VALIDATION_ERROR", targetDate);
     }
 
@@ -182,20 +182,20 @@ test("Intentの登録・更新はWorkspaceのStrategistだけがMCPで行え、W
     assert.equal(created.structuredContent.targetDate, null);
 
     for (const [token, role] of [[tokens.worker, "worker"], [tokens.reviewer, "reviewer"], [tokens.otherStrategist, "strategist"]] as const) {
-      const denied = await callTool(kit.remoteApp, token, "update_intent", { workspaceId: workspace.id, intentId, title: "書換え" }, role);
+      const denied = await callTool(kit.remoteApp, token, "update_intent", { expectedVersion: 1, workspaceId: workspace.id, intentId, title: "書換え" }, role);
       assert.equal(denied.structuredContent.error.code, "FORBIDDEN", role);
     }
     // 別WorkspaceのCredentialは、自分のWorkspaceのIDを指定しても他WorkspaceのIntentを更新できない（NOT_FOUND）。
-    const crossed = await callTool(kit.remoteApp, tokens.otherStrategist, "update_intent", { workspaceId: other.id, intentId, title: "書換え" }, "strategist");
+    const crossed = await callTool(kit.remoteApp, tokens.otherStrategist, "update_intent", { expectedVersion: 1, workspaceId: other.id, intentId, title: "書換え" }, "strategist");
     assert.equal(crossed.structuredContent.error.code, "NOT_FOUND");
     assert.equal((await kit.services.getIntentUseCase.execute(workspace.id, intentId)).title, create.title);
 
     // Viewerは閲覧だけで、Web APIの作成・更新は拒否される。EditorはStrategistの登録した目標を再入力せず更新できる。
     const viewer = await createTestHuman(kit.database);
     await addTestWorkspaceMembership(kit.database, workspace.id, viewer, "viewer");
-    const viewerPatch = await requestAs(kit.webApp, viewer)(`/api/workspaces/${workspace.id}/intents/${intentId}`, { method: "PATCH", headers: json, body: JSON.stringify({ title: "書換え" }) });
+    const viewerPatch = await requestAs(kit.webApp, viewer)(`/api/workspaces/${workspace.id}/intents/${intentId}`, { method: "PATCH", headers: json, body: JSON.stringify({ expectedVersion: 1, title: "書換え" }) });
     assert.equal(viewerPatch.status, 403);
-    const editorPatch = await requestAs(kit.webApp, editor)(`/api/workspaces/${workspace.id}/intents/${intentId}`, { method: "PATCH", headers: json, body: JSON.stringify({ targetDate: "2027-12-31" }) });
+    const editorPatch = await requestAs(kit.webApp, editor)(`/api/workspaces/${workspace.id}/intents/${intentId}`, { method: "PATCH", headers: json, body: JSON.stringify({ expectedVersion: 1, targetDate: "2027-12-31" }) });
     assert.equal(editorPatch.status, 200);
     const patched = ((await editorPatch.json()) as { intent: Json }).intent;
     assert.deepEqual([patched.title, patched.background, patched.targetDate], [create.title, "相談で整理した背景", "2027-12-31"]);

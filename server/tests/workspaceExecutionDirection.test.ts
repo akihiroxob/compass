@@ -13,7 +13,7 @@ test("Direction events belong to Workspace without fabricating a Project", async
     const workspace = await services.human.createWorkspace.execute({ name: "Workspace", mission: "Mission" });
     const intent = await services.workspaceDirection.createIntentUseCase.execute(workspace.id, { title: "Intent", desiredState: "Result" });
     const outcome = await services.workspaceDirection.createOutcomeUseCase.execute(workspace.id, intent.id, {
-      title: "Outcome", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
+      title: "Outcome", description: "Result", intentVersion: 1, rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
     });
     const events = await database.selectFrom("runtime_event").selectAll().execute();
     assert.equal(events.length, 1);
@@ -47,7 +47,7 @@ const setup = async (path = ":memory:") => {
   const direction = services.workspaceDirection;
   const intent = await direction.createIntentUseCase.execute(workspace.id, { title: "Intent", desiredState: "Result" });
   const outcome = await direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
-    title: "Outcome", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
+    title: "Outcome", description: "Result", intentVersion: 1, rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
   });
   // 還流はOutcomeのTarget Projectだけが行える。
   for (const project of [a, b]) await direction.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, project.id);
@@ -229,7 +229,7 @@ test("Archived Target with unfinished Execution and an Outcome without Targets g
 
     // Targetなし: 評価せず、Strategistの判断へ戻す。
     const untargeted = await direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
-      title: "Untargeted", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
+      title: "Untargeted", description: "Result", intentVersion: 1, rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
     });
     assert.deepEqual([(await context(untargeted.id)).targets, (await context(untargeted.id)).evaluability], [[], { status: "no_targets", unfinishedTargets: [] }]);
     await assert.rejects(evaluate(untargeted.id, { ...judgment(untargeted, "none", "untargeted"), criteria: [{ criterionId: untargeted.successCriteria[0]!.id, verdict: "insufficient_evidence", rationale: "None", evidenceIds: [] }] }),
@@ -260,7 +260,7 @@ test("Archived Target with unfinished Execution and an Outcome without Targets g
 
     // archivedのTarget Bが未還流でも同じくStrategistへ戻す。
     const next = await direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
-      title: "Next", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
+      title: "Next", description: "Result", intentVersion: 1, rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
     });
     await direction.setOutcomeTargetProjectUseCase.execute(workspace.id, next.id, a.id);
     await assert.rejects(direction.setOutcomeTargetProjectUseCase.execute(workspace.id, next.id, b.id), { code: "CONFLICT" });
@@ -309,7 +309,7 @@ test("Target and Execution changes racing an evaluation never save an evaluation
     if (saved.kind !== "recorded") throw new Error("record missing");
     const evidenceA = saved.record.evidence[0]!.id;
     const created = async (title: string) => direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
-      title, description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
+      title, description: "Result", intentVersion: 1, rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
     });
 
     // Aだけが完了還流した状態で評価を始め、読取の直後に未還流のBがTargetへ加わる: 保存せず、読み直してBの還流待ちで拒否する。

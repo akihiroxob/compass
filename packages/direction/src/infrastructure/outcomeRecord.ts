@@ -209,6 +209,7 @@ export const loadOutcomes = async (
         id: row.id,
         workspaceId: row.workspace_id,
         intentId: row.intent_id,
+        intentVersion: row.intent_version,
         title: row.title,
         description: row.description,
         hypothesis: row.hypothesis,
@@ -241,12 +242,19 @@ export const insertOutcomeRow = async (
   now: number,
   observer: DirectionChangeObserver | null = null,
 ): Promise<Outcome> => {
+  const intent = await transaction
+    .selectFrom("intent")
+    .select("version")
+    .where("id", "=", intentId)
+    .where("workspace_id", "=", workspaceId)
+    .executeTakeFirstOrThrow();
   const row = await transaction
     .insertInto("outcome")
     .values({
       id,
       workspace_id: workspaceId,
       intent_id: intentId,
+      intent_version: intent.version,
       title: input.title,
       description: input.description,
       hypothesis: input.hypothesis,

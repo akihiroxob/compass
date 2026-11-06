@@ -57,6 +57,8 @@ const intentCreateSchema = {
 const intentUpdateSchema = {
   workspaceId: z.string().min(1),
   intentId: z.string().min(1),
+  expectedVersion: z.number().int(),
+  reason: z.string().nullable().optional(),
   title: z.string().optional(),
   desiredState: z.string().optional(),
   ...intentOptionalFields,
@@ -96,6 +98,7 @@ const outcomeCreateSchema = {
   successCriteria: z.array(
     z.object({ description: z.string(), measurement: z.string(), target: z.string().nullable().optional() }),
   ),
+  intentVersion: z.number().int(),
   problems: z.array(outcomeProblemInput).optional(),
 };
 
@@ -103,6 +106,7 @@ const outcomeUpdateSchema = {
   workspaceId: z.string().min(1),
   intentId: z.string().min(1),
   outcomeId: z.string().min(1),
+  intentVersion: z.number().int().optional(),
   title: z.string().optional(),
   hypothesis: z.string().nullable().optional(),
   problems: z.array(outcomeProblemInput).optional(),
@@ -158,6 +162,7 @@ const usedSynthesisRefSchema = z.object({ synthesisId: z.string().min(1), versio
 const directionDecisionCommonSchema = {
   workspaceId: z.string().min(1),
   intentId: z.string().min(1),
+  intentVersion: z.number().int(),
   judgment: z.string(),
   reason: z.string(),
   options: z.array(z.string()).optional(),
@@ -185,7 +190,7 @@ const createDirectionDecisionMcpSchema = {
 
 const decideNextOutcomeMcpSchema = {
   ...directionDecisionCommonSchema,
-  outcome: z.object(outcomeCreateSchema).omit({ workspaceId: true, intentId: true }),
+  outcome: z.object(outcomeCreateSchema).omit({ workspaceId: true, intentId: true, intentVersion: true }),
 };
 
 // ADR Handoffの入力規則もshared/adrHandoffSchemaが持つ。ここでは型だけを宣言する。
@@ -424,13 +429,34 @@ export const createMcpServer = (
       description:
         "Update fields of an active Intent. " + intentFieldsDescription + " Omitted fields are unchanged; " +
         "null or an empty string clears an optional field. Abandoned or achieved Intents cannot be edited (CONFLICT). " +
-        "Once the Intent has Outcomes, desiredState and completionDefinition can no longer be changed (CONFLICT). " +
-        "Requires a Strategist Grant of the Workspace, the same as create_intent.",
+        "expectedVersion (required) is the Intent version your edit or judgment is based on (Intent.version from get_intent). " +
+        "If the Intent was saved after that, nothing is changed and CONFLICT (conflict intent_version, currentVersion) is returned: " +
+        "read the current Intent and review it before retrying; never treat evidence from an older version as the current one. " +
+        "Every save creates a new version with the actor and reason (list_intent_revisions). When the Intent already has Outcomes, " +
+        "changing desiredState or completionDefinition requires a reason; it is not forbidden. Existing Outcomes, Evaluations and " +
+        "Decisions keep the version they were based on, and unfinished Outcomes based on an older meaning become re-plan targets " +
+        "(orchestration state intentRevised). Requires a Strategist Grant of the Workspace, the same as create_intent.",
       inputSchema: intentUpdateSchema,
     },
     ({ workspaceId, intentId, ...input }) =>
       execute(() =>
         asIntentAuthor(workspaceId, () => services.updateIntentUseCase.execute(workspaceId, intentId, input)),
+      ),
+  );
+  server.registerTool(
+    "list_intent_revisions",
+    {
+      title: "List Intent Revisions",
+      description:
+        "List the saved versions of an Intent, newest first: the content of each version, whether the meaning changed, the reason " +
+        "and who changed it. Outcomes, Evaluations and Decisions refer to the version they were based on with intentVersion.",
+      inputSchema: { workspaceId: z.string().min(1), intentId: z.string().min(1) },
+    },
+    ({ workspaceId, intentId }) =>
+      execute(() =>
+        asWorkspaceReader(workspaceId, async () => ({
+          revisions: await services.listIntentRevisionsUseCase.execute(workspaceId, intentId),
+        })),
       ),
   );
   // Intentの観測項目と時系列。入力規則はdirectionのintentMetricSchemaが持ち、ここでは型だけを宣言する。
@@ -493,16 +519,18 @@ export const createMcpServer = (
     {
       title: "Abandon Intent",
       description:
-        "Abandon an active Intent with an optional reason. Abandoned Intents cannot be reactivated; create a new Intent instead.",
+        "Abandon an active Intent with an optional reason (and an optional expectedVersion that must match the current version). " +
+        "Its active Outcomes are cancelled, never marked achieved, and Tasks are not changed. Abandoned Intents cannot be reactivated; create a new Intent instead.",
       inputSchema: {
         workspaceId: z.string().min(1),
         intentId: z.string().min(1),
         reason: z.string().nullable().optional(),
+        expectedVersion: z.number().int().optional(),
       },
     },
-    ({ workspaceId, intentId, reason }) =>
+    ({ workspaceId, intentId, reason, expectedVersion }) =>
       execute(() =>
-        asWorkspaceOperator(workspaceId, () => services.abandonIntentUseCase.execute(workspaceId, intentId, { reason })),
+        asWorkspaceOperator(workspaceId, () => services.abandonIntentUseCase.execute(workspaceId, intentId, { reason, expectedVersion })),
       ),
   );
 
@@ -673,6 +701,8 @@ export const createMcpServer = (
       title: "Update Outcome",
       description:
         "Update title, hypothesis or problems of an active Outcome. Omitted fields are unchanged; null or an empty string clears hypothesis. " +
+        "Pass intentVersion (the current Intent.version) to record that you reviewed the Outcome against the current Intent; this clears the " +
+        "re-plan target (intentRevised) after the Intent meaning changed, and fails with CONFLICT if the Intent moved on again. " +
         "problems replaces the whole list (pass an existing problem id to keep it) and requires expectedRevision, the revision you read " +
         "with get_outcome; if the Outcome was updated since then the call fails with CONFLICT (currentRevision). Every update increments revision. " +
         outcomeProblemsDescription + " " +
@@ -1152,7 +1182,9 @@ export const createMcpServer = (
         "evaluable, or replan_required when an archived Target has an unreflected or incomplete Execution, with the unfinished " +
         "Targets), the latest Evaluation with the Direction Decision based on it (decisionId null while undecided) and the per-Project " +
         "Execution cursors it evaluated, the active Intent's Research Requests and the Workspace's open (requested / running) Research " +
-        "Requests. An archived Workspace returns only its status with empty lists. No content (Mission, Intent or Outcome text, " +
+        "Requests. Each active Intent carries version and meaningVersion, and each Outcome the intentVersion it is based on; " +
+        "intentRevised is non-null for an active Outcome whose Intent meaning (desiredState / completionDefinition) changed after that " +
+        "version, which marks it as an explicit re-plan target (work is not stopped). An archived Workspace returns only its status with empty lists. No content (Mission, Intent or Outcome text, " +
         "Research findings, Story / Task text) is included: the started Role reads it through its own Role Context. Reading does " +
         "not change state and does not depend on Activity or Runtime event cursors. Requires a Workspace Runtime Credential " +
         "(Authorization: Bearer cmp_runtime...) of the Workspace with the runtime:state:read scope; a Project Credential or a " +

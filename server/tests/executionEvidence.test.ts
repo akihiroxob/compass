@@ -88,7 +88,7 @@ const createOutcome = async ({ services }: Kit, workspaceId: string, intentId: s
   services.createOutcomeUseCase.execute(workspaceId, intentId, {
     title: `Outcome ${++outcomeCount}`,
     description: "Claims are exclusive.",
-    rationale: "Rework",
+    intentVersion: 1, rationale: "Rework",
     successCriteria: [{ description: "duplicate_claim_count = 0", measurement: "Count duplicate claims", target: "= 0" }],
   });
 

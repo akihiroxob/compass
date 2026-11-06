@@ -20,6 +20,8 @@ const intent = (overrides: Partial<Intent>): Intent => ({
   targetDate: null,
   status: "active",
   abandonedReason: null,
+  version: 1,
+  meaningVersion: 1,
   createdAt: 1,
   updatedAt: 1,
   ...overrides,
@@ -60,11 +62,17 @@ test("409 CONFLICTはActive Intentのidを保持した競合として分類す�
     kind: "conflict",
     message: "Project p1 already has an active Intent",
     activeIntentId: "i1",
+    conflict: null,
   });
   assert.deepEqual(classifyError(new ApiError(409, "CONFLICT", "Intent is abandoned")), {
     kind: "conflict",
     message: "Intent is abandoned",
     activeIntentId: null,
+    conflict: null,
   });
+  // 古い版からの保存は、目標の版の競合として分類し、画面は最新の読み込みを案内する。
+  const stale = classifyError(new ApiError(409, "CONFLICT", "Intent i1 is at version 3", [], null, null, "intent_version"));
+  assert.equal(stale.kind === "conflict" && stale.conflict, "intent_version");
+  assert.match(stale.kind === "conflict" ? stale.message : "", /別の画面または担当者によって更新/);
   assert.deepEqual(classifyError(new ApiError(409, "OTHER", "x")), { kind: "other", message: "x" });
 });

@@ -40,7 +40,7 @@ export const EvaluationCard = ({ evaluation, decisions, projectLabel }: { evalua
         {formatTime(evaluation.createdAt)} の評価
       </h4>
       <p className="execution-meta">
-        {evaluation.principalId} ・ runRef <code>{evaluation.runRef}</code>
+        {evaluation.principalId} ・ runRef <code>{evaluation.runRef}</code> ・ 根拠にした目標 v{evaluation.intentVersion}
       </p>
       <p className="section-label">評価時のTarget ProjectごとのExecution</p>
       <ul className="grant-list">

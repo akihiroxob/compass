@@ -88,7 +88,7 @@ test("Workspace / Project Activityはscope別に記録され、Workspace Grant�
       workspaceId: workspace.id,
       intentId: intent.id,
       type: "additional_research",
-      judgment: "IdPを調べる",
+      intentVersion: 1, judgment: "IdPを調べる",
       reason: "選択肢が不足",
       research: { question: "どのIdPか", scope: "OIDC", completionCondition: "比較表", budgetTotal: 10 },
       requestKey: "decision-1",

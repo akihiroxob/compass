@@ -6,6 +6,8 @@ import {
   emptyOutcomeFormValues,
   formValuesFromOutcome,
   maxSuccessCriteria,
+  isReplanTarget,
+  replanNote,
   splitOutcomes,
   type Outcome,
 } from "../src/web/features/outcome/outcome.ts";
@@ -14,6 +16,7 @@ const outcome = (overrides: Partial<Outcome>): Outcome => ({
   id: "o1",
   workspaceId: "w1",
   intentId: "i1",
+  intentVersion: 1,
   title: "Title",
   description: "Description",
   hypothesis: null,
@@ -90,5 +93,14 @@ test("Outcomeの409 CONFLICTは、Active Intentを持たない競合として分
     kind: "conflict",
     message: "Intent i1 is abandoned; Outcomes can only be created under an active Intent",
     activeIntentId: null,
+    conflict: null,
   });
+});
+
+test("目標の意味が根拠にした版より後に変わった未完了のOutcomeだけを再計画対象にする", () => {
+  assert.equal(isReplanTarget(outcome({ intentVersion: 1 }), { meaningVersion: 2 }), true);
+  assert.equal(isReplanTarget(outcome({ intentVersion: 2 }), { meaningVersion: 2 }), false, "現在の意味を確認済み");
+  assert.equal(isReplanTarget(outcome({ intentVersion: 1, status: "cancelled" }), { meaningVersion: 3 }), false, "取消済みは対象外");
+  assert.equal(isReplanTarget(outcome({ intentVersion: 1, status: "achieved" }), { meaningVersion: 3 }), false, "評価済みの結果は書き換えない");
+  assert.match(replanNote(outcome({ intentVersion: 1 }), { meaningVersion: 3 }), /v1.*v3/);
 });

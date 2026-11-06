@@ -61,7 +61,7 @@ const resultInput = (requestKey = "result", resourceId?: string) => ({ requestKe
   findings: [{ statement: "Finding", confidence: "high", observedAt: 1, evidenceIndexes: [0] }] });
 const synthesisInput = (findingId: string, overrides: object = {}) => ({ requestKey: "synthesis", principalId: "researcher", runRef: "run", conclusion: "Conclusion", findingIds: [findingId], validAsOf: 1, ...overrides });
 const decisionInput = (intentId: string, overrides: object = {}) => ({ requestKey: "decision", runRef: "run", type: "adr_candidate", intentId,
-  judgment: "Document the choice", reason: "Evidence supports the choice", ...overrides });
+  intentVersion: 1, judgment: "Document the choice", reason: "Evidence supports the choice", ...overrides });
 
 test("Research一覧のWorkspace応答から閲覧Projectの詳細リンクを辿れる", async () => {
   const { database, services, workspace, intent, direction, createProject } = await setup();

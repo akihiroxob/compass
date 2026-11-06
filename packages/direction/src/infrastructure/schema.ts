@@ -13,14 +13,40 @@ export type IntentTable = {
   target_date: string | null;
   status: "active" | "achieved" | "abandoned";
   abandoned_reason: string | null;
+  /** 保存のたびに1ずつ増える版。作成時は1。更新は呼び出し側が持つ版との一致を条件にする。 */
+  version: number;
+  /** desiredState / completionDefinitionが最後に変わった版。これより古い版を根拠にした未完了のOutcomeは再計画の対象。 */
+  meaning_version: number;
   created_at: number;
   updated_at: number;
+};
+
+/** Intentの版ごとの内容・変更主体・理由。追記だけで更新しない。版1は作成時の内容。 */
+export type IntentRevisionTable = {
+  intent_id: string;
+  workspace_id: string;
+  version: number;
+  title: string;
+  desired_state: string;
+  background: string | null;
+  audience: string | null;
+  constraints: string | null;
+  completion_definition: string | null;
+  target_date: string | null;
+  /** この版でdesiredState / completionDefinitionが変わったか。 */
+  meaning_changed: number;
+  reason: string | null;
+  changed_by: string;
+  changed_by_role: string;
+  created_at: number;
 };
 
 export type OutcomeTable = {
   id: string;
   workspace_id: string;
   intent_id: string;
+  /** 作成または最後に再確認した時点のIntentの版。 */
+  intent_version: number;
   title: string;
   description: string;
   hypothesis: string | null;
@@ -195,6 +221,8 @@ export type DirectionDecisionTable = {
   reason: string;
   /** JSON文字列の配列。 */
   options: string;
+  /** 判断した時点のIntentの版。内容は`intent_revision`で参照する。 */
+  intent_version: number;
   /** 判断時点のIntent Brief snapshot（JSON）。 */
   intent_brief_snapshot: string;
   /** 根拠にしたOutcome Evaluation（Task 36）。1つのEvaluationを根拠にできるDecisionは1件だけ。 */
@@ -333,6 +361,8 @@ export type OutcomeEvaluationTable = {
   workspace_id: string;
   outcome_id: string;
   intent_id: string;
+  /** 評価したOutcomeが根拠にしていたIntentの版。 */
+  intent_version: number;
   result: "achieved" | "failed" | "insufficient_evidence";
   criteria: string;
   snapshot: string;
@@ -388,6 +418,7 @@ export type IntentMetricObservationTable = {
  */
 export type DirectionDatabase = {
   intent: IntentTable;
+  intent_revision: IntentRevisionTable;
   outcome: OutcomeTable;
   success_criterion: SuccessCriterionTable;
   outcome_problem: OutcomeProblemTable;

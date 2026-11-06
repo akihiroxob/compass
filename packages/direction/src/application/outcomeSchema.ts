@@ -60,6 +60,8 @@ const outcomeProblemsSchema = z
 
 /** 成功条件はOutcomeの作成時に固定する。0件のOutcomeは登録できない。課題は任意（0件可）。 */
 export const createOutcomeSchema = z.object({
+  /** 判断の元にしたIntentの版（必須）。現在版と一致するときだけ作成でき、省略して現在版へ暗黙に付け替えない。 */
+  intentVersion: z.number().int().min(1),
   title: trimmedText("title", 100),
   description: trimmedText("description", 2_000),
   hypothesis: optionalText(2_000),
@@ -77,6 +79,8 @@ export const createOutcomeSchema = z.object({
  */
 const updateOutcomeSchema = z
   .object({
+    /** Intentの現在版を確認したことの記録。指定した場合は現在版と一致するときだけ更新でき、再計画の対象から外れる。 */
+    intentVersion: z.number().int().min(1).optional(),
     title: trimmedText("title", 100).optional(),
     hypothesis: clearableText(2_000).optional(),
     problems: outcomeProblemsSchema.optional(),

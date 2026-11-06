@@ -3,4 +3,4 @@ export { OutcomeCreatePage, OutcomeEditPage, WorkspaceOutcomeCreatePage, Workspa
 export { OutcomeProblems } from "./OutcomeProblems";
 export { ActiveOutcomes, OutcomeSection } from "./OutcomeList";
 export { EvaluationCard } from "./OutcomeLoopSection";
-export { outcomeStatusLabels, splitOutcomes, type Outcome } from "./outcome";
+export { isReplanTarget, outcomeStatusLabels, replanNote, splitOutcomes, type Outcome } from "./outcome";

@@ -23,7 +23,7 @@ const setup = async (path = ":memory:") => {
 };
 
 const successCriteria = [{ description: "d", measurement: "m" }];
-const outcomeInput = { title: "T", description: "D", rationale: "R", successCriteria };
+const outcomeInput = { title: "T", description: "D", intentVersion: 1, rationale: "R", successCriteria };
 
 const seedIntent = async ({ services }: Awaited<ReturnType<typeof setup>>) => {
   const project = await services.createProjectUseCase.execute({ name: "P", mission: "m" });
@@ -45,7 +45,7 @@ test("create_outcomeとdecide_next_outcomeは、Outcomeと同一transactionでou
   const created = await kit.services.createOutcomeUseCase.execute(project.workspaceId, intent.id, outcomeInput);
   const decided = await kit.services.decideNextOutcomeUseCase.execute(project.workspaceId, "strat", {
     intentId: intent.id,
-    judgment: "J",
+    intentVersion: 1, judgment: "J",
     reason: "R",
     requestKey: "decide-1",
     runRef: "run-1",
@@ -54,7 +54,7 @@ test("create_outcomeとdecide_next_outcomeは、Outcomeと同一transactionでou
   // 同じrequestKeyの再送はOutcomeもイベントも増やさない。
   const replayed = await kit.services.decideNextOutcomeUseCase.execute(project.workspaceId, "strat", {
     intentId: intent.id,
-    judgment: "J",
+    intentVersion: 1, judgment: "J",
     reason: "R",
     requestKey: "decide-1",
     runRef: "run-1",
@@ -99,7 +99,7 @@ test("Outcomeを作れない（Intentが非active）ときはイベントも作�
     () =>
       kit.services.decideNextOutcomeUseCase.execute(second.project.workspaceId, "strat", {
         intentId: second.intent.id,
-        judgment: "J",
+        intentVersion: 1, judgment: "J",
         reason: "R",
         requestKey: "k",
         runRef: "r",

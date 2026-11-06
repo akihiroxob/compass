@@ -141,7 +141,7 @@ test("他ProjectのIntent IDは、取得・更新・放棄のいずれでもNOT_
 
   await assert.rejects(services.getIntentUseCase.execute(projectB.workspaceId, intentA.id), codeOf("NOT_FOUND"));
   await assert.rejects(
-    services.updateIntentUseCase.execute(projectB.workspaceId, intentA.id, { title: "Hijacked" }),
+    services.updateIntentUseCase.execute(projectB.workspaceId, intentA.id, { expectedVersion: 1, title: "Hijacked" }),
     codeOf("NOT_FOUND"),
   );
   await assert.rejects(
@@ -170,13 +170,13 @@ test("存在しないWorkspaceと存在しないIntentはNOT_FOUNDで、メッ�
   assert.match(await notFoundMessage(services.listIntentsUseCase.execute("missing")), /^Workspace missing/);
   assert.match(await notFoundMessage(services.getIntentUseCase.execute("missing", "x")), /^Workspace missing/);
   assert.match(
-    await notFoundMessage(services.updateIntentUseCase.execute("missing", "x", { title: "t" })),
+    await notFoundMessage(services.updateIntentUseCase.execute("missing", "x", { expectedVersion: 1, title: "t" })),
     /^Workspace missing/,
   );
   assert.match(await notFoundMessage(services.abandonIntentUseCase.execute("missing", "x")), /^Workspace missing/);
   assert.match(await notFoundMessage(services.getIntentUseCase.execute(project.workspaceId, "nope")), /^Intent nope/);
   assert.match(
-    await notFoundMessage(services.updateIntentUseCase.execute(project.workspaceId, "nope", { title: "t" })),
+    await notFoundMessage(services.updateIntentUseCase.execute(project.workspaceId, "nope", { expectedVersion: 1, title: "t" })),
     /^Intent nope/,
   );
   assert.match(await notFoundMessage(services.abandonIntentUseCase.execute(project.workspaceId, "nope")), /^Intent nope/);
@@ -188,7 +188,7 @@ test("更新は指定した項目だけを変更し、completionDefinitionは空
   const project = await services.createProjectUseCase.execute(projectInput);
   const created = await services.createIntentUseCase.execute(project.workspaceId, intentInput);
 
-  const renamed = await services.updateIntentUseCase.execute(project.workspaceId, created.id, { title: " New title " });
+  const renamed = await services.updateIntentUseCase.execute(project.workspaceId, created.id, { expectedVersion: 1, title: " New title " });
   assert.equal(renamed.id, created.id);
   assert.equal(renamed.title, "New title");
   assert.equal(renamed.desiredState, created.desiredState);
@@ -196,16 +196,16 @@ test("更新は指定した項目だけを変更し、completionDefinitionは空
   assert.equal(renamed.createdAt, created.createdAt);
   assert.ok(renamed.updatedAt >= created.updatedAt);
 
-  const cleared = await services.updateIntentUseCase.execute(project.workspaceId, created.id, { completionDefinition: "" });
+  const cleared = await services.updateIntentUseCase.execute(project.workspaceId, created.id, { expectedVersion: renamed.version, completionDefinition: "" });
   assert.equal(cleared.completionDefinition, null);
   assert.equal(cleared.title, "New title");
   assert.equal(cleared.desiredState, created.desiredState);
 
-  await services.updateIntentUseCase.execute(project.workspaceId, created.id, { completionDefinition: "Done when X" });
-  const nulled = await services.updateIntentUseCase.execute(project.workspaceId, created.id, { completionDefinition: null });
+  await services.updateIntentUseCase.execute(project.workspaceId, created.id, { expectedVersion: cleared.version, completionDefinition: "Done when X" });
+  const nulled = await services.updateIntentUseCase.execute(project.workspaceId, created.id, { expectedVersion: cleared.version + 1, completionDefinition: null });
   assert.equal(nulled.completionDefinition, null);
 
-  for (const input of [{}, { title: " " }, { desiredState: "" }, { title: "x".repeat(101) }, null]) {
+  for (const input of [{ expectedVersion: 1 }, { expectedVersion: 1, title: " " }, { expectedVersion: 1, desiredState: "" }, { expectedVersion: 1, title: "x".repeat(101) }, { title: "no version" }, { expectedVersion: 0, title: "x" }, null]) {
     await assert.rejects(
       services.updateIntentUseCase.execute(project.workspaceId, created.id, input),
       codeOf("VALIDATION_ERROR"),
@@ -227,7 +227,7 @@ test("放棄は理由あり・なしでabandonedにし、以後は編集・再�
   assert.equal(withReason.title, first.title);
 
   await assert.rejects(
-    services.updateIntentUseCase.execute(project.workspaceId, first.id, { title: "Edit after abandon" }),
+    services.updateIntentUseCase.execute(project.workspaceId, first.id, { expectedVersion: 1, title: "Edit after abandon" }),
     (error: { code?: string; details?: Record<string, string> }) => {
       assert.equal(error.code, "CONFLICT");
       assert.equal(error.details?.status, "abandoned");
@@ -264,6 +264,7 @@ test("achievedへ遷移する公開操作は存在しない", async () => {
     "defineIntentMetricUseCase",
     "getIntentUseCase",
     "listIntentMetricsUseCase",
+    "listIntentRevisionsUseCase",
     "listIntentsUseCase",
     "recordIntentMetricObservationsUseCase",
     "updateIntentUseCase",
@@ -271,7 +272,7 @@ test("achievedへ遷移する公開操作は存在しない", async () => {
   const project = await services.createProjectUseCase.execute(projectInput);
   const created = await services.createIntentUseCase.execute(project.workspaceId, intentInput);
   // statusを直接書き換える入力は、未知の項目として無視され、状態は変わらない。
-  const updated = await services.updateIntentUseCase.execute(project.workspaceId, created.id, { title: "t", status: "achieved" });
+  const updated = await services.updateIntentUseCase.execute(project.workspaceId, created.id, { expectedVersion: 1, title: "t", status: "achieved" });
   assert.equal(updated.status, "active");
   await database.destroy();
 });

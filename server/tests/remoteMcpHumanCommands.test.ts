@@ -69,7 +69,7 @@ const commandArgs = (projectId: string, workspaceId: string, intentId: string): 
   create_project: { name: "Orphan", mission: "Created via MCP" },
   update_project: { projectId, mission: "Changed via MCP" },
   create_intent: { workspaceId, title: "I2", desiredState: "S2" },
-  update_intent: { workspaceId, intentId, title: "Changed via MCP" },
+  update_intent: { expectedVersion: 1, workspaceId, intentId, title: "Changed via MCP" },
   abandon_intent: { workspaceId, intentId, reason: "via MCP" },
 });
 

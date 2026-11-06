@@ -19,6 +19,7 @@ Server の `get_workspace_orchestration_state` の`activeIntents`全件に対し
 | 判断待ちの最新 Evaluation（Direction Decision の根拠になっていない） | `strategist` | Workspace・Evaluation | `<workspaceId>:strategist:evaluation:<id>` |
 | 進行中の Outcome に Target が無い（`no_targets`） | `strategist` | Workspace・Outcome | `<workspaceId>:strategist:outcome:<id>:no_targets` |
 | 進行中の Outcome の archived Target に未還流・`incomplete` が残る（`replan_required`）。他の active Target があっても起動する | `strategist` | Workspace・Outcome | `<workspaceId>:strategist:outcome:<id>:replan:<Target構成と未完了Targetの版>` |
+| 進行中の Outcome が根拠にした Intent の版より後に、Intent の意味（実現したい状態・達成条件）が変更された（`intentRevised`）。進行中の作業は止めない | `strategist` | Workspace・Outcome | `<workspaceId>:strategist:outcome:<id>:intent_revised:<meaningVersion>` |
 | 進行中の Outcome の active Target で、その Project に Story、または Task が無い | `manager` | Target Project・Outcome | `<workspaceId>:<projectId>:manager:outcome:<id>` |
 | 全 Target から還流し `incomplete` が無く（`evaluable`。archive 前に還流を終えた Target を含む）、最新 Evaluation の Project 別 cursor と一致しない。一部の Project の完了だけでは起動しない | `evaluator` | Workspace・Outcome | `<workspaceId>:evaluator:outcome:<id>:<Project別cursorの版>` |
 | 上記の無い Active Intent（進行中の Outcome・未終了の Research・判断待ちの Evaluation が無い。作成直後を含む） | `strategist` | Workspace・Intent | `<workspaceId>:strategist:intent:<id>:<状態の版>` |

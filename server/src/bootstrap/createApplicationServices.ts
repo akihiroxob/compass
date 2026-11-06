@@ -2,7 +2,7 @@ import { projectWorkspaceId } from "../infrastructure/repository/projectWorkspac
 import { AgentContextService } from "../application/agentContext/AgentContextService.ts";
 import { GetRoleContextUseCase } from "../application/agentContext/GetRoleContextUseCase.ts";
 import { GetWorkspaceRoleContextUseCase } from "../application/agentContext/GetWorkspaceRoleContextUseCase.ts";
-import { withActivityActor } from "../application/activityActor.ts";
+import { currentActivityActor, systemActivityActor, withActivityActor } from "../application/activityActor.ts";
 import { FileAgentAssetRepository } from "../infrastructure/agentAssets/FileAgentAssetRepository.ts";
 import {
   AbandonIntentUseCase,
@@ -29,6 +29,8 @@ import {
   GetResearcherContextUseCase,
   GetResearchRequestUseCase,
   GetStrategistContextUseCase,
+  ListIntentRevisionsUseCase,
+  type DirectionActorPort,
   ListAdrReferencesUseCase,
   ListDirectionDecisionsUseCase,
   ListIntentMetricsUseCase,
@@ -259,11 +261,14 @@ export const createApplicationServices = (
   const workspaceOutcomeRepository = new SQLiteOutcomeRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
   // Target ProjectとOutcomeのWorkspace一致は、書込と同じtransactionでProject（Organization）を読んで検査する。
   const outcomeTargetProjectRepository = new SQLiteOutcomeTargetProjectRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders, clock);
+  // 変更主体は、認可済みの入口（Web UIのHuman操作・MCPのAgent操作）が固定した主体。特定できない保守呼出しは`system`。
+  const directionActor: DirectionActorPort = { current: () => currentActivityActor() ?? systemActivityActor };
   const workspaceBasics = {
-    createIntentUseCase: new CreateIntentUseCase(workspaceRepository, workspaceIntentRepository),
+    createIntentUseCase: new CreateIntentUseCase(workspaceRepository, workspaceIntentRepository, directionActor),
+    listIntentRevisionsUseCase: new ListIntentRevisionsUseCase(workspaceRepository, workspaceIntentRepository),
     listIntentsUseCase: new ListIntentsUseCase(workspaceRepository, workspaceIntentRepository),
     getIntentUseCase: new GetIntentUseCase(workspaceRepository, workspaceIntentRepository),
-    updateIntentUseCase: new UpdateIntentUseCase(workspaceRepository, workspaceIntentRepository),
+    updateIntentUseCase: new UpdateIntentUseCase(workspaceRepository, workspaceIntentRepository, directionActor),
     abandonIntentUseCase: new AbandonIntentUseCase(workspaceRepository, workspaceIntentRepository),
     createOutcomeUseCase: new CreateOutcomeUseCase(workspaceRepository, workspaceOutcomeRepository),
     listOutcomesUseCase: new ListOutcomesUseCase(workspaceRepository, workspaceIntentRepository, workspaceOutcomeRepository),
@@ -594,6 +599,7 @@ export const createApplicationServices = (
     listIntentsUseCase: workspaceDirection.listIntentsUseCase,
     getIntentUseCase: workspaceDirection.getIntentUseCase,
     updateIntentUseCase: workspaceDirection.updateIntentUseCase,
+    listIntentRevisionsUseCase: workspaceDirection.listIntentRevisionsUseCase,
     abandonIntentUseCase: workspaceDirection.abandonIntentUseCase,
     createOutcomeUseCase: workspaceDirection.createOutcomeUseCase,
     listOutcomesUseCase: workspaceDirection.listOutcomesUseCase,
@@ -752,6 +758,7 @@ export const createApplicationServices = (
     createIntent: workspaceDirectionWrite(services.createIntentUseCase),
     listIntents: workspaceAuthorized("workspace.read", services.listIntentsUseCase),
     getIntent: workspaceAuthorized("workspace.read", services.getIntentUseCase),
+    listIntentRevisions: workspaceAuthorized("workspace.read", services.listIntentRevisionsUseCase),
     updateIntent: workspaceDirectionWrite(services.updateIntentUseCase),
     abandonIntent: workspaceDirectionWrite(services.abandonIntentUseCase),
     createOutcome: workspaceDirectionWrite(services.createOutcomeUseCase),

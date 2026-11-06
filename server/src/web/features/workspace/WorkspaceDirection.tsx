@@ -20,8 +20,8 @@ import {
   type TargetContribution,
 } from "../direction";
 import { EvidenceList, executionPath, executionStateLabels, formatTime, StoryList, verdictLabels, verdictTones, type ExecutionOverview, type OutcomeExecutionRecord } from "../execution";
-import { IntentEmpty, IntentFacts, intentStatusLabels } from "../intent";
-import { EvaluationCard, OutcomeProblems, outcomeStatusLabels, type Outcome } from "../outcome";
+import { IntentEmpty, IntentFacts, IntentRevisions, intentStatusLabels } from "../intent";
+import { EvaluationCard, OutcomeProblems, isReplanTarget, outcomeStatusLabels, replanNote, type Outcome } from "../outcome";
 import { openProjects, ProjectName, TargetRow } from "./WorkspaceOverview";
 import type { OverviewProject } from "./workspaceProjects";
 import { LinkButton } from "../../components/ui";
@@ -47,6 +47,7 @@ const IntentDirection = ({ workspaceId, direction, projects, canEdit }: { worksp
         </div>
         <h3>{direction.activeIntent.title}</h3>
         <IntentFacts intent={direction.activeIntent} />
+        <IntentRevisions workspaceId={workspaceId} intentId={direction.activeIntent.id} version={direction.activeIntent.version} />
         <div className="intent-card-head">
           <p className="section-label">Active Outcome（{direction.outcomes.length}件）</p>
           {canEdit && <LinkButton variant="secondary" size="sm" to={workspaceOutcomeCreatePath(workspaceId, direction.activeIntent.id)}>Outcomeを追加</LinkButton>}
@@ -55,13 +56,16 @@ const IntentDirection = ({ workspaceId, direction, projects, canEdit }: { worksp
           <ul className="outcome-positions">
             {direction.outcomes.map((position) => {
               const stage = position.execution ? stageLabels[evaluationStage(position.execution)] : null;
+              const replan = isReplanTarget(position.detail, direction.activeIntent!);
               return (
                 <li key={position.outcome.id}>
                   <div className="outcome-position-head">
                     <Link to={workspaceOutcomePath(workspaceId, position.outcome.intentId, position.outcome.id)}>{position.outcome.title}</Link>
                     {stage ? <span className={statusBadgeClass(stage.tone)}>{stage.label}</span> : <span className="status-badge muted">還流・評価の状態を確認できません</span>}
+                    {replan && <span className={statusBadgeClass("warning")}>再計画対象</span>}
                   </div>
                   <p className="section-note">{position.detail.description}</p>
+                  {replan && <p className="section-note" role="status">{replanNote(position.detail, direction.activeIntent!)}</p>}
                   <p className="section-label">Target Project</p>
                   {position.targets === null ? <p role="alert" className="error-title">Target Projectを確認できません。</p> : position.targets.length === 0 ? <p className="unset">{noTargetNote(position.detail.status)}</p> : (
                     <ul className="target-works">{position.targets.map((target) => <TargetRow key={target.projectId} target={target} projects={projects} />)}</ul>

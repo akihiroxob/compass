@@ -98,7 +98,7 @@ const createOutcome = async ({ services }: Kit, workspaceId: string, intentId: s
   services.createOutcomeUseCase.execute(workspaceId, intentId, {
     title: next("Outcome"),
     description: "Claims are exclusive.",
-    rationale: "Rework",
+    intentVersion: 1, rationale: "Rework",
     successCriteria: Array.from({ length: criteriaCount }, (_, index) => ({
       description: `criterion ${index + 1}`,
       measurement: `Measure ${index + 1}`,
@@ -198,6 +198,7 @@ test("EvaluatorがInstructionとContextを取得し、Criterionごとの判定�
   assert.equal(saved.recorded, true);
   const evaluation = saved.evaluation;
   assert.equal(evaluation.result, "achieved");
+  assert.equal(evaluation.intentVersion, 1, "評価は、Outcomeが根拠にしたIntentの版を保持する");
   assert.equal(evaluation.outcomeId, outcome.id);
   assert.equal(evaluation.principalId, "ev");
   assert.equal(evaluation.runRef, "run-1");
@@ -439,7 +440,7 @@ test("Evaluatorは Outcome定義・Execution結果・Project / Intent・Grantを
   const storyBefore = ok(await callTool(kit.app, "list_stories", { projectId: project.id }, "mgr"));
 
   const attempts: [string, object][] = [
-    ["create_outcome", { workspaceId: project.workspaceId, intentId: intent.id, title: "x", description: "x", rationale: "x", successCriteria: [{ description: "x", measurement: "x" }] }],
+    ["create_outcome", { workspaceId: project.workspaceId, intentId: intent.id, title: "x", description: "x", intentVersion: 1, rationale: "x", successCriteria: [{ description: "x", measurement: "x" }] }],
     ["update_outcome", { workspaceId: project.workspaceId, intentId: intent.id, outcomeId: outcome.id, title: "changed" }],
     ["cancel_outcome", { workspaceId: project.workspaceId, intentId: intent.id, outcomeId: outcome.id, reason: "x" }],
     ["record_execution_evidence", { projectId: project.id, outcomeId: outcome.id, changeCursor: 0 }],
@@ -447,9 +448,9 @@ test("Evaluatorは Outcome定義・Execution結果・Project / Intent・Grantを
     ["issue_story", { projectId: project.id, title: "x", outcomeId: outcome.id, requestId: "story-by-ev" }],
     ["update_project", { projectId: project.id, name: "renamed" }],
     ["create_intent", { workspaceId: project.workspaceId, title: "x", desiredState: "x" }],
-    ["update_intent", { workspaceId: project.workspaceId, intentId: intent.id, title: "x" }],
+    ["update_intent", { expectedVersion: 1, workspaceId: project.workspaceId, intentId: intent.id, title: "x" }],
     ["abandon_intent", { workspaceId: project.workspaceId, intentId: intent.id }],
-    ["create_direction_decision", { workspaceId: project.workspaceId, intentId: intent.id, type: "intent_complete", judgment: "x", reason: "x", requestKey: "k", runRef: "r" }],
+    ["create_direction_decision", { workspaceId: project.workspaceId, intentId: intent.id, type: "intent_complete", intentVersion: 1, judgment: "x", reason: "x", requestKey: "k", runRef: "r" }],
   ];
   for (const [name, args] of attempts) {
     const result = await callTool(kit.app, name, args, "ev");

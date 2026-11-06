@@ -269,6 +269,7 @@ const initializeDirectionDecisionSchema = async (database: Kysely<DirectionDatab
     .addColumn("judgment", "text", (column) => column.notNull())
     .addColumn("reason", "text", (column) => column.notNull())
     .addColumn("options", "text", (column) => column.notNull())
+    .addColumn("intent_version", "integer", (column) => column.notNull().check(sql`intent_version >= 1`))
     .addColumn("intent_brief_snapshot", "text", (column) => column.notNull())
     .addColumn("principal_id", "text", (column) => column.notNull())
     .addColumn("run_ref", "text", (column) => column.notNull())
@@ -579,6 +580,7 @@ const initializeOutcomeEvaluationSchema = async (database: Kysely<DirectionDatab
     .addUniqueConstraint("outcome_evaluation_id_workspace_unique", ["id", "workspace_id"])
     .addForeignKeyConstraint("outcome_evaluation_outcome_workspace_fk", ["outcome_id", "workspace_id"], "outcome", ["id", "workspace_id"])
     .addColumn("intent_id", "text", (column) => column.notNull())
+    .addColumn("intent_version", "integer", (column) => column.notNull().check(sql`intent_version >= 1`))
     .addForeignKeyConstraint("outcome_evaluation_outcome_intent_fk", ["outcome_id", "intent_id", "workspace_id"], "outcome", ["id", "intent_id", "workspace_id"])
     .addForeignKeyConstraint("outcome_evaluation_intent_workspace_fk", ["intent_id", "workspace_id"], "intent", ["id", "workspace_id"])
     .addColumn("result", "text", (column) =>
@@ -685,8 +687,33 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
       column.notNull().check(sql`status in ('active', 'achieved', 'abandoned')`),
     )
     .addColumn("abandoned_reason", "text")
+    .addColumn("version", "integer", (column) => column.notNull().defaultTo(1).check(sql`version >= 1`))
+    .addColumn("meaning_version", "integer", (column) => column.notNull().defaultTo(1).check(sql`meaning_version >= 1 and meaning_version <= version`))
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addColumn("updated_at", "integer", (column) => column.notNull())
+    .execute();
+
+  // Intentの版ごとの内容・変更主体・理由（追記専用）。Outcome・判断・評価は作成時の版をここで参照できる。
+  await database.schema
+    .createTable("intent_revision")
+    .ifNotExists()
+    .addColumn("intent_id", "text", (column) => column.notNull())
+    .addColumn("workspace_id", "text", (column) => column.notNull())
+    .addColumn("version", "integer", (column) => column.notNull().check(sql`version >= 1`))
+    .addColumn("title", "text", (column) => column.notNull())
+    .addColumn("desired_state", "text", (column) => column.notNull())
+    .addColumn("background", "text")
+    .addColumn("audience", "text")
+    .addColumn("constraints", "text")
+    .addColumn("completion_definition", "text")
+    .addColumn("target_date", "text")
+    .addColumn("meaning_changed", "integer", (column) => column.notNull().check(sql`meaning_changed in (0, 1)`))
+    .addColumn("reason", "text")
+    .addColumn("changed_by", "text", (column) => column.notNull())
+    .addColumn("changed_by_role", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("intent_revision_pk", ["intent_id", "version"])
+    .addForeignKeyConstraint("intent_revision_intent_workspace_fk", ["intent_id", "workspace_id"], "intent", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
     .execute();
 
   await database.schema
@@ -707,6 +734,7 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     )
     .addUniqueConstraint("outcome_id_workspace_unique", ["id", "workspace_id"])
     .addColumn("intent_id", "text", (column) => column.notNull())
+    .addColumn("intent_version", "integer", (column) => column.notNull().check(sql`intent_version >= 1`))
     .addUniqueConstraint("outcome_id_intent_workspace_unique", ["id", "intent_id", "workspace_id"])
     .addColumn("title", "text", (column) => column.notNull())
     .addForeignKeyConstraint(

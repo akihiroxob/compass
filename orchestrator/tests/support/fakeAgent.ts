@@ -43,7 +43,7 @@ if (role === "strategist") {
       intentId,
       type: "intent_complete",
       evaluationId: subjectId,
-      judgment: "Outcome achieved",
+      intentVersion: 1, judgment: "Outcome achieved",
       reason: "Every criterion is met",
       requestKey: `complete:${subjectId}`,
       runRef: env.COMPASS_DISPATCH_KEY!,
@@ -60,7 +60,7 @@ if (role === "strategist") {
       workspaceId,
       intentId,
       type: "additional_research",
-      judgment: "Learn first",
+      intentVersion: 1, judgment: "Learn first",
       reason: "Nothing is known",
       research: { question: "What is known?", scope: "Intent", completionCondition: "Known", budgetTotal: 10 },
       requestKey: `research:${intentId}`,
@@ -72,7 +72,7 @@ if (role === "strategist") {
       intentId,
       title: "First outcome",
       description: "D",
-      rationale: "R",
+      intentVersion: 1, rationale: "R",
       successCriteria: [{ description: "d", measurement: "m" }],
     });
     // Target Projectの選択はStrategistの判断。fixtureは指定されたProjectをすべてTargetにする。

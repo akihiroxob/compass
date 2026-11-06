@@ -15,6 +15,8 @@ export type OutcomeProblemInput = {
 
 /** 検証済みの入力。検証規則（zod schema）はapplication層が持ち、parseの戻り値がこの型を満たすことを型検査で保証する。 */
 export type CreateOutcomeInput = {
+  /** 判断の元にしたIntentの版（必須）。現在版との一致を条件にし、古い版の判断は競合にする。 */
+  intentVersion: number;
   title: string;
   description: string;
   hypothesis: string | null;
@@ -24,6 +26,8 @@ export type CreateOutcomeInput = {
 };
 
 export type UpdateOutcomeInput = {
+  /** Intentの現在版を確認したことを記録する。指定した場合は現在版との一致を条件にし、再計画の対象から外す。 */
+  intentVersion?: number;
   title?: string;
   hypothesis?: string | null;
   /** 指定すると課題の一覧全体を置き換える。 */
@@ -37,6 +41,7 @@ export type CreateOutcomeResult =
   | { kind: "created"; outcome: Outcome }
   | { kind: "intent_not_found" }
   | { kind: "intent_not_active"; status: IntentStatus }
+  | { kind: "intent_version_conflict"; currentVersion: number }
   | WorkspaceArchivedResult;
 
 /** 更新・取消の結果。Intentが無い場合と、Outcomeが無い場合と、activeでない場合を区別する。 */
@@ -47,6 +52,9 @@ export type ChangeOutcomeResult =
   | { kind: "not_active"; status: OutcomeStatus }
   | { kind: "stale_revision"; currentRevision: number }
   | WorkspaceArchivedResult;
+
+/** 更新の結果。`intentVersion`を指定して確認した版が現在版と異なる場合を加える。 */
+export type UpdateOutcomeResult = ChangeOutcomeResult | { kind: "intent_version_conflict"; currentVersion: number };
 
 /**
  * 成功条件はOutcomeの一部として作成・取得する。作成後に固定されるため、
@@ -69,7 +77,7 @@ export interface OutcomeRepository {
     intentId: string,
     outcomeId: string,
     changes: UpdateOutcomeInput,
-  ): Promise<ChangeOutcomeResult>;
+  ): Promise<UpdateOutcomeResult>;
   cancel(
     workspaceId: string,
     intentId: string,

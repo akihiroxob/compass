@@ -146,7 +146,7 @@ export const outcomePlans = {
   first: {
     title: "Claims are exclusive",
     description: "Only one worker owns a Task at a time.",
-    rationale: "Research shows leases prevent double work.",
+    intentVersion: 1, rationale: "Research shows leases prevent double work.",
     successCriteria: [
       { description: "Lease-based claim is merged", measurement: "A merged pull request implements the lease" },
       { description: "Double claims stop in production", measurement: "The production dashboard shows zero double claims" },
@@ -155,7 +155,7 @@ export const outcomePlans = {
   observable: {
     title: "Claims are exclusive and verified in CI",
     description: "Only one worker owns a Task, verified by an automated CI check.",
-    rationale: "Additional research: the production dashboard is unavailable, so CI is the observable signal.",
+    intentVersion: 1, rationale: "Additional research: the production dashboard is unavailable, so CI is the observable signal.",
     successCriteria: [
       { description: "Lease-based claim is merged", measurement: "A merged pull request implements the lease" },
       { description: "Concurrent claim test passes", measurement: "A CI run passes the concurrent claim test" },
@@ -178,7 +178,7 @@ const runStrategist = async (connection: Connection, tokens: Tokens, workspaceId
       const synthesis = (context.research?.syntheses ?? []).find((item: Json) => item.requestId === event.researchRequestId);
       const decided = await call("decide_next_outcome", {
         ...common,
-        judgment: `Pursue: ${plan.title}`,
+        intentVersion: 1, judgment: `Pursue: ${plan.title}`,
         reason: plan.rationale,
         requestKey: `outcome:${event.researchRequestId}`,
         ...(synthesis ? { usedSyntheses: [{ synthesisId: synthesis.synthesisId, version: synthesis.version }] } : {}),
@@ -205,7 +205,7 @@ const runStrategist = async (connection: Connection, tokens: Tokens, workspaceId
         ...common,
         type: "additional_research",
         evaluationId: event.evaluationId,
-        judgment: "Find an observable signal for double claims",
+        intentVersion: 1, judgment: "Find an observable signal for double claims",
         reason: "The Evaluation could not observe the production criterion",
         requestKey,
         research: {
@@ -222,7 +222,7 @@ const runStrategist = async (connection: Connection, tokens: Tokens, workspaceId
         ...common,
         type: "intent_complete",
         evaluationId: event.evaluationId,
-        judgment: "The Intent is complete",
+        intentVersion: 1, judgment: "The Intent is complete",
         reason: "The achieved Evaluation satisfies the completion definition",
         requestKey,
       });

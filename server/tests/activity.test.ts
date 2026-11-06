@@ -374,13 +374,13 @@ test("Directionの重要な状態変更は同じtransactionで操作者付きの
   const intentResponse = await send(app, "POST", `/api/workspaces/${project.workspaceId}/intents`, { title: "認証を整える", desiredState: "Humanがsign inできる" });
   assert.equal(intentResponse.status, 201);
   const intent = ((await intentResponse.json()) as { intent: { id: string } }).intent;
-  assert.equal((await send(app, "PATCH", `/api/workspaces/${project.workspaceId}/intents/${intent.id}`, { title: "認証を整備する" })).status, 200);
+  assert.equal((await send(app, "PATCH", `/api/workspaces/${project.workspaceId}/intents/${intent.id}`, { expectedVersion: 1, title: "認証を整備する" })).status, 200);
 
   // Agent（MCP）の操作は認可したPrincipalとRoleで記録する。requestKeyの再送では増えない。
   const decideInput = {
     workspaceId: project.workspaceId,
     intentId: intent.id,
-    judgment: "OIDCから着手する",
+    intentVersion: 2, judgment: "OIDCから着手する",
     reason: "既存IdPを使える",
     requestKey: "decide-1",
     runRef: "run-1",

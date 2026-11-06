@@ -79,7 +79,7 @@ const seedAdrCandidateDecision = async (app: App, workspaceId: string, intentId:
       workspaceId,
       intentId,
       type: "adr_candidate",
-      judgment: "Adopt lease-based claiming",
+      intentVersion: 1, judgment: "Adopt lease-based claiming",
       reason: "Avoids stuck claims without a heartbeat service",
       options: ["Do nothing", "Adopt lease-based claiming"],
       requestKey: "adr-decision-1",
@@ -165,7 +165,7 @@ test("存在しないDecision・adr_candidateでないDecision・未登録Reposi
       workspaceId: project.workspaceId,
       intentId: intent.id,
       type: "additional_research",
-      judgment: "Need more evidence",
+      intentVersion: 1, judgment: "Need more evidence",
       reason: "Renew-storm risk unresolved",
       research: {
         question: "Is the renew-storm risk real?",

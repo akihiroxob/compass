@@ -161,7 +161,7 @@ export type ErrorKind =
   | { kind: "validation"; issues: FormIssue[] }
   | { kind: "not_found" }
   | { kind: "project_archived"; message: string }
-  | { kind: "conflict"; message: string; activeIntentId: string | null }
+  | { kind: "conflict"; message: string; activeIntentId: string | null; conflict: string | null }
   | { kind: "other"; message: string };
 
 /** Sessionが無効（401）か、別タブの再ログイン等でCSRF tokenが古くなった（403 CSRF_REJECTED）。 */
@@ -182,6 +182,7 @@ const conflictMessages: Record<string, string> = {
   STORY_CLOSED: "完了・取消済みのStoryは編集・Task追加できません。",
   STALE_REVISION: "表示後に相談が更新されました。最新の会話を読み込んでから、もう一度操作してください。",
   CONSULTATION_CLOSED: "この相談は解決済みまたは取消済みです。方針を変える場合は新しい相談として扱います。",
+  intent_version: "この目標は、編集を始めた後に別の画面または担当者によって更新されました。入力した内容はこの画面に残っています。最新の内容を読み込んで確認してから、もう一度保存してください。",
   OUTCOME_STALE_REVISION: "表示後にOutcomeが更新されました。入力内容は残っています。最新の内容を開き直してから、もう一度保存してください。",
   EVIDENCE_SUPERSEDED: "新しい版に置き換えられたResearchの結論は関連付けられません。最新の版を選んでください。",
   IDEMPOTENCY_CONFLICT: "同じ操作が別の内容で送信済みです。画面を再読込して状態を確認してください。",
@@ -216,7 +217,7 @@ export const classifyError = (error: unknown): ErrorKind => {
   }
   if (error.status === 409 && error.code === "CONFLICT") {
     const message = (error.conflict && conflictMessages[error.conflict]) ?? error.message;
-    return { kind: "conflict", message, activeIntentId: error.activeIntentId };
+    return { kind: "conflict", message, activeIntentId: error.activeIntentId, conflict: error.conflict };
   }
   // サーバー障害・解釈できない応答は、サーバーの英語文言（例 `Internal Server Error`）を出さない。
   if (error.status >= 500 || error.code === "INVALID_RESPONSE") return { kind: "other", message: serverUnavailableMessage };
