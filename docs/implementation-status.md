@@ -94,6 +94,7 @@ DirectionとWorkは公開index（`@compass/direction`・`@compass/work`）とapp
 - 各変更は`task`・`story`（`outcomeId`）・`development`（`accepted` / `not_accepted`・受入日時・受入者）・`pullRequest`（番号・URL・state・merge SHA・受入で照合したmerge SHA）・`revisions`（対象Commitと由来）・`publication`（`status`・`reason`・`publishedAt`・公開先ごとの`targets`）を持つ。
 - 公開状況は公開記録だけから導出し、mergeや受入を公開済みにしない。状態と理由はADR 0009の定義どおり（`published` / `not_published` / `unconfirmed`と`not_configured` / `no_revision` / `no_record` / `not_compared`）。
 - 入力元はProjectの「設定」で、Runtime Credentialに「公開確認の記録」（`publication:write`）を付けて発行する。方式別の設定画面は無い。
+- 画面（Project詳細`?view=releases`、`server/src/web/features/release/`）: 変更を受入・更新の新しい順に20件ずつのページングで一覧し、各行に開発（受入済み／未受入）と公開（公開済み／未公開／確認できず）を別のbadgeで出す。公開状況（件数付き）と検索（題名・Story・PR番号・Commit・公開先・受入者の部分一致）で絞り込み、条件・ページ・開いている詳細（`change=<taskId>`）はURLのqueryに持つ。絞り込みとページングは取得済みの応答に対して行い、再読込で取り直す。取得に失敗したら理由と再試行を出し、公開状況は表示しない。変更0件・条件に一致する変更0件・入力元の未設定・公開記録0件はそれぞれ別の文言で示し、確認できない理由はAPIの`reason`を説明する。詳細は`Dialog`で、開発の受入・公開の確認（公開日時・公開先ごとの状況）・関連するOutcome（Workspaceの方向へのlink）・Story・Task・PR・対象Commit・原記録（公開先・revision・確認日時・根拠・同じ記録に関係する他のTask）を示し、公開済みでも効果はOutcomeの評価で別に確認すると表示する。複数の変更を1件のリリースへまとめる単位は設けず、1件の公開記録が複数Taskに関係することを原記録から辿れる。
 - 検証: 判定規則・再送・古い通知・GitHub失敗は`packages/work/tests/publication.test.ts`。公開API・MCP・Credential認可と、G2の公開MCPで準備した受入済み／未mergeのTaskとの組合せは`server/tests/publicationHttp.test.ts`（GitHub互換のloopback server）。
 
 ## Web UIのShellとWorkspace Selector
@@ -138,7 +139,7 @@ Workspaceの「設定」（`/workspaces/:workspaceId/settings`。`features/works
 
 ## Project詳細（Web UI）
 
-Project詳細は`?view=`で「概要」（`overview`。既定・不正値も概要）・「開発詳細」（`work`）・「リリース履歴」（`releases`）・「設定」（`settings`）と、各画面の導線から開く「方向」（`direction`）・「判断待ち」（`consultations`）・「記録」（`records`）に分け、表示中のviewのsectionだけを読み込む。viewの切替はShellのメニューのProjectの階層で行い、上部のタブは置かない。Hero（概要はProject名、他のviewはview名を見出しにし、Project名・状態・自分のRole）とarchivedの通知は全viewに出す。リリース履歴の画面は[公開確認とリリース履歴](#公開確認とリリース履歴の現行契約)の取得APIへまだ接続していないため、件数・公開状況を推測せず未接続と開発詳細への導線だけを出す。他viewのTask・Role行へは`?view=work#execution-task-…`・`?view=settings#agent-role-…`で辿り、読込後に移動してfocusする。decodeできないhash（例 `#%`）は無視し、viewを通常どおり表示する。
+Project詳細は`?view=`で「概要」（`overview`。既定・不正値も概要）・「開発詳細」（`work`）・「リリース履歴」（`releases`）・「設定」（`settings`）と、各画面の導線から開く「方向」（`direction`）・「判断待ち」（`consultations`）・「記録」（`records`）に分け、表示中のviewのsectionだけを読み込む。viewの切替はShellのメニューのProjectの階層で行い、上部のタブは置かない。Hero（概要はProject名、他のviewはview名を見出しにし、Project名・状態・自分のRole）とarchivedの通知は全viewに出す。リリース履歴の画面は[公開確認とリリース履歴](#公開確認とリリース履歴の現行契約)の取得APIから読み、`features/release`が表示する。他viewのTask・Role行へは`?view=work#execution-task-…`・`?view=settings#agent-role-…`で辿り、読込後に移動してfocusする。decodeできないhash（例 `#%`）は無視し、viewを通常どおり表示する。
 
 - 概要（S10-03。`features/project/ProjectOverview.tsx`、判定は`overview.ts`）: Projectを実行境界として、実行境界・貢献するOutcome・実行状況・次の行動・Claim保持中・最近の記録を出す。部分ごとに取得失敗・空・閲覧不可を区別し、取得時刻と再読込を出す。HeroのPurpose（description）は概要では実行境界へ移す。
   - 実行境界: Purpose（未設定ならProjectの編集への案内）と、Repository・Resourceの外部リンク。Mission等とIntent・Outcomeは所属Workspaceのものと示し、Workspace Membershipで閲覧できれば所属Workspaceの方向へのリンクを出す。
@@ -264,7 +265,7 @@ UI方針・token・部品・カタログの4つの正本と、カタログ・製
 - 結合テスト（`ralph/tests/ralph.test.ts`、Orchestratorと接続するWorkspace境界のE2E）のRalphの起動先はfixture。Ralphが実Agent（Codex）を起動してTaskを処理したのは、[相談の統合検証](#相談の統合検証)の専用環境での`ralph run <role> --once`（相談からの再開Worker、文書反映のWorker / Reviewer / Manager、ローカルの検証用Repository）だけ。Claude Code providerでの処理、PR作成・GitHub連携を含むWorker → Reviewer → Managerの運転、pollingを続ける常駐ループは未検証。実CLIはMCP接続のheader（Authorization・`X-Compass-Active-Role`）の送信だけを手動で確認した。remote modeのAgent Credentialでの接続は自動テストの対象外。
 - 実Runtimeが実Agentを起動し続ける継続したLv6自律運転は未接続・未検証（上記の専用環境での相談の実Agent検証は、範囲を限った単発の起動である）。`server/tests/support/lv6Runtime.ts`等のfixtureを自律運転の実証としない。
 - Intent・Outcome・成功条件の登録・編集のWeb UIは所属Projectの画面（`/projects/:projectId/intents/…`）だけにあり、Workspaceの「方向」には登録の導線が無い。保存はWorkspace scopeのWeb APIへ行うが、activeなProjectのまだないWorkspaceではWeb UIからIntentを登録できない（Workspace概要は「登録画面を開けるactiveなProjectがありません」と表示する）。Workspace配下の登録画面は未実装。
-- 公開確認は契約・判定・取得APIまでで、実際のCD・デプロイサービス（Cloudflare・GitHub Actions等）からの送信と実GitHubのcompareでの判定は未検証（自動テストはGitHub互換のloopback server）。リリース履歴のWeb UIは未接続。
+- 公開確認は契約・判定・取得APIまでで、実際のCD・デプロイサービス（Cloudflare・GitHub Actions等）からの送信と実GitHubのcompareでの判定は未検証（自動テストはGitHub互換のloopback server）。リリース履歴のWeb UIの実ブラウザ確認は、GitHub以外のRepository（同一SHAだけを判定）で行ったため、「未公開」の表示は自動テスト（`server/tests/releaseUi.test.ts`）の確認に留まる。
 - Intentの観測項目・観測値（[Intent](step-2-intent-design.md#観測項目と時系列)）は保存・MCP（定義はStrategist、記録はEvaluator、参照）・参照のWeb APIまで。外部の計測基盤・分析サービスからの自動取得、Orchestratorによる記録の起動、Strategist / Evaluator Contextへの提示、Web UIでの表示（目標詳細の推移）は未接続。`server/tests/intentMetric.test.ts`はtest内のMCP呼び出しで記録し、実Agentによる記録の実証ではない。
 - 実Googleとの接続確認は自動テストの対象外。
 

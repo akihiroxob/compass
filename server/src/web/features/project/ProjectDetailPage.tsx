@@ -14,6 +14,7 @@ import { ConsultationSection } from "../consultation";
 import { DirectionPanel } from "../direction";
 import { IntentSection } from "../intent";
 import { humanRoleLabels, ProjectInvitationSection, type HumanRole } from "../member";
+import { ReleaseHistorySection } from "../release";
 import { ResearchSection } from "../research";
 import { ProjectOverview, ResourceLinks } from "./ProjectOverview";
 import { parseProjectView, projectViewLabels } from "./overview";
@@ -26,12 +27,6 @@ const LinkSection = ({ title, values }: { title: string; values: ({ id: string; 
 
 /** 状態・理由・日時。archivedのProjectだけに出し、復帰できるかのような文言は置かない。 */
 const ArchiveNotice = ({ project }: { project: Project }) => <section className="detail-section archive-notice" aria-labelledby="archive-heading"><h2 id="archive-heading"><span className="status-badge muted">{projectStatusLabels.archived}</span> このProjectはアーカイブされています</h2><p className="section-note">参照のみできます。Projectの編集、Agent・RuntimeのRoleの割当の変更はできません。IntentやOutcomeは所属Workspaceのもので、変更できるかはWorkspaceの状態とWorkspace Membershipで決まります。Projectのアーカイブでは所属Workspaceはアーカイブされません。</p><dl className="intent-facts"><dt>アーカイブの理由</dt><dd>{project.archiveReason ?? <span className="unset">理由は記録されていません</span>}</dd><dt>アーカイブした日時</dt><dd>{project.archivedAt === null ? <span className="unset">記録されていません</span> : new Date(project.archivedAt).toLocaleString("ja-JP")}</dd></dl></section>;
-
-/**
- * リリース履歴。開発受入と公開確認の記録はまだ取得できないため、件数や公開状況を推測せず未接続を示す。
- * 受入済みのTaskは開発詳細で確認できる。
- */
-const ReleaseHistoryUnavailable = ({ projectId }: { projectId: string }) => <StateCard><p>リリース履歴はまだ接続されていません。開発受入と公開確認の記録を取得できないため、件数・公開状況は表示しません。</p><p>受入済みのTaskは<Link to={projectViewPath(projectId, "work")}>開発詳細</Link>で確認できます。</p></StateCard>;
 
 export const ProjectDetailPage = () => {
   const { projectId = "" } = useParams(); const [project, setProject] = useState<Project | null>(null); const [myRole, setMyRole] = useState<HumanRole | null>(null); const [error, setError] = useState<string | null>(null);
@@ -63,7 +58,7 @@ export const ProjectDetailPage = () => {
     {view === "overview" && (direction.access === "loading" ? <Loading /> : <ProjectOverview key={`${myRole ?? ""}/${direction.access}`} project={project} direction={direction.access === "error" ? { workspaceId: null, message: direction.message } : { workspaceId: direction.workspaceId }} archived={archived} permissions={permissions} />)}
     {view === "direction" && <><DirectionPanel mission={project.mission} vision={project.vision} />{direction.workspaceId === null ? directionUnavailable : <IntentSection projectId={project.id} workspaceId={direction.workspaceId} access={directionAccess} />}<div className="detail-columns"><ListSection title="Principles" values={project.principles} /><ListSection title="Constraints" values={project.constraints} /></div></>}
     {view === "work" && <ExecutionSection projectId={project.id} />}
-    {view === "releases" && <ReleaseHistoryUnavailable projectId={project.id} />}
+    {view === "releases" && <ReleaseHistorySection project={project} />}
     {view === "consultations" && <ConsultationSection scope={{ kind: "project", projectId: project.id }} />}
     {view === "records" && <><ActivitySection scope={{ kind: "project", projectId: project.id }} resources={[...project.repositories, ...project.resources]} related={<Link to={workspacePath(project.workspaceId, "activity")}>所属Workspaceの記録を開く</Link>} />{direction.workspaceId === null ? directionUnavailable : <><ResearchSection projectId={project.id} workspaceId={direction.workspaceId} /><AdrReferenceSection workspaceId={direction.workspaceId} /></>}<LinkSection title="Repositories" values={project.repositories} /><LinkSection title="Resources" values={project.resources} /></>}
     {view === "settings" && <><AgentSettingsSection scope={{ kind: "project", id: project.id }} readOnly={grantReadOnly} showCredentials={canManageCredential} />{canManageCredential && <CredentialSection scope={{ kind: "project", id: project.id }} readOnly={archived} />}{canOperate(myRole, "invitation.manage") && <ProjectInvitationSection projectId={project.id} workspaceId={project.workspaceId} readOnly={archived} />}{!archived && (canUpdate || canArchive) && <section className="detail-section" aria-labelledby="project-settings-heading"><h2 id="project-settings-heading">Project</h2><p className="section-note">名前・説明・Repository・Resourceの編集と、Projectのアーカイブです。Mission・Vision等は所属Workspaceのもので、Workspaceの概要からWorkspaceのadministratorが編集します。</p><div className="action-row">{canUpdate && <LinkButton to={`/projects/${project.id}/edit`}>Projectを編集</LinkButton>}{canArchive && <Button variant="secondary" tone="danger" aria-expanded={archive.confirming} onClick={archive.open}>アーカイブ</Button>}</div>{canArchive && archive.confirming && <ReasonPanel action={archive} title="このProjectをアーカイブしますか？" description="アーカイブすると、Projectの編集、Agent・RuntimeのRoleの割当の変更ができなくなります。内容と履歴は参照できます。所属Workspaceはアーカイブされず、Intent・Outcome等のDirectionは引き続きWorkspaceのMemberが変更できます。Workspaceのアーカイブは、Workspaceの概要からWorkspaceのownerが行います。" label="アーカイブの理由" required confirmLabel="アーカイブする" pendingLabel="アーカイブ中..." />}</section>}</>}
