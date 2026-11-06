@@ -1,5 +1,6 @@
 import { CoordinationError } from "../application/error/CoordinationError.ts";
 import type { PullRequestGateway } from "../application/port/PullRequestGateway.ts";
+import type { RevisionGateway } from "../application/port/RevisionGateway.ts";
 import {
   parseReviewMarker,
   type GitHubRepositoryName,
@@ -32,8 +33,8 @@ export type GitHubPullRequestGatewayOptions = {
   request?: typeof fetch;
 };
 
-/** GitHub REST APIからPR・コメント・CI結果を読む。書込み（merge・コメント）はしない。 */
-export class GitHubPullRequestGateway implements PullRequestGateway {
+/** GitHub REST APIからPR・コメント・CI結果・commitの関係を読む。書込み（merge・コメント）はしない。 */
+export class GitHubPullRequestGateway implements PullRequestGateway, RevisionGateway {
   private readonly apiBaseUrl: string;
   private readonly token: string | null;
   private readonly timeoutMs: number;
@@ -46,8 +47,11 @@ export class GitHubPullRequestGateway implements PullRequestGateway {
     this.request = options.request ?? fetch;
   }
 
-  /** GitHub REST APIを1回読む。HTTPの失敗は`GITHUB_*`・`PULL_REQUEST_NOT_FOUND`に分け、本文はJSONとして返す。 */
-  private async get(path: string, notFound: string): Promise<unknown> {
+  /**
+   * GitHub REST APIを1回読む。HTTPの失敗は`GITHUB_*`・`PULL_REQUEST_NOT_FOUND`に分け、本文はJSONとして返す。
+   * `notFoundStatuses`は「対象が無い」とするHTTP状態（commitの読取ではGitHubが不明なSHAを422で返す）。
+   */
+  private async get(path: string, notFound: string, notFoundStatuses: readonly number[] = [404]): Promise<unknown> {
     let response: Response;
     try {
       response = await this.request(`${this.apiBaseUrl}${path}`, {
@@ -65,7 +69,7 @@ export class GitHubPullRequestGateway implements PullRequestGateway {
     }
     if (!response.ok) {
       const limited = response.status === 429 || response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after");
-      if (!limited && response.status === 404) throw new CoordinationError("PULL_REQUEST_NOT_FOUND", notFound);
+      if (!limited && notFoundStatuses.includes(response.status)) throw new CoordinationError("PULL_REQUEST_NOT_FOUND", notFound);
       if (!limited && (response.status === 401 || response.status === 403)) {
         throw new CoordinationError("GITHUB_ACCESS_DENIED", `GitHub denied access (HTTP ${response.status})`);
       }
@@ -145,6 +149,37 @@ export class GitHubPullRequestGateway implements PullRequestGateway {
       if (!latest.has(context)) latest.set(context, state);
     }
     return [...checks, ...[...latest].map(([name, state]) => ({ name, state }))];
+  }
+
+  async commitExists(repository: GitHubRepositoryName, sha: string): Promise<boolean> {
+    try {
+      const body = await this.get(`${this.repositoryPath(repository)}/commits/${encodeURIComponent(sha)}`, "commit not found", [404, 422]);
+      if (!isObject(body) || typeof body.sha !== "string" || !shaPattern.test(body.sha)) {
+        throw new CoordinationError("GITHUB_UNAVAILABLE", "GitHub returned an invalid commit response");
+      }
+      return body.sha.toLowerCase() === sha.toLowerCase();
+    } catch (error) {
+      if (error instanceof CoordinationError && error.code === "PULL_REQUEST_NOT_FOUND") return false;
+      throw error;
+    }
+  }
+
+  async containsCommit(repository: GitHubRepositoryName, base: string, head: string): Promise<boolean | null> {
+    let body: unknown;
+    try {
+      body = await this.get(
+        `${this.repositoryPath(repository)}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}?per_page=1`,
+        "commit not found",
+        [404, 422],
+      );
+    } catch (error) {
+      if (error instanceof CoordinationError && error.code === "PULL_REQUEST_NOT_FOUND") return null;
+      throw error;
+    }
+    const status = isObject(body) ? body.status : undefined;
+    if (status === "identical" || status === "ahead") return true;
+    if (status === "behind" || status === "diverged") return false;
+    throw new CoordinationError("GITHUB_UNAVAILABLE", "GitHub returned an invalid compare response");
   }
 
   /** 応答は信頼せず、保存する事実の型をすべて実行時に検証する。不正な応答は再確認できる`GITHUB_UNAVAILABLE`にする。 */

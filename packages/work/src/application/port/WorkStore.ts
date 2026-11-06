@@ -111,6 +111,40 @@ export type TaskPullRequestRecord = {
   updated_at: number;
 };
 
+/**
+ * 公開記録（公開確認の原記録）。Runtimeが観測した公開先・Repository・revision・確認日時と根拠の参照。追記専用で、同じ
+ * （Project・Repository・公開先・revision・確認日時）の再送は同じ記録を返す。`evidence`はJSON配列（`PublicationEvidence`）。
+ */
+export type PublicationRecord = {
+  id: string;
+  project_id: string;
+  /** Projectに登録されたRepository（Organizationの`project_repository_link.id`）。 */
+  repository_id: string;
+  /** 公開先の参照（例: `production`）。デプロイ方式に依存しない名前。 */
+  target: string;
+  target_url: string | null;
+  /** 公開されている完全なcommit SHA（小文字）。 */
+  revision: string;
+  /** デプロイ方式のラベル（例: `cloudflare-pages`）。判定には使わない。 */
+  method: string | null;
+  evidence: string;
+  /** Runtimeが公開を確認した時刻。 */
+  observed_at: number;
+  /** Compassが受け付けた時刻。 */
+  received_at: number;
+  /** Project内で単調増加する受付順。同じ確認日時の記録の新旧を決める（時刻やIDの大小に依存しない）。 */
+  sequence: number;
+  /** 記録したRuntime Credentialの主体。 */
+  principal_id: string;
+};
+
+/** 公開記録のrevisionと変更の対象Commitの関係（記録時にRepositoryの履歴で判定した事実）。判定できなかったCommitは行を持たない。 */
+export type PublicationRevisionRecord = {
+  publication_id: string;
+  commit_sha: string;
+  relation: "included" | "not_included";
+};
+
 /** 追記専用のChange Log。`cursor`が取得位置になる。 */
 export type ChangeRecord = {
   cursor: number;
@@ -269,6 +303,21 @@ export interface WorkStore {
   findPullRequestByNumber(repository: string, number: number): Promise<TaskPullRequestRecord | null>;
   insertTaskPullRequest(record: TaskPullRequestRecord): Promise<void>;
   updateTaskPullRequest(id: string, patch: Partial<Omit<TaskPullRequestRecord, "id" | "task_id" | "project_id" | "repository" | "number" | "sequence" | "created_at">>): Promise<void>;
+
+  /** ProjectのTaskに登録したPR（全Task）。 */
+  listProjectPullRequests(projectId: string): Promise<TaskPullRequestRecord[]>;
+  /** Projectの`TASK_ACCEPTED`を`cursor`の昇順で返す（受入日時・受入成果物）。 */
+  listAcceptances(projectId: string): Promise<ChangeRecord[]>;
+
+  /** 同じ（Project・Repository・公開先・revision・確認日時）の公開記録。 */
+  findPublication(key: Pick<PublicationRecord, "project_id" | "repository_id" | "target" | "revision" | "observed_at">): Promise<PublicationRecord | null>;
+  /** Project内で次の公開記録の受付順（transaction内で採番する）。 */
+  nextPublicationSequence(projectId: string): Promise<number>;
+  insertPublication(record: PublicationRecord, revisions: PublicationRevisionRecord[]): Promise<void>;
+  /** Projectの公開記録（確認日時・受信時刻の新しい順）。 */
+  listPublications(projectId: string): Promise<PublicationRecord[]>;
+  /** Projectの公開記録で判定したCommitの関係。 */
+  listPublicationRevisions(projectId: string): Promise<PublicationRevisionRecord[]>;
 
   findReceipt(principalId: string, toolName: string, requestId: string): Promise<CommandReceiptRecord | null>;
   insertReceipt(receipt: CommandReceiptRecord): Promise<void>;
