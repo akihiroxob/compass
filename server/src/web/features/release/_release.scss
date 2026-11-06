@@ -27,6 +27,8 @@
   min-height: 2rem;
   font-variant-numeric: tabular-nums;
 }
+// `.section-note`は見出し直下用の負のmarginを持つため、再読込の行の後では通常の間隔に戻す。
+.detail-section > .release-source-note { margin: var(--space-sm) 0 0; }
 .release-title { font-weight: 600; overflow-wrap: anywhere; }
 .release-pager {
   display: flex;

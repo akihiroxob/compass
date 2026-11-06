@@ -252,7 +252,7 @@ export const ReleaseHistorySection = ({ project }: { project: ReleaseProject }) 
       <div className="action-row">
         <Button variant="secondary" size="sm" onClick={reload} pending={loaded === null}>再読込</Button>
       </div>
-      {sourceNote && <p className="section-note" role="status">{sourceNote}</p>}
+      {sourceNote && <p className="section-note release-source-note" role="status">{sourceNote}</p>}
       <div className="release-filter">
         <Field label="公開状況" layout="inline">
           <Select size="sm" value={filter.publication} onChange={(event) => apply({ publication: event.target.value as PublicationFilter })}>
