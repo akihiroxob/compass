@@ -90,6 +90,14 @@ test("公開記録から関係する変更を辿り、1件の記録に複数Task
   assert.equal(relationOf(record("p3", {}), t1), "not_compared");
 });
 
+test("包含を判定していない現在の記録も、確認できない根拠の原記録として辿れる", () => {
+  const target = { target: "production", repositoryId: "r1", status: "unconfirmed" as const, reason: "not_compared" as const, latestRecordId: "p9", publishedRecordId: null, publishedAt: null };
+  const t = change("t1", "unconfirmed", { publication: { status: "unconfirmed", reason: "not_compared", publishedAt: null, targets: [target] } });
+  const latest = record("p9", {});
+  assert.deepEqual(publicationsOfChange(t, [latest, record("p8", {})]).map(({ id }) => id), ["p9"]);
+  assert.equal(relationOf(latest, t), "not_compared");
+});
+
 test("確認できない理由と入力元の状態を、公開済み・未公開として表示しない", () => {
   assert.match(publicationNote(change("t1", "unconfirmed").publication), /公開記録がまだありません/);
   assert.match(publicationNote({ status: "unconfirmed", reason: "not_configured", publishedAt: null, targets: [] }), /入力元が設定されておらず/);

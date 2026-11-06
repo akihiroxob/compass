@@ -265,7 +265,7 @@ UI方針・token・部品・カタログの4つの正本と、カタログ・製
 - 結合テスト（`ralph/tests/ralph.test.ts`、Orchestratorと接続するWorkspace境界のE2E）のRalphの起動先はfixture。Ralphが実Agent（Codex）を起動してTaskを処理したのは、[相談の統合検証](#相談の統合検証)の専用環境での`ralph run <role> --once`（相談からの再開Worker、文書反映のWorker / Reviewer / Manager、ローカルの検証用Repository）だけ。Claude Code providerでの処理、PR作成・GitHub連携を含むWorker → Reviewer → Managerの運転、pollingを続ける常駐ループは未検証。実CLIはMCP接続のheader（Authorization・`X-Compass-Active-Role`）の送信だけを手動で確認した。remote modeのAgent Credentialでの接続は自動テストの対象外。
 - 実Runtimeが実Agentを起動し続ける継続したLv6自律運転は未接続・未検証（上記の専用環境での相談の実Agent検証は、範囲を限った単発の起動である）。`server/tests/support/lv6Runtime.ts`等のfixtureを自律運転の実証としない。
 - Intent・Outcome・成功条件の登録・編集のWeb UIは所属Projectの画面（`/projects/:projectId/intents/…`）だけにあり、Workspaceの「方向」には登録の導線が無い。保存はWorkspace scopeのWeb APIへ行うが、activeなProjectのまだないWorkspaceではWeb UIからIntentを登録できない（Workspace概要は「登録画面を開けるactiveなProjectがありません」と表示する）。Workspace配下の登録画面は未実装。
-- 公開確認は契約・判定・取得APIまでで、実際のCD・デプロイサービス（Cloudflare・GitHub Actions等）からの送信と実GitHubのcompareでの判定は未検証（自動テストはGitHub互換のloopback server）。リリース履歴のWeb UIの実ブラウザ確認は、GitHub以外のRepository（同一SHAだけを判定）で行ったため、「未公開」の表示は自動テスト（`server/tests/releaseUi.test.ts`）の確認に留まる。
+- 公開確認は契約・判定・取得APIまでで、実際のCD・デプロイサービス（Cloudflare・GitHub Actions等）からの送信と実GitHubのcompareでの判定は未検証（自動テストはGitHub互換のloopback server）。リリース履歴のWeb UIの実ブラウザ確認用データは、`scripts/prepare-browser-verification.mjs`がloopback GitHubと公開APIで公開済み・未公開・確認できずを準備する（[docs/browser-verification.md](browser-verification.md)）。
 - Intentの観測項目・観測値（[Intent](step-2-intent-design.md#観測項目と時系列)）は保存・MCP（定義はStrategist、記録はEvaluator、参照）・参照のWeb APIまで。外部の計測基盤・分析サービスからの自動取得、Orchestratorによる記録の起動、Strategist / Evaluator Contextへの提示、Web UIでの表示（目標詳細の推移）は未接続。`server/tests/intentMetric.test.ts`はtest内のMCP呼び出しで記録し、実Agentによる記録の実証ではない。
 - 実Googleとの接続確認は自動テストの対象外。
 

@@ -110,12 +110,13 @@ export const commitUrl = (repositoryUrl: string | undefined, sha: string): strin
 /** 根拠のURI。http(s)のものだけlinkにし、他の方式のURIは文字のまま表示する。 */
 export const isHttpUri = (uri: string): boolean => /^https?:\/\//i.test(uri);
 
-/** 変更の対象Commitに関係する公開記録（原記録）。新しい確認日時から。 */
+/** 変更に関係する公開記録（原記録）。対象Commitを含む・含まない記録に加え、現在の判定が参照する記録（包含未判定を含む）。新しい確認日時から。 */
 export const publicationsOfChange = (change: ReleaseChange, publications: readonly PublicationRecordView[]): PublicationRecordView[] => {
   const commits = new Set(change.revisions.map((revision) => `${revision.repositoryId}\u0000${revision.commitSha}`));
+  const referenced = new Set(change.publication.targets.flatMap((target) => [target.latestRecordId, target.publishedRecordId]).filter((id): id is string => id !== null));
   return publications
     .filter((record) =>
-      [...record.includedCommits, ...record.notIncludedCommits].some((sha) => commits.has(`${record.repositoryId}\u0000${sha}`)))
+      referenced.has(record.id) || [...record.includedCommits, ...record.notIncludedCommits].some((sha) => commits.has(`${record.repositoryId}\u0000${sha}`)))
     .sort((a, b) => b.observedAt - a.observedAt || b.sequence - a.sequence);
 };
 
