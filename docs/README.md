@@ -5,7 +5,7 @@
 - [Architecture Handoff](../compass-codex-architecture-handoff.md): 構成・責務境界・依存方向の正本。
 - [ADR 0001 WorkspaceとProjectの境界](adr/0001-workspace-project-boundary.md): Workspaceを戦略、Projectを実行の境界とする決定と移行の不変条件。
 - [ADR 0002 相談（Collaboration）の境界](adr/0002-collaboration-context.md): AgentからHumanへの相談の会話・結論・応答leaseを`packages/collaboration`が所有する決定。
-- [ADR 0003 Humanの所属・権限](adr/0003-workspace-human-membership.md): HumanのMember管理をWorkspaceへ集約し、配下全Projectへ同じRoleを適用する決定。認可・Member管理（Role変更・除外）は実装済みで、Workspace scopeの招待・参加は未実装。
+- [ADR 0003 Humanの所属・権限](adr/0003-workspace-human-membership.md): HumanのMember管理をWorkspaceへ集約し、配下全Projectへ同じRoleを適用する決定。Workspace Membershipによる認可・招待・参加・Member管理（Role変更・除外）を実装。メール配送は未接続。
 - [Direction・Workの境界](lv6-unification-design.md)
 - [Research・Decision・ADR](research-decision-adr-design.md)
 

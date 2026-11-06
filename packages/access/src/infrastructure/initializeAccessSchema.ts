@@ -113,10 +113,10 @@ const initializeHumanAuthSchema = async (database: Kysely<AccessDatabase>): Prom
     .execute();
 
   await database.schema
-    .createTable("project_invitation")
+    .createTable("workspace_invitation")
     .ifNotExists()
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("project_id", "text", (column) => column.notNull().references("project.id").onDelete("cascade"))
+    .addColumn("workspace_id", "text", (column) => column.notNull().references("workspace.id").onDelete("cascade"))
     .addColumn("email", "text", (column) => column.notNull())
     .addColumn("role", "text", (column) => column.notNull().check(sql`role in ${humanRole}`))
     .addColumn("token_hash", "text", (column) => column.notNull().unique())
@@ -132,8 +132,8 @@ const initializeHumanAuthSchema = async (database: Kysely<AccessDatabase>): Prom
     .addColumn("revoked_at", "integer")
     .execute();
   // 同じ宛先の未使用招待は1件。再発行は取消してから行う（上書きしない）。
-  await sql`create unique index if not exists project_invitation_pending_idx
-    on project_invitation (project_id, email) where status = 'pending'`.execute(database);
+  await sql`create unique index if not exists workspace_invitation_pending_idx
+    on workspace_invitation (workspace_id, email) where status = 'pending'`.execute(database);
 };
 
 /** Workspace Membership。`create ... if not exists`だけで既存tableには触れない。配下のすべてのProjectのHuman認可に使う。 */

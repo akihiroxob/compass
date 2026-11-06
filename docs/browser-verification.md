@@ -29,7 +29,7 @@ ReviewerはPR head、Managerは統合SHAを照合する。Workerは検証時HEAD
 
 `observations`には、作成中に確認した再送の同一結果、待機Taskの候補除外と直接Claimの拒否（`TASK_NOT_CLAIMABLE`）、viewerの返信拒否、同じ版の別Principalのlease（`LEASE_HELD`）、古い版の結論（`STALE_REVISION`）、二重の再開（`CLAIM_CONFLICT`）、Workerの継続確認（`FORBIDDEN`）を、期待値・観測値・一致で記録する。不一致があっても準備は止めないため、Managerは`matched: false`を製品の挙動として扱う。これらも検証用Principalの公開操作で、実Agentの稼働を示さない。
 
-Ownerは`preview-owner@example.test`、Viewerは`preview-viewer@example.test`で開発用ログインする。ViewerはProject Aからの招待を受諾し、後二者のWorkspaceのviewerになる（配下のProject A・Bとも同じRole。[ADR 0003](adr/0003-workspace-human-membership.md)）。Targetなしのworkspaceには所属しない。Workspace Directionと両ProjectのWorkの参照、未所属Workspaceの参照拒否、編集操作の拒否を比較できる。
+Ownerは`preview-owner@example.test`、Viewerは`preview-viewer@example.test`で開発用ログインする。ViewerはWorkspaceからの招待を受諾し、後二者のWorkspaceのviewerになる（配下のProject A・Bとも同じRole。[ADR 0003](adr/0003-workspace-human-membership.md)）。Targetなしのworkspaceには所属しない。Workspace Directionと両ProjectのWorkの参照、未所属Workspaceの参照拒否、編集操作の拒否を比較できる。
 
 ## 対象SHAとの一致
 

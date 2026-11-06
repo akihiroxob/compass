@@ -78,7 +78,7 @@ WorkのProject scope、Claim・状態遷移・Change Logの規則を維持し、
 | --- | --- | --- | --- | --- |
 | `project_grant` | PK `(project_id, principal_id, role)`。roleはCHECKなしでstrategist〜runtimeの7種 | Projectの`manager` / `worker` / `reviewer`とWorkspaceの`strategist` / `researcher` / `evaluator`を分ける | S06-02 | 新規発行でRole/scopeの不一致を拒否する。旧Grantのコピーは不要。`runtime`のGrant（trusted-local）はProject scopeのRuntime入口だけで数え、Workspace scopeのRuntime入口はWorkspace Runtime Credentialだけを受け付ける |
 | `workspace_role_grant`（新規） | — | `(workspace_id, principal_id, role)` | S06-02 | GrantからProject権限を継承しない |
-| `project_membership` / `project_invitation` | Project単位、最後のowner保護 | 変更なし | — | — |
+| `workspace_membership` / `workspace_invitation` | Humanの所属・招待はWorkspace単位、配下全Projectに同じRole、最後のowner保護 | ADR 0003に統一 | Access | — |
 | `workspace_membership` | S06-01で追加済み。有効な行は(Workspace, Human)につき1件 | Workspaceの閲覧・Direction管理・Project作成・member管理 | S06-01（実装済み） | Workspace作成時のownerとProject権限の非継承を検証する。旧Membershipの補完は不要。owner不在時の運用規則は維持する |
 | `access_credential` | `project_id NOT NULL` FK、`kind`（agent / runtime）、`scopes_json`、`secret_hash` | scope kind（workspace / project）とscope IDを持つCREATE定義へ | S06-03 | 新規発行するCredentialのscope・期限・失効・秘密値非公開を検証する。旧Credentialの引継ぎは不要 |
 | `human_user` / `human_identity` / `web_session` / `auth_login_attempt` | Project非依存 | 変更なし | — | — |
@@ -215,7 +215,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 | `/api/workspaces/:workspaceId/outcomes/:outcomeId/target-projects`（GET） | Target Projectの参照（Workspace Membership）。設定・解除はStrategistのMCPだけ（S04-01で実装済み） | S04-01 |
 | `/api/workspaces/:workspaceId/intents/:intentId/outcome-target-work`（GET） | OutcomeごとのTarget別Work要約（Workspace Membership。S04-04で実装済み） | S04-04 |
 | `/api/projects/:projectId/grants`・`/credentials` | Workspace用のGrant・Credentialの入口を追加。ProjectのものはProject Roleに限る。Workspace Grantの参照（`GET /api/workspaces/:workspaceId/grants`）とWorkspace Credentialの一覧はS11-02のAgent画面、付与・取消・発行はS11-03のWorkspace「設定」で接続済み | S06-02、S06-03、S11-02、S11-03 |
-| `/api/projects/:projectId/members`・`/invitations` | 維持。WorkspaceMembershipの管理入口を追加（use caseはS06-01で実装済み。S06-04は公開済み入口の非継承だけを検証し、管理入口は追加しない） | S11-03 |
+| `/api/workspaces/:workspaceId/members`・`/invitations` | Human Member・招待をWorkspaceへ集約。Project単位の入口は公開しない | ADR 0003 |
 | `/api/projects/:projectId/execution`・`/changes`・`/stories`・`/tasks…` | 変更なし | — |
 | `/api/projects/:projectId/activities…` | 維持。Workspace Activityは`/api/workspaces/:workspaceId/activities…`（Workspace Membership）で実装済み | S07-02 |
 | `/api/auth/*`・`/auth/*`・`/health` | 変更なし | — |

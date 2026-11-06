@@ -2,7 +2,7 @@ import type { Selectable, Transaction } from "kysely";
 import type {
   HumanIdentity,
   HumanUser,
-  ProjectInvitation,
+  WorkspaceInvitation,
   WebSession,
   WorkspaceMembership,
 } from "../domain/HumanAuth.ts";
@@ -10,7 +10,7 @@ import type {
   AccessDatabase,
   HumanIdentityTable,
   HumanUserTable,
-  ProjectInvitationTable,
+  WorkspaceInvitationTable,
   WebSessionTable,
   WorkspaceMembershipTable,
 } from "./schema.ts";
@@ -60,9 +60,9 @@ export const toWorkspaceMembership = (row: Selectable<WorkspaceMembershipTable>)
 });
 
 /** `token_hash`は返さない。 */
-export const toProjectInvitation = (row: Selectable<ProjectInvitationTable>): ProjectInvitation => ({
+export const toWorkspaceInvitation = (row: Selectable<WorkspaceInvitationTable>): WorkspaceInvitation => ({
   id: row.id,
-  projectId: row.project_id,
+  workspaceId: row.workspace_id,
   email: row.email,
   role: row.role,
   status: row.status,

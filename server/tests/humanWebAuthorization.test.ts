@@ -126,8 +126,8 @@ test("各Roleは権限表で許可されたCommandだけが成功し、不足は
     { label: "update project", method: "PATCH", path: base, body: { description: "changed" }, minimum: "administrator", ok: 200 },
     { label: "grant", method: "POST", path: `${base}/grants`, body: { principalId: "agent-1", role: "manager" }, minimum: "administrator", ok: 201 },
     { label: "revoke grant", method: "DELETE", path: `${base}/grants/manager/agent-1`, minimum: "administrator", ok: 200 },
-    { label: "list invitations", method: "GET", path: `${base}/invitations`, minimum: "owner", ok: 200 },
-    { label: "invite", method: "POST", path: `${base}/invitations`, body: { email: "new@example.com", role: "viewer" }, minimum: "owner", ok: 201 },
+    { label: "list invitations", method: "GET", path: `/api/workspaces/${project.workspaceId}/invitations`, minimum: "owner", ok: 200 },
+    { label: "invite", method: "POST", path: `/api/workspaces/${project.workspaceId}/invitations`, body: { email: "new@example.com", role: "viewer" }, minimum: "owner", ok: 201 },
   ];
   const rank = (role: HumanRole) => humanRoles.length - humanRoles.indexOf(role);
   for (const command of commands) {
@@ -145,7 +145,7 @@ test("各Roleは権限表で許可されたCommandだけが成功し、不足は
   }
   // 拒否されたCommandは何も変えていない（Grantは発行後に取消され、招待はownerの1件だけ）。
   assert.equal((await json(await send(ctx, members.viewer, "GET", `${base}/grants`))).grants.length, 0);
-  assert.equal((await json(await send(ctx, members.owner, "GET", `${base}/invitations`))).invitations.length, 1);
+  assert.equal((await json(await send(ctx, members.owner, "GET", `/api/workspaces/${project.workspaceId}/invitations`))).invitations.length, 1);
   assert.equal((await json(await send(ctx, members.viewer, "GET", base))).project.description, "changed");
 
   // archiveはownerだけ（不可逆）。
@@ -177,7 +177,7 @@ test("未所属・存在しないProject・別Projectの子ID・取消済みMemb
   await notFound(outsider, "POST", `/api/workspaces/${beta.project.workspaceId}/intents`, { title: "x", desiredState: "S" });
   await notFound(outsider, "GET", `/api/workspaces/${beta.project.workspaceId}/intents/${beta.intent.id}`);
   await notFound(outsider, "GET", `/api/workspaces/${beta.project.workspaceId}/members`);
-  await notFound(outsider, "POST", `/api/projects/${beta.project.id}/invitations`, { email: "x@example.com", role: "owner" });
+  await notFound(outsider, "POST", `/api/workspaces/${beta.project.workspaceId}/invitations`, { email: "x@example.com", role: "owner" });
   // 自分のProjectのURLに別Projectの子IDを混ぜても参照・変更できない（既存use caseの404）。
   await notFound(outsider, "GET", `/api/workspaces/${alpha.project.workspaceId}/intents/${beta.intent.id}`);
   await notFound(outsider, "PATCH", `/api/workspaces/${alpha.project.workspaceId}/intents/${beta.intent.id}/outcomes/${beta.outcome.id}`, { title: "x" });
@@ -274,7 +274,7 @@ test("Membership管理: Workspace owner以外のRole変更・自己昇格・除�
   assert.equal((await json(promoted)).membership.role, "owner");
   assert.equal((await send(ctx, members.owner, "PATCH", `${membersBase}/${ownerId}`, { role: "editor" })).status, 200);
   assert.equal((await send(ctx, members.owner, "PATCH", `${membersBase}/${ownerId}`, { role: "owner" })).status, 403);
-  assert.equal((await send(ctx, members.owner, "GET", `${base}/invitations`)).status, 403);
+  assert.equal((await send(ctx, members.owner, "GET", `/api/workspaces/${project.workspaceId}/invitations`)).status, 403);
   assert.equal((await send(ctx, members.owner, "POST", `${base}/archive`, { reason: "x" })).status, 403);
   assert.equal((await send(ctx, members.administrator, "PATCH", `${membersBase}/${ownerId}`, { role: "not-a-role" })).status, 400);
   await ctx.database.destroy();
@@ -314,7 +314,7 @@ test("招待はownerだけが発行・一覧・取消でき、tokenは発行応�
   const ctx = await setup();
   const { project, members } = await seedProject(ctx);
   const base = `/api/projects/${project.id}`;
-  const created = await send(ctx, members.owner, "POST", `${base}/invitations`, { email: "Guest@Example.com", role: "editor" });
+  const created = await send(ctx, members.owner, "POST", `/api/workspaces/${project.workspaceId}/invitations`, { email: "Guest@Example.com", role: "editor" });
   assert.equal(created.status, 201);
   assert.equal(created.headers.get("Cache-Control"), "no-store");
   const body = await json(created);
@@ -323,19 +323,19 @@ test("招待はownerだけが発行・一覧・取消でき、tokenは発行応�
   assert.equal("tokenHash" in body.invitation, false);
   const token = body.invitationUrl.split("#")[1];
 
-  const listed = await send(ctx, members.owner, "GET", `${base}/invitations`);
+  const listed = await send(ctx, members.owner, "GET", `/api/workspaces/${project.workspaceId}/invitations`);
   assert.equal(listed.status, 200);
   const listedText = await listed.text();
   assert.equal(listedText.includes(token), false);
-  const duplicate = await send(ctx, members.owner, "POST", `${base}/invitations`, { email: "guest@example.com", role: "viewer" });
+  const duplicate = await send(ctx, members.owner, "POST", `/api/workspaces/${project.workspaceId}/invitations`, { email: "guest@example.com", role: "viewer" });
   assert.equal(duplicate.status, 409);
   assert.equal((await json(duplicate)).error.conflict, "INVITATION_PENDING");
 
-  assert.equal((await send(ctx, members.administrator, "DELETE", `${base}/invitations/${body.invitation.id}`)).status, 403);
-  const revoked = await send(ctx, members.owner, "DELETE", `${base}/invitations/${body.invitation.id}`);
+  assert.equal((await send(ctx, members.administrator, "DELETE", `/api/workspaces/${project.workspaceId}/invitations/${body.invitation.id}`)).status, 403);
+  const revoked = await send(ctx, members.owner, "DELETE", `/api/workspaces/${project.workspaceId}/invitations/${body.invitation.id}`);
   assert.equal(revoked.status, 200);
   assert.equal((await json(revoked)).invitation.status, "revoked");
-  assert.equal((await send(ctx, members.owner, "DELETE", `${base}/invitations/${body.invitation.id}`)).status, 409);
+  assert.equal((await send(ctx, members.owner, "DELETE", `/api/workspaces/${project.workspaceId}/invitations/${body.invitation.id}`)).status, 409);
   await ctx.database.destroy();
 });
 

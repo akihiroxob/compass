@@ -554,20 +554,20 @@ export const createApp = (
     const membership = await human.revokeWorkspaceMember.execute(actor, c.req.param("workspaceId"), c.req.param("membershipId"));
     return c.json({ membership });
   });
-  // Projectから発行する招待（所属Workspaceのowner）。受諾すると所属WorkspaceのMembershipになる。
-  const invitationsPath = "/api/projects/:projectId/invitations";
+  // Workspaceのownerが発行する招待。Projectがなくても参加できる。
+  const invitationsPath = "/api/workspaces/:workspaceId/invitations";
   app.get(invitationsPath, async (c) =>
     c.json({
-      invitations: await services.listProjectInvitationsUseCase.execute(await actorOf(c), c.req.param("projectId")),
+      invitations: await services.listWorkspaceInvitationsUseCase.execute(await actorOf(c), c.req.param("workspaceId")),
     }),
   );
   // tokenの平文は発行応答で一度だけ返す。リンクはURL fragmentで渡し、access logへ残さない。
   app.post(invitationsPath, async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Invitation");
-    const { invitation, token } = await services.createProjectInvitationUseCase.execute(
+    const { invitation, token } = await services.createWorkspaceInvitationUseCase.execute(
       actor,
-      c.req.param("projectId"),
+      c.req.param("workspaceId"),
       input,
     );
     c.header("Cache-Control", "no-store");
@@ -575,9 +575,9 @@ export const createApp = (
   });
   app.delete(`${invitationsPath}/:invitationId`, async (c) => {
     const actor = await actorOf(c);
-    const invitation = await services.revokeProjectInvitationUseCase.execute(
+    const invitation = await services.revokeWorkspaceInvitationUseCase.execute(
       actor,
-      c.req.param("projectId"),
+      c.req.param("workspaceId"),
       c.req.param("invitationId"),
     );
     return c.json({ invitation });

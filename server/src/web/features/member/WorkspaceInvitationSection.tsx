@@ -1,11 +1,9 @@
 import { useId, useCallback, useEffect, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
 import { classifyError, describeActionFailure, loadFailureMessage, request, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { Button, Field, Select, TextInput } from "../../components/ui";
-import { workspacePath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import {
   defaultInvitationExpiryHours,
@@ -24,15 +22,15 @@ import {
   type InvitationResponse,
 } from "./members";
 
-const projectNotFound = "Projectまたは対象が見つかりません。画面を再読み込みしてください。";
+const workspaceNotFound = "Workspaceまたは対象が見つかりません。画面を再読み込みしてください。";
 const formatTime = (epochMs: number) => new Date(epochMs).toLocaleString("ja-JP");
 
-const InvitationRow = ({ projectId, invitation, manage, onChanged }: { projectId: string; invitation: Invitation; manage: boolean; onChanged: () => void }) => {
+const InvitationRow = ({ workspaceId, invitation, manage, onChanged }: { workspaceId: string; invitation: Invitation; manage: boolean; onChanged: () => void }) => {
   const status = invitationDisplayStatus(invitation, Date.now());
   const revoke = useReasonAction(async () => {
-    await request<{ invitation: Invitation }>(invitationsPath(projectId, invitation.id), deleteInit);
+    await request<{ invitation: Invitation }>(invitationsPath(workspaceId, invitation.id), deleteInit);
     onChanged();
-  }, (classified) => describeActionFailure(classified, projectNotFound));
+  }, (classified) => describeActionFailure(classified, workspaceNotFound));
   return (
     <li>
       <div>
@@ -83,10 +81,10 @@ const IssuedInvitation = ({ issued, onDismiss }: { issued: InvitationResponse; o
 };
 
 /**
- * Projectからの招待（所属Workspaceのowner）。受諾すると所属WorkspaceのMembershipになり、配下の全Projectを同じRoleで利用する（ADR 0003）。
- * Memberの一覧・Role変更・除外はWorkspaceの設定で行い、ここには置かない。`readOnly`（archivedのProject）では一覧だけを表示する。
+ * Workspaceのownerによる招待。参加すると配下の全Projectを同じRoleで利用できる。
+ * archivedのWorkspaceでは一覧だけを表示する。
  */
-export const ProjectInvitationSection = ({ projectId, workspaceId, readOnly }: { projectId: string; workspaceId: string; readOnly: boolean }) => {
+export const WorkspaceInvitationSection = ({ workspaceId, readOnly }: { workspaceId: string; readOnly: boolean }) => {
   const [invitations, setInvitations] = useState<Invitation[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
@@ -100,10 +98,10 @@ export const ProjectInvitationSection = ({ projectId, workspaceId, readOnly }: {
 
   const load = useCallback(
     () =>
-      request<{ invitations: Invitation[] }>(invitationsPath(projectId))
+      request<{ invitations: Invitation[] }>(invitationsPath(workspaceId))
         .then((body) => { setInvitations(body.invitations); setLoadError(null); })
-        .catch((reason: unknown) => setLoadError(loadFailureMessage(classifyError(reason), projectNotFound))),
-    [projectId],
+        .catch((reason: unknown) => setLoadError(loadFailureMessage(classifyError(reason), workspaceNotFound))),
+    [workspaceId],
   );
   useEffect(() => { void load(); }, [load]);
 
@@ -114,11 +112,11 @@ export const ProjectInvitationSection = ({ projectId, workspaceId, readOnly }: {
     setIssued(null);
     setIsSubmitting(true);
     try {
-      setIssued(await request<InvitationResponse>(invitationsPath(projectId), invitationInit(email, role, expiresInHours)));
+      setIssued(await request<InvitationResponse>(invitationsPath(workspaceId), invitationInit(email, role, expiresInHours)));
       setEmail("");
       await load();
     } catch (reason) {
-      setError(withNotFoundMessage(classifyError(reason), projectNotFound));
+      setError(withNotFoundMessage(classifyError(reason), workspaceNotFound));
     } finally {
       setIsSubmitting(false);
     }
@@ -127,13 +125,13 @@ export const ProjectInvitationSection = ({ projectId, workspaceId, readOnly }: {
   return (
     <section className="detail-section" aria-labelledby="invitation-heading">
       <h2 id="invitation-heading">招待</h2>
-      <p className="section-note">参加するとWorkspaceのMemberになり、配下のすべてのProjectを同じRoleで利用できます。Memberの一覧・Role変更・除外は<Link to={workspacePath(workspaceId, "settings")}>Workspaceの設定</Link>で行います。招待はメールで送られません。発行したリンクを相手へ渡してください。受諾できるのは一度だけです。</p>
+      <p className="section-note">参加するとWorkspaceのMemberになり、配下のすべてのProjectを同じRoleで利用できます。招待はメールで送られません。発行したリンクを相手へ渡してください。受諾できるのは一度だけです。</p>
       {loadError ? <ErrorState message={`招待の読み込みに失敗しました: ${loadError}`} /> : invitations === null ? <Loading /> : invitations.length ? (
         <ul className="grant-list" aria-labelledby="invitation-heading">
-          {invitations.map((invitation) => <InvitationRow key={invitation.id} projectId={projectId} invitation={invitation} manage={!readOnly} onChanged={() => void load()} />)}
+          {invitations.map((invitation) => <InvitationRow key={invitation.id} workspaceId={workspaceId} invitation={invitation} manage={!readOnly} onChanged={() => void load()} />)}
         </ul>
       ) : <p className="unset">招待はありません</p>}
-      {error && !readOnly && <FormErrorSummary formId={formId} error={error} detailTo={`/projects/${projectId}`} conflict={{ title: "招待を発行できませんでした" }} />}
+      {error && !readOnly && <FormErrorSummary formId={formId} error={error} detailTo={`/workspaces/${workspaceId}`} conflict={{ title: "招待を発行できませんでした" }} />}
       {issued && !readOnly && <IssuedInvitation issued={issued} onDismiss={() => setIssued(null)} />}
       {!readOnly && (
         <form className="grant-form" onSubmit={submit}>

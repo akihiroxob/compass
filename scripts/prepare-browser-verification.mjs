@@ -294,8 +294,8 @@ try {
   const { createApp } = await targetModule('server/src/bootstrap/app.ts');
   const app = createApp(services, { humanAuth: { mode: 'trusted-local', publicOrigin: 'http://localhost' } });
   // 招待の受諾で所属WorkspaceのMembership（配下のすべてのProjectに同じRole）になる（ADR 0003）。
-  const addViewer = async (workspaceId, projectId) => {
-    const invitation = await services.createProjectInvitationUseCase.execute(owner, projectId, { email: viewerEmail, role: 'viewer' });
+  const addViewer = async (workspaceId) => {
+    const invitation = await services.createWorkspaceInvitationUseCase.execute(owner, workspaceId, { email: viewerEmail, role: 'viewer' });
     const signedIn = await services.localDevLoginUseCase.execute({ email: viewerEmail, invitationToken: invitation.token, previousSessionToken: null });
     if (signedIn.kind !== 'logged_in') throw new Error('Preview viewer invitation could not be accepted');
     const humanUserId = signedIn.session.humanUserId;
@@ -340,7 +340,7 @@ try {
         for (const role of ['manager', 'worker', 'reviewer']) await services.grantProjectRoleUseCase.execute(project.id, { principalId: identities[role], role });
         await direction.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, project.id);
         entry.projects.push({ id: project.id, label, name: project.name });
-        if (label === 'A') entry.viewerHumanUserId = await addViewer(workspace.id, project.id);
+        if (label === 'A') entry.viewerHumanUserId = await addViewer(workspace.id);
         if (label === 'A' || scenario === 'evaluated') entry.work.push(await acceptedWork(project, outcome, label));
       }
     }

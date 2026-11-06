@@ -67,9 +67,9 @@ export type WorkspaceMembershipTable = {
   revoked_by_human_user_id: string | null;
 };
 
-export type ProjectInvitationTable = {
+export type WorkspaceInvitationTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   email: string;
   role: "owner" | "administrator" | "editor" | "viewer";
   token_hash: string;
@@ -120,7 +120,7 @@ export type AccessDatabase = {
   human_identity: HumanIdentityTable;
   web_session: WebSessionTable;
   auth_login_attempt: AuthLoginAttemptTable;
-  project_invitation: ProjectInvitationTable;
+  workspace_invitation: WorkspaceInvitationTable;
   workspace_membership: WorkspaceMembershipTable;
   access_credential: AccessCredentialTable;
 };

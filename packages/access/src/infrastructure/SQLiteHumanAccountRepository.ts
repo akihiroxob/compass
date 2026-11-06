@@ -17,7 +17,6 @@ import type {
   RegisterOrLoginResult,
 } from "../domain/HumanAccountRepository.ts";
 import type { AccessDatabase } from "./schema.ts";
-import type { AccessProjectReaders } from "./AccessProjectReaders.ts";
 import type { AccessWorkspaceReaders } from "./AccessWorkspaceReaders.ts";
 import { toHumanIdentity, toHumanUser, toWebSession } from "./humanAuthRecord.ts";
 
@@ -28,7 +27,6 @@ const displayNameOf = (identity: VerifiedIdentity, email: string): string =>
 export class SQLiteHumanAccountRepository implements HumanAccountRepository {
   constructor(
     private readonly database: Kysely<AccessDatabase>,
-    private readonly projects: AccessProjectReaders,
     private readonly workspaces: AccessWorkspaceReaders,
     private readonly clock: () => number = Date.now,
   ) {}
@@ -54,22 +52,18 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
         .executeTakeFirst();
       const invitation = command.invitationTokenHash
         ? await transaction
-            .selectFrom("project_invitation")
+            .selectFrom("workspace_invitation")
             .selectAll()
             .where("token_hash", "=", command.invitationTokenHash)
             .executeTakeFirst()
         : undefined;
-      // 招待先Projectの所属WorkspaceのMembershipになる（ADR 0003）。判定・書込と同じtransactionで読み、archiveとの競合でも
-      // Membershipを追加しない。
-      const invitationWorkspaceId = invitation ? await this.projects(transaction).findWorkspaceId(invitation.project_id) : null;
-      const alreadyMember =
-        existingIdentity && invitationWorkspaceId !== null
-          ? (await this.findActiveWorkspaceMembershipId(transaction, invitationWorkspaceId, existingIdentity.humanUserId)) !== null
-          : false;
-      const projectArchived = invitation
-        ? invitationWorkspaceId === null ||
-          (await this.projects(transaction).isArchived(invitation.project_id)) ||
-          (await this.workspaces(transaction).isArchived(invitationWorkspaceId))
+      // 招待とWorkspace Membershipの判定・書込を同じtransactionで行う。
+      const invitationWorkspaceId = invitation?.workspace_id ?? null;
+      const alreadyMember = existingIdentity && invitationWorkspaceId !== null
+        ? (await this.findActiveWorkspaceMembershipId(transaction, invitationWorkspaceId, existingIdentity.humanUserId)) !== null
+        : false;
+      const workspaceArchived = invitationWorkspaceId !== null
+        ? await this.workspaces(transaction).isArchived(invitationWorkspaceId)
         : false;
 
       const facts: RegistrationFacts = {
@@ -87,7 +81,7 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
                   expiresAt: invitation.expires_at,
                   email: invitation.email,
                   alreadyMember,
-                  projectArchived,
+                  workspaceArchived,
                 }
               : { found: false },
         now,
@@ -147,7 +141,7 @@ export class SQLiteHumanAccountRepository implements HumanAccountRepository {
       if (invitationOutcome === "accept") {
         // 判定と同じtransaction内で条件付き更新し、同じ招待の二重受諾を防ぐ。
         const accepted = await transaction
-          .updateTable("project_invitation")
+          .updateTable("workspace_invitation")
           .set({ status: "accepted", accepted_by_human_user_id: humanUserId, accepted_at: now })
           .where("id", "=", invitation!.id)
           .where("status", "=", "pending")

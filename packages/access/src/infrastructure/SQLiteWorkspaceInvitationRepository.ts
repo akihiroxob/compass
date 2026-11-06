@@ -1,44 +1,44 @@
 import type { Kysely } from "kysely";
-import type { ProjectInvitation } from "../domain/HumanAuth.ts";
+import type { WorkspaceInvitation } from "../domain/HumanAuth.ts";
 import type {
   CreateInvitationCommand,
   CreateInvitationResult,
-  ProjectInvitationRepository,
+  WorkspaceInvitationRepository,
   RevokeInvitationResult,
-} from "../domain/ProjectInvitationRepository.ts";
+} from "../domain/WorkspaceInvitationRepository.ts";
 import type { AccessDatabase } from "./schema.ts";
-import type { AccessProjectReaders } from "./AccessProjectReaders.ts";
-import { toProjectInvitation } from "./humanAuthRecord.ts";
+import type { AccessWorkspaceReaders } from "./AccessWorkspaceReaders.ts";
+import { toWorkspaceInvitation } from "./humanAuthRecord.ts";
 
 const isUniqueViolation = (error: unknown) =>
   error instanceof Error && "code" in error && error.code === "SQLITE_CONSTRAINT_UNIQUE";
 
-export class SQLiteProjectInvitationRepository implements ProjectInvitationRepository {
+export class SQLiteWorkspaceInvitationRepository implements WorkspaceInvitationRepository {
   constructor(
     private readonly database: Kysely<AccessDatabase>,
-    private readonly projects: AccessProjectReaders,
+    private readonly workspaces: AccessWorkspaceReaders,
     private readonly clock: () => number = Date.now,
   ) {}
 
   async createInvitation(command: CreateInvitationCommand): Promise<CreateInvitationResult> {
     try {
       return await this.database.transaction().execute(async (transaction): Promise<CreateInvitationResult> => {
-        if (await this.projects(transaction).isArchived(command.projectId)) return { kind: "project_archived" };
+        if (await this.workspaces(transaction).isArchived(command.workspaceId)) return { kind: "workspace_archived" };
         const now = this.clock();
         // 期限切れのpendingは受諾・取消できないが、同じ宛先の再発行を塞がないよう、再発行と同時に取消扱いにする。
         await transaction
-          .updateTable("project_invitation")
+          .updateTable("workspace_invitation")
           .set({ status: "revoked", revoked_by_human_user_id: command.createdByHumanUserId, revoked_at: now })
-          .where("project_id", "=", command.projectId)
+          .where("workspace_id", "=", command.workspaceId)
           .where("email", "=", command.email)
           .where("status", "=", "pending")
           .where("expires_at", "<=", now)
           .execute();
         const row = await transaction
-          .insertInto("project_invitation")
+          .insertInto("workspace_invitation")
           .values({
             id: crypto.randomUUID(),
-            project_id: command.projectId,
+            workspace_id: command.workspaceId,
             email: command.email,
             role: command.role,
             token_hash: command.tokenHash,
@@ -53,49 +53,49 @@ export class SQLiteProjectInvitationRepository implements ProjectInvitationRepos
           })
           .returningAll()
           .executeTakeFirstOrThrow();
-        return { kind: "created", invitation: toProjectInvitation(row) };
+        return { kind: "created", invitation: toWorkspaceInvitation(row) };
       });
     } catch (error) {
-      // 部分unique index（project_id, email where pending）で、期限内の未使用招待がある宛先への発行を1件に限る。
+      // 部分unique index（workspace_id, email where pending）で、期限内の未使用招待がある宛先への発行を1件に限る。
       if (isUniqueViolation(error)) return { kind: "pending_exists" };
       throw error;
     }
   }
 
-  async listInvitations(projectId: string): Promise<ProjectInvitation[]> {
+  async listInvitations(workspaceId: string): Promise<WorkspaceInvitation[]> {
     const rows = await this.database
-      .selectFrom("project_invitation")
+      .selectFrom("workspace_invitation")
       .selectAll()
-      .where("project_id", "=", projectId)
+      .where("workspace_id", "=", workspaceId)
       .orderBy("created_at", "desc")
       .orderBy("id")
       .execute();
-    return rows.map(toProjectInvitation);
+    return rows.map(toWorkspaceInvitation);
   }
 
   async revokeInvitation(
-    projectId: string,
+    workspaceId: string,
     invitationId: string,
     revokedByHumanUserId: string,
   ): Promise<RevokeInvitationResult> {
     return this.database.transaction().execute(async (transaction): Promise<RevokeInvitationResult> => {
-      if (await this.projects(transaction).isArchived(projectId)) return { kind: "project_archived" };
+      if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
       const now = this.clock();
       const existing = await transaction
-        .selectFrom("project_invitation")
+        .selectFrom("workspace_invitation")
         .select(["status", "expires_at"])
         .where("id", "=", invitationId)
-        .where("project_id", "=", projectId)
+        .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!existing) return { kind: "not_found" };
       if (existing.status !== "pending" || existing.expires_at <= now) return { kind: "not_pending" };
       const updated = await transaction
-        .updateTable("project_invitation")
+        .updateTable("workspace_invitation")
         .set({ status: "revoked", revoked_by_human_user_id: revokedByHumanUserId, revoked_at: now })
         .where("id", "=", invitationId)
         .returningAll()
         .executeTakeFirstOrThrow();
-      return { kind: "revoked", invitation: toProjectInvitation(updated) };
+      return { kind: "revoked", invitation: toWorkspaceInvitation(updated) };
     });
   }
 }

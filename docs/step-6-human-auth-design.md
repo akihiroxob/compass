@@ -33,9 +33,19 @@ Serverは起動ディレクトリの`.env`を読み込む。`PORT`はその前�
 
 新規登録は初期owner、または有効な招待の宛先に限定する。初期ownerの作成後は設定emailをowner変更に使わない。platform ownerはMembershipを迂回する権限を持たない。owner不在のWorkspace（MCP・CLI等のActorなしで作られたWorkspace）へのowner Membership補完を、platform ownerのログイン時に行う。配下のProjectは補完したWorkspace Membershipで利用する。
 
-招待は現在ProjectのWeb API（`/api/projects/:projectId/invitations`）から所属Workspaceのownerが発行し、リンクを手渡す。メール送信はしない。受諾すると招待先Projectの所属WorkspaceのMembershipになり、配下のすべてのProjectを招待のRoleで利用する。既に同じWorkspaceのMemberなら`already_member`として受諾せず、Membershipを重複させない。有効期限は既定7日、1時間〜30日。同じ宛先の期限内pending招待の重複発行は409。期限切れpendingの再発行は古い招待を失効させる。招待先emailの検証、Membership作成、招待の受諾は同じtransactionで行う。Workspace scopeの招待・参加（ADR 0003）は未実装。
+招待はWorkspaceのWeb API（`/api/workspaces/:workspaceId/invitations`）からWorkspaceのownerが発行し、リンクを手渡す。メール送信はしない。受諾すると招待先WorkspaceのMembershipになり、配下のすべてのProjectを招待のRoleで利用する。既に同じWorkspaceのMemberなら`already_member`として受諾せず、Membershipを重複させない。有効期限は既定7日、1時間〜30日。同じ宛先の期限内pending招待の重複発行は409。期限切れpendingの再発行は古い招待を失効させる。招待先emailの検証、Membership作成、招待の受諾は同じtransactionで行う。ProjectがまだないWorkspaceでも招待・参加できる。Projectごとの招待・参加APIは設けない。
 
-最後のWorkspace ownerを失うRole変更・除外は`409 LAST_OWNER`。archivedのProject・Workspaceでは招待の発行・取消・受諾を拒否し、archivedのWorkspaceではMembershipの変更を拒否する。owner不在Workspaceの補完は例外。
+Workspace招待の公開契約（いずれもHuman専用、Workspace ownerのみ）:
+
+| API | 結果 |
+| --- | --- |
+| `POST /api/workspaces/:workspaceId/invitations` | `email`・`role`・任意の`expiresInHours`で発行し、`201 { invitation, invitationUrl }`。リンクは発行直後だけ表示する |
+| `GET /api/workspaces/:workspaceId/invitations` | `200 { invitations }`。`workspaceId`・宛先・Role・状態・期限を返し、tokenは返さない |
+| `DELETE /api/workspaces/:workspaceId/invitations/:invitationId` | 期限内のpendingだけ取消し、`200 { invitation }`。別WorkspaceのIDは404、取消不可は409 |
+
+受諾は`/invite#<token>`からログインし、`/auth/local/login`（trusted-local）またはOIDC callbackで行う。使用済み・取消済み・他人の招待ではMembershipを作らない。既存Humanの通常ログインは維持し、無効な招待を受諾成功として扱わない。
+
+最後のWorkspace ownerを失うRole変更・除外は`409 LAST_OWNER`。archivedのWorkspaceでは招待の発行・取消・受諾を拒否し、archivedのWorkspaceではMembershipの変更を拒否する。owner不在Workspaceの補完は例外。
 
 ## Web Session・Cookie・CSRF・OIDCの契約
 
@@ -58,7 +68,7 @@ Role順序はowner > administrator > editor > viewer。Humanの所属とRoleはW
 | Project・Execution・Execution Summary・Activity・相談・Grant参照 | viewer |
 | Story / Task手動起票・編集、Task介入・Comment、相談への返信 | editor |
 | Project更新、Agent Grant、Credential管理、相談の明示決定・取消 | administrator |
-| archive、招待 | owner |
+| archive | owner |
 
 Human向けのWeb API（作成`POST /api/workspaces`、参照`GET /api/workspaces`・`GET /api/workspaces/:workspaceId`・`GET /api/workspaces/:workspaceId/projects`、更新`PATCH /api/workspaces/:workspaceId`、Project作成`POST /api/workspaces/:workspaceId/projects`、archive`POST /api/workspaces/:workspaceId/archive`）はWeb SessionとWorkspace Membershipによる認可まで接続済み。所属Project一覧ではpurpose・Repository・Resourceを参照でき、Project詳細・Workも同じWorkspace MembershipのRoleで操作する。新しく作ったProjectにも、追加操作なしで同じRoleが適用される。Projectの応答は所属`workspaceId`を含む。Web UIはWorkspace Selector・Shellと、Workspaceの作成・編集・Project追加・archiveの導線を接続し、Selectorは閲覧できるWorkspaceだけを出す。Projectの更新ではMission等を受け取らない。Workspace member管理のWeb API（一覧`GET /api/workspaces/:workspaceId/members`はviewer以上、Role変更`PATCH .../members/:membershipId`・除外`DELETE .../members/:membershipId`はowner）とWeb UIのWorkspace「設定」を接続済み。Role変更・除外は配下のすべてのProjectへの次の操作から反映する。Project単位のMember API・Project設定のMember一覧は無い。参加は招待の受諾とWorkspace作成で成立し、既存Humanを一覧から直接追加する入口は無い（emailでのHuman検索も公開しない）。Workspace管理のMCPは無い。
 
@@ -112,6 +122,6 @@ CLIのGrant操作はローカル保守・自動検証用。通常のHuman操作�
 
 ## 保存と検証
 
-Human関連tableは`human_user` / `human_identity` / `web_session` / `auth_login_attempt` / `workspace_membership` / `project_invitation`。Project単位のMembership tableは無い（旧定義の開発DBは再作成する）。Credentialは`access_credential`（`scope_kind`と、scopeに対応する`workspace_id`または`project_id`だけを持つCHECK・FK）。旧定義（`project_id`必須）の開発DBは再作成する。ログイン・招待・権限変更の整合性はtransactionで保つ。
+Human関連tableは`human_user` / `human_identity` / `web_session` / `auth_login_attempt` / `workspace_membership` / `workspace_invitation`。Project単位のMembership tableは無い（旧定義の開発DBは再作成する）。Credentialは`access_credential`（`scope_kind`と、scopeに対応する`workspace_id`または`project_id`だけを持つCHECK・FK）。旧定義（`project_id`必須）の開発DBは再作成する。ログイン・招待・権限変更の整合性はtransactionで保つ。
 
 [humanAuthHttpIntegration.test.ts](../server/tests/humanAuthHttpIntegration.test.ts) はテスト用OIDC providerと実HTTP serverを使用する。実Google接続の検証とは区別する。既存テストのSession fixtureはテスト内に限定する。

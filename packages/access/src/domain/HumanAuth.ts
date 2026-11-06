@@ -117,9 +117,9 @@ export const invitationMaxTtlHours = 30 * 24;
 export type InvitationStatus = "pending" | "accepted" | "revoked";
 
 /** 招待tokenの平文は発行応答で一度だけ返し、ここには含めない。 */
-export type ProjectInvitation = {
+export type WorkspaceInvitation = {
   readonly id: string;
-  readonly projectId: string;
+  readonly workspaceId: string;
   readonly email: string;
   readonly role: HumanRole;
   /** 保存値。期限切れは状態を書き換えず`expiresAt`で判定する。 */
@@ -133,7 +133,7 @@ export type ProjectInvitation = {
   readonly revokedAt: number | null;
 };
 
-export const isInvitationUsable = (invitation: Pick<ProjectInvitation, "status" | "expiresAt">, now: number) =>
+export const isInvitationUsable = (invitation: Pick<WorkspaceInvitation, "status" | "expiresAt">, now: number) =>
   invitation.status === "pending" && now < invitation.expiresAt;
 
 /** emailはtrim・小文字化だけを行う（Gmailのドット等は正規化しない）。 */
@@ -156,10 +156,10 @@ export type RegistrationFacts = {
         status: InvitationStatus;
         expiresAt: number;
         email: string;
-        /** 招待先Projectの所属Workspaceに、そのHumanが既に有効なMembershipを持つ。新規Humanではfalse。 */
+        /** 招待先Workspaceに、そのHumanが既に有効なMembershipを持つ。新規Humanではfalse。 */
         alreadyMember: boolean;
-        /** 招待先Projectまたはその所属Workspaceがarchived（参照専用）。受諾してMembershipを追加しない。 */
-        projectArchived: boolean;
+        /** 招待先Workspaceがarchived（参照専用）。受諾してMembershipを追加しない。 */
+        workspaceArchived: boolean;
       };
   now: number;
 };
@@ -180,7 +180,7 @@ const invitationEmailMatches = (invitationEmail: string, identity: VerifiedIdent
 
 /**
  * closed registrationの判定表（#0〜#4）。いずれの拒否でもHuman・Identity・Membership・Sessionを作らない。
- * 拒否理由は`not_allowed`（未許可・email未検証・email不一致・無効/使用済み/取消済み/archived Projectの招待）と
+ * 拒否理由は`not_allowed`（未許可・email未検証・email不一致・無効/使用済み/取消済み/archived Workspaceの招待）と
  * `invitation_expired`（期限切れ招待）だけに区別し、Project名やHumanの有無を漏らさない。
  */
 export const decideRegistration = (facts: RegistrationFacts): RegistrationDecision => {
@@ -194,7 +194,7 @@ export const decideRegistration = (facts: RegistrationFacts): RegistrationDecisi
     if (
       !invitation.found ||
       invitation.status !== "pending" ||
-      invitation.projectArchived ||
+      invitation.workspaceArchived ||
       !invitationEmailMatches(invitation.email, identity)
     ) {
       return { kind: "login", humanUserId, invitation: "invalid" };
@@ -215,7 +215,7 @@ export const decideRegistration = (facts: RegistrationFacts): RegistrationDecisi
   if (
     invitation?.found &&
     invitation.status === "pending" &&
-    !invitation.projectArchived &&
+    !invitation.workspaceArchived &&
     invitationEmailMatches(invitation.email, identity)
   ) {
     if (now >= invitation.expiresAt) return { kind: "reject", reason: "invitation_expired" };
@@ -247,8 +247,6 @@ export const humanProjectPermissions = {
   /** Agent / Runtime Credentialの発行・rotation・取消・一覧（Task 37）。 */
   "credential.manage": "administrator",
   "project.archive": "owner",
-  /** Projectからの招待の発行・一覧・取消。受諾すると所属WorkspaceのMembershipになる。 */
-  "invitation.manage": "owner",
 } as const satisfies Record<string, HumanRole>;
 
 export type HumanProjectOperation = keyof typeof humanProjectPermissions;
@@ -277,7 +275,9 @@ export const humanWorkspacePermissions = {
   "grant.manage": "administrator",
   /** Workspace scopeのAgent / Runtime Credentialの発行・rotation・取消・一覧。Project Credentialは`humanProjectPermissions`の`credential.manage`。 */
   "credential.manage": "administrator",
-  /** Memberの一覧以外の管理（Role変更・除外）。配下の全Projectへの次の操作から反映される。 */
+  /** Workspace招待の発行・一覧・取消。 */
+  "invitation.manage": "owner",
+  /** MemberのRole変更・除外。配下の全Projectへの次の操作から反映する。 */
   "member.manage": "owner",
   "workspace.archive": "owner",
 } as const satisfies Record<string, HumanRole>;
