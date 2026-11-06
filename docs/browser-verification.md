@@ -37,7 +37,7 @@ Ownerは`preview-owner@example.test`、Viewerは`preview-viewer@example.test`で
 
 スクリプトはcwdのschemaとapplication use caseを読み込み、同じWorktree内の`@compass/*`を使う。依存関係が親Repositoryを参照している場合は失敗するため、対象Worktreeで`npm ci`等を済ませる。
 
-設定内のスクリプトパスは、登録済み準備コマンドの識別に使う。Reviewer・Managerの実行では、`verification.preparationFiles`で指定したファイルへの直接の引数を、Ralphが`verification.preparationRevision`（省略時は本体SHA）のGit blobから作成した専用コピーへ置き換える。Workerの実行は登録済みのパスをそのまま使うため、Workerは使用した準備ファイルが`preparationRevision`のblobと一致することを照合して記録する。準備コードの正本はそのGit revisionであり、固定Project checkoutの作業ファイルではない。対象のuse caseが未実装・非互換なら準備は失敗し、別SHAの本体やデータへ切り替えない。
+設定内のスクリプトパスは、登録済み準備コマンドの識別に使う。Reviewer・Managerの実行では、`verification.preparationFiles`で指定したファイルへの直接の引数を、Ralphが`verification.preparationRevision`（省略時は本体SHA）のGit blobから作成した専用コピーへ置き換える。Workerの実行も同じ専用コピーを使う。準備コードの依存先（use case等）を変更するTaskでは、Workerが専用コピーと実装Worktree内の同じファイルを両方更新し、専用コピーの差分・使用版を報告する。準備コードの正本はそのGit revisionであり、固定Project checkoutの作業ファイルではない。対象のuse caseが未実装・非互換なら準備は失敗し、別SHAの本体やデータへ切り替えない。
 
 実行時の適用は、`verificationPreparation`と検証記録の本体`headSha`・準備元`sourceSha`・fingerprint/差分、実際の実行コマンドと生成manifestの一致で確認する。専用コピーを使った必要な検証が成功していれば、固定Project checkoutの旧ファイルが未更新であることだけを追加の受入条件にしない。別サービスへの配備が明示的なACなら、その配備の確認は別途行う。
 
