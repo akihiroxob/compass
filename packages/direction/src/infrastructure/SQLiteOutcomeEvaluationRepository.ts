@@ -42,6 +42,7 @@ const requestHash = (request: OutcomeEvaluationRequest): string =>
   inputHash({
     ...request,
     problemIds: [...request.problemIds].sort(),
+    planIds: Object.entries(request.planIds).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
     criteria: request.criteria
       .map((judgment) => ({ ...judgment, evidenceIds: [...judgment.evidenceIds].sort() }))
       .sort((left, right) => (left.criterionId < right.criterionId ? -1 : left.criterionId > right.criterionId ? 1 : 0)),

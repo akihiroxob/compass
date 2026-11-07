@@ -528,11 +528,12 @@ test("評価計画を変えると過去の評価は旧計画への結果とし�
   await reflect(kit.app, project.id, outcome.id, [evidenceItem()]);
   const problemId = outcome.problems[0]!.id;
   const firstPlanId = outcome.problems[0]!.evaluationPlan!.planId;
-  const record = async (key: string) => ok(await evaluate(kit.app, project.workspaceId, outcome.id, { requestKey: key, runRef: "run", method: "quantitative_observation", problemIds: [problemId], criteria: judgments(outcome, ["insufficient_evidence"]) })).evaluation;
+  const input = (key: string, planId?: string) => ({ requestKey: key, runRef: "run", method: "quantitative_observation", problemIds: [problemId], planIds: planId ? { [problemId]: planId } : {}, criteria: judgments(outcome, ["insufficient_evidence"]) });
+  const record = async (key: string, planId?: string) => ok(await evaluate(kit.app, project.workspaceId, outcome.id, input(key, planId))).evaluation;
   const update = (evaluationPlan: Record<string, unknown> | null, revision: number) =>
     kit.services.updateOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id, { expectedRevision: revision, problems: [{ id: problemId, statement: "離脱", evidenceStatus: "insufficient", evaluationPlan }] });
 
-  const first = await record("plan-first");
+  const first = await record("plan-first", firstPlanId);
   assert.deepEqual(first.problemPlans, [{ problemId, planId: firstPlanId }]);
   // 内容が同じ更新ではplanIdを保つ。
   const same = await update(plan, outcome.revision);
@@ -542,8 +543,13 @@ test("評価計画を変えると過去の評価は旧計画への結果とし�
   const changedPlanId = changed.problems[0]!.evaluationPlan!.planId;
   assert.notEqual(changedPlanId, firstPlanId);
   assert.deepEqual((await kit.services.listOutcomeEvaluationsUseCase.execute(project.workspaceId, outcome.id)).map((item) => item.problemPlans), [[{ problemId, planId: firstPlanId }]]);
+  // 旧計画を読んだ評価は、計画変更後に送っても新計画の結果にせず競合として拒否する。計画なしの指定も同様。
+  for (const stale of [input("plan-stale", firstPlanId), input("plan-stale-none")]) {
+    assert.equal(errorOf(await evaluate(kit.app, project.workspaceId, outcome.id, stale)).code, "CONFLICT");
+  }
+  assert.equal((await kit.services.listOutcomeEvaluationsUseCase.execute(project.workspaceId, outcome.id)).length, 1);
   // 新しい計画への評価は新しいplanIdを保存する。
-  assert.deepEqual((await record("plan-second")).problemPlans, [{ problemId, planId: changedPlanId }]);
+  assert.deepEqual((await record("plan-second", changedPlanId)).problemPlans, [{ problemId, planId: changedPlanId }]);
   // 計画を外して再度追加しても、過去のplanIdを再利用しない。
   const removed = await update(null, changed.revision);
   const readded = await update({ ...plan, question: "電話サポートを追加すると再訪率は上がるか" }, removed.revision);
@@ -551,6 +557,8 @@ test("評価計画を変えると過去の評価は旧計画への結果とし�
   // 計画の無い課題を対象にした評価は計画を保存しない。
   await update(null, readded.revision);
   assert.deepEqual((await record("plan-none")).problemPlans, []);
+  // 計画が無いのに計画を指定した評価は拒否する。
+  assert.equal(errorOf(await evaluate(kit.app, project.workspaceId, outcome.id, input("plan-ghost", firstPlanId))).code, "CONFLICT");
 });
 
 test("評価は方法・対象版・限界・対象課題を保存し、認知的ウォークスルーはmetの根拠にならず、課題は同じOutcomeのものに限る", async () => {
@@ -581,7 +589,7 @@ test("評価は方法・対象版・限界・対象課題を保存し、認知�
   }
 
   // 根拠不足は判断不能として、方法・版・限界・課題とともに保存する（効果達成にしない）。
-  const request = { requestKey: "eval-scope", runRef: "run", method: "cognitive_walkthrough", targetVersion: sha("b"), limitations: "実ユーザーは未観測", problemIds: [problemId, problemId], criteria: judgments(outcome, ["not_met", "insufficient_evidence"], evidenceIds) };
+  const request = { requestKey: "eval-scope", runRef: "run", method: "cognitive_walkthrough", targetVersion: sha("b"), limitations: "実ユーザーは未観測", problemIds: [problemId, problemId], planIds: { [problemId]: outcome.problems[0]!.evaluationPlan!.planId }, criteria: judgments(outcome, ["not_met", "insufficient_evidence"], evidenceIds) };
   const saved = ok(await evaluate(kit.app, project.workspaceId, outcome.id, request));
   assert.deepEqual([saved.evaluation.method, saved.evaluation.targetVersion, saved.evaluation.limitations, saved.evaluation.problemIds], ["cognitive_walkthrough", sha("b"), "実ユーザーは未観測", [problemId]]);
   assert.deepEqual(saved.evaluation.problemPlans, [{ problemId, planId: outcome.problems[0]!.evaluationPlan!.planId }], "評価時点の計画を保存する");

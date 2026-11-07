@@ -17,6 +17,8 @@ export type OutcomeEvaluationRequest = {
   targetVersion: string;
   limitations: string;
   problemIds: readonly string[];
+  /** 評価者が対象にした評価計画（課題id → planId）。計画の無い課題は含めない。 */
+  planIds: Readonly<Record<string, string>>;
   criteria: readonly { criterionId: string; verdict: string; rationale: string; evidenceIds: readonly string[] }[];
   principalId: string;
 };

@@ -46,6 +46,7 @@ const database = createDatabase(databasePath);
 const identities = { manager: 'preview-manager', worker: 'preview-worker', reviewer: 'preview-reviewer', strategist: 'preview-strategist', evaluator: 'preview-evaluator' };
 const viewerEmail = 'preview-viewer@example.test';
 let sequence = 0;
+const planIdsOf = (outcome, indexes) => Object.fromEntries(indexes.flatMap((index) => outcome.problems[index].evaluationPlan ? [[outcome.problems[index].id, outcome.problems[index].evaluationPlan.planId]] : []));
 const key = (name) => `preview:${name}:${++sequence}`;
 const scenarios = [];
 // Project and Workspace Consultations reflected in a real document commit through the normal Work flow.
@@ -445,9 +446,9 @@ try {
       await direction.completeResearchRequestUseCase.execute(workspace.id, request.id, { conclusion: 'completed' });
       const evidenceIds = entry.work.flatMap(({ evidenceIds }) => evidenceIds);
       await direction.recordOutcomeEvaluationUseCase.execute(workspace.id, identities.evaluator, outcome.id, { requestKey: key('evaluation-insufficient'), runRef: 'browser-preview-fixture',
-        method: 'cognitive_walkthrough', targetVersion: 'browser-preview-fixture', limitations: '設計の点検のみ。実ユーザーは観測していない。', problemIds: [outcome.problems[1].id],
+        method: 'cognitive_walkthrough', targetVersion: 'browser-preview-fixture', limitations: '設計の点検のみ。実ユーザーは観測していない。', problemIds: [outcome.problems[1].id], planIds: planIdsOf(outcome, [1]),
         criteria: outcome.successCriteria.map((criterion) => ({ criterionId: criterion.id, verdict: 'insufficient_evidence', rationale: '実ユーザーの観測が無く判断できない', evidenceIds: [] })) });
-      const saved = await direction.recordOutcomeEvaluationUseCase.execute(workspace.id, identities.evaluator, outcome.id, { requestKey: key('evaluation'), runRef: 'browser-preview-fixture', method: 'quantitative_observation', targetVersion: 'browser-preview-fixture', limitations: '専用fixtureの保存済み参照だけを根拠にした表示確認', problemIds: [outcome.problems[0].id],
+      const saved = await direction.recordOutcomeEvaluationUseCase.execute(workspace.id, identities.evaluator, outcome.id, { requestKey: key('evaluation'), runRef: 'browser-preview-fixture', method: 'quantitative_observation', targetVersion: 'browser-preview-fixture', limitations: '専用fixtureの保存済み参照だけを根拠にした表示確認', problemIds: [outcome.problems[0].id], planIds: planIdsOf(outcome, [0]),
         criteria: outcome.successCriteria.map((criterion, index) => ({ criterionId: criterion.id, verdict: index === 0 ? 'met' : 'not_met',
           rationale: index === 0 ? '専用fixtureの保存済み参照' : '比較表示用の未充足判定。製品の不具合判定ではない。', evidenceIds })) });
       const decision = await direction.createDirectionDecisionUseCase.execute(workspace.id, identities.strategist, { intentId: intent.id, evaluationId: saved.evaluation.id,

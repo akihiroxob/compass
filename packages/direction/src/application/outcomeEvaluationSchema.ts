@@ -30,7 +30,8 @@ const criterionJudgmentSchema = z
  * Evaluatorが送る内容。総合結果は指定させず、Criterionの判定から導出する。principalIdは入力に持たない
  * （来歴のPrincipalはBearerから解決した値だけ）。
  */
-export const recordOutcomeEvaluationSchema = z.object({
+export const recordOutcomeEvaluationSchema = z
+  .object({
   /** transportの再送を同じ操作として扱うkey。Project内で一意で、同じkeyで異なる内容を送ると競合になる。 */
   requestKey: trimmedText("requestKey", 200),
   /** この評価Runを特定できる参照。 */
@@ -47,6 +48,11 @@ export const recordOutcomeEvaluationSchema = z.object({
     .max(10, "problemIds must have 10 items or fewer")
     .default([])
     .transform((ids) => [...new Set(ids)]),
+  /**
+   * 評価者が読んだ評価計画の`planId`（課題id → `problems[].evaluationPlan.planId`）。計画のある課題は必ず指定する。
+   * 保存時の現在の計画と一致しなければ競合として保存しない（計画を変更した後に旧計画の観測を新計画の結果にしない）。
+   */
+  planIds: z.record(trimmedText("problemId", 200), trimmedText("planId", 200)).default({}),
   criteria: z
     .array(criterionJudgmentSchema)
     .min(1, "criteria must have at least 1 item")
@@ -64,7 +70,14 @@ export const recordOutcomeEvaluationSchema = z.object({
         seen.add(judgment.criterionId);
       });
     }),
-});
+  })
+  .superRefine((input, context) => {
+    for (const problemId of Object.keys(input.planIds)) {
+      if (!input.problemIds.includes(problemId)) {
+        context.addIssue({ code: "custom", path: ["planIds", problemId], message: `planIds key ${problemId} must also be listed in problemIds` });
+      }
+    }
+  });
 
 export type RecordOutcomeEvaluationInput = z.infer<typeof recordOutcomeEvaluationSchema>;
 
