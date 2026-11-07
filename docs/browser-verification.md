@@ -66,7 +66,7 @@ Managerは、Ralphが今回返した専用プレビューURL・対象SHA・専�
 - `scripts/preview-operation-policy.mjs`の`createPreviewMcpClient`はこの判定を行い、失敗を区別する。`tool_unavailable`は現在の`tools/list`に無い、`policy_denied`は分類・主体・scopeがPolicy外、`authorization_denied`はServerの認可拒否（`FORBIDDEN`・`UNAUTHENTICATED`、HTTP 401/403）、`operation_failed`は業務規則の拒否、`transport_failure`は通信失敗・不正な応答を表す。Playwrightから直接呼ぶ場合も同じ順で判定する。
 - 相談では、Workerの作成・`wait_for_consultation`等の待機/再開、Managerの応答lease・結論・取消・継続確認・文書反映依頼（`request_consultation_followup`）と成果物参照登録（`record_consultation_artifact`）、StrategistのWorkspace相談の結論・引継ぎを、manifestの対応主体とactiveRoleで行う。
 - 待機・再開で必要な成果物とContextは、専用検証ディレクトリ内に対象SHAの別Git checkoutを作り、そこで保持する。そのSHAの`ralph/runtime/consultation-context.mjs`でHEAD・差分・Contextのfingerprintを取得する。実際の受入TaskのWorktree・Context・Claimを検証用に流用しない。
-- ログイン・Membership等の準備は専用プレビューのOwnerによるWeb UI・認証済みWeb APIで行う。権限差の検証時はOwnerで準備した後にViewer等へ切り替える。
+- ログイン・Membership等の準備は専用プレビューのOwnerによるWeb UI・認証済みWeb APIで行う。権限差の検証時はOwnerで準備した後にViewer等へ切り替える。「[受入] 複数Targetと評価根拠」のWorkspaceには、Member管理の多件数・招待中の確認用に、公開の招待・開発ログイン経路で参加済み30人（`preview-member-NN@example.test`）と未参加の招待3件（`preview-pending-N@example.test`）を追加する。
 - SQL直接実行、schemaの変更、API応答や時刻の差し替え、Claim期限のDB直接更新、未登録のホストコマンド実行は許可しない。公開操作で作れない状態は不足する入口と必要な追加準備を具体的に示す。
 
 ### 相談の段階・期限切れ・再起動の確認

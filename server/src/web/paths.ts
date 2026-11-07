@@ -33,6 +33,9 @@ export type WorkspaceSection = (typeof workspaceSections)[number];
 export const workspacePath = (workspaceId: string, section: WorkspaceSection = "overview") =>
   `/workspaces/${workspaceId}${section === "overview" ? "" : `/${section}`}`;
 
+/** WorkspaceのMember管理。Humanの所属・招待・Roleは設定配下の1画面で扱い、Projectには置かない。 */
+export const workspaceMembersPagePath = (workspaceId: string) => `${workspacePath(workspaceId, "settings")}/members`;
+
 /** WorkspaceのAgent詳細。一覧はWorkspaceの「Agent管理」。principalIdは`/`や空白を含み得るためURLエンコードする。 */
 export const workspaceAgentPath = (workspaceId: string, principalId: string) => `${workspacePath(workspaceId, "agents")}/${encodeURIComponent(principalId)}`;
 

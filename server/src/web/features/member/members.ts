@@ -83,3 +83,26 @@ export const invitationStatusLabels: Record<InvitationDisplayStatus, string> = {
  */
 export const isLastOwner = (members: readonly Member[], target: Member): boolean =>
   target.membership.role === "owner" && members.filter((member) => member.membership.role === "owner").length <= 1;
+
+/** 一覧の1ページの件数。Memberが増えても1画面を長くしない。 */
+export const memberPageSize = 20;
+
+/** 名前またはメールアドレスの部分一致（大文字小文字を区別しない）。空の検索語は全件。 */
+export const filterMembers = <T extends Member>(members: readonly T[], query: string): T[] => {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [...members];
+  return members.filter(({ human }) => human.displayName.toLowerCase().includes(needle) || human.email.toLowerCase().includes(needle));
+};
+
+export type MemberPage<T> = { items: T[]; page: number; pageCount: number; total: number; from: number; to: number };
+
+/** 範囲外のpageは最終ページ／先頭へ寄せる（検索語の変更・除外で件数が減っても空のページを出さない）。 */
+export const paginateMembers = <T>(items: readonly T[], page: number, size = memberPageSize): MemberPage<T> => {
+  const pageCount = Math.max(1, Math.ceil(items.length / size));
+  const current = Math.min(Math.max(1, Math.trunc(page) || 1), pageCount);
+  const start = (current - 1) * size;
+  return { items: items.slice(start, start + size), page: current, pageCount, total: items.length, from: items.length ? start + 1 : 0, to: Math.min(start + size, items.length) };
+};
+
+/** 「権限について」の説明。Roleごとの権限は`humanRoleDescriptions`、適用範囲は全Roleで同じ。 */
+export const roleHelpScope = "同じ権限がWorkspaceと配下のすべてのProjectに適用されます。Projectごとの権限設定はありません。";

@@ -4,7 +4,7 @@ import { classifyError, loadFailureMessage, request, settle } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading, StateCard } from "../../components/StateCard";
 import { Button, LinkButton } from "../../components/ui";
-import { projectViewPath, workspaceApiPath, workspaceCreatePath, workspaceEditPath, workspaceIntentCreatePath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath, type WorkspaceSection } from "../../paths";
+import { projectViewPath, workspaceApiPath, workspaceCreatePath, workspaceEditPath, workspaceIntentCreatePath, workspacePath, workspaceProjectCreatePath, workspaceMembersPagePath, workspaceProjectsPath, type WorkspaceSection } from "../../paths";
 import { canOperateWorkspace, workspaceDirectionAccess } from "../access";
 import { WorkspaceActivityStream } from "../activity";
 import { WorkspaceAgentDetail, WorkspaceAgentList } from "../agent";
@@ -13,7 +13,7 @@ import { useSession } from "../auth";
 import { CredentialSection } from "../credential";
 import { DirectionPanel, loadDirection, loadOutcomeDetail } from "../direction";
 import { AgentSettingsSection } from "../grant";
-import { humanRoleLabels, WorkspaceInvitationSection, WorkspaceMembershipSection, type HumanRole } from "../member";
+import { humanRoleLabels, RoleHelpButton, WorkspaceInvitationSection, WorkspaceMembershipSection, type HumanRole } from "../member";
 import { archiveInit, describeArchiveFailure, parseListStatus, ProjectListSwitch, summarizeReason, validateArchiveReason, type ProjectStatus } from "../project";
 import { useWorkspaceNavigation } from "./WorkspaceContext";
 import { DirectionIntents, WorkspaceOutcomeDetail } from "./WorkspaceDirection";
@@ -244,26 +244,15 @@ const ActivityContent = ({ workspace }: { workspace: Workspace }) => {
  * アクセス（各Projectの設定）への導線。ProjectのAgentのRole割当・Credentialは
  * ここで変更しない。導線の表示は`myRole`で決め、拒否は常にserverが行う。
  */
-const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; myRole: HumanRole; reload: () => void }) => {
-  const session = useSession();
-  const navigation = useWorkspaceNavigation();
+const SettingsContent = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
   const archived = workspace.status === "archived";
   const canManageCredential = canOperateWorkspace(myRole, "credential.manage");
   const scope = { kind: "workspace", id: workspace.id } as const;
   return (
     <>
       <div className="fixed-note">
-        <p>ここではWorkspaceと配下のすべてのProjectを利用するHumanと、Directionを担うAgentを管理します。HumanのRoleは配下のすべてのProjectに同じく適用されます。Workspace・全ProjectのAgentの一覧・登録・Credentialは<Link to={workspacePath(workspace.id, "agents")}>Agent管理</Link>でまとめて扱えます（Runtime Credentialはここと各Projectの設定で扱います）。</p>
+        <p>ここではDirectionを担うAgentとCredentialを管理します。HumanのMemberとRoleは<Link to={workspaceMembersPagePath(workspace.id)}>Member管理</Link>で扱い、配下のすべてのProjectに同じく適用されます。Workspace・全ProjectのAgentの一覧・登録・Credentialは<Link to={workspacePath(workspace.id, "agents")}>Agent管理</Link>でまとめて扱えます（Runtime Credentialはここと各Projectの設定で扱います）。</p>
       </div>
-      <WorkspaceMembershipSection
-        key={myRole}
-        workspaceId={workspace.id}
-        currentHumanId={session?.human.id ?? null}
-        manage={canOperateWorkspace(myRole, "member.manage")}
-        readOnly={archived}
-        onSelfChanged={() => { navigation?.refreshWorkspace(workspace.id); reload(); }}
-      />
-      {canOperateWorkspace(myRole, "invitation.manage") && <WorkspaceInvitationSection workspaceId={workspace.id} readOnly={archived} />}
       <AgentSettingsSection scope={scope} readOnly={archived || !canOperateWorkspace(myRole, "grant.manage")} showCredentials={canManageCredential} />
       {canManageCredential ? <CredentialSection scope={scope} readOnly={archived} /> : (
         <section className="detail-section" aria-labelledby="workspace-credential-heading">
@@ -273,7 +262,7 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
       )}
       <section className="detail-section" aria-labelledby="workspace-project-access-heading">
         <h2 id="workspace-project-access-heading">Projectのアクセス</h2>
-        <p className="section-note">Story・Taskを担うAgent（Manager・Worker・Reviewer）の割当とCredentialは、Agent管理または各Projectの設定で管理します。HumanのMemberとRoleは上のMemberで管理し、配下のすべてのProjectに適用されます。</p>
+        <p className="section-note">Story・Taskを担うAgent（Manager・Worker・Reviewer）の割当とCredentialは、Agent管理または各Projectの設定で管理します。HumanのMemberとRoleはMember管理で扱い、配下のすべてのProjectに適用されます。</p>
         <ProjectViewLinks workspace={workspace} view="settings" hint="Agent・Credentialを開く" />
       </section>
     </>
@@ -291,4 +280,30 @@ export const WorkspaceAgentPage = () => {
   const { principalId = "" } = useParams();
   return <WorkspaceFrame section="agents" title={principalId}>{(workspace, myRole) => <WorkspaceAgentDetail key={principalId} workspace={workspace} myRole={myRole} principalId={principalId} />}</WorkspaceFrame>;
 };
-export const WorkspaceSettingsPage = () => <WorkspaceFrame section="settings">{(workspace, myRole, reload) => <SettingsContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
+/** Member管理。参加者の検索・Role変更・除外と招待をWorkspace scopeで扱う（Projectには置かない）。 */
+const MembersContent = ({ workspace, myRole, reload }: { workspace: Workspace; myRole: HumanRole; reload: () => void }) => {
+  const session = useSession();
+  const navigation = useWorkspaceNavigation();
+  const archived = workspace.status === "archived";
+  return (
+    <>
+      <div className="list-toolbar">
+        <LinkButton variant="secondary" size="sm" to={workspacePath(workspace.id, "settings")}>設定へ戻る</LinkButton>
+        <RoleHelpButton workspaceName={workspace.name} size="sm" />
+      </div>
+      <p className="section-note">変更・除外・招待は、{workspace.name}と配下のすべてのProjectの利用に反映されます。</p>
+      <WorkspaceMembershipSection
+        key={myRole}
+        workspaceId={workspace.id}
+        currentHumanId={session?.human.id ?? null}
+        manage={canOperateWorkspace(myRole, "member.manage")}
+        readOnly={archived}
+        onSelfChanged={() => { navigation?.refreshWorkspace(workspace.id); reload(); }}
+      />
+      {canOperateWorkspace(myRole, "invitation.manage") && <WorkspaceInvitationSection workspaceId={workspace.id} readOnly={archived} />}
+    </>
+  );
+};
+
+export const WorkspaceMembersPage = () => <WorkspaceFrame section="settings" title="Member">{(workspace, myRole, reload) => <MembersContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
+export const WorkspaceSettingsPage = () => <WorkspaceFrame section="settings">{(workspace, myRole) => <SettingsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;

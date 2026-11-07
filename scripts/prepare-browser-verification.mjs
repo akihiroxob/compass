@@ -431,6 +431,19 @@ try {
     if (!members.some(({ human }) => human.id === humanUserId)) throw new Error('Preview viewer did not join the Workspace');
     return humanUserId;
   };
+  // Member管理の多件数・招待中の確認用。公開の招待・参加経路（開発ログイン）で、参加済みMemberと未参加の招待を追加する。
+  const addCrowd = async (workspaceId, joined, pending) => {
+    const roles = ['viewer', 'editor', 'administrator'];
+    for (let index = 1; index <= joined; index += 1) {
+      const email = `preview-member-${String(index).padStart(2, '0')}@example.test`;
+      const invitation = await services.createWorkspaceInvitationUseCase.execute(owner, workspaceId, { email, role: roles[index % roles.length] });
+      const signedIn = await services.localDevLoginUseCase.execute({ email, invitationToken: invitation.token, previousSessionToken: null });
+      if (signedIn.kind !== 'logged_in') throw new Error(`Preview member ${email} could not join`);
+    }
+    for (let index = 1; index <= pending; index += 1) {
+      await services.createWorkspaceInvitationUseCase.execute(owner, workspaceId, { email: `preview-pending-${index}@example.test`, role: 'editor' });
+    }
+  };
   const acceptedWork = async (project, outcome, label) => {
     const story = await work.issueStory(identities.manager, { projectId: project.id, outcomeId: outcome.id, title: `${label}のStory` }, key('story'));
     const task = await work.issueTask(identities.manager, { projectId: project.id, storyId: story.id, taskKey: `preview-${label}`, title: `${label}のTask` }, key('task'));
@@ -477,6 +490,10 @@ try {
         await direction.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, project.id);
         entry.projects.push({ id: project.id, label, name: project.name });
         if (label === 'A') entry.viewerHumanUserId = await addViewer(workspace.id);
+        if (label === 'A' && scenario === 'evaluated') {
+          await addCrowd(workspace.id, 30, 3);
+          entry.paths.members = `/workspaces/${workspace.id}/settings/members`;
+        }
         if (label === 'A' || scenario === 'evaluated') entry.work.push(await acceptedWork(project, outcome, label));
       }
     }

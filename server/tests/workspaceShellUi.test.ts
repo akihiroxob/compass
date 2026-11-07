@@ -100,3 +100,10 @@ test("現在のWorkspaceは一覧（active）を優先し、一覧に無けれ�
   assert.equal(resolveCurrentWorkspace(null, {}, "ws-1"), null);
   assert.equal(resolveCurrentWorkspace([taneru], {}, null), null);
 });
+
+test("Member管理は設定の項目に属し、Projectにはない", async () => {
+  const { parseShellLocation } = await import("../src/web/features/workspace/workspace.ts");
+  const { workspaceMembersPagePath } = await import("../src/web/paths.ts");
+  assert.equal(workspaceMembersPagePath("ws-1"), "/workspaces/ws-1/settings/members");
+  assert.deepEqual(parseShellLocation("/workspaces/ws-1/settings/members"), { kind: "workspace", workspaceId: "ws-1", section: "settings" });
+});

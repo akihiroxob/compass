@@ -6,7 +6,7 @@ import { IntentCreatePage, IntentDetailPage, IntentEditPage, WorkspaceIntentCrea
 import { OutcomeCreatePage, OutcomeDetailPage, OutcomeEditPage, WorkspaceOutcomeCreatePage, WorkspaceOutcomeEditPage } from "../features/outcome";
 import { ProjectDetailPage, ProjectEditPage, ProjectListPage } from "../features/project";
 import { ResearchRequestDetailPage } from "../features/research";
-import { WorkspaceActivityPage, WorkspaceAgentPage, WorkspaceAgentsPage, WorkspaceBreadcrumbItems, WorkspaceConsultationsPage, WorkspaceCreatePage, WorkspaceDirectionPage, WorkspaceEditPage, WorkspaceHomePage, WorkspaceOutcomePage, WorkspaceOverviewPage, WorkspaceProjectCreatePage, WorkspaceProjectsPage, WorkspaceSettingsPage } from "../features/workspace";
+import { WorkspaceActivityPage, WorkspaceAgentPage, WorkspaceAgentsPage, WorkspaceBreadcrumbItems, WorkspaceConsultationsPage, WorkspaceCreatePage, WorkspaceDirectionPage, WorkspaceEditPage, WorkspaceHomePage, WorkspaceOutcomePage, WorkspaceOverviewPage, WorkspaceProjectCreatePage, WorkspaceMembersPage, WorkspaceProjectsPage, WorkspaceSettingsPage } from "../features/workspace";
 import { AuthenticatedLayout, PublicLayout } from "./AppLayout";
 import { NotFoundPage } from "./NotFoundPage";
 
@@ -39,6 +39,7 @@ export const App = () => (
       <Route path="/workspaces/:workspaceId/agents" element={<WorkspaceAgentsPage />} />
       <Route path="/workspaces/:workspaceId/agents/:principalId" element={<WorkspaceAgentPage />} />
       <Route path="/workspaces/:workspaceId/settings" element={<WorkspaceSettingsPage />} />
+      <Route path="/workspaces/:workspaceId/settings/members" element={<WorkspaceMembersPage />} />
       <Route path="/consultations" element={<ConsultationInboxPage />} />
       <Route path="/projects" element={<ProjectListPage />} />
       <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
