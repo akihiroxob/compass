@@ -1,6 +1,6 @@
 import type { Kysely, Selectable, Transaction } from "kysely";
 import { ConflictError, ValidationError } from "@compass/shared";
-import { Outcome, type EvaluationPlan, type OutcomeProblem, type ProblemEvidence, type SuccessCriterion } from "../domain/Outcome.ts";
+import { Outcome, type EvaluationPlan, type EvaluationPlanInput, type OutcomeProblem, type ProblemEvidence, type SuccessCriterion } from "../domain/Outcome.ts";
 import type { CreateOutcomeInput, OutcomeProblemInput } from "../domain/OutcomeRepository.ts";
 import type { DirectionDatabase, OutcomeTable, SuccessCriterionTable } from "./schema.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
@@ -69,6 +69,20 @@ const loadProblems = async (database: Executor, outcomeIds: string[]): Promise<O
   }));
 };
 
+const planContent = ({ question, method, premises, observationPeriod, decisionCriteria, stopCriteria }: EvaluationPlanInput) =>
+  JSON.stringify([question, method, premises, observationPeriod, decisionCriteria, stopCriteria]);
+
+/** 内容が同じ計画は`planId`を引き継ぎ、追加・差替え・変更された計画には新しい`planId`を採番する。 */
+const withPlanId = (plan: EvaluationPlanInput, previous: EvaluationPlan | null): EvaluationPlan => ({
+  planId: previous !== null && planContent(previous) === planContent(plan) ? previous.planId : crypto.randomUUID(),
+  question: plan.question,
+  method: plan.method,
+  premises: plan.premises,
+  observationPeriod: plan.observationPeriod,
+  decisionCriteria: plan.decisionCriteria,
+  stopCriteria: plan.stopCriteria,
+});
+
 /**
  * 課題の一覧を置き換える。`id`付きの課題は同じOutcomeの既存の課題を引き継ぎ（作成日時を保つ）、他Outcomeの課題IDは拒否する。
  * 根拠は同じWorkspaceのFinding・Synthesisだけを受け付け、新たに関連付けるSynthesisが後の版に置き換え済みなら拒否する
@@ -83,10 +97,11 @@ export const replaceOutcomeProblems = async (
 ): Promise<void> => {
   const existing = await transaction
     .selectFrom("outcome_problem")
-    .select(["id", "created_at"])
+    .select(["id", "created_at", "evaluation_plan"])
     .where("outcome_id", "=", outcomeId)
     .execute();
   const createdAt = new Map(existing.map((row) => [row.id, row.created_at]));
+  const previousPlans = new Map(existing.map((row) => [row.id, row.evaluation_plan === null ? null : (JSON.parse(row.evaluation_plan) as EvaluationPlan)]));
   const linked = new Set(
     existing.length === 0
       ? []
@@ -164,7 +179,7 @@ export const replaceOutcomeProblems = async (
         observation: problem.observation,
         cause_hypothesis: problem.causeHypothesis,
         solution_hypothesis: problem.solutionHypothesis,
-        evaluation_plan: problem.evaluationPlan === null ? null : JSON.stringify(problem.evaluationPlan),
+        evaluation_plan: problem.evaluationPlan === null ? null : JSON.stringify(withPlanId(problem.evaluationPlan, previousPlans.get(id) ?? null)),
         created_at: createdAt.get(id) ?? now,
         updated_at: now,
       })

@@ -35,7 +35,7 @@ export const causalEvaluationMethods: readonly EvaluationMethod[] = ["ab_test", 
 /**
  * 課題・解決策の仮説に付ける評価計画。計画は実施の記録ではなく、実施状況は結果（Outcome Evaluation）の有無で決まる。
  */
-export type EvaluationPlan = {
+export type EvaluationPlanInput = {
   /** 確かめたい問い。 */
   question: string;
   method: EvaluationMethod;
@@ -47,6 +47,13 @@ export type EvaluationPlan = {
   decisionCriteria: string;
   stopCriteria: string | null;
 };
+
+/**
+ * 保存された評価計画。`planId`は計画の内容を識別するサーバー採番のID（入力には含めない）。
+ * 内容が同じ更新では保たれ、追加・差替え・実質的な変更では新しくなる。Evaluationは評価時点の`planId`を保存し、
+ * 現在の計画を対象にした結果かどうかを`planId`の一致で判定する。
+ */
+export type EvaluationPlan = EvaluationPlanInput & { planId: string };
 
 /** 根拠として参照できるResearchの記録。本文は複製せず、同じWorkspaceのFinding・最新版のSynthesisをIDで参照する。 */
 export const problemEvidenceKinds = ["research_finding", "research_synthesis"] as const;

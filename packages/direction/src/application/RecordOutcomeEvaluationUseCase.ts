@@ -126,6 +126,9 @@ export class RecordOutcomeEvaluationUseCase {
       intentId: outcome.intentId,
       result: deriveEvaluationResult(criteria.map((criterion) => criterion.verdict)),
       criteria,
+      problemPlans: outcome.problems.flatMap((problem) =>
+        request.problemIds.includes(problem.id) && problem.evaluationPlan !== null ? [{ problemId: problem.id, planId: problem.evaluationPlan.planId }] : [],
+      ),
       snapshot,
       at: this.clock(),
     });

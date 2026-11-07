@@ -371,6 +371,8 @@ export type OutcomeEvaluationTable = {
   limitations: string;
   /** 評価対象の課題idのJSON配列。 */
   problem_ids: string;
+  /** 評価時点の評価計画のJSON配列（`{ problemId, planId }`）。 */
+  problem_plans: string;
   criteria: string;
   snapshot: string;
   principal_id: string;

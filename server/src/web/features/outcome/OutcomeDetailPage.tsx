@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { jsonPost, request } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { outcomeStatusLabels, type Outcome } from "./outcome";
+import { outcomeStatusLabels, type Outcome, type PlanEvaluationRef } from "./outcome";
 import { intentPath, outcomePath, researchRequestPath, workspaceApiPath } from "../../paths";
 import { OutcomeProblems } from "./OutcomeProblems";
 import { useProjectWorkspaceDirection } from "../access";
@@ -25,7 +25,7 @@ const useIntentMeaningVersion = (workspaceId: string | null, intentId: string) =
 
 export const OutcomeDetailPage = () => {
   const { projectId = "", intentId = "", outcomeId = "" } = useParams(); const direction = useProjectWorkspaceDirection(projectId); const { workspaceId } = direction;
-  const [evaluations, setEvaluations] = useState<{ problemIds: readonly string[] }[] | null>(null); const intentMeaning = useIntentMeaningVersion(workspaceId, intentId); const page = useOutcomePage(workspaceId, intentId, outcomeId); const { outcome, setOutcome } = page; const error = direction.access === "error" ? direction.message : page.error; const editable = direction.access === "allowed";
+  const [evaluations, setEvaluations] = useState<PlanEvaluationRef[] | null>(null); const intentMeaning = useIntentMeaningVersion(workspaceId, intentId); const page = useOutcomePage(workspaceId, intentId, outcomeId); const { outcome, setOutcome } = page; const error = direction.access === "error" ? direction.message : page.error; const editable = direction.access === "allowed";
   const cancel = useReasonAction(
     async (reason) => { if (workspaceId !== null) setOutcome((await request<{ outcome: Outcome }>(workspaceApiPath(workspaceId, `/intents/${intentId}/outcomes/${outcomeId}/cancel`), jsonPost({ reason }))).outcome); },
     (classified) => classified.kind === "validation" ? classified.issues.map((issue) => `取消の理由: ${issue.message}`).join(" / ") : classified.kind === "not_found" ? "Outcomeが見つかりません。" : classified.message,

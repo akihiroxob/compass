@@ -26,6 +26,8 @@ export type RecordOutcomeEvaluationInput = {
   intentId: string;
   result: EvaluationResult;
   criteria: readonly CriterionEvaluation[];
+  /** 評価時点の課題の評価計画（`planId`）。再送の同一性には含めない。 */
+  problemPlans: readonly { problemId: string; planId: string }[];
   snapshot: EvaluationSnapshot;
   at: number;
 };

@@ -488,8 +488,10 @@ test("評価計画は未実施のまま課題に保持され、A/Bと差分の�
     successCriteria: [{ description: "c", measurement: "m" }],
     problems: [{ statement: "離脱", evidenceStatus: "insufficient", solutionHypothesis: "入力を減らす", evaluationPlan: plan }],
   });
-  assert.deepEqual(outcome.problems[0]!.evaluationPlan, plan);
-  assert.deepEqual((await kit.services.listOutcomesUseCase.execute(project.workspaceId, intent.id)).find((item) => item.id === outcome.id)!.problems[0]!.evaluationPlan, plan);
+  const { planId, ...stored } = outcome.problems[0]!.evaluationPlan!;
+  assert.ok(planId);
+  assert.deepEqual(stored, plan);
+  assert.deepEqual((await kit.services.listOutcomesUseCase.execute(project.workspaceId, intent.id)).find((item) => item.id === outcome.id)!.problems[0]!.evaluationPlan, { planId, ...plan });
   // 評価はまだ無い: 計画は結果ではない。
   assert.deepEqual(await kit.services.listOutcomeEvaluationsUseCase.execute(project.workspaceId, outcome.id), []);
 
@@ -511,6 +513,44 @@ test("評価計画は未実施のまま課題に保持され、A/Bと差分の�
     problems: [{ statement: "離脱", evidenceStatus: "insufficient", evaluationPlan: { question: "q", method: "quantitative_observation", decisionCriteria: "d" } }],
   });
   assert.equal(quantitative.problems[0]!.evaluationPlan!.premises, null);
+});
+
+test("評価計画を変えると過去の評価は旧計画への結果として残り、新しい計画は未実施に戻る", async () => {
+  const kit = await setup();
+  const { project, intent } = await seedProject(kit);
+  const plan = { question: "入力を減らすと完了率は上がるか", method: "quantitative_observation" as const, observationPeriod: "公開後2週間", decisionCriteria: "完了率+5pt" };
+  const outcome = await kit.services.createOutcomeUseCase.execute(project.workspaceId, intent.id, {
+    title: next("Outcome"), description: "d", intentVersion: 1, rationale: "r",
+    successCriteria: [{ description: "c1", measurement: "m1" }],
+    problems: [{ statement: "離脱", evidenceStatus: "insufficient", evaluationPlan: plan }],
+  });
+  await executeToAccepted(kit, project.id, outcome.id);
+  await reflect(kit.app, project.id, outcome.id, [evidenceItem()]);
+  const problemId = outcome.problems[0]!.id;
+  const firstPlanId = outcome.problems[0]!.evaluationPlan!.planId;
+  const record = async (key: string) => ok(await evaluate(kit.app, project.workspaceId, outcome.id, { requestKey: key, runRef: "run", method: "quantitative_observation", problemIds: [problemId], criteria: judgments(outcome, ["insufficient_evidence"]) })).evaluation;
+  const update = (evaluationPlan: Record<string, unknown> | null, revision: number) =>
+    kit.services.updateOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id, { expectedRevision: revision, problems: [{ id: problemId, statement: "離脱", evidenceStatus: "insufficient", evaluationPlan }] });
+
+  const first = await record("plan-first");
+  assert.deepEqual(first.problemPlans, [{ problemId, planId: firstPlanId }]);
+  // 内容が同じ更新ではplanIdを保つ。
+  const same = await update(plan, outcome.revision);
+  assert.equal(same.problems[0]!.evaluationPlan!.planId, firstPlanId);
+  // 内容を変えると新しいplanIdになり、過去の評価は旧planIdのまま残る。
+  const changed = await update({ ...plan, question: "電話サポートを追加すると再訪率は上がるか" }, same.revision);
+  const changedPlanId = changed.problems[0]!.evaluationPlan!.planId;
+  assert.notEqual(changedPlanId, firstPlanId);
+  assert.deepEqual((await kit.services.listOutcomeEvaluationsUseCase.execute(project.workspaceId, outcome.id)).map((item) => item.problemPlans), [[{ problemId, planId: firstPlanId }]]);
+  // 新しい計画への評価は新しいplanIdを保存する。
+  assert.deepEqual((await record("plan-second")).problemPlans, [{ problemId, planId: changedPlanId }]);
+  // 計画を外して再度追加しても、過去のplanIdを再利用しない。
+  const removed = await update(null, changed.revision);
+  const readded = await update({ ...plan, question: "電話サポートを追加すると再訪率は上がるか" }, removed.revision);
+  assert.notEqual(readded.problems[0]!.evaluationPlan!.planId, changedPlanId);
+  // 計画の無い課題を対象にした評価は計画を保存しない。
+  await update(null, readded.revision);
+  assert.deepEqual((await record("plan-none")).problemPlans, []);
 });
 
 test("評価は方法・対象版・限界・対象課題を保存し、認知的ウォークスルーはmetの根拠にならず、課題は同じOutcomeのものに限る", async () => {
@@ -544,6 +584,7 @@ test("評価は方法・対象版・限界・対象課題を保存し、認知�
   const request = { requestKey: "eval-scope", runRef: "run", method: "cognitive_walkthrough", targetVersion: sha("b"), limitations: "実ユーザーは未観測", problemIds: [problemId, problemId], criteria: judgments(outcome, ["not_met", "insufficient_evidence"], evidenceIds) };
   const saved = ok(await evaluate(kit.app, project.workspaceId, outcome.id, request));
   assert.deepEqual([saved.evaluation.method, saved.evaluation.targetVersion, saved.evaluation.limitations, saved.evaluation.problemIds], ["cognitive_walkthrough", sha("b"), "実ユーザーは未観測", [problemId]]);
+  assert.deepEqual(saved.evaluation.problemPlans, [{ problemId, planId: outcome.problems[0]!.evaluationPlan!.planId }], "評価時点の計画を保存する");
   const insufficient = ok(await evaluate(kit.app, project.workspaceId, outcome.id, { requestKey: "eval-insufficient", runRef: "run", method: "quantitative_observation", criteria: judgments(outcome, ["insufficient_evidence", "insufficient_evidence"]) }));
   assert.equal(insufficient.evaluation.result, "insufficient_evidence");
   assert.deepEqual(insufficient.evaluation.problemIds, []);

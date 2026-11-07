@@ -113,12 +113,18 @@ test("評価計画は空の任意項目をnullにして送り、保存済みの�
   const [sent] = problemsInput([{ ...emptyProblem, statement: "離脱", evaluationPlan: plan }]);
   assert.deepEqual(sent!.evaluationPlan, { question: "完了率は上がるか", method: "ab_test", premises: "無作為割付", observationPeriod: null, decisionCriteria: "完了率+5pt", stopCriteria: null });
   assert.equal(problemsInput([{ ...emptyProblem, statement: "離脱" }])[0]!.evaluationPlan, null);
-  const restored = formValuesFromOutcome(outcome({ problems: [{ id: "p1", outcomeId: "o1", position: 0, statement: "離脱", evidenceStatus: "insufficient", observation: null, causeHypothesis: null, solutionHypothesis: null, evaluationPlan: { ...plan, premises: "無作為割付", observationPeriod: null, stopCriteria: null }, evidence: [] }] }));
+  const restored = formValuesFromOutcome(outcome({ problems: [{ id: "p1", outcomeId: "o1", position: 0, statement: "離脱", evidenceStatus: "insufficient", observation: null, causeHypothesis: null, solutionHypothesis: null, evaluationPlan: { planId: "plan-1", ...plan, premises: "無作為割付", observationPeriod: null, stopCriteria: null }, evidence: [] }] }));
   assert.deepEqual(restored.problems[0]!.evaluationPlan, plan);
 });
 
-test("評価計画は、その課題を対象にした評価があるまで未実施として扱う", () => {
-  assert.equal(planRunState("p1", []), "not_run");
-  assert.equal(planRunState("p1", [{ problemIds: ["p2"] }]), "not_run");
-  assert.equal(planRunState("p1", [{ problemIds: ["p2"] }, { problemIds: ["p1"] }]), "run");
+test("評価計画は、現在の計画を対象にした評価があるまで未実施として扱う", () => {
+  const problem = (planId: string | null) => ({ id: "p1", evaluationPlan: planId === null ? null : { planId } });
+  const evaluation = (problemId: string, planId: string) => ({ problemIds: [problemId], problemPlans: [{ problemId, planId }] });
+  assert.equal(planRunState(problem("a"), []), "not_run");
+  assert.equal(planRunState(problem(null), [evaluation("p1", "a")]), "not_run", "計画が無ければ実施状況はない");
+  assert.equal(planRunState(problem("a"), [evaluation("p2", "a")]), "not_run");
+  assert.equal(planRunState(problem("a"), [evaluation("p2", "a"), evaluation("p1", "a")]), "run");
+  assert.equal(planRunState(problem("b"), [evaluation("p1", "a")]), "previous_only", "計画を変えた後は過去の評価だけで実施済みにしない");
+  assert.equal(planRunState(problem("b"), [evaluation("p1", "a"), evaluation("p1", "b")]), "run", "新しい計画への評価を記録した後");
+  assert.equal(planRunState(problem("b"), [{ problemIds: ["p1"], problemPlans: [] }]), "previous_only", "計画が無かった時点の評価");
 });

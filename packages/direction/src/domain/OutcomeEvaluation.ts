@@ -106,6 +106,8 @@ export type OutcomeEvaluation = {
   limitations: string;
   /** 評価の対象にした課題（Outcomeの`problems[].id`）。空は課題を特定しない評価。 */
   problemIds: string[];
+  /** 評価時点で、`problemIds`の課題が持っていた評価計画の`planId`（計画の無い課題は含めない）。現在の計画を対象にした結果かの判定に使う。 */
+  problemPlans: { problemId: string; planId: string }[];
   criteria: CriterionEvaluation[];
   snapshot: EvaluationSnapshot;
   principalId: string;

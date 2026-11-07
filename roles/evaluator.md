@@ -62,7 +62,7 @@ Evaluation は追記だけで、後から更新・削除できない。観測が
 | `requestKey` / `runRef` | 再送 key と Run 参照（必須） |
 | `method` | 評価方法（必須）。`cognitive_walkthrough` / `quantitative_observation` / `ab_test` / `difference_in_differences` / `other`。`cognitive_walkthrough` は設計の点検で、実ユーザーの証拠ではないため `met` にできない |
 | `targetVersion` / `limitations` | 評価した対象の版（commit SHA・リリース版等）と評価の限界（標本・期間・方法の制約）（必須） |
-| `problemIds` | 評価の対象にした Outcome の課題 `problems[].id`（任意）。課題の `evaluationPlan` は、この指定がある評価が保存されるまで未実施として扱われる |
+| `problemIds` | 評価の対象にした Outcome の課題 `problems[].id`（任意）。評価時点の `evaluationPlan.planId` が評価に保存される。現在の計画は、その `planId` を対象にした評価が保存されるまで未実施として扱われ、計画を変更・差替えする前の評価は旧計画への結果として残る |
 | `criteria` | 1〜10 件。Outcome の Success Criterion すべてを 1 回ずつ |
 | `criteria[].criterionId` | Success Criterion の `id` |
 | `criteria[].verdict` | `met` / `not_met` / `insufficient_evidence` |

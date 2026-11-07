@@ -97,7 +97,7 @@ const outcomeProblemsDescription =
   "an observation such as drop-off does not confirm the cause), solutionHypothesis, and evidence (research_finding / research_synthesis " +
   "ids of the same Workspace; up to 10), and an optional evaluationPlan { question, method (cognitive_walkthrough | quantitative_observation | ab_test | difference_in_differences | other), " +
   "premises (required for ab_test and difference_in_differences: how the method's assumptions are met), observationPeriod, decisionCriteria, stopCriteria }. " +
-  "A plan is not a result: it stays not run until an Evaluation names the problem in problemIds. Compass runs no statistical analysis. " +
+  "A plan is not a result: it stays not run until an Evaluation names the problem in problemIds while that plan is current. The server assigns a planId that changes when a plan is added or its content changes; an Evaluation keeps the planId it evaluated, so results of an earlier plan never mark the changed plan as run. Compass runs no statistical analysis. " +
   "observed and refuted require observation and at least one evidence reference. Up to 10 problems. " +
   "Evidence of another Workspace fails with VALIDATION_ERROR; newly linking a Synthesis superseded by a later version fails with CONFLICT. " +
   "Development blockers of Tasks are not problems.";

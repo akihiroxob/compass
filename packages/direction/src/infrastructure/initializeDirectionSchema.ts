@@ -590,6 +590,7 @@ const initializeOutcomeEvaluationSchema = async (database: Kysely<DirectionDatab
     .addColumn("target_version", "text", (column) => column.notNull())
     .addColumn("limitations", "text", (column) => column.notNull())
     .addColumn("problem_ids", "text", (column) => column.notNull())
+    .addColumn("problem_plans", "text", (column) => column.notNull())
     .addColumn("criteria", "text", (column) => column.notNull())
     .addColumn("snapshot", "text", (column) => column.notNull())
     .addColumn("principal_id", "text", (column) => column.notNull())

@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { statusBadgeClass } from "../../statusTone";
-import { evaluationMethodLabels, planRunState, problemEvidenceKindLabels, problemEvidenceStatusLabels, type OutcomeProblem, type ProblemEvidenceStatus } from "./outcome";
+import { evaluationMethodLabels, planRunState, type PlanEvaluationRef, problemEvidenceKindLabels, problemEvidenceStatusLabels, type OutcomeProblem, type ProblemEvidenceStatus } from "./outcome";
 import type { StatusTone } from "../../statusTone";
 
 const evidenceStatusTones: Record<ProblemEvidenceStatus, StatusTone> = { insufficient: "waiting", observed: "muted", refuted: "muted" };
@@ -10,7 +10,7 @@ const evidenceStatusTones: Record<ProblemEvidenceStatus, StatusTone> = { insuffi
  * 観測と原因の仮説は別の項目で表示し、原因を確定として表示しない。Taskの停止などの開発上の障害はここに混ぜない。
  * `evidenceTo`はResearchの依頼を開く画面（開けない場合はnull）。
  */
-export const OutcomeProblems = ({ problems, evidenceTo, evaluations }: { problems: readonly OutcomeProblem[]; evidenceTo: (requestId: string) => string | null; evaluations: readonly { problemIds: readonly string[] }[] | null }) => (
+export const OutcomeProblems = ({ problems, evidenceTo, evaluations }: { problems: readonly OutcomeProblem[]; evidenceTo: (requestId: string) => string | null; evaluations: readonly PlanEvaluationRef[] | null }) => (
   <section className="detail-section" aria-labelledby="outcome-problems-heading">
     <h2 id="outcome-problems-heading">解決したい課題</h2>
     {problems.length === 0 ? <p className="unset">課題はまだ記録されていません。</p> : (
@@ -25,7 +25,7 @@ export const OutcomeProblems = ({ problems, evidenceTo, evaluations }: { problem
               <dt>評価計画</dt>
               <dd>{problem.evaluationPlan === null ? <span className="unset">未記録</span> : (
                 <dl>
-                  <dt>状態</dt><dd>{evaluations === null ? <span className="unset">評価の実施状況を読み込めていません</span> : planRunState(problem.id, evaluations) === "run" ? <span className={statusBadgeClass("muted")}>評価あり（結果は下のEvaluation）</span> : <span className={statusBadgeClass("waiting")}>未実施</span>}</dd>
+                  <dt>状態</dt><dd>{evaluations === null ? <span className="unset">評価の実施状況を読み込めていません</span> : (() => { const state = planRunState(problem, evaluations); return state === "run" ? <span className={statusBadgeClass("muted")}>評価あり（結果は下のEvaluation）</span> : state === "previous_only" ? <><span className={statusBadgeClass("waiting")}>未実施</span> <span className="unset">この計画の評価はまだありません。下のEvaluationは変更前の計画への結果です。</span></> : <span className={statusBadgeClass("waiting")}>未実施</span>; })()}</dd>
                   <dt>問い</dt><dd>{problem.evaluationPlan.question}</dd>
                   <dt>評価方法</dt><dd>{evaluationMethodLabels[problem.evaluationPlan.method]}</dd>
                   <dt>適用前提</dt><dd>{problem.evaluationPlan.premises ?? <span className="unset">未記載</span>}</dd>
