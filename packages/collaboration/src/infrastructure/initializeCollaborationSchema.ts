@@ -23,6 +23,7 @@ export const initializeCollaborationSchema = async (database: Kysely<Collaborati
     .addColumn("options", "text", (column) => column.notNull().defaultTo("[]"))
     .addColumn("recommendation", "text", (column) => column.notNull())
     .addColumn("impact", "text", (column) => column.notNull())
+    .addColumn("due_at", "integer")
     .addColumn("refs", "text", (column) => column.notNull().defaultTo("[]"))
     .addColumn("status", "text", (column) =>
       column.notNull().check(sql`status in ('waiting_human', 'waiting_agent', 'resolved', 'canceled')`),

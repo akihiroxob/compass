@@ -13,8 +13,11 @@ import type {
   FollowupTaskStatus,
 } from "../../domain/Consultation.ts";
 
-/** 横断一覧の位置（更新日時の降順・同時刻はIDの昇順）。この位置より後ろを返す。 */
-export type ConsultationCursor = { updatedAt: number; id: string };
+/**
+ * 横断一覧の位置。`sort: updated`は更新日時の降順・同時刻はIDの昇順、`due`は期限の昇順（期限未設定は`dueKey`が最大で最後）・
+ * 同じ期限は更新日時の降順・IDの昇順。この位置より後ろを返す。
+ */
+export type ConsultationCursor = { dueKey?: number; updatedAt: number; id: string };
 
 /**
  * 横断一覧の条件。`projectIds`・`workspaceIds`は呼出し主体が閲覧できるscopeで、Project scopeの相談は`projectIds`、
@@ -28,6 +31,8 @@ export type AccessibleConsultationQuery = {
   workspaceId?: string;
   /** Project scopeの相談をそのProjectに絞る。 */
   projectId?: string;
+  /** 並び。`due`は期限が近い順で、期限未設定を最後に置く。 */
+  sort?: "updated" | "due";
   after?: ConsultationCursor;
   limit: number;
 };

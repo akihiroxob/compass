@@ -14,6 +14,7 @@ export type ConsultationTable = {
   options: string;
   recommendation: string;
   impact: string;
+  due_at: number | null;
   refs: string;
   status: string;
   revision: number;

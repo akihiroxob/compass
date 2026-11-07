@@ -10,6 +10,7 @@ import {
   consultationFilters,
   describeConsultationScope,
   inboxApiPath,
+  inboxOrderNotes,
   inboxPath,
   inboxScopeFilterLabels,
   inboxScopeFilters,
@@ -44,6 +45,12 @@ const emptyMessages: Record<ConsultationFilter, string> = {
   all: "閲覧できるProject・Workspaceに相談はありません。",
 };
 
+const workspaceEmptyMessages: Record<ConsultationFilter, string> = {
+  ...emptyMessages,
+  waiting_human: "このWorkspaceと配下Projectに、Humanの回答を待っている相談はありません。",
+  all: "このWorkspaceと配下Projectに相談はありません。",
+};
+
 /** 一覧の状態。`key`は取得条件（URLのquery）で、条件が変わった最初のrenderから前の結果を出さない。 */
 type ListState = { key: string; consultations: Consultation[]; nextCursor: string | null; error: string | null; loaded: boolean };
 
@@ -52,10 +59,23 @@ type ListState = { key: string; consultations: Consultation[]; nextCursor: strin
  * 絞り込み・ページングする）。既定はHumanの判断待ち。
  * 状態・scope・Workspace・Projectで絞り、続きは「さらに表示」で読む。返信・決定は各相談の詳細で行う。
  */
-export const ConsultationInboxPage = () => {
+export const ConsultationInboxPage = () => <ConsultationInbox />;
+
+/**
+ * Workspaceの「対応待ち」。そのWorkspaceと配下Projectの相談だけを同じ一覧で扱う（`workspaceId`で固定し、Workspaceの選択は出さない）。
+ * 既定はHumanが回答しないと進まない相談だけで、回答期限が近い順に並べる。個々の相談の所有・認可はそれぞれのscopeのままで、
+ * 一覧は認可済みの相談を集約するだけ。返信・決定は各相談の詳細で行う。
+ */
+export const WorkspaceWaitingList = ({ workspaceId, basePath }: { workspaceId: string; basePath: string }) => <ConsultationInbox workspaceId={workspaceId} basePath={basePath} />;
+
+const ConsultationInbox = ({ workspaceId, basePath }: { workspaceId?: string; basePath?: string }) => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const query = parseInboxQuery(searchParams);
+  const fixedWorkspace = workspaceId !== undefined;
+  const parsed = parseInboxQuery(searchParams);
+  const query: InboxQuery = fixedWorkspace ? { ...parsed, workspaceId } : parsed;
+  // 固定したWorkspaceはURLに載せない（画面のpathが決める）。
+  const pathFor = (value: InboxQuery) => inboxPath(fixedWorkspace ? { ...value, workspaceId: null } : value, basePath);
   const key = inboxApiPath(query);
   const [state, setState] = useState<ListState | null>(null);
   const [moreError, setMoreError] = useState<string | null>(null);
@@ -100,30 +120,34 @@ export const ConsultationInboxPage = () => {
       setPending(null);
     }
   };
-  const change = (patch: Partial<InboxQuery>) => navigate(inboxPath({ ...query, ...patch }));
+  const change = (patch: Partial<InboxQuery>) => navigate(pathFor({ ...query, ...patch }));
   const names = {
     projects: new Map((options?.projects ?? []).map(({ id, name }) => [id, name])),
     workspaces: new Map((options?.workspaces ?? []).map(({ id, name }) => [id, name])),
   };
   const projectChoices = (options?.projects ?? []).filter((project) => query.workspaceId === null || project.workspaceId === query.workspaceId);
   const optionLabel = (option: ScopeOption) => `${option.name}${option.archived ? "（アーカイブ済み）" : ""}`;
-  const filtered = query.scope !== "all" || query.workspaceId !== null || query.projectId !== null;
+  const filtered = query.scope !== "all" || (!fixedWorkspace && query.workspaceId !== null) || query.projectId !== null;
+  const Wrapper = fixedWorkspace ? "div" : "main";
   return (
-    <main>
-      <div className="detail-hero">
-        <p className="eyebrow">すべてのProject・Workspace</p>
-        <h1>判断待ち</h1>
-        <p className="section-note">参加しているWorkspaceと、その配下のProjectの相談をまとめて表示します。質問・選択肢・推奨・影響を読み、各相談の詳細から返信・決定してください。</p>
-      </div>
+    <Wrapper>
+      {!fixedWorkspace && (
+        <div className="detail-hero">
+          <p className="eyebrow">すべてのProject・Workspace</p>
+          <h1>判断待ち</h1>
+          <p className="section-note">参加しているWorkspaceと、その配下のProjectの相談をまとめて表示します。質問・選択肢・推奨・影響を読み、各相談の詳細から返信・決定してください。</p>
+        </div>
+      )}
       <section className="detail-section" aria-labelledby="consultation-inbox-heading">
-        <h2 id="consultation-inbox-heading" className="visually-hidden">相談の一覧</h2>
+        <h2 id="consultation-inbox-heading" className={fixedWorkspace ? undefined : "visually-hidden"}>{fixedWorkspace ? "対応待ち" : "相談の一覧"}</h2>
+        <p className="section-note">{inboxOrderNotes[query.status]}{fixedWorkspace && "Workspaceと配下Projectの相談を表示します。任意のコメントやAgentだけで解消できる作業は含みません。"}</p>
         <div className="consultation-inbox-filters">
           <div className="consultation-inbox-filter">
             <span className="field-label" aria-hidden="true">状態</span>
             <ViewSwitch
               label="相談の状態"
               size="sm"
-              items={consultationFilters.map((item) => ({ key: item, to: inboxPath({ ...query, status: item }), label: consultationFilterLabels[item], current: item === query.status }))}
+              items={consultationFilters.map((item) => ({ key: item, to: pathFor({ ...query, status: item }), label: consultationFilterLabels[item], current: item === query.status }))}
             />
           </div>
           <div className="consultation-inbox-filter">
@@ -133,7 +157,7 @@ export const ConsultationInboxPage = () => {
               size="sm"
               items={inboxScopeFilters.map((item) => ({
                 key: item,
-                to: inboxPath({ ...query, scope: item, ...(item === "workspace" ? { projectId: null } : {}) }),
+                to: pathFor({ ...query, scope: item, ...(item === "workspace" ? { projectId: null } : {}) }),
                 label: inboxScopeFilterLabels[item],
                 current: item === query.scope,
               }))}
@@ -141,12 +165,14 @@ export const ConsultationInboxPage = () => {
           </div>
         </div>
         <div className="consultation-inbox-selects">
-          <Field label="Workspace" layout="inline">
-            <Select value={query.workspaceId ?? ""} onChange={(event) => change({ workspaceId: event.target.value || null, projectId: null })}>
-              <option value="">すべてのWorkspace</option>
-              {(options?.workspaces ?? []).map((workspace) => <option key={workspace.id} value={workspace.id}>{optionLabel(workspace)}</option>)}
-            </Select>
-          </Field>
+          {!fixedWorkspace && (
+            <Field label="Workspace" layout="inline">
+              <Select value={query.workspaceId ?? ""} onChange={(event) => change({ workspaceId: event.target.value || null, projectId: null })}>
+                <option value="">すべてのWorkspace</option>
+                {(options?.workspaces ?? []).map((workspace) => <option key={workspace.id} value={workspace.id}>{optionLabel(workspace)}</option>)}
+              </Select>
+            </Field>
+          )}
           <Field label="Project" layout="inline">
             <Select value={query.projectId ?? ""} onChange={(event) => change(event.target.value ? { projectId: event.target.value, scope: "project" } : { projectId: null })}>
               <option value="">すべてのProject</option>
@@ -177,11 +203,11 @@ export const ConsultationInboxPage = () => {
           </>
         ) : (
           <StateCard role="status">
-            <p>{emptyMessages[query.status]}</p>
+            <p>{(fixedWorkspace ? workspaceEmptyMessages : emptyMessages)[query.status]}</p>
             {filtered && <p className="section-note">絞り込みを解除すると、他のProject・Workspaceの相談も表示します。</p>}
           </StateCard>
         )}
       </section>
-    </main>
+    </Wrapper>
   );
 };
