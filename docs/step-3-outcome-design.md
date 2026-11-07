@@ -25,6 +25,7 @@ Outcomeは0〜10件の課題（Problem Statement）を持つ。独立したEntit
 - evidenceStatus: `insufficient`（根拠不足）/ `observed`（観測済み）/ `refuted`（反証）。
 - observation（観測した事実）、causeHypothesis（原因の仮説）、solutionHypothesis（解決策の仮説）: 各任意、2,000文字まで。観測と原因は別の項目で、原因を確定する状態は持たない。`observed` / `refuted`はobservationと1〜10件の根拠参照が必須。
 - evidence: 同じWorkspaceのResearch Finding（`research_finding`）またはSynthesis（`research_synthesis`）をIDで参照する。本文は複製せず、読取時にrequestId・要約・`superseded`を参照先から解決する。別Workspaceの参照は`VALIDATION_ERROR`（複合FKでも強制）、後続版に置き換えられたSynthesisの新規関連付けは`CONFLICT`（既存の関連付けは`superseded`表示で残る）。
+- evaluationPlan（評価計画）: 任意。question（確かめたい問い、必須、500文字まで）・method・premises（適用前提）・observationPeriod（観測期間）・decisionCriteria（判断条件、必須）・stopCriteria（中止条件）。`outcome_problem.evaluation_plan`へJSONで保存する。methodは`cognitive_walkthrough` / `quantitative_observation` / `ab_test` / `difference_in_differences` / `other`で、`ab_test`・`difference_in_differences`は適用前提が必須（前提の記載だけを検査し、統計解析・Success Metrics・必須インタビューは扱わない）。計画は結果ではなく、その課題を`problemIds`に含むEvaluationが無い間は「未実施」と表示する。評価待ちを自動でHuman待ちにしない。
 - 開発上の障害（Taskの停止・差戻し等）は課題に含めない。
 
 Outcomeは更新ごとに増える`revision`を持つ。`problems`の更新は一覧全体の置換で`expectedRevision`が必須。古い版は`CONFLICT`（`currentRevision`）で拒否し、成功条件・Target Project・handoffは変更しない。`create_outcome` / `update_outcome` / `get_outcome`（MCP）とWeb UIのOutcome作成・編集・詳細が同じapplication層を使う。
@@ -37,6 +38,6 @@ HumanはWeb UIから、Agentはstrategist GrantでMCPから操作する。主要
 
 WorkのStoryはOutcomeを参照し、作成時の成功条件等をsnapshotとして持つ。WorkによるTask受入はOutcome達成を意味しない。
 
-現在のEvaluationはevaluator Grantを持つAgentが全Criterionを`met` / `not_met` / `insufficient_evidence`で判定する。評価できるのは全Target ProjectからSummaryが還流し`incomplete`が無いOutcomeだけで、`met` / `not_met`にはいずれかのTargetが還流したEvidence参照が必要。総合結果は全件metならachieved、not_metがあればfailed、それ以外はinsufficient_evidenceとして導出する。
+現在のEvaluationはevaluator Grantを持つAgentが全Criterionを`met` / `not_met` / `insufficient_evidence`で判定する。評価できるのは全Target ProjectからSummaryが還流し`incomplete`が無いOutcomeだけで、`met` / `not_met`にはいずれかのTargetが還流したEvidence参照が必要。総合結果は全件metならachieved、not_metがあればfailed、それ以外はinsufficient_evidenceとして導出する。Evaluationは`method`・`targetVersion`（評価した対象の版）・`limitations`（限界）を必須で保存し、評価対象の課題（`problemIds`、このOutcomeの課題だけ）を任意で持つ。`cognitive_walkthrough`は設計の点検で実ユーザーの証拠ではないため、Criterionを`met`とは判定できない（`VALIDATION_ERROR`）。根拠が不足する場合は`insufficient_evidence`（判断不能）で保存し、Taskの受入・公開を効果達成として扱わない。
 
 Evaluation保存はOutcomeのstatusを変更しない。StrategistはEvaluationを根拠に次Outcome・追加調査・Intent完了等を判断する。実Agentによる自律運転は未検証。

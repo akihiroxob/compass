@@ -24,6 +24,10 @@ const toEvaluation = (row: Selectable<OutcomeEvaluationTable>): OutcomeEvaluatio
   intentId: row.intent_id,
   intentVersion: row.intent_version,
   result: row.result,
+  method: row.method as OutcomeEvaluation["method"],
+  targetVersion: row.target_version,
+  limitations: row.limitations,
+  problemIds: JSON.parse(row.problem_ids) as string[],
   criteria: JSON.parse(row.criteria) as OutcomeEvaluation["criteria"],
   snapshot: JSON.parse(row.snapshot) as OutcomeEvaluation["snapshot"],
   principalId: row.principal_id,
@@ -36,6 +40,7 @@ const toEvaluation = (row: Selectable<OutcomeEvaluationTable>): OutcomeEvaluatio
 const requestHash = (request: OutcomeEvaluationRequest): string =>
   inputHash({
     ...request,
+    problemIds: [...request.problemIds].sort(),
     criteria: request.criteria
       .map((judgment) => ({ ...judgment, evidenceIds: [...judgment.evidenceIds].sort() }))
       .sort((left, right) => (left.criterionId < right.criterionId ? -1 : left.criterionId > right.criterionId ? 1 : 0)),
@@ -119,6 +124,10 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
           intent_id: input.intentId,
           intent_version: outcome.intent_version,
           result: input.result,
+          method: request.method,
+          target_version: request.targetVersion,
+          limitations: request.limitations,
+          problem_ids: JSON.stringify(request.problemIds),
           criteria: JSON.stringify(input.criteria),
           snapshot: JSON.stringify(input.snapshot),
           principal_id: request.principalId,

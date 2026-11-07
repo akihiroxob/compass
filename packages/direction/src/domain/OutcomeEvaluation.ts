@@ -1,4 +1,5 @@
 import type { ExecutionEvidenceKind, ExecutionState, ExecutionStoryResult } from "./OutcomeExecution.ts";
+import type { EvaluationMethod } from "./Outcome.ts";
 import type { OutcomeTargetExecution } from "./OutcomeEvaluability.ts";
 
 /** Success Criterion 1件の観測結果。証拠が無いものを`met` / `not_met`と推測せず、`insufficient_evidence`で残す。 */
@@ -97,6 +98,14 @@ export type OutcomeEvaluation = {
   /** 評価したOutcomeが根拠にしていたIntentの版。内容はIntent revisionで参照する。 */
   intentVersion: number;
   result: EvaluationResult;
+  /** 評価方法。`cognitive_walkthrough`の結果は実ユーザーの証拠ではなく、`met`の根拠にしない。 */
+  method: EvaluationMethod;
+  /** 評価した対象の版（commit SHA・リリース版等）。 */
+  targetVersion: string;
+  /** 評価の限界（標本・期間・方法の制約等）。 */
+  limitations: string;
+  /** 評価の対象にした課題（Outcomeの`problems[].id`）。空は課題を特定しない評価。 */
+  problemIds: string[];
   criteria: CriterionEvaluation[];
   snapshot: EvaluationSnapshot;
   principalId: string;

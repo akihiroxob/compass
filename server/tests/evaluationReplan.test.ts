@@ -146,7 +146,7 @@ const evaluate = async (kit: Kit, workspaceId: string, outcome: { id: string; su
       workspaceId,
       outcomeId: outcome.id,
       requestKey,
-      runRef: "run-evaluator",
+      runRef: "run-evaluator", method: "quantitative_observation", targetVersion: "test-version", limitations: "テスト用の観測",
       criteria: outcome.successCriteria.map((criterion, index) => ({
         criterionId: criterion.id,
         verdict: verdicts[index]!,

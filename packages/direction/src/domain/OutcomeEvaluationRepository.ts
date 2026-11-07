@@ -5,7 +5,7 @@ import type {
   OutcomeEvaluation,
 } from "./OutcomeEvaluation.ts";
 import type { IntentStatus } from "./Intent.ts";
-import type { OutcomeStatus } from "./Outcome.ts";
+import type { EvaluationMethod, OutcomeStatus } from "./Outcome.ts";
 import type { WorkspaceArchivedResult } from "./WorkspaceArchivedResult.ts";
 
 /** 再送の同一性を判定する、Evaluatorが指定した内容。snapshotと導出した結果は含めない（再送のたびに変わり得るため）。 */
@@ -13,6 +13,10 @@ export type OutcomeEvaluationRequest = {
   outcomeId: string;
   requestKey: string;
   runRef: string;
+  method: EvaluationMethod;
+  targetVersion: string;
+  limitations: string;
+  problemIds: readonly string[];
   criteria: readonly { criterionId: string; verdict: string; rationale: string; evidenceIds: readonly string[] }[];
   principalId: string;
 };

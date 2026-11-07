@@ -218,7 +218,7 @@ test("get_workspace_orchestration_stateは最新EvaluationのProject別評価cur
   assert.equal((await state()).outcomes[0].evaluability.status, "evaluable");
 
   const evaluation = ok(await callTool(kit.app, "record_outcome_evaluation", {
-    workspaceId: workspace.id, outcomeId: outcome.id, requestKey: "evaluate-1", runRef: "run-evaluator",
+    workspaceId: workspace.id, outcomeId: outcome.id, requestKey: "evaluate-1", runRef: "run-evaluator", method: "quantitative_observation", targetVersion: "test-version", limitations: "テスト用の観測",
     criteria: outcome.successCriteria.map((criterion) => ({ criterionId: criterion.id, verdict: "insufficient_evidence", rationale: "No evidence", evidenceIds: [] })),
   }, "ev")).evaluation;
   assert.deepEqual((await state()).outcomes[0].latestEvaluation, {

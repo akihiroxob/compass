@@ -4,6 +4,9 @@ import { ApiError, classifyError, fieldId, formatIssuePath } from "../src/web/ap
 import {
   emptyCriterion,
   emptyOutcomeFormValues,
+  emptyProblem,
+  planRunState,
+  problemsInput,
   formValuesFromOutcome,
   maxSuccessCriteria,
   isReplanTarget,
@@ -56,12 +59,12 @@ test("編集フォームの初期値は課題の観測と原因の仮説を別�
   const values = formValuesFromOutcome(
     outcome({
       problems: [
-        { id: "p1", outcomeId: "o1", position: 0, statement: "課題", evidenceStatus: "observed", observation: "step 2で離脱", causeHypothesis: null, solutionHypothesis: "入力を減らす", evidence },
+        { id: "p1", outcomeId: "o1", position: 0, statement: "課題", evidenceStatus: "observed", observation: "step 2で離脱", causeHypothesis: null, solutionHypothesis: "入力を減らす", evaluationPlan: null, evidence },
       ],
     }),
   );
   assert.deepEqual(values.problems, [
-    { id: "p1", statement: "課題", evidenceStatus: "observed", observation: "step 2で離脱", causeHypothesis: "", solutionHypothesis: "入力を減らす", evidence },
+    { id: "p1", statement: "課題", evidenceStatus: "observed", observation: "step 2で離脱", causeHypothesis: "", solutionHypothesis: "入力を減らす", evaluationPlan: null, evidence },
   ]);
   assert.deepEqual(emptyOutcomeFormValues.problems, []);
 });
@@ -103,4 +106,19 @@ test("目標の意味が根拠にした版より後に変わった未完了のOu
   assert.equal(isReplanTarget(outcome({ intentVersion: 1, status: "cancelled" }), { meaningVersion: 3 }), false, "取消済みは対象外");
   assert.equal(isReplanTarget(outcome({ intentVersion: 1, status: "achieved" }), { meaningVersion: 3 }), false, "評価済みの結果は書き換えない");
   assert.match(replanNote(outcome({ intentVersion: 1 }), { meaningVersion: 3 }), /v1.*v3/);
+});
+
+test("評価計画は空の任意項目をnullにして送り、保存済みの計画を編集フォームへ戻せる", () => {
+  const plan = { question: "完了率は上がるか", method: "ab_test" as const, premises: "無作為割付", observationPeriod: "", decisionCriteria: "完了率+5pt", stopCriteria: "" };
+  const [sent] = problemsInput([{ ...emptyProblem, statement: "離脱", evaluationPlan: plan }]);
+  assert.deepEqual(sent!.evaluationPlan, { question: "完了率は上がるか", method: "ab_test", premises: "無作為割付", observationPeriod: null, decisionCriteria: "完了率+5pt", stopCriteria: null });
+  assert.equal(problemsInput([{ ...emptyProblem, statement: "離脱" }])[0]!.evaluationPlan, null);
+  const restored = formValuesFromOutcome(outcome({ problems: [{ id: "p1", outcomeId: "o1", position: 0, statement: "離脱", evidenceStatus: "insufficient", observation: null, causeHypothesis: null, solutionHypothesis: null, evaluationPlan: { ...plan, premises: "無作為割付", observationPeriod: null, stopCriteria: null }, evidence: [] }] }));
+  assert.deepEqual(restored.problems[0]!.evaluationPlan, plan);
+});
+
+test("評価計画は、その課題を対象にした評価があるまで未実施として扱う", () => {
+  assert.equal(planRunState("p1", []), "not_run");
+  assert.equal(planRunState("p1", [{ problemIds: ["p2"] }]), "not_run");
+  assert.equal(planRunState("p1", [{ problemIds: ["p2"] }, { problemIds: ["p1"] }]), "run");
 });

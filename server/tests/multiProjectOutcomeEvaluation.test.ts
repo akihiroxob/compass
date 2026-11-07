@@ -124,7 +124,7 @@ type Judgment = { verdict: "met" | "not_met" | "insufficient_evidence"; evidence
 
 const evaluate = (app: App, workspaceId: string, outcome: { id: string; successCriteria: readonly { id: string }[] }, judgments: Judgment[], requestKey: string) =>
   callTool(app, "record_outcome_evaluation", {
-    workspaceId, outcomeId: outcome.id, requestKey, runRef: "run-evaluator",
+    workspaceId, outcomeId: outcome.id, requestKey, runRef: "run-evaluator", method: "quantitative_observation", targetVersion: "test-version", limitations: "テスト用の観測",
     criteria: outcome.successCriteria.map((criterion, index) => ({
       criterionId: criterion.id, verdict: judgments[index]!.verdict, rationale: `observed ${judgments[index]!.verdict}`, evidenceIds: judgments[index]!.evidenceIds,
     })),

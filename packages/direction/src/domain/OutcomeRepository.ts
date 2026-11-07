@@ -1,5 +1,5 @@
 import type { IntentStatus } from "./Intent.ts";
-import type { Outcome, OutcomeStatus, ProblemEvidenceKind, ProblemEvidenceStatus } from "./Outcome.ts";
+import type { EvaluationPlan, Outcome, OutcomeStatus, ProblemEvidenceKind, ProblemEvidenceStatus } from "./Outcome.ts";
 import type { WorkspaceArchivedResult } from "./WorkspaceArchivedResult.ts";
 
 /** 課題の入力。`id`を指定すると同じOutcomeの既存の課題を引き継ぎ、未指定は新しい課題になる。 */
@@ -10,6 +10,7 @@ export type OutcomeProblemInput = {
   observation: string | null;
   causeHypothesis: string | null;
   solutionHypothesis: string | null;
+  evaluationPlan: EvaluationPlan | null;
   evidence: { kind: ProblemEvidenceKind; id: string }[];
 };
 

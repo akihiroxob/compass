@@ -21,6 +21,33 @@ export const problemEvidenceStatuses = ["insufficient", "observed", "refuted"] a
 
 export type ProblemEvidenceStatus = (typeof problemEvidenceStatuses)[number];
 
+/**
+ * 評価方法。`cognitive_walkthrough`は設計の点検で、実ユーザーの使いやすさ・価値の証拠ではない。
+ * A/B・差分の差分法は候補で、適用前提（`premises`）を計画へ記す。統計解析はCompassでは行わない。
+ */
+export const evaluationMethods = ["cognitive_walkthrough", "quantitative_observation", "ab_test", "difference_in_differences", "other"] as const;
+
+export type EvaluationMethod = (typeof evaluationMethods)[number];
+
+/** 因果の主張に適用前提の確認が要る方法。 */
+export const causalEvaluationMethods: readonly EvaluationMethod[] = ["ab_test", "difference_in_differences"];
+
+/**
+ * 課題・解決策の仮説に付ける評価計画。計画は実施の記録ではなく、実施状況は結果（Outcome Evaluation）の有無で決まる。
+ */
+export type EvaluationPlan = {
+  /** 確かめたい問い。 */
+  question: string;
+  method: EvaluationMethod;
+  /** 評価方法の適用前提（無作為割付・比較群・介入前の推移等）。 */
+  premises: string | null;
+  /** 観測期間。 */
+  observationPeriod: string | null;
+  /** 判断条件と中止条件。 */
+  decisionCriteria: string;
+  stopCriteria: string | null;
+};
+
 /** 根拠として参照できるResearchの記録。本文は複製せず、同じWorkspaceのFinding・最新版のSynthesisをIDで参照する。 */
 export const problemEvidenceKinds = ["research_finding", "research_synthesis"] as const;
 
@@ -53,6 +80,8 @@ export type OutcomeProblem = {
   causeHypothesis: string | null;
   /** 解決策の仮説。 */
   solutionHypothesis: string | null;
+  /** 評価計画。未記録はnull。 */
+  evaluationPlan: EvaluationPlan | null;
   evidence: ProblemEvidence[];
 };
 

@@ -1,6 +1,6 @@
 import type { Kysely, Selectable, Transaction } from "kysely";
 import { ConflictError, ValidationError } from "@compass/shared";
-import { Outcome, type OutcomeProblem, type ProblemEvidence, type SuccessCriterion } from "../domain/Outcome.ts";
+import { Outcome, type EvaluationPlan, type OutcomeProblem, type ProblemEvidence, type SuccessCriterion } from "../domain/Outcome.ts";
 import type { CreateOutcomeInput, OutcomeProblemInput } from "../domain/OutcomeRepository.ts";
 import type { DirectionDatabase, OutcomeTable, SuccessCriterionTable } from "./schema.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
@@ -58,6 +58,7 @@ const loadProblems = async (database: Executor, outcomeIds: string[]): Promise<O
     observation: row.observation,
     causeHypothesis: row.cause_hypothesis,
     solutionHypothesis: row.solution_hypothesis,
+    evaluationPlan: row.evaluation_plan === null ? null : (JSON.parse(row.evaluation_plan) as EvaluationPlan),
     evidence: evidence
       .filter((item) => item.problem_id === row.id)
       .map((item): ProblemEvidence =>
@@ -163,6 +164,7 @@ export const replaceOutcomeProblems = async (
         observation: problem.observation,
         cause_hypothesis: problem.causeHypothesis,
         solution_hypothesis: problem.solutionHypothesis,
+        evaluation_plan: problem.evaluationPlan === null ? null : JSON.stringify(problem.evaluationPlan),
         created_at: createdAt.get(id) ?? now,
         updated_at: now,
       })

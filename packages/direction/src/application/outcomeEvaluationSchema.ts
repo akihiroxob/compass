@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { evaluationMethods } from "../domain/Outcome.ts";
 import { criterionVerdicts } from "../domain/OutcomeEvaluation.ts";
 import { parseWith, trimmedText } from "@compass/shared";
 
@@ -34,6 +35,18 @@ export const recordOutcomeEvaluationSchema = z.object({
   requestKey: trimmedText("requestKey", 200),
   /** この評価Runを特定できる参照。 */
   runRef: trimmedText("runRef", 200),
+  /** 評価方法。認知的ウォークスルーは設計の点検で、`met`の根拠にできない。 */
+  method: z.enum(evaluationMethods, { error: `method must be one of: ${evaluationMethods.join(", ")}` }),
+  /** 評価した対象の版（commit SHA・リリース版等）。 */
+  targetVersion: trimmedText("targetVersion", 200),
+  /** 評価の限界。データ不足・標本・期間・方法の制約を書く。 */
+  limitations: trimmedText("limitations", 2_000),
+  /** 評価の対象にした課題のid（Outcomeの`problems[].id`）。 */
+  problemIds: z
+    .array(trimmedText("problemId", 200))
+    .max(10, "problemIds must have 10 items or fewer")
+    .default([])
+    .transform((ids) => [...new Set(ids)]),
   criteria: z
     .array(criterionJudgmentSchema)
     .min(1, "criteria must have at least 1 item")

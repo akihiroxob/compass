@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { clearableText, optionalText, parseWith, trimmedText, ValidationError } from "@compass/shared";
 import type { CreateOutcomeInput, UpdateOutcomeInput } from "../domain/OutcomeRepository.ts";
-import { problemEvidenceKinds, problemEvidenceStatuses } from "../domain/Outcome.ts";
+import { causalEvaluationMethods, evaluationMethods, problemEvidenceKinds, problemEvidenceStatuses } from "../domain/Outcome.ts";
 
 export const successCriterionSchema = z.object({
   description: trimmedText("description", 500),
@@ -20,6 +20,22 @@ const problemEvidenceSchema = z.object({
   id: z.string().trim().min(1, "evidence id is required"),
 });
 
+/** 評価計画。A/B・差分の差分法は因果を主張する方法なので、適用前提の記載を必須にする（解析はしない）。 */
+export const evaluationPlanSchema = z
+  .object({
+    question: trimmedText("question", 500),
+    method: z.enum(evaluationMethods, { error: `method must be one of: ${evaluationMethods.join(", ")}` }),
+    premises: optionalText(2_000),
+    observationPeriod: optionalText(200),
+    decisionCriteria: trimmedText("decisionCriteria", 2_000),
+    stopCriteria: optionalText(2_000),
+  })
+  .superRefine((plan, context) => {
+    if (causalEvaluationMethods.includes(plan.method) && plan.premises === null) {
+      context.addIssue({ code: "custom", path: ["premises"], message: `premises is required for ${plan.method}: state how its assumptions are met` });
+    }
+  });
+
 /**
  * 課題（Problem Statement）と根拠・解決策の仮説。観測（observation）と原因の仮説（causeHypothesis）は別の項目で、
  * 観測済み・反証の課題は観測内容と1件以上の根拠参照を必須にする。原因を確定する項目は持たない。
@@ -32,6 +48,7 @@ export const outcomeProblemSchema = z
     observation: optionalText(2_000),
     causeHypothesis: optionalText(2_000),
     solutionHypothesis: optionalText(2_000),
+    evaluationPlan: evaluationPlanSchema.nullable().optional().transform((value) => value ?? null),
     evidence: z
       .array(problemEvidenceSchema)
       .max(maxProblemEvidence, `at most ${maxProblemEvidence} evidence references are allowed`)

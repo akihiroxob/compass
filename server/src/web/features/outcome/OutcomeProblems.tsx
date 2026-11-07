@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { statusBadgeClass } from "../../statusTone";
-import { problemEvidenceKindLabels, problemEvidenceStatusLabels, type OutcomeProblem, type ProblemEvidenceStatus } from "./outcome";
+import { evaluationMethodLabels, planRunState, problemEvidenceKindLabels, problemEvidenceStatusLabels, type OutcomeProblem, type ProblemEvidenceStatus } from "./outcome";
 import type { StatusTone } from "../../statusTone";
 
 const evidenceStatusTones: Record<ProblemEvidenceStatus, StatusTone> = { insufficient: "waiting", observed: "muted", refuted: "muted" };
@@ -10,7 +10,7 @@ const evidenceStatusTones: Record<ProblemEvidenceStatus, StatusTone> = { insuffi
  * 観測と原因の仮説は別の項目で表示し、原因を確定として表示しない。Taskの停止などの開発上の障害はここに混ぜない。
  * `evidenceTo`はResearchの依頼を開く画面（開けない場合はnull）。
  */
-export const OutcomeProblems = ({ problems, evidenceTo }: { problems: readonly OutcomeProblem[]; evidenceTo: (requestId: string) => string | null }) => (
+export const OutcomeProblems = ({ problems, evidenceTo, evaluations }: { problems: readonly OutcomeProblem[]; evidenceTo: (requestId: string) => string | null; evaluations: readonly { problemIds: readonly string[] }[] | null }) => (
   <section className="detail-section" aria-labelledby="outcome-problems-heading">
     <h2 id="outcome-problems-heading">解決したい課題</h2>
     {problems.length === 0 ? <p className="unset">課題はまだ記録されていません。</p> : (
@@ -22,6 +22,18 @@ export const OutcomeProblems = ({ problems, evidenceTo }: { problems: readonly O
               <dt>観測した事実</dt><dd>{problem.observation ?? <span className="unset">未観測</span>}</dd>
               <dt>原因の仮説（未確認）</dt><dd>{problem.causeHypothesis ?? <span className="unset">未設定</span>}</dd>
               <dt>解決策の仮説</dt><dd>{problem.solutionHypothesis ?? <span className="unset">未設定</span>}</dd>
+              <dt>評価計画</dt>
+              <dd>{problem.evaluationPlan === null ? <span className="unset">未記録</span> : (
+                <dl>
+                  <dt>状態</dt><dd>{evaluations === null ? <span className="unset">評価の実施状況を読み込めていません</span> : planRunState(problem.id, evaluations) === "run" ? <span className={statusBadgeClass("muted")}>評価あり（結果は下のEvaluation）</span> : <span className={statusBadgeClass("waiting")}>未実施</span>}</dd>
+                  <dt>問い</dt><dd>{problem.evaluationPlan.question}</dd>
+                  <dt>評価方法</dt><dd>{evaluationMethodLabels[problem.evaluationPlan.method]}</dd>
+                  <dt>適用前提</dt><dd>{problem.evaluationPlan.premises ?? <span className="unset">未記載</span>}</dd>
+                  <dt>観測期間</dt><dd>{problem.evaluationPlan.observationPeriod ?? <span className="unset">未設定</span>}</dd>
+                  <dt>判断条件</dt><dd>{problem.evaluationPlan.decisionCriteria}</dd>
+                  <dt>中止条件</dt><dd>{problem.evaluationPlan.stopCriteria ?? <span className="unset">未設定</span>}</dd>
+                </dl>
+              )}</dd>
               <dt>根拠</dt>
               <dd>{problem.evidence.length === 0 ? <span className="unset">根拠の関連付けはありません</span> : (
                 <ul className="problem-evidence-list">

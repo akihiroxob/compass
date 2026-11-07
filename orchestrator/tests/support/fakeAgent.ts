@@ -87,7 +87,7 @@ if (role === "strategist") {
     workspaceId,
     outcomeId: subjectId,
     requestKey: env.COMPASS_DISPATCH_KEY!,
-    runRef: env.COMPASS_DISPATCH_KEY!,
+    runRef: env.COMPASS_DISPATCH_KEY!, method: "quantitative_observation", targetVersion: "test-version", limitations: "テスト用の観測",
     criteria: context.outcome.successCriteria.map(({ id }: { id: string }) => ({ criterionId: id, verdict: "met", rationale: "Observed every Target's Evidence", evidenceIds })),
   });
 } else if (role === "manager") {

@@ -72,6 +72,8 @@ export type OutcomeProblemTable = {
   observation: string | null;
   cause_hypothesis: string | null;
   solution_hypothesis: string | null;
+  /** 評価計画のJSON（`EvaluationPlan`）。未記録はnull。 */
+  evaluation_plan: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -364,6 +366,11 @@ export type OutcomeEvaluationTable = {
   /** 評価したOutcomeが根拠にしていたIntentの版。 */
   intent_version: number;
   result: "achieved" | "failed" | "insufficient_evidence";
+  method: string;
+  target_version: string;
+  limitations: string;
+  /** 評価対象の課題idのJSON配列。 */
+  problem_ids: string;
   criteria: string;
   snapshot: string;
   principal_id: string;
