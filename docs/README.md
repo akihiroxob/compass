@@ -5,7 +5,7 @@
 - [Architecture Handoff](../compass-codex-architecture-handoff.md): 構成・責務境界・依存方向の正本。
 - [ADR 0001 WorkspaceとProjectの境界](adr/0001-workspace-project-boundary.md): Workspaceを戦略、Projectを実行の境界とする決定と移行の不変条件。
 - [ADR 0002 相談（Collaboration）の境界](adr/0002-collaboration-context.md): AgentからHumanへの相談の会話・結論・応答leaseを`packages/collaboration`が所有する決定。
-- [ADR 0003 Humanの所属・権限](adr/0003-workspace-human-membership.md): HumanのMember管理をWorkspaceへ集約し、配下全Projectへ同じRoleを適用する決定。認可・Member管理（Role変更・除外）は実装済みで、Workspace scopeの招待・参加は未実装。
+- [ADR 0003 Humanの所属・権限](adr/0003-workspace-human-membership.md): HumanのMember管理をWorkspaceへ集約し、配下全Projectへ同じRoleを適用する決定。Workspace Membershipによる認可・招待・参加・Member管理（Role変更・除外）を実装。メール配送は未接続。
 - [ADR 0004 TaskのPR](adr/0004-task-pull-request-verification.md): TaskのPRをServerがGitHubで確認した事実として保持し、成果物参照と区別する決定。
 - [ADR 0005 PRの照合](adr/0005-task-pull-request-transition-verification.md): PRのあるTaskの完了・レビュー・受入で、現在のPR・レビューしたhead・merge SHA・必須CI・レビュー根拠のコメントを照合する決定。
 - [ADR 0006 複数Active Intent](adr/0006-multiple-active-intents.md): 目標別の現在状態・Context・dispatchの分離。

@@ -13,7 +13,7 @@ import { useSession } from "../auth";
 import { CredentialSection } from "../credential";
 import { DirectionPanel, loadDirection, loadOutcomeDetail } from "../direction";
 import { AgentSettingsSection } from "../grant";
-import { humanRoleLabels, WorkspaceMembershipSection, type HumanRole } from "../member";
+import { humanRoleLabels, WorkspaceInvitationSection, WorkspaceMembershipSection, type HumanRole } from "../member";
 import { archiveInit, describeArchiveFailure, parseListStatus, ProjectListSwitch, summarizeReason, validateArchiveReason, type ProjectStatus } from "../project";
 import { useWorkspaceNavigation } from "./WorkspaceContext";
 import { DirectionIntents, WorkspaceOutcomeDetail } from "./WorkspaceDirection";
@@ -263,6 +263,7 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
         readOnly={archived}
         onSelfChanged={() => { navigation?.refreshWorkspace(workspace.id); reload(); }}
       />
+      {canOperateWorkspace(myRole, "invitation.manage") && <WorkspaceInvitationSection workspaceId={workspace.id} readOnly={archived} />}
       <AgentSettingsSection scope={scope} readOnly={archived || !canOperateWorkspace(myRole, "grant.manage")} showCredentials={canManageCredential} />
       {canManageCredential ? <CredentialSection scope={scope} readOnly={archived} /> : (
         <section className="detail-section" aria-labelledby="workspace-credential-heading">
@@ -273,7 +274,7 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
       <section className="detail-section" aria-labelledby="workspace-project-access-heading">
         <h2 id="workspace-project-access-heading">Projectのアクセス</h2>
         <p className="section-note">Story・Taskを担うAgent（Manager・Worker・Reviewer）の割当とCredentialは、Agent管理または各Projectの設定で管理します。HumanのMemberとRoleは上のMemberで管理し、配下のすべてのProjectに適用されます。</p>
-        <ProjectViewLinks workspace={workspace} view="settings" hint="Agent・Credential・招待を開く" />
+        <ProjectViewLinks workspace={workspace} view="settings" hint="Agent・Credentialを開く" />
       </section>
     </>
   );

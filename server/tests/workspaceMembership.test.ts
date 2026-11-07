@@ -40,9 +40,10 @@ const bootstrapOwner = async (services: Services) => {
   return { ...result, actor: actorOf(result.human.id) };
 };
 
-/** Projectから招待・登録する。受諾すると所属WorkspaceのMembership（配下の全Projectに同じRole）になる。 */
+/** Projectの所属Workspaceへ招待・登録し、配下の全Projectに同じRoleを適用する。 */
 const inviteToProject = async (services: Services, owner: HumanActor, projectId: string, email: string, role: HumanRole) => {
-  const { token } = await services.createProjectInvitationUseCase.execute(owner, projectId, { email, role });
+  const { workspaceId } = await services.getProjectUseCase.execute(projectId);
+  const { token } = await services.createWorkspaceInvitationUseCase.execute(owner, workspaceId, { email, role });
   const result = await login(services, google(`${email}-sub`, email), token);
   return actorOf(result.human.id);
 };

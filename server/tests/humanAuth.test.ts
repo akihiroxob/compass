@@ -81,7 +81,7 @@ const invite = async (
   email: string,
   role: "owner" | "administrator" | "editor" | "viewer",
 ) => {
-  const { token } = await services.createProjectInvitationUseCase.execute(owner, projectId, { email, role });
+  const { token } = await services.createWorkspaceInvitationUseCase.execute(owner, await workspaceOf(services, projectId), { email, role });
   const result = await login(services, google(`${email}-sub`, email), { invitationToken: token });
   const members = await services.human.listWorkspaceMembers.execute(owner, await workspaceOf(services, projectId));
   const member = members.find(({ human }) => human.id === result.human.id)!;
@@ -100,7 +100,7 @@ test("既存Project・Intent・Outcome・Grantを持つDBへschemaを再適用�
     });
     await seedLegacyProjectGrant(legacy.database, project.id, "strat-1", "strategist");
     // 認証導入前のDBを模して、Human関連tableを削除してから再初期化する。
-    for (const table of ["project_invitation", "workspace_membership", "auth_login_attempt", "web_session", "human_identity", "human_user"]) {
+    for (const table of ["workspace_invitation", "workspace_membership", "auth_login_attempt", "web_session", "human_identity", "human_user"]) {
       await legacy.database.schema.dropTable(table).execute();
     }
     await legacy.database.destroy();
@@ -242,8 +242,8 @@ test("Project操作は所属WorkspaceのMembershipで認可し、未所属・別
   await assert.rejects(authorization.authorize(viewer.actor, "missing", "project.read"), rejectsWith("NOT_FOUND"));
   await assert.rejects(services.human.listWorkspaceMembers.execute(viewer.actor, projectQ.workspaceId), rejectsWith("NOT_FOUND"));
   await assert.rejects(
-    services.listProjectInvitationsUseCase.execute(viewer.actor, projectP.id),
-    rejectsWith("FORBIDDEN", { requiredRole: "owner", projectId: projectP.id }),
+    services.listWorkspaceInvitationsUseCase.execute(viewer.actor, await workspaceOf(services, projectP.id)),
+    rejectsWith("FORBIDDEN", { requiredRole: "owner", workspaceId: projectP.workspaceId }),
   );
   // administrator以下は自分のRoleも変えられない（自己昇格の防止）。
   await assert.rejects(
@@ -311,20 +311,20 @@ test("招待はtoken hashだけを保存し、一度だけ受諾でき、期限�
   const owner = await bootstrapOwner(services);
   const project = await services.createProjectUseCase.execute({ name: "P", mission: "m" }, owner.actor);
 
-  const issued = await services.createProjectInvitationUseCase.execute(owner.actor, project.id, {
+  const issued = await services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, project.id), {
     email: "  Member@Example.com ",
     role: "editor",
     expiresInHours: 2,
   });
   assert.equal(issued.invitation.email, "member@example.com");
   assert.equal(issued.invitation.expiresAt, clock.now + 2 * hour);
-  assert.ok(!JSON.stringify(await database.selectFrom("project_invitation").selectAll().execute()).includes(issued.token));
+  assert.ok(!JSON.stringify(await database.selectFrom("workspace_invitation").selectAll().execute()).includes(issued.token));
   await assert.rejects(
-    services.createProjectInvitationUseCase.execute(owner.actor, project.id, { email: "member@example.com", role: "viewer" }),
+    services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, project.id), { email: "member@example.com", role: "viewer" }),
     rejectsWith("CONFLICT", { conflict: "INVITATION_PENDING" }),
   );
   await assert.rejects(
-    services.createProjectInvitationUseCase.execute(owner.actor, project.id, { email: "x@example.com", role: "viewer", expiresInHours: 0 }),
+    services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, project.id), { email: "x@example.com", role: "viewer", expiresInHours: 0 }),
     rejectsWith("VALIDATION_ERROR"),
   );
 
@@ -359,7 +359,7 @@ test("招待はtoken hashだけを保存し、一度だけ受諾でき、期限�
   assert.equal((await services.human.listWorkspaceMembers.execute(owner.actor, project.workspaceId)).length, 2);
 
   // 期限切れは`invitation_expired`で区別し、行を作らない。
-  const expiring = await services.createProjectInvitationUseCase.execute(owner.actor, project.id, {
+  const expiring = await services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, project.id), {
     email: "late@example.com",
     role: "viewer",
     expiresInHours: 1,
@@ -372,16 +372,16 @@ test("招待はtoken hashだけを保存し、一度だけ受諾でき、期限�
   );
   assert.deepEqual(await countRows(database), beforeExpired);
   await assert.rejects(
-    services.revokeProjectInvitationUseCase.execute(owner.actor, project.id, expiring.invitation.id),
+    services.revokeWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, project.id), expiring.invitation.id),
     rejectsWith("CONFLICT", { conflict: "INVITATION_NOT_PENDING" }),
   );
 
   // 取消済み招待は受諾できない。
-  const revocable = await services.createProjectInvitationUseCase.execute(owner.actor, project.id, {
+  const revocable = await services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, project.id), {
     email: "revoked@example.com",
     role: "viewer",
   });
-  const revoked = await services.revokeProjectInvitationUseCase.execute(owner.actor, project.id, revocable.invitation.id);
+  const revoked = await services.revokeWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, project.id), revocable.invitation.id);
   assert.equal(revoked.status, "revoked");
   assert.equal(revoked.revokedByHumanUserId, owner.human.id);
   assert.deepEqual(
@@ -391,10 +391,10 @@ test("招待はtoken hashだけを保存し、一度だけ受諾でき、期限�
     }),
     { kind: "rejected", reason: "not_allowed" },
   );
-  // 別Projectの招待IDはNOT_FOUND。
+  // 別Workspaceの招待IDはNOT_FOUND。
   const other = await services.createProjectUseCase.execute({ name: "Q", mission: "m" }, owner.actor);
   await assert.rejects(
-    services.revokeProjectInvitationUseCase.execute(owner.actor, other.id, revocable.invitation.id),
+    services.revokeWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, other.id), revocable.invitation.id),
     rejectsWith("NOT_FOUND"),
   );
   await database.destroy();
@@ -404,18 +404,18 @@ test("期限切れのpending招待がある宛先へ再発行でき、古い招�
   const { database, services, clock } = await setup();
   const owner = await bootstrapOwner(services);
   const project = await services.createProjectUseCase.execute({ name: "P", mission: "m" }, owner.actor);
-  const expired = await services.createProjectInvitationUseCase.execute(owner.actor, project.id, {
+  const expired = await services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, project.id), {
     email: "late@example.com",
     role: "viewer",
     expiresInHours: 1,
   });
   clock.now += hour;
 
-  const reissued = await services.createProjectInvitationUseCase.execute(owner.actor, project.id, {
+  const reissued = await services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, project.id), {
     email: "late@example.com",
     role: "editor",
   });
-  const invitations = await services.listProjectInvitationsUseCase.execute(owner.actor, project.id);
+  const invitations = await services.listWorkspaceInvitationsUseCase.execute(owner.actor, await workspaceOf(services, project.id));
   const statusOf = (id: string) => invitations.find((invitation) => invitation.id === id)?.status;
   assert.equal(statusOf(expired.invitation.id), "revoked");
   assert.equal(statusOf(reissued.invitation.id), "pending");
@@ -436,17 +436,17 @@ test("既存Humanは招待で別Workspaceへ参加でき、既に所属するWor
   const projectQ = await services.createProjectUseCase.execute({ name: "Q", mission: "m" }, owner.actor);
   const member = await invite(services, owner.actor, projectP.id, "member@example.com", "viewer");
 
-  const toQ = await services.createProjectInvitationUseCase.execute(owner.actor, projectQ.id, { email: "member@example.com", role: "editor" });
+  const toQ = await services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, projectQ.id), { email: "member@example.com", role: "editor" });
   const joined = await login(services, google("member@example.com-sub", "member@example.com"), { invitationToken: toQ.token });
   assert.equal(joined.invitation, "accept");
   assert.equal(joined.created, false);
 
-  // 同じWorkspaceの別Projectからの招待でも、既に所属していれば重複してMembershipを作らない。
+  // 同じWorkspaceのMemberへ再び招待してもMembershipとRoleを重複・上書きしない。
   const sibling = await services.human.createWorkspaceProject.execute(owner.actor, projectP.workspaceId, { name: "P2" });
-  const again = await services.createProjectInvitationUseCase.execute(owner.actor, sibling.id, { email: "member@example.com", role: "owner" });
+  const again = await services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, sibling.id), { email: "member@example.com", role: "owner" });
   const already = await login(services, google("member@example.com-sub", "member@example.com"), { invitationToken: again.token });
   assert.equal(already.invitation, "already_member");
-  const invitation = (await services.listProjectInvitationsUseCase.execute(owner.actor, sibling.id)).find(({ id }) => id === again.invitation.id);
+  const invitation = (await services.listWorkspaceInvitationsUseCase.execute(owner.actor, await workspaceOf(services, sibling.id))).find(({ id }) => id === again.invitation.id);
   assert.equal(invitation?.status, "pending");
   assert.equal((await services.humanProjectAuthorizationService.requireProjectRole(member.actor, projectP.id, "viewer")).role, "viewer");
   assert.equal((await services.humanProjectAuthorizationService.requireProjectRole(member.actor, sibling.id, "viewer")).role, "viewer");
@@ -454,33 +454,33 @@ test("既存Humanは招待で別Workspaceへ参加でき、既に所属するWor
   await database.destroy();
 });
 
-test("archived Projectでは招待の発行・取消・受諾を拒否し、Membershipを書き込まない", async () => {
+test("archived Workspaceでは招待の発行・取消・受諾を拒否し、Membershipを書き込まない", async () => {
   const { database, services } = await setup();
   const owner = await bootstrapOwner(services);
   const project = await services.createProjectUseCase.execute({ name: "Done", mission: "m" }, owner.actor);
   const other = await services.createProjectUseCase.execute({ name: "Other", mission: "m" }, owner.actor);
   const member = await invite(services, owner.actor, project.id, "member@example.com", "viewer");
   await invite(services, owner.actor, other.id, "existing@example.com", "viewer");
-  const forNew = await services.createProjectInvitationUseCase.execute(owner.actor, project.id, { email: "new@example.com", role: "editor" });
-  const forExisting = await services.createProjectInvitationUseCase.execute(owner.actor, project.id, {
+  const forNew = await services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, project.id), { email: "new@example.com", role: "editor" });
+  const forExisting = await services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, project.id), {
     email: "existing@example.com",
     role: "editor",
   });
-  await services.archiveProjectUseCase.execute(project.id, { reason: "done" });
+  await services.human.archiveWorkspace.execute(owner.actor, project.workspaceId, { reason: "done" });
   const rowsBefore = await countRows(database);
-  const invitationsBefore = await services.listProjectInvitationsUseCase.execute(owner.actor, project.id);
+  const invitationsBefore = await services.listWorkspaceInvitationsUseCase.execute(owner.actor, await workspaceOf(services, project.id));
   const membersBefore = await services.human.listWorkspaceMembers.execute(owner.actor, project.workspaceId);
-  const archived = rejectsWith("CONFLICT", { projectStatus: "archived" });
+  const archived = rejectsWith("CONFLICT", { workspaceStatus: "archived" });
 
   await assert.rejects(
-    services.createProjectInvitationUseCase.execute(owner.actor, project.id, { email: "late@example.com", role: "viewer" }),
+    services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, project.id), { email: "late@example.com", role: "viewer" }),
     archived,
   );
-  await assert.rejects(services.revokeProjectInvitationUseCase.execute(owner.actor, project.id, forNew.invitation.id), archived);
-  // ProjectのarchiveはWorkspaceをarchiveしない。archivedのProjectも同じWorkspace Membershipで参照できる。
+  await assert.rejects(services.revokeWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, project.id), forNew.invitation.id), archived);
+  // archivedのWorkspaceでも同じMembershipでProjectを参照できる。
   assert.equal((await services.humanProjectAuthorizationService.authorize(member.actor, project.id, "project.read")).role, "viewer");
 
-  // 新規Humanはarchive前の招待でも登録しない（理由はProjectの状態を漏らさないnot_allowed）。
+  // 新規Humanはarchive前の招待でも登録しない（状態を漏らさないnot_allowed）。
   const rejected = await services.registerOrLoginHumanUseCase.execute({
     identity: google("new-sub", "new@example.com"),
     invitationToken: forNew.token,
@@ -494,11 +494,11 @@ test("archived Projectでは招待の発行・取消・受諾を拒否し、Memb
   });
   assert.equal(existing.invitation, "invalid");
   assert.deepEqual(await services.human.listWorkspaceMembers.execute(owner.actor, project.workspaceId), membersBefore);
-  assert.deepEqual(await services.listProjectInvitationsUseCase.execute(owner.actor, project.id), invitationsBefore);
+  assert.deepEqual(await services.listWorkspaceInvitationsUseCase.execute(owner.actor, await workspaceOf(services, project.id)), invitationsBefore);
   assert.equal((await countRows(database)).workspace_membership, rowsBefore.workspace_membership);
 
   // active Projectの操作は従来どおり成功する。
-  await services.createProjectInvitationUseCase.execute(owner.actor, other.id, { email: "new@example.com", role: "viewer" });
+  await services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(services, other.id), { email: "new@example.com", role: "viewer" });
   await database.destroy();
 });
 
@@ -510,7 +510,7 @@ test("再起動後もIdentity・Membership・Invitation・Sessionの失効状態
     const owner = await bootstrapOwner(first.services);
     const project = await first.services.createProjectUseCase.execute({ name: "P", mission: "m" }, owner.actor);
     const member = await invite(first.services, owner.actor, project.id, "member@example.com", "editor");
-    const pending = await first.services.createProjectInvitationUseCase.execute(owner.actor, project.id, {
+    const pending = await first.services.createWorkspaceInvitationUseCase.execute(owner.actor, await workspaceOf(first.services, project.id), {
       email: "pending@example.com",
       role: "viewer",
     });
@@ -525,7 +525,7 @@ test("再起動後もIdentity・Membership・Invitation・Sessionの失効状態
     const relogin = await login(services, google("owner-sub", ownerEmail));
     assert.equal(relogin.human.id, owner.human.id);
     assert.equal((await services.humanProjectAuthorizationService.requireProjectRole(member.actor, project.id, "editor")).role, "editor");
-    const invitations = await services.listProjectInvitationsUseCase.execute(owner.actor, project.id);
+    const invitations = await services.listWorkspaceInvitationsUseCase.execute(owner.actor, await workspaceOf(services, project.id));
     assert.deepEqual(
       invitations.map(({ email, status }) => ({ email, status })).sort((a, b) => a.email.localeCompare(b.email)),
       [
@@ -552,13 +552,13 @@ test("登録判定表: 無効なHumanは拒否し、招待・初期ownerの条�
   assert.deepEqual(decideRegistration({ ...base, platformOwnerExists: false }), { kind: "reject", reason: "not_allowed" });
   assert.deepEqual(decideRegistration({ ...base, invitation: { found: false } }), { kind: "reject", reason: "not_allowed" });
   const pending = { found: true as const, status: "pending" as const, expiresAt: 1, email: "a@example.com", alreadyMember: false };
-  assert.deepEqual(decideRegistration({ ...base, invitation: { ...pending, projectArchived: false } }), { kind: "register_invited" });
-  assert.deepEqual(decideRegistration({ ...base, invitation: { ...pending, projectArchived: true } }), {
+  assert.deepEqual(decideRegistration({ ...base, invitation: { ...pending, workspaceArchived: false } }), { kind: "register_invited" });
+  assert.deepEqual(decideRegistration({ ...base, invitation: { ...pending, workspaceArchived: true } }), {
     kind: "reject",
     reason: "not_allowed",
   });
   assert.deepEqual(
-    decideRegistration({ ...base, existingHuman: { id: "h", status: "active" }, invitation: { ...pending, projectArchived: true } }),
+    decideRegistration({ ...base, existingHuman: { id: "h", status: "active" }, invitation: { ...pending, workspaceArchived: true } }),
     { kind: "login", humanUserId: "h", invitation: "invalid" },
   );
 });

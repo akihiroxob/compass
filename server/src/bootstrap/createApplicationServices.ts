@@ -106,7 +106,7 @@ import {
   AuthenticateAccessCredentialUseCase,
   CredentialScopeAuthorization,
   CompleteOidcLoginUseCase,
-  CreateProjectInvitationUseCase,
+  CreateWorkspaceInvitationUseCase,
   GetHumanAuthBootstrapStatusUseCase,
   GetHumanProjectUseCase,
   GrantWorkspaceRoleUseCase,
@@ -125,14 +125,14 @@ import {
   ListAccessCredentialsUseCase,
   ListHumanProjectsUseCase,
   ListProjectGrantsUseCase,
-  ListProjectInvitationsUseCase,
+  ListWorkspaceInvitationsUseCase,
   LocalDevLoginUseCase,
   ProjectAuthorizationService,
   RegisterOrLoginHumanUseCase,
   ResolveHumanSessionUseCase,
   RevokeAccessCredentialUseCase,
   RevokeHumanSessionUseCase,
-  RevokeProjectInvitationUseCase,
+  RevokeWorkspaceInvitationUseCase,
   RevokeProjectRoleUseCase,
   RotateAccessCredentialUseCase,
   RuntimeAuthorizationService,
@@ -140,7 +140,7 @@ import {
   SQLiteHumanAccountRepository,
   SQLiteLoginAttemptRepository,
   SQLiteProjectGrantRepository,
-  SQLiteProjectInvitationRepository,
+  SQLiteWorkspaceInvitationRepository,
   SQLiteWorkspaceMembershipRepository,
   StartOidcLoginUseCase,
   ChangeWorkspaceMemberRoleUseCase,
@@ -427,7 +427,6 @@ export const createApplicationServices = (
   };
   const humanAccountRepository = new SQLiteHumanAccountRepository(
     accessDatabase,
-    accessProjectReaders,
     accessWorkspaceReaders,
     clock,
   );
@@ -442,7 +441,7 @@ export const createApplicationServices = (
     accessProjectReaders(accessDatabase),
     accessWorkspaceReaders(accessDatabase),
   );
-  const projectInvitationRepository = new SQLiteProjectInvitationRepository(accessDatabase, accessProjectReaders, clock);
+  const workspaceInvitationRepository = new SQLiteWorkspaceInvitationRepository(accessDatabase, accessWorkspaceReaders, clock);
   const humanWorkspaceAuthorizationService = new HumanWorkspaceAuthorizationService(workspaceMembershipRepository);
   const credentialScopeAuthorization = new CredentialScopeAuthorization(humanProjectAuthorizationService, humanWorkspaceAuthorizationService);
   const loginAttemptRepository = new SQLiteLoginAttemptRepository(accessDatabase);
@@ -681,18 +680,18 @@ export const createApplicationServices = (
     localDevLoginUseCase: new LocalDevLoginUseCase(registerOrLoginHumanUseCase),
     resolveHumanSessionUseCase: new ResolveHumanSessionUseCase(humanAccountRepository),
     revokeHumanSessionUseCase: new RevokeHumanSessionUseCase(humanAccountRepository),
-    createProjectInvitationUseCase: new CreateProjectInvitationUseCase(
-      humanProjectAuthorizationService,
-      projectInvitationRepository,
+    createWorkspaceInvitationUseCase: new CreateWorkspaceInvitationUseCase(
+      humanWorkspaceAuthorizationService,
+      workspaceInvitationRepository,
       clock,
     ),
-    listProjectInvitationsUseCase: new ListProjectInvitationsUseCase(
-      humanProjectAuthorizationService,
-      projectInvitationRepository,
+    listWorkspaceInvitationsUseCase: new ListWorkspaceInvitationsUseCase(
+      humanWorkspaceAuthorizationService,
+      workspaceInvitationRepository,
     ),
-    revokeProjectInvitationUseCase: new RevokeProjectInvitationUseCase(
-      humanProjectAuthorizationService,
-      projectInvitationRepository,
+    revokeWorkspaceInvitationUseCase: new RevokeWorkspaceInvitationUseCase(
+      humanWorkspaceAuthorizationService,
+      workspaceInvitationRepository,
     ),
   };
   const authorized = <Args extends unknown[], Result>(

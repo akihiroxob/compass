@@ -294,18 +294,19 @@ test(
       const created = await owner.api("POST", "/api/projects", projectInput);
       assert.equal(created.status, 201);
       const projectId = created.json().project.id as string;
+      const workspaceId = created.json().project.workspaceId as string;
       const other = await owner.api("POST", "/api/projects", { name: "Other", mission: "Separate" });
       const otherProjectId = other.json().project.id as string;
       assert.equal((await owner.api("GET", `/api/projects/${projectId}`)).json().myRole, "owner");
 
-      const editorInvite = await owner.api("POST", `/api/projects/${projectId}/invitations`, { email: "Editor@Example.com", role: "editor" });
+      const editorInvite = await owner.api("POST", `/api/workspaces/${workspaceId}/invitations`, { email: "Editor@Example.com", role: "editor" });
       assert.equal(editorInvite.status, 201);
       assert.equal(editorInvite.headers.get("Cache-Control"), "no-store");
-      const viewerInvite = await owner.api("POST", `/api/projects/${projectId}/invitations`, { email: "viewer@example.com", role: "viewer" });
+      const viewerInvite = await owner.api("POST", `/api/workspaces/${workspaceId}/invitations`, { email: "viewer@example.com", role: "viewer" });
       const editorToken = invitationToken(editorInvite);
       const viewerToken = invitationToken(viewerInvite);
       secrets.push(editorToken, viewerToken);
-      const listed = await owner.api("GET", `/api/projects/${projectId}/invitations`);
+      const listed = await owner.api("GET", `/api/workspaces/${workspaceId}/invitations`);
       assert.equal(listed.text.includes(editorToken), false);
 
       // 招待tokenだけでは受諾できない（OIDCで検証したemailと照合する）。
@@ -332,13 +333,13 @@ test(
 
       // --- Role別操作（application層の権限表。UI非表示ではなくserverが拒否する）
       // 招待の受諾で所属WorkspaceのMembershipになり、WorkspaceのDirectionと配下Projectを同じRoleで操作する（ADR 0003）。
-      const workspaceId = (await editor.api("GET", `/api/projects/${projectId}`)).json().project.workspaceId as string;
+      assert.equal((await editor.api("GET", `/api/projects/${projectId}`)).json().project.workspaceId, workspaceId);
       assert.deepEqual((await editor.api("GET", "/api/projects")).json().projects.map((project: { id: string }) => project.id), [projectId]);
       assert.equal((await editor.api("GET", `/api/projects/${projectId}`)).json().myRole, "editor");
       const intent = await editor.api("POST", `/api/workspaces/${workspaceId}/intents`, { title: "Ship auth", desiredState: "Humans sign in" });
       assert.equal(intent.status, 201);
       assert.equal((await editor.api("PATCH", `/api/projects/${projectId}`, { mission: "Hijacked" })).status, 403);
-      assert.equal((await editor.api("POST", `/api/projects/${projectId}/invitations`, { email: "x@example.com", role: "owner" })).status, 403);
+      assert.equal((await editor.api("POST", `/api/workspaces/${workspaceId}/invitations`, { email: "x@example.com", role: "owner" })).status, 403);
       assert.equal((await editor.api("GET", `/api/projects/${otherProjectId}`)).status, 404);
       assert.equal((await editor.api("GET", `/api/projects/${crypto.randomUUID()}`)).status, 404);
       const membersPath = `/api/workspaces/${workspaceId}/members`;
@@ -354,15 +355,43 @@ test(
       const ownerMembership = members.find((member) => member.human.email === ownerEmail)!.membership.id;
       assert.equal((await owner.api("DELETE", `${membersPath}/${ownerMembership}`)).json().error.conflict, "LAST_OWNER");
 
+      // --- Projectが一つもないWorkspaceへの招待・参加。参加の前後に作るProjectへ同じRoleを適用する。
+      const emptyWorkspace = await owner.api("POST", "/api/workspaces", { name: "No projects", mission: "Invite first" });
+      assert.equal(emptyWorkspace.status, 201);
+      const emptyId = emptyWorkspace.json().workspace.id as string;
+      assert.equal((await owner.api("GET", `/api/workspaces/${emptyId}/projects`)).json().projects.length, 0);
+      const firstInvite = await owner.api("POST", `/api/workspaces/${emptyId}/invitations`, { email: "first@example.com", role: "editor" });
+      assert.equal(firstInvite.status, 201);
+      assert.equal(firstInvite.json().invitation.workspaceId, emptyId);
+      assert.equal("projectId" in firstInvite.json().invitation, false);
+      const firstToken = invitationToken(firstInvite);
+      secrets.push(firstToken);
+      const firstHuman = browser();
+      assert.equal((await loginWithGoogle(firstHuman, fixture, { subject: "first-sub", email: "first@example.com" }, { form: { invitationToken: firstToken } })).location, "/");
+      secrets.push(firstHuman.session()!);
+      assert.equal((await firstHuman.api("GET", `/api/workspaces/${emptyId}`)).json().myRole, "editor");
+      for (const name of ["First", "Second"]) {
+        const added = await owner.api("POST", `/api/workspaces/${emptyId}/projects`, { name });
+        assert.equal(added.status, 201);
+        assert.equal((await firstHuman.api("GET", `/api/projects/${added.json().project.id}`)).json().myRole, "editor");
+      }
+      assert.equal((await firstHuman.api("GET", `/api/workspaces/${emptyId}/projects`)).json().projects.length, 2);
+      const firstMembers = (await owner.api("GET", `/api/workspaces/${emptyId}/members`)).json().members;
+      await loginWithGoogle(firstHuman, fixture, { subject: "first-sub", email: "first@example.com" }, { form: { invitationToken: firstToken } });
+      secrets.push(firstHuman.session()!);
+      assert.equal((await owner.api("GET", `/api/workspaces/${emptyId}/members`)).json().members.length, firstMembers.length);
+      // Project単位の旧招待入口は公開しない。
+      assert.equal((await owner.api("POST", `/api/projects/${projectId}/invitations`, { email: "legacy@example.com", role: "viewer" })).status, 404);
+
       // --- 招待の取消・期限切れ・再発行・並行発行
-      const revokedInvite = await owner.api("POST", `/api/projects/${projectId}/invitations`, { email: "revoked@example.com", role: "viewer" });
+      const revokedInvite = await owner.api("POST", `/api/workspaces/${workspaceId}/invitations`, { email: "revoked@example.com", role: "viewer" });
       secrets.push(invitationToken(revokedInvite));
-      await owner.api("DELETE", `/api/projects/${projectId}/invitations/${revokedInvite.json().invitation.id}`);
+      await owner.api("DELETE", `/api/workspaces/${workspaceId}/invitations/${revokedInvite.json().invitation.id}`);
       assert.equal(
         (await loginWithGoogle(browser(), fixture, { subject: "revoked-sub", email: "revoked@example.com" }, { form: { invitationToken: invitationToken(revokedInvite) } })).location,
         "/login?error=not_allowed",
       );
-      const lateInvite = await owner.api("POST", `/api/projects/${projectId}/invitations`, { email: "late@example.com", role: "viewer", expiresInHours: 1 });
+      const lateInvite = await owner.api("POST", `/api/workspaces/${workspaceId}/invitations`, { email: "late@example.com", role: "viewer", expiresInHours: 1 });
       secrets.push(invitationToken(lateInvite));
       const usersBeforeExpired = await count(server.database, "human_user");
       clock.now += 60 * 60 * 1000 + 1;
@@ -371,7 +400,7 @@ test(
         "/login?error=invitation_expired",
       );
       assert.equal(await count(server.database, "human_user"), usersBeforeExpired);
-      const reissued = await owner.api("POST", `/api/projects/${projectId}/invitations`, { email: "late@example.com", role: "viewer" });
+      const reissued = await owner.api("POST", `/api/workspaces/${workspaceId}/invitations`, { email: "late@example.com", role: "viewer" });
       assert.equal(reissued.status, 201);
       secrets.push(invitationToken(reissued));
       assert.equal(
@@ -379,8 +408,8 @@ test(
         "/login?error=not_allowed",
       );
       const concurrent = await Promise.all([
-        owner.api("POST", `/api/projects/${projectId}/invitations`, { email: "dup@example.com", role: "viewer" }),
-        owner.api("POST", `/api/projects/${projectId}/invitations`, { email: "dup@example.com", role: "viewer" }),
+        owner.api("POST", `/api/workspaces/${workspaceId}/invitations`, { email: "dup@example.com", role: "viewer" }),
+        owner.api("POST", `/api/workspaces/${workspaceId}/invitations`, { email: "dup@example.com", role: "viewer" }),
       ]);
       assert.deepEqual(concurrent.map((response) => response.status).sort(), [201, 409]);
       assert.equal(concurrent.find((response) => response.status === 409)!.json().error.conflict, "INVITATION_PENDING");
@@ -417,7 +446,7 @@ test(
       assert.equal((await ownerAgain.restoreSession()).status, 200);
       assert.equal((await owner.restoreSession()).status, 401);
       assert.equal((await viewer.api("GET", `/api/projects/${projectId}`)).status, 401);
-      const invitations = (await ownerAgain.api("GET", `/api/projects/${projectId}/invitations`)).json().invitations as { email: string; status: string }[];
+      const invitations = (await ownerAgain.api("GET", `/api/workspaces/${workspaceId}/invitations`)).json().invitations as { email: string; status: string }[];
       assert.deepEqual(
         invitations.filter((invitation) => invitation.email === "late@example.com").map((invitation) => invitation.status).sort(),
         ["pending", "revoked"],
@@ -426,7 +455,7 @@ test(
       await loginWithGoogle(editorAgain, fixture, { subject: "editor-sub", email: "editor@example.com" });
       secrets.push(editorAgain.session()!);
       assert.equal((await editorAgain.api("GET", `/api/workspaces/${workspaceId}/intents`)).json().intents.length, 1);
-      assert.equal(await count(server.database, "human_user"), 3, "owner・editor・viewer以外のHumanを作らない");
+      assert.equal(await count(server.database, "human_user"), 4, "owner・editor・viewer・Projectなしで参加したHuman以外を作らない");
 
       // --- /mcp: 匿名はRole文書だけ、Human向けCommandは未知tool、Agent名だけのBearerは401
       const tools = await mcp(server.baseUrl, "tools/list", {});
@@ -450,7 +479,7 @@ test(
         body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
       });
       assert.match(await withCookie.text(), /^(?!.*"create_project").*get_role_instructions/s);
-      assert.equal(await count(server.database, "project"), 2);
+      assert.equal(await count(server.database, "project"), 4);
 
       // --- HTML（SPA）とログイン拒否画面の応答
       for (const page of ["/", "/login?error=not_allowed", "/invite"]) {

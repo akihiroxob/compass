@@ -24,7 +24,7 @@ export type Member = { membership: Membership; human: { id: string; displayName:
 export type InvitationStatus = "pending" | "accepted" | "revoked";
 export type Invitation = {
   id: string;
-  projectId: string;
+  workspaceId: string;
   email: string;
   role: HumanRole;
   status: InvitationStatus;
@@ -37,9 +37,9 @@ export type InvitationResponse = { invitation: Invitation; invitationUrl: string
 
 export const workspaceMembersPath = (workspaceId: string, membershipId?: string) =>
   `/api/workspaces/${workspaceId}/members${membershipId ? `/${membershipId}` : ""}`;
-/** Projectから発行する招待。受諾すると所属WorkspaceのMembershipになる。 */
-export const invitationsPath = (projectId: string, invitationId?: string) =>
-  `/api/projects/${projectId}/invitations${invitationId ? `/${invitationId}` : ""}`;
+/** Workspaceから発行する招待。配下Projectに個別の参加は不要。 */
+export const invitationsPath = (workspaceId: string, invitationId?: string) =>
+  `/api/workspaces/${workspaceId}/invitations${invitationId ? `/${invitationId}` : ""}`;
 
 const jsonRequest = (method: string, body: unknown): RequestInit => ({
   method,
@@ -71,8 +71,8 @@ export const invitationDisplayStatus = (invitation: Pick<Invitation, "status" | 
 export const invitationStatusTones: Record<InvitationDisplayStatus, StatusTone> = { pending: "waiting", accepted: "done", revoked: "muted", expired: "warning" };
 
 export const invitationStatusLabels: Record<InvitationDisplayStatus, string> = {
-  pending: "受諾待ち",
-  accepted: "受諾済み",
+  pending: "招待中（未参加）",
+  accepted: "参加済み",
   revoked: "取消済み",
   expired: "期限切れ",
 };

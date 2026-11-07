@@ -112,7 +112,7 @@ Web UI:
 既存DBを使わず、新しい専用ディレクトリの`COMPASS_DB_PATH`、loopbackの`COMPASS_PUBLIC_ORIGIN`と`PORT`、`COMPASS_AUTH_MODE=trusted-local`、`COMPASS_INITIAL_OWNER_EMAIL`を設定してbuild後のserverを起動する。開発用WachaのMCPとは接続先を分ける。
 
 1. 初期ownerが開発用ログインし、Web UIまたはSession・CSRF付きWeb APIでWorkspace（`POST /api/workspaces`）、Project（`POST /api/workspaces/:workspaceId/projects`）を作成する。
-2. ownerがProjectの招待（`POST /api/projects/:projectId/invitations`）をadministrator・editor・viewerへ発行し、それぞれ別ブラウザContextで招待リンクからログイン・受諾する。未所属Humanは別Projectの招待で用意する。Workspace MembershipはProjectから継承しない。
+2. ownerがWorkspaceの招待（`POST /api/workspaces/:workspaceId/invitations`）をadministrator・editor・viewerへ発行し、それぞれ別ブラウザContextで招待リンクからログイン・受諾する。未所属Humanは別Workspaceの招待で用意する。HumanのRoleはWorkspaceと配下の全Projectに同じく適用する。
 3. ownerがProjectのGrant（`POST /api/projects/:projectId/grants`）を別Principalのworker・reviewer・managerへ付与する。専用originの`/mcp`でBearer Principalと`X-Compass-Active-Role`を指定する。
 4. workerが`create_consultation`で質問・選択肢・推奨・影響を登録する。HumanがProjectの「判断待ち」から詳細を開き、editorが通常返信する。managerが詳細を読み、現在の版のleaseを取得し、HumanのMessageを根拠に`resolve_consultation`で結論を整理する。
 5. 再読込・同schemaでのserver再起動後に会話と結論が保持され、`agent_summary`とHumanの発言が区別されることを確認する。Humanの明示決定はadministratorのWeb UIから別相談で確認する。

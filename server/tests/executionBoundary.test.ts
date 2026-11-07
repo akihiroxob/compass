@@ -46,7 +46,7 @@ const accessTables = [
   "human_identity",
   "web_session",
   "auth_login_attempt",
-  "project_invitation",
+  "workspace_invitation",
   "access_credential",
   "agent_run",
   "workspace_membership",

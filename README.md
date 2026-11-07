@@ -52,7 +52,7 @@ npm start
 
 公開originはhttps必須で、TLSは前段のproxy等で終端します。proxyはOriginとCookieを転送してください。必須設定が欠けると起動を拒否します。
 
-登録は招待制です。初期ownerがログインした後、Projectの「設定」の招待欄から所属Workspaceのownerが招待を発行し、表示されたリンクを相手へ渡します。メール送信は行いません。相手は招待先emailのGoogleアカウントでログインし、そのWorkspaceのMemberになって配下のすべてのProjectを招待のRoleで利用します。MemberのRole変更・除外はWorkspaceの「設定」で行います。platform ownerにWorkspace Membershipを迂回する権限はありません。
+登録は招待制です。初期ownerがログインした後、Workspaceの「設定」の招待欄からWorkspaceのownerが招待を発行し、表示されたリンクを相手へ渡します。メール送信は行いません。相手は招待先emailのGoogleアカウントでログインし、そのWorkspaceのMemberになって配下のすべてのProjectを招待のRoleで利用します。MemberのRole変更・除外はWorkspaceの「設定」で行います。platform ownerにWorkspace Membershipを迂回する権限はありません。
 
 Sessionは発行から7日または無操作24時間で失効します。secretはリポジトリへ保存しません。認証・権限・Cookie・CSRFの詳細は [認証仕様](docs/step-6-human-auth-design.md) を参照してください。
 
@@ -63,7 +63,7 @@ Sessionは発行から7日または無操作24時間で失効します。secret�
 - Workspaceの「記録」でDirectionの判断の履歴、Projectの「記録」でStory・Task等の履歴を確認する。
 - Projectのeditor以上はStory / Taskの手動起票・編集、Taskの受入・差戻し・取消・Commentを行う。Outcome handoff管理下のStory / Taskは直接編集できない。編集は変更前後とともにChange Logへ残り、「最近の変更」で確認できる。
 - Workspaceのadministrator以上はWorkspaceの「設定」でDirection Role（Strategist・Researcher・Evaluator）のGrant・Workspace Credentialを、Projectのadministrator以上はProjectの「設定」でAgent Grant（Manager・Worker・Reviewer）・Project Credentialを管理する。memberの一覧はviewer以上が参照できる。
-- Workspaceのownerは「設定」でmemberの追加・Role変更・取消を、Projectのownerは「設定」でMember招待・Role変更・取消を行う。Workspace / Projectのarchiveもそれぞれのownerだけが行う。WorkspaceとProjectの権限は互いに継承しない。
+- Workspaceのownerは「設定」でHumanの招待・Role変更・除外を行う。同じRoleが配下の全Projectにも適用される。Workspace / ProjectのarchiveはWorkspaceのownerだけが行う。AgentのWorkspace / Project Grantは互いに継承しない。
 
 archived Workspace / Projectは参照専用です。WorkspaceのarchiveはSelectorの一覧から外し、所属Projectをarchiveしません。Projectのarchiveは所属Workspaceを変えません。復帰・物理削除は提供していません。通常操作にCLIやDBの直接編集は使いません。
 

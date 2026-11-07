@@ -99,7 +99,7 @@ test("最後のowner・招待の重複・取消不可の409を日本語の説明
 test("Membership・招待のrequestはWeb APIと同じpath・本文を使う", () => {
   assert.equal(workspaceMembersPath("w1"), "/api/workspaces/w1/members");
   assert.equal(workspaceMembersPath("w1", "m1"), "/api/workspaces/w1/members/m1");
-  assert.equal(invitationsPath("p1", "i1"), "/api/projects/p1/invitations/i1");
+  assert.equal(invitationsPath("p1", "i1"), "/api/workspaces/p1/invitations/i1");
   assert.equal(changeRoleInit("viewer").method, "PATCH");
   assert.deepEqual(JSON.parse(String(changeRoleInit("viewer").body)), { role: "viewer" });
   const invite = invitationInit("a@example.com", "editor", 24);
