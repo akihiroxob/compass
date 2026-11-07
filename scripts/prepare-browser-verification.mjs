@@ -46,6 +46,7 @@ const database = createDatabase(databasePath);
 const identities = { manager: 'preview-manager', worker: 'preview-worker', reviewer: 'preview-reviewer', strategist: 'preview-strategist', evaluator: 'preview-evaluator' };
 const viewerEmail = 'preview-viewer@example.test';
 let sequence = 0;
+const planIdsOf = (outcome, indexes) => Object.fromEntries(indexes.flatMap((index) => outcome.problems[index].evaluationPlan ? [[outcome.problems[index].id, outcome.problems[index].evaluationPlan.planId]] : []));
 const key = (name) => `preview:${name}:${++sequence}`;
 const scenarios = [];
 // Project and Workspace Consultations reflected in a real document commit through the normal Work flow.
@@ -296,7 +297,7 @@ const prepareReleaseHistory = async (services, owner, app) => {
   const workspace = await services.human.createWorkspace.execute({ name: '[受入] リリース履歴', mission: '開発の受入と公開の確認を別の根拠で辿る' }, owner);
   const intent = await services.workspaceDirection.createIntentUseCase.execute(workspace.id, { title: 'リリース履歴 Intent', desiredState: '変更が公開されたかを根拠から確認できる' });
   const outcome = await services.workspaceDirection.createOutcomeUseCase.execute(workspace.id, intent.id, {
-    title: 'リリース履歴 Outcome', description: '公開状況の表示検証専用。実運用の成果ではない。', rationale: '画面受入の前提データ',
+    title: 'リリース履歴 Outcome', intentVersion: 1, description: '公開状況の表示検証専用。実運用の成果ではない。', rationale: '画面受入の前提データ',
     successCriteria: [{ description: '公開済み・未公開・確認できずを区別できる', measurement: '公開記録と画面を照合する', target: '捏造なし' }] });
   const project = await services.human.createWorkspaceProject.execute(owner, workspace.id, { name: '[受入] リリース履歴 Project',
     repositories: [{ name: 'release-demo', url: 'https://github.com/preview-org/release-demo' }] });
@@ -412,6 +413,14 @@ try {
         { description: 'Target別のStoryとEvidenceを参照できる', measurement: 'Project別の保存データと画面リンクを照合する', target: '全Target' },
         { description: '権限に応じてWorkと編集導線が制限される', measurement: 'ownerとviewerで実API・実画面を比較する', target: '越権なし' },
       ],
+      problems: [
+        { statement: '[検証用] 登録手順の途中で離脱する', evidenceStatus: 'insufficient', solutionHypothesis: '入力項目を減らす',
+          evaluationPlan: { question: '入力を減らすと完了率は上がるか', method: 'ab_test', premises: '利用者を無作為に2群へ割り付けられる', observationPeriod: '公開後2週間', decisionCriteria: '完了率が5pt以上高い', stopCriteria: '離脱が悪化したら中止' } },
+        { statement: '[検証用] 初回の操作が分かりにくい', evidenceStatus: 'insufficient', solutionHypothesis: '案内文を短くする',
+          evaluationPlan: { question: '案内文を短くすると迷わず操作できるか', method: 'cognitive_walkthrough', decisionCriteria: '手順の各段階で次の操作が分かる' } },
+        { statement: '[検証用] 公開後の継続利用が増えない', evidenceStatus: 'insufficient', solutionHypothesis: '通知の頻度を調整する',
+          evaluationPlan: { question: '通知を調整すると継続利用は増えるか', method: 'quantitative_observation', observationPeriod: '公開後4週間', decisionCriteria: '週次の継続利用率が上がる' } },
+      ],
     });
     const entry = { scenario, workspaceId: workspace.id, intentId: intent.id, outcomeId: outcome.id, projects: [], work: [],
       paths: { direction: `/workspaces/${workspace.id}/direction`, outcome: `/workspaces/${workspace.id}/direction/intents/${intent.id}/outcomes/${outcome.id}` } };
@@ -436,7 +445,10 @@ try {
         runRef: 'browser-preview-fixture', conclusion: 'Projectごとの根拠を辿って表示を検証する', findingIds: result.findings.map(({ id }) => id), validAsOf: Date.now() - 1_000 });
       await direction.completeResearchRequestUseCase.execute(workspace.id, request.id, { conclusion: 'completed' });
       const evidenceIds = entry.work.flatMap(({ evidenceIds }) => evidenceIds);
-      const saved = await direction.recordOutcomeEvaluationUseCase.execute(workspace.id, identities.evaluator, outcome.id, { requestKey: key('evaluation'), runRef: 'browser-preview-fixture',
+      await direction.recordOutcomeEvaluationUseCase.execute(workspace.id, identities.evaluator, outcome.id, { requestKey: key('evaluation-insufficient'), runRef: 'browser-preview-fixture',
+        method: 'cognitive_walkthrough', targetVersion: 'browser-preview-fixture', limitations: '設計の点検のみ。実ユーザーは観測していない。', problemIds: [outcome.problems[1].id], planIds: planIdsOf(outcome, [1]),
+        criteria: outcome.successCriteria.map((criterion) => ({ criterionId: criterion.id, verdict: 'insufficient_evidence', rationale: '実ユーザーの観測が無く判断できない', evidenceIds: [] })) });
+      const saved = await direction.recordOutcomeEvaluationUseCase.execute(workspace.id, identities.evaluator, outcome.id, { requestKey: key('evaluation'), runRef: 'browser-preview-fixture', method: 'quantitative_observation', targetVersion: 'browser-preview-fixture', limitations: '専用fixtureの保存済み参照だけを根拠にした表示確認', problemIds: [outcome.problems[0].id], planIds: planIdsOf(outcome, [0]),
         criteria: outcome.successCriteria.map((criterion, index) => ({ criterionId: criterion.id, verdict: index === 0 ? 'met' : 'not_met',
           rationale: index === 0 ? '専用fixtureの保存済み参照' : '比較表示用の未充足判定。製品の不具合判定ではない。', evidenceIds })) });
       const decision = await direction.createDirectionDecisionUseCase.execute(workspace.id, identities.strategist, { intentId: intent.id, evaluationId: saved.evaluation.id,

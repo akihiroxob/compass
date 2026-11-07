@@ -334,7 +334,7 @@ const runEvaluator = async (connection: Connection, tokens: Tokens, workspaceId:
         ? { criterionId: criterion.id, verdict: "met", rationale: `Observed ${kind} evidence`, evidenceIds: matched }
         : { criterionId: criterion.id, verdict: "insufficient_evidence", rationale: "No evidence can observe this criterion", evidenceIds: [] };
     });
-    const recorded = await call("record_outcome_evaluation", { workspaceId, outcomeId, requestKey, runRef: `evaluator:${requestKey}`, criteria });
+    const recorded = await call("record_outcome_evaluation", { workspaceId, outcomeId, requestKey, runRef: `evaluator:${requestKey}`, method: "quantitative_observation", targetVersion: "test-version", limitations: "テスト用の観測", criteria });
     return recorded.evaluation as Json;
   });
 

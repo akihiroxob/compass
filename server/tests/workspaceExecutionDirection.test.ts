@@ -60,7 +60,7 @@ const setup = async (path = ":memory:") => {
 };
 
 const judgment = (outcome: { successCriteria: readonly { id: string }[] }, evidenceId: string, requestKey = "evaluation") => ({
-  requestKey, runRef: "test-run", criteria: [{ criterionId: outcome.successCriteria[0]!.id, verdict: "met", rationale: "Observed", evidenceIds: [evidenceId] }],
+  requestKey, runRef: "test-run", method: "quantitative_observation", targetVersion: "test-version", limitations: "テスト用の観測", criteria: [{ criterionId: outcome.successCriteria[0]!.id, verdict: "met", rationale: "Observed", evidenceIds: [evidenceId] }],
 });
 
 test("Workspace execution storage isolates each Project's cursor and Evidence and rejects cross-scope writes", async () => {

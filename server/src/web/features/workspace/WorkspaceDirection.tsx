@@ -21,7 +21,7 @@ import {
 } from "../direction";
 import { EvidenceList, executionPath, executionStateLabels, formatTime, StoryList, verdictLabels, verdictTones, type ExecutionOverview, type OutcomeExecutionRecord } from "../execution";
 import { IntentEmpty, IntentFacts, IntentRevisions, intentStatusLabels } from "../intent";
-import { EvaluationCard, OutcomeProblems, isReplanTarget, outcomeStatusLabels, replanNote, type Outcome } from "../outcome";
+import { EvaluationCard, OutcomeProblems, isReplanTarget, outcomeStatusLabels, problemLabelOf, replanNote, type Outcome } from "../outcome";
 import { openProjects, ProjectName, TargetRow } from "./WorkspaceOverview";
 import type { OverviewProject } from "./workspaceProjects";
 import { LinkButton } from "../../components/ui";
@@ -164,7 +164,7 @@ export const WorkspaceOutcomeDetail = ({ workspaceId, data, projects, canEdit }:
           </div>
         ) : <p className="locked-note">Intentの詳細（Research・Direction Decision）とOutcomeの取消はProjectの画面から開きます。開けるProjectがありません。</p>}
       </section>
-      <OutcomeProblems problems={outcome.problems} evidenceTo={(requestId) => (openProject ? researchRequestPath(openProject, requestId) : null)} />
+      <OutcomeProblems problems={outcome.problems} evidenceTo={(requestId) => (openProject ? researchRequestPath(openProject, requestId) : null)} evaluations={evaluations.ok ? evaluations.value : null} />
       <section className="detail-section" aria-labelledby="workspace-criteria-heading">
         <h2 id="workspace-criteria-heading">成功条件</h2>
         <p className="section-note">判定は最新のEvaluationの結果です。根拠とEvidenceは下の「Evaluation」で確認します。</p>
@@ -196,7 +196,7 @@ export const WorkspaceOutcomeDetail = ({ workspaceId, data, projects, canEdit }:
         <h2 id="workspace-evaluation-heading">Evaluation</h2>
         <p className="section-note">EvaluatorがTarget Projectの還流とEvidenceから成功条件ごとに評価した記録と、それを根拠にしたStrategistの判断です。</p>
         {!evaluations.ok ? <ErrorState message={`Evaluationの読み込みに失敗しました: ${evaluations.error}`} /> : !decisions.ok ? <ErrorState message={`Direction Decisionの読み込みに失敗しました: ${decisions.error}`} /> : evaluations.value.length === 0 ? <p className="unset">未評価です</p> : (
-          evaluations.value.map((evaluation) => <EvaluationCard key={evaluation.id} evaluation={evaluation} decisions={decisions.value.filter((decision) => decision.evaluationId === evaluation.id)} projectLabel={projectLabel} />)
+          evaluations.value.map((evaluation) => <EvaluationCard key={evaluation.id} evaluation={evaluation} decisions={decisions.value.filter((decision) => decision.evaluationId === evaluation.id)} projectLabel={projectLabel} problemLabel={(id) => problemLabelOf(outcome.problems, id)} />)
         )}
       </section>
     </>

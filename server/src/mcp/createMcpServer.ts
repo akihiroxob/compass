@@ -77,6 +77,17 @@ const outcomeProblemInput = z.object({
   observation: z.string().nullable().optional(),
   causeHypothesis: z.string().nullable().optional(),
   solutionHypothesis: z.string().nullable().optional(),
+  evaluationPlan: z
+    .object({
+      question: z.string(),
+      method: z.enum(["cognitive_walkthrough", "quantitative_observation", "ab_test", "difference_in_differences", "other"]),
+      premises: z.string().nullable().optional(),
+      observationPeriod: z.string().nullable().optional(),
+      decisionCriteria: z.string(),
+      stopCriteria: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
   evidence: z.array(z.object({ kind: z.enum(["research_finding", "research_synthesis"]), id: z.string() })).optional(),
 });
 
@@ -84,7 +95,10 @@ const outcomeProblemsDescription =
   "problems lists the problems (Problem Statements) that block this Outcome, each with statement (up to 500 characters), " +
   "evidenceStatus (insufficient | observed | refuted), observation (the observed fact), causeHypothesis (a hypothesis about the cause; " +
   "an observation such as drop-off does not confirm the cause), solutionHypothesis, and evidence (research_finding / research_synthesis " +
-  "ids of the same Workspace; up to 10). observed and refuted require observation and at least one evidence reference. Up to 10 problems. " +
+  "ids of the same Workspace; up to 10), and an optional evaluationPlan { question, method (cognitive_walkthrough | quantitative_observation | ab_test | difference_in_differences | other), " +
+  "premises (required for ab_test and difference_in_differences: how the method's assumptions are met), observationPeriod, decisionCriteria, stopCriteria }. " +
+  "A plan is not a result: it stays not run until an Evaluation names the problem in problemIds while that plan is current. The server assigns a planId that changes when a plan is added or its content changes; an Evaluation names the planId it evaluated in planIds, so results of an earlier plan never mark the changed plan as run. Compass runs no statistical analysis. " +
+  "observed and refuted require observation and at least one evidence reference. Up to 10 problems. " +
   "Evidence of another Workspace fails with VALIDATION_ERROR; newly linking a Synthesis superseded by a later version fails with CONFLICT. " +
   "Development blockers of Tasks are not problems.";
 
@@ -234,6 +248,11 @@ const outcomeEvaluationSchema = {
   outcomeId: z.string().min(1),
   requestKey: z.string(),
   runRef: z.string(),
+  method: z.string(),
+  targetVersion: z.string(),
+  limitations: z.string(),
+  problemIds: z.array(z.string()).optional(),
+  planIds: z.record(z.string(), z.string()).optional(),
   criteria: z.array(
     z.object({
       criterionId: z.string(),
@@ -1218,7 +1237,10 @@ export const createMcpServer = (
     {
       title: "Record Outcome Evaluation",
       description:
-        "Save an Evaluation of an active Outcome: one judgment per fixed Success Criterion (every Criterion exactly once) with " +
+        "Save an Evaluation of an active Outcome. method (cognitive_walkthrough | quantitative_observation | ab_test | difference_in_differences | other), " +
+        "targetVersion (the commit SHA or release evaluated) and limitations (sample, period, method constraints) are required; problemIds optionally names the " +
+        "Outcome's problems[].id it evaluates, and planIds maps each such problem id to the evaluationPlan.planId you read (required for a problem that has a plan; a plan changed since then fails with CONFLICT evaluation_plan_changed, so re-read the Outcome). A cognitive_walkthrough inspects the design and is not evidence from real users, so it cannot judge a Criterion met (VALIDATION_ERROR). " +
+        "Task acceptance or publication is not an effect: without observed Evidence record insufficient_evidence. One judgment per fixed Success Criterion (every Criterion exactly once) with " +
         "verdict met | not_met | insufficient_evidence, a rationale, and evidenceIds (ids from get_evaluator_context's " +
         "targets[].execution.evidence of any Target Project). met and not_met require at least one evidenceId; use insufficient_evidence when the Evidence could not " +
         "be observed - never guess success or failure. The overall result is derived by Compass, not sent: achieved only when every " +

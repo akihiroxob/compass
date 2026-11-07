@@ -137,6 +137,13 @@ const linkFieldLabels: Record<string, string> = {
   observation: "観測",
   causeHypothesis: "原因の仮説",
   solutionHypothesis: "解決策の仮説",
+  evaluationPlan: "評価計画",
+  question: "問い",
+  method: "評価方法",
+  premises: "適用前提",
+  observationPeriod: "観測期間",
+  decisionCriteria: "判断条件",
+  stopCriteria: "中止条件",
   evidence: "根拠",
 };
 

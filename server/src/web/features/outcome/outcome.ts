@@ -31,6 +31,56 @@ export const problemEvidenceKindLabels: Record<ProblemEvidenceKind, string> = {
 /** 課題の根拠参照。`summary`・`requestId`・`superseded`はserverが参照先から解決した値。 */
 export type ProblemEvidence = { kind: ProblemEvidenceKind; id: string; requestId: string; summary: string; superseded: boolean };
 
+/** 評価方法。serverの`evaluationMethods`と同じ値。 */
+export const evaluationMethods = ["cognitive_walkthrough", "quantitative_observation", "ab_test", "difference_in_differences", "other"] as const;
+export type EvaluationMethod = (typeof evaluationMethods)[number];
+
+export const evaluationMethodLabels: Record<EvaluationMethod, string> = {
+  cognitive_walkthrough: "認知的ウォークスルー（設計の点検）",
+  quantitative_observation: "定量観測",
+  ab_test: "A/Bテスト",
+  difference_in_differences: "差分の差分法",
+  other: "その他",
+};
+
+/** 因果を主張する方法。適用前提の記載が必須（serverと同じ規則）。統計解析はCompassでは行わない。 */
+export const causalEvaluationMethods: readonly EvaluationMethod[] = ["ab_test", "difference_in_differences"];
+
+/** 課題・解決策の仮説に付ける評価計画。計画は結果ではなく、実施状況は評価（Evaluation）の有無で決まる。 */
+export type EvaluationPlan = {
+  /** 計画の内容を識別するサーバー採番のID。内容を変えると新しくなる。 */
+  planId: string;
+  question: string;
+  method: EvaluationMethod;
+  premises: string | null;
+  observationPeriod: string | null;
+  decisionCriteria: string;
+  stopCriteria: string | null;
+};
+
+export type EvaluationPlanFormValues = { question: string; method: EvaluationMethod; premises: string; observationPeriod: string; decisionCriteria: string; stopCriteria: string };
+
+export const emptyEvaluationPlan: EvaluationPlanFormValues = { question: "", method: "quantitative_observation", premises: "", observationPeriod: "", decisionCriteria: "", stopCriteria: "" };
+
+/** 評価が対象にした課題の表示名。課題が現在のOutcomeに無ければnull（idをそのまま出す）。 */
+export const problemLabelOf = (problems: readonly { id: string; statement: string }[], id: string): string | null => {
+  const index = problems.findIndex((problem) => problem.id === id);
+  return index < 0 ? null : `課題 ${index + 1}: ${problems[index]!.statement}`;
+};
+
+export type PlanEvaluationRef = { problemIds: readonly string[]; problemPlans: readonly { problemId: string; planId: string }[] };
+
+/**
+ * 現在の評価計画の実施状況。現在の計画（`planId`）を対象にした評価があるときだけ`run`。
+ * 計画が追加・変更される前の評価だけがある場合は`previous_only`（過去の計画への結果で、現在の計画は未実施）。
+ */
+export const planRunState = (problem: { id: string; evaluationPlan: { planId: string } | null }, evaluations: readonly PlanEvaluationRef[]): "not_run" | "previous_only" | "run" => {
+  if (problem.evaluationPlan === null) return "not_run";
+  const planId = problem.evaluationPlan.planId;
+  if (evaluations.some((evaluation) => evaluation.problemPlans.some((ref) => ref.problemId === problem.id && ref.planId === planId))) return "run";
+  return evaluations.some((evaluation) => evaluation.problemIds.includes(problem.id)) ? "previous_only" : "not_run";
+};
+
 /** Outcomeの変化を妨げる課題。開発上の障害（Taskの停止等）は含まない。原因は常に仮説として扱う。 */
 export type OutcomeProblem = {
   id: string;
@@ -41,6 +91,7 @@ export type OutcomeProblem = {
   observation: string | null;
   causeHypothesis: string | null;
   solutionHypothesis: string | null;
+  evaluationPlan: EvaluationPlan | null;
   evidence: ProblemEvidence[];
 };
 
@@ -78,6 +129,8 @@ export type ProblemFormValues = {
   observation: string;
   causeHypothesis: string;
   solutionHypothesis: string;
+  /** 評価計画。未記録はnull。 */
+  evaluationPlan: EvaluationPlanFormValues | null;
   evidence: EvidenceFormValue[];
 };
 
@@ -94,7 +147,7 @@ export type OutcomeFormValues = {
 export const maxOutcomeProblems = 10;
 export const maxProblemEvidence = 10;
 
-export const emptyProblem: ProblemFormValues = { statement: "", evidenceStatus: "insufficient", observation: "", causeHypothesis: "", solutionHypothesis: "", evidence: [] };
+export const emptyProblem: ProblemFormValues = { statement: "", evidenceStatus: "insufficient", observation: "", causeHypothesis: "", solutionHypothesis: "", evaluationPlan: null, evidence: [] };
 
 /** 観測済み・反証は、観測内容と根拠参照が必須（serverと同じ規則）。 */
 export const problemNeedsEvidence = (status: ProblemEvidenceStatus) => status !== "insufficient";
@@ -108,6 +161,14 @@ export const problemsInput = (problems: ProblemFormValues[]) =>
     observation: problem.observation || null,
     causeHypothesis: problem.causeHypothesis || null,
     solutionHypothesis: problem.solutionHypothesis || null,
+    evaluationPlan: problem.evaluationPlan && {
+      question: problem.evaluationPlan.question,
+      method: problem.evaluationPlan.method,
+      premises: problem.evaluationPlan.premises || null,
+      observationPeriod: problem.evaluationPlan.observationPeriod || null,
+      decisionCriteria: problem.evaluationPlan.decisionCriteria,
+      stopCriteria: problem.evaluationPlan.stopCriteria || null,
+    },
     evidence: problem.evidence.map(({ kind, id }) => ({ kind, id })),
   }));
 
@@ -147,6 +208,14 @@ export const formValuesFromOutcome = (outcome: Outcome): OutcomeFormValues => ({
     observation: problem.observation ?? "",
     causeHypothesis: problem.causeHypothesis ?? "",
     solutionHypothesis: problem.solutionHypothesis ?? "",
+    evaluationPlan: problem.evaluationPlan && {
+      question: problem.evaluationPlan.question,
+      method: problem.evaluationPlan.method,
+      premises: problem.evaluationPlan.premises ?? "",
+      observationPeriod: problem.evaluationPlan.observationPeriod ?? "",
+      decisionCriteria: problem.evaluationPlan.decisionCriteria,
+      stopCriteria: problem.evaluationPlan.stopCriteria ?? "",
+    },
     evidence: problem.evidence,
   })),
 });

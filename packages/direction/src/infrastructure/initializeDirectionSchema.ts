@@ -586,6 +586,11 @@ const initializeOutcomeEvaluationSchema = async (database: Kysely<DirectionDatab
     .addColumn("result", "text", (column) =>
       column.notNull().check(sql`result in ('achieved', 'failed', 'insufficient_evidence')`),
     )
+    .addColumn("method", "text", (column) => column.notNull())
+    .addColumn("target_version", "text", (column) => column.notNull())
+    .addColumn("limitations", "text", (column) => column.notNull())
+    .addColumn("problem_ids", "text", (column) => column.notNull())
+    .addColumn("problem_plans", "text", (column) => column.notNull())
     .addColumn("criteria", "text", (column) => column.notNull())
     .addColumn("snapshot", "text", (column) => column.notNull())
     .addColumn("principal_id", "text", (column) => column.notNull())
@@ -805,6 +810,7 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     .addColumn("observation", "text")
     .addColumn("cause_hypothesis", "text")
     .addColumn("solution_hypothesis", "text")
+    .addColumn("evaluation_plan", "text")
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addColumn("updated_at", "integer", (column) => column.notNull())
     .execute();

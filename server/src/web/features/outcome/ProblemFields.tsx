@@ -3,7 +3,13 @@ import { fieldProps } from "../../components/FormErrorSummary";
 import { Button, Field, Fieldset, Select, TextArea, TextInput } from "../../components/ui";
 import { evidenceKey, type EvidenceOptionGroup } from "./evidenceOptions";
 import {
+  causalEvaluationMethods,
+  emptyEvaluationPlan,
   emptyProblem,
+  evaluationMethodLabels,
+  evaluationMethods,
+  type EvaluationMethod,
+  type EvaluationPlanFormValues,
   maxOutcomeProblems,
   maxProblemEvidence,
   problemEvidenceKindLabels,
@@ -55,6 +61,41 @@ export const ProblemFields = ({ problems, onChange, invalid, options }: ProblemF
               <Field label="解決策の仮説" description="何をするとこの課題が改善すると考えるか">
                 <TextArea {...fieldProps(invalid, fieldId(`${path}.solutionHypothesis`))} maxLength={2000} rows={3} value={problem.solutionHypothesis} placeholder="例：体験開始に必要な入力を名前とメールだけにする。" onChange={(event) => update(index, { solutionHypothesis: event.target.value })} />
               </Field>
+              <Fieldset legend="評価計画" {...fieldProps(invalid, fieldId(`${path}.evaluationPlan`))}>
+                {problem.evaluationPlan === null ? <p className="unset">評価計画はまだありません。計画は結果ではなく、実施するまで「未実施」と表示されます。</p> : (() => {
+                  const plan = problem.evaluationPlan;
+                  const changePlan = (changes: Partial<EvaluationPlanFormValues>) => update(index, { evaluationPlan: { ...plan, ...changes } });
+                  const causal = causalEvaluationMethods.includes(plan.method);
+                  const planPath = `${path}.evaluationPlan`;
+                  return (
+                    <div className="problem-row">
+                      <Field label="確かめたい問い" required>
+                        <TextInput {...fieldProps(invalid, fieldId(`${planPath}.question`))} required maxLength={500} value={plan.question} placeholder="例：入力項目を減らすと、登録手順の完了率は上がるか。" onChange={(event) => changePlan({ question: event.target.value })} />
+                      </Field>
+                      <Field label="評価方法" required description={plan.method === "cognitive_walkthrough" ? "設計の点検です。実ユーザーの証拠にはならず、成功条件を満たしたとは判定できません。" : "統計解析はCompassでは行いません。実施した結果と限界を評価に記録します。"}>
+                        <Select {...fieldProps(invalid, fieldId(`${planPath}.method`))} required value={plan.method} onChange={(event) => changePlan({ method: event.target.value as EvaluationMethod })}>
+                          {evaluationMethods.map((method) => <option key={method} value={method}>{evaluationMethodLabels[method]}</option>)}
+                        </Select>
+                      </Field>
+                      <Field label="適用前提" required={causal} description={causal ? "無作為割付・比較群・介入前の推移など、この方法の前提をどう満たすか。" : "任意。前提や制約があれば書きます。"}>
+                        <TextArea {...fieldProps(invalid, fieldId(`${planPath}.premises`))} required={causal} maxLength={2000} rows={2} value={plan.premises} onChange={(event) => changePlan({ premises: event.target.value })} />
+                      </Field>
+                      <Field label="観測期間" description="任意（例：公開後2週間）">
+                        <TextInput {...fieldProps(invalid, fieldId(`${planPath}.observationPeriod`))} maxLength={200} value={plan.observationPeriod} onChange={(event) => changePlan({ observationPeriod: event.target.value })} />
+                      </Field>
+                      <Field label="判断条件" required description="何が観測できたら効果ありと判断するか">
+                        <TextArea {...fieldProps(invalid, fieldId(`${planPath}.decisionCriteria`))} required maxLength={2000} rows={2} value={plan.decisionCriteria} onChange={(event) => changePlan({ decisionCriteria: event.target.value })} />
+                      </Field>
+                      <Field label="中止条件" description="任意。評価を打ち切る条件">
+                        <TextArea {...fieldProps(invalid, fieldId(`${planPath}.stopCriteria`))} maxLength={2000} rows={2} value={plan.stopCriteria} onChange={(event) => changePlan({ stopCriteria: event.target.value })} />
+                      </Field>
+                    </div>
+                  );
+                })()}
+                {problem.evaluationPlan === null
+                  ? <Button variant="text" aria-label={`課題 ${index + 1}に評価計画を追加`} onClick={() => update(index, { evaluationPlan: emptyEvaluationPlan })}>＋ 評価計画を追加</Button>
+                  : <Button variant="text" aria-label={`課題 ${index + 1}の評価計画を外す`} onClick={() => update(index, { evaluationPlan: null })}>評価計画を外す</Button>}
+              </Fieldset>
               <Fieldset legend="根拠" required={needsEvidence ? "1つ以上必須" : false} {...fieldProps(invalid, fieldId(`${path}.evidence`))}>
                 {problem.evidence.length === 0 ? <p className="unset">根拠はまだ関連付けていません。</p> : (
                   <ul className="problem-evidence-list">
