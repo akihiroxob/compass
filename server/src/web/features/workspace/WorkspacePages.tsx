@@ -244,15 +244,26 @@ const ActivityContent = ({ workspace }: { workspace: Workspace }) => {
  * アクセス（各Projectの設定）への導線。ProjectのAgentのRole割当・Credentialは
  * ここで変更しない。導線の表示は`myRole`で決め、拒否は常にserverが行う。
  */
-const SettingsContent = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
+const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; myRole: HumanRole; reload: () => void }) => {
   const archived = workspace.status === "archived";
   const canManageCredential = canOperateWorkspace(myRole, "credential.manage");
   const scope = { kind: "workspace", id: workspace.id } as const;
   return (
     <>
       <div className="fixed-note">
-        <p>ここではDirectionを担うAgentとCredentialを管理します。HumanのMemberとRoleは<Link to={workspaceMembersPagePath(workspace.id)}>Member管理</Link>で扱い、配下のすべてのProjectに同じく適用されます。Workspace・全ProjectのAgentの一覧・登録・Credentialは<Link to={workspacePath(workspace.id, "agents")}>Agent管理</Link>でまとめて扱えます（Runtime Credentialはここと各Projectの設定で扱います）。</p>
+        <p>ここではWorkspaceの基本情報・方向の編集と、Directionを担うAgentとCredentialを管理します。HumanのMemberとRoleは<Link to={workspaceMembersPagePath(workspace.id)}>Member管理</Link>で扱い、配下のすべてのProjectに同じく適用されます。Workspace・全ProjectのAgentの一覧・登録・Credentialは<Link to={workspacePath(workspace.id, "agents")}>Agent管理</Link>でまとめて扱えます（Runtime Credentialはここと各Projectの設定で扱います）。</p>
       </div>
+      <section className="detail-section" aria-labelledby="workspace-basics-heading">
+        <h2 id="workspace-basics-heading">基本情報・方向</h2>
+        <dl className="intent-facts">
+          <dt>Workspace名</dt><dd>{workspace.name}</dd>
+          <dt>Mission</dt><dd>{workspace.mission}</dd>
+          <dt>Vision</dt><dd>{workspace.vision || <span className="unset">未設定</span>}</dd>
+        </dl>
+      </section>
+      <TextList title="Principles" values={workspace.principles} />
+      <TextList title="Constraints" values={workspace.constraints} />
+      <ManageSection workspace={workspace} myRole={myRole} reload={reload} />
       <AgentSettingsSection scope={scope} readOnly={archived || !canOperateWorkspace(myRole, "grant.manage")} showCredentials={canManageCredential} />
       {canManageCredential ? <CredentialSection scope={scope} readOnly={archived} /> : (
         <section className="detail-section" aria-labelledby="workspace-credential-heading">
@@ -306,4 +317,4 @@ const MembersContent = ({ workspace, myRole, reload }: { workspace: Workspace; m
 };
 
 export const WorkspaceMembersPage = () => <WorkspaceFrame section="settings" title="Member">{(workspace, myRole, reload) => <MembersContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
-export const WorkspaceSettingsPage = () => <WorkspaceFrame section="settings">{(workspace, myRole) => <SettingsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
+export const WorkspaceSettingsPage = () => <WorkspaceFrame section="settings">{(workspace, myRole, reload) => <SettingsContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
