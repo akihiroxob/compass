@@ -58,7 +58,7 @@ const WorkspaceForm = ({ initial, heading, submitLabel, pendingLabel, back, save
       <Link to={back.to} className="back-link">← {back.label}</Link>
       <div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div>
       <p className="lede">{heading.lede}</p>
-      {error && <FormErrorSummary error={error} detailTo={back.to} archivedScope="Workspace" />}
+      {error && <FormErrorSummary error={error} conflict={{ title: "保存が競合しました。入力内容は残っています" }} detailTo={back.to} archivedScope="Workspace" />}
       <form onSubmit={submit} className="project-form">
         <section className="form-section">
           <h2>Identity</h2>

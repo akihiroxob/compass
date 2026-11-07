@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { request, settle, type Part } from "../../api";
 import { PageColumns } from "../../components/PageColumns";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { intentPath, outcomePath, projectViewPath, researchRequestPath, workspaceIntentCreatePath, workspaceOutcomePath, workspacePath, workspaceProjectsPath } from "../../paths";
+import { intentPath, outcomePath, projectViewPath, workspaceProjectCreatePath, researchRequestPath, workspaceIntentCreatePath, workspaceOutcomePath, workspacePath, workspaceProjectsPath } from "../../paths";
 import { statusBadgeClass, type StatusTone } from "../../statusTone";
 import { canOperateWorkspace } from "../access";
 import { activitiesPath, RecentActivityList, type ActivityPage, type ActivitySummary } from "../activity";
@@ -28,7 +28,7 @@ import {
 } from "../direction";
 import { formatTime } from "../execution";
 import type { HumanRole } from "../member";
-import type { Workspace } from "./workspace";
+import { emptyProjectNote, type Workspace } from "./workspace";
 import { loadProjects, type OverviewProject } from "./workspaceProjects";
 import { Button, LinkButton } from "../../components/ui";
 
@@ -101,7 +101,7 @@ export const TargetRow = ({ target, projects }: { target: TargetWork; projects: 
 );
 
 /** 現在地: Active Intent → Active Outcome → Target Project別のWork → 評価可能性。Taskの受入をOutcomeの達成として出さない。 */
-const CurrentPosition = (props: { workspaceId: string; direction: DirectionData; projects: Part<OverviewProject[]> }) => props.direction.directions.length === 0 ? <p className="unset">ActiveなIntentはありません。</p> : <>{props.direction.directions.map((direction) => <IntentPosition key={direction.activeIntent!.id} {...props} direction={direction} />)}</>;
+const CurrentPosition = (props: { workspaceId: string; direction: DirectionData; projects: Part<OverviewProject[]> }) => props.direction.directions.length === 0 ? <p className="unset">目標（Intent）は未登録です。</p> : <>{props.direction.directions.map((direction) => <IntentPosition key={direction.activeIntent!.id} {...props} direction={direction} />)}</>;
 
 const IntentPosition = ({ workspaceId, direction, projects }: { workspaceId: string; direction: IntentDirectionData; projects: Part<OverviewProject[]> }) => {
   const intentProject = pickOpenProject([], openProjects(projects));
@@ -199,13 +199,18 @@ const IntentAttention = ({ workspace, myRole, direction, research, projects }: {
 };
 
 /** `outcomes`はActive Outcomeの現在地。Intent・Outcomeを取得できなければnullで、Targetかどうかを断定しない。 */
-const ProjectSummary = ({ workspace, projects, outcomes }: { workspace: Workspace; projects: Part<OverviewProject[]>; outcomes: readonly OutcomePosition[] | null }) => {
+const ProjectSummary = ({ workspace, myRole, projects, outcomes }: { workspace: Workspace; myRole: HumanRole; projects: Part<OverviewProject[]>; outcomes: readonly OutcomePosition[] | null }) => {
   if (!projects.ok) return <ErrorState message={`Projectの読み込みに失敗しました: ${projects.error}`} />;
   const active = projects.value.filter(({ project }) => project.status === "active");
   const archivedCount = projects.value.length - active.length;
   return (
     <>
-      {active.length === 0 ? <p className="unset">activeなProjectはありません。</p> : (
+      {active.length === 0 ? (
+        <>
+          <p className="unset">{emptyProjectNote(workspace.status, archivedCount, canOperateWorkspace(myRole, "project.create"))}</p>
+          {workspace.status === "active" && canOperateWorkspace(myRole, "project.create") && <div className="action-row"><LinkButton size="sm" to={workspaceProjectCreatePath(workspace.id)}>Projectを追加</LinkButton></div>}
+        </>
+      ) : (
         <ul className="link-list workspace-project-links">
           {active.map(({ project }) => <li key={project.id}><Link to={projectViewPath(project.id, "overview")}><span>{project.name}</span><small>{projectTargetNote(outcomes, project.id)}</small></Link></li>)}
         </ul>
@@ -273,7 +278,7 @@ export const WorkspaceOverview = ({ workspace, myRole, manage }: { workspace: Wo
     <>
       <section className="detail-section" aria-labelledby="workspace-projects-heading">
         <h2 id="workspace-projects-heading">Project</h2>
-        <ProjectSummary workspace={workspace} projects={data.projects} outcomes={outcomes} />
+        <ProjectSummary workspace={workspace} myRole={myRole} projects={data.projects} outcomes={outcomes} />
       </section>
       <section className="detail-section" aria-labelledby="workspace-overview-agents-heading">
         <h2 id="workspace-overview-agents-heading">Agent</h2>

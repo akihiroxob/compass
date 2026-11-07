@@ -110,3 +110,13 @@ export const resolveCurrentWorkspace = (
 /** ホームで開くWorkspace。前回選択したWorkspaceが今も閲覧できればそれ、無ければ一覧の先頭（更新日時の降順）。 */
 export const chooseHomeWorkspace = (workspaces: readonly Workspace[], rememberedId: string | null): Workspace | null =>
   workspaces.find(({ id }) => id === rememberedId) ?? workspaces[0] ?? null;
+
+/**
+ * activeなProjectが無いときの概要の説明。未登録（作業もまだ無い）を示し、0件の指標にはしない。
+ * 追加はWorkspace Membershipのadministrator以上で、archivedのWorkspaceには追加できない。
+ */
+export const emptyProjectNote = (workspaceStatus: "active" | "archived", archivedCount: number, canCreate: boolean): string => {
+  if (workspaceStatus === "archived") return "activeなProjectはありません。アーカイブ済みのWorkspaceにはProjectを追加できません。";
+  const base = archivedCount > 0 ? "activeなProjectはありません。" : "Projectは未登録です。Projectを追加すると、Story・Taskなどの作業をここから辿れます。";
+  return canCreate ? base : `${base}追加はWorkspaceのadministratorに依頼してください。`;
+};
