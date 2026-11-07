@@ -33,7 +33,12 @@ export type UpdateProjectInput = {
   /** `requiredChecks`を省略した既存行（`id`一致）は保存済みの値を維持し、新しい行は空（CI不要）にする。 */
   repositories?: { id?: string; name: string; url: string; requiredChecks?: string[] }[];
   resources?: { id?: string; name: string; url: string; kind: string | null }[];
+  /** 編集の元にした版（取得時の`updatedAt`）。指定時、保存済みの版と異なれば何も書かず`stale`を返す。省略時は照合しない。 */
+  expectedUpdatedAt?: number;
 };
+
+/** 編集の元にした版が古く、先行する保存を上書きしないため拒否した結果。 */
+export type ProjectStaleResult = { kind: "stale" };
 
 /** Projectがarchivedのため書込を拒否した結果。 */
 export type ProjectArchivedResult = { kind: "project_archived" };
@@ -52,7 +57,8 @@ export type UpdateProjectResult =
   | { kind: "updated"; project: ProjectDetail }
   | { kind: "not_found" }
   | RepositoryReferencedResult
-  | ProjectArchivedResult;
+  | ProjectArchivedResult
+  | ProjectStaleResult;
 
 export type ArchiveProjectResult =
   | { kind: "archived"; project: ProjectDetail }

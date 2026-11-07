@@ -16,12 +16,15 @@ export type UpdateWorkspaceInput = {
   vision?: string | null;
   principles?: string[];
   constraints?: string[];
+  /** 編集の元にした版（取得時の`updatedAt`）。指定時、保存済みの版と異なれば何も書かず`stale`を返す。省略時は照合しない。 */
+  expectedUpdatedAt?: number;
 };
 
 export type UpdateWorkspaceResult =
   | { kind: "updated"; workspace: Workspace }
   | { kind: "not_found" }
-  | { kind: "workspace_archived" };
+  | { kind: "workspace_archived" }
+  | { kind: "stale" };
 
 export type ArchiveWorkspaceResult =
   | { kind: "archived"; workspace: Workspace }

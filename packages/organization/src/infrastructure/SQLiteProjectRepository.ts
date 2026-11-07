@@ -12,7 +12,7 @@ import type {
 } from "../domain/ProjectRepository.ts";
 import type { ProjectChangeObserver } from "./projectChange.ts";
 import type { OrganizationDatabase } from "./schema.ts";
-import type { WorkspaceOwnerMembershipWriter } from "./SQLiteWorkspaceRepository.ts";
+import { nextVersion, type WorkspaceOwnerMembershipWriter } from "./SQLiteWorkspaceRepository.ts";
 import { writeWorkspace } from "./writeWorkspace.ts";
 
 type Queryable = Kysely<OrganizationDatabase> | Transaction<OrganizationDatabase>;
@@ -97,11 +97,15 @@ export class SQLiteProjectRepository implements ProjectRepository {
     const outcome = await this.database.transaction().execute(async (transaction) => {
       const existing = await transaction
         .selectFrom("project")
-        .select("status")
+        .select(["status", "updated_at"])
         .where("id", "=", projectId)
         .executeTakeFirst();
       if (!existing) return { kind: "not_found" as const };
       if (existing.status === "archived") return { kind: "project_archived" as const };
+      // 版の照合は書込と同じtransactionで行い、確認と書込の間に入った別の保存を上書きしない。
+      if (input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== existing.updated_at) {
+        return { kind: "stale" as const };
+      }
 
       // Repositoryを外す変更はADR Handoff Request/Referenceの参照先を失わせないか、他の書込より先に検査する。
       // 途中まで書き込んでから拒否すると、そのtransactionはKyselyの仕様上そのまま commit されてしまうため。
@@ -111,7 +115,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
       }
 
       // undefinedの項目はKyselyがSETから除外するため、未指定の列は変更されない。
-      const now = Date.now();
+      const now = nextVersion(existing.updated_at);
       await transaction
         .updateTable("project")
         .set({ name: input.name, description: input.description, updated_at: now })

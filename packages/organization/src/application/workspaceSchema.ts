@@ -14,16 +14,20 @@ export const createWorkspaceSchema = z.object({
   constraints: z.array(constraintSchema).max(20).default([]),
 });
 
+/** 編集の元にした版（取得時の`updatedAt`）。更新の競合検知に使い、変更項目には数えない。 */
+const expectedUpdatedAtSchema = z.number().int().positive().optional();
+
 /** 部分更新の入力。未指定の項目は変更しない。visionは`null`または空文字でクリアできる。 */
 export const updateWorkspaceSchema = z
   .object({
+    expectedUpdatedAt: expectedUpdatedAtSchema,
     name: trimmedText("name", 100).optional(),
     mission: trimmedText("mission", 2_000).optional(),
     vision: clearableText(2_000).optional(),
     principles: z.array(principleSchema).max(20).optional(),
     constraints: z.array(constraintSchema).max(20).optional(),
   })
-  .refine((input) => Object.values(input).some((value) => value !== undefined), {
+  .refine(({ expectedUpdatedAt: _version, ...fields }) => Object.values(fields).some((value) => value !== undefined), {
     message: "at least one field to update is required",
   });
 

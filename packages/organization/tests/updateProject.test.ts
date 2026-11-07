@@ -207,3 +207,35 @@ test("保存に失敗した更新は親も他の子も部分更新しない", as
   assert.deepEqual(await get.execute(created.id), created);
   await database.destroy();
 });
+
+test("編集の元にした版が古い更新は拒否し、先行する保存を上書きしない", async () => {
+  const { create, update, get } = await setup();
+  const project = await create.execute(fullInput);
+
+  // 二画面が同じ版から編集を始め、Aが先に保存する。
+  const first = await update.execute(project.id, { description: "先行更新", expectedUpdatedAt: project.updatedAt });
+  assert.ok(first.updatedAt > project.updatedAt);
+
+  await assert.rejects(
+    update.execute(project.id, { name: "古い画面の名前", expectedUpdatedAt: project.updatedAt }),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "CONFLICT");
+      assert.equal((error as { details?: { conflict?: string } }).details?.conflict, "PROJECT_STALE_UPDATE");
+      return true;
+    },
+  );
+  const stored = await get.execute(project.id);
+  assert.equal(stored.name, "Compass");
+  assert.equal(stored.description, "先行更新");
+
+  // 最新の版からは更新できる。版の省略は照合しない（MCP等の既存契約）。
+  await update.execute(project.id, { name: "新しい名前", expectedUpdatedAt: first.updatedAt });
+  await update.execute(project.id, { description: "版なし" });
+  assert.equal((await get.execute(project.id)).description, "版なし");
+});
+
+test("版だけの更新は変更項目がないため拒否する", async () => {
+  const { create, update } = await setup();
+  const project = await create.execute(fullInput);
+  await assert.rejects(update.execute(project.id, { expectedUpdatedAt: project.updatedAt }), codeOf("VALIDATION_ERROR"));
+});
