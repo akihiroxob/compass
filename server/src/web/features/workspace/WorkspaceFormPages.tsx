@@ -125,7 +125,7 @@ export const WorkspaceEditPage = () => (
         submitLabel="変更を保存"
         pendingLabel="保存中..."
         back={{ to: workspacePath(workspace.id), label: "Workspaceの概要" }}
-        save={async (values) => (await request<{ workspace: Workspace }>(workspaceApiPath(workspace.id), jsonInit("PATCH", values))).workspace}
+        save={async (values) => (await request<{ workspace: Workspace }>(workspaceApiPath(workspace.id), jsonInit("PATCH", { ...values, expectedUpdatedAt: workspace.updatedAt }))).workspace}
       />
     )}
   </WorkspaceOperationGate>

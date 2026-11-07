@@ -21,6 +21,9 @@ export type WorkspaceOwnerMembershipWriter = (
   input: { workspaceId: string; ownerHumanUserId: string; createdAt: number },
 ) => Promise<void>;
 
+/** 版として使う`updated_at`は、同一ミリ秒内の連続保存でも必ず単調に増やす。 */
+export const nextVersion = (previous: number): number => Math.max(Date.now(), previous + 1);
+
 export class SQLiteWorkspaceRepository implements WorkspaceRepository {
   constructor(
     private readonly database: Kysely<OrganizationDatabase>,
@@ -54,16 +57,20 @@ export class SQLiteWorkspaceRepository implements WorkspaceRepository {
     const outcome = await this.database.transaction().execute(async (transaction) => {
       const existing = await transaction
         .selectFrom("workspace")
-        .select("status")
+        .select(["status", "updated_at"])
         .where("id", "=", workspaceId)
         .executeTakeFirst();
       if (!existing) return "not_found" as const;
       if (existing.status === "archived") return "workspace_archived" as const;
+      // 版の照合は書込と同じtransactionで行い、確認と書込の間に入った別の保存を上書きしない。
+      if (input.expectedUpdatedAt !== undefined && input.expectedUpdatedAt !== existing.updated_at) {
+        return "stale" as const;
+      }
 
       // undefinedの項目はKyselyがSETから除外するため、未指定の列は変更されない。
       await transaction
         .updateTable("workspace")
-        .set({ name: input.name, mission: input.mission, vision: input.vision, updated_at: Date.now() })
+        .set({ name: input.name, mission: input.mission, vision: input.vision, updated_at: nextVersion(existing.updated_at) })
         .where("id", "=", workspaceId)
         .execute();
       if (input.principles) {

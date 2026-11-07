@@ -17,6 +17,9 @@ export class UpdateProjectUseCase {
         { repositoryId: result.repositoryId, repositoryName: result.repositoryName },
       );
     }
+    if (result.kind === "stale") {
+      throw new ConflictError("Project was updated after the edit started", { conflict: "PROJECT_STALE_UPDATE" });
+    }
     return result.project;
   }
 }
