@@ -263,9 +263,12 @@ test("achievedへ遷移する公開操作は存在しない", async () => {
     // 観測項目・観測値の定義・記録・参照はIntentの状態を変えない。
     "defineIntentMetricUseCase",
     "getIntentUseCase",
+    "listIntentExplanationsUseCase",
     "listIntentMetricsUseCase",
     "listIntentRevisionsUseCase",
     "listIntentsUseCase",
+    // 説明の記録・参照もIntent・Outcomeの状態を変えない。
+    "recordIntentExplanationUseCase",
     "recordIntentMetricObservationsUseCase",
     "updateIntentUseCase",
   ]);

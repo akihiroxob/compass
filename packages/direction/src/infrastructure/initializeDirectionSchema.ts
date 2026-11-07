@@ -669,6 +669,95 @@ const initializeIntentMetricSchema = async (database: Kysely<DirectionDatabase>)
     .on("intent_metric_observation")
     .columns(["metric_id", "period_end", "period_start"])
     .execute();
+
+  // Intentの観測についてのAgentの説明。事実・仮説・提案の項目と、観測値・Finding・Synthesis・Evaluation・Decisionへの根拠参照を持つ。
+  // 参照先は同じWorkspaceの記録だけを複合FKで参照する。観測値は観測項目に属するためRepositoryが書込と同一transactionで検査する。
+  await database.schema
+    .createTable("intent_explanation")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("workspace_id", "text", (column) => column.notNull().references("workspace.id").onDelete("cascade"))
+    .addUniqueConstraint("intent_explanation_id_workspace_unique", ["id", "workspace_id"])
+    .addColumn("intent_id", "text", (column) => column.notNull())
+    .addForeignKeyConstraint("intent_explanation_intent_workspace_fk", ["intent_id", "workspace_id"], "intent", ["id", "workspace_id"], (constraint) =>
+      constraint.onDelete("cascade"),
+    )
+    .addColumn("metric_key", "text", (column) => column.notNull())
+    .addColumn("period_start", "text", (column) => column.notNull())
+    .addColumn("period_end", "text", (column) => column.notNull())
+    .addColumn("version", "integer", (column) => column.notNull().check(sql`version >= 1`))
+    .addColumn("previous_id", "text", (column) => column.references("intent_explanation.id"))
+    .addColumn("change_from_previous", "text")
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("run_ref", "text", (column) => column.notNull())
+    .addColumn("request_key", "text", (column) => column.notNull())
+    .addColumn("input_hash", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addUniqueConstraint("intent_explanation_version_unique", ["intent_id", "metric_key", "version"])
+    .addUniqueConstraint("intent_explanation_request_key_unique", ["workspace_id", "request_key"])
+    .addCheckConstraint("intent_explanation_period_check", sql`period_start <= period_end`)
+    .addCheckConstraint("intent_explanation_previous_check", sql`(version = 1) = (previous_id is null)`)
+    .execute();
+  await database.schema
+    .createIndex("intent_explanation_intent_idx")
+    .ifNotExists()
+    .on("intent_explanation")
+    .columns(["intent_id", "created_at"])
+    .execute();
+  await database.schema
+    .createTable("intent_explanation_item")
+    .ifNotExists()
+    .addColumn("explanation_id", "text", (column) => column.notNull().references("intent_explanation.id").onDelete("cascade"))
+    .addColumn("position", "integer", (column) => column.notNull().check(sql`position >= 0`))
+    .addColumn("kind", "text", (column) => column.notNull().check(sql`kind in ('fact', 'hypothesis', 'proposal')`))
+    .addColumn("statement", "text", (column) => column.notNull())
+    .addColumn("confidence", "text", (column) => column.check(sql`confidence in ('low', 'medium', 'high')`))
+    .addColumn("verification", "text")
+    .addColumn("based_on", "text", (column) => column.notNull())
+    .addPrimaryKeyConstraint("intent_explanation_item_pk", ["explanation_id", "position"])
+    .addCheckConstraint(
+      "intent_explanation_item_hypothesis_check",
+      sql`(kind = 'hypothesis' and confidence is not null and verification is not null) or (kind <> 'hypothesis' and confidence is null and verification is null)`,
+    )
+    .execute();
+  await database.schema
+    .createTable("intent_explanation_basis")
+    .ifNotExists()
+    .addColumn("explanation_id", "text", (column) => column.notNull())
+    .addColumn("workspace_id", "text", (column) => column.notNull())
+    .addForeignKeyConstraint("intent_explanation_basis_explanation_fk", ["explanation_id", "workspace_id"], "intent_explanation", ["id", "workspace_id"], (constraint) =>
+      constraint.onDelete("cascade"),
+    )
+    .addColumn("item_position", "integer", (column) => column.notNull())
+    .addColumn("position", "integer", (column) => column.notNull())
+    .addColumn("observation_id", "text", (column) => column.references("intent_metric_observation.id").onDelete("cascade"))
+    .addColumn("finding_id", "text")
+    .addForeignKeyConstraint("intent_explanation_basis_finding_fk", ["finding_id", "workspace_id"], "research_finding", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .addColumn("synthesis_id", "text")
+    .addForeignKeyConstraint("intent_explanation_basis_synthesis_fk", ["synthesis_id", "workspace_id"], "research_synthesis", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .addColumn("evaluation_id", "text")
+    .addForeignKeyConstraint("intent_explanation_basis_evaluation_fk", ["evaluation_id", "workspace_id"], "outcome_evaluation", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .addColumn("decision_id", "text")
+    .addForeignKeyConstraint("intent_explanation_basis_decision_fk", ["decision_id", "workspace_id"], "direction_decision", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .addPrimaryKeyConstraint("intent_explanation_basis_pk", ["explanation_id", "item_position", "position"])
+    .addCheckConstraint(
+      "intent_explanation_basis_one_ref",
+      sql`(observation_id is not null) + (finding_id is not null) + (synthesis_id is not null) + (evaluation_id is not null) + (decision_id is not null) = 1`,
+    )
+    .execute();
+  await database.schema
+    .createTable("intent_explanation_outcome")
+    .ifNotExists()
+    .addColumn("explanation_id", "text", (column) => column.notNull())
+    .addColumn("workspace_id", "text", (column) => column.notNull())
+    .addForeignKeyConstraint("intent_explanation_outcome_explanation_fk", ["explanation_id", "workspace_id"], "intent_explanation", ["id", "workspace_id"], (constraint) =>
+      constraint.onDelete("cascade"),
+    )
+    .addColumn("outcome_id", "text", (column) => column.notNull())
+    .addForeignKeyConstraint("intent_explanation_outcome_outcome_fk", ["outcome_id", "workspace_id"], "outcome", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .addColumn("position", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("intent_explanation_outcome_pk", ["explanation_id", "position"])
+    .execute();
 };
 
 /** Directionが所有するtableの作成・移行。`project`（Organization）を参照するため、serverの`initializeSchema`がOrganizationの後に呼ぶ。 */

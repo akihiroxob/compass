@@ -269,6 +269,7 @@ UI方針・token・部品・カタログの4つの正本と、カタログ・製
 - Intent・Outcome・成功条件の登録・編集のWeb UIは所属Projectの画面（`/projects/:projectId/intents/…`）だけにあり、Workspaceの「方向」には登録の導線が無い。保存はWorkspace scopeのWeb APIへ行うが、activeなProjectのまだないWorkspaceではWeb UIからIntentを登録できない（Workspace概要は「登録画面を開けるactiveなProjectがありません」と表示する）。Workspace配下の登録画面は未実装。
 - 公開確認は契約・判定・取得APIまでで、実際のCD・デプロイサービス（Cloudflare・GitHub Actions等）からの送信と実GitHubのcompareでの判定は未検証（自動テストはGitHub互換のloopback server）。リリース履歴のWeb UIの実ブラウザ確認用データは、`scripts/prepare-browser-verification.mjs`がloopback GitHubと公開APIで公開済み・未公開・確認できずを準備する（[docs/browser-verification.md](browser-verification.md)）。
 - Intentの観測項目・観測値（[Intent](step-2-intent-design.md#観測項目と時系列)）は保存・MCP（定義はStrategist、記録はEvaluator、参照）・参照のWeb APIまで。外部の計測基盤・分析サービスからの自動取得、Orchestratorによる記録の起動、Strategist / Evaluator Contextへの提示、Web UIでの表示（目標詳細の推移）は未接続。`server/tests/intentMetric.test.ts`はtest内のMCP呼び出しで記録し、実Agentによる記録の実証ではない。
+- Intentの観測についての説明（[Intent](step-2-intent-design.md#観測についての説明)、[ADR 0010](adr/0010-intent-explanation.md)）は、事実・原因の仮説・次の提案を観測値・Research・Evaluation・Decisionへの参照付きで保存し、MCP（記録はStrategist、参照）・参照のWeb API・目標詳細の「Agentの説明」表示（読み取り専用）まで接続済み。説明の自動生成・Orchestratorによる記録の起動・Contextへの提示は未接続で、`server/tests/intentExplanation.test.ts`と専用プレビューの準備はtest・検証用Principalの公開操作による記録であり、実Agentの出力・稼働を示さない。目標詳細の観測値の推移表示は未接続（UI-M3）。
 - 実Googleとの接続確認は自動テストの対象外。
 
 ## 現在のRuntime API

@@ -48,6 +48,52 @@ const viewerEmail = 'preview-viewer@example.test';
 let sequence = 0;
 const planIdsOf = (outcome, indexes) => Object.fromEntries(indexes.flatMap((index) => outcome.problems[index].evaluationPlan ? [[outcome.problems[index].id, outcome.problems[index].evaluationPlan.planId]] : []));
 const key = (name) => `preview:${name}:${++sequence}`;
+const isoDay = (offset) => new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
+// Intent metric observations and Agent explanations (UI-M2). Strategist/Evaluator Grants are enforced by the same authorized wrappers
+// the MCP tools use. The values are display fixtures, not business results, and are no evidence that an Agent ran.
+const prepareIntentExplanations = async (services, workspaceId, projectId, intent, outcome, refs) => {
+  const strategist = identities.strategist;
+  const evaluator = identities.evaluator;
+  const source = { name: '検証用の集計表', uri: 'https://example.test/fixtures/metrics' };
+  const observation = (offset, value) => ({ periodStart: isoDay(offset), periodEnd: isoDay(offset), status: 'observed', value, source, observedAt: Date.now() - 60_000 });
+  const define = (key, name, unit, staleAfterDays) => services.defineIntentMetricUseCase.execute(strategist, workspaceId, intent.id,
+    { key, name, unit, targetValue: null, staleAfterDays });
+  const record = async (metricKey, observations) => (await services.recordIntentMetricObservationsUseCase.execute(evaluator, workspaceId, intent.id,
+    { metricKey, observations })).observations.map(({ observation: saved }) => saved);
+  await define('completion_rate', '登録完了率', '%', 7);
+  await define('weekly_retention', '継続利用率', '%', 7);
+  const [before, after] = await record('completion_rate', [observation(8, 41), observation(1, 47)]);
+  const [retentionBefore, retentionAfter] = await record('weekly_retention', [observation(7, 30), observation(1, 31)]);
+  const explanationBase = { runRef: 'browser-preview-fixture', relatedOutcomeIds: [outcome.id] };
+  // v1 is a short explanation. The earlier day is then corrected and v2 (with every item kind) points back to v1 and uses the corrected value.
+  const first = await services.recordIntentExplanationUseCase.execute(strategist, workspaceId, intent.id, { ...explanationBase,
+    requestKey: key('explanation-completion'), metricKey: 'completion_rate', periodStart: isoDay(8), periodEnd: isoDay(1),
+    items: [
+      { kind: 'fact', statement: '登録完了率は41%から47%へ上がった', basis: [{ type: 'metric_observation', id: before.id }, { type: 'metric_observation', id: after.id }] },
+      { kind: 'hypothesis', statement: '入力項目の削減が完了率を押し上げた可能性がある', confidence: 'low', verification: '同じ条件の比較を追加する', basedOn: [0] },
+    ] });
+  const second = await services.recordIntentExplanationUseCase.execute(strategist, workspaceId, intent.id, { ...explanationBase,
+    requestKey: key('explanation-retention'), metricKey: 'weekly_retention', periodStart: isoDay(7), periodEnd: isoDay(1),
+    items: [
+      { kind: 'fact', statement: '継続利用率は30%から31%で、ほぼ横ばい', basis: [{ type: 'metric_observation', id: retentionBefore.id }, { type: 'metric_observation', id: retentionAfter.id }] },
+      { kind: 'fact', statement: 'Outcomeの評価は未達で、満たせなかった条件がある', basis: [{ type: 'evaluation', id: refs.evaluationId }] },
+      { kind: 'hypothesis', statement: '通知の変更はまだ継続利用に表れていない可能性がある', confidence: 'low', verification: '公開後4週間の週次の継続利用率を観測する', basedOn: [0, 1] },
+    ] });
+  const [corrected] = await record('completion_rate', [{ ...observation(8, 43), observedAt: Date.now() - 30_000 }]);
+  const revised = await services.recordIntentExplanationUseCase.execute(strategist, workspaceId, intent.id, { ...explanationBase,
+    requestKey: key('explanation-completion-v2'), metricKey: 'completion_rate', periodStart: isoDay(8), periodEnd: isoDay(1),
+    changeFromPrevious: '比較前の値が43%へ訂正されたため、上昇幅を見直した',
+    items: [
+      { kind: 'fact', statement: '登録完了率は43%から47%へ上がった', basis: [{ type: 'metric_observation', id: corrected.id }, { type: 'metric_observation', id: after.id }] },
+      { kind: 'fact', statement: '同じ期間に入力項目を減らす変更が検討されていた', basis: [{ type: 'finding', id: refs.findingId }] },
+      { kind: 'hypothesis', statement: '入力項目の削減が上昇に寄与した可能性はあるが、他の要因は切り分けていない', confidence: 'low',
+        verification: '変更前後で同じ利用者層を比較し、変更していない導線の完了率も確認する', basedOn: [0, 1], basis: [{ type: 'synthesis', id: refs.synthesisId }] },
+      { kind: 'proposal', statement: '評価計画に沿って追加の調査を行い、結果を見てから判断する', basedOn: [2], basis: [{ type: 'decision', id: refs.decisionId }] },
+    ] });
+  // The latest day is corrected after v2 was recorded: v2 keeps its basis and is flagged as based on a corrected observation.
+  await record('completion_rate', [{ ...observation(1, 48), observedAt: Date.now() - 10_000 }]);
+  return { metricKeys: ['completion_rate', 'weekly_retention'], explanationIds: { completionRateV1: first.explanation.id, weeklyRetention: second.explanation.id, completionRateV2: revised.explanation.id } };
+};
 const scenarios = [];
 // Project and Workspace Consultations reflected in a real document commit through the normal Work flow.
 // Human steps (Repository registration, replies) use the owner's Human use cases and are recorded as in-scope Entities;
@@ -434,6 +480,16 @@ try {
         if (label === 'A' || scenario === 'evaluated') entry.work.push(await acceptedWork(project, outcome, label));
       }
     }
+    if (scenario === 'partial-work') {
+      // No explanation yet: one goal whose Metric is defined but unmeasured, and one goal without any Metric. Neither is filled in.
+      await services.defineIntentMetricUseCase.execute(identities.strategist, workspace.id, intent.id,
+        { key: 'completion_rate', name: '登録完了率', unit: '%', targetValue: null, staleAfterDays: 7 });
+      const bare = await direction.createIntentUseCase.execute(workspace.id, { title: `${name} 観測項目なしの目標`, desiredState: '観測項目が未定義の状態を確認する' });
+      entry.intentExplanationStates = [
+        { state: 'metric_unmeasured_no_explanation', path: `/projects/${entry.projects[0].id}/intents/${intent.id}` },
+        { state: 'no_metric_no_explanation', path: `/projects/${entry.projects[0].id}/intents/${bare.id}` },
+      ];
+    }
     if (scenario === 'evaluated') {
       const request = await direction.createResearchRequestUseCase.execute(workspace.id, { requestKey: key('research'), kind: 'decision', originIntentId: intent.id,
         question: 'Target別のEvidenceと権限をどう確認するか', scope: '専用プレビューの2つのProject', completionCondition: '表示する根拠が保存される', budgetTotal: 10 });
@@ -457,6 +513,11 @@ try {
         research: { question: 'viewerの見え方を比較する', scope: '専用プレビューのみ', completionCondition: 'アクセス制御を独立に検証できる', budgetTotal: 10 } });
       Object.assign(entry, { researchRequestId: request.id, evaluationId: saved.evaluation.id, decisionId: decision.decision.id,
         expectedVerdicts: ['met', 'not_met'] });
+      // The goal detail shows the Agent explanations (facts / hypotheses / proposals) with resolved basis, an outdated basis and a previous version.
+      const intentProject = entry.projects[0];
+      entry.intentExplanations = { ...await prepareIntentExplanations(services, workspace.id, intentProject.id, intent, outcome,
+        { findingId: result.findings[0].id, synthesisId: synthesis.id, decisionId: decision.decision.id, evaluationId: saved.evaluation.id }),
+        path: `/projects/${intentProject.id}/intents/${intent.id}`, expected: 'completion_rate: v2 (previous v1 whose basis was corrected) and weekly_retention v1; all with kind-separated items' };
     }
     scenarios.push(entry);
   }

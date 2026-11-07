@@ -100,3 +100,28 @@ Intentの到達点・推移を確かめるため、Intentごとに観測項目�
 | 参照 | `list_intent_metrics` | `GET /api/workspaces/:workspaceId/intents/:intentId/metrics` | MCPはWorkspaceの参照（remote mode・activeRole指定時はWorkspace Role Grant）、Web APIはWorkspace Membership（viewer以上） |
 
 Project Grantからは継承しない。別WorkspaceのIntentは`NOT_FOUND`、別WorkspaceのGrantは`FORBIDDEN`。Human向けの定義・記録の画面は無い。
+
+## 観測についての説明
+
+Agentが観測項目の変化を解釈した説明（`intent_explanation`）を、事実・原因の仮説・次の提案に分けて追記する。型は [IntentExplanation.ts](../packages/direction/src/domain/IntentExplanation.ts)、入力規則は [intentExplanationSchema.ts](../packages/direction/src/application/intentExplanationSchema.ts)。観測値・Research Finding / Synthesis・Outcome Evaluation・Direction Decisionは既存の記録として保持し、説明はそれらをIDで参照する（本文・値を複製せず、読み取り時に原記録から解決する）。新しい必須階層や独立した「成果」管理は追加しない。判断は [ADR 0010](adr/0010-intent-explanation.md)。
+
+| 項目 | 規則 |
+| --- | --- |
+| 対象 | `metricKey`（同じIntentの観測項目）と分析期間`periodStart`〜`periodEnd`（暦日、366日まで、未来の期間は不可） |
+| 版 | 同じIntent・観測項目の次の版として追記する。直前の版を`previousId`で指し、初回以外は`changeFromPrevious`（前回から変わった点）を持てる。過去の版は書き換えない |
+| 再送 | `requestKey`（Workspace内で一意）。同じ内容の再送は保存済みの説明を返し（`replayed`）、内容が違えば`CONFLICT`（`reason: request_key_conflict`） |
+| 関連Outcome | 同じIntentのOutcomeだけ（`relatedOutcomeIds`） |
+| 項目`fact` | 根拠（`metric_observation`・`finding`・`evaluation`）を1件以上持つ。根拠の無い事実は事実として記録できない |
+| 項目`hypothesis` | 先行する事実の位置`basedOn`、確からしさ`confidence`（low/medium/high）、確認方法`verification`が必須。根拠は`finding`・`synthesis`・`evaluation`。因果の断定ではない |
+| 項目`proposal` | 先行する事実・仮説の位置`basedOn`が必須。根拠は`synthesis`・`decision` |
+
+説明は1件以上の事実を持つ。記録者（Bearerから解決したPrincipal）・`runRef`・記録時刻を保存する。activeなIntentだけに記録でき、別Workspaceの記録・観測項目に属さない観測値・別Intentの評価／判断は`VALIDATION_ERROR`。説明の記録はIntent・Outcomeの状態、Activity、Runtime eventを変えず、Agentの実稼働・施策の効果・目標の達成を示す証拠ではない。単純な前後差は事実か仮説として残し、効果として記録しない。
+
+読み取り（`list_intent_explanations`、`GET /api/workspaces/:workspaceId/intents/:intentId/explanations`）は、新しい順の説明（最大50件）に、解決した根拠と状態（`current`・`revised`＝観測が後から訂正された・`superseded`＝Synthesisが新しい版に置き換えられた・`expired`＝Findingの有効期限切れ・`missing`）、関連Outcome、根拠のいずれかが`current`でないことを示す`basisOutdated`を返す。観測項目ごとの観測状態（`metrics[].state`: `unmeasured`・`failed`・`stale`・`observed`）も併せて返し、説明が無い・観測が未接続・取得失敗を区別できる。説明が無ければ`explanations: []`で、観測値から生成した説明では埋めない。
+
+| 操作 | MCP | Web API | 認可 |
+| --- | --- | --- | --- |
+| 説明の記録 | `record_intent_explanation` | なし | WorkspaceのStrategist Grant |
+| 参照 | `list_intent_explanations` | `GET /api/workspaces/:workspaceId/intents/:intentId/explanations` | MCPはWorkspaceの参照、Web APIはWorkspace Membership（viewer以上） |
+
+Web UIは目標（Intent）の詳細に「Agentの説明」を読み取り専用で表示する。観測項目ごとの最新の版を、観測の状態・分析期間・事実／原因の仮説／次の提案・根拠（原記録へのリンク）・関連Outcomeの順に示し、古い版は件数と一覧だけを示す。

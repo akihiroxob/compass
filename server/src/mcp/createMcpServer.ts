@@ -1303,6 +1303,68 @@ export const createMcpServer = (
       execute(() => services.recordIntentMetricObservationsUseCase.execute(principal, workspaceId, intentId, input)),
   );
 
+  // Intentの観測についてのAgentの説明。入力規則はdirectionのintentExplanationSchemaが持ち、ここでは型だけを宣言する。
+  server.registerTool(
+    "record_intent_explanation",
+    {
+      title: "Record Intent Explanation",
+      description:
+        "Append an explanation of an Intent Metric (metricKey) for an analysis period (periodStart..periodEnd, YYYY-MM-DD, at most 366 " +
+        "days), separating items by kind: fact (confirmed from records; needs basis), hypothesis (an interpretation / possible cause " +
+        "- needs basedOn fact positions, confidence low|medium|high and verification: how to confirm or refute it; it is never a causal " +
+        "conclusion) and proposal (a next action; needs basedOn fact/hypothesis positions). basedOn holds positions of EARLIER items in " +
+        "items. basis references existing records by id and the server resolves them on read (nothing is copied): fact -> " +
+        "metric_observation (an observation id of this Metric, from list_intent_metrics)|finding|evaluation; hypothesis -> " +
+        "finding|synthesis|evaluation; proposal -> synthesis|decision. At least one fact is required and every fact needs a basis. " +
+        "relatedOutcomeIds are Outcomes of the same Intent. Each call is the next version for the Intent+Metric; changeFromPrevious " +
+        "says what changed since the previous version (ignored for the first). The same requestKey with identical content is a resend " +
+        "(result: replayed); a different content with the same requestKey fails with CONFLICT (reason request_key_conflict). Recording " +
+        "does not change the Intent or Outcomes and is no evidence that an Agent ran, a measure worked or the goal was achieved; a " +
+        "simple before/after difference must stay a fact or a hypothesis, not an effect. An unknown metricKey or an Intent of another " +
+        "Workspace fails with NOT_FOUND; unknown or out-of-Intent references and invalid structure fail with VALIDATION_ERROR; a " +
+        "non-active Intent (reason intent_not_active) or an archived Workspace fails with CONFLICT. " +
+        "Requires Authorization: Bearer <AgentName> with a Strategist Grant of the Workspace (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: {
+        workspaceId: z.string().min(1),
+        intentId: z.string().min(1),
+        requestKey: z.string(),
+        runRef: z.string(),
+        metricKey: z.string(),
+        periodStart: z.string(),
+        periodEnd: z.string(),
+        changeFromPrevious: z.string().nullable().optional(),
+        relatedOutcomeIds: z.array(z.string()).optional(),
+        items: z.array(
+          z.object({
+            kind: z.string(),
+            statement: z.string(),
+            confidence: z.string().nullable().optional(),
+            verification: z.string().nullable().optional(),
+            basedOn: z.array(z.number()).optional(),
+            basis: z.array(z.object({ type: z.string(), id: z.string() })).optional(),
+          }),
+        ),
+      },
+    },
+    ({ workspaceId, intentId, ...input }) =>
+      execute(() => services.recordIntentExplanationUseCase.execute(principal, workspaceId, intentId, input)),
+  );
+  server.registerTool(
+    "list_intent_explanations",
+    {
+      title: "List Intent Explanations",
+      description:
+        "List the recorded explanations of an Intent (newest first, at most 50) with metrics = the current observation state of each " +
+        "Metric (unmeasured | failed | stale | observed) and explanations = items split into fact | hypothesis | proposal, each basis " +
+        "resolved from the original record with state current | revised | superseded | expired | missing, relatedOutcomes, the " +
+        "previous version and basisOutdated (some basis is no longer current). An empty explanations list means nothing was recorded; " +
+        "do not fill it in from Metrics. An Intent of another Workspace fails with NOT_FOUND.",
+      inputSchema: { workspaceId: z.string().min(1), intentId: z.string().min(1) },
+    },
+    ({ workspaceId, intentId }) =>
+      execute(() => asWorkspaceReader(workspaceId, () => services.listIntentExplanationsUseCase.execute(workspaceId, intentId))),
+  );
+
   server.registerTool(
     "record_agent_run",
     {
