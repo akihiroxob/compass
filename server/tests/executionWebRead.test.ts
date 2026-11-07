@@ -55,7 +55,7 @@ const seed = async (kit: Kit, name = "Compass") => {
     assert.equal((await app.request(`/api/projects/${project.id}/grants`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ principalId, role }) })).status, 201);
   }
   const outcome = await services.createOutcomeUseCase.execute(project.workspaceId, intent.id, {
-    title: "Outcome", description: "Visible", rationale: "Because",
+    title: "Outcome", description: "Visible", intentVersion: 1, rationale: "Because",
     successCriteria: [{ description: "c1", measurement: "m1", target: null }],
   });
   await services.setOutcomeTargetProjectUseCase.execute(project.workspaceId, outcome.id, project.id);

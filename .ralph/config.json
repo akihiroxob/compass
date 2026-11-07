@@ -28,7 +28,7 @@
   "roles": {
     "worker": {
       "agentName": "worker",
-      "agentProvider": "codex",
+      "agentProvider": "claude",
       "model": ""
     },
     "reviewer": {
@@ -72,10 +72,7 @@
       ]
     ],
     "browser": {
-      "command": [
-        "npm",
-        "start"
-      ],
+      "command": ["npm", "start"],
       "env": {
         "PORT": "{port}",
         "COMPASS_DB_PATH": "{dataDir}/preview.db",
@@ -87,16 +84,8 @@
       },
       "readyPath": "/",
       "setupCommands": [
-        [
-          "npm",
-          "ci",
-          "--ignore-scripts"
-        ],
-        [
-          "npm",
-          "rebuild",
-          "better-sqlite3"
-        ],
+        ["npm", "ci", "--ignore-scripts"],
+        ["npm", "rebuild", "better-sqlite3"],
         [
           "node",
           "--import",
@@ -139,21 +128,9 @@
           ],
           "readyPath": "/index.json",
           "setupCommands": [
-            [
-              "npm",
-              "ci",
-              "--ignore-scripts"
-            ],
-            [
-              "npm",
-              "rebuild",
-              "better-sqlite3"
-            ],
-            [
-              "npm",
-              "run",
-              "build"
-            ]
+            ["npm", "ci", "--ignore-scripts"],
+            ["npm", "rebuild", "better-sqlite3"],
+            ["npm", "run", "build"]
           ]
         },
         "catalog-static": {
@@ -169,26 +146,10 @@
           ],
           "readyPath": "/index.json",
           "setupCommands": [
-            [
-              "npm",
-              "ci",
-              "--ignore-scripts"
-            ],
-            [
-              "npm",
-              "rebuild",
-              "better-sqlite3"
-            ],
-            [
-              "npm",
-              "run",
-              "build"
-            ],
-            [
-              "npm",
-              "run",
-              "catalog:build"
-            ]
+            ["npm", "ci", "--ignore-scripts"],
+            ["npm", "rebuild", "better-sqlite3"],
+            ["npm", "run", "build"],
+            ["npm", "run", "catalog:build"]
           ]
         }
       }

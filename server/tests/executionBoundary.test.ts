@@ -37,8 +37,9 @@ const activityFiles = sourcesOf("packages/activity/src");
 const organizationFiles = sourcesOf("packages/organization/src");
 const serverFiles = sourcesOf("server/src");
 
-const workTables = ["task_consultation_wait", "story", "task", "task_claim", "task_comment", "change_log", "command_receipt"];
+const workTables = ["task_consultation_wait", "story", "task", "task_claim", "task_comment", "task_pull_request", "change_log", "command_receipt", "publication_record", "publication_revision"];
 const accessTables = [
+  "agent_run",
   "project_grant",
   "workspace_grant",
   "human_user",
@@ -47,6 +48,7 @@ const accessTables = [
   "auth_login_attempt",
   "workspace_invitation",
   "access_credential",
+  "agent_run",
   "workspace_membership",
 ];
 

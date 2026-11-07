@@ -5,17 +5,48 @@ export type IntentTable = {
   workspace_id: string;
   title: string;
   desired_state: string;
+  background: string | null;
+  audience: string | null;
+  constraints: string | null;
   completion_definition: string | null;
+  /** `YYYY-MM-DD`の暦日。 */
+  target_date: string | null;
   status: "active" | "achieved" | "abandoned";
   abandoned_reason: string | null;
+  /** 保存のたびに1ずつ増える版。作成時は1。更新は呼び出し側が持つ版との一致を条件にする。 */
+  version: number;
+  /** desiredState / completionDefinitionが最後に変わった版。これより古い版を根拠にした未完了のOutcomeは再計画の対象。 */
+  meaning_version: number;
   created_at: number;
   updated_at: number;
+};
+
+/** Intentの版ごとの内容・変更主体・理由。追記だけで更新しない。版1は作成時の内容。 */
+export type IntentRevisionTable = {
+  intent_id: string;
+  workspace_id: string;
+  version: number;
+  title: string;
+  desired_state: string;
+  background: string | null;
+  audience: string | null;
+  constraints: string | null;
+  completion_definition: string | null;
+  target_date: string | null;
+  /** この版でdesiredState / completionDefinitionが変わったか。 */
+  meaning_changed: number;
+  reason: string | null;
+  changed_by: string;
+  changed_by_role: string;
+  created_at: number;
 };
 
 export type OutcomeTable = {
   id: string;
   workspace_id: string;
   intent_id: string;
+  /** 作成または最後に再確認した時点のIntentの版。 */
+  intent_version: number;
   title: string;
   description: string;
   hypothesis: string | null;
@@ -24,8 +55,36 @@ export type OutcomeTable = {
   cancel_reason: string | null;
   /** 判断したDirection DecisionのID。FKは意図的に付けない（direction_decision.outcome_idとの循環参照を避けるため）。 */
   origin_decision_id: string | null;
+  /** 更新のたびに1増える版（作成時1）。 */
+  revision: number;
   created_at: number;
   updated_at: number;
+};
+
+/** Outcomeの課題（Problem Statement）と根拠の状態・観測・原因の仮説・解決策の仮説。Outcomeの一部として置換で更新する。 */
+export type OutcomeProblemTable = {
+  id: string;
+  workspace_id: string;
+  outcome_id: string;
+  position: number;
+  statement: string;
+  evidence_status: "insufficient" | "observed" | "refuted";
+  observation: string | null;
+  cause_hypothesis: string | null;
+  solution_hypothesis: string | null;
+  /** 評価計画のJSON（`EvaluationPlan`）。未記録はnull。 */
+  evaluation_plan: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+/** 課題の根拠参照。同じWorkspaceのResearch Finding・Synthesisのどちらか1つを複合FKで参照する。 */
+export type OutcomeProblemEvidenceTable = {
+  problem_id: string;
+  workspace_id: string;
+  position: number;
+  finding_id: string | null;
+  synthesis_id: string | null;
 };
 
 export type SuccessCriterionTable = {
@@ -164,6 +223,8 @@ export type DirectionDecisionTable = {
   reason: string;
   /** JSON文字列の配列。 */
   options: string;
+  /** 判断した時点のIntentの版。内容は`intent_revision`で参照する。 */
+  intent_version: number;
   /** 判断時点のIntent Brief snapshot（JSON）。 */
   intent_brief_snapshot: string;
   /** 根拠にしたOutcome Evaluation（Task 36）。1つのEvaluationを根拠にできるDecisionは1件だけ。 */
@@ -302,7 +363,16 @@ export type OutcomeEvaluationTable = {
   workspace_id: string;
   outcome_id: string;
   intent_id: string;
+  /** 評価したOutcomeが根拠にしていたIntentの版。 */
+  intent_version: number;
   result: "achieved" | "failed" | "insufficient_evidence";
+  method: string;
+  target_version: string;
+  limitations: string;
+  /** 評価対象の課題idのJSON配列。 */
+  problem_ids: string;
+  /** 評価時点の評価計画のJSON配列（`{ problemId, planId }`）。 */
+  problem_plans: string;
   criteria: string;
   snapshot: string;
   principal_id: string;
@@ -313,14 +383,55 @@ export type OutcomeEvaluationTable = {
 };
 
 /**
+ * Intentの観測項目（Direction所有）。`(intent_id, key)`で一意。単位・目標値・鮮度の期限を明示的に持ち、説明文から生成しない。
+ */
+export type IntentMetricTable = {
+  id: string;
+  workspace_id: string;
+  intent_id: string;
+  key: string;
+  name: string;
+  unit: string;
+  target_value: number | null;
+  stale_after_days: number;
+  revision: number;
+  created_by_principal_id: string;
+  created_at: number;
+  updated_at: number;
+};
+
+/**
+ * 観測項目の観測値。対象期間（暦日）ごとの版を追記し、更新しない。`(metric_id, period_start, period_end, revision)`で一意。
+ * `observed`は値あり、`failed`は値なし・理由あり（checkで保証）。
+ */
+export type IntentMetricObservationTable = {
+  id: string;
+  metric_id: string;
+  period_start: string;
+  period_end: string;
+  revision: number;
+  status: "observed" | "failed";
+  value: number | null;
+  failure_reason: string | null;
+  source_name: string;
+  source_uri: string | null;
+  observed_at: number;
+  principal_id: string;
+  recorded_at: number;
+};
+
+/**
  * Directionが所有するtable。単一SQLite fileの一部で、serverが他Contextのtableと合成する。
  * Workspace所有の`workspace_id`、artifactとExecutionの発生元の`project_id`のFK先はOrganizationが所有する。
  * DirectionはWorkspace/Projectの状態をserverが渡すreaderで読む。
  */
 export type DirectionDatabase = {
   intent: IntentTable;
+  intent_revision: IntentRevisionTable;
   outcome: OutcomeTable;
   success_criterion: SuccessCriterionTable;
+  outcome_problem: OutcomeProblemTable;
+  outcome_problem_evidence: OutcomeProblemEvidenceTable;
   outcome_target_project: OutcomeTargetProjectTable;
   research_request: ResearchRequestTable;
   research_result: ResearchResultTable;
@@ -341,4 +452,6 @@ export type DirectionDatabase = {
   outcome_execution_summary: OutcomeExecutionSummaryTable;
   outcome_execution_evidence: OutcomeExecutionEvidenceTable;
   outcome_evaluation: OutcomeEvaluationTable;
+  intent_metric: IntentMetricTable;
+  intent_metric_observation: IntentMetricObservationTable;
 };

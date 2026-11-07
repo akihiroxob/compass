@@ -26,10 +26,11 @@ type App = ReturnType<typeof createApp>;
 type Body = Record<string, any>;
 type ToolResult = { isError?: boolean; structuredContent: Body };
 
+const actor = { principalId: "tester", role: "operator" };
 const outcomeInput = {
   title: "No duplicate claims",
   description: "Claims are exclusive.",
-  rationale: "Duplicate claims cause rework.",
+  intentVersion: 1, rationale: "Duplicate claims cause rework.",
   successCriteria: [{ description: "duplicate_claim_count = 0", measurement: "Count duplicates", target: "= 0" }],
 };
 
@@ -192,8 +193,8 @@ test("AC-6 archivedのIntent作成・更新・放棄は409。存在しないinte
   const base = `/api/workspaces/${project.workspaceId}/intents`;
   const attempts: [string, string, unknown][] = [
     ["POST", base, { title: "New", desiredState: "State" }],
-    ["PATCH", `${base}/${intent.id}`, { title: "Changed" }],
-    ["PATCH", `${base}/missing`, { title: "Changed" }],
+    ["PATCH", `${base}/${intent.id}`, { expectedVersion: 1, title: "Changed" }],
+    ["PATCH", `${base}/missing`, { expectedVersion: 1, title: "Changed" }],
     ["POST", `${base}/${intent.id}/abandon`, { reason: "x" }],
     ["POST", `${base}/missing/abandon`, {}],
   ];
@@ -329,10 +330,10 @@ test("AC-11 Repositoryを直接呼んでも、archivedのProjectには何も書�
   const grants = new SQLiteProjectGrantRepository(asAccessDatabase(database), accessProjectReaders);
   const archived = { kind: "project_archived" };
   assert.deepEqual(await projects.update(project.id, { name: "Changed" }), archived);
-  assert.deepEqual(await intents.create(project.workspaceId, { title: "T", desiredState: "S", completionDefinition: null }), { kind: "workspace_archived" });
-  assert.deepEqual(await intents.update(project.workspaceId, intent.id, { title: "Changed" }), { kind: "workspace_archived" });
+  assert.deepEqual(await intents.create(project.workspaceId, { title: "T", desiredState: "S", background: null, audience: null, constraints: null, completionDefinition: null, targetDate: null }, actor), { kind: "workspace_archived" });
+  assert.deepEqual(await intents.update(project.workspaceId, intent.id, { expectedVersion: 1, title: "Changed" }, actor), { kind: "workspace_archived" });
   assert.deepEqual(await intents.abandon(project.workspaceId, intent.id, "x"), { kind: "workspace_archived" });
-  assert.deepEqual(await outcomes.create(project.workspaceId, intent.id, { ...outcomeInput, hypothesis: null, successCriteria: [{ description: "d", measurement: "m", target: null }] }), { kind: "workspace_archived" });
+  assert.deepEqual(await outcomes.create(project.workspaceId, intent.id, { ...outcomeInput, intentVersion: 1, hypothesis: null, problems: [], successCriteria: [{ description: "d", measurement: "m", target: null }] }), { kind: "workspace_archived" });
   assert.deepEqual(await outcomes.update(project.workspaceId, intent.id, outcome.id, { title: "Changed" }), { kind: "workspace_archived" });
   assert.deepEqual(await outcomes.cancel(project.workspaceId, intent.id, outcome.id, "x"), { kind: "workspace_archived" });
   assert.deepEqual(await grants.grant(project.id, "strat-2", "strategist"), archived);
@@ -411,7 +412,7 @@ test("AC-15 archivedの書込MCP toolはisErrorのCONFLICT（projectStatus / wor
   const writes: [string, object, string | undefined][] = [
     ["update_project", { projectId: project.id, name: "Changed" }, undefined],
     ["create_intent", { workspaceId: project.workspaceId, title: "T", desiredState: "S" }, undefined],
-    ["update_intent", { ...ids, title: "Changed" }, undefined],
+    ["update_intent", { expectedVersion: 1, ...ids, title: "Changed" }, undefined],
     ["abandon_intent", { ...ids, reason: "x" }, undefined],
     ["create_outcome", { ...ids, ...outcomeInput }, "strat-1"],
     ["update_outcome", { ...ids, outcomeId: outcome.id, title: "Changed" }, "strat-1"],
@@ -455,7 +456,7 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       "abandon_intent", "ack_runtime_event", "cancel_outcome", "complete_research_request", "create_adr_handoff_request",
       "create_direction_decision", "create_intent",
       "create_outcome", "create_project", "decide_next_outcome", "fetch_runtime_events",
-      "get_intent", "get_workspace_orchestration_state", "get_outcome", "get_project", "get_research_request", "get_researcher_context", "get_role_instructions", "get_role_context", "get_workspace_role_context", "list_skills", "get_skill_context",
+      "get_intent", "list_intent_revisions", "get_workspace_orchestration_state", "get_outcome", "get_project", "get_research_request", "get_researcher_context", "get_role_instructions", "get_role_context", "get_workspace_role_context", "list_skills", "get_skill_context",
       "get_outcome_execution_summary", "get_evaluator_context", "record_outcome_evaluation", "get_strategist_context", "list_adr_references", "list_intents", "list_outcomes", "list_projects",
       "list_research_requests", "record_adr_reference",
       // Target Projectの設定・解除はOutcomeとProjectの関連だけで、Projectのarchive・削除ではない。
@@ -464,7 +465,9 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       // Execution（Story / Task / Claim）。archive・delete・restoreに当たるtoolは無い（cancelは取消であり削除ではない）。
       "accept_task", "add_task_comment", "cancel_story", "cancel_task", "claim_acceptance", "claim_review", "claim_task",
       "complete_story", "complete_task", "edit_story", "edit_task", "get_outcome_handoff_context", "issue_story", "issue_task", "list_changes",
-      "list_stories", "list_task_comments", "list_tasks", "reject_task", "release_claim", "renew_claim", "reviewed_task",
+      "list_stories", "list_task_comments", "list_task_pull_requests", "list_tasks", "register_task_pull_request", "reject_task", "release_claim", "renew_claim", "reviewed_task",
+      // 公開確認は原記録の追記だけ（Runtime専用）。
+      "record_publication",
       // Activityは追記だけで、削除・書換のtoolは無い（訂正は追記）。
       "get_activity", "list_activities", "record_activity",
       "get_workspace_activity", "list_workspace_activities", "record_workspace_activity",
@@ -472,8 +475,12 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       "wait_for_consultation", "list_consultation_resumptions", "resume_consultation_task", "confirm_consultation_continuation", "get_project_consultation_state",
       "acquire_consultation_lease", "cancel_consultation", "create_consultation", "get_consultation", "list_consultations",
       "reply_consultation", "resolve_consultation", "get_workspace_consultation_state",
+      // Runtime Credentialによる実行観測の追記。
+      "record_agent_run",
       // 文書反映は引継ぎ先・依頼・成果物参照の追記だけ。
       "hand_off_consultation", "get_consultation_handoff_context", "request_consultation_followup", "record_consultation_artifact",
+      // Intentの観測値は対象期間ごとの版の追記だけで、削除・書換のtoolは無い。
+      "define_intent_metric", "list_intent_metrics", "record_intent_metric_observations",
     ].sort(),
   );
   const listTool = tools.find(({ name }) => name === "list_projects");

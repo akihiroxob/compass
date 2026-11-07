@@ -113,7 +113,29 @@ export type WorkspaceGrantTable = {
   created_at: number;
 };
 
+/** Agentの実行観測（`AgentRun`）。Activityとは別の記録で、workflow checkpointにしない。 */
+export type AgentRunTable = {
+  run_id: string;
+  scope_kind: "workspace" | "project";
+  scope_id: string;
+  principal_id: string;
+  role: string;
+  source: string;
+  provider: string | null;
+  work_kind: string | null;
+  work_id: string | null;
+  reporter_kind: "agent" | "runtime";
+  reporter_principal_id: string;
+  status: "running" | "succeeded" | "failed";
+  started_at: number;
+  observed_at: number;
+  stale_at: number;
+  ended_at: number | null;
+  reason: string | null;
+};
+
 export type AccessDatabase = {
+  agent_run: AgentRunTable;
   workspace_grant: WorkspaceGrantTable;
   project_grant: ProjectGrantTable;
   human_user: HumanUserTable;

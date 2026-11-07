@@ -4,10 +4,10 @@ import { classifyError, loadFailureMessage, request, settle } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading, StateCard } from "../../components/StateCard";
 import { Button, LinkButton } from "../../components/ui";
-import { projectViewPath, workspaceApiPath, workspaceCreatePath, workspaceEditPath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath, type WorkspaceSection } from "../../paths";
+import { projectViewPath, workspaceApiPath, workspaceCreatePath, workspaceEditPath, workspaceIntentCreatePath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath, type WorkspaceSection } from "../../paths";
 import { canOperateWorkspace, workspaceDirectionAccess } from "../access";
-import { ActivitySection } from "../activity";
-import { ProjectAgentsSection, WorkspaceAgentsSection } from "../agent";
+import { WorkspaceActivityStream } from "../activity";
+import { WorkspaceAgentDetail, WorkspaceAgentList } from "../agent";
 import { ConsultationSection } from "../consultation";
 import { useSession } from "../auth";
 import { CredentialSection } from "../credential";
@@ -64,7 +64,7 @@ export const WorkspaceHomePage = () => {
  * Workspaceの画面の共通枠。URLのWorkspaceをWorkspace Membershipで取得し、閲覧できなければ一覧に無いWorkspaceと同じく
  * 理由だけを出す（未所属・不在はserverが区別せず404）。見出しにWorkspace名・項目・状態・自分のRoleを出す。
  */
-const WorkspaceFrame = ({ section, children }: { section: WorkspaceSection; children: (workspace: Workspace, myRole: HumanRole, reload: () => void) => ReactNode }) => {
+const WorkspaceFrame = ({ section, title, children }: { section: WorkspaceSection; title?: string; children: (workspace: Workspace, myRole: HumanRole, reload: () => void) => ReactNode }) => {
   const { workspaceId = "" } = useParams();
   // archive等で状態が変わった後に取り直す。再取得中は読み込み中を出し、古い状態の操作を残さない。
   const [revision, setRevision] = useState(0);
@@ -75,7 +75,7 @@ const WorkspaceFrame = ({ section, children }: { section: WorkspaceSection; chil
         <>
           <div className="detail-hero project-hero">
             <p className="eyebrow">Workspace · {value.workspace.name}</p>
-            <h1>{section === "overview" ? value.workspace.name : workspaceSectionLabels[section]}</h1>
+            <h1>{title ?? (section === "overview" ? value.workspace.name : workspaceSectionLabels[section])}</h1>
             {value.workspace.status === "archived" && <p><span className="status-badge muted">アーカイブ済み</span></p>}
             <p className="section-note">あなたのWorkspaceでのRole: {humanRoleLabels[value.myRole]}</p>
           </div>
@@ -153,7 +153,7 @@ const OverviewContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
  * 方向。Mission・Vision、Intent（Active・過去）→ Outcome → Target Project別のWork、Principles・Constraints。いずれもWorkspaceが正本で、
  * Target別のStory・Taskは件数だけを出し、本文は各OutcomeのWorkspace詳細で各ProjectのExecution閲覧から読む。
  */
-const DirectionContent = ({ workspace }: { workspace: Workspace }) => {
+const DirectionContent = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
   const { value, error } = useLoad(workspace.id, () => Promise.all([loadDirection(workspace.id), settle(loadProjects(workspace.id), workspaceNotFound)]), workspaceNotFound);
   return (
     <>
@@ -161,7 +161,8 @@ const DirectionContent = ({ workspace }: { workspace: Workspace }) => {
       <section className="detail-section intent-section" aria-labelledby="workspace-direction-intent-heading">
         <h2 id="workspace-direction-intent-heading">Intent・Outcome</h2>
         <p className="section-note">IntentはHumanが今実現したい状態、OutcomeはIntentへ近づくために達成すべき観測可能な状態です。OutcomeはWorkspaceに属し、Target ProjectのStoryが貢献します。</p>
-        {error ? <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${error}`} /> : !value ? <Loading /> : <DirectionIntents workspaceId={workspace.id} direction={value[0]} projects={value[1]} />}
+        {workspaceDirectionAccess(workspace, myRole) === "allowed" && <div className="action-row"><LinkButton size="sm" to={workspaceIntentCreatePath(workspace.id)}>目標を作成</LinkButton></div>}
+        {error ? <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${error}`} /> : !value ? <Loading /> : <DirectionIntents workspaceId={workspace.id} direction={value[0]} projects={value[1]} canEdit={workspaceDirectionAccess(workspace, myRole) === "allowed"} />}
       </section>
       <TextList title="Principles" values={workspace.principles} />
       <TextList title="Constraints" values={workspace.constraints} />
@@ -215,55 +216,27 @@ const ProjectViewLinks = ({ workspace, view, hint }: { workspace: Workspace; vie
 };
 
 /**
- * Workspace Activityの`project_resource`参照の表示先。Workspaceの所属Project（archivedを含む）に登録済みのRepository・Resourceで、
- * Workspace Membershipで読める。取得できなければnull（参照はIDだけを出す）。
+ * Workspaceの記録の対象Projectと`project_resource`参照の表示先。Workspaceの所属Project（archivedを含む）で、Workspace Membershipで読める。
+ * 取得できなければnull（Project名・参照はIDだけを出す）。
  */
-const useWorkspaceResources = (workspaceId: string) => {
+const useWorkspaceActivityTargets = (workspaceId: string) => {
   const { value, error } = useLoad(
-    `${workspaceId}/resources`,
-    () =>
-      Promise.all(["", "?status=archived"].map((query) => request<{ projects: WorkspaceProject[] }>(workspaceApiPath(workspaceId, `/projects${query}`)))).then((pages) =>
-        pages.flatMap(({ projects }) => projects.flatMap((project) => [...project.repositories, ...project.resources])),
-      ),
+    `${workspaceId}/activity-targets`,
+    () => loadProjects(workspaceId).then((items) => items.map(({ project }) => project)),
     workspaceNotFound,
   );
-  return error ? { ready: true, resources: null } : { ready: value !== null, resources: value };
+  if (error) return { ready: true, projects: null, resources: null };
+  return {
+    ready: value !== null,
+    projects: value?.map((project) => ({ id: project.id, name: project.name, archived: project.status === "archived" })) ?? null,
+    resources: value?.flatMap((project) => [...project.repositories, ...project.resources]) ?? null,
+  };
 };
 
-/**
- * 記録。WorkspaceのActivity（Directionの判断の履歴）と、各ProjectのActivity（Workの履歴）への導線。Project ActivityもWorkspace Membershipで
- * 各Projectの「記録」から読み、Workspaceの一覧には混ぜない。
- */
+/** 記録。Workspace共通と所属全Projectの業務Activityを横断して検索・絞り込み・詳細まで辿る。 */
 const ActivityContent = ({ workspace }: { workspace: Workspace }) => {
-  const { ready, resources } = useWorkspaceResources(workspace.id);
-  return (
-    <>
-      {ready ? <ActivitySection scope={{ kind: "workspace", workspaceId: workspace.id }} resources={resources} /> : <Loading />}
-      <section className="detail-section" aria-labelledby="workspace-project-activity-heading">
-        <h2 id="workspace-project-activity-heading">Projectの記録</h2>
-        <p className="section-note">Story・Taskの起票・レビュー・受入などWorkの履歴は、Projectごとに記録されます。各activeなProjectから開けます。</p>
-        <ProjectViewLinks workspace={workspace} view="records" hint="Projectの記録を開く" />
-      </section>
-    </>
-  );
-};
-
-/**
- * Agent。WorkspaceのDirection Role（Workspace Grant・Workspace Credential）と、所属ProjectのExecution Role（Project Grant・
- * Project Credential・TaskのClaim）をscopeごとに分けて出す。Grant・Credential・ClaimのいずれからもAgentの稼働を推測しない。
- */
-const AgentsContent = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
-  const { value, error } = useWorkspaceProjects(workspace.id, "active");
-  return (
-    <>
-      <div className="fixed-note agent-intro">
-        <p><strong>Grant</strong>はAgentが担当できるRole、<strong>Credential</strong>はAgentがCompassへ接続する資格、<strong>Claim</strong>はAgentが今保持しているTaskの期限付きの作業権です。</p>
-        <p>それぞれ別の状態で、いずれもAgentプロセスが稼働していることを示しません。</p>
-      </div>
-      <WorkspaceAgentsSection workspace={workspace} myRole={myRole} />
-      {error ? <ErrorState message={`Projectの読み込みに失敗しました: ${error}`} /> : <ProjectAgentsSection projects={value} />}
-    </>
-  );
+  const { ready, projects, resources } = useWorkspaceActivityTargets(workspace.id);
+  return ready ? <WorkspaceActivityStream workspaceId={workspace.id} projects={projects} resources={resources} /> : <Loading />;
 };
 
 /**
@@ -280,7 +253,7 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
   return (
     <>
       <div className="fixed-note">
-        <p>ここではWorkspaceと配下のすべてのProjectを利用するHumanと、Directionを担うAgentを管理します。HumanのRoleは配下のすべてのProjectに同じく適用されます。ProjectのAgent・Credentialは各Projectの設定で管理します。</p>
+        <p>ここではWorkspaceと配下のすべてのProjectを利用するHumanと、Directionを担うAgentを管理します。HumanのRoleは配下のすべてのProjectに同じく適用されます。Workspace・全ProjectのAgentの一覧・登録・Credentialは<Link to={workspacePath(workspace.id, "agents")}>Agent管理</Link>でまとめて扱えます（Runtime Credentialはここと各Projectの設定で扱います）。</p>
       </div>
       <WorkspaceMembershipSection
         key={myRole}
@@ -300,7 +273,7 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
       )}
       <section className="detail-section" aria-labelledby="workspace-project-access-heading">
         <h2 id="workspace-project-access-heading">Projectのアクセス</h2>
-        <p className="section-note">Story・Taskを担うAgent（Manager・Worker・Reviewer）の割当とCredentialは、Projectごとの設定で管理します。HumanのMemberとRoleは上のMemberで管理し、配下のすべてのProjectに適用されます。</p>
+        <p className="section-note">Story・Taskを担うAgent（Manager・Worker・Reviewer）の割当とCredentialは、Agent管理または各Projectの設定で管理します。HumanのMemberとRoleは上のMemberで管理し、配下のすべてのProjectに適用されます。</p>
         <ProjectViewLinks workspace={workspace} view="settings" hint="Agent・Credentialを開く" />
       </section>
     </>
@@ -308,10 +281,14 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
 };
 
 export const WorkspaceOverviewPage = () => <WorkspaceFrame section="overview">{(workspace, myRole, reload) => <OverviewContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
-export const WorkspaceDirectionPage = () => <WorkspaceFrame section="direction">{(workspace) => <DirectionContent workspace={workspace} />}</WorkspaceFrame>;
+export const WorkspaceDirectionPage = () => <WorkspaceFrame section="direction">{(workspace, myRole) => <DirectionContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceOutcomePage = () => <WorkspaceFrame section="direction">{(workspace, myRole) => <OutcomeContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceConsultationsPage = () => <WorkspaceFrame section="consultations">{(workspace) => <ConsultationSection scope={{ kind: "workspace", workspaceId: workspace.id }} />}</WorkspaceFrame>;
 export const WorkspaceProjectsPage = () => <WorkspaceFrame section="projects">{(workspace, myRole) => <ProjectsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceActivityPage = () => <WorkspaceFrame section="activity">{(workspace) => <ActivityContent workspace={workspace} />}</WorkspaceFrame>;
-export const WorkspaceAgentsPage = () => <WorkspaceFrame section="agents">{(workspace, myRole) => <AgentsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
+export const WorkspaceAgentsPage = () => <WorkspaceFrame section="agents">{(workspace, myRole) => <WorkspaceAgentList workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
+export const WorkspaceAgentPage = () => {
+  const { principalId = "" } = useParams();
+  return <WorkspaceFrame section="agents" title={principalId}>{(workspace, myRole) => <WorkspaceAgentDetail key={principalId} workspace={workspace} myRole={myRole} principalId={principalId} />}</WorkspaceFrame>;
+};
 export const WorkspaceSettingsPage = () => <WorkspaceFrame section="settings">{(workspace, myRole, reload) => <SettingsContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;

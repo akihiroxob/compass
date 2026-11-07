@@ -1,6 +1,6 @@
-// Workspace Selector・Shellのナビゲーション（S09-02）。現在位置はURLだけで表し、再読込・共有・戻るで同じ画面へ戻る。
+// Workspace Selector・Shellのメニュー。現在位置はURLだけで表し、再読込・共有・戻るで同じ画面へ戻る。
 // テストからも読み込むため、純関数のmodule以外をimportしない。Workspaceの画面のpathは`paths.ts`。
-import { workspacePath, workspaceSections, type WorkspaceSection } from "../../paths.ts";
+import { projectMenuViews, projectViews, workspaceSections, type ProjectMenuView, type WorkspaceSection } from "../../paths.ts";
 
 /** Web API `GET /api/workspaces`・`GET /api/workspaces/:workspaceId`のWorkspace。 */
 export type Workspace = {
@@ -34,25 +34,42 @@ export type WorkspaceProject = {
 
 export const workspaceSectionLabels: Record<WorkspaceSection, string> = {
   overview: "概要",
-  direction: "方向",
-  consultations: "判断待ち",
+  consultations: "対応待ち",
+  direction: "Outcome",
   projects: "Project",
-  activity: "記録",
-  agents: "Agent",
+  activity: "Activity",
+  agents: "Agent管理",
   settings: "設定",
 };
 
+/** Workspaceのメニューの項目と順序。Projectはメニューの「Project」の階層から開く（一覧の画面は各画面の導線から開く）。 */
+export const workspaceMenuSections = ["overview", "consultations", "direction", "activity", "agents", "settings"] as const satisfies readonly WorkspaceSection[];
+
 /**
- * URLから現在位置を読む。Workspaceの画面はWorkspace IDと項目、Project配下の画面はProject ID（所属Workspaceは取得して解決する）。
- * Workspaceの編集は「概要」、Project追加は「Project」、Outcome詳細は「方向」、相談詳細は「判断待ち」の項目に属する。
+ * URLから現在位置を読む。Workspaceの画面はWorkspace IDと項目、Project配下の画面はProject ID（所属Workspaceは取得して解決する）と、
+ * メニューのProjectの階層で選択中にするview。
+ * Workspaceの編集は「概要」、Project追加は「Project」、Outcome詳細は「方向（Outcome）」、相談詳細は「対応待ち」の項目に属する。
+ * Projectの編集は「設定」、Story・Taskの画面は「開発詳細」に属する。
  * それ以外（ホーム・参加中のProject・Workspace作成・未定義のURL）は`none`。
  */
 export type ShellLocation =
   | { kind: "workspace"; workspaceId: string; section: WorkspaceSection | null }
-  | { kind: "project"; projectId: string }
+  | { kind: "project"; projectId: string; view: ProjectMenuView | null }
   | { kind: "none" };
 
-export const parseShellLocation = (pathname: string): ShellLocation => {
+const projectMenuView = (rest: string | undefined, more: readonly string[], search: string): ProjectMenuView | null => {
+  if (rest === undefined) {
+    // Project詳細の`?view=`。指定無し・不正な値は概要（Project詳細の表示と同じ）。
+    const value = new URLSearchParams(search).get("view");
+    const view = projectViews.find((candidate) => candidate === value) ?? "overview";
+    return projectMenuViews.find((candidate) => candidate === view) ?? null;
+  }
+  if (rest === "edit" && more.length === 0) return "settings";
+  if (rest === "tasks" || rest === "stories") return "work";
+  return null;
+};
+
+export const parseShellLocation = (pathname: string, search = ""): ShellLocation => {
   const [first, id, rest, ...more] = pathname.split("/").filter((segment) => segment !== "");
   // `/workspaces/new`はWorkspaceではない（作成画面）。
   if (first === "workspaces" && id && id !== "new") {
@@ -66,21 +83,19 @@ export const parseShellLocation = (pathname: string): ShellLocation => {
             ? "direction"
           : rest === "consultations" && /^[^/]+$/.test(subPage)
             ? "consultations"
+          : rest === "agents" && /^[^/]+$/.test(subPage)
+            ? "agents"
           : subPage === "" ? workspaceSections.find((value) => value === rest && value !== "overview") ?? null : null;
     return { kind: "workspace", workspaceId: id, section };
   }
   // `/projects/new`はProjectではない（作成画面）。
-  if (first === "projects" && id && id !== "new") return { kind: "project", projectId: id };
+  if (first === "projects" && id && id !== "new") return { kind: "project", projectId: id, view: projectMenuView(rest, more, search) };
   return { kind: "none" };
 };
 
-/** 現在位置に対応するナビゲーション項目。Project配下の画面は「Project」。 */
+/** 現在位置に対応するWorkspaceのメニューの項目。Project配下の画面はメニューの「Project」の階層で示すため、項目を選択しない。 */
 export const currentSection = (location: ShellLocation): WorkspaceSection | null =>
-  location.kind === "workspace" ? location.section : location.kind === "project" ? "projects" : null;
-
-/** Workspaceを切り替えた先。同じ項目を開き、Project配下からはProject一覧へ移る。 */
-export const switchWorkspacePath = (location: ShellLocation, workspaceId: string) =>
-  workspacePath(workspaceId, currentSection(location) ?? "overview");
+  location.kind === "workspace" ? location.section : null;
 
 /**
  * 現在のWorkspace。一覧（activeのみ）にあればそれ、無ければ個別に取得した状態（archived等。閲覧できなければnull）。
@@ -95,10 +110,3 @@ export const resolveCurrentWorkspace = (
 /** ホームで開くWorkspace。前回選択したWorkspaceが今も閲覧できればそれ、無ければ一覧の先頭（更新日時の降順）。 */
 export const chooseHomeWorkspace = (workspaces: readonly Workspace[], rememberedId: string | null): Workspace | null =>
   workspaces.find(({ id }) => id === rememberedId) ?? workspaces[0] ?? null;
-
-/** Selectorの絞り込み。名前・Missionの部分一致（大文字小文字を区別しない）。 */
-export const filterWorkspaces = (workspaces: readonly Workspace[], query: string): Workspace[] => {
-  const needle = query.trim().toLocaleLowerCase();
-  if (needle === "") return [...workspaces];
-  return workspaces.filter(({ name, mission }) => `${name}\n${mission}`.toLocaleLowerCase().includes(needle));
-};

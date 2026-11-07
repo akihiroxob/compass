@@ -9,7 +9,7 @@ import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
 import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import type { ResearchRepository } from "../domain/ResearchRepository.ts";
 import type { OutcomeTargetProjectRepository, OutcomeTargetProjectView } from "../domain/OutcomeTargetProject.ts";
-import { NotFoundError } from "@compass/shared";
+import { ConflictError, NotFoundError } from "@compass/shared";
 import { DirectionAgentRole } from "./port/DirectionAuthorizationPort.ts";
 
 /** 未実装で、Agentが存在を仮定・捏造してはならない入力。実装した時点で該当要素を外す。 */
@@ -75,11 +75,14 @@ export class GetStrategistContextUseCase {
     private readonly targetRepository: Pick<OutcomeTargetProjectRepository, "listByIntent">,
   ) {}
 
-  async execute(principalId: string, workspaceId: string): Promise<StrategistContext> {
+  async execute(principalId: string, workspaceId: string, intentId?: string): Promise<StrategistContext> {
     const workspace = await this.workspaceReader.findById(workspaceId);
     if (!workspace) throw new NotFoundError(`Workspace ${workspaceId} was not found`);
     const intents = await this.intentRepository.findByWorkspace(workspaceId);
-    const activeIntent = intents.find((intent) => intent.status === "active") ?? null;
+    const activeIntents = intents.filter((intent) => intent.status === "active");
+    if (!intentId && activeIntents.length > 1) throw new ConflictError("Multiple active Intents: specify intentId from list_intents");
+    const activeIntent = intentId ? intents.find((intent) => intent.id === intentId) ?? null : activeIntents[0] ?? null;
+    if (intentId && !activeIntent) throw new NotFoundError(`Intent ${intentId} was not found in Workspace ${workspaceId}`);
     const outcomes = activeIntent
       ? await this.outcomeRepository.findByIntent(workspaceId, activeIntent.id)
       : [];

@@ -9,7 +9,7 @@ type Executor = Kysely<DirectionDatabase> | Transaction<DirectionDatabase>;
 
 type CommonDecisionFields = Pick<
   CreateDirectionDecisionInput,
-  "intentId" | "judgment" | "reason" | "options" | "usedSyntheses" | "usedFindingIds" | "requestKey" | "runRef" | "evaluationId"
+  "intentId" | "intentVersion" | "judgment" | "reason" | "options" | "usedSyntheses" | "usedFindingIds" | "requestKey" | "runRef" | "evaluationId"
 > & { principalId: string };
 
 /** Decision行と、関連tableに保存したusedSyntheses・usedFindingIdsを結び付けて読取モデルへ変換する。 */
@@ -35,6 +35,7 @@ const loadDecisions = async (
     id: row.id,
     workspaceId: row.workspace_id,
     intentId: row.intent_id,
+    intentVersion: row.intent_version,
     outcomeId: row.outcome_id,
     evaluationId: row.evaluation_id,
     type: row.type,
@@ -127,12 +128,19 @@ export const insertDirectionDecisionRow = async (
   hash: string,
   now: number,
 ): Promise<DirectionDecision> => {
+  const intent = await transaction
+    .selectFrom("intent")
+    .select("version")
+    .where("id", "=", input.intentId)
+    .where("workspace_id", "=", workspaceId)
+    .executeTakeFirstOrThrow();
   const row = await transaction
     .insertInto("direction_decision")
     .values({
       id,
       workspace_id: workspaceId,
       intent_id: input.intentId,
+      intent_version: intent.version,
       outcome_id: outcomeId,
       type,
       judgment: input.judgment,

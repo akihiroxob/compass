@@ -35,3 +35,5 @@ export * from "./infrastructure/writeWorkspaceOwnerMembership.ts";
 export * from "./application/WorkspaceGrantUseCases.ts";
 export * from "./application/RoleScopeAuthorizationService.ts";
 export * from "./infrastructure/SQLiteWorkspaceGrantRepository.ts";
+export * from "./infrastructure/SQLiteAgentRunRepository.ts";
+export * from "./application/AgentRunUseCases.ts";

@@ -5,7 +5,7 @@ import type {
   OutcomeEvaluation,
 } from "./OutcomeEvaluation.ts";
 import type { IntentStatus } from "./Intent.ts";
-import type { OutcomeStatus } from "./Outcome.ts";
+import type { EvaluationMethod, OutcomeStatus } from "./Outcome.ts";
 import type { WorkspaceArchivedResult } from "./WorkspaceArchivedResult.ts";
 
 /** 再送の同一性を判定する、Evaluatorが指定した内容。snapshotと導出した結果は含めない（再送のたびに変わり得るため）。 */
@@ -13,6 +13,12 @@ export type OutcomeEvaluationRequest = {
   outcomeId: string;
   requestKey: string;
   runRef: string;
+  method: EvaluationMethod;
+  targetVersion: string;
+  limitations: string;
+  problemIds: readonly string[];
+  /** 評価者が対象にした評価計画（課題id → planId）。計画の無い課題は含めない。 */
+  planIds: Readonly<Record<string, string>>;
   criteria: readonly { criterionId: string; verdict: string; rationale: string; evidenceIds: readonly string[] }[];
   principalId: string;
 };
@@ -22,6 +28,8 @@ export type RecordOutcomeEvaluationInput = {
   intentId: string;
   result: EvaluationResult;
   criteria: readonly CriterionEvaluation[];
+  /** 評価時点の課題の評価計画（`planId`）。再送の同一性には含めない。 */
+  problemPlans: readonly { problemId: string; planId: string }[];
   snapshot: EvaluationSnapshot;
   at: number;
 };

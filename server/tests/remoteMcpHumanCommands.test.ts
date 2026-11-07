@@ -13,7 +13,9 @@ import { addTestMembership, createTestHuman } from "./support/humanSession.ts";
 
 type App = ReturnType<typeof createApp>;
 
-const humanCommandTools = ["create_project", "update_project", "create_intent", "update_intent", "abandon_intent"];
+const humanCommandTools = ["create_project", "update_project", "abandon_intent"];
+/** Intentの登録・更新はremote modeでも公開し、WorkspaceのStrategist Grantで認可する（Human管理Commandではない）。 */
+const intentAuthorTools = ["create_intent", "update_intent"];
 
 const setup = async (mode: "remote" | "trusted-local") => {
   const database = createDatabase(":memory:");
@@ -63,12 +65,12 @@ const assertRejected = async (app: App, name: string, args: object, authorizatio
   assert.match(message, new RegExp(`${name}.*not found`, "i"), `${name} must be rejected: ${JSON.stringify(reply)}`);
 };
 
-const commandArgs = (projectId: string, intentId: string): Record<string, object> => ({
+const commandArgs = (projectId: string, workspaceId: string, intentId: string): Record<string, object> => ({
   create_project: { name: "Orphan", mission: "Created via MCP" },
   update_project: { projectId, mission: "Changed via MCP" },
-  create_intent: { projectId, title: "I2", desiredState: "S2" },
-  update_intent: { projectId, intentId, title: "Changed via MCP" },
-  abandon_intent: { projectId, intentId, reason: "via MCP" },
+  create_intent: { workspaceId, title: "I2", desiredState: "S2" },
+  update_intent: { expectedVersion: 1, workspaceId, intentId, title: "Changed via MCP" },
+  abandon_intent: { workspaceId, intentId, reason: "via MCP" },
 });
 
 test("remote modeの匿名MCPはRole文書だけを公開し、Human向けCommandと参照toolを実行できない", async () => {
@@ -79,8 +81,8 @@ test("remote modeの匿名MCPはRole文書だけを公開し、Human向けComman
   const instructions = await mcp(app, "tools/call", { name: "get_role_instructions", arguments: { role: "worker" } });
   assert.notEqual(instructions.result?.isError, true);
 
-  const args = commandArgs(project.id, intent.id);
-  for (const name of humanCommandTools) await assertRejected(app, name, args[name]);
+  const args = commandArgs(project.id, project.workspaceId, intent.id);
+  for (const name of [...humanCommandTools, ...intentAuthorTools]) await assertRejected(app, name, args[name]);
   await assertRejected(app, "list_projects", {});
   await assertRejected(app, "get_project", { projectId: project.id });
   await assertRejected(app, "list_intents", { workspaceId: project.workspaceId });
@@ -101,8 +103,15 @@ test("remote modeではBearer付きでもHuman向けCommandを登録せず、Rol
   assert.ok(names.includes("get_role_instructions"));
   assert.ok(names.includes("get_strategist_context"));
 
-  const args = commandArgs(project.id, intent.id);
+  const args = commandArgs(project.id, project.workspaceId, intent.id);
   for (const name of humanCommandTools) await assertRejected(app, name, args[name], bearer);
+  // Intentの登録・更新は公開するが、Project RoleのCredential（manager）はWorkspaceのStrategistではないため拒否する。
+  for (const name of intentAuthorTools) {
+    assert.ok(names.includes(name), `${name} must be listed`);
+    const reply = await mcp(app, "tools/call", { name, arguments: args[name] }, bearer);
+    assert.equal(reply.result?.isError, true, name);
+    assert.equal(reply.result?.structuredContent.error.code, "FORBIDDEN", name);
+  }
 
   assert.equal((await services.listProjectsUseCase.execute()).length, 1);
   assert.equal((await services.listIntentsUseCase.execute(project.workspaceId)).length, 1);
@@ -112,5 +121,5 @@ test("remote modeではBearer付きでもHuman向けCommandを登録せず、Rol
 test("trusted-local modeのMCPはHuman向けCommandを従来どおり登録する", async () => {
   const { app } = await setup("trusted-local");
   const names = await toolNames(app);
-  for (const name of [...humanCommandTools, "list_projects", "get_project"]) assert.ok(names.includes(name), name);
+  for (const name of [...humanCommandTools, ...intentAuthorTools, "list_projects", "get_project"]) assert.ok(names.includes(name), name);
 });

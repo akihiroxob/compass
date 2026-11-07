@@ -99,7 +99,7 @@ Membershipはrequestごとに読み、除外・Role変更を同じSessionの次�
 
 Credentialはscope（`{ kind: workspace | project, id }`）を明示して発行し、応答・一覧は`scope`を返す。発行・rotation・取消・一覧はProject Credentialが`/api/projects/:projectId/credentials`（所属WorkspaceのMembershipのadministrator以上）、Workspace Credentialが`/api/workspaces/:workspaceId/credentials`（Workspace Membershipのadministrator以上）で行う。Human Membershipは管理権限だけで、Agent CredentialのscopeはWorkspaceとProjectの間で継承しない。別scopeのCredential IDは404。archivedのscopeでは発行・rotationを拒否し、取消はできる。
 
-Runtime scopeは`runtime:event:read` / `runtime:event:ack` / `execution:change:read` / `execution:evidence:write` / `execution:summary:read` / `runtime:state:read`。`RuntimeAuthorizationService`はCredentialのscopeと操作対象のscope（`requireScope`はProject、`requireWorkspaceScope`はWorkspace）の一致とRuntime scopeを検査し、WorkspaceとProjectの間で継承しない。Agent Grantとは混同しない。Project Runtime CredentialはExecution change・Evidence・Summaryに、Workspace Runtime CredentialはRuntime event（`fetch_runtime_events` / `ack_runtime_event`・`/api/workspaces/:workspaceId/runtime-events`）と`get_workspace_orchestration_state`に使い、OrchestratorはWorkspace Runtime CredentialでWorkspaceの状態を読む。
+Runtime scopeは`runtime:event:read` / `runtime:event:ack` / `execution:change:read` / `execution:evidence:write` / `execution:summary:read` / `runtime:state:read` / `agent:run:write` / `publication:write`。`agent:run:write`は同じWorkspaceまたはProjectで、指定PrincipalのRole Grantを持つ実行の観測だけをMCP `record_agent_run`へ記録する（[実行観測](agent-run-observation.md)）。`RuntimeAuthorizationService`はCredentialのscopeと操作対象のscope（`requireScope`はProject、`requireWorkspaceScope`はWorkspace）の一致とRuntime scopeを検査し、WorkspaceとProjectの間で継承しない。Agent Grantとは混同しない。Project Runtime CredentialはExecution change・Evidence・Summaryと公開確認の記録（`publication:write`）に、Workspace Runtime CredentialはRuntime event（`fetch_runtime_events` / `ack_runtime_event`・`/api/workspaces/:workspaceId/runtime-events`）と`get_workspace_orchestration_state`に使い、OrchestratorはWorkspace Runtime CredentialでWorkspaceの状態を読む。
 
 Agent CredentialのPrincipalは1つのscopeに束縛する。別scope（別Workspace・別Project、WorkspaceとProjectの違いを含む）を次のとおり検査し、違反は409 `PRINCIPAL_BOUND_ELSEWHERE`とする。Agent Credentialの発行は、別scopeのRole Grantまたは有効なAgent Credentialを持つPrincipalを拒否する。Project / Workspace Grantの付与は、別scopeの有効なAgent Credentialに束縛されたPrincipalだけを拒否し、別scopeのGrantだけを持つPrincipalへの付与は拒否しない。Workspace Agent CredentialはWorkspace Direction Role（`RoleScopeAuthorizationService`）だけで認可され、所属ProjectのWork・Runtimeには使えない。Workspace Direction tool・Workspace Role ContextはMCPで接続済みで、Workspace Grantの付与・取消はHuman向けWeb API・Web UIだけで行う。Workspace Agent Credentialによる実Agent運転は未検証（結合テストの起動先はfixture）。
 
@@ -109,7 +109,8 @@ trusted-localではAgent名のBearerも許可するが、`cmp_`形式は常にCr
 
 | tool分類 | 契約 |
 | --- | --- |
-| Project作成・更新、Intent作成・更新・放棄 | 登録しない。HumanはWeb UIを使用 |
+| Project作成・更新、Intent放棄 | Human管理操作のため登録しない。HumanはWeb UIを使用 |
+| `create_intent` / `update_intent` | 登録する。対象WorkspaceのWorkspace Agent CredentialとStrategist Grant（`RoleScopeAuthorizationService`）を要求し、`X-Compass-Active-Role`指定時は`strategist`に限る。Project Grant・別WorkspaceのGrant・他のDirection Roleは`FORBIDDEN`。操作者はStrategist（Agent）として記録し、Humanの操作として扱わない。項目・入力規則はWeb UIと共通（[Intentの現行仕様](step-2-intent-design.md)） |
 | Direction参照 | Agent Credentialと対象WorkspaceのDirection Role Grant（`RoleScopeAuthorizationService`）を要求。Project Grantでは参照できない |
 | Project一覧 | Grantのあるactive Projectだけを返す |
 | `get_role_instructions` | 機密を含まない静的文書。認証不要 |

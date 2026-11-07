@@ -29,13 +29,15 @@ ReviewerはPR head、Managerは統合SHAを照合する。Workerは検証時HEAD
 
 `observations`には、作成中に確認した再送の同一結果、待機Taskの候補除外と直接Claimの拒否（`TASK_NOT_CLAIMABLE`）、viewerの返信拒否、同じ版の別Principalのlease（`LEASE_HELD`）、古い版の結論（`STALE_REVISION`）、二重の再開（`CLAIM_CONFLICT`）、Workerの継続確認（`FORBIDDEN`）を、期待値・観測値・一致で記録する。不一致があっても準備は止めないため、Managerは`matched: false`を製品の挙動として扱う。これらも検証用Principalの公開操作で、実Agentの稼働を示さない。
 
+リリース履歴には、専用Workspace `[受入] リリース履歴`（Intent・Outcome・Target Project）に専用Project（manifestの`releaseHistory`）を加える。GitHub互換のloopback serverを読む公開記録のRepository（`release-demo`）へ、受入成果物のcommit付きで受入済みTaskを24件作り、Owner Sessionで発行したProject Runtime Credential（`publication:write`のみ）が公開Web API（`POST /api/projects/:projectId/publications`）で`production`の公開記録を1件追加する。結果は公開済み12件・未公開10件（公開されたrevisionに含まれない）・確認できず2件（履歴を比較できない）で、ページ（20件）を超える件数を含む。各Taskには題名と異なる完了時の実装メモ（変更の要約の原記録）を残す。manifestの`releaseHistory.screenPath`（画面。`?view=releases`）・`apiPath`（Web APIの接頭辞`/api`を除いたpath）・`expected`から、一覧・詳細・原記録・複数Taskを含む公開を確認する。公開済みは効果の評価を意味しない。
+
 Ownerは`preview-owner@example.test`、Viewerは`preview-viewer@example.test`で開発用ログインする。ViewerはWorkspaceからの招待を受諾し、後二者のWorkspaceのviewerになる（配下のProject A・Bとも同じRole。[ADR 0003](adr/0003-workspace-human-membership.md)）。Targetなしのworkspaceには所属しない。Workspace Directionと両ProjectのWorkの参照、未所属Workspaceの参照拒否、編集操作の拒否を比較できる。
 
 ## 対象SHAとの一致
 
 スクリプトはcwdのschemaとapplication use caseを読み込み、同じWorktree内の`@compass/*`を使う。依存関係が親Repositoryを参照している場合は失敗するため、対象Worktreeで`npm ci`等を済ませる。
 
-設定内のスクリプトパスは、登録済み準備コマンドの識別に使う。Reviewer・Managerの実行では、`verification.preparationFiles`で指定したファイルへの直接の引数を、Ralphが`verification.preparationRevision`（省略時は本体SHA）のGit blobから作成した専用コピーへ置き換える。Workerの実行は登録済みのパスをそのまま使うため、Workerは使用した準備ファイルが`preparationRevision`のblobと一致することを照合して記録する。準備コードの正本はそのGit revisionであり、固定Project checkoutの作業ファイルではない。対象のuse caseが未実装・非互換なら準備は失敗し、別SHAの本体やデータへ切り替えない。
+設定内のスクリプトパスは、登録済み準備コマンドの識別に使う。Reviewer・Managerの実行では、`verification.preparationFiles`で指定したファイルへの直接の引数を、Ralphが`verification.preparationRevision`（省略時は本体SHA）のGit blobから作成した専用コピーへ置き換える。Workerの実行も同じ専用コピーを使う。準備コードの依存先（use case等）を変更するTaskでは、Workerが専用コピーと実装Worktree内の同じファイルを両方更新し、専用コピーの差分・使用版を報告する。準備コードの正本はそのGit revisionであり、固定Project checkoutの作業ファイルではない。対象のuse caseが未実装・非互換なら準備は失敗し、別SHAの本体やデータへ切り替えない。
 
 実行時の適用は、`verificationPreparation`と検証記録の本体`headSha`・準備元`sourceSha`・fingerprint/差分、実際の実行コマンドと生成manifestの一致で確認する。専用コピーを使った必要な検証が成功していれば、固定Project checkoutの旧ファイルが未更新であることだけを追加の受入条件にしない。別サービスへの配備が明示的なACなら、その配備の確認は別途行う。
 
@@ -157,3 +159,11 @@ node --import tsx "$PREPARATION/scripts/prepare-browser-verification.mjs" \
 参照プロトタイプは、管理者がRalphのProject設定（`verification.browser.profiles`）へ`prototype` profileを登録した環境でだけ起動できる。このRepositoryの`.ralph/config.json`には`prototype` profileが登録されている。別環境で未登録profileが拒否された場合は、未登録であることと必要な設定を記録し、別の起動方法で代替しない。登録済みなら`start_browser_preview({"profile":"prototype"})`で起動する。想定する参照先は`/Users/aokayama/git/compass-prototype`、localhostに限定したViteの専用portで、製品のDB・MCPは使わない。停止済みの固定URLへ依存せず、返されたURLを使用する。参照コードは編集しない。Repository外の参照資料なので、比較時にファイル内容のdigest等で参照版を記録する。
 
 同時に起動できるpreviewは一つである。先にプロトタイプの対応画面をDesktopと狭幅で操作し、画像・画面名・viewport・参照版を`artifactDirectory`へ保存して停止する。続いてprofileを省略して製品previewを起動し、同じ画面・viewport・操作で比較する。保存画像を実見して採用した配置・情報密度・操作導線と意図した差を記録する。参照にない画面も製品側のACに従って独立確認する。参照prototypeが起動しても製品ACの成功にはならない。
+
+## Agent実行観測の専用検証
+
+Worker・Reviewer・Managerは、返された専用previewのOwner Web APIで検証用PrincipalのGrantを作り、同じoriginのMCP `record_agent_run`を制御可能なテストadapterとして呼び出してよい。対象はmanifestのWorkspace・Project、`preview-`で始まる検証用Principalと新規run IDだけとする。`tools/list`の現在の入力契約とGrant・activeRoleを照合し、Agentは自分のrunだけ、Runtime Credentialは同じscopeの`agent:run:write`でだけ報告する。このAccess操作の許可は、上記Work・Collaborationの分類Policyとは別枠で、他のAccess操作をMCPへ開放しない。HumanのGrant・Credential管理はOwnerのWeb APIを使う。tokenは一時的な呼出しだけに使い、画像・操作記録・manifestへ保存しない。
+
+`started`→`finished(succeeded)`、`finished(failed)`、`started`だけ（`staleAfterSeconds: 30`を実際に経過させる）、報告なしのPrincipalを用意する。再読込で作業中・待機・エラー・不明（観測途絶／観測なし）と時刻・理由・run参照を確認する。同じ開始の再送は`recorded: false`、別scopeの同じrun IDは`CONFLICT`を確認する。取得不能はブラウザのネットワーク遮断で確認し、API応答を置き換えない。Grantを取り消して観測だけが残るPrincipalも用意し、`agent-runs`遮断時に一覧が欠けを明示し、詳細（初回直接アクセス・再読込）が不存在と断定せず、遮断解除で復帰することを確認する。
+
+このadapterのMCP報告はProviderの実行を証明しない。製品Ralph・Orchestratorの接続は関連するプロセス結合テストの記録と区別し、実Providerの継続自律運転は別の検証とする。

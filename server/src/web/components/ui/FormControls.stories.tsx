@@ -19,6 +19,7 @@ export const Fields: Story = {
       <Field label={`表示 ${size}`}><Select size={size} defaultValue="open"><option value="open">未完了</option><option value="all">すべて</option></Select></Field>
     </div>)}
     <Field label="説明"><TextArea rows={3} defaultValue="検証用の説明" /></Field>
+    <Field label="日付"><TextInput type="date" defaultValue="2027-03-31" /></Field>
     <Fieldset legend="通知" required="1つ以上必須"><Checkbox defaultChecked>更新通知</Checkbox><Checkbox>完了通知</Checkbox><Checkbox disabled>選択できない通知</Checkbox></Fieldset>
     <Field label="行内の絞り込み" layout="inline"><TextInput size="sm" /></Field>
   </div>,
@@ -34,6 +35,7 @@ export const States: Story = {
     <Field label="説明のエラー"><TextArea aria-invalid="true" aria-label="説明のエラー" /></Field>
     <Field label="無効な選択"><Select disabled><option>選択できません</option></Select></Field>
     <Field label="選択のエラー"><Select aria-invalid="true"><option>選択してください</option></Select></Field>
+    <Field label="長い選択肢（矢印と文字の領域を分ける）"><Select defaultValue="long"><option value="long">とても長いWorkspaceの名前で、矢印の手前で省略されることを確認する選択肢</option></Select></Field>
     <Fieldset legend="無効な選択肢" disabled><Checkbox defaultChecked>チェック済み</Checkbox><Checkbox>未チェック</Checkbox></Fieldset>
   </div>,
 };

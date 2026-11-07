@@ -90,7 +90,7 @@ const confirmOutcome = async ({ database, services, app }: Kit) => {
     {
       workspaceId: project.workspaceId,
       intentId: intent.id,
-      judgment: "Claims must be exclusive",
+      intentVersion: 1, judgment: "Claims must be exclusive",
       reason: "Duplicate claims cause rework",
       requestKey: "decide-1",
       runRef: "run-1",
@@ -197,7 +197,7 @@ const confirmOutcomeAgain = async (kit: Kit, project: { id: string; workspaceId:
   const created = await kit.services.createOutcomeUseCase.execute(project.workspaceId, intent.id, {
     title: "Second",
     description: "d",
-    rationale: "r",
+    intentVersion: 1, rationale: "r",
     successCriteria: [{ description: "d", measurement: "m" }],
   });
   await kit.services.setOutcomeTargetProjectUseCase.execute(project.workspaceId, created.id, project.id);
@@ -300,7 +300,7 @@ test("Execution層はOutcome・Success Criteriaを変更できず、Direction to
   for (const [name, args] of [
     ["update_outcome", { workspaceId: project.workspaceId, intentId: intent.id, outcomeId: outcome.id, title: "Hacked" }],
     ["cancel_outcome", { workspaceId: project.workspaceId, intentId: intent.id, outcomeId: outcome.id, reason: "x" }],
-    ["create_outcome", { workspaceId: project.workspaceId, intentId: intent.id, title: "T", description: "d", rationale: "r", successCriteria: [{ description: "d", measurement: "m" }] }],
+    ["create_outcome", { workspaceId: project.workspaceId, intentId: intent.id, title: "T", description: "d", intentVersion: 1, rationale: "r", successCriteria: [{ description: "d", measurement: "m" }] }],
   ] as const) {
     for (const principal of ["mgr", "wrk"]) assert.equal(errorOf(await callTool(kit.app, name, args, principal)).code, "FORBIDDEN", `${name}/${principal}`);
   }

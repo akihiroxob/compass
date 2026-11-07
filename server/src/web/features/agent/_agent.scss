@@ -1,11 +1,11 @@
-// WorkspaceのAgent画面（features/agent）。Grant・Credential・Claimを別の項目で並べ、狭い画面では縦に積む。
+// WorkspaceのAgent管理（features/agent）。Role・担当範囲・Grant・Credential・Claimを別の項目で並べ、狭い画面では縦に積む。
 @use "../../styles/mixins" as *;
 
-.agent-role-cards, .agent-principals, .role-skills, .agent-principal-claims {
+.agent-role-cards, .role-skills, .agent-list, .agent-scope-links {
   @include unstyled-list;
   display: grid;
 }
-.agent-role-cards > li, .agent-principals > li { @include list-item; overflow-wrap: anywhere; }
+.agent-role-cards > li { @include list-item; overflow-wrap: anywhere; }
 .agent-role-card-head {
   display: flex;
   flex-wrap: wrap;
@@ -14,7 +14,6 @@
   strong { min-width: 7rem; }
   span { color: var(--color-text-secondary); font-size: var(--text-note); }
 }
-.agent-role-card-agents { margin: var(--space-xs) 0 0; font-size: var(--text-note); }
 .role-definition {
   margin-top: var(--space-xs);
   > summary { width: fit-content; border-radius: var(--radius-sm); color: var(--color-brand); cursor: pointer; font-size: var(--text-note); font-weight: 700; }
@@ -34,38 +33,103 @@
   > summary { width: fit-content; border-radius: var(--radius-sm); cursor: pointer; font-size: var(--text-note); font-weight: 700; }
   .pre-wrap { margin-top: var(--space-xs); padding: var(--space-sm) 1rem; border-radius: var(--radius-sm); background: var(--color-note); font-size: var(--text-note); }
 }
-.agent-principal-id { .detail-section & { margin: 0; font-weight: 700; code { font-size: 1rem; } } }
-.agent-principal-facts {
+
+// 登録・Credential操作の入口はPCだけに置く（表示の制御で、認可はserverが行う）。
+.agent-pc-only { @include narrow { display: none !important; } }
+
+.agent-toolbar .agent-fetched-at { margin-right: auto; color: var(--color-text-muted); font-size: var(--text-note); font-variant-numeric: tabular-nums; }
+.agent-roles { display: flex; flex-wrap: wrap; gap: var(--space-2xs); }
+
+// 一覧。PCは「名前・Role・担当範囲」と「実行状況・Credential・現在の作業」の列、狭い画面は縦に積む。
+.agent-list { gap: var(--space-sm); margin-bottom: var(--space-lg); }
+.agent-card {
+  @include panel;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-sm) var(--space-md);
-  margin: var(--space-sm) 0 0;
-  dt { @include caps-label; }
-  dd { margin: var(--space-2xs) 0 0; line-height: 1.6; }
-  small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
-  @include narrow { grid-template-columns: 1fr; }
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 2fr);
+  gap: var(--space-sm) var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  @include narrow { grid-template-columns: minmax(0, 1fr); padding: var(--space-md); }
 }
-.agent-principal-roles { display: flex; flex-wrap: wrap; gap: var(--space-2xs); }
-.agent-principal-claims { gap: var(--space-xs); line-height: 1.5; }
-.agent-principal-warning { .agent-principal-facts & { color: var(--color-danger); } }
-.agent-projects { display: grid; gap: var(--space-md); margin-top: var(--space-md); }
-.agent-project {
-  padding-top: var(--space-md);
-  border-top: 1px solid var(--color-line-soft);
+.agent-card-main {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 0;
+  justify-items: start;
+  h2 { @include heading(var(--text-h3)); margin: 0; max-width: 100%; overflow-wrap: anywhere; }
 }
-.agent-project-head {
+// 担当範囲は1行。長い名前は省略し、「ほかN件」は常に見せる。
+.agent-card-scope {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-xs) 1rem;
-  h3 { margin: 0; }
-}
-.agent-project-roles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-xs) var(--space-md);
-  margin: var(--space-sm) 0;
+  gap: var(--space-xs);
+  max-width: 100%;
+  margin: 0;
   font-size: var(--text-note);
-  > span { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2xs) var(--space-xs); }
+  white-space: nowrap;
+  .agent-scope-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .agent-scope-others { flex: none; color: var(--color-text-muted); }
+}
+.agent-card-facts, .agent-facts, .agent-dialog-facts {
+  margin: 0;
+  dt { @include caps-label; }
+  dd { margin: var(--space-2xs) 0 0; line-height: 1.6; overflow-wrap: anywhere; }
+  small { display: block; margin-top: var(--space-2xs); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+}
+.agent-card-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, .8fr) minmax(0, 1.3fr);
+  gap: var(--space-sm) var(--space-md);
+  @include narrow { grid-template-columns: minmax(0, 1fr); }
+}
+.agent-facts, .agent-dialog-facts { display: grid; gap: var(--space-sm); }
+.agent-dialog-facts { margin-bottom: var(--space-sm); }
+
+// 詳細。担当と実行状況を2列、狭い画面は縦に積む。
+.agent-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  > .detail-section { margin: 0; }
+  @include narrow { grid-template-columns: minmax(0, 1fr); }
+}
+.agent-scope-links { gap: var(--space-2xs); }
+.agent-scope-group + .agent-scope-group { margin-top: var(--space-md); }
+.agent-scope-group h3 { margin: var(--space-md) 0 0; font-size: var(--text-body); }
+.agent-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs) var(--space-md);
+  margin-bottom: var(--space-sm);
+  h2 { margin: 0; }
+}
+.agent-intro p, .agent-contract-note p { margin: 0; }
+.agent-intro p + p, .agent-contract-note p + p { margin-top: var(--space-2xs); }
+.agent-credential-summary { margin: var(--space-sm) 0 0; font-size: var(--text-note); small { margin-left: var(--space-xs); color: var(--color-text-muted); } }
+// `.section-note`は見出し直下用の負のmarginを持つため、状態の行の後では通常の間隔に戻す。
+.agent-credential-summary + .section-note { margin-top: var(--space-xs); }
+.agent-warning { margin: var(--space-sm) 0 0; color: var(--color-danger); font-size: var(--text-note); }
+
+// 実行状況（報告された観測）。badgeの後に観測時刻・理由、詳細ではrunの根拠と履歴を並べる。
+.agent-card-facts .agent-execution-reason { line-height: 1.5; overflow-wrap: anywhere; }
+.agent-execution-state { margin: 0 0 var(--space-sm); line-height: 1.6; overflow-wrap: anywhere; }
+.agent-execution-state + .agent-run-facts { margin-bottom: var(--space-sm); }
+.agent-run-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2xs) var(--space-sm);
+  margin: 0;
+  font-size: var(--text-note);
+  > div { display: contents; }
+  dt { color: var(--color-text-muted); }
+  dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  @include narrow { grid-template-columns: minmax(0, 1fr); dd { margin-bottom: var(--space-2xs); } }
+}
+.agent-run-list {
+  @include unstyled-list;
+  display: grid;
+  gap: var(--space-sm);
+  > li { @include list-item; display: grid; gap: var(--space-xs); justify-items: start; }
+  .agent-run-facts { width: 100%; }
 }

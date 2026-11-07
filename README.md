@@ -102,6 +102,7 @@ RuntimeにはAgentとは別のCredentialとscopeを発行します。Credential�
 | event取得・ack | `fetch_runtime_events` / `ack_runtime_event` | Workspace Runtime Credential（`runtime:event:read` / `runtime:event:ack`） |
 | Executionの変更取得 | `list_changes` | Project Agent Credential、またはProject Runtime Credential（`execution:change:read`） |
 | Evidence還流・結果参照 | `record_execution_evidence` / `get_outcome_execution_summary` | Project Runtime Credential（`execution:evidence:write` / `execution:summary:read`） |
+| 公開確認の記録 | `record_publication`（Web API `POST /api/projects/:projectId/publications`） | Project Runtime Credential（`publication:write`） |
 | Orchestrator向けの現在状態 | `get_workspace_orchestration_state` | Workspace Runtime Credential（`runtime:state:read`） |
 
 eventの`nextCursor`はページ送り専用で、再開位置には使いません。再開は`resumeCursor`または0から行います。配送はat-least-onceで、ack再送には同じ`attemptId`を使います。Task受入をOutcome達成として扱わず、Evidenceを評価へ渡します。

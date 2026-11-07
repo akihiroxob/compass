@@ -32,6 +32,8 @@ const initializeProjectSchema = async (database: Kysely<OrganizationDatabase>): 
     .addColumn("name", "text", (column) => column.notNull())
     .addColumn("url", "text", (column) => column.notNull())
     .addColumn("sort_order", "integer", (column) => column.notNull())
+    // PRのレビュー時に成功を必須とするGitHubのcheck名（JSON配列）。空ならCIを必須にしない。
+    .addColumn("required_checks", "text", (column) => column.notNull().defaultTo("[]"))
     .execute();
 
   await database.schema

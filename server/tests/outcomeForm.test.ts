@@ -4,8 +4,13 @@ import { ApiError, classifyError, fieldId, formatIssuePath } from "../src/web/ap
 import {
   emptyCriterion,
   emptyOutcomeFormValues,
+  emptyProblem,
+  planRunState,
+  problemsInput,
   formValuesFromOutcome,
   maxSuccessCriteria,
+  isReplanTarget,
+  replanNote,
   splitOutcomes,
   type Outcome,
 } from "../src/web/features/outcome/outcome.ts";
@@ -14,6 +19,7 @@ const outcome = (overrides: Partial<Outcome>): Outcome => ({
   id: "o1",
   workspaceId: "w1",
   intentId: "i1",
+  intentVersion: 1,
   title: "Title",
   description: "Description",
   hypothesis: null,
@@ -25,6 +31,8 @@ const outcome = (overrides: Partial<Outcome>): Outcome => ({
     { id: "c1", outcomeId: "o1", position: 0, description: "First", measurement: "Measured", target: null },
     { id: "c2", outcomeId: "o1", position: 1, description: "Second", measurement: "Observed", target: "= 0" },
   ],
+  problems: [],
+  revision: 1,
   createdAt: 1,
   updatedAt: 1,
   ...overrides,
@@ -44,6 +52,21 @@ test("保存済みOutcomeから編集フォームの初期値を作り、未設�
     { description: "First", measurement: "Measured", target: "" },
     { description: "Second", measurement: "Observed", target: "= 0" },
   ]);
+});
+
+test("編集フォームの初期値は課題の観測と原因の仮説を別の欄に保ち、根拠参照を引き継ぐ", () => {
+  const evidence = [{ kind: "research_finding" as const, id: "f1", requestId: "r1", summary: "離脱", superseded: false }];
+  const values = formValuesFromOutcome(
+    outcome({
+      problems: [
+        { id: "p1", outcomeId: "o1", position: 0, statement: "課題", evidenceStatus: "observed", observation: "step 2で離脱", causeHypothesis: null, solutionHypothesis: "入力を減らす", evaluationPlan: null, evidence },
+      ],
+    }),
+  );
+  assert.deepEqual(values.problems, [
+    { id: "p1", statement: "課題", evidenceStatus: "observed", observation: "step 2で離脱", causeHypothesis: "", solutionHypothesis: "入力を減らす", evaluationPlan: null, evidence },
+  ]);
+  assert.deepEqual(emptyOutcomeFormValues.problems, []);
 });
 
 test("ActiveなOutcomeとそれ以外を分け、受け取った順を保つ", () => {
@@ -73,5 +96,35 @@ test("Outcomeの409 CONFLICTは、Active Intentを持たない競合として分
     kind: "conflict",
     message: "Intent i1 is abandoned; Outcomes can only be created under an active Intent",
     activeIntentId: null,
+    conflict: null,
   });
+});
+
+test("目標の意味が根拠にした版より後に変わった未完了のOutcomeだけを再計画対象にする", () => {
+  assert.equal(isReplanTarget(outcome({ intentVersion: 1 }), { meaningVersion: 2 }), true);
+  assert.equal(isReplanTarget(outcome({ intentVersion: 2 }), { meaningVersion: 2 }), false, "現在の意味を確認済み");
+  assert.equal(isReplanTarget(outcome({ intentVersion: 1, status: "cancelled" }), { meaningVersion: 3 }), false, "取消済みは対象外");
+  assert.equal(isReplanTarget(outcome({ intentVersion: 1, status: "achieved" }), { meaningVersion: 3 }), false, "評価済みの結果は書き換えない");
+  assert.match(replanNote(outcome({ intentVersion: 1 }), { meaningVersion: 3 }), /v1.*v3/);
+});
+
+test("評価計画は空の任意項目をnullにして送り、保存済みの計画を編集フォームへ戻せる", () => {
+  const plan = { question: "完了率は上がるか", method: "ab_test" as const, premises: "無作為割付", observationPeriod: "", decisionCriteria: "完了率+5pt", stopCriteria: "" };
+  const [sent] = problemsInput([{ ...emptyProblem, statement: "離脱", evaluationPlan: plan }]);
+  assert.deepEqual(sent!.evaluationPlan, { question: "完了率は上がるか", method: "ab_test", premises: "無作為割付", observationPeriod: null, decisionCriteria: "完了率+5pt", stopCriteria: null });
+  assert.equal(problemsInput([{ ...emptyProblem, statement: "離脱" }])[0]!.evaluationPlan, null);
+  const restored = formValuesFromOutcome(outcome({ problems: [{ id: "p1", outcomeId: "o1", position: 0, statement: "離脱", evidenceStatus: "insufficient", observation: null, causeHypothesis: null, solutionHypothesis: null, evaluationPlan: { planId: "plan-1", ...plan, premises: "無作為割付", observationPeriod: null, stopCriteria: null }, evidence: [] }] }));
+  assert.deepEqual(restored.problems[0]!.evaluationPlan, plan);
+});
+
+test("評価計画は、現在の計画を対象にした評価があるまで未実施として扱う", () => {
+  const problem = (planId: string | null) => ({ id: "p1", evaluationPlan: planId === null ? null : { planId } });
+  const evaluation = (problemId: string, planId: string) => ({ problemIds: [problemId], problemPlans: [{ problemId, planId }] });
+  assert.equal(planRunState(problem("a"), []), "not_run");
+  assert.equal(planRunState(problem(null), [evaluation("p1", "a")]), "not_run", "計画が無ければ実施状況はない");
+  assert.equal(planRunState(problem("a"), [evaluation("p2", "a")]), "not_run");
+  assert.equal(planRunState(problem("a"), [evaluation("p2", "a"), evaluation("p1", "a")]), "run");
+  assert.equal(planRunState(problem("b"), [evaluation("p1", "a")]), "previous_only", "計画を変えた後は過去の評価だけで実施済みにしない");
+  assert.equal(planRunState(problem("b"), [evaluation("p1", "a"), evaluation("p1", "b")]), "run", "新しい計画への評価を記録した後");
+  assert.equal(planRunState(problem("b"), [{ problemIds: ["p1"], problemPlans: [] }]), "previous_only", "計画が無かった時点の評価");
 });

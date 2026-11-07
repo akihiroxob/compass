@@ -1,4 +1,4 @@
-// 画面の枠（Shell）。Session無しのheaderと、ログイン後のsidebar（狭い画面は上端のbar）・本文の配置。
+// 画面の枠（Shell）。上端のheaderと、ログイン後の左のメニュー（狭い画面は右端のDialog）・本文の配置。
 // slotの中身（Workspaceのナビゲーション・Session等）の見た目は、それを所有するFeatureのpartialが持つ。
 @use "../styles/mixins" as *;
 
@@ -23,11 +23,27 @@
   span { color: var(--color-brand); font-size: 1.25rem; }
 }
 
+// ログイン後の枠。headerは上端に固定し、Desktopはその下に左のメニューと本文を並べる。狭い画面のメニューはDialog（右端）で開く。
+$header-height: 3.5rem;
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: $header-height;
+  @include narrow { padding: 0 var(--space-xs) 0 5vw; }
+}
+.app-header-end {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+}
 .app-shell {
   display: grid;
   grid-template-columns: 15rem minmax(0, 1fr);
-  min-height: 100vh;
-  @include narrow { display: block; padding-bottom: 4.75rem; }
+  min-height: calc(100vh - #{$header-height});
+  @include narrow { display: block; min-height: 0; }
 }
 .skip-link {
   position: absolute;
@@ -43,8 +59,8 @@
 }
 .app-sidebar {
   position: sticky;
-  top: 0;
-  height: 100vh;
+  top: $header-height;
+  height: calc(100vh - #{$header-height});
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -52,26 +68,19 @@
   padding: var(--space-md);
   border-right: 1px solid var(--color-line);
   background: var(--color-surface);
-  @include narrow {
-    position: static;
-    height: auto;
-    overflow: visible;
-    flex-direction: row;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-sm);
-    padding: var(--space-sm) 5vw;
-    border-right: 0;
-    border-bottom: 1px solid var(--color-line);
-  }
 }
-.app-sidebar-footer {
+// 狭い画面のメニュー（Dialogの本文）。Desktopのsidebarと同じ順に縦に並べる。
+.app-menu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+.app-menu-footer {
   display: grid;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
   margin-top: auto;
   padding-top: var(--space-md);
   border-top: 1px solid var(--color-line-soft);
-  @include narrow { margin: 0 0 0 auto; padding: 0; border: 0; }
 }
 .app-content {
   min-width: 0;

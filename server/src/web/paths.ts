@@ -33,6 +33,9 @@ export type WorkspaceSection = (typeof workspaceSections)[number];
 export const workspacePath = (workspaceId: string, section: WorkspaceSection = "overview") =>
   `/workspaces/${workspaceId}${section === "overview" ? "" : `/${section}`}`;
 
+/** WorkspaceのAgent詳細。一覧はWorkspaceの「Agent管理」。principalIdは`/`や空白を含み得るためURLエンコードする。 */
+export const workspaceAgentPath = (workspaceId: string, principalId: string) => `${workspacePath(workspaceId, "agents")}/${encodeURIComponent(principalId)}`;
+
 /** Workspace相談の詳細画面。一覧はWorkspaceの「判断待ち」。 */
 export const workspaceConsultationPath = (workspaceId: string, consultationId: string) => `${workspacePath(workspaceId, "consultations")}/${consultationId}`;
 
@@ -41,17 +44,31 @@ export const workspaceCreatePath = "/workspaces/new";
 export const workspaceEditPath = (workspaceId: string) => `${workspacePath(workspaceId)}/edit`;
 export const workspaceProjectCreatePath = (workspaceId: string) => `${workspacePath(workspaceId, "projects")}/new`;
 
+/** Workspaceの方向でのIntent（ビジネス目標）の作成・編集。 */
+export const workspaceIntentCreatePath = (workspaceId: string) => `${workspacePath(workspaceId, "direction")}/intents/new`;
+export const workspaceIntentEditPath = (workspaceId: string, intentId: string) => `${workspacePath(workspaceId, "direction")}/intents/${intentId}/edit`;
+
 /** Workspaceの方向のOutcome詳細。Outcomeは所属Intentとともに指す（Web APIのpathと同じ）。 */
 export const workspaceOutcomePath = (workspaceId: string, intentId: string, outcomeId: string) =>
   `${workspacePath(workspaceId, "direction")}/intents/${intentId}/outcomes/${outcomeId}`;
+
+/** Workspaceのビジネス目標（Intent）へのOutcomeの追加と、Outcomeの編集。 */
+export const workspaceOutcomeCreatePath = (workspaceId: string, intentId: string) =>
+  `${workspacePath(workspaceId, "direction")}/intents/${intentId}/outcomes/new`;
+export const workspaceOutcomeEditPath = (workspaceId: string, intentId: string, outcomeId: string) =>
+  `${workspaceOutcomePath(workspaceId, intentId, outcomeId)}/edit`;
 
 /** WorkspaceのProject一覧。activeは既定のためqueryを付けない。 */
 export const workspaceProjectsPath = (workspaceId: string, status: "active" | "archived" = "active") =>
   `${workspacePath(workspaceId, "projects")}${status === "archived" ? "?status=archived" : ""}`;
 
 /** Project詳細のview。`?view=`で表し、再読込・共有・戻るで同じviewへ戻る。 */
-export const projectViews = ["overview", "direction", "work", "consultations", "records", "settings"] as const;
+export const projectViews = ["overview", "work", "releases", "settings", "direction", "consultations", "records"] as const;
 export type ProjectView = (typeof projectViews)[number];
+
+/** メニューでProject名の下に一段下げて並べるview（概要・開発詳細・リリース履歴・設定）。ほかのviewは各画面の導線から開く。 */
+export const projectMenuViews = ["overview", "work", "releases", "settings"] as const satisfies readonly ProjectView[];
+export type ProjectMenuView = (typeof projectMenuViews)[number];
 
 /** viewのURL。`hash`はview内の要素（Task・Role行など）のid。 */
 export const projectViewPath = (projectId: string, view: ProjectView, hash?: string) =>

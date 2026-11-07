@@ -3,15 +3,16 @@ import test from "node:test";
 import {
   chooseHomeWorkspace,
   currentSection,
-  filterWorkspaces,
   parseShellLocation,
   resolveCurrentWorkspace,
-  switchWorkspacePath,
+  workspaceMenuSections,
+  workspaceSectionLabels,
   type Workspace,
 } from "../src/web/features/workspace/workspace.ts";
-import { workspaceCreatePath, workspaceEditPath, workspaceOutcomePath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath } from "../src/web/paths.ts";
+import { projectViewLabels } from "../src/web/features/project/overview.ts";
+import { projectMenuViews, projectViewPath, workspaceCreatePath, workspaceEditPath, workspaceOutcomePath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath } from "../src/web/paths.ts";
 
-/** Workspace Selector・Shellのナビゲーション（S09-02）。画面の描画・実ブラウザ確認はTaskの結果に記録する。 */
+/** Workspace Selector・Shellのメニュー。画面の描画・実ブラウザ確認はTaskの結果に記録する。 */
 
 const workspace = (id: string, name: string, mission = `${name}のMission`): Workspace => ({
   id,
@@ -35,7 +36,7 @@ test("現在位置はURLだけから読み、深いURLの再読込でも同じWo
   // 定義していない項目（未定義のURL）はナビゲーションの選択にしない。
   assert.deepEqual(parseShellLocation("/workspaces/ws-1/overview"), { kind: "workspace", workspaceId: "ws-1", section: null });
   assert.deepEqual(parseShellLocation("/workspaces/ws-1/activity/x"), { kind: "workspace", workspaceId: "ws-1", section: null });
-  assert.deepEqual(parseShellLocation("/projects/p-1/tasks/t-1"), { kind: "project", projectId: "p-1" });
+  assert.deepEqual(parseShellLocation("/projects/p-1/tasks/t-1"), { kind: "project", projectId: "p-1", view: "work" });
   assert.deepEqual(parseShellLocation("/projects/new"), { kind: "none" });
   // Workspaceの作成は特定のWorkspaceではない。編集は「概要」、Project追加は「Project」の項目に属する。
   assert.deepEqual(parseShellLocation("/workspaces/new"), { kind: "none" });
@@ -49,13 +50,30 @@ test("現在位置はURLだけから読み、深いURLの再読込でも同じWo
   assert.deepEqual(parseShellLocation("/"), { kind: "none" });
 });
 
-test("Project配下の画面は「Project」を選択中にし、Workspaceの切替は同じ項目（Project配下からはProject一覧）へ移る", () => {
-  assert.equal(currentSection({ kind: "project", projectId: "p-1" }), "projects");
+test("メニューは概要→対応待ち→Outcome→Activity→Agent管理→設定、Projectの階層は概要・開発詳細・リリース履歴・設定", () => {
+  assert.deepEqual(workspaceMenuSections.map((section) => workspaceSectionLabels[section]), ["概要", "対応待ち", "Outcome", "Activity", "Agent管理", "設定"]);
+  assert.deepEqual(projectMenuViews.map((view) => projectViewLabels[view]), ["概要", "開発詳細", "リリース履歴", "設定"]);
+});
+
+test("Project配下の画面はWorkspaceの項目を選択せず、Projectの階層のviewを選択中にする", () => {
+  assert.equal(currentSection(parseShellLocation("/projects/p-1")), null);
   assert.equal(currentSection({ kind: "none" }), null);
-  assert.equal(switchWorkspacePath(parseShellLocation("/workspaces/ws-1/direction"), "ws-2"), "/workspaces/ws-2/direction");
-  assert.equal(switchWorkspacePath(parseShellLocation("/workspaces/ws-1"), "ws-2"), "/workspaces/ws-2");
-  assert.equal(switchWorkspacePath(parseShellLocation("/projects/p-1"), "ws-2"), "/workspaces/ws-2/projects");
-  assert.equal(switchWorkspacePath(parseShellLocation("/projects"), "ws-2"), "/workspaces/ws-2");
+  assert.deepEqual(parseShellLocation("/projects/p-1"), { kind: "project", projectId: "p-1", view: "overview" });
+  assert.deepEqual(parseShellLocation("/projects/p-1", "?view=work"), { kind: "project", projectId: "p-1", view: "work" });
+  assert.deepEqual(parseShellLocation("/projects/p-1", "?view=releases"), { kind: "project", projectId: "p-1", view: "releases" });
+  // 不正な値は概要（Project詳細の表示と同じ）。メニューに無いview・画面はどのviewも選択しない。
+  assert.deepEqual(parseShellLocation("/projects/p-1", "?view=unknown"), { kind: "project", projectId: "p-1", view: "overview" });
+  assert.deepEqual(parseShellLocation("/projects/p-1", "?view=records"), { kind: "project", projectId: "p-1", view: null });
+  assert.deepEqual(parseShellLocation("/projects/p-1/intents/i-1"), { kind: "project", projectId: "p-1", view: null });
+  // Projectの編集は「設定」、Story・Taskの作成・編集は「開発詳細」。
+  assert.deepEqual(parseShellLocation("/projects/p-1/edit"), { kind: "project", projectId: "p-1", view: "settings" });
+  assert.deepEqual(parseShellLocation("/projects/p-1/stories/new"), { kind: "project", projectId: "p-1", view: "work" });
+});
+
+test("Workspace・Projectの切替先は対象の概要", () => {
+  // 切替は元の画面の項目・viewを持ち越さない（WorkspaceSwitcher・WorkspaceProjectNavが使うpath）。
+  assert.equal(workspacePath("ws-2"), "/workspaces/ws-2");
+  assert.equal(projectViewPath("p-2", "overview"), "/projects/p-2?view=overview");
   assert.equal(workspacePath("ws-1", "activity"), "/workspaces/ws-1/activity");
   assert.equal(workspaceProjectsPath("ws-1"), "/workspaces/ws-1/projects");
   assert.equal(workspaceProjectsPath("ws-1", "archived"), "/workspaces/ws-1/projects?status=archived");
@@ -71,14 +89,6 @@ test("ホームは前回選択したWorkspaceを、閲覧できなくなって�
   assert.equal(chooseHomeWorkspace(list, "ws-gone")?.id, "ws-1");
   assert.equal(chooseHomeWorkspace(list, null)?.id, "ws-1");
   assert.equal(chooseHomeWorkspace([], "ws-1"), null);
-});
-
-test("Selectorの絞り込みは名前・Missionの部分一致で、空の入力は全件", () => {
-  const list = [workspace("ws-1", "Taneru", "子どもが学び続けられる"), workspace("ws-2", "Petari", "小さなチームの共同作業")];
-  assert.deepEqual(filterWorkspaces(list, "  ").map(({ id }) => id), ["ws-1", "ws-2"]);
-  assert.deepEqual(filterWorkspaces(list, "taneru").map(({ id }) => id), ["ws-1"]);
-  assert.deepEqual(filterWorkspaces(list, "チーム").map(({ id }) => id), ["ws-2"]);
-  assert.deepEqual(filterWorkspaces(list, "none"), []);
 });
 
 test("現在のWorkspaceは一覧（active）を優先し、一覧に無ければ個別に取得した状態、閲覧できなければnull", () => {

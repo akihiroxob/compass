@@ -216,6 +216,42 @@ const initializeAccessCredentialSchema = async (database: Kysely<AccessDatabase>
 };
 
 /**
+ * Agentの実行観測。scopeはWorkspaceまたはProjectのどちらか1つで、run IDは報告元が生成する一意な値（再送の冪等性を担う）。
+ * scope・Principalの削除に追従させず、FKを置かない（観測の記録であり、Grantの存在を表さない）。
+ */
+const initializeAgentRunSchema = async (database: Kysely<AccessDatabase>) => {
+  await database.schema
+    .createTable("agent_run")
+    .ifNotExists()
+    .addColumn("run_id", "text", (column) => column.primaryKey())
+    .addColumn("scope_kind", "text", (column) => column.notNull().check(sql`scope_kind in ('workspace', 'project')`))
+    .addColumn("scope_id", "text", (column) => column.notNull())
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("role", "text", (column) => column.notNull())
+    .addColumn("source", "text", (column) => column.notNull().check(sql`source in ('ralph', 'orchestrator')`))
+    .addColumn("provider", "text")
+    .addColumn("work_kind", "text")
+    .addColumn("work_id", "text")
+    .addColumn("reporter_kind", "text", (column) => column.notNull().check(sql`reporter_kind in ('agent', 'runtime')`))
+    .addColumn("reporter_principal_id", "text", (column) => column.notNull())
+    .addColumn("status", "text", (column) => column.notNull().check(sql`status in ('running', 'succeeded', 'failed')`))
+    .addColumn("started_at", "integer", (column) => column.notNull())
+    .addColumn("observed_at", "integer", (column) => column.notNull())
+    .addColumn("stale_at", "integer", (column) => column.notNull())
+    .addColumn("ended_at", "integer")
+    .addColumn("reason", "text")
+    .addCheckConstraint("agent_run_work_ref", sql`(work_kind is null) = (work_id is null)`)
+    .addCheckConstraint("agent_run_ended", sql`(status = 'running') = (ended_at is null)`)
+    .execute();
+  await database.schema
+    .createIndex("agent_run_scope_principal_idx")
+    .ifNotExists()
+    .on("agent_run")
+    .columns(["scope_kind", "scope_id", "principal_id", "started_at"])
+    .execute();
+};
+
+/**
  * Accessのtable。すべて`create ... if not exists`なので既存DBへ再適用できる。
  * `project.id`・`workspace.id`へのFKを持つため、Organizationのschemaの後に適用する。
  */
@@ -232,4 +268,5 @@ export const initializeAccessSchema = async (database: Kysely<AccessDatabase>): 
   await initializeHumanAuthSchema(database);
   await initializeWorkspaceMembershipSchema(database);
   await initializeAccessCredentialSchema(database);
+  await initializeAgentRunSchema(database);
 };

@@ -13,32 +13,47 @@ export type WorkspaceDirectionState =
 export const workspaceDirectionAccess = (workspace: { status: "active" | "archived" }, myRole: HumanRole | null): ProjectOperationAccess =>
   projectOperationAccess(workspace, canOperateWorkspace(myRole, "direction.write"));
 
+const directionLoadFailure = (reason: unknown): WorkspaceDirectionState => ({
+  access: "error",
+  workspaceId: null,
+  message: loadFailureMessage(classifyError(reason), "ProjectまたはWorkspaceが見つからないか、WorkspaceのDirectionを閲覧する権限がありません。Workspaceのownerに招待を依頼してください。"),
+});
+
+const loadDirectionAccess = (workspaceId: string, fetchImpl?: FetchLike): Promise<WorkspaceDirectionState> =>
+  request<{ workspace: { status: "active" | "archived" }; myRole: HumanRole }>(`/api/workspaces/${workspaceId}`, undefined, fetchImpl)
+    .then(({ workspace, myRole }): WorkspaceDirectionState => ({ access: workspaceDirectionAccess(workspace, myRole), workspaceId }));
+
+/** Workspaceの`workspaceId`と、そのDirectionを変更できるか（Workspaceのstatusと`myRole`）を取得する。 */
+export const loadWorkspaceDirection = (workspaceId: string, fetchImpl?: FetchLike): Promise<WorkspaceDirectionState> =>
+  loadDirectionAccess(workspaceId, fetchImpl).catch(directionLoadFailure);
+
 /**
  * Projectが所属するWorkspaceの`workspaceId`と、WorkspaceのDirectionを変更できるかを取得する。
  * Directionの参照・変更はWorkspace Membershipで認可される（ProjectのWorkも同じMembershipで認可する）。
  */
 export const loadProjectWorkspaceDirection = (projectId: string, fetchImpl?: FetchLike): Promise<WorkspaceDirectionState> =>
   request<{ project: { workspaceId: string } }>(`/api/projects/${projectId}`, undefined, fetchImpl)
-    .then(({ project }) =>
-      request<{ workspace: { status: "active" | "archived" }; myRole: HumanRole }>(`/api/workspaces/${project.workspaceId}`, undefined, fetchImpl)
-        .then(({ workspace, myRole }): WorkspaceDirectionState => ({ access: workspaceDirectionAccess(workspace, myRole), workspaceId: project.workspaceId })),
-    )
-    .catch((reason: unknown): WorkspaceDirectionState => ({
-      access: "error",
-      workspaceId: null,
-      message: loadFailureMessage(classifyError(reason), "ProjectまたはWorkspaceが見つからないか、WorkspaceのDirectionを閲覧する権限がありません。Workspaceのownerに招待を依頼してください。"),
-    }));
+    .then(({ project }) => loadDirectionAccess(project.workspaceId, fetchImpl))
+    .catch(directionLoadFailure);
 
-/**
- * Projectの画面で、所属WorkspaceのDirectionを扱うための状態を取得する。表示の判定であり、拒否は常にサーバーが行う。
- */
-export const useProjectWorkspaceDirection = (projectId: string): WorkspaceDirectionState => {
-  // 結果は対象のprojectIdと組で持ち、入力が変わった最初のrenderから旧Projectの結果を使わない。
-  const [stored, setStored] = useState<{ projectId: string; state: WorkspaceDirectionState } | null>(null);
+/** Directionを扱う画面の対象。ProjectならProjectの所属Workspaceを解決する。 */
+export type DirectionScope = { projectId: string } | { workspaceId: string };
+
+const scopeKey = (scope: DirectionScope) => ("projectId" in scope ? `project:${scope.projectId}` : `workspace:${scope.workspaceId}`);
+
+/** 画面のWorkspace Directionの状態を取得する。表示の判定であり、拒否は常にサーバーが行う。 */
+export const useWorkspaceDirection = (scope: DirectionScope): WorkspaceDirectionState => {
+  const key = scopeKey(scope);
+  // 結果は対象のkeyと組で持ち、入力が変わった最初のrenderから旧対象の結果を使わない。
+  const [stored, setStored] = useState<{ key: string; state: WorkspaceDirectionState } | null>(null);
   useEffect(() => {
     let current = true;
-    void loadProjectWorkspaceDirection(projectId).then((state) => { if (current) setStored({ projectId, state }); });
+    const load = "projectId" in scope ? loadProjectWorkspaceDirection(scope.projectId) : loadWorkspaceDirection(scope.workspaceId);
+    void load.then((state) => { if (current) setStored({ key, state }); });
     return () => { current = false; };
-  }, [projectId]);
-  return stored !== null && stored.projectId === projectId ? stored.state : { access: "loading", workspaceId: null };
+  }, [key]);
+  return stored !== null && stored.key === key ? stored.state : { access: "loading", workspaceId: null };
 };
+
+/** Projectの画面で、所属WorkspaceのDirectionを扱うための状態を取得する。 */
+export const useProjectWorkspaceDirection = (projectId: string): WorkspaceDirectionState => useWorkspaceDirection({ projectId });

@@ -1,15 +1,16 @@
 import type { Kysely, Selectable, Transaction } from "kysely";
 import { sql } from "kysely";
-import { Intent } from "../domain/Intent.ts";
+import { Intent, type IntentRevision } from "../domain/Intent.ts";
 import type {
   ChangeIntentResult,
   CreateIntentResult,
+  IntentActor,
   IntentRepository,
-  MeaningLockedResult,
+  ReasonRequiredResult,
   UpdateIntentResult,
 } from "../domain/IntentRepository.ts";
 import type { CreateIntentInput, UpdateIntentInput } from "../domain/IntentRepository.ts";
-import type { DirectionDatabase, IntentTable } from "./schema.ts";
+import type { DirectionDatabase, IntentRevisionTable, IntentTable } from "./schema.ts";
 import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
@@ -19,12 +20,66 @@ const toIntent = (row: Selectable<IntentTable>): Intent =>
     workspaceId: row.workspace_id,
     title: row.title,
     desiredState: row.desired_state,
+    background: row.background,
+    audience: row.audience,
+    constraints: row.constraints,
     completionDefinition: row.completion_definition,
+    targetDate: row.target_date,
     status: row.status,
     abandonedReason: row.abandoned_reason,
+    version: row.version,
+    meaningVersion: row.meaning_version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   });
+
+const toRevision = (row: Selectable<IntentRevisionTable>): IntentRevision => ({
+  intentId: row.intent_id,
+  workspaceId: row.workspace_id,
+  version: row.version,
+  title: row.title,
+  desiredState: row.desired_state,
+  background: row.background,
+  audience: row.audience,
+  constraints: row.constraints,
+  completionDefinition: row.completion_definition,
+  targetDate: row.target_date,
+  meaningChanged: row.meaning_changed === 1,
+  reason: row.reason,
+  changedBy: row.changed_by,
+  changedByRole: row.changed_by_role,
+  createdAt: row.created_at,
+});
+
+/** 保存した版の内容を履歴へ残す。同じ版は1件だけ（主キー）。 */
+const insertRevision = async (
+  transaction: Transaction<DirectionDatabase>,
+  intent: Selectable<IntentTable>,
+  meaningChanged: boolean,
+  reason: string | null,
+  actor: IntentActor,
+): Promise<void> => {
+  await transaction
+    .insertInto("intent_revision")
+    .values({
+      intent_id: intent.id,
+      workspace_id: intent.workspace_id,
+      version: intent.version,
+      title: intent.title,
+      desired_state: intent.desired_state,
+      background: intent.background,
+      audience: intent.audience,
+      constraints: intent.constraints,
+      completion_definition: intent.completion_definition,
+      target_date: intent.target_date,
+      meaning_changed: meaningChanged ? 1 : 0,
+      reason,
+      changed_by: actor.principalId,
+      changed_by_role: actor.role,
+      created_at: intent.updated_at,
+    })
+    .execute();
+};
 
 export class SQLiteIntentRepository implements IntentRepository {
   constructor(
@@ -33,17 +88,9 @@ export class SQLiteIntentRepository implements IntentRepository {
     private readonly changeObserver: DirectionChangeObserver | null = null,
   ) {}
 
-  async create(workspaceId: string, input: CreateIntentInput): Promise<CreateIntentResult> {
+  async create(workspaceId: string, input: CreateIntentInput, actor: IntentActor): Promise<CreateIntentResult> {
     return this.database.transaction().execute(async (transaction): Promise<CreateIntentResult> => {
       if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
-      const active = await transaction
-        .selectFrom("intent")
-        .select("id")
-        .where("workspace_id", "=", workspaceId)
-        .where("status", "=", "active")
-        .executeTakeFirst();
-      if (active) return { kind: "active_exists", activeIntentId: active.id };
-
       const now = Date.now();
       const row = await transaction
         .insertInto("intent")
@@ -52,14 +99,21 @@ export class SQLiteIntentRepository implements IntentRepository {
           workspace_id: workspaceId,
           title: input.title,
           desired_state: input.desiredState,
+          background: input.background,
+          audience: input.audience,
+          constraints: input.constraints,
           completion_definition: input.completionDefinition,
+          target_date: input.targetDate,
           status: "active",
           abandoned_reason: null,
+          version: 1,
+          meaning_version: 1,
           created_at: now,
           updated_at: now,
         })
         .returningAll()
         .executeTakeFirstOrThrow();
+      await insertRevision(transaction, row, false, null, actor);
       await notifyDirectionChange(this.changeObserver, transaction, {
         type: "intent_created",
         workspaceId,
@@ -100,50 +154,97 @@ export class SQLiteIntentRepository implements IntentRepository {
     workspaceId: string,
     intentId: string,
     input: UpdateIntentInput,
+    actor: IntentActor,
   ): Promise<UpdateIntentResult> {
-    // undefinedの項目はKyselyがSETから除外するため、未指定の列は変更されない。
-    return this.changeActive(
-      workspaceId,
-      intentId,
-      {
-        title: input.title,
-        desired_state: input.desiredState,
-        completion_definition: input.completionDefinition,
-      },
-      {
-        // Outcomeは、そのIntentの意味に対する仮説。意味が変わると根拠を失うため、Outcomeを持つIntentでは変更させない。
-        guard: async (transaction, existing): Promise<MeaningLockedResult | null> => {
-          const fields = [
-            ...(input.desiredState !== undefined && input.desiredState !== existing.desired_state
-              ? ["desiredState"]
-              : []),
-            ...(input.completionDefinition !== undefined &&
-            input.completionDefinition !== existing.completion_definition
-              ? ["completionDefinition"]
-              : []),
-          ];
-          if (fields.length === 0) return null;
-          const outcome = await transaction
-            .selectFrom("outcome")
-            .select("id")
-            .where("intent_id", "=", intentId)
-            .executeTakeFirst();
-          return outcome ? { kind: "meaning_locked", fields } : null;
-        },
-      },
-    );
+    return this.database.transaction().execute(async (transaction): Promise<UpdateIntentResult> => {
+      if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
+      const existing = await transaction
+        .selectFrom("intent")
+        .selectAll()
+        .where("id", "=", intentId)
+        .where("workspace_id", "=", workspaceId)
+        .executeTakeFirst();
+      if (!existing) return { kind: "not_found" };
+      if (existing.status !== "active") return { kind: "not_active", status: existing.status };
+      // 古い編集画面・古い版の判断は、内容を上書きせず競合として返す。
+      if (existing.version !== input.expectedVersion) {
+        return { kind: "version_conflict", currentVersion: existing.version };
+      }
+
+      const changedMeaning = [
+        ...(input.desiredState !== undefined && input.desiredState !== existing.desired_state ? ["desiredState"] : []),
+        ...(input.completionDefinition !== undefined && input.completionDefinition !== existing.completion_definition
+          ? ["completionDefinition"]
+          : []),
+      ];
+      const reason = input.reason ?? null;
+      if (changedMeaning.length > 0 && reason === null) {
+        // Outcomeは、そのIntentの意味に対する仮説。意味を変えるなら、既存の根拠をどう扱うかを理由として残させる。
+        const outcome = await transaction
+          .selectFrom("outcome")
+          .select("id")
+          .where("intent_id", "=", intentId)
+          .executeTakeFirst();
+        if (outcome) return { kind: "reason_required", fields: changedMeaning } satisfies ReasonRequiredResult;
+      }
+
+      const next = {
+        title: input.title ?? existing.title,
+        desired_state: input.desiredState ?? existing.desired_state,
+        background: input.background === undefined ? existing.background : input.background,
+        audience: input.audience === undefined ? existing.audience : input.audience,
+        constraints: input.constraints === undefined ? existing.constraints : input.constraints,
+        completion_definition:
+          input.completionDefinition === undefined ? existing.completion_definition : input.completionDefinition,
+        target_date: input.targetDate === undefined ? existing.target_date : input.targetDate,
+      };
+      const unchanged = (Object.keys(next) as (keyof typeof next)[]).every((key) => next[key] === existing[key]);
+      // 内容が変わらない保存は版を進めず、履歴も増やさない。
+      if (unchanged) return { kind: "changed", intent: toIntent(existing) };
+
+      const version = existing.version + 1;
+      const row = await transaction
+        .updateTable("intent")
+        .set({
+          ...next,
+          version,
+          meaning_version: changedMeaning.length > 0 ? version : existing.meaning_version,
+          updated_at: Date.now(),
+        })
+        .where("id", "=", intentId)
+        .where("workspace_id", "=", workspaceId)
+        .where("version", "=", existing.version)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      await insertRevision(transaction, row, changedMeaning.length > 0, reason, actor);
+      return { kind: "changed", intent: toIntent(row) };
+    });
+  }
+
+  async findRevisions(workspaceId: string, intentId: string): Promise<IntentRevision[] | null> {
+    if (!(await this.findById(workspaceId, intentId))) return null;
+    const rows = await this.database
+      .selectFrom("intent_revision")
+      .selectAll()
+      .where("intent_id", "=", intentId)
+      .where("workspace_id", "=", workspaceId)
+      .orderBy("version", "desc")
+      .execute();
+    return rows.map(toRevision);
   }
 
   async abandon(
     workspaceId: string,
     intentId: string,
     reason: string | null,
+    expectedVersion?: number,
   ): Promise<ChangeIntentResult> {
-    return this.changeActive<never>(
+    return this.changeActive(
       workspaceId,
       intentId,
       { status: "abandoned", abandoned_reason: reason },
       {
+        expectedVersion,
         // 放棄されたIntentにactiveなOutcomeを残さない。
         afterChange: async (transaction, intent) => {
           await transaction
@@ -186,21 +287,18 @@ export class SQLiteIntentRepository implements IntentRepository {
 
   /**
    * Workspace配下のactiveなIntentだけを、状態確認と同一transactionで更新する。
-   * guardは更新前に結果を返して拒否でき、afterChangeは同一transaction内で関連データを更新する。
+   * afterChangeは同一transaction内で関連データを更新する。`expectedVersion`を指定した場合は現在版との一致を条件にする。
    */
-  private async changeActive<Rejection extends MeaningLockedResult = never>(
+  private async changeActive(
     workspaceId: string,
     intentId: string,
-    changes: Partial<Omit<IntentTable, "id" | "workspace_id" | "created_at" | "updated_at">>,
+    changes: Partial<Pick<IntentTable, "status" | "abandoned_reason">>,
     hooks: {
-      guard?: (
-        transaction: Transaction<DirectionDatabase>,
-        existing: Selectable<IntentTable>,
-      ) => Promise<Rejection | null>;
+      expectedVersion?: number;
       afterChange?: (transaction: Transaction<DirectionDatabase>, intent: Selectable<IntentTable>) => Promise<void>;
     } = {},
-  ): Promise<ChangeIntentResult | Rejection> {
-    return this.database.transaction().execute(async (transaction): Promise<ChangeIntentResult | Rejection> => {
+  ): Promise<ChangeIntentResult> {
+    return this.database.transaction().execute(async (transaction): Promise<ChangeIntentResult> => {
       if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
       const existing = await transaction
         .selectFrom("intent")
@@ -210,8 +308,9 @@ export class SQLiteIntentRepository implements IntentRepository {
         .executeTakeFirst();
       if (!existing) return { kind: "not_found" };
       if (existing.status !== "active") return { kind: "not_active", status: existing.status };
-      const rejected = await hooks.guard?.(transaction, existing);
-      if (rejected) return rejected;
+      if (hooks.expectedVersion !== undefined && hooks.expectedVersion !== existing.version) {
+        return { kind: "version_conflict", currentVersion: existing.version };
+      }
 
       const row = await transaction
         .updateTable("intent")

@@ -346,7 +346,7 @@ test("get_role_contextは所属Workspaceの要約・Targetのactive Outcome・Pr
       title,
       description: `${title} description`,
       hypothesis: `${title} hypothesis`,
-      rationale: "R",
+      intentVersion: 1, rationale: "R",
       successCriteria: [{ description: `${title} criterion`, measurement: "M", target: "T" }],
     });
     const intent = await services.createIntentUseCase.execute(workspace.id, { title: "Alpha intent", desiredState: "done" });

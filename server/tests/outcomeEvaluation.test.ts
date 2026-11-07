@@ -98,7 +98,7 @@ const createOutcome = async ({ services }: Kit, workspaceId: string, intentId: s
   services.createOutcomeUseCase.execute(workspaceId, intentId, {
     title: next("Outcome"),
     description: "Claims are exclusive.",
-    rationale: "Rework",
+    intentVersion: 1, rationale: "Rework",
     successCriteria: Array.from({ length: criteriaCount }, (_, index) => ({
       description: `criterion ${index + 1}`,
       measurement: `Measure ${index + 1}`,
@@ -154,7 +154,7 @@ const getContext = (app: App, workspaceId: string, outcomeId: string, principal:
   callTool(app, "get_evaluator_context", { workspaceId, outcomeId }, principal ?? undefined);
 
 const evaluate = (app: App, workspaceId: string, outcomeId: string, args: object, principal: string | null = "ev") =>
-  callTool(app, "record_outcome_evaluation", { workspaceId, outcomeId, ...args }, principal ?? undefined);
+  callTool(app, "record_outcome_evaluation", { workspaceId, outcomeId, method: "quantitative_observation", targetVersion: "v1", limitations: "テスト用の観測", ...args }, principal ?? undefined);
 
 type Verdict = "met" | "not_met" | "insufficient_evidence";
 const judgments = (outcome: { readonly successCriteria: readonly { readonly id: string }[] }, verdicts: Verdict[], evidenceIds: string[] = []) =>
@@ -198,6 +198,7 @@ test("EvaluatorがInstructionとContextを取得し、Criterionごとの判定�
   assert.equal(saved.recorded, true);
   const evaluation = saved.evaluation;
   assert.equal(evaluation.result, "achieved");
+  assert.equal(evaluation.intentVersion, 1, "評価は、Outcomeが根拠にしたIntentの版を保持する");
   assert.equal(evaluation.outcomeId, outcome.id);
   assert.equal(evaluation.principalId, "ev");
   assert.equal(evaluation.runRef, "run-1");
@@ -439,7 +440,7 @@ test("Evaluatorは Outcome定義・Execution結果・Project / Intent・Grantを
   const storyBefore = ok(await callTool(kit.app, "list_stories", { projectId: project.id }, "mgr"));
 
   const attempts: [string, object][] = [
-    ["create_outcome", { workspaceId: project.workspaceId, intentId: intent.id, title: "x", description: "x", rationale: "x", successCriteria: [{ description: "x", measurement: "x" }] }],
+    ["create_outcome", { workspaceId: project.workspaceId, intentId: intent.id, title: "x", description: "x", intentVersion: 1, rationale: "x", successCriteria: [{ description: "x", measurement: "x" }] }],
     ["update_outcome", { workspaceId: project.workspaceId, intentId: intent.id, outcomeId: outcome.id, title: "changed" }],
     ["cancel_outcome", { workspaceId: project.workspaceId, intentId: intent.id, outcomeId: outcome.id, reason: "x" }],
     ["record_execution_evidence", { projectId: project.id, outcomeId: outcome.id, changeCursor: 0 }],
@@ -447,9 +448,9 @@ test("Evaluatorは Outcome定義・Execution結果・Project / Intent・Grantを
     ["issue_story", { projectId: project.id, title: "x", outcomeId: outcome.id, requestId: "story-by-ev" }],
     ["update_project", { projectId: project.id, name: "renamed" }],
     ["create_intent", { workspaceId: project.workspaceId, title: "x", desiredState: "x" }],
-    ["update_intent", { workspaceId: project.workspaceId, intentId: intent.id, title: "x" }],
+    ["update_intent", { expectedVersion: 1, workspaceId: project.workspaceId, intentId: intent.id, title: "x" }],
     ["abandon_intent", { workspaceId: project.workspaceId, intentId: intent.id }],
-    ["create_direction_decision", { workspaceId: project.workspaceId, intentId: intent.id, type: "intent_complete", judgment: "x", reason: "x", requestKey: "k", runRef: "r" }],
+    ["create_direction_decision", { workspaceId: project.workspaceId, intentId: intent.id, type: "intent_complete", intentVersion: 1, judgment: "x", reason: "x", requestKey: "k", runRef: "r" }],
   ];
   for (const [name, args] of attempts) {
     const result = await callTool(kit.app, name, args, "ev");
@@ -474,4 +475,131 @@ test("Strategist Contextは最新のEvaluationを含み、evaluationをunavailab
   assert.deepEqual(strategist.evaluations.map((item: Record<string, any>) => [item.id, item.result, item.decisionId]), [
     [recorded.evaluation.id, "achieved", null],
   ]);
+});
+
+const errorIssues = (error: Record<string, any>) => (error.issues ?? []).map((issue: { path: string }) => issue.path);
+
+test("評価計画は未実施のまま課題に保持され、A/Bと差分の差分法は適用前提を必須にする", async () => {
+  const kit = await setup();
+  const { project, intent } = await seedProject(kit);
+  const plan = { question: "入力を減らすと完了率は上がるか", method: "difference_in_differences", premises: "介入前の推移が並行", observationPeriod: "公開後2週間", decisionCriteria: "完了率+5pt", stopCriteria: "離脱が悪化したら中止" };
+  const outcome = await kit.services.createOutcomeUseCase.execute(project.workspaceId, intent.id, {
+    title: next("Outcome"), description: "d", intentVersion: 1, rationale: "r",
+    successCriteria: [{ description: "c", measurement: "m" }],
+    problems: [{ statement: "離脱", evidenceStatus: "insufficient", solutionHypothesis: "入力を減らす", evaluationPlan: plan }],
+  });
+  const { planId, ...stored } = outcome.problems[0]!.evaluationPlan!;
+  assert.ok(planId);
+  assert.deepEqual(stored, plan);
+  assert.deepEqual((await kit.services.listOutcomesUseCase.execute(project.workspaceId, intent.id)).find((item) => item.id === outcome.id)!.problems[0]!.evaluationPlan, { planId, ...plan });
+  // 評価はまだ無い: 計画は結果ではない。
+  assert.deepEqual(await kit.services.listOutcomeEvaluationsUseCase.execute(project.workspaceId, outcome.id), []);
+
+  for (const method of ["ab_test", "difference_in_differences"]) {
+    await assert.rejects(
+      kit.services.createOutcomeUseCase.execute(project.workspaceId, intent.id, {
+        title: next("Outcome"), description: "d", intentVersion: 1, rationale: "r",
+        successCriteria: [{ description: "c", measurement: "m" }],
+        problems: [{ statement: "離脱", evidenceStatus: "insufficient", evaluationPlan: { ...plan, method, premises: null } }],
+      }),
+      (error: Record<string, any>) => error.code === "VALIDATION_ERROR" && errorIssues(error).includes("problems.0.evaluationPlan.premises"),
+      method,
+    );
+  }
+  // 前提が不要な方法は前提なしで記録できる。
+  const quantitative = await kit.services.createOutcomeUseCase.execute(project.workspaceId, intent.id, {
+    title: next("Outcome"), description: "d", intentVersion: 1, rationale: "r",
+    successCriteria: [{ description: "c", measurement: "m" }],
+    problems: [{ statement: "離脱", evidenceStatus: "insufficient", evaluationPlan: { question: "q", method: "quantitative_observation", decisionCriteria: "d" } }],
+  });
+  assert.equal(quantitative.problems[0]!.evaluationPlan!.premises, null);
+});
+
+test("評価計画を変えると過去の評価は旧計画への結果として残り、新しい計画は未実施に戻る", async () => {
+  const kit = await setup();
+  const { project, intent } = await seedProject(kit);
+  const plan = { question: "入力を減らすと完了率は上がるか", method: "quantitative_observation" as const, observationPeriod: "公開後2週間", decisionCriteria: "完了率+5pt" };
+  const outcome = await kit.services.createOutcomeUseCase.execute(project.workspaceId, intent.id, {
+    title: next("Outcome"), description: "d", intentVersion: 1, rationale: "r",
+    successCriteria: [{ description: "c1", measurement: "m1" }],
+    problems: [{ statement: "離脱", evidenceStatus: "insufficient", evaluationPlan: plan }],
+  });
+  await executeToAccepted(kit, project.id, outcome.id);
+  await reflect(kit.app, project.id, outcome.id, [evidenceItem()]);
+  const problemId = outcome.problems[0]!.id;
+  const firstPlanId = outcome.problems[0]!.evaluationPlan!.planId;
+  const input = (key: string, planId?: string) => ({ requestKey: key, runRef: "run", method: "quantitative_observation", problemIds: [problemId], planIds: planId ? { [problemId]: planId } : {}, criteria: judgments(outcome, ["insufficient_evidence"]) });
+  const record = async (key: string, planId?: string) => ok(await evaluate(kit.app, project.workspaceId, outcome.id, input(key, planId))).evaluation;
+  const update = (evaluationPlan: Record<string, unknown> | null, revision: number) =>
+    kit.services.updateOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id, { expectedRevision: revision, problems: [{ id: problemId, statement: "離脱", evidenceStatus: "insufficient", evaluationPlan }] });
+
+  const first = await record("plan-first", firstPlanId);
+  assert.deepEqual(first.problemPlans, [{ problemId, planId: firstPlanId }]);
+  // 内容が同じ更新ではplanIdを保つ。
+  const same = await update(plan, outcome.revision);
+  assert.equal(same.problems[0]!.evaluationPlan!.planId, firstPlanId);
+  // 内容を変えると新しいplanIdになり、過去の評価は旧planIdのまま残る。
+  const changed = await update({ ...plan, question: "電話サポートを追加すると再訪率は上がるか" }, same.revision);
+  const changedPlanId = changed.problems[0]!.evaluationPlan!.planId;
+  assert.notEqual(changedPlanId, firstPlanId);
+  assert.deepEqual((await kit.services.listOutcomeEvaluationsUseCase.execute(project.workspaceId, outcome.id)).map((item) => item.problemPlans), [[{ problemId, planId: firstPlanId }]]);
+  // 旧計画を読んだ評価は、計画変更後に送っても新計画の結果にせず競合として拒否する。計画なしの指定も同様。
+  for (const stale of [input("plan-stale", firstPlanId), input("plan-stale-none")]) {
+    assert.equal(errorOf(await evaluate(kit.app, project.workspaceId, outcome.id, stale)).code, "CONFLICT");
+  }
+  assert.equal((await kit.services.listOutcomeEvaluationsUseCase.execute(project.workspaceId, outcome.id)).length, 1);
+  // 新しい計画への評価は新しいplanIdを保存する。
+  assert.deepEqual((await record("plan-second", changedPlanId)).problemPlans, [{ problemId, planId: changedPlanId }]);
+  // 計画を外して再度追加しても、過去のplanIdを再利用しない。
+  const removed = await update(null, changed.revision);
+  const readded = await update({ ...plan, question: "電話サポートを追加すると再訪率は上がるか" }, removed.revision);
+  assert.notEqual(readded.problems[0]!.evaluationPlan!.planId, changedPlanId);
+  // 計画の無い課題を対象にした評価は計画を保存しない。
+  await update(null, readded.revision);
+  assert.deepEqual((await record("plan-none")).problemPlans, []);
+  // 計画が無いのに計画を指定した評価は拒否する。
+  assert.equal(errorOf(await evaluate(kit.app, project.workspaceId, outcome.id, input("plan-ghost", firstPlanId))).code, "CONFLICT");
+});
+
+test("評価は方法・対象版・限界・対象課題を保存し、認知的ウォークスルーはmetの根拠にならず、課題は同じOutcomeのものに限る", async () => {
+  const kit = await setup();
+  const { project, intent } = await seedProject(kit);
+  const outcome = await kit.services.createOutcomeUseCase.execute(project.workspaceId, intent.id, {
+    title: next("Outcome"), description: "d", intentVersion: 1, rationale: "r",
+    successCriteria: [{ description: "c1", measurement: "m1" }, { description: "c2", measurement: "m2" }],
+    problems: [{ statement: "離脱", evidenceStatus: "insufficient", evaluationPlan: { question: "q", method: "cognitive_walkthrough", decisionCriteria: "d" } }],
+  });
+  await executeToAccepted(kit, project.id, outcome.id);
+  const reflected = await reflect(kit.app, project.id, outcome.id, [evidenceItem()]);
+  const evidenceIds = reflected.evidence.map((item: Record<string, any>) => item.id as string);
+  const problemId = outcome.problems[0]!.id;
+
+  // 認知的ウォークスルー（設計の点検）はmetにできない。
+  const walkthrough = errorOf(await evaluate(kit.app, project.workspaceId, outcome.id, { requestKey: next("eval"), runRef: "run", method: "cognitive_walkthrough", problemIds: [problemId], criteria: judgments(outcome, ["met", "insufficient_evidence"], evidenceIds) }));
+  assert.equal(walkthrough.code, "VALIDATION_ERROR");
+  assert.ok(errorIssues(walkthrough).includes("criteria.0.verdict"));
+  // 別Outcomeの課題idは拒否する。
+  const foreign = errorOf(await evaluate(kit.app, project.workspaceId, outcome.id, { requestKey: next("eval"), runRef: "run", problemIds: ["no-such-problem"], criteria: judgments(outcome, ["insufficient_evidence", "insufficient_evidence"]) }));
+  assert.equal(foreign.code, "VALIDATION_ERROR");
+  assert.ok(errorIssues(foreign).includes("problemIds.0"));
+  // 方法・対象版・限界は必須。
+  for (const missing of ["method", "targetVersion", "limitations"]) {
+    const error = errorOf(await evaluate(kit.app, project.workspaceId, outcome.id, { requestKey: next("eval"), runRef: "run", [missing]: missing === "method" ? "unknown" : "", criteria: judgments(outcome, ["insufficient_evidence", "insufficient_evidence"]) }));
+    assert.equal(error.code, "VALIDATION_ERROR", missing);
+  }
+
+  // 根拠不足は判断不能として、方法・版・限界・課題とともに保存する（効果達成にしない）。
+  const request = { requestKey: "eval-scope", runRef: "run", method: "cognitive_walkthrough", targetVersion: sha("b"), limitations: "実ユーザーは未観測", problemIds: [problemId, problemId], planIds: { [problemId]: outcome.problems[0]!.evaluationPlan!.planId }, criteria: judgments(outcome, ["not_met", "insufficient_evidence"], evidenceIds) };
+  const saved = ok(await evaluate(kit.app, project.workspaceId, outcome.id, request));
+  assert.deepEqual([saved.evaluation.method, saved.evaluation.targetVersion, saved.evaluation.limitations, saved.evaluation.problemIds], ["cognitive_walkthrough", sha("b"), "実ユーザーは未観測", [problemId]]);
+  assert.deepEqual(saved.evaluation.problemPlans, [{ problemId, planId: outcome.problems[0]!.evaluationPlan!.planId }], "評価時点の計画を保存する");
+  const insufficient = ok(await evaluate(kit.app, project.workspaceId, outcome.id, { requestKey: "eval-insufficient", runRef: "run", method: "quantitative_observation", criteria: judgments(outcome, ["insufficient_evidence", "insufficient_evidence"]) }));
+  assert.equal(insufficient.evaluation.result, "insufficient_evidence");
+  assert.deepEqual(insufficient.evaluation.problemIds, []);
+  // 同じrequestKeyの再送は同じ評価。方法を変えた再送はCONFLICT。
+  const replay = ok(await evaluate(kit.app, project.workspaceId, outcome.id, request));
+  assert.equal(replay.recorded, false);
+  assert.equal(replay.evaluation.id, saved.evaluation.id);
+  const changed = errorOf(await evaluate(kit.app, project.workspaceId, outcome.id, { ...request, method: "other" }));
+  assert.equal(changed.code, "CONFLICT");
 });

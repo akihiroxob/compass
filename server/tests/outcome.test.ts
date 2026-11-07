@@ -14,7 +14,7 @@ const outcomeInput = {
   title: "No duplicate claims",
   description: "Claims are exclusive.",
   hypothesis: "Exclusive claims make parallel work safe.",
-  rationale: "Duplicate claims are the main source of rework.",
+  intentVersion: 1, rationale: "Duplicate claims are the main source of rework.",
   successCriteria: [
     { description: "duplicate_claim_count = 0", measurement: "Count duplicate claims in the change log", target: "= 0" },
     { description: "All claims are audited", measurement: "Every claim has a change log entry" },
@@ -83,7 +83,7 @@ test("入力はtrimされ、hypothesis・targetの省略と空文字はnullに�
     title: "  Title  ",
     description: " D ",
     hypothesis: "   ",
-    rationale: " R ",
+    intentVersion: 1, rationale: " R ",
     successCriteria: [{ description: " c ", measurement: " m ", target: " " }],
   });
   assert.equal(created.title, "Title");
@@ -108,7 +108,7 @@ test("不正な入力はVALIDATION_ERRORで拒否し、OutcomeもCriterionも保
     [{ ...outcomeInput, title: "x".repeat(101) }, "title"],
     [{ ...outcomeInput, description: " " }, "description"],
     [{ ...outcomeInput, description: "x".repeat(2_001) }, "description"],
-    [{ ...outcomeInput, rationale: "" }, "rationale"],
+    [{ ...outcomeInput, intentVersion: 1, rationale: "" }, "rationale"],
     [{ ...outcomeInput, hypothesis: "x".repeat(2_001) }, "hypothesis"],
     [{ ...outcomeInput, successCriteria: [] }, "successCriteria"],
     [{ ...outcomeInput, successCriteria: criteria(11) }, "successCriteria"],
@@ -150,8 +150,8 @@ test("DBの制約が、application層を経由しない重複positionと不正�
     /UNIQUE/,
   );
   const insert = (status: string) =>
-    sql`insert into outcome (id, workspace_id, intent_id, title, description, rationale, status, created_at, updated_at)
-      values (${crypto.randomUUID()}, ${project.workspaceId}, ${intent.id}, 't', 'd', 'r', ${status}, 1, 1)`.execute(database);
+    sql`insert into outcome (id, workspace_id, intent_id, intent_version, title, description, rationale, status, created_at, updated_at)
+      values (${crypto.randomUUID()}, ${project.workspaceId}, ${intent.id}, 1, 't', 'd', 'r', ${status}, 1, 1)`.execute(database);
   await assert.rejects(insert("proposed"), /CHECK/);
   // 予約済みの状態値は、DB変更なしで後続が使える。
   await insert("achieved");
@@ -182,7 +182,7 @@ test("固定項目を含む更新はCONFLICTで拒否し、Outcomeと成功条�
     [{ successCriteria: [] }, "successCriteria"],
     [{ description: "Changed" }, "description"],
     [{ rationale: "Changed" }, "rationale"],
-    [{ title: "Renamed", description: "Changed", rationale: "Changed" }, "description,rationale"],
+    [{ title: "Renamed", description: "Changed", intentVersion: 1, rationale: "Changed" }, "description,rationale"],
   ];
   for (const [input, fixedFields] of attempts) {
     await assert.rejects(
@@ -371,38 +371,59 @@ test("Outcomeの取消更新が失敗するとIntentの放棄も取り消され�
   await database.destroy();
 });
 
-test("Outcomeを持つIntentは意味を変更できず、titleと同じ値の再送は許される。持たないIntentは従来どおり", async () => {
+test("Outcomeを持つIntentの意味変更は理由付きで新しい版になり、Outcomeは作成時の版を保持して再計画対象になる。持たないIntentは理由不要", async () => {
   const { database, services } = await setup();
   const { project, intent } = await seed(services);
 
-  const free = await services.updateIntentUseCase.execute(project.workspaceId, intent.id, {
+  const free = await services.updateIntentUseCase.execute(project.workspaceId, intent.id, { expectedVersion: 1,
     desiredState: "Edited before any Outcome",
     completionDefinition: "Done",
   });
-  assert.equal(free.desiredState, "Edited before any Outcome");
+  assert.deepEqual([free.version, free.meaningVersion], [2, 2]);
 
-  const outcome = await services.createOutcomeUseCase.execute(project.workspaceId, intent.id, outcomeInput);
-  const locked = (fixedFields: string) => rejectsWith("CONFLICT", (error) => assert.equal(error.details?.fixedFields, fixedFields));
-  await assert.rejects(services.updateIntentUseCase.execute(project.workspaceId, intent.id, { desiredState: "Changed" }), locked("desiredState"));
-  await assert.rejects(services.updateIntentUseCase.execute(project.workspaceId, intent.id, { completionDefinition: "Other" }), locked("completionDefinition"));
-  await assert.rejects(services.updateIntentUseCase.execute(project.workspaceId, intent.id, { completionDefinition: null }), locked("completionDefinition"));
-  await assert.rejects(
-    services.updateIntentUseCase.execute(project.workspaceId, intent.id, { title: "Renamed", desiredState: "Changed", completionDefinition: "" }),
-    locked("desiredState,completionDefinition"),
-  );
+  const outcome = await services.createOutcomeUseCase.execute(project.workspaceId, intent.id, { ...outcomeInput, intentVersion: 2 });
+  assert.equal(outcome.intentVersion, 2);
+  const reasonRequired = rejectsWith("VALIDATION_ERROR");
+  await assert.rejects(services.updateIntentUseCase.execute(project.workspaceId, intent.id, { expectedVersion: 2, desiredState: "Changed" }), reasonRequired);
+  await assert.rejects(services.updateIntentUseCase.execute(project.workspaceId, intent.id, { expectedVersion: 2, completionDefinition: null }), reasonRequired);
+  await assert.rejects(services.updateIntentUseCase.execute(project.workspaceId, intent.id, { expectedVersion: 2, completionDefinition: "Other", reason: "  " }), reasonRequired);
   assert.deepEqual(await services.getIntentUseCase.execute(project.workspaceId, intent.id), free);
 
-  // titleは変更できる。編集フォームが3項目すべてを送っても、意味が同じなら通る。
-  const renamed = await services.updateIntentUseCase.execute(project.workspaceId, intent.id, {
+  // titleだけの変更や、意味が同じ再送は理由が要らない。内容が変わらない保存は版を進めない。
+  const renamed = await services.updateIntentUseCase.execute(project.workspaceId, intent.id, { expectedVersion: 2,
     title: "Renamed",
     desiredState: free.desiredState,
     completionDefinition: free.completionDefinition,
   });
-  assert.equal(renamed.title, "Renamed");
+  assert.deepEqual([renamed.version, renamed.meaningVersion], [3, 2]);
+  const same = await services.updateIntentUseCase.execute(project.workspaceId, intent.id, { expectedVersion: 3, title: "Renamed" });
+  assert.equal(same.version, 3);
 
-  // Outcomeが取り消されても、Outcomeが存在する限りIntentの意味は固定のまま。
+  const changed = await services.updateIntentUseCase.execute(project.workspaceId, intent.id, { expectedVersion: 3, desiredState: "Changed", reason: "Market moved" });
+  assert.deepEqual([changed.version, changed.meaningVersion], [4, 4]);
+  // 古い編集画面・古い版の判断は、競合として何も変えない。
+  const conflict = (currentVersion: string) => rejectsWith("CONFLICT", (error) => {
+    assert.equal(error.details?.conflict, "intent_version");
+    assert.equal(error.details?.currentVersion, currentVersion);
+  });
+  await assert.rejects(services.updateIntentUseCase.execute(project.workspaceId, intent.id, { expectedVersion: 3, title: "Stale" }), conflict("4"));
+  await assert.rejects(services.createOutcomeUseCase.execute(project.workspaceId, intent.id, { ...outcomeInput, intentVersion: 2 }), conflict("4"));
+  await assert.rejects(services.updateOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id, { intentVersion: 2 }), conflict("4"));
+  assert.equal((await services.getIntentUseCase.execute(project.workspaceId, intent.id)).title, "Renamed");
+
+  // Outcomeは元の版を参照したまま。現在版を確認すると再計画対象から外れる。
+  assert.equal((await services.getOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id)).intentVersion, 2);
+  const confirmed = await services.updateOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id, { intentVersion: 4 });
+  assert.equal(confirmed.intentVersion, 4);
+
+  const revisions = await services.listIntentRevisionsUseCase.execute(project.workspaceId, intent.id);
+  assert.deepEqual(revisions.map((revision) => [revision.version, revision.meaningChanged, revision.reason]), [[4, true, "Market moved"], [3, false, null], [2, true, null], [1, false, null]]);
+  assert.equal(revisions[1]!.desiredState, "Edited before any Outcome", "古い版の内容は書き換わらない");
+  assert.equal(revisions[3]!.desiredState, intent.desiredState);
+
+  // Outcomeが取り消されても、理由付きで意味を変えられる（理由のない全面禁止はしない）。
   await services.cancelOutcomeUseCase.execute(project.workspaceId, intent.id, outcome.id, { reason: "x" });
-  await assert.rejects(services.updateIntentUseCase.execute(project.workspaceId, intent.id, { desiredState: "Changed" }), locked("desiredState"));
+  await assert.rejects(services.updateIntentUseCase.execute(project.workspaceId, intent.id, { expectedVersion: 4, desiredState: "Again" }), reasonRequired);
   await database.destroy();
 });
 

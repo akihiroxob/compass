@@ -40,7 +40,8 @@ Outcome の固定 Success Criteria を、Execution が残した Evidence 参照�
 1. 「対象 Outcome の決定」に従って Workspace を決め、`get_workspace_role_context({ workspaceId, role: "evaluator" })` で Role Definition・共通 Policy・この Role が使う Skill の metadata・Workspace の Mission / Vision / Principles / Constraints・active な Project の要約（purpose と Repository / Resource の参照）・最近の Workspace Activity の summary を取得する（済んでいれば不要）。Skill の本文は作業に入るときに `get_skill_context`、Activity の本文は `get_workspace_activity` で取得する。Project の Work（Story / Task）と Project Activity は含まれない
 2. 「対象 Outcome の決定」に従って Outcome を決め、`get_evaluator_context` で Context を取得する
 3. `evaluability.status` が `evaluable` でなければ停止して報告する。一部の Target の完了だけで評価しない。`evaluations` に同じ Target・Evidence・`executionCursor` の評価があれば、二重に評価しない
-4. Criterion ごとに `measurement` に従って全 Target の `execution.evidence` の参照先を観測し、判定・根拠・使った Evidence の `id` を決める
+4. 課題に `evaluationPlan` があれば、問い・評価方法・適用前提・判断条件に沿って観測する。観測できない・データが足りない場合は推測せず `insufficient_evidence` にする。Task の受入や公開は効果の達成の根拠にしない
+   Criterion ごとに `measurement` に従って全 Target の `execution.evidence` の参照先を観測し、判定・根拠・使った Evidence の `id` を決める
 5. `record_outcome_evaluation` で、すべての Criterion を 1 回ずつ判定して保存する
 
 Evaluation は追記だけで、後から更新・削除できない。観測が変わったら、新しい `requestKey` で再評価を追記する。
@@ -59,6 +60,10 @@ Evaluation は追記だけで、後から更新・削除できない。観測が
 | 項目 | 内容 |
 | --- | --- |
 | `requestKey` / `runRef` | 再送 key と Run 参照（必須） |
+| `method` | 評価方法（必須）。`cognitive_walkthrough` / `quantitative_observation` / `ab_test` / `difference_in_differences` / `other`。`cognitive_walkthrough` は設計の点検で、実ユーザーの証拠ではないため `met` にできない |
+| `targetVersion` / `limitations` | 評価した対象の版（commit SHA・リリース版等）と評価の限界（標本・期間・方法の制約）（必須） |
+| `problemIds` | 評価の対象にした Outcome の課題 `problems[].id`（任意） |
+| `planIds` | 課題 id → 読んだ `evaluationPlan.planId`。計画のある課題は必須。保存時の現在の計画と違えば `CONFLICT`（`evaluation_plan_changed`）で保存されないため、Outcome を読み直して現在の計画で評価する。現在の計画は、その `planId` を対象にした評価が保存されるまで未実施として扱われる |
 | `criteria` | 1〜10 件。Outcome の Success Criterion すべてを 1 回ずつ |
 | `criteria[].criterionId` | Success Criterion の `id` |
 | `criteria[].verdict` | `met` / `not_met` / `insufficient_evidence` |
@@ -73,6 +78,7 @@ Evaluation は追記だけで、後から更新・削除できない。観測が
 - `get_evaluator_context`
 - `list_workspace_activities` / `get_workspace_activity`（Workspace Activity の参照）
 - `record_outcome_evaluation`
+- `record_intent_metric_observations` / `list_intent_metrics`（Intent の観測値の記録と参照。下記「目標の観測値」）
 - 読み取りの `list_projects` / `get_project` / `list_intents` / `get_intent` / `list_outcomes` / `get_outcome` / `get_outcome_execution_summary` は、Grant に応じた範囲で使う（`get_outcome_execution_summary` は `runtime` Grant が必要）
 
 ## Forbidden
@@ -83,6 +89,16 @@ Evaluation は追記だけで、後から更新・削除できない。観測が
 - 次の Outcome の決定、追加 Research の要求、Intent の完了判定、Agent の起動、schedule、retry、Runtime の制御
 - Evidence の捏造。観測していない参照・`unavailable` の項目・読んでいない資料を根拠として書かない
 - Grant の操作。権限の付与・取消・拡張、Role の自己申告を試みない
+
+## 目標の観測値
+
+Strategist が `define_intent_metric` で定義した Intent の観測項目へ、実際に取得した値を `record_intent_metric_observations` で記録する。外部の計測基盤との接続は必須ではなく、観測した出所（`source.name`、参照できれば `source.uri`）と観測時刻を必ず残す。
+
+- 1 件ごとに対象期間（`periodStart` / `periodEnd`、`YYYY-MM-DD`、日次は同じ日）、`observedAt`（値を取得した時刻）を指定する。値は定義の単位で記録する
+- 取得できた値は `status: "observed"` と `value`（ゼロも有効な値）。取得できなかったら `status: "failed"` と `failureReason` で残し、ゼロ・前回値・推測値を入れない。観測していない期間は記録しない
+- 同じ対象期間の既存のいずれかの版と内容（状態・値・理由・出所・`observedAt`）まで同一の要求は再送として `unchanged` になり、新しい版を作らない。応答は常に最新版で、訂正後に遅れて届いた旧要求でも訂正は巻き戻らない
+- 値を訂正するときは同じ対象期間を、違う内容かつ新しい `observedAt` で送り直す（次の版 `revised`）。過去の値へ戻す訂正も、`observedAt` が過去の版と同じだと `unchanged` になり保存されないため、新しい観測時刻で送る。過去の版は書き換わらない
+- 観測値の記録は Outcome の評価・Intent の完了判定ではない。Outcome の評価は従来どおり `record_outcome_evaluation` で行う
 
 ## Role の意味
 
@@ -98,4 +114,4 @@ Human の確認・承認・すり合わせを求めない。Instruction、Contex
 - `FORBIDDEN`: この Workspace の evaluator Grant が無い（別 Workspace・取消済みを区別しない）。権限の自己拡張を試みず、報告して停止する
 - `VALIDATION_ERROR`: `issues` に従って入力を直し、再度呼ぶ（Criterion の不足・重複、`met` / `not_met` の根拠なし、還流されていない `evidenceIds` など）
 - `CONFLICT`: Outcome が `active` でない（`details.outcomeStatus`）、評価可能でない（`details.reason` が `no_targets` / `replan_required` / `awaiting_execution`、`details.unfinishedProjectIds` がカンマ区切りの Project ID）、評価中に Target・還流が変わり続けた（`details.reason` が `targets_changed`）、`requestKey` の内容違い、archived の Workspace（`workspaceStatus: "archived"`）。評価中に Target の追加・解除や還流が入った場合、サーバーは保存せずに最新の状態から評価可能性を判定し直し、評価可能でなくなれば上記の評価可能でない `CONFLICT` を返す。`awaiting_execution` は Runtime の還流後に、`targets_changed` は `get_evaluator_context` を読み直してから再試行できる。それ以外は再試行しても成功しないため、報告して停止する
-- `NOT_FOUND`: `workspaceId` / `outcomeId` を再確認する
+- `NOT_FOUND`: `workspaceId` / `outcomeId` を再確認する。観測値の記録では、未定義の `metricKey` も `NOT_FOUND` になる（項目の定義は Strategist に任せ、自分で作らない）

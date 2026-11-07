@@ -8,7 +8,7 @@ import { controlSizeClass, type ControlSize } from "./LinkButton";
 type Native<T extends "input" | "textarea" | "select"> = Omit<ComponentPropsWithRef<T>, "className" | "style">;
 
 export type TextInputProps = Omit<Native<"input">, "type" | "size"> & {
-  type?: "text" | "email" | "url" | "search" | "password" | "number" | "tel";
+  type?: "text" | "email" | "url" | "search" | "password" | "number" | "tel" | "date";
   size?: ControlSize;
 };
 

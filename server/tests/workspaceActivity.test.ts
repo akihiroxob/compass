@@ -88,7 +88,7 @@ test("Workspace / Project Activityはscope別に記録され、Workspace Grant�
       workspaceId: workspace.id,
       intentId: intent.id,
       type: "additional_research",
-      judgment: "IdPを調べる",
+      intentVersion: 1, judgment: "IdPを調べる",
       reason: "選択肢が不足",
       research: { question: "どのIdPか", scope: "OIDC", completionCondition: "比較表", budgetTotal: 10 },
       requestKey: "decision-1",
@@ -158,6 +158,8 @@ test("Workspace / Project Activityはscope別に記録され、Workspace Grant�
     assert.deepEqual(projectPage.activities.map((item: Json) => [item.type, item.scope, item.workspaceId, item.projectId]), [
       ["story.created", "project", workspace.id, a.id],
       ["task.created", "project", workspace.id, a.id],
+      ["story.started", "project", workspace.id, a.id],
+      ["task.started", "project", workspace.id, a.id],
     ]);
     const changes = ok(await callTool(app, "worker-a", "list_changes", { projectId: a.id }, "worker"));
     assert.ok(changes.changes.some((change: Json) => change.type === "TASK_CLAIMED"));

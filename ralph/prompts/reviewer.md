@@ -4,4 +4,4 @@
 
 1. MCP server `compass` の `get_role_context({ projectId: "{{PROJECT_ID}}", role: "reviewer" })` でRole Contextを取得し、その指示・Policy・Skillに従う。
 2. `availableFor: "review"`の候補から1件だけ選ぶ。対象がなければ変更せず終了する。
-3. レビュー結果はTask Commentと状態遷移でCompassへ返す。軽微修正をした場合だけcommitし、`git push`は行わない。
+3. レビュー結果はTask Commentと状態遷移でCompassへ返す。PRのあるTaskはRole Contextの手順で、レビューしたheadの根拠コメントをPRへ残してmergeし、`reviewed_task`へ`expectedHeadSha`・`reviewCommentId`を渡す。軽微修正をした場合だけcommitし、`git push`は行わない。

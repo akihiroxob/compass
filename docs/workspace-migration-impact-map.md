@@ -48,7 +48,7 @@ schema再作成の共通確認点:
 
 | table | 現況のscope・制約 | 変更先 | Task | 確認点 |
 | --- | --- | --- | --- | --- |
-| `intent` | `workspace_id` FK。`intent_one_active_per_workspace`（Workspaceにつき有効1件） | 実装済み | S03-01 | 同じWorkspaceに複数ProjectがあってもActive IntentはWorkspaceにつき最大1件 |
+| `intent` | `workspace_id` FK。複数Active Intentを許可 | 実装済み | S03-01 | 同じWorkspaceに複数ProjectがあってもActive IntentはWorkspace内に複数保持できる |
 | `outcome` | `workspace_id` FKと`(intent_id, workspace_id)`の複合FK | 実装済み | S03-01 | `success_criterion`は`outcome_id`だけで変更なし |
 | `research_request` / `research_result` / `research_evidence_ref` / `research_finding` / `research_synthesis` | `workspace_id` FK・親子複合FK、Requestの`(workspace_id, request_key)` unique、`research_finding_workspace_idx`等 | 実装済み | S03-02 | 関連tableはscope列なし。EvidenceはURI/revisionと任意の`resource_id`で同じWorkspaceのProject Resourceを参照 |
 | `direction_decision` | `workspace_id` FK、`(workspace_id, request_key)` unique・Intent/Outcome複合FK | 実装済み | S03-02 | `direction_decision_synthesis` / `_finding`は変更不要。Intent Brief snapshot（JSON）は書き換えない |

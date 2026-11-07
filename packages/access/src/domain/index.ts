@@ -11,3 +11,4 @@ export * from "./ProjectRole.ts";
 export * from "./WorkspaceMembershipRepository.ts";
 export * from "./RoleScope.ts";
 export * from "./WorkspaceGrant.ts";
+export * from "./AgentRun.ts";

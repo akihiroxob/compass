@@ -269,6 +269,7 @@ const initializeDirectionDecisionSchema = async (database: Kysely<DirectionDatab
     .addColumn("judgment", "text", (column) => column.notNull())
     .addColumn("reason", "text", (column) => column.notNull())
     .addColumn("options", "text", (column) => column.notNull())
+    .addColumn("intent_version", "integer", (column) => column.notNull().check(sql`intent_version >= 1`))
     .addColumn("intent_brief_snapshot", "text", (column) => column.notNull())
     .addColumn("principal_id", "text", (column) => column.notNull())
     .addColumn("run_ref", "text", (column) => column.notNull())
@@ -579,11 +580,17 @@ const initializeOutcomeEvaluationSchema = async (database: Kysely<DirectionDatab
     .addUniqueConstraint("outcome_evaluation_id_workspace_unique", ["id", "workspace_id"])
     .addForeignKeyConstraint("outcome_evaluation_outcome_workspace_fk", ["outcome_id", "workspace_id"], "outcome", ["id", "workspace_id"])
     .addColumn("intent_id", "text", (column) => column.notNull())
+    .addColumn("intent_version", "integer", (column) => column.notNull().check(sql`intent_version >= 1`))
     .addForeignKeyConstraint("outcome_evaluation_outcome_intent_fk", ["outcome_id", "intent_id", "workspace_id"], "outcome", ["id", "intent_id", "workspace_id"])
     .addForeignKeyConstraint("outcome_evaluation_intent_workspace_fk", ["intent_id", "workspace_id"], "intent", ["id", "workspace_id"])
     .addColumn("result", "text", (column) =>
       column.notNull().check(sql`result in ('achieved', 'failed', 'insufficient_evidence')`),
     )
+    .addColumn("method", "text", (column) => column.notNull())
+    .addColumn("target_version", "text", (column) => column.notNull())
+    .addColumn("limitations", "text", (column) => column.notNull())
+    .addColumn("problem_ids", "text", (column) => column.notNull())
+    .addColumn("problem_plans", "text", (column) => column.notNull())
     .addColumn("criteria", "text", (column) => column.notNull())
     .addColumn("snapshot", "text", (column) => column.notNull())
     .addColumn("principal_id", "text", (column) => column.notNull())
@@ -607,6 +614,63 @@ const initializeOutcomeEvaluationSchema = async (database: Kysely<DirectionDatab
     .execute();
 };
 
+/**
+ * Intentの観測項目と観測値（Direction所有）。観測項目はIntentと同じWorkspaceに複合FKで固定し、Intentの削除とともに消える。
+ * 観測値は対象期間ごとの版を追記し、値の有無と状態の組合せをcheckで守る。
+ */
+const initializeIntentMetricSchema = async (database: Kysely<DirectionDatabase>): Promise<void> => {
+  await database.schema
+    .createTable("intent_metric")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("workspace_id", "text", (column) => column.notNull().references("workspace.id").onDelete("cascade"))
+    .addColumn("intent_id", "text", (column) => column.notNull())
+    .addForeignKeyConstraint("intent_metric_intent_workspace_fk", ["intent_id", "workspace_id"], "intent", ["id", "workspace_id"], (constraint) =>
+      constraint.onDelete("cascade"),
+    )
+    .addColumn("key", "text", (column) => column.notNull())
+    .addUniqueConstraint("intent_metric_intent_key_unique", ["intent_id", "key"])
+    .addColumn("name", "text", (column) => column.notNull())
+    .addColumn("unit", "text", (column) => column.notNull())
+    .addColumn("target_value", "real")
+    .addColumn("stale_after_days", "integer", (column) => column.notNull().check(sql`stale_after_days between 1 and 366`))
+    .addColumn("revision", "integer", (column) => column.notNull().check(sql`revision >= 1`))
+    .addColumn("created_by_principal_id", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addColumn("updated_at", "integer", (column) => column.notNull())
+    .execute();
+
+  await database.schema
+    .createTable("intent_metric_observation")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("metric_id", "text", (column) => column.notNull().references("intent_metric.id").onDelete("cascade"))
+    .addColumn("period_start", "text", (column) => column.notNull())
+    .addColumn("period_end", "text", (column) => column.notNull())
+    .addColumn("revision", "integer", (column) => column.notNull().check(sql`revision >= 1`))
+    .addColumn("status", "text", (column) => column.notNull().check(sql`status in ('observed', 'failed')`))
+    .addColumn("value", "real")
+    .addColumn("failure_reason", "text")
+    .addColumn("source_name", "text", (column) => column.notNull())
+    .addColumn("source_uri", "text")
+    .addColumn("observed_at", "integer", (column) => column.notNull())
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("recorded_at", "integer", (column) => column.notNull())
+    .addCheckConstraint(
+      "intent_metric_observation_value_check",
+      sql`(status = 'observed' and value is not null and failure_reason is null) or (status = 'failed' and value is null and failure_reason is not null)`,
+    )
+    .addCheckConstraint("intent_metric_observation_period_check", sql`period_start <= period_end`)
+    .addUniqueConstraint("intent_metric_observation_revision_unique", ["metric_id", "period_start", "period_end", "revision"])
+    .execute();
+  await database.schema
+    .createIndex("intent_metric_observation_metric_period_idx")
+    .ifNotExists()
+    .on("intent_metric_observation")
+    .columns(["metric_id", "period_end", "period_start"])
+    .execute();
+};
+
 /** Directionが所有するtableの作成・移行。`project`（Organization）を参照するため、serverの`initializeSchema`がOrganizationの後に呼ぶ。 */
 export const initializeDirectionSchema = async (database: Kysely<DirectionDatabase>): Promise<void> => {
   await database.schema
@@ -619,18 +683,44 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     .addUniqueConstraint("intent_id_workspace_unique", ["id", "workspace_id"])
     .addColumn("title", "text", (column) => column.notNull())
     .addColumn("desired_state", "text", (column) => column.notNull())
+    .addColumn("background", "text")
+    .addColumn("audience", "text")
+    .addColumn("constraints", "text")
     .addColumn("completion_definition", "text")
+    .addColumn("target_date", "text")
     .addColumn("status", "text", (column) =>
       column.notNull().check(sql`status in ('active', 'achieved', 'abandoned')`),
     )
     .addColumn("abandoned_reason", "text")
+    .addColumn("version", "integer", (column) => column.notNull().defaultTo(1).check(sql`version >= 1`))
+    .addColumn("meaning_version", "integer", (column) => column.notNull().defaultTo(1).check(sql`meaning_version >= 1 and meaning_version <= version`))
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addColumn("updated_at", "integer", (column) => column.notNull())
     .execute();
 
-  // Active Intentは Workspaceにつき最大1件。アプリケーション層の検査に加えてDBでも強制する。
-  await sql`create unique index if not exists intent_one_active_per_workspace
-    on intent (workspace_id) where status = 'active'`.execute(database);
+  // Intentの版ごとの内容・変更主体・理由（追記専用）。Outcome・判断・評価は作成時の版をここで参照できる。
+  await database.schema
+    .createTable("intent_revision")
+    .ifNotExists()
+    .addColumn("intent_id", "text", (column) => column.notNull())
+    .addColumn("workspace_id", "text", (column) => column.notNull())
+    .addColumn("version", "integer", (column) => column.notNull().check(sql`version >= 1`))
+    .addColumn("title", "text", (column) => column.notNull())
+    .addColumn("desired_state", "text", (column) => column.notNull())
+    .addColumn("background", "text")
+    .addColumn("audience", "text")
+    .addColumn("constraints", "text")
+    .addColumn("completion_definition", "text")
+    .addColumn("target_date", "text")
+    .addColumn("meaning_changed", "integer", (column) => column.notNull().check(sql`meaning_changed in (0, 1)`))
+    .addColumn("reason", "text")
+    .addColumn("changed_by", "text", (column) => column.notNull())
+    .addColumn("changed_by_role", "text", (column) => column.notNull())
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addPrimaryKeyConstraint("intent_revision_pk", ["intent_id", "version"])
+    .addForeignKeyConstraint("intent_revision_intent_workspace_fk", ["intent_id", "workspace_id"], "intent", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .execute();
+
   await database.schema
     .createIndex("intent_workspace_id_idx")
     .ifNotExists()
@@ -649,6 +739,7 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     )
     .addUniqueConstraint("outcome_id_workspace_unique", ["id", "workspace_id"])
     .addColumn("intent_id", "text", (column) => column.notNull())
+    .addColumn("intent_version", "integer", (column) => column.notNull().check(sql`intent_version >= 1`))
     .addUniqueConstraint("outcome_id_intent_workspace_unique", ["id", "intent_id", "workspace_id"])
     .addColumn("title", "text", (column) => column.notNull())
     .addForeignKeyConstraint(
@@ -670,6 +761,7 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     // 発端のDirection Decision。FKは付けない。direction_decision.outcome_id → outcome.idとの循環を、outcome行を先に作ってから
     // Decision行を作る順序で解決しており、outcome側の逆参照は監査目的の平文IDで十分なため。
     .addColumn("origin_decision_id", "text")
+    .addColumn("revision", "integer", (column) => column.notNull().defaultTo(1).check(sql`revision >= 1`))
     .addColumn("created_at", "integer", (column) => column.notNull())
     .addColumn("updated_at", "integer", (column) => column.notNull())
     .execute();
@@ -701,6 +793,49 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
     .columns(["outcome_id", "position"])
     .execute();
 
+  // Outcomeの課題と根拠参照。根拠は同じWorkspaceのResearch Finding・Synthesisだけを複合FKで参照し、別Workspaceの記録を結び付けられない。
+  await database.schema
+    .createTable("outcome_problem")
+    .ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("workspace_id", "text", (column) => column.notNull())
+    .addUniqueConstraint("outcome_problem_id_workspace_unique", ["id", "workspace_id"])
+    .addColumn("outcome_id", "text", (column) => column.notNull())
+    .addForeignKeyConstraint("outcome_problem_outcome_workspace_fk", ["outcome_id", "workspace_id"], "outcome", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .addColumn("position", "integer", (column) => column.notNull())
+    .addColumn("statement", "text", (column) => column.notNull())
+    .addColumn("evidence_status", "text", (column) =>
+      column.notNull().check(sql`evidence_status in ('insufficient', 'observed', 'refuted')`),
+    )
+    .addColumn("observation", "text")
+    .addColumn("cause_hypothesis", "text")
+    .addColumn("solution_hypothesis", "text")
+    .addColumn("evaluation_plan", "text")
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addColumn("updated_at", "integer", (column) => column.notNull())
+    .execute();
+  await database.schema
+    .createIndex("outcome_problem_outcome_position_idx")
+    .unique()
+    .ifNotExists()
+    .on("outcome_problem")
+    .columns(["outcome_id", "position"])
+    .execute();
+  await database.schema
+    .createTable("outcome_problem_evidence")
+    .ifNotExists()
+    .addColumn("problem_id", "text", (column) => column.notNull())
+    .addColumn("workspace_id", "text", (column) => column.notNull())
+    .addForeignKeyConstraint("outcome_problem_evidence_problem_fk", ["problem_id", "workspace_id"], "outcome_problem", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .addColumn("position", "integer", (column) => column.notNull())
+    .addColumn("finding_id", "text")
+    .addForeignKeyConstraint("outcome_problem_evidence_finding_fk", ["finding_id", "workspace_id"], "research_finding", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .addColumn("synthesis_id", "text")
+    .addForeignKeyConstraint("outcome_problem_evidence_synthesis_fk", ["synthesis_id", "workspace_id"], "research_synthesis", ["id", "workspace_id"], (constraint) => constraint.onDelete("cascade"))
+    .addPrimaryKeyConstraint("outcome_problem_evidence_pk", ["problem_id", "position"])
+    .addCheckConstraint("outcome_problem_evidence_one_ref", sql`(finding_id is null) <> (synthesis_id is null)`)
+    .execute();
+
   // OutcomeのTarget Project。ProjectとOutcomeのWorkspace一致はRepositoryが書込と同一transactionで検査する。
   // Projectのarchiveは状態の変更で行が消えないため、Targetは残り、Strategistが解除・再設定を判断する。
   await database.schema
@@ -724,4 +859,5 @@ export const initializeDirectionSchema = async (database: Kysely<DirectionDataba
   await initializeRuntimeEventSchema(database);
   await initializeOutcomeExecutionSchema(database);
   await initializeOutcomeEvaluationSchema(database);
+  await initializeIntentMetricSchema(database);
 };

@@ -9,6 +9,8 @@ Compass の Work（Story / Task）の現在状態を監視し、Claude Code ま�
 - 起動された Agent: `get_role_context` で Role Context を取得し、その指示に従って Task を処理し、Task Comment と状態遷移で結果を Compass へ返す
 - Agent provider（`providers/`）: Claude Code・Codex 固有の起動処理
 
+Ralph は Git・GitHub の操作と Task の状態遷移を代行しません。PR を作る Task では、起動された Agent が Role Context の手順（`knowledge/tips/github-workflow.md`）で branch の push・PR の作成と登録（Worker）、レビュー根拠のコメントと merge（Reviewer）、merge commit での受入（Manager）を行い、Server が完了・レビュー・受入のたびに GitHub の事実を照合します（[ADR 0005](../docs/adr/0005-task-pull-request-transition-verification.md)）。Agent の実行環境に GitHub の認証（`gh` 等）を用意してください。Server が照合に使う GitHub の読取は Server 側の設定（`COMPASS_GITHUB_TOKEN`）です。
+
 Ralph は Role の手順・Skill 本文を持ちません。`prompts/` は対象 Project と Role Context の取得を指示するだけの起動指示です。Role 本文は repo の `roles/` を正本として MCP から取得されます。Storyへの分解はOrchestratorが起動するManagerの責務です。受入段階の保存済み実行は任意の`manager`設定で再開できます。
 
 ## Principal と Credential
@@ -93,7 +95,7 @@ Orchestrator と接続した Workspace 境界の E2E（`orchestrator/tests/integ
 
 ## 未接続・未検証
 
-- 実 Agent（Codex）が Task を処理したのは、相談の統合検証（`scripts/verify-consultation-resumption.mjs`、[実装状況](../docs/implementation-status.md#相談の統合検証)）の専用環境での `ralph run <role> --once`（相談からの再開 Worker、文書反映の Worker / Reviewer / Manager、ローカルの検証用 Repository）だけ。Claude Code provider での処理、PR 作成・GitHub 連携を含む運転、polling を続ける常駐ループは未検証。実 CLI の接続については、`--mcp-config` の `${COMPASS_RALPH_TOKEN}` 展開（Claude Code）と `bearer_token_env_var`・`http_headers`（Codex）で Authorization・`X-Compass-Active-Role` が送られることだけを手動で確認した
+- 実 Agent（Codex）が Task を処理したのは、相談の統合検証（`scripts/verify-consultation-resumption.mjs`、[実装状況](../docs/implementation-status.md#相談の統合検証)）の専用環境での `ralph run <role> --once`（相談からの再開 Worker、文書反映の Worker / Reviewer / Manager、ローカルの検証用 Repository）だけ。Claude Code provider での処理、実 GitHub Repository での PR 作成・merge を含む運転（Server の PR 照合は GitHub 互換の検証用 server でだけ確認）、polling を続ける常駐ループは未検証。実 CLI の接続については、`--mcp-config` の `${COMPASS_RALPH_TOKEN}` 展開（Claude Code）と `bearer_token_env_var`・`http_headers`（Codex）で Authorization・`X-Compass-Active-Role` が送られることだけを手動で確認した
 - 同じ Project を複数の Ralph で監視した場合の Agent の重複起動は抑止しない（Task の排他は Server の Claim が保証する）
 - remote mode の Server と Agent Credential での接続は自動テストの対象外
 
@@ -112,3 +114,7 @@ node /path/to/compass/ralph/runtime/consultation-context.mjs /path/to/runtime.js
 同じworktreeのRunnerは`runtime/worktree-lock.py`のOS lockで排他化します。Runner停止後も旧Agentへ継承した専用fd（9以上。logging用の3/4とは分離）がlogging/providerを通してlockを保持し、旧Agentが終了するまで新Runnerを拒否します。adapterから同じworktreeを起動する場合もこのlock契約を使います。別Task/Role全体をpauseする仕組みはありません。Python 3（POSIXの`fcntl`）・Node.js・gitを使用します。
 
 受入段階の相談再開には、任意の`roles.manager`設定（`tokenEnv`・provider・command）と`ralph run manager --config <path>`を使います。Manager自身のPrincipal/Project Credentialで元の`acceptance` Claimを取得し、Role Contextに従って判断します。`auto`の通常順は従来どおりReviewer→Workerで、Managerを自動的に追加しません。
+
+## Agent実行観測
+
+provider起動前・終了後と実行中の観測をServerへ報告し、WorkspaceのAgent管理へ表示する。`observation.heartbeatSeconds`は10〜28800秒（既定300秒）、観測途絶の期限は3間隔。報告失敗でもAgent実行は継続する。詳細は[Agent実行観測](../docs/agent-run-observation.md)を参照する。

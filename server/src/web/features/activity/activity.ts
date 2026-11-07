@@ -24,7 +24,7 @@ export type ActivitySummary = {
 };
 
 export type Activity = Omit<ActivitySummary, "hasBody"> & { body: string | null };
-export type ActivityPage = { activities: ActivitySummary[]; nextCursor: number | null };
+export type ActivityPage = { activities: ActivitySummary[]; nextCursor: number | string | null; matchedCount?: number; types?: string[] };
 export type ActivityDetail = { activity: Activity; corrections: ActivitySummary[] };
 
 /** Projectに登録済みのRepository・Resource。`project_resource`参照の表示名・URLを引く。 */
@@ -57,11 +57,12 @@ export const activitySourceLabels: Record<ActivitySummary["source"], string> = {
  */
 export const activityTypeGroups: Record<ActivityScope["kind"], { label: string; types: { type: string; label: string }[] }[]> = {
   project: [
-    { label: "Story", types: [{ type: "story.created", label: "Storyの起票" }, { type: "story.completed", label: "Storyの完了" }, { type: "story.canceled", label: "Storyの取消" }] },
+    { label: "Story", types: [{ type: "story.created", label: "Storyの起票" }, { type: "story.started", label: "Storyの着手" }, { type: "story.completed", label: "Storyの完了" }, { type: "story.canceled", label: "Storyの取消" }] },
     {
       label: "Task",
       types: [
         { type: "task.created", label: "Taskの起票" },
+        { type: "task.started", label: "Taskの着手" },
         { type: "task.completed", label: "Taskの作業完了" },
         { type: "task.reviewed", label: "Taskのレビュー承認" },
         { type: "task.accepted", label: "Taskの受入" },
@@ -164,7 +165,11 @@ export type ActivityListState = {
   key: string;
   generation: number;
   activities: ActivitySummary[] | null;
-  nextCursor: number | null;
+  nextCursor: number | string | null;
+  /** 条件に一致する件数（横断一覧だけ）。 */
+  matchedCount: number | null;
+  /** 種別の候補（種別以外の条件に一致する、サーバー全体の種別）。 */
+  types: string[] | null;
   error: string | null;
   moreError: string | null;
   pending: boolean;
@@ -185,6 +190,8 @@ export const initialActivityList = (key: string, generation = 0): ActivityListSt
   generation,
   activities: null,
   nextCursor: null,
+  matchedCount: null,
+  types: null,
   error: null,
   moreError: null,
   pending: false,
@@ -196,7 +203,7 @@ export const activityListReducer = (state: ActivityListState, action: ActivityLi
   if (action.generation !== state.generation) return state;
   switch (action.kind) {
     case "loaded":
-      return { ...state, activities: action.page.activities, nextCursor: action.page.nextCursor };
+      return { ...state, activities: action.page.activities, nextCursor: action.page.nextCursor, matchedCount: action.page.matchedCount ?? null, types: action.page.types ?? null };
     case "failed":
       return { ...state, error: action.message };
     case "moreStarted":
@@ -213,3 +220,131 @@ export const activityListReducer = (state: ActivityListState, action: ActivityLi
       return { ...state, moreError: action.message, pending: false };
   }
 };
+
+// ---- Workspace横断Activity（`GET /api/workspaces/:workspaceId/activity-stream`）。条件はURLのqueryで持ち、再読込・共有・詳細からの復帰で保たれる。 ----
+
+export type ActivityStreamPage = { activities: ActivitySummary[]; nextCursor: string | null; matchedCount: number; types: string[] };
+
+/**
+ * 横断一覧の条件。`target`はnull=すべての記録（Workspace共通と所属全Project）、`"workspace"`=Workspace共通だけ、それ以外はProjectのID。
+ * `from` / `to`は日付（`YYYY-MM-DD`、端を含む）、`q`は検索語。
+ */
+export type ActivityStreamFilter = { target: string | null; type: string | null; q: string; from: string | null; to: string | null };
+
+export const workspaceCommonTarget = "workspace";
+export const maximumSearchLength = 200;
+const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const parseDate = (value: string | null): string | null => (value !== null && datePattern.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00`)) ? value : null);
+
+/** URLのquery。外部から入力できる値なので、形式外は条件なしとして扱う。 */
+export const parseActivityStreamFilter = (params: URLSearchParams): ActivityStreamFilter => {
+  const target = params.get("target");
+  return {
+    target: target !== null && target.length > 0 && target.length <= 100 ? target : null,
+    type: parseActivityTypeFilter(params.get("type")),
+    q: (params.get("q") ?? "").trim().slice(0, maximumSearchLength),
+    from: parseDate(params.get("from")),
+    to: parseDate(params.get("to")),
+  };
+};
+
+const filterKeys = ["target", "type", "q", "from", "to"] as const;
+
+export const hasActivityStreamFilter = (filter: ActivityStreamFilter): boolean =>
+  filter.target !== null || filter.type !== null || filter.q !== "" || filter.from !== null || filter.to !== null;
+
+/** 条件を置き換えたsearch。条件以外のquery（詳細の`record`等）は残す。空の条件はqueryに付けない。 */
+export const activityStreamSearch = (current: URLSearchParams, patch: Partial<ActivityStreamFilter>): string => {
+  const next = new URLSearchParams(current);
+  for (const key of filterKeys) {
+    if (!(key in patch)) continue;
+    const value = patch[key];
+    if (value === null || value === undefined || value === "") next.delete(key);
+    else next.set(key, value);
+  }
+  const search = next.toString();
+  return search ? `?${search}` : "";
+};
+
+/** すべての条件を解除したsearch。詳細の`record`は残す。 */
+export const clearedActivityStreamSearch = (current: URLSearchParams): string =>
+  activityStreamSearch(current, { target: null, type: null, q: "", from: null, to: null });
+
+/** 開始日が終了日より後なら、serverへ送らずに利用者へ知らせる。 */
+export const isActivityPeriodInvalid = ({ from, to }: Pick<ActivityStreamFilter, "from" | "to">): boolean => from !== null && to !== null && from > to;
+
+/** 日付（端を含む）を、利用者の時間帯の発生時刻（epoch ms）の範囲へ換える。 */
+export const activityPeriodRange = ({ from, to }: Pick<ActivityStreamFilter, "from" | "to">): { from?: number; to?: number } => ({
+  ...(from === null ? {} : { from: new Date(`${from}T00:00:00`).getTime() }),
+  ...(to === null ? {} : { to: new Date(`${to}T23:59:59.999`).getTime() }),
+});
+
+export const activityStreamPath = (workspaceId: string, filter: ActivityStreamFilter, { before = null, limit = 20 }: { before?: string | null; limit?: number } = {}) => {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (before !== null) query.set("before", before);
+  if (filter.target === workspaceCommonTarget) query.set("workspaceOnly", "true");
+  else if (filter.target !== null) query.set("projectId", filter.target);
+  if (filter.type !== null) query.set("type", filter.type);
+  if (filter.q !== "") query.set("q", filter.q);
+  const range = activityPeriodRange(filter);
+  if (range.from !== undefined) query.set("from", String(range.from));
+  if (range.to !== undefined) query.set("to", String(range.to));
+  return `/api/workspaces/${workspaceId}/activity-stream?${query}`;
+};
+
+/** 横断一覧の種別。Work（Project）とDirection（Workspace）の状態変更を並べる。明示記録の種別は自由なため、一覧の種別から絞り込む。 */
+export const activityStreamTypeGroups = [...activityTypeGroups.project, ...activityTypeGroups.workspace];
+/**
+ * 種別選択の候補。固定の状態変更の種別に、サーバーが返した種別（明示記録・相談等）と選択中の種別を加える。
+ * 状態変更の種別は一覧に無くても選べる（固定の区分）。その他は「記録」区分にまとめる。
+ */
+export const activityStreamTypeOptions = (serverTypes: readonly string[] | null, selected: string | null): { label: string; types: { type: string; label: string }[] }[] => {
+  const extra = new Set(serverTypes ?? []);
+  if (selected !== null) extra.add(selected);
+  const others = [...extra].filter((type) => activityStreamTypeLabel(type) === null).sort();
+  return others.length === 0 ? activityStreamTypeGroups : [...activityStreamTypeGroups, { label: "その他の記録", types: others.map((type) => ({ type, label: type })) }];
+};
+export const activityStreamTypeLabel = (type: string): string | null => activityTypeLabel("project", type) ?? activityTypeLabel("workspace", type);
+
+/** 記録1件の詳細を引くscope。Workspace共通はWorkspace、Projectの記録はProjectのActivity。 */
+export const activityScopeOf = (activity: Pick<ActivitySummary, "workspaceId" | "projectId">): ActivityScope =>
+  activity.projectId === null ? { kind: "workspace", workspaceId: activity.workspaceId } : { kind: "project", projectId: activity.projectId };
+
+/** 詳細を開いている記録。URLの`record`（ID）と、Projectの記録なら`recordProject`。 */
+export const activityRecordSearch = (current: URLSearchParams, record: Pick<ActivitySummary, "id" | "projectId"> | null): string => {
+  const next = new URLSearchParams(current);
+  next.delete("record");
+  next.delete("recordProject");
+  if (record !== null) {
+    next.set("record", record.id);
+    if (record.projectId !== null) next.set("recordProject", record.projectId);
+  }
+  const search = next.toString();
+  return search ? `?${search}` : "";
+};
+
+export const parseActivityRecord = (params: URLSearchParams, workspaceId: string): { id: string; scope: ActivityScope } | null => {
+  const id = params.get("record");
+  if (id === null || id.length === 0 || id.length > 100) return null;
+  const projectId = params.get("recordProject");
+  return { id, scope: projectId ? { kind: "project", projectId } : { kind: "workspace", workspaceId } };
+};
+
+/** 新しい順の一覧を、利用者の時間帯の日付ごとにまとめる。順序は保つ。 */
+export const groupActivitiesByDate = (activities: readonly ActivitySummary[]): { date: string; label: string; activities: ActivitySummary[] }[] => {
+  const groups: { date: string; label: string; activities: ActivitySummary[] }[] = [];
+  for (const activity of activities) {
+    const day = new Date(activity.occurredAt);
+    const date = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+    const last = groups.at(-1);
+    if (last?.date === date) last.activities.push(activity);
+    else groups.push({ date, label: day.toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "short" }), activities: [activity] });
+  }
+  return groups;
+};
+
+/** Taskの状態変更の注記。レビュー・受入は公開やOutcomeの達成を意味しない。 */
+export const activityTypeNote = (type: string): string | null =>
+  type === "task.accepted" || type === "task.reviewed"
+    ? "Taskの工程の記録です。公開の確認やOutcomeの達成を意味しません。それらは別の事実として扱います。"
+    : null;

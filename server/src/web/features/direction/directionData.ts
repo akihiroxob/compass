@@ -26,12 +26,20 @@ export type DirectionPosition = OutcomePosition & { detail: Outcome };
  * `otherOutcomes`はActive Intent配下のActive以外（取消・評価済み等）のOutcome。`pendingPastOutcomes`はそのうち取消以外で、
  * 最新Evaluationを根拠にしたDirection Decisionが無いもの（確認できなければnull）。
  */
-export type DirectionData = {
+export type IntentDirectionData = {
   activeIntent: Intent | null;
   pastIntents: Intent[];
   outcomes: DirectionPosition[];
   otherOutcomes: Outcome[];
   pendingPastOutcomes: OverviewOutcome[] | null;
+};
+
+/** Workspace内の目標別データと、Project貢献表示用の全目標のOutcome。 */
+export type DirectionData = {
+  activeIntents: Intent[];
+  directions: IntentDirectionData[];
+  pastIntents: Intent[];
+  outcomes: DirectionPosition[];
 };
 
 /** Active IntentのDirection Decisionが根拠にしたEvaluation（判断済みの判定に使う）。取得できなければnull。 */
@@ -94,8 +102,12 @@ export const loadTargetWork = (workspaceId: string, intentId: string): Promise<M
  * 還流と評価はOutcomeごとに読み、失敗したものは`null`にして他のOutcomeの表示を妨げない。
  */
 export const loadDirection = async (workspaceId: string): Promise<DirectionData> => {
-  const { active: activeIntent, past: pastIntents } = splitIntents((await request<{ intents: Intent[] }>(workspaceApiPath(workspaceId, "/intents"))).intents);
-  if (!activeIntent) return { activeIntent, pastIntents, outcomes: [], otherOutcomes: [], pendingPastOutcomes: [] };
+  const { active: activeIntents, past: pastIntents } = splitIntents((await request<{ intents: Intent[] }>(workspaceApiPath(workspaceId, "/intents"))).intents);
+  const directions = await Promise.all(activeIntents.map((intent) => loadIntentDirection(workspaceId, intent)));
+  return { activeIntents, directions, pastIntents, outcomes: directions.flatMap((direction) => direction.outcomes) };
+};
+
+const loadIntentDirection = async (workspaceId: string, activeIntent: Intent): Promise<IntentDirectionData> => {
   const [{ outcomes }, targetWork, decidedEvaluations] = await Promise.all([
     request<{ outcomes: Outcome[] }>(workspaceApiPath(workspaceId, `/intents/${activeIntent.id}/outcomes`)),
     loadTargetWork(workspaceId, activeIntent.id),
@@ -109,7 +121,7 @@ export const loadDirection = async (workspaceId: string): Promise<DirectionData>
     execution: await loadExecution(workspaceId, outcome.id, decidedEvaluations),
   }));
   const [resolved, pendingPastOutcomes] = await Promise.all([Promise.all(positions), loadPendingPastOutcomes(workspaceId, past, decidedEvaluations)]);
-  return { activeIntent, pastIntents, outcomes: resolved, otherOutcomes: past, pendingPastOutcomes };
+  return { activeIntent, pastIntents: [], outcomes: resolved, otherOutcomes: past, pendingPastOutcomes };
 };
 
 /** Web API `GET /api/workspaces/:workspaceId/outcomes/:outcomeId/target-executions`の応答。Summary・EvidenceはTarget Project別のまま。 */

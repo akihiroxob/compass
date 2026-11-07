@@ -40,8 +40,8 @@ devはループバックだけでlistenする。終了は`Ctrl+C`。静的build�
 | 設定 | `server/.storybook/main.ts`。製品のVite設定を読まず、API proxy・public成果物を取り込まない。JSX automatic runtimeを明示し、環境変数の公開prefixを`CATALOG_PUBLIC_`に限定 |
 | preview | `server/.storybook/preview.tsx`。製品と同じ`app/main.scss`と`MemoryRouter`を使う。認証・Workspace Providerは基本部品に不要なので起動しない |
 | Foundations | `styles/Tokens.stories.tsx`。`styles/_tokens.scss?raw`から名前・値を生成し、見本は製品のCSS変数で描画。色・状態色・文字・余白・control size・角丸・影・動きの値一覧を二重管理しない |
-| Components | `components/ui/*.stories.tsx`。製品と同じ`components/ui/index.ts`からButton/LinkButton、入力、Field/Fieldset、ViewSwitchを使用 |
-| Patterns | `components/Patterns.stories.tsx`。既存の操作列・フォーム・ConfirmPanel・StateCard・PageColumns・罫線区切りの一覧・Projectカードを使用。APIに依存せずローカル状態で入力・確認・完了を用意。`features/direction/DirectionPanel.stories.tsx`はMission・Visionの帯とPageColumnsの組合せ |
+| Components | `components/ui/*.stories.tsx`。製品と同じ`components/ui/index.ts`からButton/LinkButton、入力、Field/Fieldset、ViewSwitch、IconButton、Dialogを使用 |
+| Patterns | `components/Patterns.stories.tsx`。既存の操作列・フォーム・ConfirmPanel・StateCard・PageColumns・罫線区切りの一覧・Projectカードを使用。APIに依存せずローカル状態で入力・確認・完了を用意。`features/direction/DirectionPanel.stories.tsx`はMission・Visionの帯とPageColumnsの組合せ。`features/agent/AgentExecution.stories.tsx`はAgent一覧・詳細の実行状況（作業中・正常／異常終了・観測途絶・観測なし・取得不能）と一覧の欠け（`IncompleteList`） |
 
 カタログ用の部品・SCSSは持たない。Foundationsのinline styleはtoken見本の描画だけに用い、基本部品のstyleを上書きしない。状態例は対応する部品/トークンの近くに置き、製品の公開入口からexportしない。将来Contextが必要な部品を追加する場合も、必要範囲だけをpreviewで用意し、実運用APIや秘密をfixtureへ持ち込まない。
 
@@ -52,9 +52,12 @@ devはループバックだけでlistenする。終了は`Ctrl+C`。静的build�
 | `Foundations/Tokens` | 現在の全CSS token宣言。参照値も正本から表示する。用途とコントラストは[視覚方針](web-ui.md#視覚方針) |
 | `Components/Button` | Controlsでvariant/size/tone、md/smのButton・LinkButton、text、disabled、pendingを確認。`States`でvariant・toneごとのdefault/disabled/pendingを並べる。pendingはdisabledとaria-busyを付ける。textはsizeを持たない |
 | `Components/LinkButton` | URL遷移のControls、primary/secondaryとmd/sm。Router Link標準属性を受ける |
-| `Components/FormControls` | TextInputのControls、md/smの入力とSelect、TextArea、必須/説明つきField、inline Field、FieldsetとCheckbox。readOnly/disabled/aria-invalid、選択済み・未選択を確認 |
+| `Components/FormControls` | TextInputのControls、md/smの入力とSelect（矢印と文字の領域を分ける長い選択肢）、TextArea、必須/説明つきField、inline Field、FieldsetとCheckbox。readOnly/disabled/aria-invalid、選択済み・未選択を確認 |
+| `Components/IconButton` | 閉じる×・メニューのアイコン、44pxの操作領域、読み上げ名、`aria-expanded`の表示 |
+| `Components/Dialog` | `Centered`で見出し・×・本文の折返し、Escape・背景・×で閉じてfocusが開いたボタンへ戻ること。`EndWithHeader`で右端の全高と、×とSelectを同じ行に置く配置 |
 | `Components/ViewSwitch` | md/sm、件数と選択中表示。NavigationでURLとaria-currentの切替を確認 |
 | `Patterns/SharedUI` | 同sizeの操作列、標準HTML検証つきフォーム、確認の見出しfocus・キャンセル・確定、pending/error/読込/空状態。`ColumnsAndLists`で主列・補助列、`ColumnsInNarrowParent`で親layoutの幅が足りない場合の1列、罫線区切りの一覧（リンク行のhover・長い文言の折返し）、補助列の縦積み、状態badge。`Cards`でProjectカード（開ける・開けない） |
+| `Patterns/Shell` | `WithMenu`でheader・左のメニュー、狭い画面（390px）で名前アイコンの右のメニューボタンから右端のDialogを開く配置。slotの中身はlocalのリンクで、Workspace・Projectのメニューの見た目は製品画面で確認する。`PublicFrame`でheaderだけの枠 |
 | `Patterns/OverviewLayout` | Mission・Visionの帯（Visionの未設定・長い文言）と、帯の下のPageColumns。本文の幅が足りれば2列、足りなければ1列 |
 
 各Docsに用途・Controls/props・使用コードを表示する。詳細な標準属性・部品API・部品の使い分けは[Web UIの基本部品](web-ui.md#基本部品)も参照する。hoverはポインターを重ね、focusはTab/Shift+Tabで確認する。disabled/pendingをクリックしても操作されないこと、入力ラベル・required・エラーの関連付け、ViewSwitchのリンクと選択中表示を確認する。未実装のloading等のAPIを見本だけに追加しない。
@@ -97,5 +100,5 @@ devはループバックだけでlistenする。終了は`Ctrl+C`。静的build�
 
 - `check:ui`は字句から読める依存・class・SCSS宣言・tokenのコントラストを検査する。描画寸法・折返し・見た目は実ブラウザで確認する。token以外への色の直書きは検査しないため、差分で確認する（例: `grep -rnE '#[0-9a-fA-F]{3,8}\b|rgba?\(' server/src/web --include='*.scss' --include='*.tsx' --include='*.ts'`の該当が`styles/_tokens.scss`だけであること）。
 - カタログは部品単位の状態と組合せを、APIに依存しない局所状態で示す。実データ・認可・取得失敗・画面遷移は製品画面でしか確認できない。
-- full-pageの画像では、viewportに固定した要素（狭い画面の下端のWorkspaceナビゲーション、Desktopのsidebarの面）が最初のviewportの位置・高さで写る。末尾の内容と重ならないかは、スクロールした状態の画像で確認する。
+- full-pageの画像では、viewportに固定した要素（上端のheader、Desktopの左のメニューの面）が最初のviewportの位置・高さで写る。末尾の内容と重ならないかは、スクロールした状態の画像で確認する。
 - Viteのchunk警告（製品jsの500kB超過）は性能改善の余地を示し、検証の失敗ではない。カタログは外部配信せず、製品へ同梱しない。

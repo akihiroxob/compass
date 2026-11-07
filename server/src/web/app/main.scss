@@ -6,6 +6,8 @@
 @use "../components/ui/button";
 @use "../components/ui/view-switch";
 @use "../components/ui/field";
+@use "../components/ui/icon-button";
+@use "../components/ui/dialog";
 @use "../components/shell";
 @use "../components/state-card";
 @use "../components/reason-panel";
@@ -23,4 +25,5 @@
 @use "../features/member/member";
 @use "../features/outcome/outcome";
 @use "../features/project/project";
+@use "../features/release/release";
 @use "../features/workspace/workspace";

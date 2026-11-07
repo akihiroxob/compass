@@ -12,7 +12,7 @@ import {
 import {
   ActivityScope,
   KyselyActivityStore,
-  canonicalWorkChangeTypes,
+  isCanonicalWorkChange,
   recordCanonicalDirectionActivity,
   recordCanonicalProjectActivity,
   recordCanonicalWorkActivity,
@@ -42,6 +42,7 @@ import {
 } from "@compass/direction";
 import {
   findProjectRepository,
+  findProjectRepositoryRequiredChecks,
   findProjectWorkspaceId,
   findWorkspaceStatus,
   findProjectWorkspaceConstraints,
@@ -116,6 +117,7 @@ export const workExternalReaders: WorkExternalReaders = (executor) => {
       exists: (projectId) => projectExists(organization, projectId),
       isArchived: (projectId) => isProjectArchived(organization, projectId),
       findRepository: async (projectId, repositoryId) => (await findProjectRepository(organization, projectId, repositoryId)) ?? null,
+      findRequiredChecks: (projectId, repositoryId) => findProjectRepositoryRequiredChecks(organization, projectId, repositoryId),
     },
     outcomeTargets: {
       isTarget: (outcomeId, projectId) => isOutcomeTargetProject(direction, outcomeId, projectId),
@@ -189,14 +191,15 @@ const activityWorkspaceId = async (executor: Parameters<typeof asOrganizationDat
 export const workChangeActivityObserver: WorkChangeObserver = (executor) => {
   const store = new KyselyActivityStore(asActivityDatabase(executor));
   return async (notice) => {
-    if (notice.subject === null || !canonicalWorkChangeTypes.includes(notice.type)) return;
+    const payload = JSON.parse(notice.payload) as Record<string, unknown>;
+    if (notice.subject === null || !isCanonicalWorkChange(notice.type, payload)) return;
     await recordCanonicalWorkActivity(store, {
       workspaceId: await activityWorkspaceId(executor, notice.project_id),
       cursor: notice.cursor,
       projectId: notice.project_id,
       type: notice.type,
       principalId: notice.principal_id,
-      payload: JSON.parse(notice.payload) as Record<string, unknown>,
+      payload,
       occurredAt: notice.occurred_at,
       subject: notice.subject,
     });
