@@ -48,6 +48,9 @@ export type OrganizationDatabase = {
   workspace_principle: WorkspaceOrderedTextTable;
   workspace_constraint: WorkspaceOrderedTextTable;
   project: ProjectTable;
-  project_repository_link: ProjectRepositoryLinkTable;
+  project_repository_link: ProjectRepositoryLinkTable & {
+    /** PRのレビュー時に成功を必須とするGitHubのcheck名（JSON配列）。空ならCIを必須にしない。 */
+    required_checks: string;
+  };
   project_resource: ProjectResourceTable;
 };

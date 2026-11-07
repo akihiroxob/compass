@@ -5,7 +5,7 @@ import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { addTestMembership, addTestWorkspaceMembership, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
+import { addTestWorkspaceMembership, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
 
 /**
  * S11-02: WorkspaceのAgent画面が読むWeb API。Workspace Direction RoleのGrantはWorkspace Membershipで読み、Project Grantを含めない。
@@ -44,10 +44,10 @@ test("Workspace GrantはWorkspace Membership（viewer以上）で読め、Projec
       assert.ok(grants.every((grant) => grant.workspaceId === workspace.id));
     }
 
-    // Project MembershipだけのHumanはWorkspaceのGrantを読めない（継承しない）。未所属・不在は404、Session無しは401。
-    const projectOnly = await createTestHuman(database);
-    await addTestMembership(database, project.id, projectOnly, "owner");
-    assert.equal((await requestAs(app, projectOnly)(`/api/workspaces/${workspace.id}/grants`)).status, 404);
+    // 別WorkspaceのMemberはこのWorkspaceのGrantを読めない。未所属・不在は404、Session無しは401。
+    const outsider = await createTestHuman(database);
+    await addTestWorkspaceMembership(database, other.id, outsider, "owner");
+    assert.equal((await requestAs(app, outsider)(`/api/workspaces/${workspace.id}/grants`)).status, 404);
     assert.equal((await requestAs(app, owner)("/api/workspaces/missing/grants")).status, 404);
     assert.equal((await app.request(`/api/workspaces/${workspace.id}/grants`)).status, 401);
   } finally {
@@ -76,6 +76,49 @@ test("Role DefinitionとSkillのmetadataは認証済みHumanが読め、Runtime�
       assert.equal((await requestAs(app, owner)(`/api/agent-roles/${role}`)).status, 404, role);
     }
     assert.equal((await app.request("/api/agent-roles/worker")).status, 401);
+  } finally {
+    await database.destroy();
+  }
+});
+
+const postJson = (body: unknown): RequestInit => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+test("Agent管理の操作: 複数ProjectのGrantを保持したままCredentialの束縛を拒否し、単一scopeでは発行・取消でき、editorは変更できない", async () => {
+  const { database, services, app, owner, workspace, project } = await setup();
+  try {
+    const second = await services.human.createWorkspaceProject.execute(actorOf(owner), workspace.id, { name: "Alpha ops" });
+    const asOwner = requestAs(app, owner);
+    // 登録（PC）: 同じAgent名へProject Roleを2つのProjectに割り当てる（UIは既存のGrant APIを1件ずつ呼ぶ）。
+    for (const target of [project.id, second.id]) {
+      assert.equal((await asOwner(`/api/projects/${target}/grants`, postJson({ principalId: "worker-01", role: "worker" }))).status, 201);
+    }
+    // 複数scopeにGrantがあるAgentにはAgent Credentialを発行できず、既存Grantは削除されない。
+    const bound = await asOwner(`/api/projects/${project.id}/credentials`, postJson({ kind: "agent", principalId: "worker-01", expiresInDays: 30 }));
+    assert.equal(bound.status, 409);
+    assert.equal(((await bound.json()) as { error: { conflict: string } }).error.conflict, "PRINCIPAL_BOUND_ELSEWHERE");
+    for (const target of [project.id, second.id]) {
+      const { grants } = (await (await asOwner(`/api/projects/${target}/grants`)).json()) as { grants: { principalId: string; role: string }[] };
+      assert.deepEqual(grants.map(({ principalId, role }) => [principalId, role]), [["worker-01", "worker"]]);
+    }
+
+    // Workspace Roleだけを持つAgentは、Workspace scopeで発行・取消できる。
+    assert.equal((await asOwner(`/api/workspaces/${workspace.id}/grants`, postJson({ principalId: "strategist-01", role: "strategist" }))).status, 201);
+    const issued = await asOwner(`/api/workspaces/${workspace.id}/credentials`, postJson({ kind: "agent", principalId: "strategist-01", expiresInDays: 30 }));
+    assert.equal(issued.status, 201);
+    const { credential } = (await issued.json()) as { credential: { id: string } };
+    assert.equal((await asOwner(`/api/workspaces/${workspace.id}/credentials/${credential.id}`, { method: "DELETE" })).status, 200);
+    const { credentials } = (await (await asOwner(`/api/workspaces/${workspace.id}/credentials`)).json()) as { credentials: { revokedAt: number | null }[] };
+    assert.ok(credentials[0].revokedAt !== null);
+
+    // editorはWorkspace Roleで一覧を読めるが、Grant・Credentialを変更できない（Serverが拒否する）。
+    const editor = await createTestHuman(database);
+    await addTestWorkspaceMembership(database, workspace.id, editor, "editor");
+    const asEditor = requestAs(app, editor);
+    assert.equal((await asEditor(`/api/projects/${project.id}/grants`)).status, 200);
+    assert.equal((await asEditor(`/api/projects/${project.id}/grants`, postJson({ principalId: "worker-02", role: "worker" }))).status, 403);
+    assert.equal((await asEditor(`/api/workspaces/${workspace.id}/grants`, postJson({ principalId: "s2", role: "strategist" }))).status, 403);
+    assert.equal((await asEditor(`/api/workspaces/${workspace.id}/credentials`, postJson({ kind: "agent", principalId: "strategist-01", expiresInDays: 30 }))).status, 403);
+    assert.equal((await asEditor(`/api/projects/${project.id}/credentials`)).status, 403);
   } finally {
     await database.destroy();
   }

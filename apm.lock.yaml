@@ -1,14 +1,17 @@
 lockfile_version: '1'
-generated_at: '2026-10-29T08:42:31.221090+00:00'
+generated_at: '2026-11-06T16:44:56.828437+00:00'
 apm_version: 0.26.0
 dependencies:
 - repo_url: akihiroxob/agent-foundation
   name: agent-harness
   host: github.com
-  resolved_commit: 2655a6f074538e52ee83f6b241edf8758e94cb87
+  resolved_commit: 574c24afb30aace1e3380079be5b1ac73bfe5ed5
   version: 0.1.0
   package_type: apm_package
   deployed_files:
+  - .agents/skills/design-information-architecture
+  - .agents/skills/design-information-architecture/SKILL.md
+  - .agents/skills/design-information-architecture/references/design-preferences.md
   - .agents/skills/investigate-bug
   - .agents/skills/investigate-bug/SKILL.md
   - .agents/skills/recover-agent-execution
@@ -22,6 +25,9 @@ dependencies:
   - .agents/skills/verify-browser-ac/SKILL.md
   - .claude/hooks/agent-foundation/.apm/hooks/scripts/check-dangerous-command.py
   - .claude/rules/base.md
+  - .claude/skills/design-information-architecture
+  - .claude/skills/design-information-architecture/SKILL.md
+  - .claude/skills/design-information-architecture/references/design-preferences.md
   - .claude/skills/investigate-bug
   - .claude/skills/investigate-bug/SKILL.md
   - .claude/skills/recover-agent-execution
@@ -35,22 +41,26 @@ dependencies:
   - .claude/skills/verify-browser-ac/SKILL.md
   - .codex/hooks/agent-foundation/.apm/hooks/scripts/check-dangerous-command.py
   deployed_file_hashes:
+    .agents/skills/design-information-architecture/SKILL.md: sha256:1ab0a4c288447a90ef5e95cc366f28f89024b54290b6d388057e24272bd442de
+    .agents/skills/design-information-architecture/references/design-preferences.md: sha256:5b850034ed4b5d978cdf0fcfbde76b0291a738d1f6bd659ae7a39e613db7f220
     .agents/skills/investigate-bug/SKILL.md: sha256:251264fa6c1203d688c50e3dd1a0765580aa47380cba97308563c88240f21078
     .agents/skills/recover-agent-execution/SKILL.md: sha256:478727e8e5066448ca20cef1bb3f4a42075d51f5bae48af48ef656362846d90b
     .agents/skills/review-documentation-impact/SKILL.md: sha256:ff24c19e8089366e054a105030296dfc4fd0eaf0bc75c2bfa007d95664b862f5
     .agents/skills/review-documentation-impact/agents/openai.yaml: sha256:df87dc907c6371caf83d9128e14ffa88ade6af0f3d3d0ff4b0fce00dab4b33c5
     .agents/skills/use-mcp-tools/SKILL.md: sha256:70deda797a5756900b57d63c6ca3675c70ab1a9084cb56151ecbaf587e3c811a
-    .agents/skills/verify-browser-ac/SKILL.md: sha256:9937024fa2509be60e2415637a1caa5fdccf9f355272ce2ebc38cb02e694748c
+    .agents/skills/verify-browser-ac/SKILL.md: sha256:bf93ef979194d48846f2cf2943a43a778b1b268c1b0557fed9d21084d70388b8
     .claude/hooks/agent-foundation/.apm/hooks/scripts/check-dangerous-command.py: sha256:51e68e83eb8af3904cf96e4ca6a62ebe21dc9f527b1c4a3d8ba4508091015bea
     .claude/rules/base.md: sha256:4d6b883d62ff2d147b51d38aa4a68921c9c807dd5ee20798f14da26a5fde30a1
+    .claude/skills/design-information-architecture/SKILL.md: sha256:1ab0a4c288447a90ef5e95cc366f28f89024b54290b6d388057e24272bd442de
+    .claude/skills/design-information-architecture/references/design-preferences.md: sha256:5b850034ed4b5d978cdf0fcfbde76b0291a738d1f6bd659ae7a39e613db7f220
     .claude/skills/investigate-bug/SKILL.md: sha256:251264fa6c1203d688c50e3dd1a0765580aa47380cba97308563c88240f21078
     .claude/skills/recover-agent-execution/SKILL.md: sha256:478727e8e5066448ca20cef1bb3f4a42075d51f5bae48af48ef656362846d90b
     .claude/skills/review-documentation-impact/SKILL.md: sha256:ff24c19e8089366e054a105030296dfc4fd0eaf0bc75c2bfa007d95664b862f5
     .claude/skills/review-documentation-impact/agents/openai.yaml: sha256:df87dc907c6371caf83d9128e14ffa88ade6af0f3d3d0ff4b0fce00dab4b33c5
     .claude/skills/use-mcp-tools/SKILL.md: sha256:70deda797a5756900b57d63c6ca3675c70ab1a9084cb56151ecbaf587e3c811a
-    .claude/skills/verify-browser-ac/SKILL.md: sha256:9937024fa2509be60e2415637a1caa5fdccf9f355272ce2ebc38cb02e694748c
+    .claude/skills/verify-browser-ac/SKILL.md: sha256:bf93ef979194d48846f2cf2943a43a778b1b268c1b0557fed9d21084d70388b8
     .codex/hooks/agent-foundation/.apm/hooks/scripts/check-dangerous-command.py: sha256:51e68e83eb8af3904cf96e4ca6a62ebe21dc9f527b1c4a3d8ba4508091015bea
-  content_hash: sha256:a7bc2256e7d423d98667b9578d1398b72aeed941038467b5187c06e258b2e375
+  content_hash: sha256:a06f9f70b814fbbe9ab2aa8d1a2726524fa262cfbca6719ec8bb0afec1f94982
 deployments:
 - kind: project-relative
   target: claude
@@ -70,6 +80,33 @@ deployments:
   - akihiroxob/agent-foundation
   active_owner: akihiroxob/agent-foundation
   content_hash: sha256:4d6b883d62ff2d147b51d38aa4a68921c9c807dd5ee20798f14da26a5fde30a1
+- kind: project-relative
+  target: claude
+  value: .claude/skills/design-information-architecture
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/design-information-architecture/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: sha256:1ab0a4c288447a90ef5e95cc366f28f89024b54290b6d388057e24272bd442de
+- kind: project-relative
+  target: claude
+  value: .claude/skills/design-information-architecture/references/design-preferences.md
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: sha256:5b850034ed4b5d978cdf0fcfbde76b0291a738d1f6bd659ae7a39e613db7f220
 - kind: project-relative
   target: claude
   value: .claude/skills/investigate-bug
@@ -168,7 +205,34 @@ deployments:
   owners:
   - akihiroxob/agent-foundation
   active_owner: akihiroxob/agent-foundation
-  content_hash: sha256:9937024fa2509be60e2415637a1caa5fdccf9f355272ce2ebc38cb02e694748c
+  content_hash: sha256:bf93ef979194d48846f2cf2943a43a778b1b268c1b0557fed9d21084d70388b8
+- kind: project-relative
+  target: codex
+  value: .agents/skills/design-information-architecture
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: null
+- kind: project-relative
+  target: codex
+  value: .agents/skills/design-information-architecture/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: sha256:1ab0a4c288447a90ef5e95cc366f28f89024b54290b6d388057e24272bd442de
+- kind: project-relative
+  target: codex
+  value: .agents/skills/design-information-architecture/references/design-preferences.md
+  runtime: null
+  scope: project
+  owners:
+  - akihiroxob/agent-foundation
+  active_owner: akihiroxob/agent-foundation
+  content_hash: sha256:5b850034ed4b5d978cdf0fcfbde76b0291a738d1f6bd659ae7a39e613db7f220
 - kind: project-relative
   target: codex
   value: .agents/skills/investigate-bug
@@ -267,7 +331,7 @@ deployments:
   owners:
   - akihiroxob/agent-foundation
   active_owner: akihiroxob/agent-foundation
-  content_hash: sha256:9937024fa2509be60e2415637a1caa5fdccf9f355272ce2ebc38cb02e694748c
+  content_hash: sha256:bf93ef979194d48846f2cf2943a43a778b1b268c1b0557fed9d21084d70388b8
 - kind: project-relative
   target: codex
   value: .codex/hooks/agent-foundation/.apm/hooks/scripts/check-dangerous-command.py

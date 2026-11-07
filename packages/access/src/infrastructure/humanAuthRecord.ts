@@ -2,8 +2,7 @@ import type { Selectable, Transaction } from "kysely";
 import type {
   HumanIdentity,
   HumanUser,
-  ProjectInvitation,
-  ProjectMembership,
+  WorkspaceInvitation,
   WebSession,
   WorkspaceMembership,
 } from "../domain/HumanAuth.ts";
@@ -11,8 +10,7 @@ import type {
   AccessDatabase,
   HumanIdentityTable,
   HumanUserTable,
-  ProjectInvitationTable,
-  ProjectMembershipTable,
+  WorkspaceInvitationTable,
   WebSessionTable,
   WorkspaceMembershipTable,
 } from "./schema.ts";
@@ -49,18 +47,6 @@ export const toWebSession = (row: Selectable<WebSessionTable>): WebSession => ({
   revokeReason: row.revoke_reason,
 });
 
-export const toProjectMembership = (row: Selectable<ProjectMembershipTable>): ProjectMembership => ({
-  id: row.id,
-  projectId: row.project_id,
-  humanUserId: row.human_user_id,
-  role: row.role,
-  createdAt: row.created_at,
-  updatedAt: row.updated_at,
-  createdByHumanUserId: row.created_by_human_user_id,
-  revokedAt: row.revoked_at,
-  revokedByHumanUserId: row.revoked_by_human_user_id,
-});
-
 export const toWorkspaceMembership = (row: Selectable<WorkspaceMembershipTable>): WorkspaceMembership => ({
   id: row.id,
   workspaceId: row.workspace_id,
@@ -74,9 +60,9 @@ export const toWorkspaceMembership = (row: Selectable<WorkspaceMembershipTable>)
 });
 
 /** `token_hash`は返さない。 */
-export const toProjectInvitation = (row: Selectable<ProjectInvitationTable>): ProjectInvitation => ({
+export const toWorkspaceInvitation = (row: Selectable<WorkspaceInvitationTable>): WorkspaceInvitation => ({
   id: row.id,
-  projectId: row.project_id,
+  workspaceId: row.workspace_id,
   email: row.email,
   role: row.role,
   status: row.status,
@@ -88,18 +74,6 @@ export const toProjectInvitation = (row: Selectable<ProjectInvitationTable>): Pr
   revokedByHumanUserId: row.revoked_by_human_user_id,
   revokedAt: row.revoked_at,
 });
-
-/** Projectの有効なowner数。Role変更・取消の検査と更新は同じ書込transactionで行う。 */
-export const countActiveOwners = async (transaction: Transaction<AccessDatabase>, projectId: string): Promise<number> => {
-  const row = await transaction
-    .selectFrom("project_membership")
-    .select((eb) => eb.fn.countAll<number>().as("count"))
-    .where("project_id", "=", projectId)
-    .where("role", "=", "owner")
-    .where("revoked_at", "is", null)
-    .executeTakeFirstOrThrow();
-  return Number(row.count);
-};
 
 /** Workspaceの有効なowner数。Role変更・取消の検査と更新は同じ書込transactionで行う。 */
 export const countActiveWorkspaceOwners = async (

@@ -13,33 +13,46 @@ const intent = (overrides: Partial<Intent>): Intent => ({
   workspaceId: "w1",
   title: "Title",
   desiredState: "State",
+  background: null,
+  audience: null,
+  constraints: null,
   completionDefinition: null,
+  targetDate: null,
   status: "active",
   abandonedReason: null,
+  version: 1,
+  meaningVersion: 1,
   createdAt: 1,
   updatedAt: 1,
   ...overrides,
 });
 
 test("保存済みIntentから編集フォームの初期値を作り、未設定は空欄にする", () => {
-  assert.deepEqual(formValuesFromIntent(intent({})), { title: "Title", desiredState: "State", completionDefinition: "" });
-  assert.equal(formValuesFromIntent(intent({ completionDefinition: "Done" })).completionDefinition, "Done");
-  assert.deepEqual(emptyIntentFormValues, { title: "", desiredState: "", completionDefinition: "" });
+  const blank = { background: "", audience: "", constraints: "", completionDefinition: "", targetDate: "" };
+  assert.deepEqual(formValuesFromIntent(intent({})), { title: "Title", desiredState: "State", ...blank });
+  assert.deepEqual(
+    formValuesFromIntent(intent({ background: "Why", audience: "Who", constraints: "Limits", completionDefinition: "Done", targetDate: "2027-03-31" })),
+    { title: "Title", desiredState: "State", background: "Why", audience: "Who", constraints: "Limits", completionDefinition: "Done", targetDate: "2027-03-31" },
+  );
+  assert.deepEqual(emptyIntentFormValues, { title: "", desiredState: "", ...blank });
 });
 
 test("Activeなintentと過去のIntentを分け、過去は受け取った順を保つ", () => {
   const active = intent({ id: "a" });
   const abandoned = intent({ id: "b", status: "abandoned" });
   const achieved = intent({ id: "c", status: "achieved" });
-  assert.deepEqual(splitIntents([active, abandoned, achieved]), { active, past: [abandoned, achieved] });
-  assert.deepEqual(splitIntents([abandoned]), { active: null, past: [abandoned] });
-  assert.deepEqual(splitIntents([]), { active: null, past: [] });
+  assert.deepEqual(splitIntents([active, abandoned, achieved]), { active: [active], past: [abandoned, achieved] });
+  assert.deepEqual(splitIntents([abandoned]), { active: [], past: [abandoned] });
+  assert.deepEqual(splitIntents([]), { active: [], past: [] });
 });
 
 test("Intent項目のissue pathをフォームのラベルへ対応づける", () => {
   assert.equal(formatIssuePath("title"), "タイトル");
   assert.equal(formatIssuePath("desiredState"), "実現したい状態");
-  assert.equal(formatIssuePath("completionDefinition"), "完了の定義");
+  assert.equal(formatIssuePath("completionDefinition"), "達成条件");
+  assert.equal(formatIssuePath("background"), "背景");
+  assert.equal(formatIssuePath("audience"), "対象");
+  assert.equal(formatIssuePath("targetDate"), "目標日");
   assert.equal(formatIssuePath("reason"), "放棄の理由");
 });
 
@@ -49,11 +62,17 @@ test("409 CONFLICTはActive Intentのidを保持した競合として分類す�
     kind: "conflict",
     message: "Project p1 already has an active Intent",
     activeIntentId: "i1",
+    conflict: null,
   });
   assert.deepEqual(classifyError(new ApiError(409, "CONFLICT", "Intent is abandoned")), {
     kind: "conflict",
     message: "Intent is abandoned",
     activeIntentId: null,
+    conflict: null,
   });
+  // 古い版からの保存は、目標の版の競合として分類し、画面は最新の読み込みを案内する。
+  const stale = classifyError(new ApiError(409, "CONFLICT", "Intent i1 is at version 3", [], null, null, "intent_version"));
+  assert.equal(stale.kind === "conflict" && stale.conflict, "intent_version");
+  assert.match(stale.kind === "conflict" ? stale.message : "", /別の画面または担当者によって更新/);
   assert.deepEqual(classifyError(new ApiError(409, "OTHER", "x")), { kind: "other", message: "x" });
 });

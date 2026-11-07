@@ -13,3 +13,25 @@
   flex-basis: 100%;
   .state-card { margin: 0; }
 }
+.member-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem 1rem;
+  margin-bottom: var(--space-sm);
+  @include narrow { > .field { flex: 1 1 100%; } }
+}
+.member-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  font-variant-numeric: tabular-nums;
+}
+.role-help {
+  margin: 0 0 var(--space-md);
+  div { display: grid; gap: .125rem; padding: .5rem 0; }
+  dt { font-weight: 600; }
+  dd { margin: 0; }
+}

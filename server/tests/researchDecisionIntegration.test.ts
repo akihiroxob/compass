@@ -133,7 +133,7 @@ const initialRequestOf = async (baseUrl: string, workspaceId: string, intentId: 
       workspaceId,
       intentId,
       type: "additional_research",
-      judgment: "Evidence is insufficient to choose the first Outcome",
+      intentVersion: 1, judgment: "Evidence is insufficient to choose the first Outcome",
       reason: "Nothing is known yet",
       research: {
         question: "What do we need to know to choose the first Outcome?",
@@ -203,7 +203,7 @@ test(
         assert.equal(completed.structuredContent?.request.status, "completed");
 
         // Researcherは方針を決められない（職務分離）。
-        assert.equal(errorCode(await call(client, "create_outcome", { workspaceId: project.workspaceId, intentId: intent.id, title: "x", description: "x", rationale: "x", successCriteria: [{ description: "x", measurement: "x" }] })), "FORBIDDEN");
+        assert.equal(errorCode(await call(client, "create_outcome", { workspaceId: project.workspaceId, intentId: intent.id, title: "x", description: "x", intentVersion: 1, rationale: "x", successCriteria: [{ description: "x", measurement: "x" }] })), "FORBIDDEN");
 
         return { findingId: registeredFindingId, synthesisId: synthesis.structuredContent?.synthesis.id as string };
       });
@@ -232,7 +232,7 @@ test(
         const decided = await call(client, "decide_next_outcome", {
           workspaceId: project.workspaceId,
           intentId: intent.id,
-          judgment: "Adopt lease-based claiming",
+          intentVersion: 1, judgment: "Adopt lease-based claiming",
           reason: "Synthesis shows leases avoid stuck claims without a heartbeat service.",
           options: ["Do nothing", "Adopt lease-based claiming"],
           usedSyntheses: [{ synthesisId: synthesis.synthesisId, version: synthesis.version }],
@@ -242,7 +242,7 @@ test(
           outcome: {
             title: "No duplicate claims",
             description: "Claims are exclusive.",
-            rationale: "Leases avoid stuck claims (Synthesis-backed).",
+            intentVersion: 1, rationale: "Leases avoid stuck claims (Synthesis-backed).",
             successCriteria: [{ description: "duplicate_claim_count = 0", measurement: "Count duplicates" }],
           },
         });
@@ -256,7 +256,7 @@ test(
           workspaceId: project.workspaceId,
           intentId: intent.id,
           type: "adr_candidate",
-          judgment: "Adopt lease-based claiming",
+          intentVersion: 1, judgment: "Adopt lease-based claiming",
           reason: "Requires a repository-level ADR to bind Workers to the new claim protocol.",
           options: ["Adopt lease-based claiming"],
           usedSyntheses: [{ synthesisId: synthesis.synthesisId, version: synthesis.version }],

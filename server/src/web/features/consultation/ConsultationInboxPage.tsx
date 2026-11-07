@@ -48,8 +48,8 @@ const emptyMessages: Record<ConsultationFilter, string> = {
 type ListState = { key: string; consultations: Consultation[]; nextCursor: string | null; error: string | null; loaded: boolean };
 
 /**
- * 横断した判断待ち。自分がMembershipを持つProject・Workspaceの相談を、Project相談はProject Membership、Workspace相談は
- * Workspace Membershipで選んで一覧する（serverが認可済みの集合に対して絞り込み・ページングする）。既定はHumanの判断待ち。
+ * 横断した判断待ち。自分がMembershipを持つWorkspaceと、その配下Projectの相談を一覧する（serverが認可済みの集合に対して
+ * 絞り込み・ページングする）。既定はHumanの判断待ち。
  * 状態・scope・Workspace・Projectで絞り、続きは「さらに表示」で読む。返信・決定は各相談の詳細で行う。
  */
 export const ConsultationInboxPage = () => {
@@ -113,7 +113,7 @@ export const ConsultationInboxPage = () => {
       <div className="detail-hero">
         <p className="eyebrow">すべてのProject・Workspace</p>
         <h1>判断待ち</h1>
-        <p className="section-note">閲覧できるProject・Workspaceの相談をまとめて表示します。Project相談はProjectのMembership、Workspace相談はWorkspaceのMembershipで閲覧でき、互いの権限は引き継ぎません。質問・選択肢・推奨・影響を読み、各相談の詳細から返信・決定してください。</p>
+        <p className="section-note">参加しているWorkspaceと、その配下のProjectの相談をまとめて表示します。質問・選択肢・推奨・影響を読み、各相談の詳細から返信・決定してください。</p>
       </div>
       <section className="detail-section" aria-labelledby="consultation-inbox-heading">
         <h2 id="consultation-inbox-heading" className="visually-hidden">相談の一覧</h2>

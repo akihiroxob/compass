@@ -1,6 +1,6 @@
 import { sql, type Kysely, type Selectable } from "kysely";
 import type { Activity, ActivityReference, ActivityScope, ActivitySource } from "../domain/Activity.ts";
-import type { ActivityQuery, ActivityStore, NewActivity } from "../application/port/ActivityStore.ts";
+import type { ActivityQuery, ActivityStore, ActivityStreamQuery, NewActivity } from "../application/port/ActivityStore.ts";
 import type { ActivityDatabase, ActivityTable } from "./schema.ts";
 
 type ActivityRow = Selectable<ActivityTable>;
@@ -105,6 +105,44 @@ export class KyselyActivityStore implements ActivityStore {
     }
     const rows = await select.limit(query.limit).execute();
     return rows.map(toActivity);
+  }
+
+  async listWorkspaceStream(workspaceId: string, query: ActivityStreamQuery) {
+    // 別Workspaceとsystem（workspace_idなし）を除くため、必ずworkspace_idで絞る。Project Activityも同じ列で所属Workspaceを持つ。
+    let filtered = this.db
+      .selectFrom("activity")
+      .where("workspace_id", "=", workspaceId)
+      .where("scope", "in", ["workspace", "project"]);
+    if (query.projectId !== undefined) filtered = filtered.where("project_id", "=", query.projectId);
+    if (query.workspaceOnly) filtered = filtered.where("scope", "=", "workspace");
+    if (query.occurredFrom !== undefined) filtered = filtered.where("occurred_at", ">=", query.occurredFrom);
+    if (query.occurredTo !== undefined) filtered = filtered.where("occurred_at", "<=", query.occurredTo);
+    if (query.text !== undefined) {
+      const pattern = `%${query.text.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+      filtered = filtered.where(
+        sql<boolean>`(summary like ${pattern} escape '\\' or coalesce(body, '') like ${pattern} escape '\\' or type like ${pattern} escape '\\' or principal_id like ${pattern} escape '\\')`,
+      );
+    }
+    // 種別の候補は、種別以外の条件に一致する記録の種別（現在のページに限らない）。
+    const typeRows = await filtered.select("type").distinct().orderBy("type", "asc").execute();
+    if (query.type !== undefined) filtered = filtered.where("type", "=", query.type);
+    const counted = await filtered.select((builder) => builder.fn.countAll().as("count")).executeTakeFirst();
+    let select = filtered.selectAll();
+    if (query.after !== undefined) {
+      const { occurredAt, cursor } = query.after;
+      select = select
+        .where(sql<boolean>`(occurred_at > ${occurredAt} or (occurred_at = ${occurredAt} and cursor > ${cursor}))`)
+        .orderBy("occurred_at", "asc")
+        .orderBy("cursor", "asc");
+    } else {
+      if (query.before !== undefined) {
+        const { occurredAt, cursor } = query.before;
+        select = select.where(sql<boolean>`(occurred_at < ${occurredAt} or (occurred_at = ${occurredAt} and cursor < ${cursor}))`);
+      }
+      select = select.orderBy("occurred_at", "desc").orderBy("cursor", "desc");
+    }
+    const rows = await select.limit(query.limit).execute();
+    return { activities: rows.map(toActivity), matchedCount: Number(counted?.count ?? 0), types: typeRows.map(({ type }) => type) };
   }
 
   async listCorrections(activityId: string): Promise<Activity[]> {

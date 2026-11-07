@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** Dedicated Manager preview fixtures. Product records use the inspected checkout's application services. */
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { mkdir, open, readFile, realpath, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
@@ -39,11 +40,60 @@ await reserved.close();
 const { createDatabase } = await targetModule('server/src/bootstrap/database/createDatabase.ts');
 const { initializeSchema } = await targetModule('server/src/bootstrap/database/initializeSchema.ts');
 const { createApplicationServices } = await targetModule('server/src/bootstrap/createApplicationServices.ts');
+const { deriveCsrfToken } = await targetModule('packages/access/src/index.ts');
+const { GitHubPullRequestGateway } = await targetModule('packages/work/src/index.ts');
 const database = createDatabase(databasePath);
 const identities = { manager: 'preview-manager', worker: 'preview-worker', reviewer: 'preview-reviewer', strategist: 'preview-strategist', evaluator: 'preview-evaluator' };
 const viewerEmail = 'preview-viewer@example.test';
 let sequence = 0;
+const planIdsOf = (outcome, indexes) => Object.fromEntries(indexes.flatMap((index) => outcome.problems[index].evaluationPlan ? [[outcome.problems[index].id, outcome.problems[index].evaluationPlan.planId]] : []));
 const key = (name) => `preview:${name}:${++sequence}`;
+const isoDay = (offset) => new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
+// Intent metric observations and Agent explanations (UI-M2). Strategist/Evaluator Grants are enforced by the same authorized wrappers
+// the MCP tools use. The values are display fixtures, not business results, and are no evidence that an Agent ran.
+const prepareIntentExplanations = async (services, workspaceId, projectId, intent, outcome, refs) => {
+  const strategist = identities.strategist;
+  const evaluator = identities.evaluator;
+  const source = { name: '検証用の集計表', uri: 'https://example.test/fixtures/metrics' };
+  const observation = (offset, value) => ({ periodStart: isoDay(offset), periodEnd: isoDay(offset), status: 'observed', value, source, observedAt: Date.now() - 60_000 });
+  const define = (key, name, unit, staleAfterDays) => services.defineIntentMetricUseCase.execute(strategist, workspaceId, intent.id,
+    { key, name, unit, targetValue: null, staleAfterDays });
+  const record = async (metricKey, observations) => (await services.recordIntentMetricObservationsUseCase.execute(evaluator, workspaceId, intent.id,
+    { metricKey, observations })).observations.map(({ observation: saved }) => saved);
+  await define('completion_rate', '登録完了率', '%', 7);
+  await define('weekly_retention', '継続利用率', '%', 7);
+  const [before, after] = await record('completion_rate', [observation(8, 41), observation(1, 47)]);
+  const [retentionBefore, retentionAfter] = await record('weekly_retention', [observation(7, 30), observation(1, 31)]);
+  const explanationBase = { runRef: 'browser-preview-fixture', relatedOutcomeIds: [outcome.id] };
+  // v1 is a short explanation. The earlier day is then corrected and v2 (with every item kind) points back to v1 and uses the corrected value.
+  const first = await services.recordIntentExplanationUseCase.execute(strategist, workspaceId, intent.id, { ...explanationBase,
+    requestKey: key('explanation-completion'), metricKey: 'completion_rate', periodStart: isoDay(8), periodEnd: isoDay(1),
+    items: [
+      { kind: 'fact', statement: '登録完了率は41%から47%へ上がった', basis: [{ type: 'metric_observation', id: before.id }, { type: 'metric_observation', id: after.id }] },
+      { kind: 'hypothesis', statement: '入力項目の削減が完了率を押し上げた可能性がある', confidence: 'low', verification: '同じ条件の比較を追加する', basedOn: [0] },
+    ] });
+  const second = await services.recordIntentExplanationUseCase.execute(strategist, workspaceId, intent.id, { ...explanationBase,
+    requestKey: key('explanation-retention'), metricKey: 'weekly_retention', periodStart: isoDay(7), periodEnd: isoDay(1),
+    items: [
+      { kind: 'fact', statement: '継続利用率は30%から31%で、ほぼ横ばい', basis: [{ type: 'metric_observation', id: retentionBefore.id }, { type: 'metric_observation', id: retentionAfter.id }] },
+      { kind: 'fact', statement: 'Outcomeの評価は未達で、満たせなかった条件がある', basis: [{ type: 'evaluation', id: refs.evaluationId }] },
+      { kind: 'hypothesis', statement: '通知の変更はまだ継続利用に表れていない可能性がある', confidence: 'low', verification: '公開後4週間の週次の継続利用率を観測する', basedOn: [0, 1] },
+    ] });
+  const [corrected] = await record('completion_rate', [{ ...observation(8, 43), observedAt: Date.now() - 30_000 }]);
+  const revised = await services.recordIntentExplanationUseCase.execute(strategist, workspaceId, intent.id, { ...explanationBase,
+    requestKey: key('explanation-completion-v2'), metricKey: 'completion_rate', periodStart: isoDay(8), periodEnd: isoDay(1),
+    changeFromPrevious: '比較前の値が43%へ訂正されたため、上昇幅を見直した',
+    items: [
+      { kind: 'fact', statement: '登録完了率は43%から47%へ上がった', basis: [{ type: 'metric_observation', id: corrected.id }, { type: 'metric_observation', id: after.id }] },
+      { kind: 'fact', statement: '同じ期間に入力項目を減らす変更が検討されていた', basis: [{ type: 'finding', id: refs.findingId }] },
+      { kind: 'hypothesis', statement: '入力項目の削減が上昇に寄与した可能性はあるが、他の要因は切り分けていない', confidence: 'low',
+        verification: '変更前後で同じ利用者層を比較し、変更していない導線の完了率も確認する', basedOn: [0, 1], basis: [{ type: 'synthesis', id: refs.synthesisId }] },
+      { kind: 'proposal', statement: '評価計画に沿って追加の調査を行い、結果を見てから判断する', basedOn: [2], basis: [{ type: 'decision', id: refs.decisionId }] },
+    ] });
+  // The latest day is corrected after v2 was recorded: v2 keeps its basis and is flagged as based on a corrected observation.
+  await record('completion_rate', [{ ...observation(1, 48), observedAt: Date.now() - 10_000 }]);
+  return { metricKeys: ['completion_rate', 'weekly_retention'], explanationIds: { completionRateV1: first.explanation.id, weeklyRetention: second.explanation.id, completionRateV2: revised.explanation.id } };
+};
 const scenarios = [];
 // Project and Workspace Consultations reflected in a real document commit through the normal Work flow.
 // Human steps (Repository registration, replies) use the owner's Human use cases and are recorded as in-scope Entities;
@@ -123,8 +173,8 @@ const prepareReflections = async (services, owner, client, entry) => {
 // Project/Workspace Consultations left at each visible stage (Human待ち・応答中・再開・継続確認待ち・方針訂正) with waiting Tasks.
 // Agent steps use the policy-checked public MCP and Human steps the owner's Human use cases. Expected rejections are recorded,
 // not asserted, so the Manager can compare them with the current product behavior.
-const prepareConsultationLifecycle = async (services, owner, client, entry, inspectRuntime) => {
-  const [projectA, projectB] = entry.projects.map(({ id }) => id);
+const prepareConsultationLifecycle = async (services, owner, client, entry, inspectRuntime, hiddenWorkspaceId) => {
+  const [projectA] = entry.projects.map(({ id }) => id);
   const workspaceId = entry.workspaceId;
   const observations = [];
   const rejected = async (label, expected, role, name, args) => {
@@ -240,12 +290,13 @@ const prepareConsultationLifecycle = async (services, owner, client, entry, insp
   await rejected('continuation confirmed by a Worker', 'FORBIDDEN', 'worker', 'confirm_consultation_continuation', { taskId: multiWait.task.id,
     expectedRequirementVersion: confirmation.requirementVersion, consultationRevisions: confirmation.consultations.map(({ id, revision }) => ({ id, revision })), reason: 'Workerによる確認' });
 
-  // 方針訂正: 解決済みの相談を参照する新しい相談。Workspace相談はHuman待ちのまま残す。Project Bの相談はviewerに見えない。
+  // 方針訂正: 解決済みの相談を参照する新しい相談。Workspace相談はHuman待ちのまま残す。viewerが所属しないWorkspaceの相談はviewerに見えない。
   const correction = await client.call('manager', 'create_consultation', { projectId: projectA, ...consultation('通知テーブルの方針訂正',
     '保存期間の要件が追加されたため、通知テーブルを使わない方針を見直しますか', { supersedesConsultationId: resumedIds.consultationId }) });
   const workspaceWaiting = await client.call('strategist', 'create_consultation', { workspaceId,
     ...consultation('次に優先するOutcome', '検索改善と通知改善のどちらを先に追いますか') });
-  const hidden = await client.call('worker', 'create_consultation', { projectId: projectB, ...consultation('Project Bだけの判断', 'Project Bの非公開の判断') });
+  const hidden = await client.call('strategist', 'create_consultation', { workspaceId: hiddenWorkspaceId,
+    ...consultation('未所属Workspaceの判断', 'viewerが所属しないWorkspaceの非公開の判断') });
 
   const projectPath = (consultationId) => `/projects/${projectA}/consultations/${consultationId}`;
   return {
@@ -260,12 +311,87 @@ const prepareConsultationLifecycle = async (services, owner, client, entry, insp
         expected: 'Humanの明示決定と取消・Managerの継続確認待ち', paths: [projectPath(decidedIds.consultationId), projectPath(canceledIds.consultationId)] },
       { stage: 'correction', consultationId: correction.consultation.id, supersedes: resumedIds.consultationId, path: projectPath(correction.consultation.id) },
       { stage: 'workspace_waiting_human', consultationId: workspaceWaiting.consultation.id, path: `/workspaces/${workspaceId}/consultations/${workspaceWaiting.consultation.id}` },
-      { stage: 'hidden_from_viewer', projectId: projectB, consultationId: hidden.consultation.id, path: `/projects/${projectB}/consultations/${hidden.consultation.id}` },
+      { stage: 'hidden_from_viewer', workspaceId: hiddenWorkspaceId, consultationId: hidden.consultation.id, path: `/workspaces/${hiddenWorkspaceId}/consultations/${hidden.consultation.id}` },
     ],
     observations,
   };
 };
 // Web API responses before the preview server starts on the same DB file; the preview is the restarted server.
+
+// Release history: accepted Tasks with deliverable commits, a loopback GitHub (commit existence and ancestry only) and
+// publication records sent through the public Web API with a dedicated Project Runtime Credential (`publication:write`).
+// Published (included), unpublished (not included) and unconfirmed (history not comparable) all come from recorded observations.
+const releaseCommit = (index) => index.toString(16).padStart(40, '0');
+const releaseHistoryShas = [];
+const releaseGithub = createServer((request, response) => {
+  const url = new URL(request.url ?? '', 'http://localhost');
+  const send = (status, body) => response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+  let match = /^\/repos\/preview-org\/release-demo\/commits\/([a-f0-9]{40})$/.exec(url.pathname);
+  if (match) return releaseHistoryShas.includes(match[1]) ? send(200, { sha: match[1] }) : send(422, { message: 'No commit found' });
+  match = /^\/repos\/preview-org\/release-demo\/compare\/([a-f0-9]{40})\.\.\.([a-f0-9]{40})$/.exec(url.pathname);
+  if (match) {
+    const [base, head] = [releaseHistoryShas.indexOf(match[1]), releaseHistoryShas.indexOf(match[2])];
+    return base < 0 || head < 0 ? send(404, { message: 'Not Found' }) : send(200, { status: base === head ? 'identical' : base < head ? 'ahead' : 'behind' });
+  }
+  return send(404, { message: 'Not Found' });
+});
+await new Promise((resolveListen) => releaseGithub.listen(0, '127.0.0.1', resolveListen));
+const releaseApiBaseUrl = `http://127.0.0.1:${releaseGithub.address().port}`;
+const releaseCounts = { published: 12, notPublished: 10, unconfirmed: 2 };
+const prepareReleaseHistory = async (services, owner, app) => {
+  const work = services.taskCoordinationService;
+  const workspace = await services.human.createWorkspace.execute({ name: '[受入] リリース履歴', mission: '開発の受入と公開の確認を別の根拠で辿る' }, owner);
+  const intent = await services.workspaceDirection.createIntentUseCase.execute(workspace.id, { title: 'リリース履歴 Intent', desiredState: '変更が公開されたかを根拠から確認できる' });
+  const outcome = await services.workspaceDirection.createOutcomeUseCase.execute(workspace.id, intent.id, {
+    title: 'リリース履歴 Outcome', intentVersion: 1, description: '公開状況の表示検証専用。実運用の成果ではない。', rationale: '画面受入の前提データ',
+    successCriteria: [{ description: '公開済み・未公開・確認できずを区別できる', measurement: '公開記録と画面を照合する', target: '捏造なし' }] });
+  const project = await services.human.createWorkspaceProject.execute(owner, workspace.id, { name: '[受入] リリース履歴 Project',
+    repositories: [{ name: 'release-demo', url: 'https://github.com/preview-org/release-demo' }] });
+  for (const role of ['manager', 'worker', 'reviewer']) await services.grantProjectRoleUseCase.execute(project.id, { principalId: identities[role], role });
+  await services.workspaceDirection.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, project.id);
+  const repository = project.repositories[0];
+  const total = releaseCounts.published + releaseCounts.notPublished + releaseCounts.unconfirmed;
+  const story = await work.issueStory(identities.manager, { projectId: project.id, outcomeId: outcome.id, title: 'リリース履歴の確認用Story' }, key('story'));
+  const tasks = [];
+  for (let index = 1; index <= total; index += 1) {
+    const task = await work.issueTask(identities.manager, { projectId: project.id, storyId: story.id, taskKey: `release-${index}`, title: `リリース変更 ${index}` }, key('task'));
+    const claim = await work.claimTask(identities.worker, task.id, key('claim'));
+    await work.addTaskComment(identities.worker, task.id, claim.claimId, `リリース変更 ${index} の実装メモ: src/change-${index}.ts を追加し、題名にない確認手順を記録した。画面検証専用の決定的fixtureで、実Agentの成果ではない。`, key('comment'));
+    await work.completeTask(identities.worker, task.id, claim.claimId, key('complete'));
+    const review = await work.claimReview(identities.reviewer, task.id, key('review'));
+    await work.reviewedTask(identities.reviewer, task.id, review.claimId, key('reviewed'));
+    const acceptance = await work.claimAcceptance(identities.manager, task.id, key('acceptance'));
+    await work.acceptTask(identities.manager, task.id, acceptance.claimId, key('accept'),
+      [{ repositoryId: repository.id, commitSha: releaseCommit(index), paths: [`src/change-${index}.ts`], pullRequestUrl: null }]);
+    tasks.push({ index, taskId: task.id, commitSha: releaseCommit(index) });
+  }
+  // The loopback history knows the first (published + unpublished) commits; the last ones are unknown to it (not comparable).
+  const comparable = releaseCounts.published + releaseCounts.notPublished;
+  for (let index = 1; index <= comparable; index += 1) releaseHistoryShas.push(releaseCommit(index));
+  const origin = 'http://localhost';
+  const signedIn = await app.request(`${origin}/auth/local/login`, { method: 'POST', redirect: 'manual', headers: { Origin: origin }, body: new URLSearchParams({ email: ownerEmail }) });
+  const cookie = signedIn.headers.get('set-cookie')?.match(/compass_session=[^;]+/)?.[0];
+  if (!cookie) throw new Error('Preview owner could not sign in for release preparation');
+  const issued = await app.request(`${origin}/api/projects/${project.id}/credentials`, { method: 'POST', headers: { Cookie: cookie, 'Content-Type': 'application/json', Origin: origin, 'X-Compass-CSRF': deriveCsrfToken(cookie.split('=')[1]) },
+    body: JSON.stringify({ kind: 'runtime', principalId: 'preview-deployer', scopes: ['publication:write'] }) });
+  if (issued.status !== 201) throw new Error(`Runtime credential could not be issued: ${issued.status} ${await issued.text()}`);
+  const { token } = await issued.json();
+  const publish = async (revision, observedAt) => {
+    const response = await app.request(`${origin}/api/projects/${project.id}/publications`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repositoryId: repository.id, revision, target: 'production', targetUrl: 'https://release-demo.example.test', method: 'preview-fixture', observedAt,
+        evidence: [{ kind: 'deployment', uri: 'https://example.test/fixtures/release-demo/deployments/1' }] }) });
+    if (response.status !== 201 && response.status !== 200) throw new Error(`Publication could not be recorded: ${response.status}`);
+    return (await response.json()).publication.id;
+  };
+  // The production deployment contains the first commits only; later accepted commits are not included (unpublished).
+  const publicationId = await publish(releaseCommit(releaseCounts.published), Date.now() - 60_000);
+  return { projectId: project.id, workspaceId: workspace.id, intentId: intent.id, outcomeId: outcome.id, repositoryId: repository.id, publicationId, counts: releaseCounts,
+    apiPath: `/projects/${project.id}/releases`, screenPath: `/projects/${project.id}?view=releases`, tasks,
+    expected: { published: tasks.slice(0, releaseCounts.published).map(({ taskId }) => taskId),
+      notPublished: tasks.slice(releaseCounts.published, comparable).map(({ taskId }) => taskId),
+      unconfirmed: tasks.slice(comparable).map(({ taskId }) => taskId) },
+    note: '公開記録はRuntime Credential（publication:write）の公開APIで追加した。公開済みはHEAD履歴に含まれる変更、未公開は含まれない変更、確認できずは履歴を比較できない変更。効果の評価ではない。' };
+};
 const persistenceSnapshot = async (app, entries) => {
   const origin = 'http://localhost';
   const signedIn = await app.request(`${origin}/auth/local/login`, { method: 'POST', redirect: 'manual', headers: { Origin: origin },
@@ -280,11 +406,14 @@ const persistenceSnapshot = async (app, entries) => {
   return responses;
 };
 let observedTools = [];
+let releaseHistory;
 let preparation;
 let persistence;
 try {
   await initializeSchema(database);
-  const services = createApplicationServices(database, undefined, undefined, { initialOwnerEmail: ownerEmail });
+  const releaseGithubGateway = new GitHubPullRequestGateway({ apiBaseUrl: releaseApiBaseUrl });
+  const services = createApplicationServices(database, undefined, undefined, { initialOwnerEmail: ownerEmail },
+    { pullRequests: releaseGithubGateway, revisions: releaseGithubGateway });
   const login = await services.localDevLoginUseCase.execute({ email: ownerEmail, previousSessionToken: null });
   if (login.kind !== 'logged_in') throw new Error('Preview owner could not be registered');
   const owner = { kind: 'human', humanUserId: login.session.humanUserId };
@@ -292,16 +421,28 @@ try {
   const work = services.taskCoordinationService;
   const { createApp } = await targetModule('server/src/bootstrap/app.ts');
   const app = createApp(services, { humanAuth: { mode: 'trusted-local', publicOrigin: 'http://localhost' } });
-  const addViewer = async (workspaceId, projectId) => {
-    const invitation = await services.createProjectInvitationUseCase.execute(owner, projectId, { email: viewerEmail, role: 'viewer' });
+  // 招待の受諾で所属WorkspaceのMembership（配下のすべてのProjectに同じRole）になる（ADR 0003）。
+  const addViewer = async (workspaceId) => {
+    const invitation = await services.createWorkspaceInvitationUseCase.execute(owner, workspaceId, { email: viewerEmail, role: 'viewer' });
     const signedIn = await services.localDevLoginUseCase.execute({ email: viewerEmail, invitationToken: invitation.token, previousSessionToken: null });
     if (signedIn.kind !== 'logged_in') throw new Error('Preview viewer invitation could not be accepted');
     const humanUserId = signedIn.session.humanUserId;
     const members = await services.human.listWorkspaceMembers.execute(owner, workspaceId);
-    if (!members.some(({ human }) => human.id === humanUserId)) {
-      await services.human.addWorkspaceMember.execute(owner, workspaceId, { humanUserId, role: 'viewer' });
-    }
+    if (!members.some(({ human }) => human.id === humanUserId)) throw new Error('Preview viewer did not join the Workspace');
     return humanUserId;
+  };
+  // Member管理の多件数・招待中の確認用。公開の招待・参加経路（開発ログイン）で、参加済みMemberと未参加の招待を追加する。
+  const addCrowd = async (workspaceId, joined, pending) => {
+    const roles = ['viewer', 'editor', 'administrator'];
+    for (let index = 1; index <= joined; index += 1) {
+      const email = `preview-member-${String(index).padStart(2, '0')}@example.test`;
+      const invitation = await services.createWorkspaceInvitationUseCase.execute(owner, workspaceId, { email, role: roles[index % roles.length] });
+      const signedIn = await services.localDevLoginUseCase.execute({ email, invitationToken: invitation.token, previousSessionToken: null });
+      if (signedIn.kind !== 'logged_in') throw new Error(`Preview member ${email} could not join`);
+    }
+    for (let index = 1; index <= pending; index += 1) {
+      await services.createWorkspaceInvitationUseCase.execute(owner, workspaceId, { email: `preview-pending-${index}@example.test`, role: 'editor' });
+    }
   };
   const acceptedWork = async (project, outcome, label) => {
     const story = await work.issueStory(identities.manager, { projectId: project.id, outcomeId: outcome.id, title: `${label}のStory` }, key('story'));
@@ -326,10 +467,18 @@ try {
     for (const role of ['strategist', 'evaluator']) await services.grantWorkspaceRoleUseCase.execute(workspace.id, { principalId: identities[role], role });
     const intent = await direction.createIntentUseCase.execute(workspace.id, { title: `${name} Intent`, desiredState: '各Projectの貢献と判断根拠が追跡できる' });
     const outcome = await direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
-      title: `${name} Outcome`, description: 'Managerの表示・参照検証専用。実運用の成果ではない。', rationale: '画面受入の前提データ',
+      title: `${name} Outcome`, description: 'Managerの表示・参照検証専用。実運用の成果ではない。', intentVersion: 1, rationale: '画面受入の前提データ',
       successCriteria: [
         { description: 'Target別のStoryとEvidenceを参照できる', measurement: 'Project別の保存データと画面リンクを照合する', target: '全Target' },
         { description: '権限に応じてWorkと編集導線が制限される', measurement: 'ownerとviewerで実API・実画面を比較する', target: '越権なし' },
+      ],
+      problems: [
+        { statement: '[検証用] 登録手順の途中で離脱する', evidenceStatus: 'insufficient', solutionHypothesis: '入力項目を減らす',
+          evaluationPlan: { question: '入力を減らすと完了率は上がるか', method: 'ab_test', premises: '利用者を無作為に2群へ割り付けられる', observationPeriod: '公開後2週間', decisionCriteria: '完了率が5pt以上高い', stopCriteria: '離脱が悪化したら中止' } },
+        { statement: '[検証用] 初回の操作が分かりにくい', evidenceStatus: 'insufficient', solutionHypothesis: '案内文を短くする',
+          evaluationPlan: { question: '案内文を短くすると迷わず操作できるか', method: 'cognitive_walkthrough', decisionCriteria: '手順の各段階で次の操作が分かる' } },
+        { statement: '[検証用] 公開後の継続利用が増えない', evidenceStatus: 'insufficient', solutionHypothesis: '通知の頻度を調整する',
+          evaluationPlan: { question: '通知を調整すると継続利用は増えるか', method: 'quantitative_observation', observationPeriod: '公開後4週間', decisionCriteria: '週次の継続利用率が上がる' } },
       ],
     });
     const entry = { scenario, workspaceId: workspace.id, intentId: intent.id, outcomeId: outcome.id, projects: [], work: [],
@@ -340,9 +489,23 @@ try {
         for (const role of ['manager', 'worker', 'reviewer']) await services.grantProjectRoleUseCase.execute(project.id, { principalId: identities[role], role });
         await direction.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, project.id);
         entry.projects.push({ id: project.id, label, name: project.name });
-        if (label === 'A') entry.viewerHumanUserId = await addViewer(workspace.id, project.id);
+        if (label === 'A') entry.viewerHumanUserId = await addViewer(workspace.id);
+        if (label === 'A' && scenario === 'evaluated') {
+          await addCrowd(workspace.id, 30, 3);
+          entry.paths.members = `/workspaces/${workspace.id}/settings/members`;
+        }
         if (label === 'A' || scenario === 'evaluated') entry.work.push(await acceptedWork(project, outcome, label));
       }
+    }
+    if (scenario === 'partial-work') {
+      // No explanation yet: one goal whose Metric is defined but unmeasured, and one goal without any Metric. Neither is filled in.
+      await services.defineIntentMetricUseCase.execute(identities.strategist, workspace.id, intent.id,
+        { key: 'completion_rate', name: '登録完了率', unit: '%', targetValue: null, staleAfterDays: 7 });
+      const bare = await direction.createIntentUseCase.execute(workspace.id, { title: `${name} 観測項目なしの目標`, desiredState: '観測項目が未定義の状態を確認する' });
+      entry.intentExplanationStates = [
+        { state: 'metric_unmeasured_no_explanation', path: `/projects/${entry.projects[0].id}/intents/${intent.id}` },
+        { state: 'no_metric_no_explanation', path: `/projects/${entry.projects[0].id}/intents/${bare.id}` },
+      ];
     }
     if (scenario === 'evaluated') {
       const request = await direction.createResearchRequestUseCase.execute(workspace.id, { requestKey: key('research'), kind: 'decision', originIntentId: intent.id,
@@ -355,21 +518,30 @@ try {
         runRef: 'browser-preview-fixture', conclusion: 'Projectごとの根拠を辿って表示を検証する', findingIds: result.findings.map(({ id }) => id), validAsOf: Date.now() - 1_000 });
       await direction.completeResearchRequestUseCase.execute(workspace.id, request.id, { conclusion: 'completed' });
       const evidenceIds = entry.work.flatMap(({ evidenceIds }) => evidenceIds);
-      const saved = await direction.recordOutcomeEvaluationUseCase.execute(workspace.id, identities.evaluator, outcome.id, { requestKey: key('evaluation'), runRef: 'browser-preview-fixture',
+      await direction.recordOutcomeEvaluationUseCase.execute(workspace.id, identities.evaluator, outcome.id, { requestKey: key('evaluation-insufficient'), runRef: 'browser-preview-fixture',
+        method: 'cognitive_walkthrough', targetVersion: 'browser-preview-fixture', limitations: '設計の点検のみ。実ユーザーは観測していない。', problemIds: [outcome.problems[1].id], planIds: planIdsOf(outcome, [1]),
+        criteria: outcome.successCriteria.map((criterion) => ({ criterionId: criterion.id, verdict: 'insufficient_evidence', rationale: '実ユーザーの観測が無く判断できない', evidenceIds: [] })) });
+      const saved = await direction.recordOutcomeEvaluationUseCase.execute(workspace.id, identities.evaluator, outcome.id, { requestKey: key('evaluation'), runRef: 'browser-preview-fixture', method: 'quantitative_observation', targetVersion: 'browser-preview-fixture', limitations: '専用fixtureの保存済み参照だけを根拠にした表示確認', problemIds: [outcome.problems[0].id], planIds: planIdsOf(outcome, [0]),
         criteria: outcome.successCriteria.map((criterion, index) => ({ criterionId: criterion.id, verdict: index === 0 ? 'met' : 'not_met',
           rationale: index === 0 ? '専用fixtureの保存済み参照' : '比較表示用の未充足判定。製品の不具合判定ではない。', evidenceIds })) });
       const decision = await direction.createDirectionDecisionUseCase.execute(workspace.id, identities.strategist, { intentId: intent.id, evaluationId: saved.evaluation.id,
-        type: 'additional_research', judgment: '権限差の検証条件を追加調査する', reason: '画面上でEvaluationとDecisionの関連を確認するfixture',
+        type: 'additional_research', intentVersion: 1, judgment: '権限差の検証条件を追加調査する', reason: '画面上でEvaluationとDecisionの関連を確認するfixture',
         requestKey: key('decision'), runRef: 'browser-preview-fixture', usedSyntheses: [{ synthesisId: synthesis.id, version: synthesis.version }],
         research: { question: 'viewerの見え方を比較する', scope: '専用プレビューのみ', completionCondition: 'アクセス制御を独立に検証できる', budgetTotal: 10 } });
       Object.assign(entry, { researchRequestId: request.id, evaluationId: saved.evaluation.id, decisionId: decision.decision.id,
         expectedVerdicts: ['met', 'not_met'] });
+      // The goal detail shows the Agent explanations (facts / hypotheses / proposals) with resolved basis, an outdated basis and a previous version.
+      const intentProject = entry.projects[0];
+      entry.intentExplanations = { ...await prepareIntentExplanations(services, workspace.id, intentProject.id, intent, outcome,
+        { findingId: result.findings[0].id, synthesisId: synthesis.id, decisionId: decision.decision.id, evaluationId: saved.evaluation.id }),
+        path: `/projects/${intentProject.id}/intents/${intent.id}`, expected: 'completion_rate: v2 (previous v1 whose basis was corrected) and weekly_retention v1; all with kind-separated items' };
     }
     scenarios.push(entry);
   }
+  releaseHistory = await prepareReleaseHistory(services, owner, app);
   preparation = { endpointPath: '/mcp', actors: identities,
-    projectIds: scenarios.flatMap(({ projects }) => projects.map(({ id }) => id)),
-    workspaceIds: scenarios.map(({ workspaceId }) => workspaceId), operationPolicy: previewOperationPolicy };
+    projectIds: [...scenarios.flatMap(({ projects }) => projects.map(({ id }) => id)), releaseHistory.projectId],
+    workspaceIds: [...scenarios.map(({ workspaceId }) => workspaceId), releaseHistory.workspaceId], operationPolicy: previewOperationPolicy };
   // Read the inspected revision's public MCP contract; permission comes from the policy, not from listed names.
   const client = createPreviewMcpClient({ origin: 'http://localhost', preparation, fetch: (url, init) => app.request(url, init) });
   observedTools = (await client.listTools('manager')).map(classifyTool);
@@ -384,15 +556,17 @@ try {
   const partial = scenarios.find(({ scenario }) => scenario === 'partial-work');
   try {
     const { inspectConsultationRuntime } = await targetModule('ralph/runtime/consultation-context.mjs');
-    partial.consultationLifecycle = { status: 'prepared', ...await prepareConsultationLifecycle(services, owner, client, partial, inspectConsultationRuntime) };
+    const hiddenWorkspaceId = scenarios.find(({ scenario }) => scenario === 'no-target').workspaceId;
+    partial.consultationLifecycle = { status: 'prepared', ...await prepareConsultationLifecycle(services, owner, client, partial, inspectConsultationRuntime, hiddenWorkspaceId) };
   } catch (error) {
     if (!(error instanceof PreviewOperationError) || !['tool_unavailable', 'policy_denied'].includes(error.kind)) throw error;
     partial.consultationLifecycle = { status: 'unavailable', kind: error.kind, tool: error.tool, message: error.message };
   }
   persistence = { takenAt: new Date().toISOString(), responses: await persistenceSnapshot(app, [
-    ...(partial.consultationLifecycle.stages ?? []), ...(evaluated.consultationReflection.consultations ?? [])]) };
+    ...(partial.consultationLifecycle.stages ?? []), ...(evaluated.consultationReflection.consultations ?? []), { path: releaseHistory.apiPath }]) };
 } finally {
   await database.destroy();
+  await new Promise((resolveClose) => releaseGithub.close(resolveClose));
 }
 const scriptSha256 = createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex');
 const manifest = { schemaVersion: 1, purpose: 'browser-verification-fixtures', headSha, preparationScriptSha256: scriptSha256,
@@ -411,8 +585,8 @@ const manifest = { schemaVersion: 1, purpose: 'browser-verification-fixtures', h
     claimTtlMs: Number(process.env.COMPASS_CLAIM_TTL_MS ?? 30 * 60 * 1000),
     instructions: 'Read policyPath. Use only the dedicated preview URL and these preview actors. Any current tool classified by operationPolicy is permitted within projectIds/workspaceIds; execution Task/Claim, operational MCP and Human management tools are outside this permission.',
   },
-  login: { mode: 'trusted-local', ownerEmail, viewerEmail, instructions: 'ログイン画面からemailを入力する。viewerはProject Aのみ所属し、Project Bは未所属。' },
-  scenarios, limitations: ['データ準備は公開APIによる管理操作のAC検証ではない', '判定・Evidenceは表示確認用fixtureであり、実Agentの自律運転や実成果を示さない'] };
+  login: { mode: 'trusted-local', ownerEmail, viewerEmail, instructions: 'ログイン画面からemailを入力する。viewerは[受入] 一部Project未着手・[受入] 複数Targetと評価根拠のWorkspaceのviewer（配下のProject A・Bとも同じRole）で、[受入] TargetなしのWorkspaceは未所属。' },
+  releaseHistory, scenarios, limitations: ['データ準備は公開APIによる管理操作のAC検証ではない', '判定・Evidenceは表示確認用fixtureであり、実Agentの自律運転や実成果を示さない'] };
 const manifestPath = join(data, 'browser-fixtures.json');
 // The preview server reopens this DB file, so comparing its Web API responses with this snapshot checks a same-DB restart.
 const persistencePath = join(data, 'persistence-before-restart.json');

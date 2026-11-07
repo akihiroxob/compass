@@ -8,7 +8,14 @@ import {
   type ActivityTarget,
   type ActivityTargetKind,
 } from "../domain/Activity.ts";
-import { parseActivityQuery, parseRecordActivityInput, type ActivityQueryInput } from "./activitySchema.ts";
+import {
+  formatActivityStreamCursor,
+  parseActivityQuery,
+  parseActivityStreamQuery,
+  parseRecordActivityInput,
+  type ActivityQueryInput,
+  type ActivityStreamQueryInput,
+} from "./activitySchema.ts";
 import type { ActivityAuthorizationPort, ActivityScopeReader, ActivityScopeState } from "./port/ActivityScopeReader.ts";
 import type { ActivityStore, ActivityUnitOfWork } from "./port/ActivityStore.ts";
 
@@ -145,6 +152,52 @@ export class ListActivitiesUseCase {
         ? last.cursor
         : null;
     return { activities: activities.map(toActivitySummary), nextCursor };
+  }
+}
+
+export type ActivityStreamPage = {
+  activities: ActivitySummary[];
+  /** 続きの位置（`before` / `after`にそのまま渡す）。新しい順は満杯のときだけ続きがあり、差分取得は空でも呼び出し側の位置を返す。 */
+  nextCursor: string | null;
+  /** 位置を除く条件に一致する件数。 */
+  matchedCount: number;
+  /** 種別以外の条件に一致する記録の種別（絞り込みの候補。現在のページに限らない）。 */
+  types: string[];
+};
+
+/**
+ * Workspace共通と所属全Project（archivedを含む）の業務Activityを、発生時刻と取得位置の順で横断して取得する（Humanの閲覧用）。
+ * 認可は呼び出し側（Workspace Membership）が行う。原記録（Project・Workspace Activity）を複製せず、同じ`activity` tableを
+ * Workspace IDで引くため、漏れ・重複は生じない。別Workspaceとsystem scopeは含めない。
+ * 位置は`{発生時刻}.{cursor}`で、同時刻でも`cursor`で全順序になる。`nextCursor`を`before`（新しい順）/ `after`（昇順の差分）に渡す。
+ */
+export class ListWorkspaceActivityStreamUseCase {
+  constructor(
+    private readonly scopes: ActivityScopeReader,
+    private readonly store: ActivityStore,
+  ) {}
+
+  async execute(workspaceId: string, input: ActivityStreamQueryInput = {}): Promise<ActivityStreamPage> {
+    const { from, to, workspaceOnly, ...parsed } = parseActivityStreamQuery(input);
+    const target = { kind: ActivityScope.WORKSPACE, id: workspaceId };
+    if (!(await this.scopes.find(target))) throw targetNotFound(target);
+    const { activities, matchedCount, types } = await this.store.listWorkspaceStream(workspaceId, {
+      limit: parsed.limit,
+      ...(parsed.after === undefined ? {} : { after: parsed.after }),
+      ...(parsed.before === undefined ? {} : { before: parsed.before }),
+      ...(parsed.projectId === undefined ? {} : { projectId: parsed.projectId }),
+      ...(workspaceOnly === true ? { workspaceOnly } : {}),
+      ...(parsed.type === undefined ? {} : { type: parsed.type }),
+      ...(parsed.text === undefined ? {} : { text: parsed.text }),
+      ...(from === undefined ? {} : { occurredFrom: from }),
+      ...(to === undefined ? {} : { occurredTo: to }),
+    });
+    const last = activities.at(-1);
+    const position = last ? formatActivityStreamCursor(last) : null;
+    const nextCursor = parsed.after !== undefined
+      ? (position ?? formatActivityStreamCursor(parsed.after))
+      : activities.length === parsed.limit ? position : null;
+    return { activities: activities.map(toActivitySummary), nextCursor, matchedCount, types };
   }
 }
 

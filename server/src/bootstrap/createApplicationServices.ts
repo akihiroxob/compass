@@ -2,7 +2,7 @@ import { projectWorkspaceId } from "../infrastructure/repository/projectWorkspac
 import { AgentContextService } from "../application/agentContext/AgentContextService.ts";
 import { GetRoleContextUseCase } from "../application/agentContext/GetRoleContextUseCase.ts";
 import { GetWorkspaceRoleContextUseCase } from "../application/agentContext/GetWorkspaceRoleContextUseCase.ts";
-import { withActivityActor } from "../application/activityActor.ts";
+import { currentActivityActor, systemActivityActor, withActivityActor } from "../application/activityActor.ts";
 import { FileAgentAssetRepository } from "../infrastructure/agentAssets/FileAgentAssetRepository.ts";
 import {
   AbandonIntentUseCase,
@@ -17,6 +17,7 @@ import {
   CreateOutcomeUseCase,
   CreateResearchRequestUseCase,
   DecideNextOutcomeUseCase,
+  DefineIntentMetricUseCase,
   DirectionAgentRole,
   DirectionReferenceLookupService,
   FetchRuntimeEventsUseCase,
@@ -28,8 +29,12 @@ import {
   GetResearcherContextUseCase,
   GetResearchRequestUseCase,
   GetStrategistContextUseCase,
+  ListIntentRevisionsUseCase,
+  type DirectionActorPort,
   ListAdrReferencesUseCase,
   ListDirectionDecisionsUseCase,
+  ListIntentExplanationsUseCase,
+  ListIntentMetricsUseCase,
   ListIntentsUseCase,
   ListOutcomeEvaluationsUseCase,
   ListOutcomeTargetProjectsUseCase,
@@ -41,12 +46,16 @@ import {
   ListRuntimeEventsUseCase,
   RecordAdrReferenceUseCase,
   RecordExecutionEvidenceUseCase,
+  RecordIntentExplanationUseCase,
+  RecordIntentMetricObservationsUseCase,
   RecordOutcomeEvaluationUseCase,
   RegisterResearchResultUseCase,
   RegisterResearchSynthesisUseCase,
   UnsetOutcomeTargetProjectUseCase,
   SQLiteAdrHandoffRepository,
   SQLiteDirectionDecisionRepository,
+  SQLiteIntentExplanationRepository,
+  SQLiteIntentMetricRepository,
   SQLiteIntentRepository,
   SQLiteOutcomeEvaluationRepository,
   SQLiteOutcomeExecutionRepository,
@@ -85,21 +94,27 @@ import {
   GetExecutionTaskUseCase,
   KyselyWorkStore,
   ListExecutionUseCase,
+  ListProjectReleasesUseCase,
   ListRecentExecutionChangesUseCase,
+  RecordPublicationUseCase,
   RejectExecutionTaskUseCase,
   TaskCoordinationService,
+  type PullRequestGateway,
+  type RevisionGateway,
 } from "@compass/work";
 import {
   AuthenticateAccessCredentialUseCase,
   CredentialScopeAuthorization,
-  ChangeProjectMemberRoleUseCase,
   CompleteOidcLoginUseCase,
-  CreateProjectInvitationUseCase,
+  CreateWorkspaceInvitationUseCase,
   GetHumanAuthBootstrapStatusUseCase,
   GetHumanProjectUseCase,
   GrantWorkspaceRoleUseCase,
   RevokeWorkspaceRoleUseCase,
   ListWorkspaceGrantsUseCase,
+  ListWorkspaceAgentRunsUseCase,
+  RecordAgentRunUseCase,
+  SQLiteAgentRunRepository,
   SQLiteWorkspaceGrantRepository,
   RoleScopeAuthorizationService,
   GrantProjectRoleUseCase,
@@ -110,16 +125,14 @@ import {
   ListAccessCredentialsUseCase,
   ListHumanProjectsUseCase,
   ListProjectGrantsUseCase,
-  ListProjectInvitationsUseCase,
-  ListProjectMembersUseCase,
+  ListWorkspaceInvitationsUseCase,
   LocalDevLoginUseCase,
   ProjectAuthorizationService,
   RegisterOrLoginHumanUseCase,
   ResolveHumanSessionUseCase,
   RevokeAccessCredentialUseCase,
   RevokeHumanSessionUseCase,
-  RevokeProjectInvitationUseCase,
-  RevokeProjectMemberUseCase,
+  RevokeWorkspaceInvitationUseCase,
   RevokeProjectRoleUseCase,
   RotateAccessCredentialUseCase,
   RuntimeAuthorizationService,
@@ -127,19 +140,18 @@ import {
   SQLiteHumanAccountRepository,
   SQLiteLoginAttemptRepository,
   SQLiteProjectGrantRepository,
-  SQLiteProjectMembershipRepository,
+  SQLiteWorkspaceInvitationRepository,
   SQLiteWorkspaceMembershipRepository,
   StartOidcLoginUseCase,
-  AddWorkspaceMemberUseCase,
   ChangeWorkspaceMemberRoleUseCase,
   CreateHumanWorkspaceProjectUseCase,
   GetHumanWorkspaceUseCase,
   HumanWorkspaceAuthorizationService,
   HumanWorkspaceAuthorizedUseCase,
   ListHumanWorkspacesUseCase,
-  ListWorkspaceMemberCandidatesUseCase,
   ListWorkspaceMembersUseCase,
   RevokeWorkspaceMemberUseCase,
+  credentialStatus,
   executionRoles,
   humanOperatorPrincipalId,
   workspaceRoles,
@@ -155,6 +167,7 @@ import {
   GetActivityUseCase,
   KyselyActivityStore,
   ListActivitiesUseCase,
+  ListWorkspaceActivityStreamUseCase,
   RecordActivityUseCase,
   type ActivityUnitOfWork,
 } from "@compass/activity";
@@ -198,7 +211,7 @@ import {
   directionChangeObserver,
   directionProjectReaders,
   directionWorkspaceReaders,
-  ownerMembershipWriters,
+  workspaceOwnerMembershipWriter,
   projectChangeActivityObserver,
   projectRepositoryReferenceFinder,
   workChangeActivityObserver,
@@ -227,17 +240,22 @@ export const createApplicationServices = (
   humanAuth: { initialOwnerEmail: string | null; identityProvider?: HumanIdentityProvider | null } = {
     initialOwnerEmail: null,
   },
+  /**
+   * 外部連携のadapter。`pullRequests`はGitHubのPR読取で、無ければPR登録をGITHUB_UNAVAILABLEで拒否する。
+   * `revisions`はGitHubのcommitの関係の読取で、無ければGitHub Repositoryの公開記録をGITHUB_UNAVAILABLEで拒否する。
+   */
+  integrations: { pullRequests?: PullRequestGateway | null; revisions?: RevisionGateway | null } = {},
 ) => {
   // Project（Workspaceを含む）はOrganizationが所有する。Projectのarchiveも同じtransactionでcanonical Activityへ投影する。
   const projectRepository = new SQLiteProjectRepository(
     asOrganizationDatabase(applicationDatabase),
     projectRepositoryReferenceFinder,
-    ownerMembershipWriters,
+    workspaceOwnerMembershipWriter,
     projectChangeActivityObserver,
   );
   const workspaceRepository = new SQLiteWorkspaceRepository(
     asOrganizationDatabase(applicationDatabase),
-    ownerMembershipWriters.workspace,
+    workspaceOwnerMembershipWriter,
   );
   // Directionのrepositoryへは同じ接続を、自身のtable型で渡す。Workspace/Project状態は同じtransactionで読むreaderを渡す。
   const directionDatabase = asDirectionDatabase(applicationDatabase);
@@ -246,11 +264,14 @@ export const createApplicationServices = (
   const workspaceOutcomeRepository = new SQLiteOutcomeRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
   // Target ProjectとOutcomeのWorkspace一致は、書込と同じtransactionでProject（Organization）を読んで検査する。
   const outcomeTargetProjectRepository = new SQLiteOutcomeTargetProjectRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders, clock);
+  // 変更主体は、認可済みの入口（Web UIのHuman操作・MCPのAgent操作）が固定した主体。特定できない保守呼出しは`system`。
+  const directionActor: DirectionActorPort = { current: () => currentActivityActor() ?? systemActivityActor };
   const workspaceBasics = {
-    createIntentUseCase: new CreateIntentUseCase(workspaceRepository, workspaceIntentRepository),
+    createIntentUseCase: new CreateIntentUseCase(workspaceRepository, workspaceIntentRepository, directionActor),
+    listIntentRevisionsUseCase: new ListIntentRevisionsUseCase(workspaceRepository, workspaceIntentRepository),
     listIntentsUseCase: new ListIntentsUseCase(workspaceRepository, workspaceIntentRepository),
     getIntentUseCase: new GetIntentUseCase(workspaceRepository, workspaceIntentRepository),
-    updateIntentUseCase: new UpdateIntentUseCase(workspaceRepository, workspaceIntentRepository),
+    updateIntentUseCase: new UpdateIntentUseCase(workspaceRepository, workspaceIntentRepository, directionActor),
     abandonIntentUseCase: new AbandonIntentUseCase(workspaceRepository, workspaceIntentRepository),
     createOutcomeUseCase: new CreateOutcomeUseCase(workspaceRepository, workspaceOutcomeRepository),
     listOutcomesUseCase: new ListOutcomesUseCase(workspaceRepository, workspaceIntentRepository, workspaceOutcomeRepository),
@@ -298,6 +319,7 @@ export const createApplicationServices = (
   const projectAuthorizationService = new ProjectAuthorizationService(projectGrantRepository);
   const workspaceGrantRepository = new SQLiteWorkspaceGrantRepository(accessDatabase, accessWorkspaceReaders, clock);
   const roleScopeAuthorizationService = new RoleScopeAuthorizationService(workspaceGrantRepository, projectGrantRepository);
+  const agentRunRepository = new SQLiteAgentRunRepository(accessDatabase, clock);
   const accessCredentialRepository = new SQLiteAccessCredentialRepository(accessDatabase, accessProjectReaders, accessWorkspaceReaders);
   const getProjectUseCase = new GetProjectUseCase(projectRepository);
   // Activity（意味のある履歴）。Change Log・Operational Logとは別のtableで、Project・Workspaceの状態はOrganizationのreaderで読む。
@@ -308,6 +330,8 @@ export const createApplicationServices = (
   const getActivityUseCase = new GetActivityUseCase(ActivityScope.PROJECT, activityScopes, activityStore);
   const listWorkspaceActivitiesUseCase = new ListActivitiesUseCase(ActivityScope.WORKSPACE, activityScopes, activityStore);
   const getWorkspaceActivityUseCase = new GetActivityUseCase(ActivityScope.WORKSPACE, activityScopes, activityStore);
+  // Workspace共通と所属全Projectを横断して読むHuman向けの一覧。Agentの入口には公開しない（Agentのscope認可は広げない）。
+  const listWorkspaceActivityStreamUseCase = new ListWorkspaceActivityStreamUseCase(activityScopes, activityStore);
   const activityUnitOfWork: ActivityUnitOfWork = {
     execute: (work) => applicationDatabase.transaction().execute((transaction) =>
       work(new KyselyActivityStore(asActivityDatabase(transaction)), activityScopeReader(transaction)),
@@ -347,7 +371,16 @@ export const createApplicationServices = (
     workStore,
     directionReferenceLookup,
     clock,
+    undefined,
+    integrations.pullRequests ?? null,
   );
+  // 公開確認（Runtimeの原記録）とリリース履歴の読取。開発の受入・PRのmergeとは別の事実として、Workの記録から導出する。
+  const recordPublicationUseCase = new RecordPublicationUseCase(workStore, integrations.revisions ?? null, clock);
+  const listProjectReleasesUseCase = new ListProjectReleasesUseCase(workStore, async (projectId) => {
+    const now = clock();
+    return (await accessCredentialRepository.listByScope({ kind: "project", id: projectId })).some((credential) =>
+      credential.kind === "runtime" && credential.scopes.includes("publication:write") && credentialStatus(credential, now) === "active");
+  });
   // Direction → Executionは読取専用ポート（Execution自身のtableだけを読む）を通す。Direction側の還流先は自身のRepository。
   const executionSummaryService = new ExecutionSummaryService(workStore);
   const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders);
@@ -357,6 +390,8 @@ export const createApplicationServices = (
     directionProjectReaders,
     directionChangeObserver,
   );
+  const intentMetricRepository = new SQLiteIntentMetricRepository(directionDatabase, directionWorkspaceReaders);
+  const intentExplanationRepository = new SQLiteIntentExplanationRepository(directionDatabase, directionWorkspaceReaders);
   const workspaceContexts = {
     getResearcherContextUseCase: new GetResearcherContextUseCase(workspaceRepository, workspaceIntentRepository, workspaceResearchRepository),
     getStrategistContextUseCase: new GetStrategistContextUseCase(workspaceRepository, workspaceIntentRepository, workspaceOutcomeRepository,
@@ -382,21 +417,31 @@ export const createApplicationServices = (
     listRuntimeEventsUseCase: new ListRuntimeEventsUseCase(workspaceRepository, runtimeEventRepository),
     fetchRuntimeEventsUseCase: new FetchRuntimeEventsUseCase(workspaceRepository, runtimeEventRepository),
     ackRuntimeEventUseCase: new AckRuntimeEventUseCase(workspaceRepository, runtimeEventRepository, clock),
+    // Intentの観測項目と時系列。定義はStrategist、記録はEvaluator、参照はWorkspaceの参照者（認可は入口側）。
+    defineIntentMetricUseCase: new DefineIntentMetricUseCase(workspaceRepository, intentMetricRepository, clock),
+    recordIntentMetricObservationsUseCase: new RecordIntentMetricObservationsUseCase(workspaceRepository, intentMetricRepository, clock),
+    listIntentMetricsUseCase: new ListIntentMetricsUseCase(workspaceRepository, intentMetricRepository, clock),
+    // 観測項目についてのAgentの説明（事実・仮説・提案）。記録はStrategist、参照はWorkspaceの参照者（認可は入口側）。
+    recordIntentExplanationUseCase: new RecordIntentExplanationUseCase(workspaceRepository, intentExplanationRepository, clock),
+    listIntentExplanationsUseCase: new ListIntentExplanationsUseCase(workspaceRepository, intentExplanationRepository, intentMetricRepository, clock),
   };
   const humanAccountRepository = new SQLiteHumanAccountRepository(
     accessDatabase,
-    accessProjectReaders,
     accessWorkspaceReaders,
     clock,
   );
-  const projectMembershipRepository = new SQLiteProjectMembershipRepository(accessDatabase, accessProjectReaders, clock);
-  const humanProjectAuthorizationService = new HumanProjectAuthorizationService(projectMembershipRepository);
-  // Workspace Membership（handoff v2「14.1 Human」）。Project Membershipとは別に認可し、相互に継承しない。
+  // HumanのMembershipはWorkspace単位だけ（ADR 0003）。ProjectのHuman操作は所属WorkspaceのMembershipで認可する。
   const workspaceMembershipRepository = new SQLiteWorkspaceMembershipRepository(
     accessDatabase,
     accessWorkspaceReaders,
     clock,
   );
+  const humanProjectAuthorizationService = new HumanProjectAuthorizationService(
+    workspaceMembershipRepository,
+    accessProjectReaders(accessDatabase),
+    accessWorkspaceReaders(accessDatabase),
+  );
+  const workspaceInvitationRepository = new SQLiteWorkspaceInvitationRepository(accessDatabase, accessWorkspaceReaders, clock);
   const humanWorkspaceAuthorizationService = new HumanWorkspaceAuthorizationService(workspaceMembershipRepository);
   const credentialScopeAuthorization = new CredentialScopeAuthorization(humanProjectAuthorizationService, humanWorkspaceAuthorizationService);
   const loginAttemptRepository = new SQLiteLoginAttemptRepository(accessDatabase);
@@ -472,6 +517,13 @@ export const createApplicationServices = (
           return workspaceDirection.recordExecutionEvidenceUseCase.execute(principalId, workspaceId, projectId, outcomeId, input);
         },
       },
+      // 公開確認（Runtime）。Project Runtime Credentialの`publication:write`で認可し、記録した主体を原記録に残す。
+      recordPublicationUseCase: {
+        execute: async (caller: Parameters<typeof runtimeAuthorization.requireScope>[0], projectId: string, input: unknown) => {
+          const principalId = await runtimeAuthorization.requireScope(caller, projectId, "publication:write");
+          return recordPublicationUseCase.execute(principalId, projectId, input);
+        },
+      },
       // Workspace単位の現在状態。Workspace Runtime Credentialのscopeだけで認可し、Project Credentialから継承しない。
       getWorkspaceOrchestrationStateUseCase: new GetWorkspaceOrchestrationStateUseCase(
         runtimeAuthorization,
@@ -492,6 +544,26 @@ export const createApplicationServices = (
         execute: async (principal: string | null, workspaceId: string, outcomeId: string, input: unknown) => {
           const principalId = await roleScopeAuthorization.requireRole(principal, { kind: "workspace", id: workspaceId }, DirectionAgentRole.EVALUATOR);
           return workspaceDirection.recordOutcomeEvaluationUseCase.execute(workspaceId, principalId, outcomeId, input);
+        },
+      },
+      // Intentの観測項目の定義（単位・目標値・鮮度の期限）はStrategist、観測値の記録はEvaluatorのWorkspace Grantで認可する。
+      // Project Grantからは継承しない。来歴のPrincipalはBearerから解決した値だけ。
+      defineIntentMetricUseCase: {
+        execute: async (principal: string | null, workspaceId: string, intentId: string, input: unknown) => {
+          const principalId = await roleScopeAuthorization.requireRole(principal, { kind: "workspace", id: workspaceId }, DirectionAgentRole.STRATEGIST);
+          return workspaceDirection.defineIntentMetricUseCase.execute(workspaceId, principalId, intentId, input);
+        },
+      },
+      recordIntentExplanationUseCase: {
+        execute: async (principal: string | null, workspaceId: string, intentId: string, input: unknown) => {
+          const principalId = await roleScopeAuthorization.requireRole(principal, { kind: "workspace", id: workspaceId }, DirectionAgentRole.STRATEGIST);
+          return workspaceDirection.recordIntentExplanationUseCase.execute(workspaceId, principalId, intentId, input);
+        },
+      },
+      recordIntentMetricObservationsUseCase: {
+        execute: async (principal: string | null, workspaceId: string, intentId: string, input: unknown) => {
+          const principalId = await roleScopeAuthorization.requireRole(principal, { kind: "workspace", id: workspaceId }, DirectionAgentRole.EVALUATOR);
+          return workspaceDirection.recordIntentMetricObservationsUseCase.execute(workspaceId, principalId, intentId, input);
         },
       },
       getResearcherContextUseCase: workspaceRoleContext(DirectionAgentRole.RESEARCHER, workspaceContexts.getResearcherContextUseCase),
@@ -539,6 +611,7 @@ export const createApplicationServices = (
     listIntentsUseCase: workspaceDirection.listIntentsUseCase,
     getIntentUseCase: workspaceDirection.getIntentUseCase,
     updateIntentUseCase: workspaceDirection.updateIntentUseCase,
+    listIntentRevisionsUseCase: workspaceDirection.listIntentRevisionsUseCase,
     abandonIntentUseCase: workspaceDirection.abandonIntentUseCase,
     createOutcomeUseCase: workspaceDirection.createOutcomeUseCase,
     listOutcomesUseCase: workspaceDirection.listOutcomesUseCase,
@@ -562,6 +635,8 @@ export const createApplicationServices = (
     createDirectionDecisionUseCase: workspaceDirection.createDirectionDecisionUseCase,
     decideNextOutcomeUseCase: workspaceDirection.decideNextOutcomeUseCase,
     listDirectionDecisionsUseCase: workspaceDirection.listDirectionDecisionsUseCase,
+    listIntentMetricsUseCase: workspaceDirection.listIntentMetricsUseCase,
+    listIntentExplanationsUseCase: workspaceDirection.listIntentExplanationsUseCase,
     // ADR依頼・参照はWorkspace所有で、対象artifactのProject（`projectId`）は入力で明示する。
     createAdrHandoffRequestUseCase: workspaceDirection.createAdrHandoffRequestUseCase,
     recordAdrReferenceUseCase: workspaceDirection.recordAdrReferenceUseCase,
@@ -577,6 +652,13 @@ export const createApplicationServices = (
     grantWorkspaceRoleUseCase: new GrantWorkspaceRoleUseCase(new GetWorkspaceUseCase(workspaceRepository), workspaceGrantRepository),
     revokeWorkspaceRoleUseCase: new RevokeWorkspaceRoleUseCase(new GetWorkspaceUseCase(workspaceRepository), workspaceGrantRepository),
     listWorkspaceGrantsUseCase: new ListWorkspaceGrantsUseCase(new GetWorkspaceUseCase(workspaceRepository), workspaceGrantRepository),
+    // Agentの実行観測（Ralph・Orchestratorの報告）。Activityには書かず、Grant・Credential・Claimから導かない。
+    recordAgentRunUseCase: new RecordAgentRunUseCase(agentRunRepository, workspaceGrantRepository, projectGrantRepository, clock),
+    listWorkspaceAgentRunsUseCase: new ListWorkspaceAgentRunsUseCase(
+      async (workspaceId) => (await new ListWorkspaceProjectsUseCase(workspaceRepository, projectRepository).execute(workspaceId)).map(({ id }) => id),
+      agentRunRepository,
+      clock,
+    ),
     grantProjectRoleUseCase: new GrantProjectRoleUseCase(accessProjects, projectGrantRepository),
     revokeProjectRoleUseCase: new RevokeProjectRoleUseCase(accessProjects, projectGrantRepository),
     listProjectGrantsUseCase: new ListProjectGrantsUseCase(accessProjects, projectGrantRepository),
@@ -598,24 +680,18 @@ export const createApplicationServices = (
     localDevLoginUseCase: new LocalDevLoginUseCase(registerOrLoginHumanUseCase),
     resolveHumanSessionUseCase: new ResolveHumanSessionUseCase(humanAccountRepository),
     revokeHumanSessionUseCase: new RevokeHumanSessionUseCase(humanAccountRepository),
-    listProjectMembersUseCase: new ListProjectMembersUseCase(humanProjectAuthorizationService, projectMembershipRepository),
-    changeProjectMemberRoleUseCase: new ChangeProjectMemberRoleUseCase(
-      humanProjectAuthorizationService,
-      projectMembershipRepository,
-    ),
-    revokeProjectMemberUseCase: new RevokeProjectMemberUseCase(humanProjectAuthorizationService, projectMembershipRepository),
-    createProjectInvitationUseCase: new CreateProjectInvitationUseCase(
-      humanProjectAuthorizationService,
-      projectMembershipRepository,
+    createWorkspaceInvitationUseCase: new CreateWorkspaceInvitationUseCase(
+      humanWorkspaceAuthorizationService,
+      workspaceInvitationRepository,
       clock,
     ),
-    listProjectInvitationsUseCase: new ListProjectInvitationsUseCase(
-      humanProjectAuthorizationService,
-      projectMembershipRepository,
+    listWorkspaceInvitationsUseCase: new ListWorkspaceInvitationsUseCase(
+      humanWorkspaceAuthorizationService,
+      workspaceInvitationRepository,
     ),
-    revokeProjectInvitationUseCase: new RevokeProjectInvitationUseCase(
-      humanProjectAuthorizationService,
-      projectMembershipRepository,
+    revokeWorkspaceInvitationUseCase: new RevokeWorkspaceInvitationUseCase(
+      humanWorkspaceAuthorizationService,
+      workspaceInvitationRepository,
     ),
   };
   const authorized = <Args extends unknown[], Result>(
@@ -672,22 +748,22 @@ export const createApplicationServices = (
   });
   const projectConsultationReads = consultationReads(projectConsultationScope);
   const workspaceConsultationReads = consultationReads(workspaceConsultationScope);
-  // Project相談の文書反映はそのProject自身の依頼だけ。Workspace相談の文書反映は、HumanがProject Membershipを持つProjectの分だけ展開する
-  // （Workspace Membershipから継承しない）。
+  // Project相談の文書反映はそのProject自身の依頼だけ。Workspace相談の文書反映は、HumanがWorkspace Membershipを持つWorkspaceの
+  // Projectの分だけ展開する（ADR 0003）。
   const getProjectConsultation = {
     execute: (projectId: string, consultationId: string) => consultations.get.execute(projectConsultationScope(projectId), consultationId, [projectId]),
   };
   const getWorkspaceConsultation = {
     execute: async (actor: HumanActor, workspaceId: string, consultationId: string) => {
       await humanWorkspaceAuthorizationService.authorize(actor, workspaceId, "workspace.read");
-      const readableProjectIds = await projectMembershipRepository.listActiveProjectIds(actor.humanUserId);
+      const readableProjectIds = await humanProjectAuthorizationService.listReadableProjectIds(actor);
       return consultations.get.execute(workspaceConsultationScope(workspaceId), consultationId, readableProjectIds);
     },
   };
   // Human向けWeb APIの入口。Membershipの認可（domainの権限表）を通してから、MCPと共通のuse caseへ委譲する。
   // Runtime向け（runtime-events・execution-evidence）はHuman向けではないため含めない。
   const human = {
-    listProjects: new ListHumanProjectsUseCase(services.listProjectsUseCase, projectMembershipRepository),
+    listProjects: new ListHumanProjectsUseCase(services.listProjectsUseCase, humanProjectAuthorizationService),
     getProject: new GetHumanProjectUseCase(humanProjectAuthorizationService, services.getProjectUseCase),
     updateProject: directionWrite("project.update", services.updateProjectUseCase),
     archiveProject: directionWrite("project.archive", services.archiveProjectUseCase),
@@ -695,6 +771,7 @@ export const createApplicationServices = (
     createIntent: workspaceDirectionWrite(services.createIntentUseCase),
     listIntents: workspaceAuthorized("workspace.read", services.listIntentsUseCase),
     getIntent: workspaceAuthorized("workspace.read", services.getIntentUseCase),
+    listIntentRevisions: workspaceAuthorized("workspace.read", services.listIntentRevisionsUseCase),
     updateIntent: workspaceDirectionWrite(services.updateIntentUseCase),
     abandonIntent: workspaceDirectionWrite(services.abandonIntentUseCase),
     createOutcome: workspaceDirectionWrite(services.createOutcomeUseCase),
@@ -705,6 +782,8 @@ export const createApplicationServices = (
     listResearchRequests: workspaceAuthorized("workspace.read", services.listResearchRequestsUseCase),
     getResearchRequest: workspaceAuthorized("workspace.read", services.getResearchRequestUseCase),
     listDirectionDecisions: workspaceAuthorized("workspace.read", services.listDirectionDecisionsUseCase),
+    listIntentMetrics: workspaceAuthorized("workspace.read", services.listIntentMetricsUseCase),
+    listIntentExplanations: workspaceAuthorized("workspace.read", services.listIntentExplanationsUseCase),
     listAdrReferences: workspaceAuthorized("workspace.read", services.listAdrReferencesUseCase),
     listOutcomeEvaluations: workspaceAuthorized("workspace.read", services.listOutcomeEvaluationsUseCase),
     listOutcomeTargetProjects: workspaceAuthorized("workspace.read", services.listOutcomeTargetProjectsUseCase),
@@ -713,9 +792,12 @@ export const createApplicationServices = (
     // Workspace Activity閲覧（Workspace Membership）。所属ProjectのActivityは含めず、Web UIからは記録しない。
     listWorkspaceActivities: workspaceAuthorized("workspace.read", listWorkspaceActivitiesUseCase),
     getWorkspaceActivity: workspaceAuthorized("workspace.read", getWorkspaceActivityUseCase),
+    listWorkspaceActivityStream: workspaceAuthorized("workspace.read", listWorkspaceActivityStreamUseCase),
     // Workspace Direction Role（strategist / researcher / evaluator）のAgent Grant（Workspace Membership）。Project Grantは含めず、
-    // Project Roleからは継承しない。付与・取消はadministrator以上。
+    // Project Grantからは継承しない。付与・取消はadministrator以上。
     listWorkspaceGrants: workspaceAuthorized("grant.read", services.listWorkspaceGrantsUseCase),
+    // Agentの実行観測（Workspaceとactiveな所属Project）。Workspace Membership（viewer以上）で読む。記録はMCPだけ。
+    listWorkspaceAgentRuns: workspaceAuthorized("workspace.read", services.listWorkspaceAgentRunsUseCase),
     grantWorkspaceRole: workspaceAuthorized("grant.manage", services.grantWorkspaceRoleUseCase),
     revokeWorkspaceRole: workspaceAuthorized("grant.manage", services.revokeWorkspaceRoleUseCase),
     grantProjectRole: authorized("grant.manage", services.grantProjectRoleUseCase),
@@ -730,12 +812,14 @@ export const createApplicationServices = (
         return { role: { name: definition.name, path: definition.path, content: definition.content }, skills, source };
       },
     },
-    // Execution SummaryはProject固有の記録で、Project Membershipで読む。
+    // Execution SummaryはProject固有の記録で、所属WorkspaceのMembership（viewer以上）で読む。
     getExecutionSummary: authorized("project.read", services.getExecutionSummaryUseCase),
     // Execution閲覧（Task 45）。archivedのProjectも参照できる（介入はTask 46の`execution.intervene`）。
     listExecution: authorized("project.read", services.listExecutionUseCase),
     getExecutionTask: authorized("project.read", services.getExecutionTaskUseCase),
     listRecentExecutionChanges: authorized("project.read", services.listRecentExecutionChangesUseCase),
+    // リリース履歴（開発の受入と公開確認を別の項目で返す）。archivedのProjectも参照できる。公開記録の入力はRuntimeだけ。
+    listProjectReleases: authorized("project.read", listProjectReleasesUseCase),
     // Activity閲覧。archivedのProjectも参照できる。記録はAgentのMCP（record_activity）とcanonical生成だけで、Web UIからは記録しない。
     listActivities: authorized("project.read", listActivitiesUseCase),
     getActivity: authorized("project.read", getActivityUseCase),
@@ -756,18 +840,18 @@ export const createApplicationServices = (
     replyConsultation: projectConsultation("consultation.reply", consultations.addMessage),
     decideConsultation: projectConsultation("consultation.decide", consultations.resolve),
     cancelConsultation: projectConsultation("consultation.decide", consultations.cancel),
-    // Workspace相談。Workspace Membershipで認可し（参照viewer・返信editor・明示決定/取消administrator以上）、Project Membershipから継承しない。
+    // Workspace相談。Workspace Membershipで認可する（参照viewer・返信editor・明示決定/取消administrator以上）。
     listWorkspaceConsultations: workspaceAuthorized("workspace.read", workspaceConsultationReads.list),
     getWorkspaceConsultation,
     replyWorkspaceConsultation: workspaceConsultation("consultation.reply", consultations.addMessage),
     decideWorkspaceConsultation: workspaceConsultation("consultation.decide", consultations.resolve),
     cancelWorkspaceConsultation: workspaceConsultation("consultation.decide", consultations.cancel),
-    // 横断した判断待ち一覧。有効なProject Membership・Workspace Membershipを持つscopeの相談だけを、Project scopeはProject Membership、
-    // Workspace scopeはWorkspace Membershipで選び、互いに継承しない。絞り込み・ページングはこの認可済みの集合に対して行う。
+    // 横断した判断待ち一覧。有効なWorkspace Membershipを持つWorkspaceと、その配下Projectの相談だけを選ぶ（ADR 0003）。
+    // 絞り込み・ページングはこの認可済みの集合に対して行う。
     listAccessibleConsultations: {
       execute: async (actor: HumanActor, query: unknown) =>
         consultations.listAccessible.execute({
-          projectIds: await projectMembershipRepository.listActiveProjectIds(actor.humanUserId),
+          projectIds: await humanProjectAuthorizationService.listReadableProjectIds(actor),
           workspaceIds: await workspaceMembershipRepository.listActiveWorkspaceIds(actor.humanUserId),
         }, query),
     },
@@ -776,7 +860,7 @@ export const createApplicationServices = (
     createWorkspace: new CreateWorkspaceUseCase(workspaceRepository),
     listWorkspaces: new ListHumanWorkspacesUseCase(new ListWorkspacesUseCase(workspaceRepository), workspaceMembershipRepository),
     getWorkspace: new GetHumanWorkspaceUseCase(humanWorkspaceAuthorizationService, new GetWorkspaceUseCase(workspaceRepository)),
-    // Workspace memberは所属Projectのpurpose・Resource参照を見られる。Project詳細・WorkはProject Membershipで認可し、継承しない。
+    // 所属Projectのpurpose・Resource参照。Project詳細・Workも同じWorkspace Membershipで、操作別のRole水準を検査する。
     listWorkspaceProjects: workspaceAuthorized(
       "workspace.read",
       new ListWorkspaceProjectsUseCase(workspaceRepository, projectRepository),
@@ -787,10 +871,8 @@ export const createApplicationServices = (
       humanWorkspaceAuthorizationService,
       new CreateWorkspaceProjectUseCase(projectRepository),
     ),
-    // Workspace member管理（一覧はviewer以上、追加候補・追加・Role変更・取消はowner）。Project Membershipは変えない。
+    // Workspace member管理（一覧はviewer以上、Role変更・除外はowner）。配下の全Projectへの次の操作から反映される。
     listWorkspaceMembers: new ListWorkspaceMembersUseCase(humanWorkspaceAuthorizationService, workspaceMembershipRepository),
-    listWorkspaceMemberCandidates: new ListWorkspaceMemberCandidatesUseCase(humanWorkspaceAuthorizationService, workspaceMembershipRepository),
-    addWorkspaceMember: new AddWorkspaceMemberUseCase(humanWorkspaceAuthorizationService, workspaceMembershipRepository),
     changeWorkspaceMemberRole: new ChangeWorkspaceMemberRoleUseCase(
       humanWorkspaceAuthorizationService,
       workspaceMembershipRepository,

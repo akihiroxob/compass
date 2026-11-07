@@ -4,12 +4,7 @@ import { hasMinimumRole, humanProjectPermissions, humanWorkspacePermissions, typ
 import { ApiError, classifyError } from "../src/web/api.ts";
 import { runtimeScopeOptionsFor, rotateCredentialPath, scopeCredentialsPath } from "../src/web/features/credential/credentials.ts";
 import { canGrantInScope, revokeRecoveryNote, scopeGrantRoles, scopeGrantsPath, scopeRevokeGrantPath } from "../src/web/features/grant/grants.ts";
-import {
-  addWorkspaceMemberInit,
-  scopeMembersPath,
-  scopeRoleDescriptions,
-  workspaceMemberCandidatesPath,
-} from "../src/web/features/member/members.ts";
+import { humanRoleDescriptions, workspaceMembersPath } from "../src/web/features/member/members.ts";
 import { parseShellLocation, workspaceSectionLabels } from "../src/web/features/workspace/workspace.ts";
 import { workspacePath } from "../src/web/paths.ts";
 
@@ -26,7 +21,7 @@ test("Workspaceの「設定」はURLで表し、Shellのナビゲーション項
   assert.equal(workspaceSectionLabels.settings, "設定");
 });
 
-test("設定の導線はWorkspace Membershipの権限表で決め、Project Roleの権限表とは別に引く", () => {
+test("設定の導線はWorkspace操作の権限表で決め、配下Project操作の権限表とは別に引く（同じWorkspace Membershipへ適用する）", () => {
   const roles: HumanRole[] = ["owner", "administrator", "editor", "viewer"];
   assert.deepEqual(roles.filter((role) => canOperateWorkspace(role, "member.manage")), ["owner"]);
   assert.deepEqual(roles.filter((role) => canOperateWorkspace(role, "grant.manage")), ["owner", "administrator"]);
@@ -54,20 +49,18 @@ test("Workspace Credentialのpathとscope選択肢はWorkspaceのRuntime入口�
   assert.equal(scopeCredentialsPath(workspace), "/api/workspaces/ws-1/credentials");
   assert.equal(scopeCredentialsPath(workspace, "c-1"), "/api/workspaces/ws-1/credentials/c-1");
   assert.equal(rotateCredentialPath(workspace, "c-1"), "/api/workspaces/ws-1/credentials/c-1/rotate");
-  assert.deepEqual(runtimeScopeOptionsFor("workspace").map(({ scope }) => scope), ["runtime:event:read", "runtime:event:ack", "runtime:state:read"]);
-  assert.equal(runtimeScopeOptionsFor("project").length, 6);
+  assert.deepEqual(runtimeScopeOptionsFor("workspace").map(({ scope }) => scope), ["runtime:event:read", "runtime:event:ack", "runtime:state:read", "agent:run:write"]);
+  assert.equal(runtimeScopeOptionsFor("project").length, 8);
 });
 
-test("Workspace memberのpath・追加request・Role説明はWorkspaceのもの", () => {
-  assert.equal(scopeMembersPath(workspace), "/api/workspaces/ws-1/members");
-  assert.equal(scopeMembersPath(workspace, "m-1"), "/api/workspaces/ws-1/members/m-1");
-  assert.equal(scopeMembersPath(project, "m-1"), "/api/projects/p-1/members/m-1");
-  assert.equal(workspaceMemberCandidatesPath("ws-1"), "/api/workspaces/ws-1/member-candidates");
-  const init = addWorkspaceMemberInit("h-1", "editor");
-  assert.equal(init.method, "POST");
-  assert.deepEqual(JSON.parse(String(init.body)), { humanUserId: "h-1", role: "editor" });
-  assert.match(scopeRoleDescriptions(workspace).administrator, /Direction Agent・Credential/);
-  assert.doesNotMatch(scopeRoleDescriptions(workspace).administrator, /Projectの編集/);
+test("Workspace memberのpathとRole説明はWorkspaceのもので、Project単位のMember pathは持たない", () => {
+  assert.equal(workspaceMembersPath("ws-1"), "/api/workspaces/ws-1/members");
+  assert.equal(workspaceMembersPath("ws-1", "m-1"), "/api/workspaces/ws-1/members/m-1");
+  // 説明は配下Projectの操作も含めた権限表に揃える（ownerだけがMember管理、editorがWorkを編集）。
+  assert.match(humanRoleDescriptions.owner, /Memberの管理/);
+  assert.match(humanRoleDescriptions.administrator, /Projectの編集/);
+  assert.match(humanRoleDescriptions.editor, /Story・Task/);
+  assert.equal(humanRoleDescriptions.viewer, "参照のみ");
 });
 
 test("Workspaceの権限エラー・重複・Agent名の束縛はscopeを特定せず理由と次の行動を出す", () => {

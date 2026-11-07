@@ -1,5 +1,7 @@
 export { IntentDetailPage } from "./IntentDetailPage";
-export { IntentCreatePage, IntentEditPage } from "./IntentFormPages";
+export { IntentCreatePage, IntentEditPage, WorkspaceIntentCreatePage, WorkspaceIntentEditPage } from "./IntentFormPages";
 export { IntentSection } from "./IntentSection";
-export { IntentFacts } from "./IntentFacts";
-export { intentStatusLabels, splitIntents, type Intent, type IntentStatus } from "./intent";
+export { IntentEmpty, IntentFacts } from "./IntentFacts";
+export { IntentRevisions } from "./IntentRevisions";
+export { intentStatusLabels, splitIntents, type Intent, type IntentRevision, type IntentStatus } from "./intent";
+export { IntentExplanationSection } from "./IntentExplanationSection";

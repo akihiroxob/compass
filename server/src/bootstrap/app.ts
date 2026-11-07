@@ -8,6 +8,7 @@ import { createMcpServer } from "../mcp/createMcpServer.ts";
 import { ACTIVE_ROLE_HEADER, MalformedAuthorizationError, resolveActiveRole, resolveCaller } from "../auth/resolvePrincipal.ts";
 import { ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError, ValidationError } from "@compass/shared";
 import { parseProjectStatusFilter, parseWorkspaceStatusFilter } from "@compass/organization";
+import { CoordinationError } from "@compass/work";
 import type { CredentialScope, HumanActor } from "@compass/access";
 import { applicationServices, type ApplicationServices } from "./container.ts";
 import {
@@ -34,6 +35,7 @@ export const createApp = (
     "/api/workspaces/:workspaceId/runtime-events",
     "/api/workspaces/:workspaceId/runtime-events/*",
     "/api/projects/:projectId/outcomes/:outcomeId/execution-evidence",
+    "/api/projects/:projectId/publications",
   ]) {
     app.use(path, bearerCors);
   }
@@ -65,14 +67,14 @@ export const createApp = (
   };
   const { human } = services;
 
-  // 作成者を同一transactionでowner Membershipにする。
+  // Projectと専用のWorkspaceを作り、作成者を同一transactionでWorkspaceのowner Membershipにする。
   app.post("/api/projects", async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw);
     const project = await services.createProjectUseCase.execute(input, actor);
     return c.json({ project }, 201);
   });
-  // 有効なMembershipを持つProjectだけ。既定はactiveのみ。`?status=archived`でアーカイブ済み一覧。それ以外の値は400（path `status`）。
+  // 有効なWorkspace Membershipを持つWorkspaceのProjectだけ。既定はactiveのみ。`?status=archived`でアーカイブ済み一覧。それ以外の値は400（path `status`）。
   app.get("/api/projects", async (c) => {
     const actor = await actorOf(c);
     return c.json({ projects: await human.listProjects.execute(actor, parseProjectStatusFilter(c.req.query("status"))) });
@@ -88,9 +90,8 @@ export const createApp = (
     return c.json({ project });
   });
 
-  // Workspaceの作成・参照・更新・archiveと、既存WorkspaceへのProject作成。Workspace Membershipで認可し（未所属・不在は404）、
-  // Project Membershipから継承しない。作成は認証済みであればよく、作成者を同一transactionでowner Membershipにする。
-  // member管理の入口はまだ公開しない。
+  // Workspaceの作成・参照・更新・archiveと、既存WorkspaceへのProject作成。Workspace Membershipで認可する（未所属・不在は404）。
+  // 作成は認証済みであればよく、作成者を同一transactionでowner Membershipにする。作成したProjectは同じMembershipで利用する。
   app.post("/api/workspaces", async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Workspace");
@@ -104,7 +105,7 @@ export const createApp = (
   app.get("/api/workspaces/:workspaceId", async (c) =>
     c.json(await human.getWorkspace.execute(await actorOf(c), c.req.param("workspaceId"))),
   );
-  // 所属Projectの一覧（purpose・Repository・Resource）。Mission等はWorkspaceの応答を参照する。Project詳細はProject Membershipが必要。
+  // 所属Projectの一覧（purpose・Repository・Resource）。Mission等はWorkspaceの応答を参照する。
   app.get("/api/workspaces/:workspaceId/projects", async (c) => {
     const actor = await actorOf(c);
     const status = parseProjectStatusFilter(c.req.query("status"));
@@ -116,7 +117,7 @@ export const createApp = (
     const input = await readJsonBody(c.req.raw, "Workspace");
     return c.json({ workspace: await human.updateWorkspace.execute(actor, c.req.param("workspaceId"), input) });
   });
-  // 既存WorkspaceへのProject作成（administrator以上）。作成者はProjectのownerになる。Mission等はWorkspaceの正本を使う。
+  // 既存WorkspaceへのProject作成（administrator以上）。WorkspaceのMemberが同じRoleで利用する。Mission等はWorkspaceの正本を使う。
   app.post("/api/workspaces/:workspaceId/projects", async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw);
@@ -154,6 +155,11 @@ export const createApp = (
   app.get("/api/workspaces/:workspaceId/intents/:intentId", async (c) =>
     c.json({
       intent: await human.getIntent.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("intentId")),
+    }),
+  );
+  app.get("/api/workspaces/:workspaceId/intents/:intentId/revisions", async (c) =>
+    c.json({
+      revisions: await human.listIntentRevisions.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("intentId")),
     }),
   );
   app.patch("/api/workspaces/:workspaceId/intents/:intentId", async (c) => {
@@ -265,6 +271,11 @@ export const createApp = (
     const { grant, created } = await human.grantWorkspaceRole.execute(actor, c.req.param("workspaceId"), input);
     return c.json({ grant, created }, created ? 201 : 200);
   });
+  // Agentの実行観測（Ralph・Orchestratorの報告）。Workspace Membership（viewer以上）で読み、`principalId`でそのAgentの履歴に絞る。
+  app.get("/api/workspaces/:workspaceId/agent-runs", async (c) => {
+    const principalId = c.req.query("principalId");
+    return c.json(await human.listWorkspaceAgentRuns.execute(await actorOf(c), c.req.param("workspaceId"), principalId === undefined ? {} : { principalId }));
+  });
   app.delete(`${workspaceGrantsPath}/:role/:principalId`, async (c) => {
     const actor = await actorOf(c);
     const revoked = await human.revokeWorkspaceRole.execute(actor, c.req.param("workspaceId"), {
@@ -303,6 +314,21 @@ export const createApp = (
         c.req.param("intentId"),
       ),
     }),
+  );
+  // Intentの観測項目についてのAgentの説明（Workspace member）。新しい順で、根拠は原記録から解決する。
+  // 説明が無い場合は空配列で、観測項目ごとの観測状態（未計測・取得失敗・古い観測）を併せて返す。
+  app.get("/api/workspaces/:workspaceId/intents/:intentId/explanations", async (c) =>
+    c.json(await human.listIntentExplanations.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("intentId"))),
+  );
+  // Intentの観測項目と、現在の観測状態・時系列（Workspace member）。`from`・`to`（`YYYY-MM-DD`）で範囲を指定し、既定は今日までの30日。
+  // 観測の無い期間は含めず、未計測・取得失敗・古い観測は`current.state`で区別する。
+  app.get("/api/workspaces/:workspaceId/intents/:intentId/metrics", async (c) =>
+    c.json(
+      await human.listIntentMetrics.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("intentId"), {
+        ...(c.req.query("from") === undefined ? {} : { from: c.req.query("from") }),
+        ...(c.req.query("to") === undefined ? {} : { to: c.req.query("to") }),
+      }),
+    ),
   );
   app.get("/api/workspaces/:workspaceId/adr-references", async (c) =>
     c.json({ references: await human.listAdrReferences.execute(await actorOf(c), c.req.param("workspaceId")) }),
@@ -343,7 +369,19 @@ export const createApp = (
       ),
     );
   });
-  // Human向けの読取（Project Membership）。還流済みのProjectのExecutionの結果・Evidence参照を返す（還流前は`record: null`）。
+  // 公開確認の記録（Runtime）。CD・デプロイ通知・稼働確認が、公開先で確認したrevisionと根拠の参照を送る。方式によらず同じ契約。
+  // Project Runtime Credentialの`publication:write`で認可し、Session Cookieでは受け付けない。規則はMCPと同じuse caseが持つ。
+  app.post("/api/projects/:projectId/publications", async (c) => {
+    const caller = await callerOf(c);
+    const input = await readJsonBody(c.req.raw, "Publication");
+    const result = await operationServicesOf(c).recordPublicationUseCase.execute(caller, c.req.param("projectId"), input);
+    return c.json(result, result.recorded ? 201 : 200);
+  });
+  // リリース履歴（所属WorkspaceのMembership）。変更ごとに開発の受入と公開の状況を別の項目で返し、公開記録の原記録も返す。
+  app.get("/api/projects/:projectId/releases", async (c) =>
+    c.json(await human.listProjectReleases.execute(await actorOf(c), c.req.param("projectId"))),
+  );
+  // Human向けの読取（所属WorkspaceのMembership）。還流済みのProjectのExecutionの結果・Evidence参照を返す（還流前は`record: null`）。
   app.get("/api/projects/:projectId/outcomes/:outcomeId/execution-summary", async (c) =>
     c.json({
       record: await human.getExecutionSummary.execute(
@@ -399,12 +437,31 @@ export const createApp = (
     ...(c.req.query("type") === undefined ? {} : { type: c.req.query("type") }),
   });
   // Workspace Activity閲覧。Workspace Membership（viewer以上）で認可し、Workspace scopeのsummary・refsと1件の本文・訂正を返す。
-  // 所属ProjectのActivityは含めない（Project Membershipで`/api/projects/:projectId/activities`から読む）。Web UIからは記録しない。
+  // 所属ProjectのActivityは含めない（所属WorkspaceのMembershipで`/api/projects/:projectId/activities`から読む）。Web UIからは記録しない。
   app.get("/api/workspaces/:workspaceId/activities", async (c) =>
     c.json(
       await human.listWorkspaceActivities.execute(await actorOf(c), c.req.param("workspaceId"), activityListQuery(c)),
     ),
   );
+  // Workspace共通と所属全Project（archivedを含む）の業務Activityの横断一覧。Workspace Membership（viewer以上）で認可する。
+  // `before` / `after`は応答の`nextCursor`、`from` / `to`は発生時刻（epoch ms）、`projectId` / `workspaceOnly=true`は対象、`q`は検索語。
+  app.get("/api/workspaces/:workspaceId/activity-stream", async (c) => {
+    const text = c.req.query("q")?.trim();
+    const textFilter = text === undefined || text === "" ? {} : { text };
+    return c.json(
+      await human.listWorkspaceActivityStream.execute(await actorOf(c), c.req.param("workspaceId"), {
+        limit: queryNumber(c.req.query("limit")),
+        from: queryNumber(c.req.query("from")),
+        to: queryNumber(c.req.query("to")),
+        ...(c.req.query("before") === undefined ? {} : { before: c.req.query("before") }),
+        ...(c.req.query("after") === undefined ? {} : { after: c.req.query("after") }),
+        ...(c.req.query("projectId") === undefined ? {} : { projectId: c.req.query("projectId") }),
+        ...(c.req.query("workspaceOnly") === undefined ? {} : { workspaceOnly: c.req.query("workspaceOnly") === "true" }),
+        ...(c.req.query("type") === undefined ? {} : { type: c.req.query("type") }),
+        ...textFilter,
+      }),
+    );
+  });
   app.get("/api/workspaces/:workspaceId/activities/:activityId", async (c) =>
     c.json(await human.getWorkspaceActivity.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("activityId"))),
   );
@@ -436,7 +493,7 @@ export const createApp = (
     c.json(await human.getActivity.execute(await actorOf(c), c.req.param("projectId"), c.req.param("activityId"))),
   );
   // 相談（判断待ち）。scopeのMembershipで認可し（参照はviewer、返信はeditor、明示決定・取消はadministrator以上）、MCPと同じuse caseへ委譲する。
-  // ProjectはProject Membership、WorkspaceはWorkspace Membershipで、互いに継承しない。記録主体はSessionのHumanから導出し、本文では受け取らない。
+  // Projectは所属Workspace、WorkspaceはそのWorkspaceのMembershipで認可する。記録主体はSessionのHumanから導出し、本文では受け取らない。
   // 相談の作成・Agentの応答leaseはMCPだけ。
   const consultationRoutes = (
     scopePath: string,
@@ -538,45 +595,12 @@ export const createApp = (
     const input = await readJsonBody(c.req.raw, "Task");
     return c.json({ task: await human.editExecutionTask.execute(actor, c.req.param("projectId"), c.req.param("taskId"), input) });
   });
-  // Human Membershipと招待（docs/step-6-human-auth-design.md）。認可はMembershipのuse caseが権限表で行う。
-  const membersPath = "/api/projects/:projectId/members";
-  app.get(membersPath, async (c) =>
-    c.json({ members: await services.listProjectMembersUseCase.execute(await actorOf(c), c.req.param("projectId")) }),
-  );
-  app.patch(`${membersPath}/:membershipId`, async (c) => {
-    const actor = await actorOf(c);
-    const input = await readJsonBody(c.req.raw, "Membership");
-    const membership = await services.changeProjectMemberRoleUseCase.execute(
-      actor,
-      c.req.param("projectId"),
-      c.req.param("membershipId"),
-      input,
-    );
-    return c.json({ membership });
-  });
-  app.delete(`${membersPath}/:membershipId`, async (c) => {
-    const actor = await actorOf(c);
-    const membership = await services.revokeProjectMemberUseCase.execute(
-      actor,
-      c.req.param("projectId"),
-      c.req.param("membershipId"),
-    );
-    return c.json({ membership });
-  });
-  // Workspace Membership。一覧はviewer以上、追加候補・追加・Role変更・取消はowner（権限表は`humanWorkspacePermissions`）。
-  // 追加できるのは所属ProjectのMemberだけで、Human全体の検索は公開しない。Project Membershipは変えない。
+  // HumanのMembershipはWorkspace単位だけ（ADR 0003）。一覧はviewer以上、Role変更・除外はowner（権限表は`humanWorkspacePermissions`）。
+  // 変更・除外は配下の全Projectへの次の操作から反映する。Project単位のMember APIは持たない。
   const workspaceMembersPath = "/api/workspaces/:workspaceId/members";
   app.get(workspaceMembersPath, async (c) =>
     c.json({ members: await human.listWorkspaceMembers.execute(await actorOf(c), c.req.param("workspaceId")) }),
   );
-  app.get("/api/workspaces/:workspaceId/member-candidates", async (c) =>
-    c.json({ candidates: await human.listWorkspaceMemberCandidates.execute(await actorOf(c), c.req.param("workspaceId")) }),
-  );
-  app.post(workspaceMembersPath, async (c) => {
-    const actor = await actorOf(c);
-    const input = await readJsonBody(c.req.raw, "Membership");
-    return c.json({ membership: await human.addWorkspaceMember.execute(actor, c.req.param("workspaceId"), input) }, 201);
-  });
   app.patch(`${workspaceMembersPath}/:membershipId`, async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Membership");
@@ -588,19 +612,20 @@ export const createApp = (
     const membership = await human.revokeWorkspaceMember.execute(actor, c.req.param("workspaceId"), c.req.param("membershipId"));
     return c.json({ membership });
   });
-  const invitationsPath = "/api/projects/:projectId/invitations";
+  // Workspaceのownerが発行する招待。Projectがなくても参加できる。
+  const invitationsPath = "/api/workspaces/:workspaceId/invitations";
   app.get(invitationsPath, async (c) =>
     c.json({
-      invitations: await services.listProjectInvitationsUseCase.execute(await actorOf(c), c.req.param("projectId")),
+      invitations: await services.listWorkspaceInvitationsUseCase.execute(await actorOf(c), c.req.param("workspaceId")),
     }),
   );
   // tokenの平文は発行応答で一度だけ返す。リンクはURL fragmentで渡し、access logへ残さない。
   app.post(invitationsPath, async (c) => {
     const actor = await actorOf(c);
     const input = await readJsonBody(c.req.raw, "Invitation");
-    const { invitation, token } = await services.createProjectInvitationUseCase.execute(
+    const { invitation, token } = await services.createWorkspaceInvitationUseCase.execute(
       actor,
-      c.req.param("projectId"),
+      c.req.param("workspaceId"),
       input,
     );
     c.header("Cache-Control", "no-store");
@@ -608,9 +633,9 @@ export const createApp = (
   });
   app.delete(`${invitationsPath}/:invitationId`, async (c) => {
     const actor = await actorOf(c);
-    const invitation = await services.revokeProjectInvitationUseCase.execute(
+    const invitation = await services.revokeWorkspaceInvitationUseCase.execute(
       actor,
-      c.req.param("projectId"),
+      c.req.param("workspaceId"),
       c.req.param("invitationId"),
     );
     return c.json({ invitation });
@@ -706,6 +731,10 @@ export const createApp = (
     }
     if (error instanceof ForbiddenError) {
       return c.json({ error: { code: error.code, message: error.message, ...error.details } }, 403);
+    }
+    // Web API・Runtime向けAPIで外部（GitHub）の事実を確認できなかった失敗。読めなければ503（retryable）、権限の不足は502。
+    if (error instanceof CoordinationError && (error.code === "GITHUB_UNAVAILABLE" || error.code === "GITHUB_ACCESS_DENIED")) {
+      return c.json({ error: error.toJSON() }, error.code === "GITHUB_UNAVAILABLE" ? 503 : 502);
     }
     console.error(error);
     return c.json({ error: { code: "INTERNAL_ERROR", message: "Internal Server Error" } }, 500);

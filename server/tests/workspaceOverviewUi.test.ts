@@ -111,16 +111,15 @@ test("取得に失敗したOutcomeは要対応を判定せず件数で返し、�
   assert.equal(attentionSummary(attentionOf([], { activeIntent: null })), null);
 });
 
-test("Outcome・Intentの詳細はProject Membershipで開けるProject（Targetを優先、無ければactive）から開き、無ければリンクにしない", () => {
+test("Outcome・Intentの詳細はWorkspaceのProject（Targetを優先、無ければactive）から開き、無ければリンクにしない", () => {
   const projects = [
-    { id: "p-locked", status: "active" as const, canOpen: false },
-    { id: "p-archived", status: "archived" as const, canOpen: true },
-    { id: "p-open", status: "active" as const, canOpen: true },
+    { id: "p-archived", status: "archived" as const },
+    { id: "p-open", status: "active" as const },
   ];
-  assert.equal(pickOpenProject(["p-locked", "p-archived"], projects), "p-archived");
-  assert.equal(pickOpenProject(["p-locked"], projects), "p-open");
+  assert.equal(pickOpenProject(["p-unknown", "p-archived"], projects), "p-archived");
+  assert.equal(pickOpenProject(["p-unknown"], projects), "p-open");
   assert.equal(pickOpenProject([], projects), "p-open");
-  assert.equal(pickOpenProject([], [{ id: "p-locked", status: "active", canOpen: false }]), null);
+  assert.equal(pickOpenProject([], [{ id: "p-archived", status: "archived" }]), null);
 });
 
 test("StoryがあってもTaskが無いactiveなTargetは、ProjectのManagerのTask分解待ちにする（ExecutionSummaryのincompleteと同じ）", () => {

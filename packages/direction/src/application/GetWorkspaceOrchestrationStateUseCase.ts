@@ -53,8 +53,16 @@ export type WorkspaceOrchestrationTarget = {
 
 export type WorkspaceOrchestrationOutcome = {
   id: string;
+  intentId: string;
   status: OutcomeStatus;
   updatedAt: number;
+  /** Outcomeが根拠にしているIntentの版。 */
+  intentVersion: number;
+  /**
+   * Intentの意味（実現したい状態・達成条件）が、このOutcomeの根拠にした版より後に変わった未完了Outcomeの再計画対象。
+   * 影響がなければnull。Strategistが`update_outcome`で現在版を確認するか、取消して作り直すと外れる。
+   */
+  intentRevised: { outcomeIntentVersion: number; meaningVersion: number } | null;
   /** 現在のTarget（設定順）。空ならTargetなし。 */
   targets: WorkspaceOrchestrationTarget[];
   /** 全Targetから見た評価可能性。`replan_required`は未完了のarchived Targetを持つ（Project ID・状態・理由だけ）。 */
@@ -81,7 +89,7 @@ export type WorkspaceOrchestrationState = {
   workspace: Pick<Workspace, "id" | "name" | "status">;
   /** WorkspaceのactiveなProject（作成順）。 */
   projects: { id: string; name: string }[];
-  activeIntent: { id: string; status: IntentStatus; updatedAt: number } | null;
+  activeIntents: { id: string; status: IntentStatus; version: number; meaningVersion: number; updatedAt: number }[];
   /** Active Intent配下の全状態のOutcome（新しい順）。Active Intentが無ければ空。 */
   outcomes: WorkspaceOrchestrationOutcome[];
   /** Active Intentを発端とする全状態のResearch Request（新しい順）。Active Intentが無ければ空。 */
@@ -120,7 +128,7 @@ export class GetWorkspaceOrchestrationStateUseCase<TCaller> {
     const empty = {
       workspace: { id: workspace.id, name: workspace.name, status: workspace.status },
       projects: [],
-      activeIntent: null,
+      activeIntents: [],
       outcomes: [],
       intentResearchRequests: [],
       openResearchRequests: [],
@@ -138,70 +146,76 @@ export class GetWorkspaceOrchestrationStateUseCase<TCaller> {
       projects,
       openResearchRequests: requests.filter((request) => !isClosedResearchStatus(request.status)).map(toOrchestrationResearchRequest),
     };
-    const activeIntent = (await this.intentRepository.findByWorkspace(workspaceId)).find((intent) => intent.status === "active");
-    if (!activeIntent) return base;
-
-    const decisions = await this.directionDecisionRepository.findByIntent(workspaceId, activeIntent.id);
-    const decidedBy = new Map(
-      decisions.filter((decision) => decision.evaluationId !== null).map((decision) => [decision.evaluationId, decision.id]),
-    );
-    const latestEvaluations = new Map(
-      (await this.outcomeEvaluationRepository.findLatestByIntent(workspaceId, activeIntent.id)).map((evaluation) => [
-        evaluation.outcomeId,
-        evaluation,
-      ]),
-    );
-    const targets = await this.targetRepository.listByIntent(workspaceId, activeIntent.id);
-    const key = (outcomeId: string, projectId: string) => JSON.stringify([outcomeId, projectId]);
-    const works = new Map(
-      (await this.workSummary.summarizeOutcomeProjects(targets.map(({ outcomeId, projectId }) => ({ outcomeId, projectId })))).map(
-        ({ outcomeId, projectId, state, storyCount, taskCounts }) => [
-          key(outcomeId, projectId),
-          { state, storyCount, taskCount: Object.values(taskCounts).reduce((total, count) => total + count, 0) },
-        ],
-      ),
-    );
-
+    const activeIntents = (await this.intentRepository.findByWorkspace(workspaceId)).filter((intent) => intent.status === "active");
     const outcomes: WorkspaceOrchestrationOutcome[] = [];
-    for (const outcome of await this.outcomeRepository.findByIntent(workspaceId, activeIntent.id)) {
-      const outcomeTargets = targets.filter((target) => target.outcomeId === outcome.id);
-      const executions = attachTargetExecutions(
-        outcomeTargets,
-        await this.outcomeExecutionRepository.findByOutcome(workspaceId, outcome.id),
-      ).targets;
-      const evaluation = latestEvaluations.get(outcome.id);
-      outcomes.push({
-        id: outcome.id,
-        status: outcome.status,
-        updatedAt: outcome.updatedAt,
-        targets: executions.map(({ projectId, projectStatus, execution }) => ({
-          projectId,
-          projectStatus,
-          work: works.get(key(outcome.id, projectId)) ?? null,
-          execution: execution
-            ? { state: execution.summary.state, executionCursor: execution.summary.executionCursor }
+    for (const activeIntent of activeIntents) {
+      const decisions = await this.directionDecisionRepository.findByIntent(workspaceId, activeIntent.id);
+      const decidedBy = new Map(
+        decisions.filter((decision) => decision.evaluationId !== null).map((decision) => [decision.evaluationId, decision.id]),
+      );
+      const latestEvaluations = new Map(
+        (await this.outcomeEvaluationRepository.findLatestByIntent(workspaceId, activeIntent.id)).map((evaluation) => [
+          evaluation.outcomeId,
+          evaluation,
+        ]),
+      );
+      const targets = await this.targetRepository.listByIntent(workspaceId, activeIntent.id);
+      const key = (outcomeId: string, projectId: string) => JSON.stringify([outcomeId, projectId]);
+      const works = new Map(
+        (await this.workSummary.summarizeOutcomeProjects(targets.map(({ outcomeId, projectId }) => ({ outcomeId, projectId })))).map(
+          ({ outcomeId, projectId, state, storyCount, taskCounts }) => [
+            key(outcomeId, projectId),
+            { state, storyCount, taskCount: Object.values(taskCounts).reduce((total, count) => total + count, 0) },
+          ],
+        ),
+      );
+
+      for (const outcome of await this.outcomeRepository.findByIntent(workspaceId, activeIntent.id)) {
+        const outcomeTargets = targets.filter((target) => target.outcomeId === outcome.id);
+        const executions = attachTargetExecutions(
+          outcomeTargets,
+          await this.outcomeExecutionRepository.findByOutcome(workspaceId, outcome.id),
+        ).targets;
+        const evaluation = latestEvaluations.get(outcome.id);
+        outcomes.push({
+          id: outcome.id,
+          intentId: activeIntent.id,
+          status: outcome.status,
+          updatedAt: outcome.updatedAt,
+          intentVersion: outcome.intentVersion,
+          intentRevised:
+            outcome.status === "active" && outcome.intentVersion < activeIntent.meaningVersion
+              ? { outcomeIntentVersion: outcome.intentVersion, meaningVersion: activeIntent.meaningVersion }
+              : null,
+          targets: executions.map(({ projectId, projectStatus, execution }) => ({
+            projectId,
+            projectStatus,
+            work: works.get(key(outcome.id, projectId)) ?? null,
+            execution: execution
+              ? { state: execution.summary.state, executionCursor: execution.summary.executionCursor }
+              : null,
+          })),
+          evaluability: assessOutcomeEvaluability(executions),
+          latestEvaluation: evaluation
+            ? {
+                id: evaluation.id,
+                decisionId: decidedBy.get(evaluation.id) ?? null,
+                createdAt: evaluation.createdAt,
+                targets: evaluation.snapshot.targets.map(({ projectId, execution }) => ({
+                  projectId,
+                  executionCursor: execution.executionCursor,
+                })),
+              }
             : null,
-        })),
-        evaluability: assessOutcomeEvaluability(executions),
-        latestEvaluation: evaluation
-          ? {
-              id: evaluation.id,
-              decisionId: decidedBy.get(evaluation.id) ?? null,
-              createdAt: evaluation.createdAt,
-              targets: evaluation.snapshot.targets.map(({ projectId, execution }) => ({
-                projectId,
-                executionCursor: execution.executionCursor,
-              })),
-            }
-          : null,
-      });
+        });
+      }
     }
     return {
       ...base,
-      activeIntent: { id: activeIntent.id, status: activeIntent.status, updatedAt: activeIntent.updatedAt },
+      activeIntents: activeIntents.map(({ id, status, version, meaningVersion, updatedAt }) => ({ id, status, version, meaningVersion, updatedAt })),
       outcomes,
       intentResearchRequests: requests
-        .filter((request) => request.originIntentId === activeIntent.id)
+        .filter((request) => activeIntents.some((intent) => request.originIntentId === intent.id))
         .map(toOrchestrationResearchRequest),
     };
   }

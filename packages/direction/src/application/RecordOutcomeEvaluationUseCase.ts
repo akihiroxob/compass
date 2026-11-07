@@ -62,6 +62,11 @@ export class RecordOutcomeEvaluationUseCase {
       outcomeId,
       requestKey: parsed.requestKey,
       runRef: parsed.runRef,
+      method: parsed.method,
+      targetVersion: parsed.targetVersion,
+      limitations: parsed.limitations,
+      problemIds: parsed.problemIds,
+      planIds: parsed.planIds,
       criteria: parsed.criteria,
       principalId,
     };
@@ -103,6 +108,7 @@ export class RecordOutcomeEvaluationUseCase {
       );
     }
 
+    this.checkPlanScope(outcome.problems, request);
     const targets = snapshotEvaluationTargets(read.targets);
     const evidenceIds = new Set(targets.flatMap((target) => target.evidence.map((item) => item.id)));
     const criteria = this.judge(outcome.successCriteria, request.criteria, evidenceIds);
@@ -121,6 +127,7 @@ export class RecordOutcomeEvaluationUseCase {
       intentId: outcome.intentId,
       result: deriveEvaluationResult(criteria.map((criterion) => criterion.verdict)),
       criteria,
+      problemPlans: Object.entries(request.planIds).map(([problemId, planId]) => ({ problemId, planId })),
       snapshot,
       at: this.clock(),
     });
@@ -191,6 +198,39 @@ export class RecordOutcomeEvaluationUseCase {
           evidenceIds: [...judgment.evidenceIds],
         };
       });
+  }
+
+  /** 課題idがこのOutcomeの課題であること、認知的ウォークスルー（設計の点検）が`met`の根拠にならないことを確認する。 */
+  private checkPlanScope(problems: readonly { id: string; evaluationPlan: { planId: string } | null }[], request: OutcomeEvaluationRequest): void {
+    const issues: { path: string; message: string }[] = [];
+    const known = new Set(problems.map((problem) => problem.id));
+    request.problemIds.forEach((problemId, index) => {
+      if (!known.has(problemId)) issues.push({ path: `problemIds.${index}`, message: `problemId ${problemId} is not a problem of this Outcome` });
+    });
+    if (request.method === "cognitive_walkthrough") {
+      request.criteria.forEach((judgment, index) => {
+        if (judgment.verdict === "met") {
+          issues.push({
+            path: `criteria.${index}.verdict`,
+            message: "a cognitive_walkthrough inspects the design and is not evidence from real users; judge it insufficient_evidence or not_met",
+          });
+        }
+      });
+    }
+    if (issues.length > 0) throw new ValidationError("Outcome Evaluation input is invalid", issues);
+    // 評価者が読んだ計画が今の計画と違えば保存しない。現在の計画の`planId`を黙って採用すると、旧計画の観測が新計画の結果になる。
+    const stale = problems.flatMap((problem) => {
+      if (!request.problemIds.includes(problem.id)) return [];
+      const current = problem.evaluationPlan?.planId ?? null;
+      const evaluated = request.planIds[problem.id] ?? null;
+      return current === evaluated ? [] : [`${problem.id} (evaluated ${evaluated ?? "no plan"}, current ${current ?? "no plan"})`];
+    });
+    if (stale.length > 0) {
+      throw new ConflictError(
+        `The evaluation plan changed after it was read; re-read the Outcome and evaluate the current plan: ${stale.join(", ")}`,
+        { reason: "evaluation_plan_changed" },
+      );
+    }
   }
 
   private outcomeNotActive(outcomeId: string, status: string) {

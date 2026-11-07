@@ -58,7 +58,7 @@ scopeは決定対象の所有で決め、影響するProject数では決めな�
 
 ## 認可
 
-| 操作 | Human（Project相談はProject Membership、Workspace相談はWorkspace Membership） | Agent（Project相談はProject Execution Role Grant） | Agent（Workspace相談はWorkspace Direction Role Grant） |
+| 操作 | Human（Workspace Membership。Project相談は所属WorkspaceのMembership） | Agent（Project相談はProject Execution Role Grant） | Agent（Workspace相談はWorkspace Direction Role Grant） |
 | --- | --- | --- | --- |
 | 一覧・詳細 | viewer以上（`project.read` / `workspace.read`） | manager / worker / reviewer | strategist / researcher / evaluator |
 | 作成 | なし | manager / worker / reviewer | strategist / researcher / evaluator |
@@ -69,11 +69,11 @@ scopeは決定対象の所有で決め、影響するProject数では決めな�
 | 結論の引継ぎ先Projectの明示 | なし | なし | strategist（`hand_off_consultation`。同じWorkspaceの所属Projectだけ） |
 | 文書反映の引継ぎContext・依頼・成果物参照の登録 | なし（詳細で参照だけ） | 反映担当Projectのmanager（文書反映TaskはそのProject Grantで起票） | なし（Workspace相談は、strategistが引継ぎ先に明示したProjectのmanagerが左の列の権限で行う） |
 
-Project MembershipとWorkspace Membership、Project GrantとWorkspace Grant、Project Runtime CredentialとWorkspace Runtime Credentialは互いに継承しない。Project MembershipだけのHumanは同じWorkspaceの相談を読めず、Workspace MembershipだけのHumanは未所属Projectの相談を読めない。Humanは未所属・存在しないscope・別scopeの相談IDを404で区別しない。AgentはscopeのGrantが無ければ`FORBIDDEN`、別scopeの相談IDは`NOT_FOUND`、scopeに属さないRole（Project相談のstrategist等）は`FORBIDDEN`。AgentはactiveRole（`X-Compass-Active-Role`）または`role`入力でRoleを決め、どちらも無い記録は`VALIDATION_ERROR`。archivedのProject・Workspaceは参照だけでき、記録は`CONFLICT`（`projectStatus` / `workspaceStatus: archived`）。
+HumanはWorkspace Membershipで、そのWorkspaceの相談と配下ProjectのProject相談を同じRoleで扱う（[ADR 0003](adr/0003-workspace-human-membership.md)）。Project GrantとWorkspace Grant、Project Runtime CredentialとWorkspace Runtime Credentialは互いに継承しない。別WorkspaceのMemberは、そのWorkspaceの相談も配下ProjectのProject相談も読めない。Humanは未所属・存在しないscope・別scopeの相談IDを404で区別しない。AgentはscopeのGrantが無ければ`FORBIDDEN`、別scopeの相談IDは`NOT_FOUND`、scopeに属さないRole（Project相談のstrategist等）は`FORBIDDEN`。AgentはactiveRole（`X-Compass-Active-Role`）または`role`入力でRoleを決め、どちらも無い記録は`VALIDATION_ERROR`。archivedのProject・Workspaceは参照だけでき、記録は`CONFLICT`（`projectStatus` / `workspaceStatus: archived`）。
 
 ## 横断一覧
 
-`GET /api/consultations`は、呼出しHumanの有効なProject Membershipを持つProjectのProject相談と、有効なWorkspace Membershipを持つWorkspaceのWorkspace相談を、更新の新しい順（同時刻はID順）に返す。
+`GET /api/consultations`は、呼出しHumanの有効なWorkspace Membershipを持つWorkspaceのWorkspace相談と、その配下ProjectのProject相談を、更新の新しい順（同時刻はID順）に返す。
 
 | query | 内容 |
 | --- | --- |
@@ -93,7 +93,7 @@ Web API（Human。Session・CSRF）。`:scopePath`は`/api/projects/:projectId`�
 | --- | --- |
 | `GET /api/consultations` | 横断一覧（上記）。`{ consultations, nextCursor }` |
 | `GET :scopePath/consultations?status=` | scopeの一覧（更新の新しい順。`status`省略で全件）。Workspaceの一覧に所属Projectの相談は含めない |
-| `GET :scopePath/consultations/:consultationId` | `consultation`・`messages`・`resolution`・`responder`（有効な応答leaseの保持者・期限）・`followups`（文書反映の依頼・反映状況・Task・Repository・成果物参照。Workspace相談では閲覧者がProject Membershipを持つ反映担当Projectの依頼だけ）・`waitingTasks`（この相談を待つTaskの状態・段階・待機状態。Project相談だけ） |
+| `GET :scopePath/consultations/:consultationId` | `consultation`・`messages`・`resolution`・`responder`（有効な応答leaseの保持者・期限）・`followups`（文書反映の依頼・反映状況・Task・Repository・成果物参照。Workspace相談では閲覧者が参照できる反映担当Projectの依頼だけ）・`waitingTasks`（この相談を待つTaskの状態・段階・待機状態。Project相談だけ） |
 | `POST .../messages` | 返信`{ body, correctsMessageId?, requestId }`（201） |
 | `POST .../resolution` | 明示決定`{ conclusion, rationale, applicability?, selectedOption?, basisMessageIds?, expectedRevision, requestId }`（201） |
 | `POST .../cancel` | 取消`{ reason, expectedRevision, requestId }` |
@@ -112,13 +112,13 @@ Web UI:
 既存DBを使わず、新しい専用ディレクトリの`COMPASS_DB_PATH`、loopbackの`COMPASS_PUBLIC_ORIGIN`と`PORT`、`COMPASS_AUTH_MODE=trusted-local`、`COMPASS_INITIAL_OWNER_EMAIL`を設定してbuild後のserverを起動する。開発用WachaのMCPとは接続先を分ける。
 
 1. 初期ownerが開発用ログインし、Web UIまたはSession・CSRF付きWeb APIでWorkspace（`POST /api/workspaces`）、Project（`POST /api/workspaces/:workspaceId/projects`）を作成する。
-2. ownerがProjectの招待（`POST /api/projects/:projectId/invitations`）をadministrator・editor・viewerへ発行し、それぞれ別ブラウザContextで招待リンクからログイン・受諾する。未所属Humanは別Projectの招待で用意する。Workspace MembershipはProjectから継承しない。
+2. ownerがWorkspaceの招待（`POST /api/workspaces/:workspaceId/invitations`）をadministrator・editor・viewerへ発行し、それぞれ別ブラウザContextで招待リンクからログイン・受諾する。未所属Humanは別Workspaceの招待で用意する。HumanのRoleはWorkspaceと配下の全Projectに同じく適用する。
 3. ownerがProjectのGrant（`POST /api/projects/:projectId/grants`）を別Principalのworker・reviewer・managerへ付与する。専用originの`/mcp`でBearer Principalと`X-Compass-Active-Role`を指定する。
 4. workerが`create_consultation`で質問・選択肢・推奨・影響を登録する。HumanがProjectの「判断待ち」から詳細を開き、editorが通常返信する。managerが詳細を読み、現在の版のleaseを取得し、HumanのMessageを根拠に`resolve_consultation`で結論を整理する。
 5. 再読込・同schemaでのserver再起動後に会話と結論が保持され、`agent_summary`とHumanの発言が区別されることを確認する。Humanの明示決定はadministratorのWeb UIから別相談で確認する。
 6. viewerの書込拒否、未所属・別Projectの404、古い版・他Principalのlease・期限切れの拒否、同じ`requestId`の再送を確認する。Desktopと狭い画面の画像を保存し、空・読込・通信失敗・権限不足を確認する。読込遅延や通信失敗の模擬は表示検査だけに用い、保存・認可の成功の証拠にはしない。
 
-Workspace相談は、ownerがWorkspace（`POST /api/workspaces`）とWorkspace Grant（`POST /api/workspaces/:workspaceId/grants`）のstrategist / researcherを用意し、Workspace Membership（viewer・editor・administrator）とProject MembershipだけのHumanを分けて同じ流れを確認する。Strategistの起動はWorkspace Runtime Credentialを設定したOrchestrator（[Orchestrator](../orchestrator/README.md)）で行う。
+Workspace相談は、ownerがWorkspace（`POST /api/workspaces`）とWorkspace Grant（`POST /api/workspaces/:workspaceId/grants`）のstrategist / researcherを用意し、Workspace Membership（viewer・editor・administrator）のHumanと別WorkspaceだけのHumanを分けて同じ流れを確認する。Strategistの起動はWorkspace Runtime Credentialを設定したOrchestrator（[Orchestrator](../orchestrator/README.md)）で行う。
 
 回帰テストは`node --import tsx --test packages/collaboration/tests/consultation.test.ts server/tests/consultation.test.ts server/tests/workspaceConsultation.test.ts server/tests/consultationUi.test.ts`、UI構造検査は`npm run check:ui`。テスト内の時刻差し替えでlease境界を検査することと、実環境で期限を待つ確認は区別する。専用serverは確認後に停止する。
 
@@ -148,7 +148,7 @@ Workが`task_consultation_wait`にTaskごとの待機相談参照（ID・版・�
 
 反映担当Projectは、Project相談ではそのProject、Workspace相談ではStrategistが引継ぎ先に明示した、そのWorkspaceに所属するProjectとする。相談の所有scopeは変えず、依頼・参照は相談に属する。Workspace GrantとProject Grantは互いに継承しないため、Project GrantだけではWorkspace相談を読めない。Workspace相談の結論は、StrategistがWorkspace Grantで`hand_off_consultation`により引継ぎ先Projectを明示したときだけ、そのProjectへ公開される（Outcomeの`set_outcome_target`と`get_outcome_handoff_context`と同じ、Workspace側の明示による引継ぎの形）。Work Taskの起票はProject GrantのRoleだけが行うため、引継ぎ先Projectのmanagerが、そのProjectのmanager Grant（activeRole `manager`）で文書反映を依頼する。Workspace Grantは要らず、使わない。どのProjectへ引き継ぐかはStrategistが結論から判断し、Serverは自動で転送しない。
 
-相談詳細の`followups`は、閲覧主体が参照できる反映担当Projectの依頼だけを展開する。Project相談ではそのProjectの依頼だけである。Workspace相談では、HumanはProject Membershipを持つProject、AgentはExecution RoleのProject Grant（activeRoleの指定時はそのRoleのGrant）を持つProjectの依頼だけを返す。それ以外のProject名・Task題名・状態・Repository・依頼内容・成果物参照・件数は返さず、Workspace MembershipやWorkspace Grantから所属Projectの情報を開示しない。
+相談詳細の`followups`は、閲覧主体が参照できる反映担当Projectの依頼だけを展開する。Project相談ではそのProjectの依頼だけである。Workspace相談では、HumanはWorkspace Membershipで配下の反映担当Projectの依頼を参照でき、AgentはExecution RoleのProject Grant（activeRoleの指定時はそのRoleのGrant）を持つProjectの依頼だけを返す。それ以外のProject名・Task題名・状態・Repository・依頼内容・成果物参照・件数は返さず、Workspace Grantから所属Projectの情報を開示しない。
 
 | MCP | 認可・契約 |
 | --- | --- |

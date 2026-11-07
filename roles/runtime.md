@@ -2,12 +2,12 @@
 
 ## Goal
 
-外部 Runtime が、Compass の確定イベント（Runtime event）を取得し、Researcher・Strategist・Manager などの Agent を起動して、処理結果を `ack` で残す。Compass は Agent を起動せず、polling・timeout・retry の間隔・backoff・token 予算も持たない。これらは Runtime の責務である。Runtime は Agent の Role Grant ではなく、Administrator が発行した Runtime Credential の scope で認可される。Runtime event と Workspace の現在状態は Workspace Runtime Credential、Execution の変更・還流・要約と Project の現在状態は Project Runtime Credential を使う。
+外部 Runtime が、Compass の確定イベント（Runtime event）を取得し、Researcher・Strategist・Manager などの Agent を起動して、処理結果を `ack` で残す。Compass は Agent を起動せず、polling・timeout・retry の間隔・backoff・token 予算も持たない。これらは Runtime の責務である。Runtime は Agent の Role Grant ではなく、Administrator が発行した Runtime Credential の scope で認可される。Runtime event と Workspace の現在状態は Workspace Runtime Credential、Execution の変更・還流・要約・公開確認の記録と Project の現在状態は Project Runtime Credential を使う。
 
 ## 認証
 
 - `Authorization: Bearer cmp_runtime.<id>.<secret>`（Runtime Credential）を送る。Credential に登録された Runtime 名が consumer になり、consumer ごとに処理結果（ack）が独立して記録される。別 consumer の ack は互いに影響しない
-- Credential は発行した scope（Workspace または Project）だけで有効で、Workspace と Project の間で転用できない。入口ごとに scope が必要: Workspace Runtime Credential の `fetch_runtime_events` は `runtime:event:read`、`ack_runtime_event` は `runtime:event:ack`、`get_workspace_orchestration_state` は `runtime:state:read`。Project Runtime Credential の `list_changes` は `execution:change:read`、`record_execution_evidence` は `execution:evidence:write`、`get_outcome_execution_summary` は `execution:summary:read`。不足・別 scope・Agent Credential は `FORBIDDEN`、Bearer なし・期限切れ・取消済み・不正な token は `UNAUTHENTICATED`。別 scope へ切り替えたり scope を増やそうとしたりせず、報告して停止する
+- Credential は発行した scope（Workspace または Project）だけで有効で、Workspace と Project の間で転用できない。入口ごとに scope が必要: Workspace Runtime Credential の `fetch_runtime_events` は `runtime:event:read`、`ack_runtime_event` は `runtime:event:ack`、`get_workspace_orchestration_state` は `runtime:state:read`。Project Runtime Credential の `list_changes` は `execution:change:read`、`record_execution_evidence` は `execution:evidence:write`、`get_outcome_execution_summary` は `execution:summary:read`、`record_publication` は `publication:write`。不足・別 scope・Agent Credential は `FORBIDDEN`、Bearer なし・期限切れ・取消済み・不正な token は `UNAUTHENTICATED`。別 scope へ切り替えたり scope を増やそうとしたりせず、報告して停止する
 - Runtime Credential では Agent 向け tool（Role Grant で認可するもの）を使えない
 - rotation 中は新旧の token が期限付きで併用できる。新しい token へ切り替え、旧 token の期限前に設定を更新する
 - token をログ・Evidence・Comment に書かない
@@ -93,6 +93,19 @@ Execution の進行を Direction（Outcome）へ還流するのは Runtime の�
 - `NOT_FOUND`（別 Project・存在しない Outcome）、`CONFLICT`（Story 未着手 `reason: no_correlated_story`・Target でない Project `reason: not_target_project`・取消済み Outcome・archived Project・Project ごとの Evidence 上限 200 件）、`VALIDATION_ERROR`（不正な URI / SHA / 時刻、Change Log より先の `changeCursor`）。未着手の `CONFLICT` は Manager の `issue_story` 後に再試行できる。それ以外は再試行しても成功しないため、理由を残して打ち切る
 - 還流済みの内容は `get_outcome_execution_summary({ projectId, outcomeId })` で確認できる（未還流は `record: null`）
 - `execution:evidence:write` / `execution:summary:read` scope が必要
+
+## 公開確認の記録
+
+公開（デプロイ）を行う・観測する Runtime（CD・デプロイ通知・稼働確認）は、公開先で確認した revision を Compass へ記録する。Compass は公開先を操作せず、PR の merge や Task の受入を公開とみなさない。
+
+1. 公開先で実際に配信されている revision（完全な 40 桁の commit SHA）を確認してから、`record_publication({ projectId, repositoryId, revision, target, targetUrl?, method?, observedAt, evidence })`（Web API: `POST /api/projects/:projectId/publications`）を呼ぶ。デプロイ方式によらず同じ入力で、方式は `method` のラベル（例 `cloudflare-pages`）だけで表す
+2. `target` は公開先の参照（例 `production` / `staging`）、`observedAt` は確認した時刻（未来でない epoch ミリ秒）。`evidence` は 1〜20 件の参照 `{ kind: deployment | ci | url, uri }`。`uri` は認証情報を含まない http(s)。本文・token を渡さない
+3. 変更（Task の PR の merge commit・受入成果物の commit）が revision に含まれるかは Compass が GitHub の履歴で判定する。Runtime は Task や PR を指定しない
+
+- 同じ `repositoryId`・`target`・`revision`・`observedAt` の再送は同じ記録を返す（`recorded: false`）。応答が失われたら同じ内容で再送してよい。同じ組で内容（`targetUrl`・`method`・`evidence`）を変えると `CONFLICT`
+- 遅れて届いた古い `observedAt` の記録は残るが現在の状況を戻さない（`superseded: true`）。ロールバックした場合も、その時点で配信中の revision を新しい `observedAt` で記録する
+- `VALIDATION_ERROR`（Repository に無い revision・未登録 Repository・不正な入力・未来の時刻）と `CONFLICT`（archived Project・内容の違う再送）は再試行しても成功しないため、理由を残して打ち切る。`GITHUB_UNAVAILABLE`（retryable、何も記録していない）は同じ内容で再送する
+- `publication:write` scope が必要
 
 ## やらないこと
 

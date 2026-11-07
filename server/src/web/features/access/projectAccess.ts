@@ -1,7 +1,7 @@
 // テストからも読み込むため、他moduleをimportしない純関数だけを置く。
 
 export type ProjectOperationAccess = "allowed" | "archived" | "forbidden";
-/** 操作の権限を判定するscope。DirectionはWorkspace Membership、Project・WorkはProject Membershipで判定する。 */
+/** 操作の対象scope（文言用）。Roleはどちらも所属WorkspaceのMembershipで判定する（ADR 0003）。 */
 export type OperationScope = "Project" | "Workspace";
 
 /**
@@ -15,7 +15,7 @@ export const projectOperationAccess = (project: { status: "active" | "archived" 
 export const projectOperationDeniedMessage = (access: Exclude<ProjectOperationAccess, "allowed">, scope: OperationScope = "Project"): string =>
   access === "archived"
     ? `アーカイブ済みの${scope}は変更できません。内容と履歴は詳細画面で参照できます。`
-    : `この${scope}でこの操作を行う権限がありません。必要な場合は${scope}のownerにRoleの変更を依頼してください。`;
+    : `この${scope}でこの操作を行う権限がありません。必要な場合はWorkspaceのownerにRoleの変更を依頼してください。`;
 
 /** 判定結果と、その判定をどの`projectId`・`operation`について行ったか。 */
 export type KeyedProjectOperationResult<T> = { projectId: string; operation: string; result: T };
@@ -35,5 +35,5 @@ export const registrationUnavailableNote = (access: ProjectOperationAccess | "lo
   access === "archived"
     ? `アーカイブ済みのため、${subject}は登録できません。`
     : access === "forbidden"
-      ? `${subject}の登録には編集の権限が必要です。必要な場合は${scope}のownerにRoleの変更を依頼してください。`
+      ? `${subject}の登録には編集の権限が必要です。必要な場合はWorkspaceのownerにRoleの変更を依頼してください。`
       : null;

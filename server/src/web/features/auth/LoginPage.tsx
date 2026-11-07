@@ -81,7 +81,7 @@ export const LoginPage = () => {
       <div className="detail-hero">
         <p className="eyebrow">Sign in</p>
         <h1>Compassにログイン</h1>
-        <p className="lede">利用できるのは、許可されたアカウントと、Projectに招待されたアカウントだけです。</p>
+        <p className="lede">利用できるのは、許可されたアカウントと、招待されたアカウントだけです。</p>
       </div>
       <LoginError code={params.get("error")} />
       <LoginForms returnTo={normalizeReturnTo(params.get("returnTo"))} />
@@ -102,8 +102,8 @@ export const InvitePage = () => {
     <main className="narrow">
       <div className="detail-hero">
         <p className="eyebrow">Invitation</p>
-        <h1>Projectへの招待</h1>
-        <p className="lede">招待されたメールアドレスのアカウントでログインすると、Projectに参加できます。</p>
+        <h1>Workspaceへの招待</h1>
+        <p className="lede">招待されたメールアドレスのアカウントでログインすると、Workspaceに参加し、配下のすべてのProjectを付与されたRoleで利用できます。</p>
       </div>
       {token ? (
         <LoginForms returnTo="/" invitationToken={token} />

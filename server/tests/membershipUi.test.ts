@@ -10,12 +10,15 @@ import {
 } from "../src/web/features/auth/auth.ts";
 import {
   changeRoleInit,
+  filterMembers,
+  memberPageSize,
+  paginateMembers,
   invitationDisplayStatus,
   invitationExpiryOptions,
   invitationInit,
   invitationsPath,
   isLastOwner,
-  membersPath,
+  workspaceMembersPath,
   type HumanRole,
   type Member,
 } from "../src/web/features/member/members.ts";
@@ -34,7 +37,7 @@ const failureOf = async (status: number, body: unknown) => {
 };
 
 const member = (id: string, role: HumanRole): Member => ({
-  membership: { id, projectId: "p1", humanUserId: `h-${id}`, role, createdAt: 0, updatedAt: 0 },
+  membership: { id, workspaceId: "w1", humanUserId: `h-${id}`, role, createdAt: 0, updatedAt: 0 },
   human: { id: `h-${id}`, displayName: id, email: `${id}@example.com` },
 });
 
@@ -97,9 +100,9 @@ test("最後のowner・招待の重複・取消不可の409を日本語の説明
 });
 
 test("Membership・招待のrequestはWeb APIと同じpath・本文を使う", () => {
-  assert.equal(membersPath("p1"), "/api/projects/p1/members");
-  assert.equal(membersPath("p1", "m1"), "/api/projects/p1/members/m1");
-  assert.equal(invitationsPath("p1", "i1"), "/api/projects/p1/invitations/i1");
+  assert.equal(workspaceMembersPath("w1"), "/api/workspaces/w1/members");
+  assert.equal(workspaceMembersPath("w1", "m1"), "/api/workspaces/w1/members/m1");
+  assert.equal(invitationsPath("p1", "i1"), "/api/workspaces/p1/invitations/i1");
   assert.equal(changeRoleInit("viewer").method, "PATCH");
   assert.deepEqual(JSON.parse(String(changeRoleInit("viewer").body)), { role: "viewer" });
   const invite = invitationInit("a@example.com", "editor", 24);
@@ -182,4 +185,16 @@ test("同じ画面のままProject IDや操作が変わった直後は、前のP
   assert.equal(currentProjectOperationResult(allowedA, "project-b", "direction.write"), null);
   assert.equal(currentProjectOperationResult(allowedA, "project-a", "project.update"), null);
   assert.equal(currentProjectOperationResult(null, "project-a", "direction.write"), null);
+});
+
+test("Memberは名前・メールで検索し、ページ範囲を件数に合わせて寄せる", () => {
+  const members = Array.from({ length: 45 }, (_, index) => member(`m${index}`, index === 0 ? "owner" : "viewer"));
+  assert.equal(filterMembers(members, "  ").length, 45);
+  assert.deepEqual(filterMembers(members, "M4").map((m) => m.membership.id), ["m4", "m40", "m41", "m42", "m43", "m44"]);
+  assert.equal(filterMembers(members, "nobody").length, 0);
+  const first = paginateMembers(members, 1);
+  assert.deepEqual([first.items.length, first.pageCount, first.from, first.to], [memberPageSize, 3, 1, 20]);
+  const last = paginateMembers(members, 99);
+  assert.deepEqual([last.page, last.items.length, last.from, last.to], [3, 5, 41, 45]);
+  assert.deepEqual(paginateMembers([], 5), { items: [], page: 1, pageCount: 1, total: 0, from: 0, to: 0 });
 });

@@ -38,6 +38,7 @@ skills:
 - `renew_claim`
 - `release_claim`
 - `add_task_comment`
+- `register_task_pull_request` / `list_task_pull_requests`（PR を作る Task。現在の Work Claim で、Project の GitHub Repository の open PR を登録する）
 - `complete_task`
 - `issue_task`
 - Project 相談（`projectId` を指定）: `create_consultation` / `list_consultations` / `get_consultation`、現在 Claim の Task の待機 `wait_for_consultation`、再開 Context で渡された保存済み実行の照合 `list_consultation_resumptions` / `resume_consultation_task`（製品 Ralph が呼ぶ。Agent は Claim を取り直さない）
@@ -56,6 +57,10 @@ Story の作成・編集・中止、Task の編集・中止、Review、最終受
 8. 作業を中断して所有権を返すなら、理由付きで `release_claim` を呼ぶ
 
 `complete_task` は、同じ Principal と同じ Claim で作成したコメントがない場合に拒否される。
+
+## PR を作る Task
+
+Repository を変更する Task は、branch と open・非 draft の PR を作り、手順 7 の前に現在の Work Claim で `register_task_pull_request` する。PR を登録した Task は、`complete_task` で Server が GitHub の現在の PR を照合する（現在の Work Claim で登録した open・非 draft の PR であること）。差し戻し後は同じ open PR を修正して新しい Work Claim で再登録し、merge 後の差し戻しでは新しい PR を作る。手順と失敗時の再確認は `implement-task` Skill の `tips/github-workflow.md` に従う。
 
 ## Story の参照情報
 

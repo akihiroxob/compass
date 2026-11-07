@@ -27,7 +27,7 @@ import {
   projectRepositoryReferenceFinder,
   workExternalReaders,
 } from "../src/infrastructure/repository/contextAdapters.ts";
-import { addTestMembership, createSignedInApp, createTestHuman, requestAs, seedWorkspaceGrant } from "./support/humanSession.ts";
+import { addTestWorkspaceMembership, createSignedInApp, createTestHuman, requestAs, seedWorkspaceGrant } from "./support/humanSession.ts";
 
 type Database = ReturnType<typeof createDatabase>;
 type App = ReturnType<typeof createApp>;
@@ -35,7 +35,7 @@ type App = ReturnType<typeof createApp>;
 const outcomeInput = {
   title: "Result",
   description: "Result",
-  rationale: "Reason",
+  intentVersion: 1, rationale: "Reason",
   successCriteria: [{ description: "Done", measurement: "Check" }],
 };
 
@@ -563,11 +563,11 @@ test("Target Work: no Target, a Story only in A, and Stories in both A and B are
     const response = await app.request(`/api/workspaces/${workspace.id}/intents/${intent.id}/outcome-target-work`);
     assert.equal(response.status, 200);
     assert.deepEqual(((await response.json()) as { outcomes: unknown }).outcomes, JSON.parse(JSON.stringify(both)));
-    // Project Membershipだけでは、Workspace scopeのTarget別要約を読めない（Workspace Membershipを継承しない）。
-    const projectOnly = await createTestHuman(database);
-    await addTestMembership(database, a.id, projectOnly, "viewer");
-    const projectMember = await requestAs(createApp(services), projectOnly)(`/api/workspaces/${workspace.id}/intents/${intent.id}/outcome-target-work`);
-    assert.equal(projectMember.status, 404);
+    // 別WorkspaceのMemberは、このWorkspaceのTarget別要約を読めない（存在を区別せず404）。
+    const outsider = await createTestHuman(database);
+    await addTestWorkspaceMembership(database, other.id, outsider, "owner");
+    const outsiderResponse = await requestAs(createApp(services), outsider)(`/api/workspaces/${workspace.id}/intents/${intent.id}/outcome-target-work`);
+    assert.equal(outsiderResponse.status, 404);
     await database.destroy();
 
     // 同じschemaで再起動しても同じ要約を返す。
@@ -736,13 +736,13 @@ test("Target Execution: each Target reflects its own Summary and Evidence; non-T
     const denied = await callTool(app, "list_outcome_target_executions", input, "manager-A", "manager");
     assert.equal(denied.structuredContent.error?.code, "FORBIDDEN");
 
-    // Web API: Workspace Membershipで読む。Project Membershipだけでは読めない。
+    // Web API: Workspace Membershipで読む。別WorkspaceのMemberは読めない。
     const response = await app.request(`/api/workspaces/${workspace.id}/outcomes/${outcome.id}/target-executions`);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), JSON.parse(JSON.stringify(final)));
-    const projectOnly = await createTestHuman(database);
-    await addTestMembership(database, a.id, projectOnly, "viewer");
-    assert.equal((await requestAs(createApp(services), projectOnly)(`/api/workspaces/${workspace.id}/outcomes/${outcome.id}/target-executions`)).status, 404);
+    const outsider = await createTestHuman(database);
+    await addTestWorkspaceMembership(database, other.id, outsider, "owner");
+    assert.equal((await requestAs(createApp(services), outsider)(`/api/workspaces/${workspace.id}/outcomes/${outcome.id}/target-executions`)).status, 404);
     await database.destroy();
 
     // 同じschemaで再起動しても同じ集約を返す。

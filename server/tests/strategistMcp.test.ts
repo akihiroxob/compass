@@ -80,7 +80,7 @@ const grant = async (database: ReturnType<typeof createDatabase>, app: App, proj
 const outcomeInput = {
   title: "No duplicate claims",
   description: "Claims are exclusive.",
-  rationale: "Duplicate claims cause rework.",
+  intentVersion: 1, rationale: "Duplicate claims cause rework.",
   successCriteria: [
     { description: "duplicate_claim_count = 0", measurement: "Count duplicates", target: "= 0" },
     { description: "Audited", measurement: "Change log entry exists" },
@@ -293,32 +293,43 @@ test("request本文・tool入力のrole/principalId・session IDは認証情報�
   await database.destroy();
 });
 
-test("StrategistのGrantを持つPrincipalはProject・Intentの管理toolを拒否され、Bearerなしは従来どおり成功する", async () => {
+test("StrategistのGrantを持つPrincipalはProjectの管理toolとIntentの放棄を拒否され、Intentの登録・更新はWorkspaceのStrategistだけが行える", async () => {
   const { database, app } = await setup();
   const { id: projectId, workspaceId } = await createProject(app);
   const intentId = await createIntent(app, workspaceId);
   await grant(database, app, projectId, "strat-1");
-  const { id: otherId } = await createProject(app, "Q");
+  const { id: otherId, workspaceId: otherWorkspaceId } = await createProject(app, "Q");
 
-  const guarded: [string, object][] = [
-    ["update_project", { projectId, name: "Renamed" }],
-    ["create_intent", { workspaceId, title: "T", desiredState: "D" }],
-    ["update_intent", { workspaceId, intentId, title: "Renamed" }],
-    ["abandon_intent", { workspaceId, intentId }],
-  ];
-  for (const [name, args] of guarded) {
+  // Human管理の操作（Projectの更新・Intentの放棄）はDirection Roleに許さない（職務分離）。
+  for (const [name, args] of [["update_project", { projectId, name: "Renamed" }], ["abandon_intent", { workspaceId, intentId }]] as [string, object][]) {
     const denied = await callTool(app, name, args, "strat-1");
     assert.equal(denied.isError, true, name);
     assert.equal(denied.structuredContent.error.code, "FORBIDDEN", name);
   }
+  // Intentの登録・更新は対象WorkspaceのStrategistに許可する。複数のActive Intentを作成でき、既存のIntentを変更しない。
+  const updated = await callTool(app, "update_intent", { expectedVersion: 1, workspaceId, intentId, title: "By strategist", background: "Why" }, "strat-1");
+  assert.equal(updated.isError, undefined);
+  assert.deepEqual([updated.structuredContent.title, updated.structuredContent.background], ["By strategist", "Why"]);
+  const another = await callTool(app, "create_intent", { workspaceId, title: "T", desiredState: "D" }, "strat-1");
+  assert.equal(another.isError, undefined);
+  assert.equal(another.structuredContent.status, "active");
+  assert.notEqual(another.structuredContent.id, intentId);
+  // Grantの無いWorkspace・Grantの無いPrincipalは、Intentを登録・更新できない。
+  for (const [name, args, principal] of [
+    ["create_intent", { workspaceId: otherWorkspaceId, title: "T", desiredState: "D" }, "strat-1"],
+    ["update_intent", { expectedVersion: 1, workspaceId, intentId, title: "By other" }, "someone"],
+  ] as [string, object, string][]) {
+    const denied = await callTool(app, name, args, principal);
+    assert.equal(denied.structuredContent.error.code, "FORBIDDEN", `${name} by ${principal}`);
+  }
   const intent = ((await (await app.request(`/api/workspaces/${workspaceId}/intents/${intentId}`)).json()) as { intent: { status: string; title: string } }).intent;
-  assert.deepEqual([intent.status, intent.title], ["active", "I"]);
+  assert.deepEqual([intent.status, intent.title], ["active", "By strategist"]);
+  assert.equal(((await (await app.request(`/api/workspaces/${otherWorkspaceId}/intents`)).json()) as { intents: unknown[] }).intents.length, 0);
 
   // 別WorkspaceのStrategistは、Grantを持たないWorkspaceのProjectを従来どおり操作できる（Grantの範囲はWorkspace scope）。
   assert.equal((await callTool(app, "update_project", { projectId: otherId, name: "Q2" }, "strat-1")).isError, undefined);
-  // Bearerなし・Grantなしの呼び出しは従来どおり。
-  assert.equal((await callTool(app, "update_intent", { workspaceId, intentId, title: "By operator" })).isError, undefined);
-  assert.equal((await callTool(app, "update_intent", { workspaceId, intentId, title: "By other" }, "someone")).isError, undefined);
+  // trusted-localのBearerなしの保守呼出しは従来どおり。
+  assert.equal((await callTool(app, "update_intent", { expectedVersion: 2, workspaceId, intentId, title: "By operator" })).isError, undefined);
   assert.equal((await callTool(app, "abandon_intent", { workspaceId, intentId })).isError, undefined);
   await database.destroy();
 });

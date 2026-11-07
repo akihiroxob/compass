@@ -2,6 +2,7 @@ import type { Outcome } from "../domain/Outcome.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
 import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import { parseCreateOutcomeInput } from "./outcomeSchema.ts";
+import { versionConflict } from "./intentVersionConflict.ts";
 import { ConflictError, NotFoundError } from "@compass/shared";
 import { WorkspaceArchivedError } from "@compass/organization";
 
@@ -28,6 +29,7 @@ export class CreateOutcomeUseCase {
         { status: result.status },
       );
     }
+    if (result.kind === "intent_version_conflict") throw versionConflict(intentId, result.currentVersion);
     return result.outcome;
   }
 }

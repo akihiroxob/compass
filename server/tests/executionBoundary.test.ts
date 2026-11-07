@@ -37,17 +37,18 @@ const activityFiles = sourcesOf("packages/activity/src");
 const organizationFiles = sourcesOf("packages/organization/src");
 const serverFiles = sourcesOf("server/src");
 
-const workTables = ["task_consultation_wait", "story", "task", "task_claim", "task_comment", "change_log", "command_receipt"];
+const workTables = ["task_consultation_wait", "story", "task", "task_claim", "task_comment", "task_pull_request", "change_log", "command_receipt", "publication_record", "publication_revision"];
 const accessTables = [
+  "agent_run",
   "project_grant",
   "workspace_grant",
   "human_user",
   "human_identity",
   "web_session",
   "auth_login_attempt",
-  "project_membership",
-  "project_invitation",
+  "workspace_invitation",
   "access_credential",
+  "agent_run",
   "workspace_membership",
 ];
 
@@ -149,7 +150,7 @@ test("packageはserverとAccessのtableに依存せず、sharedは業務package�
 
 test("Accessが読み書きするtableはAccess自身のtableだけで、projectも直接読まない", () => {
   const queried = new Set(accessFiles.flatMap((file) => tablesQueriedIn(file.text)));
-  assert.ok(queried.has("project_grant") && queried.has("project_membership") && queried.has("web_session"), "走査が空振りしていない");
+  assert.ok(queried.has("project_grant") && queried.has("workspace_membership") && queried.has("web_session"), "走査が空振りしていない");
   assert.deepEqual([...queried].filter((table) => !accessTables.includes(table)), []);
 });
 

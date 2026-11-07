@@ -5,6 +5,7 @@ import {
   ArchiveProjectUseCase,
   CreateProjectUseCase,
   CreateWorkspaceProjectUseCase,
+  findProjectRepositoryRequiredChecks,
   initializeOrganizationSchema,
   ListWorkspaceProjectsUseCase,
   SQLiteProjectRepository,
@@ -233,5 +234,39 @@ test("新規DBのprojectは戦略値・移行用の列と旧tableを持たず、
   await initializeOrganizationSchema(database);
   assert.deepEqual(await repository.findDetailById(created.id), created);
   assert.deepEqual((await sql`pragma foreign_key_check`.execute(database)).rows, []);
+  await database.destroy();
+});
+
+test("RepositoryのrequiredChecksは既定で空（CI不要）。更新で省略した既存行は値を維持し、指定すれば置き換える", async () => {
+  const { database, create, update } = await setup();
+  const created = await create.execute({
+    ...input,
+    repositories: [
+      { name: "core", url: "https://github.com/example/core" },
+      { name: "web", url: "https://github.com/example/web", requiredChecks: [" test ", "lint", "test"] },
+    ],
+  });
+  assert.deepEqual(created.repositories.map(({ requiredChecks }) => requiredChecks), [[], ["test", "lint"]]);
+  assert.deepEqual(
+    await findProjectRepositoryRequiredChecks(database, created.id, created.repositories[1]!.id),
+    ["test", "lint"],
+  );
+  assert.equal(await findProjectRepositoryRequiredChecks(database, created.id, "unknown"), null);
+
+  // Web UIの編集フォームはrequiredChecksを送らない。既存行の値は維持する。
+  const [core, web] = created.repositories;
+  const renamed = await update.execute(created.id, {
+    repositories: [{ id: core!.id, name: "core", url: core!.url }, { id: web!.id, name: "web-app", url: web!.url }],
+  });
+  assert.deepEqual(renamed.repositories.map(({ name, requiredChecks }) => [name, requiredChecks]), [["core", []], ["web-app", ["test", "lint"]]]);
+
+  const replaced = await update.execute(created.id, {
+    repositories: [{ id: core!.id, name: "core", url: core!.url, requiredChecks: ["build"] }, { id: web!.id, name: "web-app", url: web!.url, requiredChecks: [] }],
+  });
+  assert.deepEqual(replaced.repositories.map(({ requiredChecks }) => requiredChecks), [["build"], []]);
+  await assert.rejects(
+    () => update.execute(created.id, { repositories: [{ id: core!.id, name: "core", url: core!.url, requiredChecks: [""] }] }),
+    codeOf("VALIDATION_ERROR"),
+  );
   await database.destroy();
 });

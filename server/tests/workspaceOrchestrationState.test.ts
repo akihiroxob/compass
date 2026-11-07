@@ -82,7 +82,7 @@ const seedWorkspace = async ({ database, services, app }: Kit) => {
 const outcomeInput = () => ({
   title: next("Hidden outcome title"),
   description: "Hidden outcome description",
-  rationale: "Hidden rationale",
+  intentVersion: 1, rationale: "Hidden rationale",
   successCriteria: [{ description: "Hidden criterion", measurement: "Hidden measurement" }],
 });
 
@@ -127,7 +127,7 @@ test("get_workspace_orchestration_stateはWorkspace・Outcome Target別のWork /
     assert.deepEqual(await state(app), {
       workspace: { id: workspace.id, name: "Workspace", status: "active" },
       projects: [{ id: a.id, name: "A" }, { id: b.id, name: "B" }, { id: c.id, name: "C" }],
-      activeIntent: null,
+      activeIntents: [],
       outcomes: [],
       intentResearchRequests: [],
       openResearchRequests: [],
@@ -139,7 +139,7 @@ test("get_workspace_orchestration_stateはWorkspace・Outcome Target別のWork /
     const request = await requestIntentResearch(kit.services, workspace.id, intent.id);
     const researching = await state();
     const requestFact = { id: request.id, kind: "decision", status: "requested", originIntentId: intent.id, originOutcomeId: null, updatedAt: request.updatedAt };
-    assert.deepEqual(researching.activeIntent, { id: intent.id, status: "active", updatedAt: intent.updatedAt });
+    assert.deepEqual(researching.activeIntents, [{ id: intent.id, status: "active", version: 1, meaningVersion: 1, updatedAt: intent.updatedAt }]);
     assert.deepEqual(researching.openResearchRequests, [requestFact]);
     assert.deepEqual(researching.intentResearchRequests, [requestFact]);
     await kit.services.completeResearchRequestUseCase.execute(workspace.id, request.id, { conclusion: "not_needed", stopReason: "Known" });
@@ -155,7 +155,7 @@ test("get_workspace_orchestration_stateはWorkspace・Outcome Target別のWork /
     assert.deepEqual(planned.openResearchRequests, []);
     assert.deepEqual(planned.outcomes.map((outcome: any) => outcome.id), [untargeted.id, shared.id], "Outcomeは新しい順");
     assert.deepEqual(planned.outcomes[0], {
-      id: untargeted.id, status: "active", updatedAt: untargeted.updatedAt, targets: [],
+      id: untargeted.id, intentId: intent.id, status: "active", updatedAt: untargeted.updatedAt, intentVersion: 1, intentRevised: null, targets: [],
       evaluability: { status: "no_targets", unfinishedTargets: [] }, latestEvaluation: null,
     });
     assert.deepEqual(planned.outcomes[1].targets, [
@@ -218,13 +218,21 @@ test("get_workspace_orchestration_stateは最新EvaluationのProject別評価cur
   assert.equal((await state()).outcomes[0].evaluability.status, "evaluable");
 
   const evaluation = ok(await callTool(kit.app, "record_outcome_evaluation", {
-    workspaceId: workspace.id, outcomeId: outcome.id, requestKey: "evaluate-1", runRef: "run-evaluator",
+    workspaceId: workspace.id, outcomeId: outcome.id, requestKey: "evaluate-1", runRef: "run-evaluator", method: "quantitative_observation", targetVersion: "test-version", limitations: "テスト用の観測",
     criteria: outcome.successCriteria.map((criterion) => ({ criterionId: criterion.id, verdict: "insufficient_evidence", rationale: "No evidence", evidenceIds: [] })),
   }, "ev")).evaluation;
   assert.deepEqual((await state()).outcomes[0].latestEvaluation, {
     id: evaluation.id, decisionId: null, createdAt: evaluation.createdAt,
     targets: [{ projectId: a.id, executionCursor: reflected.executionCursor }],
   });
+
+  const otherIntent = await kit.services.createIntentUseCase.execute(workspace.id, { title: "Other", desiredState: "Independent" });
+  const otherOutcome = await kit.services.createOutcomeUseCase.execute(workspace.id, otherIntent.id, outcomeInput());
+  const scoped = ok(await callTool(kit.app, "get_strategist_context", { workspaceId: workspace.id, intentId: intent.id }, "str"));
+  const separate = ok(await callTool(kit.app, "get_strategist_context", { workspaceId: workspace.id, intentId: otherIntent.id }, "str"));
+  assert.deepEqual(scoped.evaluations.map((item: any) => item.id), [evaluation.id]);
+  assert.deepEqual(separate.evaluations, []);
+  assert.deepEqual(separate.outcomes.map((item: any) => item.id), [otherOutcome.id]);
 
   // 全Projectをarchiveしても所属Workspaceはactiveのまま。archivedのWorkspaceは状態だけを返す（OrchestratorはこのWorkspaceで起動しない）。
   for (const project of [a, b, c]) await kit.services.archiveProjectUseCase.execute(project.id, { reason: "Done" });
@@ -233,7 +241,7 @@ test("get_workspace_orchestration_stateは最新EvaluationのProject別評価cur
   assert.deepEqual(await state(), {
     workspace: { id: workspace.id, name: "Workspace", status: "archived" },
     projects: [],
-    activeIntent: null,
+    activeIntents: [],
     outcomes: [],
     intentResearchRequests: [],
     openResearchRequests: [],
@@ -269,4 +277,36 @@ test("get_workspace_orchestration_stateはWorkspace Runtime Credentialのruntime
   );
   assert.equal(errorCode(await read(projectRuntime.token)), "FORBIDDEN");
   await kit.database.destroy();
+});
+
+
+test("公開MCPで作った複数目標の現在状態とStrategist Contextを分離する", async () => {
+  const kit = await open(":memory:");
+  try {
+    const { workspace, token } = await seedWorkspace(kit);
+    const first = ok(await callTool(kit.app, "create_intent", { workspaceId: workspace.id, title: "First", desiredState: "First state" }, "str"));
+    const second = ok(await callTool(kit.app, "create_intent", { workspaceId: workspace.id, title: "Second", desiredState: "Second state" }, "str"));
+    const firstOutcome = ok(await callTool(kit.app, "create_outcome", { workspaceId: workspace.id, intentId: first.id, ...outcomeInput() }, "str")).outcome;
+    const secondOutcome = ok(await callTool(kit.app, "create_outcome", { workspaceId: workspace.id, intentId: second.id, ...outcomeInput() }, "str")).outcome;
+    const research = await requestIntentResearch(kit.services, workspace.id, first.id);
+    const state = ok(await callTool(kit.app, "get_workspace_orchestration_state", { workspaceId: workspace.id }, token));
+    assert.deepEqual(state.activeIntents.map((intent: any) => intent.id), [second.id, first.id]);
+    assert.deepEqual(state.outcomes.map((outcome: any) => [outcome.intentId, outcome.id]), [[second.id, secondOutcome.id], [first.id, firstOutcome.id]]);
+    assert.equal(errorCode(await callTool(kit.app, "get_strategist_context", { workspaceId: workspace.id }, "str")), "CONFLICT");
+    const context = (intentId: string) => callTool(kit.app, "get_strategist_context", { workspaceId: workspace.id, intentId }, "str").then(ok);
+    const a = await context(first.id); const b = await context(second.id);
+    assert.deepEqual(a.outcomes.map((outcome: any) => outcome.id), [firstOutcome.id]);
+    assert.deepEqual(b.outcomes.map((outcome: any) => outcome.id), [secondOutcome.id]);
+    assert.deepEqual(a.research.requests.map((request: any) => request.id), [research.id]);
+    assert.deepEqual(b.research.requests, []);
+    const foreign = await kit.services.createProjectUseCase.execute({ name: "Foreign", mission: "Other" });
+    await seedWorkspaceGrant(kit.database, foreign.workspaceId, "str", "strategist");
+    assert.equal(errorCode(await callTool(kit.app, "get_strategist_context", { workspaceId: foreign.workspaceId, intentId: first.id }, "str")), "NOT_FOUND");
+    await kit.services.abandonIntentUseCase.execute(workspace.id, first.id);
+    const next = ok(await callTool(kit.app, "get_workspace_orchestration_state", { workspaceId: workspace.id }, token));
+    assert.deepEqual(next.activeIntents.map((intent: any) => intent.id), [second.id]);
+    assert.deepEqual(next.outcomes.map((outcome: any) => outcome.id), [secondOutcome.id]);
+    assert.deepEqual(next.openResearchRequests, []);
+    assert.equal((await context(second.id)).activeIntent.status, "active");
+  } finally { await kit.database.destroy(); }
 });

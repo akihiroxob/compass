@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
-import { ErrorState, Loading } from "../../components/StateCard";
-import { projectViewPath, projectViews, workspacePath, workspaceProjectsPath, type ProjectView } from "../../paths";
+import { ErrorState, Loading, StateCard } from "../../components/StateCard";
+import { projectViewPath, workspacePath, workspaceProjectsPath } from "../../paths";
 import { canOperate, useProjectWorkspaceDirection } from "../access";
 import { ActivitySection } from "../activity";
 import { AdrReferenceSection } from "../adr";
@@ -13,8 +13,8 @@ import { AgentSettingsSection } from "../grant";
 import { ConsultationSection } from "../consultation";
 import { DirectionPanel } from "../direction";
 import { IntentSection } from "../intent";
-import { useSession } from "../auth";
-import { humanRoleLabels, MembershipSection, type HumanRole } from "../member";
+import { humanRoleLabels, type HumanRole } from "../member";
+import { ReleaseHistorySection } from "../release";
 import { ResearchSection } from "../research";
 import { ProjectOverview, ResourceLinks } from "./ProjectOverview";
 import { parseProjectView, projectViewLabels } from "./overview";
@@ -28,20 +28,16 @@ const LinkSection = ({ title, values }: { title: string; values: ({ id: string; 
 /** 状態・理由・日時。archivedのProjectだけに出し、復帰できるかのような文言は置かない。 */
 const ArchiveNotice = ({ project }: { project: Project }) => <section className="detail-section archive-notice" aria-labelledby="archive-heading"><h2 id="archive-heading"><span className="status-badge muted">{projectStatusLabels.archived}</span> このProjectはアーカイブされています</h2><p className="section-note">参照のみできます。Projectの編集、Agent・RuntimeのRoleの割当の変更はできません。IntentやOutcomeは所属Workspaceのもので、変更できるかはWorkspaceの状態とWorkspace Membershipで決まります。Projectのアーカイブでは所属Workspaceはアーカイブされません。</p><dl className="intent-facts"><dt>アーカイブの理由</dt><dd>{project.archiveReason ?? <span className="unset">理由は記録されていません</span>}</dd><dt>アーカイブした日時</dt><dd>{project.archivedAt === null ? <span className="unset">記録されていません</span> : new Date(project.archivedAt).toLocaleString("ja-JP")}</dd></dl></section>;
 
-/** viewの切替。選択中に`aria-current="page"`。リンクのままなのでview切替でfocusを失わない。 */
-const ProjectViewNav = ({ projectId, current }: { projectId: string; current: ProjectView }) => <nav className="project-view-nav" aria-label="Projectの表示"><ul>{projectViews.map((view) => <li key={view}><Link to={projectViewPath(projectId, view)} aria-current={view === current ? "page" : undefined}>{projectViewLabels[view]}</Link></li>)}</ul></nav>;
-
 export const ProjectDetailPage = () => {
   const { projectId = "" } = useParams(); const [project, setProject] = useState<Project | null>(null); const [myRole, setMyRole] = useState<HumanRole | null>(null); const [error, setError] = useState<string | null>(null);
   const [searchParams] = useSearchParams(); const view = parseProjectView(searchParams.get("view"));
-  const session = useSession();
-  // Intent・Outcome・Research・ADR参照は所属WorkspaceのDirection。Workspace Membershipで閲覧・変更の可否が決まり、Project Membershipから継承しない。
+  // Intent・Outcome・Research・ADR参照は所属WorkspaceのDirection。Project・Workも同じWorkspace Membership（`myRole`）で可否が決まる。
   // Projectのarchiveは所属Workspaceの状態を変えないため、archive後にWorkspaceを再取得しない。
   const direction = useProjectWorkspaceDirection(projectId);
   const directionUnavailable = direction.access === "error" ? <ErrorState message={direction.message} /> : <Loading />;
   const load = () => request<{ project: Project; myRole: HumanRole }>(`/api/projects/${projectId}`).then(({ project, myRole }) => { setProject(project); setMyRole(myRole); return project; });
   // 未所属・取消済み・存在しないProjectはserverが区別せず404を返す（存在を漏らさない）。
-  const showLoadError = (reason: unknown) => { setProject(null); setError(loadFailureMessage(classifyError(reason), "Projectが見つからないか、このProjectを閲覧する権限がありません。Projectのownerに招待を依頼してください。")); };
+  const showLoadError = (reason: unknown) => { setProject(null); setError(loadFailureMessage(classifyError(reason), "Projectが見つからないか、このProjectを閲覧する権限がありません。所属Workspaceのownerに招待を依頼してください。")); };
   useEffect(() => { load().catch(showLoadError); }, [projectId]);
   const archive = useReasonAction(async (reason) => {
     const invalid = validateArchiveReason(reason);
@@ -53,17 +49,18 @@ export const ProjectDetailPage = () => {
     }
   }, describeArchiveFailure);
   const archived = project?.status === "archived";
-  // 戻り先は所属WorkspaceのProject一覧。Workspaceを閲覧できない（Project Membershipだけの）場合と読込失敗は参加中のProject。
+  // 戻り先は所属WorkspaceのProject一覧。所属Workspaceを読めない（読込失敗）場合は参加中のProject。
   // 導線の表示だけをRoleで切り替える。拒否は常にserverが行う。
   const canUpdate = canOperate(myRole, "project.update"); const canArchive = canOperate(myRole, "project.archive"); const directionAccess = direction.access === "loading" || direction.access === "error" ? "forbidden" : direction.access; const grantReadOnly = archived || !canOperate(myRole, "grant.manage"); const canManageCredential = canOperate(myRole, "credential.manage");
   const permissions = { intervene: canOperate(myRole, "execution.intervene"), grantManage: canOperate(myRole, "grant.manage"), credentialManage: canManageCredential };
-  return <main>{project && direction.access !== "error" ? <><Link to={workspaceProjectsPath(project.workspaceId)} className="back-link">← Project一覧</Link>{archived && <> <Link to={workspaceProjectsPath(project.workspaceId, "archived")} className="back-link">アーカイブ済み一覧</Link></>}</> : <Link to={projectListPath(archived ? "archived" : "active")} className="back-link">← 参加中のProject</Link>}{error ? <ErrorState message={error} /> : !project ? <Loading /> : <><div className="detail-hero project-hero"><p className="eyebrow">Project</p><h1>{project.name}</h1>{archived && <p><span className="status-badge muted">{projectStatusLabels.archived}</span></p>}{/* 概要ではPurposeとして出す。 */}{view !== "overview" && project.description && <p className="lede">{project.description}</p>}<p className="section-note"><time>{new Date(project.updatedAt).toLocaleString("ja-JP")} 更新</time>{myRole && <> ・ あなたのRole: {humanRoleLabels[myRole]}</>}</p></div>{archived && <ArchiveNotice project={project} />}<ProjectViewNav projectId={project.id} current={view} />
+  return <main>{project && direction.access !== "error" ? <><Link to={workspaceProjectsPath(project.workspaceId)} className="back-link">← Project一覧</Link>{archived && <> <Link to={workspaceProjectsPath(project.workspaceId, "archived")} className="back-link">アーカイブ済み一覧</Link></>}</> : <Link to={projectListPath(archived ? "archived" : "active")} className="back-link">← 参加中のProject</Link>}{error ? <ErrorState message={error} /> : !project ? <Loading /> : <><div className="detail-hero project-hero">{/* viewの切替はメニューのProjectの階層。見出しで現在のviewを示す。 */}<p className="eyebrow">{view === "overview" ? "Project" : `Project · ${project.name}`}</p><h1>{view === "overview" ? project.name : projectViewLabels[view]}</h1>{archived && <p><span className="status-badge muted">{projectStatusLabels.archived}</span></p>}{/* 概要ではPurposeとして出す。 */}{view !== "overview" && project.description && <p className="lede">{project.description}</p>}<p className="section-note"><time>{new Date(project.updatedAt).toLocaleString("ja-JP")} 更新</time>{myRole && <> ・ あなたのRole: {humanRoleLabels[myRole]}</>}</p></div>{archived && <ArchiveNotice project={project} />}
     {/* keyでview切替ごとに作り直し、表示の切替を短いfadeで示す（reduced-motionでは動かさない）。 */}<div key={view} className="view-panel">
     {view === "overview" && (direction.access === "loading" ? <Loading /> : <ProjectOverview key={`${myRole ?? ""}/${direction.access}`} project={project} direction={direction.access === "error" ? { workspaceId: null, message: direction.message } : { workspaceId: direction.workspaceId }} archived={archived} permissions={permissions} />)}
     {view === "direction" && <><DirectionPanel mission={project.mission} vision={project.vision} />{direction.workspaceId === null ? directionUnavailable : <IntentSection projectId={project.id} workspaceId={direction.workspaceId} access={directionAccess} />}<div className="detail-columns"><ListSection title="Principles" values={project.principles} /><ListSection title="Constraints" values={project.constraints} /></div></>}
     {view === "work" && <ExecutionSection projectId={project.id} />}
+    {view === "releases" && <ReleaseHistorySection project={project} />}
     {view === "consultations" && <ConsultationSection scope={{ kind: "project", projectId: project.id }} />}
     {view === "records" && <><ActivitySection scope={{ kind: "project", projectId: project.id }} resources={[...project.repositories, ...project.resources]} related={<Link to={workspacePath(project.workspaceId, "activity")}>所属Workspaceの記録を開く</Link>} />{direction.workspaceId === null ? directionUnavailable : <><ResearchSection projectId={project.id} workspaceId={direction.workspaceId} /><AdrReferenceSection workspaceId={direction.workspaceId} /></>}<LinkSection title="Repositories" values={project.repositories} /><LinkSection title="Resources" values={project.resources} /></>}
-    {view === "settings" && <><AgentSettingsSection scope={{ kind: "project", id: project.id }} readOnly={grantReadOnly} showCredentials={canManageCredential} />{canManageCredential && <CredentialSection scope={{ kind: "project", id: project.id }} readOnly={archived} />}<MembershipSection key={myRole ?? ""} projectId={project.id} currentHumanId={session?.human.id ?? null} manage={canOperate(myRole, "member.manage")} readOnly={archived} onSelfChanged={() => void load().catch(showLoadError)} />{!archived && (canUpdate || canArchive) && <section className="detail-section" aria-labelledby="project-settings-heading"><h2 id="project-settings-heading">Project</h2><p className="section-note">名前・説明・Repository・Resourceの編集と、Projectのアーカイブです。Mission・Vision等は所属Workspaceのもので、Workspaceの概要からWorkspaceのadministratorが編集します。</p><div className="action-row">{canUpdate && <LinkButton to={`/projects/${project.id}/edit`}>Projectを編集</LinkButton>}{canArchive && <Button variant="secondary" tone="danger" aria-expanded={archive.confirming} onClick={archive.open}>アーカイブ</Button>}</div>{canArchive && archive.confirming && <ReasonPanel action={archive} title="このProjectをアーカイブしますか？" description="アーカイブすると、Projectの編集、Agent・RuntimeのRoleの割当の変更ができなくなります。内容と履歴は参照できます。所属Workspaceはアーカイブされず、Intent・Outcome等のDirectionは引き続きWorkspaceのMemberが変更できます。Workspaceのアーカイブは、Workspaceの概要からWorkspaceのownerが行います。" label="アーカイブの理由" required confirmLabel="アーカイブする" pendingLabel="アーカイブ中..." />}</section>}</>}
+    {view === "settings" && <><AgentSettingsSection scope={{ kind: "project", id: project.id }} readOnly={grantReadOnly} showCredentials={canManageCredential} />{canManageCredential && <CredentialSection scope={{ kind: "project", id: project.id }} readOnly={archived} />}{!archived && (canUpdate || canArchive) && <section className="detail-section" aria-labelledby="project-settings-heading"><h2 id="project-settings-heading">Project</h2><p className="section-note">名前・説明・Repository・Resourceの編集と、Projectのアーカイブです。Mission・Vision等は所属Workspaceのもので、Workspaceの概要からWorkspaceのadministratorが編集します。</p><div className="action-row">{canUpdate && <LinkButton to={`/projects/${project.id}/edit`}>Projectを編集</LinkButton>}{canArchive && <Button variant="secondary" tone="danger" aria-expanded={archive.confirming} onClick={archive.open}>アーカイブ</Button>}</div>{canArchive && archive.confirming && <ReasonPanel action={archive} title="このProjectをアーカイブしますか？" description="アーカイブすると、Projectの編集、Agent・RuntimeのRoleの割当の変更ができなくなります。内容と履歴は参照できます。所属Workspaceはアーカイブされず、Intent・Outcome等のDirectionは引き続きWorkspaceのMemberが変更できます。Workspaceのアーカイブは、Workspaceの概要からWorkspaceのownerが行います。" label="アーカイブの理由" required confirmLabel="アーカイブする" pendingLabel="アーカイブ中..." />}</section>}</>}
     </div></>}</main>;
 };

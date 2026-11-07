@@ -28,6 +28,7 @@ export const buildPrompt = (dispatch: WorkspaceDispatch): string =>
   [
     `Compass の ${dispatch.role} Role として起動された。`,
     `workspaceId: ${dispatch.workspaceId}`,
+    ...(dispatch.intentId ? [`intentId: ${dispatch.intentId}`, `get_strategist_contextを使うときはworkspaceIdとintentId: "${dispatch.intentId}"を指定する。`] : []),
     ...(dispatch.projectId === null ? [] : [`projectId: ${dispatch.projectId}`]),
     `対象: ${dispatch.subject.kind} ${dispatch.subject.id}`,
     `起動理由: ${dispatch.reason}`,
@@ -58,6 +59,7 @@ const dispatchEnvNames = [
   "COMPASS_SERVER_URL",
   "COMPASS_WORKSPACE_ID",
   "COMPASS_PROJECT_ID",
+  "COMPASS_INTENT_ID",
   "COMPASS_ROLE",
   "COMPASS_SUBJECT_KIND",
   "COMPASS_SUBJECT_ID",
@@ -86,6 +88,7 @@ export const buildAgentEnv = (
     COMPASS_SERVER_URL: context.serverUrl,
     COMPASS_WORKSPACE_ID: dispatch.workspaceId,
     ...(dispatch.projectId === null ? {} : { COMPASS_PROJECT_ID: dispatch.projectId }),
+    ...(dispatch.intentId ? { COMPASS_INTENT_ID: dispatch.intentId } : {}),
     COMPASS_ROLE: dispatch.role,
     COMPASS_SUBJECT_KIND: dispatch.subject.kind,
     COMPASS_SUBJECT_ID: dispatch.subject.id,

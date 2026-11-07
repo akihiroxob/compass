@@ -31,6 +31,7 @@ skills:
 - `list_stories`
 - `list_tasks`
 - `list_task_comments`
+- `list_task_pull_requests`
 - `list_changes`
 - `claim_review`
 - `renew_claim`
@@ -50,11 +51,15 @@ Story の作成・編集・中止、Task の編集・中止、work Claim、最�
 3. 一意な `requestId` で `claim_review` を呼び、`claimId` を保持する
 4. 実装と検証結果をレビューする
 5. 補足を残す場合は同じ Claim で `add_task_comment({ taskId, claimId, body, requestId })` を呼ぶ
-6. 問題がなければ `reviewed_task({ taskId, claimId, requestId })` を呼ぶ
+6. 問題がなければ `reviewed_task({ taskId, claimId, requestId })` を呼ぶ（PR のある Task は `expectedHeadSha`・`reviewCommentId` も渡す。後述）
 7. 問題があれば `reject_task({ taskId, claimId, reason, requestId })` を呼ぶ
 8. 判定せず中断するなら `release_claim({ claimId, reason, requestId })` を呼ぶ
 
 最新の `complete_task` と同じ Principal は `claim_review` できない。複数 Role を持っていても自己レビュー禁止は変わらない。
+
+## PR のある Task
+
+`list_task_pull_requests` の `current` の PR を、その head SHA に固定してレビューする。承認するときは、現在の Review Claim・レビューした head を示す印付きのコメントを PR に残し（GitHub の Approve は使わない。Worker と同じ GitHub アカウントでよい）、Repository の `requiredChecks`（空なら CI は必須ではない）の成功を確認して、GitHub で PR を merge する。その後 `reviewed_task` に `expectedHeadSha` と `reviewCommentId` を渡し、Server が merge・head・コメント・必須 check を照合する。merge の失敗・競合、新しい head、CI の失敗では `reviewed_task` へ進めず、`error.details` の `recheck` に従う（Worker の修正が必要なら `reject_task`）。Repository を変更したのに PR を登録していない Task は差し戻す。手順は `review-task` Skill の `tips/github-workflow.md` に従う。
 
 ## Review の観点
 

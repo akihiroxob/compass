@@ -11,7 +11,7 @@ export type CreateProjectInput = {
   vision: string | null;
   principles: string[];
   constraints: string[];
-  repositories: { name: string; url: string }[];
+  repositories: { name: string; url: string; requiredChecks: string[] }[];
   resources: { name: string; url: string; kind: string | null }[];
 };
 
@@ -30,7 +30,8 @@ export type CreateWorkspaceProjectResult =
 export type UpdateProjectInput = {
   name?: string;
   description?: string | null;
-  repositories?: { id?: string; name: string; url: string }[];
+  /** `requiredChecks`を省略した既存行（`id`一致）は保存済みの値を維持し、新しい行は空（CI不要）にする。 */
+  repositories?: { id?: string; name: string; url: string; requiredChecks?: string[] }[];
   resources?: { id?: string; name: string; url: string; kind: string | null }[];
 };
 
@@ -61,19 +62,15 @@ export type ArchiveProjectResult =
 export interface ProjectRepository {
   /**
    * Projectと、その戦略値を持つ専用のWorkspaceを同一transactionで作成する。常にactiveで、statusは入力から受け取らない。
-   * `ownerHumanUserId`を渡すと、そのHumanのProjectとWorkspaceのowner Membershipを同一transactionで作成する（部分保存しない）。
+   * `ownerHumanUserId`を渡すと、そのHumanのWorkspaceのowner Membershipを同一transactionで作成する（部分保存しない）。
+   * Project単位のMembershipは作らない（ADR 0003）。
    */
   create(input: CreateProjectInput, ownerHumanUserId?: string): Promise<ProjectDetail>;
   /**
    * 既存のactiveなWorkspaceへProjectを作成する。存在とarchivedの検査は書込と同じtransactionで行う。
-   * `ownerHumanUserId`を渡すと、そのHumanのProjectのowner Membershipだけを同一transactionで作成する（Workspaceの
-   * Membershipは変えない）。
+   * Membershipは書かず、WorkspaceのMemberが同じRoleで利用する（ADR 0003）。
    */
-  createInWorkspace(
-    workspaceId: string,
-    input: CreateWorkspaceProjectInput,
-    ownerHumanUserId?: string,
-  ): Promise<CreateWorkspaceProjectResult>;
+  createInWorkspace(workspaceId: string, input: CreateWorkspaceProjectInput): Promise<CreateWorkspaceProjectResult>;
   /** Projectと子要素を同一transactionで更新する。archivedのProjectは更新しない。 */
   update(projectId: string, input: UpdateProjectInput): Promise<UpdateProjectResult>;
   /**

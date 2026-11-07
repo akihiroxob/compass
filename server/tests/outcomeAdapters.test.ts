@@ -28,7 +28,7 @@ const createProjectAndIntent = async (app: App) => {
 const outcomeInput = {
   title: "No duplicate claims",
   description: "Claims are exclusive.",
-  rationale: "Duplicate claims cause rework.",
+  intentVersion: 1, rationale: "Duplicate claims cause rework.",
   successCriteria: [
     { description: "duplicate_claim_count = 0", measurement: "Count duplicates", target: "= 0" },
     { description: "Audited", measurement: "Change log entry exists" },
@@ -81,7 +81,8 @@ test("Web APIでOutcomeを作成・一覧・詳細・更新・取消でき、Int
 
   const intent = ((await (await app.request(`/api/workspaces/${workspaceId}/intents/${intentId}`)).json()) as { intent: object }).intent;
   assert.deepEqual(Object.keys(intent).sort(), [
-    "abandonedReason", "completionDefinition", "createdAt", "desiredState", "id", "status", "title", "updatedAt", "workspaceId",
+    "abandonedReason", "audience", "background", "completionDefinition", "constraints", "createdAt", "desiredState", "id", "meaningVersion", "status",
+    "targetDate", "title", "updatedAt", "version", "workspaceId",
   ]);
   await database.destroy();
 });
@@ -142,17 +143,33 @@ test("Web APIのエラー: 400は配列位置付きのpath、404はID種別、40
   await database.destroy();
 });
 
-test("Intentの放棄はWeb APIからもactiveなOutcomeをcancelledにし、意味変更は409になる", async () => {
+test("Intentの放棄はWeb APIからもactiveなOutcomeをcancelledにし、意味変更は理由付きで新しい版になる", async () => {
   const { database, app } = await setup();
   const { projectId, workspaceId, intentId } = await createProjectAndIntent(app);
   const base = `/api/workspaces/${workspaceId}/intents/${intentId}/outcomes`;
   const outcome = ((await (await send(app, "POST", base, JSON.stringify(outcomeInput))).json()) as OutcomeBody).outcome;
 
-  const locked = await send(app, "PATCH", `/api/workspaces/${workspaceId}/intents/${intentId}`, JSON.stringify({ desiredState: "Changed" }));
-  assert.equal(locked.status, 409);
-  assert.equal(((await locked.json()) as ErrorBody).error.fixedFields, "desiredState");
-  const renamed = await send(app, "PATCH", `/api/workspaces/${workspaceId}/intents/${intentId}`, JSON.stringify({ title: "Renamed" }));
+  const intentUrl = `/api/workspaces/${workspaceId}/intents/${intentId}`;
+  const noReason = await send(app, "PATCH", intentUrl, JSON.stringify({ expectedVersion: 1, desiredState: "Changed" }));
+  assert.equal(noReason.status, 400, "Outcomeを持つIntentの意味変更は理由が必須");
+  const renamed = await send(app, "PATCH", intentUrl, JSON.stringify({ expectedVersion: 1, title: "Renamed" }));
   assert.equal(renamed.status, 200);
+  const changed = await send(app, "PATCH", intentUrl, JSON.stringify({ expectedVersion: 2, desiredState: "Changed", reason: "Scope moved" }));
+  assert.equal(changed.status, 200);
+  const changedIntent = ((await changed.json()) as { intent: { version: number; meaningVersion: number } }).intent;
+  assert.deepEqual([changedIntent.version, changedIntent.meaningVersion], [3, 3]);
+  // 古い編集画面（版1）は競合になり、保存済みの内容を上書きしない。
+  const stale = await send(app, "PATCH", intentUrl, JSON.stringify({ expectedVersion: 1, title: "Stale" }));
+  assert.equal(stale.status, 409);
+  assert.equal(((await stale.json()) as ErrorBody).error.currentVersion, "3");
+  // Outcomeは作成時の版を保持し、履歴には変更主体・理由が残る。
+  const keptOutcome = ((await (await app.request(`${base}/${outcome.id}`)).json()) as OutcomeBody).outcome;
+  assert.equal((keptOutcome as unknown as { intentVersion: number }).intentVersion, 1);
+  const revisions = ((await (await app.request(`${intentUrl}/revisions`)).json()) as { revisions: { version: number; reason: string | null; meaningChanged: boolean; desiredState: string; changedBy: string }[] }).revisions;
+  assert.deepEqual(revisions.map((revision) => revision.version), [3, 2, 1]);
+  assert.deepEqual([revisions[0]!.reason, revisions[0]!.meaningChanged, revisions[0]!.desiredState], ["Scope moved", true, "Changed"]);
+  assert.equal(revisions[2]!.desiredState, "S");
+  assert.ok(revisions.every((revision) => revision.changedBy !== ""));
 
   await send(app, "POST", `/api/workspaces/${workspaceId}/intents/${intentId}/abandon`, JSON.stringify({ reason: "Changed course" }));
   const after = ((await (await app.request(`${base}/${outcome.id}`)).json()) as OutcomeBody).outcome;

@@ -54,19 +54,7 @@ export type AuthLoginAttemptTable = {
   consumed_at: number | null;
 };
 
-export type ProjectMembershipTable = {
-  id: string;
-  project_id: string;
-  human_user_id: string;
-  role: "owner" | "administrator" | "editor" | "viewer";
-  created_at: number;
-  updated_at: number;
-  created_by_human_user_id: string | null;
-  revoked_at: number | null;
-  revoked_by_human_user_id: string | null;
-};
-
-/** Workspace（Organization）単位のHuman Membership。Project Membershipとは別tableで、相互に継承しない。 */
+/** Workspace（Organization）単位のHuman Membership（ADR 0003）。配下のすべてのProjectへ同じRoleを適用する。 */
 export type WorkspaceMembershipTable = {
   id: string;
   workspace_id: string;
@@ -79,9 +67,9 @@ export type WorkspaceMembershipTable = {
   revoked_by_human_user_id: string | null;
 };
 
-export type ProjectInvitationTable = {
+export type WorkspaceInvitationTable = {
   id: string;
-  project_id: string;
+  workspace_id: string;
   email: string;
   role: "owner" | "administrator" | "editor" | "viewer";
   token_hash: string;
@@ -125,15 +113,36 @@ export type WorkspaceGrantTable = {
   created_at: number;
 };
 
+/** Agentの実行観測（`AgentRun`）。Activityとは別の記録で、workflow checkpointにしない。 */
+export type AgentRunTable = {
+  run_id: string;
+  scope_kind: "workspace" | "project";
+  scope_id: string;
+  principal_id: string;
+  role: string;
+  source: string;
+  provider: string | null;
+  work_kind: string | null;
+  work_id: string | null;
+  reporter_kind: "agent" | "runtime";
+  reporter_principal_id: string;
+  status: "running" | "succeeded" | "failed";
+  started_at: number;
+  observed_at: number;
+  stale_at: number;
+  ended_at: number | null;
+  reason: string | null;
+};
+
 export type AccessDatabase = {
+  agent_run: AgentRunTable;
   workspace_grant: WorkspaceGrantTable;
   project_grant: ProjectGrantTable;
   human_user: HumanUserTable;
   human_identity: HumanIdentityTable;
   web_session: WebSessionTable;
   auth_login_attempt: AuthLoginAttemptTable;
-  project_membership: ProjectMembershipTable;
-  project_invitation: ProjectInvitationTable;
+  workspace_invitation: WorkspaceInvitationTable;
   workspace_membership: WorkspaceMembershipTable;
   access_credential: AccessCredentialTable;
 };

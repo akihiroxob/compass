@@ -1,3 +1,3 @@
 export { AuthGate, useSession } from "./SessionContext";
 export { InvitePage, LoginPage } from "./LoginPage";
-export { SessionMenu } from "./SessionMenu";
+export { SessionAvatar, SessionMenu } from "./SessionMenu";

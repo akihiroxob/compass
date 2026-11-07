@@ -31,7 +31,6 @@ export type RegisterOrLoginHumanResult =
       created: boolean;
       bootstrapped: boolean;
       invitation: ExistingHumanInvitationOutcome;
-      adoptedProjectIds: string[];
       adoptedWorkspaceIds: string[];
     };
 
@@ -80,7 +79,6 @@ export class RegisterOrLoginHumanUseCase {
       created: result.created,
       bootstrapped: result.bootstrapped,
       invitation: result.invitation,
-      adoptedProjectIds: result.adoptedProjectIds,
       adoptedWorkspaceIds: result.adoptedWorkspaceIds,
     };
   }

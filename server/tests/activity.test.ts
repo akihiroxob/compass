@@ -342,16 +342,18 @@ test("Workの重要な状態変更は同じtransactionでcanonical Activityに�
     [
       ["story.created", "manager-a", "manager", "canonical"],
       ["task.created", "manager-a", "manager", "canonical"],
+      ["story.started", "worker-a", "worker", "canonical"],
+      ["task.started", "worker-a", "worker", "canonical"],
       ["task.completed", "worker-a", "worker", "canonical"],
     ],
   );
-  const completed = page.activities[2];
+  const completed = page.activities[4];
   assert.equal(completed.summary, "Task「保存する」の作業を完了し、レビューへ進めた");
   assert.deepEqual(completed.refs, [{ kind: "task", id: task.id }, { kind: "story", id: story.id }]);
   // Change Logとは別で、Change Logはcanonical化しないClaim操作も含めて従来どおり残る。
   const changes = ok(await callTool(app, "list_changes", { projectId: project.id }, "worker-a"));
   assert.ok(changes.changes.some((change: { type: string }) => change.type === "TASK_CLAIMED"));
-  assert.equal(changes.changes.length > page.activities.length, true);
+  assert.equal(changes.changes.length >= page.activities.length, true);
 
   // Activityを保存できなければ状態変更も確定しない（同一transaction）。
   await sql`drop table activity`.execute(database);
@@ -372,13 +374,13 @@ test("Directionの重要な状態変更は同じtransactionで操作者付きの
   const intentResponse = await send(app, "POST", `/api/workspaces/${project.workspaceId}/intents`, { title: "認証を整える", desiredState: "Humanがsign inできる" });
   assert.equal(intentResponse.status, 201);
   const intent = ((await intentResponse.json()) as { intent: { id: string } }).intent;
-  assert.equal((await send(app, "PATCH", `/api/workspaces/${project.workspaceId}/intents/${intent.id}`, { title: "認証を整備する" })).status, 200);
+  assert.equal((await send(app, "PATCH", `/api/workspaces/${project.workspaceId}/intents/${intent.id}`, { expectedVersion: 1, title: "認証を整備する" })).status, 200);
 
   // Agent（MCP）の操作は認可したPrincipalとRoleで記録する。requestKeyの再送では増えない。
   const decideInput = {
     workspaceId: project.workspaceId,
     intentId: intent.id,
-    judgment: "OIDCから着手する",
+    intentVersion: 2, judgment: "OIDCから着手する",
     reason: "既存IdPを使える",
     requestKey: "decide-1",
     runRef: "run-1",

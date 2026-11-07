@@ -80,7 +80,7 @@ const seedWorkspace = async ({ database, services, app }: Kit) => {
 const outcomeInput = () => ({
   title: next("Outcome"),
   description: "A and B ship the change",
-  rationale: "Both Projects own a part",
+  intentVersion: 1, rationale: "Both Projects own a part",
   successCriteria: [
     { description: "A ships", measurement: "A's pull request is merged" },
     { description: "B ships", measurement: "B's pull request is merged" },
@@ -124,7 +124,7 @@ type Judgment = { verdict: "met" | "not_met" | "insufficient_evidence"; evidence
 
 const evaluate = (app: App, workspaceId: string, outcome: { id: string; successCriteria: readonly { id: string }[] }, judgments: Judgment[], requestKey: string) =>
   callTool(app, "record_outcome_evaluation", {
-    workspaceId, outcomeId: outcome.id, requestKey, runRef: "run-evaluator",
+    workspaceId, outcomeId: outcome.id, requestKey, runRef: "run-evaluator", method: "quantitative_observation", targetVersion: "test-version", limitations: "テスト用の観測",
     criteria: outcome.successCriteria.map((criterion, index) => ({
       criterionId: criterion.id, verdict: judgments[index]!.verdict, rationale: `observed ${judgments[index]!.verdict}`, evidenceIds: judgments[index]!.evidenceIds,
     })),
@@ -203,7 +203,7 @@ test("Accepting only Project A's Task never makes the Outcome achieved; missing 
     assert.deepEqual(strategist.evaluations[0].snapshot.targets.map((target: any) => [target.projectId, target.evidence.length]), [[a.id, 1], [b.id, 0]]);
     const researchArgs = {
       workspaceId: workspace.id, intentId: intent.id, type: "additional_research", evaluationId: insufficient.id,
-      judgment: "B's shipment is not observable", reason: "Target B reflected no Evidence", requestKey: "research-b", runRef: "run-strategist",
+      intentVersion: 1, judgment: "B's shipment is not observable", reason: "Target B reflected no Evidence", requestKey: "research-b", runRef: "run-strategist",
       research: { question: "Did B ship?", scope: "Project B", completionCondition: "B's pull request is found", budgetTotal: 10 },
     };
     const research = ok(await callTool(kit.app, "create_direction_decision", researchArgs, "str"));
@@ -229,7 +229,7 @@ test("Accepting only Project A's Task never makes the Outcome achieved; missing 
     assert.deepEqual(latest.map((item: any) => [item.id, item.decisionId]), [[achieved.id, null]]);
     const complete = ok(await callTool(kit.app, "create_direction_decision", {
       workspaceId: workspace.id, intentId: intent.id, type: "intent_complete", evaluationId: achieved.id,
-      judgment: "Both Projects shipped", reason: "Every Target Project's Evidence meets its criterion", requestKey: "complete", runRef: "run-strategist",
+      intentVersion: 1, judgment: "Both Projects shipped", reason: "Every Target Project's Evidence meets its criterion", requestKey: "complete", runRef: "run-strategist",
     }, "str"));
     assert.equal(complete.decision.evaluationId, achieved.id);
     assert.equal((await kit.services.getIntentUseCase.execute(workspace.id, intent.id)).status, "achieved");
@@ -269,7 +269,7 @@ test("A failed criterion of one Target makes the multi-Project Outcome failed an
       [[shared.id, "failed", null], [single.id, "achieved", null]].sort(),
     );
     const nextArgs = {
-      workspaceId: workspace.id, intentId: intent.id, evaluationId: failed.id, judgment: "B needs another attempt",
+      workspaceId: workspace.id, intentId: intent.id, evaluationId: failed.id, intentVersion: 1, judgment: "B needs another attempt",
       reason: "B's criterion is not met", requestKey: "next-b", runRef: "run-strategist", outcome: outcomeInput(),
     };
     const decided = ok(await callTool(kit.app, "decide_next_outcome", nextArgs, "str"));

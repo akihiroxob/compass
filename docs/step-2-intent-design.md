@@ -4,20 +4,124 @@ IntentはHumanが現在実現したい状態。Workspaceの継続的な存在理
 
 ## 項目と状態
 
-`workspaceId`、必須の`title`（100文字まで）・`desiredState`（2,000文字まで）、任意の`completionDefinition`（2,000文字まで）、`status`、`abandonedReason`、ID・作成更新日時を持つ。
+`workspaceId`、`status`、`abandonedReason`、ID・作成更新日時と、Humanが入力する次の項目を持つ。入力規則はWeb UIとMCPで共通（`intentSchema`）。
 
-状態は`active` / `achieved` / `abandoned`。Workspace内のActive Intentは最大1件で、DBの部分一意indexでも強制する。作成時はactive。Humanの放棄はabandonedへ遷移する。Strategistの根拠付き`intent_complete`判断でachievedへ遷移する。終端からの復帰操作はない。
+| 項目 | 画面の表示名 | 必須 | 規則 |
+| --- | --- | --- | --- |
+| `title` | 目標名 | 必須 | 前後空白を除き1〜100文字 |
+| `desiredState` | 実現したい状態 | 必須 | 前後空白を除き1〜2,000文字 |
+| `background` | 背景 | 任意 | 2,000文字まで |
+| `audience` | 対象 | 任意 | 2,000文字まで（誰・何に向けた目標か） |
+| `constraints` | 制約 | 任意 | 2,000文字まで |
+| `completionDefinition` | 達成条件 | 任意 | 2,000文字まで |
+| `targetDate` | 目標日 | 任意 | 実在する暦日の`YYYY-MM-DD` |
+
+任意項目は未指定・`null`・空文字を未設定（`null`）として保存する。
+
+状態は`active` / `achieved` / `abandoned`。Workspace内に複数のActive Intentを保持でき、追加作成で既存のIntentを暗黙に放棄しない。作成時はactive。Humanの放棄はabandonedへ遷移する。Strategistの根拠付き`intent_complete`判断でachievedへ遷移する。終端からの復帰操作はない。
 
 ## 更新と操作
 
-activeの間だけ部分更新できる。Outcomeを持つIntentはtitleのみ変更でき、desiredState / completionDefinitionを変更できない。archived Workspaceでは書込を拒否する（WorkspaceのarchiveはWorkspace ownerが行い、Projectのarchiveでは変わらない）。
+activeの間だけ部分更新できる。未指定の項目は変更せず、任意項目は`null`または空文字でクリアする。更新は編集の元にした`expectedVersion`（現在の`version`）を必須とし、現在版と異なれば何も変えず`CONFLICT`（`conflict: intent_version`・`currentVersion`）を返す。Outcomeを持つIntentのdesiredState / completionDefinitionを変えるときは`reason`が必須（無ければ`VALIDATION_ERROR`）で、title・背景・対象・制約・目標日は理由なしで変えられる。archived Workspaceでは書込を拒否する（WorkspaceのarchiveはWorkspace ownerが行い、Projectのarchiveでは変わらない）。
 
 `intent_complete`も、Intentを更新するtransaction内で所属Workspaceのarchiveを検査する。WorkspaceだけarchivedでProjectがactiveでも`CONFLICT`（`workspaceStatus: archived`）を返し、Intent・Decision・Activityを変更しない。
 
 保存・application use case・公開入口はWorkspace単位。Project IDをWorkspace IDとして受け付けない。応答は`workspaceId`を持ち、`projectId`は持たない。
 
-HumanはProject詳細から作成し、Intent詳細から編集・放棄する（画面はProjectの所属Workspaceを解決する）。Web APIは`/api/workspaces/:workspaceId/intents`とその詳細・更新・`abandon`。参照にはWorkspaceのviewer以上、変更にはeditor以上のWorkspace Membershipが必要で、Project Membershipからは継承しない。MCPの`create_intent` / `update_intent` / `abandon_intent`（trusted-localだけ）は`workspaceId`を受け取り、WorkspaceのDirection Role Grantを持つPrincipalとactiveRole指定を拒否する。remote modeのMCPにはHuman用の作成・更新・放棄toolを公開しない。
+HumanはWorkspaceの「Outcome」（方向）画面で、ページ上部の「目標を作成」と各目標カードの「編集」から入力する（概要の要対応、Project詳細・Intent詳細の導線も同じフォームを使う）。フォームは「目標名・実現したい状態」「背景・対象・制約」「達成の確認（達成条件・目標日）」に分け、保存はIntentの登録・更新だけでAgentを起動しない。UIに目標相談のAIチャット・開始ボタンは置かない。Web APIは`/api/workspaces/:workspaceId/intents`とその詳細・更新・`abandon`。参照にはWorkspaceのviewer以上、変更にはeditor以上のWorkspace Membershipが必要で、操作者は認証済みHuman（`human:{humanUserId}`）として記録する。
+
+MCPの`create_intent` / `update_intent`は、外部MCPクライアントでHumanと整理した目標をAgentが登録する正規の入口で、trusted-local・remoteの両modeで公開する。対象WorkspaceのStrategist Grant（`X-Compass-Active-Role`指定時は`strategist`）を要求し、Worker・Reviewer等のProject Role、別WorkspaceのGrant、Grantの無いPrincipalは`FORBIDDEN`。操作者はStrategist（Agent）として記録し、Humanの操作として扱わない。trusted-localのBearer・activeRoleなしの保守呼出しだけはGrantを問わず、操作者は`system`になる。`abandon_intent`はHuman管理操作としてtrusted-localだけに登録し、WorkspaceのDirection Role Grantを持つPrincipalとactiveRole指定を拒否する。remote modeのMCPには`abandon_intent`等のHuman管理toolを公開しない。
+
+保存は新規DBのschemaで定義する。項目を追加したschemaは旧DBへ列を補わないため、開発DBは再作成する。
+
+## 版と変更履歴
+
+Intentは`version`（作成時1。内容が変わる保存のたびに+1。内容が変わらない保存は進めない）と`meaningVersion`（実現したい状態・達成条件が最後に変わった版）を持つ。版ごとの内容・`meaningChanged`・`reason`・変更主体（`changedBy` / `changedByRole`）は追記専用の`intent_revision`に残り、`GET /api/workspaces/:workspaceId/intents/:intentId/revisions`とMCP `list_intent_revisions`で新しい順に読める。変更主体は認可済みの入口が固定した主体で、Humanは`human:{humanUserId}`（operator）、Agentは各Principalとroleであり、Agentの操作をHumanとして記録しない。
+
+Outcome・Direction Decision・Outcome Evaluationは作成時の`intentVersion`を保持し、後から書き換えない（Evaluationは評価したOutcomeの`intentVersion`）。Outcome作成（`create_outcome`）と判断（`create_direction_decision` / `decide_next_outcome`）は判断の元にした`intentVersion`が必須で、省略は入力エラー、現在版と異なれば`CONFLICT`にする（省略して現在版へ暗黙に付け替えない）。`update_outcome`の`intentVersion`は現在版を確認した記録で任意だが、指定すれば現在版と一致が必要。`update_outcome`で現在版を渡すと、そのOutcomeの`intentVersion`を現在版へ進める（確認の記録）。
+
+`meaningVersion`が未完了（active）Outcomeの`intentVersion`より新しい場合、そのOutcomeは、Strategistの判断（Decision）の根拠になった後でも、再計画対象（Orchestration Stateの`outcomes[].intentRevised`・Web UIの「再計画対象」）になる。Work・Task・Outcomeの状態は自動で変えず、StrategistがOutcomeを現在版で確認・取消・作り直しのいずれかで判断する。目標の終端（`abandon_intent`はOutcomeを`cancelled`にする）はOutcome・Taskを達成・完了にしない。判断の背景は [ADR 0008](adr/0008-intent-versioning.md)。
+
+Web UIの編集フォームは画面を開いた時点の`version`を送り、変更理由（任意。Outcomeがある目標の意味変更では必須）を添える。競合時は入力を保持したまま「最新の内容を読み込む」で利用者が読み直しを選び、自動で上書きしない。Intent詳細と方向の目標カードに変更履歴（現在の版・変更者・理由・意味変更の版）を出す。
 
 ## Researchとの接続
 
 Intent作成はResearch Requestを作らない。OrchestratorがActive IntentでStrategistを起動し、StrategistがResearchの必要性を判断する（必要なら`additional_research`のDirection Decisionで依頼する）。起動条件は [Orchestrator](../orchestrator/README.md)。
+
+## 複数目標と起動対象
+
+`get_workspace_orchestration_state`は`activeIntents`を新しい順に返し、全Active IntentのOutcomeを`intentId`付きで返す。Intent配下のResearch・最新Evaluation・判断はそれぞれのIntentで読む。Orchestratorは各Intentの進行中Outcome・Research・判断待ちEvaluationを個別に判定し、別目標の完了・待機で対象目標を止めない。Researchを一律必須にしない。
+
+`get_strategist_context({ workspaceId, intentId })`は指定したIntentのOutcome・Research・Evaluation・Targetだけを返す。別WorkspaceのIntentは`NOT_FOUND`。`intentId`省略はActive Intentが0〜1件のときに限り、複数件なら`CONFLICT`として`list_intents`からの明示選択を求める。dispatchの`intentId`・`COMPASS_INTENT_ID`をContext取得に使う。Workspace/ProjectのGrantとCredentialの境界は維持する。
+
+## 観測項目と時系列
+
+Intentの到達点・推移を確かめるため、Intentごとに観測項目（Metric）と、その対象期間ごとの観測値を保持する。型は [IntentMetric.ts](../packages/direction/src/domain/IntentMetric.ts)、入力規則は [intentMetricSchema.ts](../packages/direction/src/application/intentMetricSchema.ts)。Outcomeの成功条件・評価とは別の記録で、Intent → Outcome → Story／Taskの階層や独立したSuccess Metrics管理UIを追加しない。外部の分析サービスとの接続は前提にせず、取得した値と出所を公開入口から記録する。判断は [ADR 0008](adr/0008-intent-metric-observations.md)。
+
+### 観測項目
+
+| 項目 | 規則 |
+| --- | --- |
+| `key` | Intent内で一意。英小文字・数字・`_`・`-`・`.`の1〜64文字（先頭は英小文字・数字） |
+| `name` | 1〜100文字 |
+| `unit` | 1〜30文字（例: `円`・`人`・`%`）。観測値はこの単位で記録する。観測値がある項目の単位は変更できない（`CONFLICT`、`reason: unit_locked`） |
+| `targetValue` | 任意の有限数。明示した値だけを保存し、Intentの説明文（`desiredState`等）の数字から生成しない。数値の目標が無ければ`null` |
+| `staleAfterDays` | 1〜366の整数。最新の観測の対象期間の終了日（UTCの暦日）からこの日数を超えると古い観測（`stale`） |
+| `revision` | 定義の版。同じ定義の再送は変えず（`unchanged`）、名前・単位・目標値・期限の変更で1増える（`updated`） |
+
+### 観測値
+
+| 項目 | 規則 |
+| --- | --- |
+| `periodStart` / `periodEnd` | 実在する暦日の`YYYY-MM-DD`。両端を含み、366日まで。日次は同じ日 |
+| `status` | `observed`（値を取得した）または`failed`（取得を試みて失敗した） |
+| `value` | `observed`では必須の有限数（ゼロも有効な値）。`failed`では指定できない（ゼロ・推測値で代替しない） |
+| `failureReason` | `failed`では必須（2,000文字まで）、`observed`では指定できない |
+| `source` | `name`（必須、200文字まで）と任意の`uri`（http(s)、認証情報を含むURLは拒否）。参照だけで本文を保存しない |
+| `observedAt` | 値を取得した時刻（epoch milliseconds）。未来（5分を超える）と、対象期間の開始より前（UTCの暦日で1日の時差を許容）は拒否する |
+| `revision` | 対象期間ごとの版。同じ対象期間の既存のいずれかの版と同じ内容（状態・値・理由・出所・観測時刻）の要求は再送として新しい版を作らず（`unchanged`、応答は現在の最新版）、訂正後に遅れて届いた旧要求でも訂正を巻き戻さない。どの版とも違えば次の版を追記する（`revised`）。観測時刻まで同一の値へ戻す訂正は再送と区別できないため、訂正は新しい観測時刻で送る。過去の版は書き換えない |
+
+1回の記録は1〜100件で、同じ対象期間を重複させない。記録者（Bearerから解決したPrincipal）と記録時刻を保存する。activeなIntentだけに定義・記録でき、achieved / abandonedのIntentとarchivedのWorkspaceは`CONFLICT`。観測値の記録はActivity・Runtime eventを作らず、Outcomeの評価・Intentの完了を意味しない。
+
+### 読み取り
+
+`list_intent_metrics`とWeb APIの`GET /api/workspaces/:workspaceId/intents/:intentId/metrics`は、観測項目（定義順）ごとに次を返す。
+
+- `current.state`: `unmeasured`（観測なし）・`failed`（最新の対象期間が取得失敗）・`stale`（最新の値が古い）・`observed`（期限内の値。ゼロを含む）。`current.latest`は最新の対象期間の最新版（失敗を含む）、`current.lastObserved`は値を取得できた最新の観測。
+- `series`: `from`〜`to`（`YYYY-MM-DD`、既定は今日（UTC）までの30日、366日まで）と重なる対象期間の最新版。観測の無い期間は含めず、失敗は`value: null`のまま含む。利用側はゼロ・補間値で埋めない。
+- 観測項目が未定義なら`metrics: []`。比率・達成度は計算しない。
+
+### 公開入口と対象Role
+
+| 操作 | MCP | Web API | 認可 |
+| --- | --- | --- | --- |
+| 観測項目の定義・更新 | `define_intent_metric` | なし | WorkspaceのStrategist Grant |
+| 観測値の記録 | `record_intent_metric_observations` | なし | WorkspaceのEvaluator Grant |
+| 参照 | `list_intent_metrics` | `GET /api/workspaces/:workspaceId/intents/:intentId/metrics` | MCPはWorkspaceの参照（remote mode・activeRole指定時はWorkspace Role Grant）、Web APIはWorkspace Membership（viewer以上） |
+
+Project Grantからは継承しない。別WorkspaceのIntentは`NOT_FOUND`、別WorkspaceのGrantは`FORBIDDEN`。Human向けの定義・記録の画面は無い。
+
+## 観測についての説明
+
+Agentが観測項目の変化を解釈した説明（`intent_explanation`）を、事実・原因の仮説・次の提案に分けて追記する。型は [IntentExplanation.ts](../packages/direction/src/domain/IntentExplanation.ts)、入力規則は [intentExplanationSchema.ts](../packages/direction/src/application/intentExplanationSchema.ts)。観測値・Research Finding / Synthesis・Outcome Evaluation・Direction Decisionは既存の記録として保持し、説明はそれらをIDで参照する（本文・値を複製せず、読み取り時に原記録から解決する）。新しい必須階層や独立した「成果」管理は追加しない。判断は [ADR 0010](adr/0010-intent-explanation.md)。
+
+| 項目 | 規則 |
+| --- | --- |
+| 対象 | `metricKey`（同じIntentの観測項目）と分析期間`periodStart`〜`periodEnd`（暦日、366日まで、未来の期間は不可） |
+| 版 | 同じIntent・観測項目の次の版として追記する。直前の版を`previousId`で指し、初回以外は`changeFromPrevious`（前回から変わった点）を持てる。過去の版は書き換えない |
+| 再送 | `requestKey`（Workspace内で一意）。同じ内容の再送は保存済みの説明を返し（`replayed`）、内容が違えば`CONFLICT`（`reason: request_key_conflict`） |
+| 関連Outcome | 同じIntentのOutcomeだけ（`relatedOutcomeIds`） |
+| 項目`fact` | 根拠（`metric_observation`・`finding`・`evaluation`）を1件以上持つ。根拠の無い事実は事実として記録できない |
+| 項目`hypothesis` | 先行する事実の位置`basedOn`、確からしさ`confidence`（low/medium/high）、確認方法`verification`が必須。根拠は`finding`・`synthesis`・`evaluation`。因果の断定ではない |
+| 項目`proposal` | 先行する事実・仮説の位置`basedOn`が必須。根拠は`synthesis`・`decision` |
+
+説明は1件以上の事実を持つ。記録者（Bearerから解決したPrincipal）・`runRef`・記録時刻を保存する。activeなIntentだけに記録でき、別Workspaceの記録・観測項目に属さない観測値・別Intentの評価／判断は`VALIDATION_ERROR`。説明の記録はIntent・Outcomeの状態、Activity、Runtime eventを変えず、Agentの実稼働・施策の効果・目標の達成を示す証拠ではない。単純な前後差は事実か仮説として残し、効果として記録しない。
+
+読み取り（`list_intent_explanations`、`GET /api/workspaces/:workspaceId/intents/:intentId/explanations`）は、新しい順の説明（最大50件）に、解決した根拠と状態（`current`・`revised`＝観測が後から訂正された・`superseded`＝Synthesisが新しい版に置き換えられた・`expired`＝Findingの有効期限切れ・`missing`）、関連Outcome、根拠のいずれかが`current`でないことを示す`basisOutdated`を返す。観測項目ごとの観測状態（`metrics[].state`: `unmeasured`・`failed`・`stale`・`observed`）も併せて返し、説明が無い・観測が未接続・取得失敗を区別できる。説明が無ければ`explanations: []`で、観測値から生成した説明では埋めない。
+
+| 操作 | MCP | Web API | 認可 |
+| --- | --- | --- | --- |
+| 説明の記録 | `record_intent_explanation` | なし | WorkspaceのStrategist Grant |
+| 参照 | `list_intent_explanations` | `GET /api/workspaces/:workspaceId/intents/:intentId/explanations` | MCPはWorkspaceの参照、Web APIはWorkspace Membership（viewer以上） |
+
+Web UIは目標（Intent）の詳細に「Agentの説明」を読み取り専用で表示する。観測項目ごとの最新の版を、観測の状態・分析期間・事実／原因の仮説／次の提案・根拠（原記録へのリンク）・関連Outcomeの順に示し、古い版は件数と一覧だけを示す。

@@ -15,6 +15,7 @@ const dispatch: WorkspaceDispatch = {
   workspaceId: "w-1",
   projectId: null,
   role: "strategist",
+  intentId: "i-1",
   subject: { kind: "intent", id: "i-1" },
   reason: "active intent",
 };
@@ -30,7 +31,7 @@ const managerDispatch: WorkspaceDispatch = {
 
 test("Agentの環境変数からはすべてのWorkspaceのRuntime Credentialを除き、Roleのenvと対象だけを加える", () => {
   const env = buildAgentEnv(
-    { PATH: "/bin", REVIEW_RUNTIME_TOKEN: "marker", OTHER_WORKSPACE_TOKEN: "marker-2", COMPASS_PROJECT_ID: "inherited" },
+    { PATH: "/bin", REVIEW_RUNTIME_TOKEN: "marker", OTHER_WORKSPACE_TOKEN: "marker-2", COMPASS_PROJECT_ID: "inherited", COMPASS_INTENT_ID: "inherited" },
     ["REVIEW_RUNTIME_TOKEN", "OTHER_WORKSPACE_TOKEN"],
     dispatch,
     { command: "true", env: { ROLE_MCP_CONFIG: "/etc/strategist.json", COMPASS_WORKSPACE_ID: "spoofed" } },
@@ -39,6 +40,7 @@ test("Agentの環境変数からはすべてのWorkspaceのRuntime Credentialを
   assert.equal(env.PATH, "/bin");
   assert.equal(env.ROLE_MCP_CONFIG, "/etc/strategist.json");
   assert.equal(env.COMPASS_ROLE, "strategist");
+  assert.equal(env.COMPASS_INTENT_ID, "i-1");
   assert.equal(env.COMPASS_WORKSPACE_ID, "w-1");
   // Workspace RoleにはProject IDを渡さない（親の環境変数からも引き継がない）。
   assert.equal(Object.hasOwn(env, "COMPASS_PROJECT_ID"), false);
@@ -48,6 +50,7 @@ test("Agentの環境変数からはすべてのWorkspaceのRuntime Credentialを
 
 test("Workspace RoleはWorkspaceのRole Context、managerはTarget ProjectのRole Contextを取得するよう指示する", () => {
   const workspacePrompt = buildPrompt(dispatch);
+  assert.match(workspacePrompt, /intentId: i-1/);
   assert.match(workspacePrompt, /get_workspace_role_context\(\{ workspaceId: "w-1", role: "strategist" \}\)/);
   assert.doesNotMatch(workspacePrompt, /projectId/);
   const managerPrompt = buildPrompt(managerDispatch);
@@ -56,6 +59,7 @@ test("Workspace RoleはWorkspaceのRole Context、managerはTarget ProjectのRol
   const env = buildAgentEnv({}, [], managerDispatch, { command: "true", env: {} }, { serverUrl: "http://127.0.0.1:1", attempt: 2 });
   assert.equal(env.COMPASS_WORKSPACE_ID, "w-1");
   assert.equal(env.COMPASS_PROJECT_ID, "p-a");
+  assert.equal(Object.hasOwn(env, "COMPASS_INTENT_ID"), false);
   assert.equal(env.COMPASS_DISPATCH_KEY, "w-1:p-a:manager:outcome:o-1");
 });
 
@@ -140,9 +144,10 @@ test("Workspace単位の設定を読み、Project単位の旧設定（projects[]
         tokenEnv: "WORKSPACE_RUNTIME_TOKEN",
         token: "secret",
         agentEnv: { AGENT_MCP_CONFIG: "/etc/w-1.json" },
+        agentPrincipals: {},
         projects: [
-          { projectId: "p-a", agentEnv: { AGENT_MCP_CONFIG: "/etc/p-a.json" } },
-          { projectId: "p-b", agentEnv: {} },
+          { projectId: "p-a", agentEnv: { AGENT_MCP_CONFIG: "/etc/p-a.json" }, agentPrincipals: {} },
+          { projectId: "p-b", agentEnv: {}, agentPrincipals: {} },
         ],
       },
     ]);

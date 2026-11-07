@@ -5,11 +5,11 @@ import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { addTestMembership, addTestWorkspaceMembership, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
+import { addTestWorkspaceMembership, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
 
 /**
  * Workspace相談と横断した判断待ち一覧。Workspace Direction RoleのAgentがMCPで相談し、Workspace MembershipのHumanがWeb APIで返信し、
- * Strategistが応答leaseのもとで結論を整理する。ProjectとWorkspaceのMembership・Grant・Runtime Credentialを互いに継承しないこと、
+ * Strategistが応答leaseのもとで結論を整理する。HumanはWorkspace Membershipで配下Projectも認可し、Agent Grant・Runtime Credentialはscopeを互いに継承しないこと、
  * 横断一覧の絞り込み・件数・ページングが認可済みの集合だけに対して行われることを確認する。
  */
 
@@ -70,12 +70,12 @@ const consultationInput = (overrides: object = {}) => ({
   ...overrides,
 });
 
-type Humans = Record<"owner" | "wsAdmin" | "wsEditor" | "wsViewer" | "projectOnly" | "both" | "outsider", TestHuman>;
+type Humans = Record<"owner" | "wsAdmin" | "wsEditor" | "wsViewer" | "otherMember" | "outsider", TestHuman>;
 
 /**
  * 公開操作で用意するGiven。ownerがWeb APIでWorkspace A・Bと所属Projectを作り、Workspace Grant（strategist・researcher）と
- * Project Grant（manager・worker）を割り当てる。Workspace・ProjectのMembership（Roleの違い）はfixtureで置く。
- * `projectOnly`はProject A1のeditorだけ、`both`はWorkspace AのviewerとProject A1のviewer、`outsider`はどこにも属さない。
+ * Project Grant（manager・worker）を割り当てる。Workspace Membership（Roleの違い）はfixtureで置き、配下Projectにも同じRoleを適用する。
+ * `otherMember`はWorkspace B（Project B1を含む）のeditorだけ、`outsider`はどこにも属さない。
  */
 const seed = async (kit: Kit) => {
   const owner = await createTestHuman(kit.database);
@@ -103,11 +103,8 @@ const seed = async (kit: Kit) => {
     humans[who] = await createTestHuman(kit.database);
     await addTestWorkspaceMembership(kit.database, workspaceA.id, humans[who], role);
   }
-  humans.projectOnly = await createTestHuman(kit.database);
-  await addTestMembership(kit.database, projectA1.id, humans.projectOnly, "editor");
-  humans.both = await createTestHuman(kit.database);
-  await addTestWorkspaceMembership(kit.database, workspaceA.id, humans.both, "viewer");
-  await addTestMembership(kit.database, projectA1.id, humans.both, "viewer");
+  humans.otherMember = await createTestHuman(kit.database);
+  await addTestWorkspaceMembership(kit.database, workspaceB.id, humans.otherMember, "editor");
   humans.outsider = await createTestHuman(kit.database);
   const as = (who: keyof Humans) => requestAs(kit.app, humans[who]);
   const intent = (await json(await asOwner(`/api/workspaces/${workspaceA.id}/intents`, post({
@@ -115,7 +112,7 @@ const seed = async (kit: Kit) => {
   })))).intent as { id: string };
   const outcome = ok(await callTool(kit.app, "create_outcome", {
     workspaceId: workspaceA.id, intentId: intent.id, title: "Onboarding under a day", description: "New teams onboard quickly.",
-    rationale: "Adoption depends on onboarding.", successCriteria: [{ description: "median onboarding < 1 day", measurement: "Survey" }],
+    intentVersion: 1, rationale: "Adoption depends on onboarding.", successCriteria: [{ description: "median onboarding < 1 day", measurement: "Survey" }],
   }, "strategist-a", "strategist")).outcome as { id: string };
   return { workspaceA, workspaceB, projectA1, projectB1, humans, as, intent, outcome };
 };
@@ -153,9 +150,9 @@ test("Workspace AgentがMCPで相談し、HumanがWebで返信し、Strategist�
     assert.equal((await json(await as("wsViewer")(`${base}/${created.id}`))).consultation.refs.length, 3);
     assert.deepEqual((await json(await as("owner")(`/api/projects/${projectA1.id}/consultations`))).consultations, []);
 
-    // 返信はeditor以上。viewerは403、Project Membershipだけ・未所属は404（Workspaceの存在を区別しない）。
+    // 返信はeditor以上。viewerは403、別WorkspaceのMember・未所属は404（Workspaceの存在を区別しない）。
     assert.equal((await as("wsViewer")(`${base}/${created.id}/messages`, post({ body: "x", requestId: next("reply") }))).status, 403);
-    for (const who of ["projectOnly", "outsider"] as const) {
+    for (const who of ["otherMember", "outsider"] as const) {
       assert.equal((await as(who)(`${base}/${created.id}`)).status, 404);
       assert.equal((await as(who)(`${base}/${created.id}/messages`, post({ body: "x", requestId: next("reply") }))).status, 404);
     }
@@ -262,7 +259,7 @@ test("Humanの返信・決定・取消はWorkspace Membershipで認可し、明�
     const second = ok(await createWorkspaceConsultation(kit, workspaceA.id, "strategist-a", "strategist")).consultation;
     const decision = { conclusion: "運用コストを優先", rationale: "予算の制約", expectedRevision: 1 };
     assert.equal((await as("wsEditor")(`${base}/${first.id}/resolution`, post({ ...decision, requestId: next("decide") }))).status, 403);
-    assert.equal((await as("projectOnly")(`${base}/${first.id}/resolution`, post({ ...decision, requestId: next("decide") }))).status, 404);
+    assert.equal((await as("otherMember")(`${base}/${first.id}/resolution`, post({ ...decision, requestId: next("decide") }))).status, 404);
     const decided = await as("wsAdmin")(`${base}/${first.id}/resolution`, post({ ...decision, requestId: next("decide") }));
     assert.equal(decided.status, 201);
     const resolution = (await json(decided)).resolution;
@@ -320,16 +317,15 @@ test("横断一覧は閲覧できるProject・Workspaceの相談だけを返し�
     assert.deepEqual((await inbox(seeded, "owner", `?projectId=${projectA1.id}&status=all`)).ids, [pA1Waiting.id, pA1.id]);
     assert.deepEqual((await inbox(seeded, "owner", `?scope=workspace&projectId=${projectA1.id}`)).ids, []);
 
-    // Workspace Aのviewer（Project Membershipなし）はWorkspace Aの相談だけ。Project A1の相談は同じWorkspaceでも返さない。
-    assert.deepEqual((await inbox(seeded, "wsViewer", "?status=all")).ids, [wsA.id]);
-    // Project A1だけのHumanはProject A1の相談だけ。Workspace Aの相談は返さない。
-    assert.deepEqual((await inbox(seeded, "projectOnly", "?status=all")).ids, [pA1Waiting.id, pA1.id]);
-    assert.deepEqual((await inbox(seeded, "projectOnly", `?scope=workspace&workspaceId=${workspaceA.id}`)).ids, []);
-    // 両方のMembershipがあれば両方を一緒に辿れる。
-    assert.deepEqual((await inbox(seeded, "both")).ids, [pA1.id, wsA.id]);
+    // Workspace Aのviewerは、Workspace Aと配下Project A1の相談を一緒に辿れる（同じWorkspace Membership）。
+    assert.deepEqual((await inbox(seeded, "wsViewer", "?status=all")).ids, [pA1Waiting.id, pA1.id, wsA.id]);
+    assert.deepEqual((await inbox(seeded, "wsViewer")).ids, [pA1.id, wsA.id]);
+    // Workspace BだけのMemberは、Workspace Bと配下Project B1の相談だけ。Workspace Aの相談は返さない。
+    assert.deepEqual((await inbox(seeded, "otherMember", "?status=all")).ids, [pB1.id, wsB.id]);
+    assert.deepEqual((await inbox(seeded, "otherMember", `?scope=workspace&workspaceId=${workspaceA.id}`)).ids, []);
     // 閲覧できないscopeを指定しても拒否せず空で、題名・件数・存在を区別させない。
     for (const query of [`?projectId=${projectB1.id}`, `?workspaceId=${workspaceB.id}`, "?projectId=missing", "?workspaceId=missing"]) {
-      const { ids, nextCursor, body } = await inbox(seeded, "both", query);
+      const { ids, nextCursor, body } = await inbox(seeded, "wsViewer", query);
       assert.deepEqual([ids, nextCursor], [[], null]);
       assert.equal(JSON.stringify(body).includes("秘密"), false);
     }
@@ -337,12 +333,12 @@ test("横断一覧は閲覧できるProject・Workspaceの相談だけを返し�
     assert.deepEqual([outsider.ids, outsider.nextCursor], [[], null]);
 
     // ページングは認可済みの集合の中で続きを返し、未許可scopeの相談で欠番・件数が変わらない。
-    const first = await inbox(seeded, "both", "?status=all&limit=1");
+    const first = await inbox(seeded, "wsViewer", "?status=all&limit=1");
     assert.deepEqual(first.ids, [pA1Waiting.id]);
     assert.ok(first.nextCursor);
-    const second = await inbox(seeded, "both", `?status=all&limit=1&cursor=${encodeURIComponent(first.nextCursor!)}`);
+    const second = await inbox(seeded, "wsViewer", `?status=all&limit=1&cursor=${encodeURIComponent(first.nextCursor!)}`);
     assert.deepEqual(second.ids, [pA1.id]);
-    const third = await inbox(seeded, "both", `?status=all&limit=1&cursor=${encodeURIComponent(second.nextCursor!)}`);
+    const third = await inbox(seeded, "wsViewer", `?status=all&limit=1&cursor=${encodeURIComponent(second.nextCursor!)}`);
     assert.deepEqual([third.ids, third.nextCursor], [[wsA.id], null]);
 
     // 入力の不正は400。未認証は401。

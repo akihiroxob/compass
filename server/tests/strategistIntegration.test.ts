@@ -36,7 +36,7 @@ const execFileAsync = promisify(execFile);
 const outcomeInput = {
   title: "No duplicate claims",
   description: "Claims are exclusive.",
-  rationale: "Duplicate claims cause rework.",
+  intentVersion: 1, rationale: "Duplicate claims cause rework.",
   successCriteria: [
     { description: "duplicate_claim_count = 0", measurement: "Count duplicates", target: "= 0" },
     { description: "Audited", measurement: "Change log entry exists" },
@@ -334,8 +334,12 @@ test("権限なし・別Project・Grant取消・Bearerなし・Role不一致・�
       for (const role of ["admin", "Manager", "Worker"]) {
         assert.equal((await call(client, "get_role_instructions", { role, includeShared: true })).isError, true, role);
       }
-      // 職務分離: Strategist Grantを持つPrincipalはDirection（Intent）を変更できない。
-      assert.equal(errorCode(await call(client, "update_intent", { workspaceId, intentId, title: "Renamed" })), "FORBIDDEN");
+      // 職務分離: Strategist Grantを持つPrincipalはIntentを放棄できない（Human管理操作）。登録・更新は所属WorkspaceのStrategistに許可する。
+      assert.equal(errorCode(await call(client, "abandon_intent", { workspaceId, intentId })), "FORBIDDEN");
+      assert.equal((await call(client, "update_intent", { expectedVersion: 1, workspaceId, intentId, title: "Renamed" })).isError, undefined);
+    });
+    await withAgent(server.baseUrl, "strat-q", async (client) => {
+      assert.equal(errorCode(await call(client, "update_intent", { expectedVersion: 1, workspaceId, intentId, title: "By other Workspace" })), "FORBIDDEN");
     });
     const workerGrant = await api(server.baseUrl, "POST", `/api/projects/${projectId}/grants`, { principalId: "agent-w", role: "admin" });
     assert.equal(workerGrant.status, 400);
@@ -346,9 +350,9 @@ test("権限なし・別Project・Grant取消・Bearerなし・Role不一致・�
 
     // 取消後は、同じAgentが次の呼び出しから拒否される（サーバー再起動なし）。作成済みOutcomeは残る。
     await withAgent(server.baseUrl, "strat-p", async (client) => {
-      assert.equal((await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput })).isError, undefined);
+      assert.equal((await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput, intentVersion: 2 })).isError, undefined);
       await revokeGrant(workspaceId, "strat-p");
-      assert.equal(errorCode(await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput })), "FORBIDDEN");
+      assert.equal(errorCode(await call(client, "create_outcome", { workspaceId, intentId, ...outcomeInput, intentVersion: 2 })), "FORBIDDEN");
       assert.equal(errorCode(await call(client, "get_strategist_context", { workspaceId })), "FORBIDDEN");
     });
 

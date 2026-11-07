@@ -4,6 +4,7 @@ import { ErrorState, Loading } from "../../components/StateCard";
 import { workspaceApiPath } from "../../paths";
 import { directionDecisionTypeLabels, type DirectionDecision } from "../decision";
 import { statusBadgeClass } from "../../statusTone";
+import { evaluationMethodLabels, problemLabelOf, type OutcomeProblem } from "./outcome";
 import {
   EvidenceList,
   evaluationResultLabels,
@@ -31,7 +32,7 @@ type LoopData = {
 };
 
 /** Evaluation 1件。`projectLabel`があれば評価時のTarget ProjectをIDの代わりにその表示（Project名等）で出す。 */
-export const EvaluationCard = ({ evaluation, decisions, projectLabel }: { evaluation: OutcomeEvaluation; decisions: DirectionDecision[]; projectLabel?: (projectId: string) => ReactNode }) => {
+export const EvaluationCard = ({ evaluation, decisions, projectLabel, problemLabel }: { evaluation: OutcomeEvaluation; decisions: DirectionDecision[]; projectLabel?: (projectId: string) => ReactNode; problemLabel?: (problemId: string) => string | null }) => {
   const evidenceById = new Map(evaluation.snapshot.targets.flatMap((target) => target.evidence).map((item) => [item.id, item]));
   return (
     <article className="intent-card">
@@ -40,8 +41,19 @@ export const EvaluationCard = ({ evaluation, decisions, projectLabel }: { evalua
         {formatTime(evaluation.createdAt)} の評価
       </h4>
       <p className="execution-meta">
-        {evaluation.principalId} ・ runRef <code>{evaluation.runRef}</code>
+        {evaluation.principalId} ・ runRef <code>{evaluation.runRef}</code> ・ 根拠にした目標 v{evaluation.intentVersion}
       </p>
+      <dl className="intent-facts">
+        <dt>評価方法</dt>
+        <dd>{evaluationMethodLabels[evaluation.method]}{evaluation.method === "cognitive_walkthrough" && "（設計の点検。実ユーザーの証拠ではありません）"}</dd>
+        <dt>対象の版</dt>
+        <dd><code>{evaluation.targetVersion}</code></dd>
+        <dt>限界</dt>
+        <dd>{evaluation.limitations}</dd>
+        <dt>対象の課題</dt>
+        <dd>{evaluation.problemIds.length ? evaluation.problemIds.map((id) => problemLabel?.(id) ?? id).join(" / ") : <span className="unset">課題を特定しない評価</span>}</dd>
+      </dl>
+      {evaluation.result === "insufficient_evidence" && <p role="status" className="section-note">根拠が不足しているため判断できません。Taskの受入や公開は効果の達成を意味しません。</p>}
       <p className="section-label">評価時のTarget ProjectごとのExecution</p>
       <ul className="grant-list">
         {evaluation.snapshot.targets.map((target) => (
@@ -93,7 +105,7 @@ export const EvaluationCard = ({ evaluation, decisions, projectLabel }: { evalua
  * Outcome詳細の閉ループ表示（Human向け読取専用、Task 45）。Execution（Story・Task）・還流したSummary / Evidence・
  * Evaluation・それを根拠にしたDirection Decisionを、それぞれ所有側のWeb APIから読む。ここからは何も変更しない。
  */
-export const OutcomeLoopSection = ({ projectId, workspaceId, intentId, outcomeId }: { projectId: string; workspaceId: string; intentId: string; outcomeId: string }) => {
+export const OutcomeLoopSection = ({ projectId, workspaceId, intentId, outcomeId, problems = [], onEvaluations }: { projectId: string; workspaceId: string; intentId: string; outcomeId: string; problems?: readonly OutcomeProblem[]; onEvaluations?: (evaluations: OutcomeEvaluation[] | null) => void }) => {
   const key = `${projectId}/${workspaceId}/${intentId}/${outcomeId}`;
   const [state, setState] = useState<{ key: string; data: LoopData | null; error: string | null } | null>(null);
   useEffect(() => {
@@ -105,10 +117,14 @@ export const OutcomeLoopSection = ({ projectId, workspaceId, intentId, outcomeId
       request<{ decisions: DirectionDecision[] }>(workspaceApiPath(workspaceId, `/intents/${intentId}/decisions`)),
     ])
       .then(([overview, { record }, { evaluations }, { decisions }]) => {
-        if (current) setState({ key, data: { overview, record, evaluations, decisions }, error: null });
+        if (!current) return;
+        setState({ key, data: { overview, record, evaluations, decisions }, error: null });
+        onEvaluations?.(evaluations);
       })
       .catch((reason: unknown) => {
-        if (current) setState({ key, data: null, error: loadFailureMessage(classifyError(reason), "Outcomeが見つかりません。") });
+        if (!current) return;
+        onEvaluations?.(null);
+        setState({ key, data: null, error: loadFailureMessage(classifyError(reason), "Outcomeが見つかりません。") });
       });
     return () => { current = false; };
   }, [key]);
@@ -151,7 +167,7 @@ export const OutcomeLoopSection = ({ projectId, workspaceId, intentId, outcomeId
           <h3>Evaluation</h3>
           {data.evaluations.length ? (
             data.evaluations.map((evaluation) => (
-              <EvaluationCard key={evaluation.id} evaluation={evaluation} decisions={data.decisions.filter((decision) => decision.evaluationId === evaluation.id)} />
+              <EvaluationCard key={evaluation.id} evaluation={evaluation} decisions={data.decisions.filter((decision) => decision.evaluationId === evaluation.id)} problemLabel={(id) => problemLabelOf(problems, id)} />
             ))
           ) : (
             <p className="unset">未評価です</p>

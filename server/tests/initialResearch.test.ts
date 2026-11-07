@@ -17,7 +17,7 @@ const intentInput = { title: "Agents improve software", desiredState: "Agents im
 const outcomeInput = {
   title: "No duplicate claims",
   description: "Claims are exclusive.",
-  rationale: "Duplicate claims cause rework.",
+  intentVersion: 1, rationale: "Duplicate claims cause rework.",
   successCriteria: [{ description: "duplicates = 0", measurement: "Count duplicates" }],
 };
 

@@ -72,6 +72,79 @@ export type TaskClaimRecord = {
   release_reason: string | null;
 };
 
+/**
+ * TaskにWorkerが登録し、ServerがGitHubで確認したpull request（Repository・番号ごとに1行）。値は最後に確認した時点のsnapshot。
+ * 確認のたびの履歴はChange Log（`TASK_PULL_REQUEST_REGISTERED`）に残る。受入成果物の`pullRequestUrl`等の参照はここへ入れない。
+ */
+export type TaskPullRequestRecord = {
+  id: string;
+  task_id: string;
+  project_id: string;
+  /** Projectに登録されたRepository（Organizationの`project_repository_link.id`）。 */
+  repository_id: string;
+  /** GitHubの`owner/name`（小文字）。 */
+  repository: string;
+  number: number;
+  /** Task内の登録順（1から）。履歴の並びと現在のPRを決める。 */
+  sequence: number;
+  url: string;
+  state: string;
+  draft: number;
+  head_branch: string;
+  head_sha: string;
+  base_branch: string;
+  merge_sha: string | null;
+  author: string;
+  /** 最後に登録・確認したWork ClaimとPrincipal。 */
+  work_claim_id: string;
+  principal_id: string;
+  /** GitHubで確認した時刻。 */
+  verified_at: number;
+  /** `reviewed_task`で照合したレビュー対象のhead SHAと、その根拠のPRコメント（現在のReview Claimに紐づく承認）。未レビューはnull。 */
+  reviewed_head_sha: string | null;
+  review_comment_id: number | null;
+  review_comment_url: string | null;
+  /** `accept_task`で照合したmerge SHAと受入の根拠。未受入はnull。 */
+  accepted_merge_sha: string | null;
+  acceptance_evidence: string | null;
+  created_at: number;
+  updated_at: number;
+};
+
+/**
+ * 公開記録（公開確認の原記録）。Runtimeが観測した公開先・Repository・revision・確認日時と根拠の参照。追記専用で、同じ
+ * （Project・Repository・公開先・revision・確認日時）の再送は同じ記録を返す。`evidence`はJSON配列（`PublicationEvidence`）。
+ */
+export type PublicationRecord = {
+  id: string;
+  project_id: string;
+  /** Projectに登録されたRepository（Organizationの`project_repository_link.id`）。 */
+  repository_id: string;
+  /** 公開先の参照（例: `production`）。デプロイ方式に依存しない名前。 */
+  target: string;
+  target_url: string | null;
+  /** 公開されている完全なcommit SHA（小文字）。 */
+  revision: string;
+  /** デプロイ方式のラベル（例: `cloudflare-pages`）。判定には使わない。 */
+  method: string | null;
+  evidence: string;
+  /** Runtimeが公開を確認した時刻。 */
+  observed_at: number;
+  /** Compassが受け付けた時刻。 */
+  received_at: number;
+  /** Project内で単調増加する受付順。同じ確認日時の記録の新旧を決める（時刻やIDの大小に依存しない）。 */
+  sequence: number;
+  /** 記録したRuntime Credentialの主体。 */
+  principal_id: string;
+};
+
+/** 公開記録のrevisionと変更の対象Commitの関係（記録時にRepositoryの履歴で判定した事実）。判定できなかったCommitは行を持たない。 */
+export type PublicationRevisionRecord = {
+  publication_id: string;
+  commit_sha: string;
+  relation: "included" | "not_included";
+};
+
 /** 追記専用のChange Log。`cursor`が取得位置になる。 */
 export type ChangeRecord = {
   cursor: number;
@@ -108,6 +181,8 @@ export type CommandReceiptRecord = {
  * 受入成果物（受入証跡）。`accept_task`で受け入れたManagerが確認したRepository・完全なcommit SHA・変更したpath・PR URLの参照で、
  * TASK_ACCEPTEDのChangeに残す。本文は持たない。
  */
+export type CompletionNote = { task_id: string; comment_id: string; body: string; author: string | null; created_at: number };
+
 export type AcceptedDeliverable = { repositoryId: string; commitSha: string; paths: string[]; pullRequestUrl: string | null };
 
 /** Outcomeに相関付いたStory・Taskの変更へ付ける相関。 */
@@ -136,6 +211,8 @@ export interface ProjectStateReader {
   isArchived(projectId: string): Promise<boolean>;
   /** Projectに登録されたRepository（未登録・別ProjectのRepositoryはnull）。受入成果物の検査に使う。 */
   findRepository(projectId: string, repositoryId: string): Promise<{ id: string; url: string } | null>;
+  /** RepositoryのPRレビューで成功を必須とするGitHubのcheck名（空ならCIを必須にしない）。未登録・別ProjectのRepositoryはnull。 */
+  findRequiredChecks(projectId: string, repositoryId: string): Promise<string[] | null>;
 }
 
 /**
@@ -211,6 +288,11 @@ export interface WorkStore {
   findLatestCompleter(taskId: string): Promise<string | null>;
   /** Projectの`TASK_COMPLETED`を新しい順に返す。 */
   listCompletions(projectId: string): Promise<Pick<ChangeRecord, "entity_id" | "principal_id">[]>;
+  /**
+   * Projectの各Taskについて、最新の`TASK_COMPLETED`の時点までに、その完了したClaimと主体が残した最後のコメント（実装・検証メモ）。
+   * 変更の要約の原記録。メモが無いTaskは含まない。
+   */
+  listCompletionNotes(projectId: string): Promise<CompletionNote[]>;
   /** `cursor`の昇順。 */
   listEntityChanges(projectId: string, entityId: string): Promise<ChangeRecord[]>;
   /** `afterCursor`より後を`cursor`の昇順で`limit`件。 */
@@ -221,6 +303,28 @@ export interface WorkStore {
   maxChangeCursor(projectId: string, entityIds?: string[]): Promise<number>;
   /** Story自身と、Story配下のTaskの相関（`outcome_ref`・`correlation_id`）。 */
   listEntityCorrelations(projectId: string, entityIds: string[]): Promise<EntityCorrelation[]>;
+
+  /** Taskに登録したPR。`sequence`の昇順（最後が現在のPR）。 */
+  listTaskPullRequests(taskId: string): Promise<TaskPullRequestRecord[]>;
+  /** GitHubのRepository・番号で登録済みのPR（Project・Taskを問わない）。 */
+  findPullRequestByNumber(repository: string, number: number): Promise<TaskPullRequestRecord | null>;
+  insertTaskPullRequest(record: TaskPullRequestRecord): Promise<void>;
+  updateTaskPullRequest(id: string, patch: Partial<Omit<TaskPullRequestRecord, "id" | "task_id" | "project_id" | "repository" | "number" | "sequence" | "created_at">>): Promise<void>;
+
+  /** ProjectのTaskに登録したPR（全Task）。 */
+  listProjectPullRequests(projectId: string): Promise<TaskPullRequestRecord[]>;
+  /** Projectの`TASK_ACCEPTED`を`cursor`の昇順で返す（受入日時・受入成果物）。 */
+  listAcceptances(projectId: string): Promise<ChangeRecord[]>;
+
+  /** 同じ（Project・Repository・公開先・revision・確認日時）の公開記録。 */
+  findPublication(key: Pick<PublicationRecord, "project_id" | "repository_id" | "target" | "revision" | "observed_at">): Promise<PublicationRecord | null>;
+  /** Project内で次の公開記録の受付順（transaction内で採番する）。 */
+  nextPublicationSequence(projectId: string): Promise<number>;
+  insertPublication(record: PublicationRecord, revisions: PublicationRevisionRecord[]): Promise<void>;
+  /** Projectの公開記録（確認日時・受信時刻の新しい順）。 */
+  listPublications(projectId: string): Promise<PublicationRecord[]>;
+  /** Projectの公開記録で判定したCommitの関係。 */
+  listPublicationRevisions(projectId: string): Promise<PublicationRevisionRecord[]>;
 
   findReceipt(principalId: string, toolName: string, requestId: string): Promise<CommandReceiptRecord | null>;
   insertReceipt(receipt: CommandReceiptRecord): Promise<void>;

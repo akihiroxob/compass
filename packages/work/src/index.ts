@@ -1,9 +1,14 @@
 export * from "./domain/StoryStatus.ts";
 export * from "./domain/TaskStatus.ts";
 export * from "./domain/WorkRole.ts";
+export * from "./domain/PullRequest.ts";
+export * from "./domain/Publication.ts";
 export * from "./application/error/CoordinationError.ts";
 export * from "./application/port/DirectionReferenceLookupPort.ts";
 export * from "./application/port/WorkStore.ts";
+export * from "./application/port/PullRequestGateway.ts";
+export * from "./application/port/RevisionGateway.ts";
+export * from "./application/PublicationUseCases.ts";
 export * from "./application/executionOperatorSchema.ts";
 export * from "./application/ExecutionOperatorUseCases.ts";
 export * from "./application/ExecutionReadUseCases.ts";
@@ -11,6 +16,7 @@ export * from "./application/ExecutionSummaryService.ts";
 export * from "./application/TaskCoordinationService.ts";
 export * from "./infrastructure/initializeWorkSchema.ts";
 export * from "./infrastructure/KyselyWorkStore.ts";
+export * from "./infrastructure/GitHubPullRequestGateway.ts";
 export * from "./infrastructure/schema.ts";
 
 export * from "./application/port/ConsultationReadinessPort.ts";

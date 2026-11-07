@@ -198,13 +198,13 @@ test("閉ループのDB集計は新規schemaでDirectionをWorkspace、WorkをPr
     const direction = services.workspaceDirection;
     const intent = await direction.createIntentUseCase.execute(workspace.id, { title: "Intent", desiredState: "Result" });
     await direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
-      title: "Outcome", description: "Result", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
+      title: "Outcome", description: "Result", intentVersion: 1, rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }],
     });
     await direction.createResearchRequestUseCase.execute(workspace.id, {
       requestKey: "research", kind: "decision", originIntentId: intent.id, question: "Question", scope: "Scope", completionCondition: "Evidence", budgetTotal: 1,
     });
     await direction.createDirectionDecisionUseCase.execute(workspace.id, "strategist", {
-      requestKey: "decision", runRef: "run", type: "adr_candidate", intentId: intent.id, judgment: "Document", reason: "Evidence",
+      requestKey: "decision", runRef: "run", type: "adr_candidate", intentId: intent.id, intentVersion: 1, judgment: "Document", reason: "Evidence",
     });
     assert.deepEqual(await closedLoopCounts(database, { id: scope.id, workspaceId: workspace.id }), {
       stories: 0, tasks: 0, outcomes: 1, evaluations: 0, decisions: 1, researchRequests: 1,
@@ -291,7 +291,7 @@ test(
           workspaceId,
           intentId: intent.id,
           type: "additional_research",
-          judgment: "Learn what causes duplicate claims before choosing an Outcome",
+          intentVersion: 1, judgment: "Learn what causes duplicate claims before choosing an Outcome",
           reason: "Nothing is known about the current claim behavior",
           research: { question: "What causes duplicate claims?", scope: "Claim handling", completionCondition: "The cause is known", budgetTotal: 100 },
           requestKey: "initial-research",
@@ -471,7 +471,7 @@ test(
             intentId: intent.id,
             type: "additional_research",
             evaluationId: secondEvaluations[1]!.id,
-            judgment: "stale",
+            intentVersion: 1, judgment: "stale",
             reason: "stale",
             requestKey: "stale-decision",
             runRef: "stale",

@@ -50,6 +50,7 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
       scenarios: { scenario: string; workspaceId: string; intentId: string; outcomeId: string;
         projects: { id: string }[]; evaluationId?: string; decisionId?: string; researchRequestId?: string; consultationReflection?: Reflection;
         consultationLifecycle?: Lifecycle }[];
+      releaseHistory: { projectId: string; workspaceId: string; counts: { published: number; notPublished: number; unconfirmed: number } };
       persistenceCheck: { snapshotPath: string; paths: string[] };
     };
     assert.match(manifest.headSha, /^[a-f0-9]{40}$/);
@@ -63,7 +64,7 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
     assert.equal(observed.get("record_consultation_artifact")?.context, "collaboration");
     assert.equal(observed.get("create_project")?.context, null);
     assert.equal(manifest.dataPreparation.consultationResumptionEnabled, true);
-    assert.deepEqual(manifest.dataPreparation.workspaceIds, manifest.scenarios.map(({ workspaceId }) => workspaceId));
+    assert.deepEqual(manifest.dataPreparation.workspaceIds, [...manifest.scenarios.map(({ workspaceId }) => workspaceId), manifest.releaseHistory.workspaceId]);
     const database = createDatabase(join(data, "preview.db"));
     try {
       let now = Date.now();
@@ -113,9 +114,14 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
           const research = await app.request(`${base}/research-requests/${scenario.researchRequestId}`, { headers: { Cookie: viewer } });
           assert.equal(research.status, 200);
         }
+        if (scenario.scenario === "no-target") {
+          assert.equal((await app.request(base, { headers: { Cookie: viewer } })).status, 404);
+        }
         if (scenario.projects.length) {
-          assert.equal((await app.request(`/api/projects/${scenario.projects[0]!.id}/execution`, { headers: { Cookie: viewer } })).status, 200);
-          assert.equal((await app.request(`/api/projects/${scenario.projects[1]!.id}/execution`, { headers: { Cookie: viewer } })).status, 404);
+          // viewerはWorkspace Membershipで配下のProject A・Bを同じRoleで参照する。
+          for (const project of scenario.projects) {
+            assert.equal((await app.request(`/api/projects/${project.id}/execution`, { headers: { Cookie: viewer } })).status, 200);
+          }
           const session = await app.request("/api/auth/session", { headers: { Cookie: viewer } });
           const { csrfToken } = await session.json();
           assert.equal((await app.request(base, { method: "PATCH", headers: {
@@ -124,6 +130,18 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
         }
       }
       // Reflected Consultations were prepared through public MCP: real commit, normal Review/Acceptance and artifact registration.
+      // リリース履歴: 公開記録（公開API）だけから、公開済み・未公開・確認できずと、20件を超える件数を準備する。
+      const release = manifest.releaseHistory;
+      assert.ok(manifest.dataPreparation.projectIds.includes(release.projectId));
+      const releases = await app.request(`/api/projects/${release.projectId}/releases`, { headers: { Cookie: owner } });
+      assert.equal(releases.status, 200);
+      const history = await releases.json() as { changes: { task: { id: string }; publication: { status: string; reason: string | null } }[]; publications: unknown[] };
+      const statuses = history.changes.map(({ publication }) => `${publication.status}/${publication.reason}`);
+      assert.equal(history.changes.length, 24);
+      assert.equal(statuses.filter((status) => status === "published/null").length, release.counts.published);
+      assert.equal(statuses.filter((status) => status === "not_published/null").length, release.counts.notPublished);
+      assert.equal(statuses.filter((status) => status === "unconfirmed/not_compared").length, release.counts.unconfirmed);
+      assert.equal(history.publications.length, 1);
       const reflection = manifest.scenarios.find(({ scenario }) => scenario === "evaluated")!.consultationReflection!;
       assert.equal(reflection.status, "prepared");
       assert.deepEqual(reflection.consultations.map(({ scope }) => scope), ["project", "workspace"]);

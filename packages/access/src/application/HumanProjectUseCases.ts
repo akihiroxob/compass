@@ -1,6 +1,5 @@
 import { humanOperatorPrincipalId, type HumanActor, type HumanProjectOperation, type HumanRole } from "../domain/HumanAuth.ts";
 import type { GetProjectUseCase, ListProjectsUseCase, ProjectDetail, ProjectStatus } from "@compass/organization";
-import type { ProjectMembershipRepository } from "../domain/ProjectMembershipRepository.ts";
 import type { HumanProjectAuthorizationService } from "./HumanProjectAuthorizationService.ts";
 
 type ProjectScopedUseCase<Args extends unknown[], Result> = {
@@ -8,7 +7,7 @@ type ProjectScopedUseCase<Args extends unknown[], Result> = {
 };
 
 /**
- * Human向けの入口（Web API）から呼ぶProject単位のuse case。Membershipの認可（domainの権限表）を通してから、
+ * Human向けの入口（Web API）から呼ぶProject単位のuse case。所属WorkspaceのMembershipの認可（domainの権限表）を通してから、
  * MCPと共通の既存use caseへ委譲する。業務規則は委譲先に1つだけ置き、入口ごとに重複させない。
  * 認可の順序は、Membership（未所属・不在は404、Role不足は403）→ 既存use caseの検証（子ID・archived・入力）。
  */
@@ -42,21 +41,24 @@ export class HumanOperatorUseCase<Args extends unknown[], Result> {
   }
 }
 
-/** 有効なMembershipを持つProjectだけを返す（active / archivedの絞り込み・更新日時の降順はDirectionのuse caseに従う）。 */
+/**
+ * 有効なWorkspace Membershipを持つWorkspaceのProjectだけを返す（active / archivedの絞り込み・更新日時の降順は
+ * Organizationのuse caseに従う）。
+ */
 export class ListHumanProjectsUseCase {
   constructor(
     private readonly listProjectsUseCase: ListProjectsUseCase,
-    private readonly membershipRepository: ProjectMembershipRepository,
+    private readonly authorization: HumanProjectAuthorizationService,
   ) {}
 
   async execute(actor: HumanActor, status: ProjectStatus = "active"): Promise<ProjectDetail[]> {
-    const projectIds = new Set(await this.membershipRepository.listActiveProjectIds(actor.humanUserId));
+    const projectIds = new Set(await this.authorization.listReadableProjectIds(actor));
     const projects = await this.listProjectsUseCase.execute(status);
     return projects.filter((project) => projectIds.has(project.id));
   }
 }
 
-/** Project詳細と、UIの導線切替に使う自分のRole（`myRole`）。拒否は常にserverの権限表で行う。 */
+/** Project詳細と、UIの導線切替に使う自分のRole（`myRole`。所属WorkspaceのRole）。拒否は常にserverの権限表で行う。 */
 export class GetHumanProjectUseCase {
   constructor(
     private readonly authorization: HumanProjectAuthorizationService,

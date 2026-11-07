@@ -3,7 +3,16 @@ import { Button } from "../../components/ui";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { grantRoleLabels, revokeInit, revokeRecoveryNote, scopeNotFoundMessage, scopeRevokeGrantPath, type Grant, type GrantScope } from "./grants";
 
-type GrantRowProps = { scope: GrantScope; grant: Grant; onRevoked: () => void; readOnly?: boolean };
+type GrantRowProps = {
+  scope: GrantScope;
+  grant: Pick<Grant, "principalId" | "role" | "createdAt">;
+  onRevoked: () => void;
+  readOnly?: boolean;
+  /** 見出し（省略時はPrincipal）。Agent詳細ではRoleを出す。 */
+  title?: string;
+  /** 取消の操作に付けるclass（Agent管理で狭い画面に操作を置かない等、配置は利用側が決める）。 */
+  actionsClassName?: string;
+};
 
 const revokeConsequence: Record<Grant["role"], string> = {
   strategist: "Outcomeを作成できません",
@@ -16,7 +25,7 @@ const revokeConsequence: Record<Grant["role"], string> = {
 };
 
 /** 発行済みのRole Grant 1件。取消は誤操作防止の確認パネルを挟む（API・CLIには確認工程がない）。 */
-export const GrantRow = ({ scope, grant, onRevoked, readOnly = false }: GrantRowProps) => {
+export const GrantRow = ({ scope, grant, onRevoked, readOnly = false, title, actionsClassName }: GrantRowProps) => {
   const label = grantRoleLabels[grant.role];
   const revoke = useReasonAction(async () => {
     await request<{ revoked: boolean }>(scopeRevokeGrantPath(scope, grant), revokeInit);
@@ -25,13 +34,15 @@ export const GrantRow = ({ scope, grant, onRevoked, readOnly = false }: GrantRow
   return (
     <li>
       <div>
-        <strong>{grant.principalId}</strong>
+        <strong>{title ?? grant.principalId}</strong>
         <small>{new Date(grant.createdAt).toLocaleString("ja-JP")} 発行</small>
       </div>
       {!readOnly && (
-        <Button variant="secondary" size="sm" tone="danger" aria-expanded={revoke.confirming} onClick={revoke.open}>
-          割当を取り消す
-        </Button>
+        <div className={actionsClassName ? `action-row ${actionsClassName}` : "action-row"}>
+          <Button variant="secondary" size="sm" tone="danger" aria-expanded={revoke.confirming} onClick={revoke.open}>
+            割当を取り消す
+          </Button>
+        </div>
       )}
       {!readOnly && revoke.confirming && (
         <ReasonPanel

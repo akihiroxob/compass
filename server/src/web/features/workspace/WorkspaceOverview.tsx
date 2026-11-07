@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { request, settle, type Part } from "../../api";
 import { PageColumns } from "../../components/PageColumns";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { intentPath, outcomePath, projectViewPath, researchRequestPath, workspaceOutcomePath, workspacePath, workspaceProjectsPath } from "../../paths";
+import { intentPath, outcomePath, projectViewPath, researchRequestPath, workspaceIntentCreatePath, workspaceOutcomePath, workspacePath, workspaceProjectsPath } from "../../paths";
 import { statusBadgeClass, type StatusTone } from "../../statusTone";
 import { canOperateWorkspace } from "../access";
 import { activitiesPath, RecentActivityList, type ActivityPage, type ActivitySummary } from "../activity";
@@ -21,7 +21,7 @@ import {
   type AttentionItem,
   type AttentionKind,
   type AttentionRef,
-  type DirectionData,
+  type DirectionData, type IntentDirectionData,
   type OutcomePosition,
   type OverviewResearch,
   type TargetWork,
@@ -74,15 +74,14 @@ const attentionLabels: Record<AttentionKind, { label: string; tone: StatusTone }
   evaluation: { label: "評価待ち", tone: "waiting" },
 };
 
-/** Project名とリンク。Project Membershipが無ければリンクにせず理由を出す。一覧を取得できなければIDだけを出す。 */
+/** Project名とリンク。一覧を取得できなければIDだけを出す。 */
 export const ProjectName = ({ projectId, projects, view }: { projectId: string; projects: Part<OverviewProject[]>; view: "overview" | "work" }) => {
   const found = projects.ok ? projects.value.find(({ project }) => project.id === projectId) : undefined;
   if (!found) return <code>{projectId.slice(0, 8)}</code>;
   return (
     <>
-      {found.canOpen ? <Link to={projectViewPath(projectId, view)}>{found.project.name}</Link> : <span>{found.project.name}</span>}
+      <Link to={projectViewPath(projectId, view)}>{found.project.name}</Link>
       {found.project.status === "archived" && <> <span className="status-badge muted">アーカイブ済み</span></>}
-      {!found.canOpen && <small className="locked-note">（Project Membershipが無いため開けません）</small>}
     </>
   );
 };
@@ -92,7 +91,7 @@ const OutcomeName = ({ workspaceId, outcome }: { workspaceId: string; outcome: O
   <Link to={workspaceOutcomePath(workspaceId, outcome.intentId, outcome.id)}>{outcome.title}</Link>;
 
 export const openProjects = (projects: Part<OverviewProject[]>) =>
-  projects.ok ? projects.value.map(({ project, canOpen }) => ({ id: project.id, status: project.status, canOpen })) : [];
+  projects.ok ? projects.value.map(({ project }) => ({ id: project.id, status: project.status })) : [];
 
 export const TargetRow = ({ target, projects }: { target: TargetWork; projects: Part<OverviewProject[]> }) => (
   <li>
@@ -102,7 +101,9 @@ export const TargetRow = ({ target, projects }: { target: TargetWork; projects: 
 );
 
 /** 現在地: Active Intent → Active Outcome → Target Project別のWork → 評価可能性。Taskの受入をOutcomeの達成として出さない。 */
-const CurrentPosition = ({ workspaceId, direction, projects }: { workspaceId: string; direction: DirectionData; projects: Part<OverviewProject[]> }) => {
+const CurrentPosition = (props: { workspaceId: string; direction: DirectionData; projects: Part<OverviewProject[]> }) => props.direction.directions.length === 0 ? <p className="unset">ActiveなIntentはありません。</p> : <>{props.direction.directions.map((direction) => <IntentPosition key={direction.activeIntent!.id} {...props} direction={direction} />)}</>;
+
+const IntentPosition = ({ workspaceId, direction, projects }: { workspaceId: string; direction: IntentDirectionData; projects: Part<OverviewProject[]> }) => {
   const intentProject = pickOpenProject([], openProjects(projects));
   if (!direction.activeIntent) return <p className="unset">ActiveなIntentはありません。</p>;
   return (
@@ -150,15 +151,20 @@ const AttentionRefItem = ({ workspaceId, refItem, kind, projects, openProject }:
 const refKey = (refItem: AttentionRef) =>
   refItem.on === "outcome" ? `${refItem.outcome.id}-${refItem.projectId ?? ""}` : refItem.on === "intent" ? `intent-${refItem.intent.id}` : `research-${refItem.request.id}`;
 
-/** Humanの登録（Intent・Outcome）の導線。作成画面はProject配下のため、開けるProjectが無ければ理由を出す。 */
-const HumanAction = ({ item, intentId, projectId, canWrite }: { item: AttentionItem; intentId: string | null; projectId: string | null; canWrite: boolean }) => {
+/**
+ * Humanの登録（Intent・Outcome）の導線。目標（Intent）はWorkspaceの方向から作成する。
+ * Outcomeの作成画面はProject配下のため、開けるProjectが無ければ理由を出す。
+ */
+const HumanAction = ({ workspaceId, item, intentId, projectId, canWrite }: { workspaceId: string; item: AttentionItem; intentId: string | null; projectId: string | null; canWrite: boolean }) => {
   if (!canWrite) return <small>Workspace Editor以上へ依頼</small>;
-  if (!projectId) return <small>登録画面を開けるProjectがありません（Project Membershipが必要です）</small>;
-  const to = item.kind === "intent" ? intentPath(projectId, "new") : intentId ? outcomePath(projectId, intentId, "new") : null;
-  return to ? <LinkButton size="sm" to={to}>{item.kind === "intent" ? "Intentを登録" : "Outcomeを登録"}</LinkButton> : null;
+  if (item.kind === "intent") return <LinkButton size="sm" to={workspaceIntentCreatePath(workspaceId)}>目標を作成</LinkButton>;
+  if (!projectId) return <small>登録画面を開けるactiveなProjectがありません</small>;
+  return intentId ? <LinkButton size="sm" to={outcomePath(projectId, intentId, "new")}>Outcomeを登録</LinkButton> : null;
 };
 
-const Attention = ({ workspace, myRole, direction, research, projects }: { workspace: Workspace; myRole: HumanRole; direction: DirectionData; research: Part<OverviewResearch[]>; projects: Part<OverviewProject[]> }) => {
+const Attention = (props: { workspace: Workspace; myRole: HumanRole; direction: DirectionData; research: Part<OverviewResearch[]>; projects: Part<OverviewProject[]> }) => <>{(props.direction.directions.length > 0 ? props.direction.directions : [{ activeIntent: null, pastIntents: [], outcomes: [], otherOutcomes: [], pendingPastOutcomes: [] }]).map((direction, index) => <IntentAttention key={direction.activeIntent?.id ?? "empty"} {...props} direction={direction} research={props.research.ok ? { ok: true, value: props.research.value.filter((request) => request.originIntentId === direction.activeIntent?.id || (request.originIntentId === null && index === 0)) } : props.research} />)}</>;
+
+const IntentAttention = ({ workspace, myRole, direction, research, projects }: { workspace: Workspace; myRole: HumanRole; direction: IntentDirectionData; research: Part<OverviewResearch[]>; projects: Part<OverviewProject[]> }) => {
   if (workspace.status === "archived") return <p className="unset">アーカイブ済みのため、要対応はありません。</p>;
   const attention = planWorkspaceAttention({
     activeIntent: direction.activeIntent && { id: direction.activeIntent.id, title: direction.activeIntent.title },
@@ -179,7 +185,7 @@ const Attention = ({ workspace, myRole, direction, research, projects }: { works
             return (
               <li key={item.kind}>
                 <span><span className={statusBadgeClass(attentionLabels[item.kind].tone)}>{attentionLabels[item.kind].label}</span>{item.refs.length > 0 && <> {total}件</>} — {item.note}</span>
-                {item.actor === "human" && <HumanAction item={item} intentId={direction.activeIntent?.id ?? null} projectId={project} canWrite={canWrite} />}
+                {item.actor === "human" && <HumanAction workspaceId={workspace.id} item={item} intentId={direction.activeIntent?.id ?? null} projectId={project} canWrite={canWrite} />}
                 {item.refs.length > 0 && <small className="attention-refs">{item.refs.map((refItem, index) => <span key={refKey(refItem)}>{index > 0 && "、"}<AttentionRefItem workspaceId={workspace.id} refItem={refItem} kind={item.kind} projects={projects} openProject={project} /></span>)}</small>}
               </li>
             );
@@ -201,10 +207,7 @@ const ProjectSummary = ({ workspace, projects, outcomes }: { workspace: Workspac
     <>
       {active.length === 0 ? <p className="unset">activeなProjectはありません。</p> : (
         <ul className="link-list workspace-project-links">
-          {active.map(({ project, canOpen }) => {
-            const note = projectTargetNote(outcomes, project.id);
-            return <li key={project.id}>{canOpen ? <Link to={projectViewPath(project.id, "overview")}><span>{project.name}</span><small>{note}</small></Link> : <p><span>{project.name}</span><small>{note} ・ Project Membershipが無いため開けません</small></p>}</li>;
-          })}
+          {active.map(({ project }) => <li key={project.id}><Link to={projectViewPath(project.id, "overview")}><span>{project.name}</span><small>{projectTargetNote(outcomes, project.id)}</small></Link></li>)}
         </ul>
       )}
       {archivedCount > 0 && <p className="section-note">アーカイブ済みのProjectが{archivedCount}件あります。</p>}
@@ -258,7 +261,7 @@ export const WorkspaceOverview = ({ workspace, myRole, manage }: { workspace: Wo
         <h2 id="workspace-position-heading">現在地</h2>
         {data.direction.ok ? <CurrentPosition workspaceId={workspace.id} direction={data.direction.value} projects={data.projects} /> : <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${data.direction.error}`} />}
         {outcomes && outcomes.length > 0 && <p className="section-note">Taskの件数は状態だけを数えたもので、Agentの稼働やClaimの有効性を示しません。Claimの状況は各Projectの概要で確認します。</p>}
-        <Link to={workspacePath(workspace.id, "direction")} className="text-link">方向を開く →</Link>
+        <Link to={workspacePath(workspace.id, "direction")} className="text-link">Outcomeを開く →</Link>
       </section>
       <section className="detail-section" aria-labelledby="workspace-recent-heading">
         <h2 id="workspace-recent-heading">最近の記録</h2>
@@ -275,7 +278,7 @@ export const WorkspaceOverview = ({ workspace, myRole, manage }: { workspace: Wo
       <section className="detail-section" aria-labelledby="workspace-overview-agents-heading">
         <h2 id="workspace-overview-agents-heading">Agent</h2>
         <p className="section-note">Agentの稼働状況は、この画面では判断しません。Role割当・Credential・Claimは稼働を示さないため、担当待ちは「要対応」に、Role割当・Credential・保持中のClaimはAgent画面に出します。</p>
-        <Link to={workspacePath(workspace.id, "agents")} className="text-link">Agentを開く →</Link>
+        <Link to={workspacePath(workspace.id, "agents")} className="text-link">Agent管理を開く →</Link>
       </section>
       {manage}
     </>

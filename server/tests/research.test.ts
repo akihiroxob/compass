@@ -14,7 +14,7 @@ const intentInput = { title: "Agents improve software", desiredState: "Agents im
 const outcomeInput = {
   title: "No duplicate claims",
   description: "Claims are exclusive.",
-  rationale: "Duplicate claims cause rework.",
+  intentVersion: 1, rationale: "Duplicate claims cause rework.",
   successCriteria: [{ description: "duplicates = 0", measurement: "Count duplicates" }],
 };
 
@@ -797,6 +797,8 @@ test("initializeSchemaは再実行してもResearchとProject / Intent / Outcome
 
   // Research導入前のDB（Researchのtableが無い）でも、追加して既存のデータを保つ。
   for (const table of [
+    "intent_explanation_basis",
+    "outcome_problem_evidence",
     "runtime_event",
     "research_synthesis_finding",
     "research_synthesis",

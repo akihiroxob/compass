@@ -55,7 +55,7 @@ const seed = async (kit: Kit, name = "Compass") => {
     assert.equal((await app.request(`/api/projects/${project.id}/grants`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ principalId, role }) })).status, 201);
   }
   const outcome = await services.createOutcomeUseCase.execute(project.workspaceId, intent.id, {
-    title: "Outcome", description: "Visible", rationale: "Because",
+    title: "Outcome", description: "Visible", intentVersion: 1, rationale: "Because",
     successCriteria: [{ description: "c1", measurement: "m1", target: null }],
   });
   await services.setOutcomeTargetProjectUseCase.execute(project.workspaceId, outcome.id, project.id);
@@ -177,7 +177,7 @@ test("未所属は404、viewer以上は参照可、archived Projectも参照だ�
   const kit = await setup();
   const seeded = await seed(kit);
   const projectId = seeded.project.id;
-  // Evaluation履歴はWorkspace所有（Workspace Membership）。Execution閲覧はProject Membership。
+  // Evaluation履歴はWorkspace所有。Execution閲覧も同じWorkspace Membershipで読む。
   const paths = [
     `/api/projects/${projectId}/execution`,
     `/api/projects/${projectId}/tasks/${seeded.rejected.id}`,

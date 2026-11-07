@@ -2,13 +2,14 @@
 name: implement-task
 description: 割り当てられた task を、既存構成・設計原則・実装品質を守りながらレビュー可能な状態まで実装する。
 status: active
-version: 6
+version: 7
 requiredKnowledge:
   - principles/development-principles.md
   - principles/ai-native-ddd.md
   - principles/frontend-architecture.md
   - tips/task-writing.md
   - tips/verification.md
+  - tips/github-workflow.md
   - tips/self-review.md
   - tips/incremental-design.md
 requiredTools:
@@ -18,6 +19,8 @@ requiredTools:
   - compass:complete_task
   - compass:release_claim
   - compass:issue_task
+  - compass:register_task_pull_request
+  - compass:list_task_pull_requests
 ---
 
 # implement-task
@@ -43,7 +46,8 @@ requiredTools:
 11. `knowledge/tips/verification.md` に従って検証を行い、実行内容と実際の結果を確認する。
 12. `knowledge/tips/self-review.md` に従い、`complete_task` の前に reviewer の視点で自分の差分をセルフレビューする。
 13. 実施内容・判断理由・再利用判断・検証結果・セルフレビューで気づいた点・未解決事項を Markdown 形式の `add_task_comment` で共有する。
-14. レビュー可能と判断したら `complete_task` で `in_review` に進める。
+14. Repository を変更する Task は `knowledge/tips/github-workflow.md` の Worker の手順で open・非 draft の PR を作り、現在の Claim で `register_task_pull_request` する。
+15. レビュー可能と判断したら `complete_task` で `in_review` に進める。
 
 ## FileChangePlan
 

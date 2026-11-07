@@ -1,4 +1,4 @@
-// Intent（features/intent）。ActiveなIntentが無いときの案内と登録導線。
+// Intent（features/intent）。ActiveなIntentが無いときの案内と登録導線、目標の項目の並び。
 @use "../../styles/mixins" as *;
 
 .intent-empty {
@@ -10,3 +10,38 @@
   p { margin: 0; }
   @include narrow { flex-direction: column; align-items: stretch; }
 }
+
+// 背景・対象・制約。広い画面では3列、狭い画面では1列（フォームの入力欄と詳細の表示で同じ並び）。
+// 詳細の表示は各項目の見出しが上余白を持つため、行の間隔を持たない。
+.intent-context-fields, .intent-context-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  @include narrow { grid-template-columns: minmax(0, 1fr); }
+}
+.intent-context-fields { gap: var(--space-md); }
+.intent-context-facts { gap: 0 var(--space-md); }
+
+// 目標の変更履歴（版・変更主体・理由）。新しい版から順に、区切り線で並べる。
+.revision-list {
+  @include divided-list;
+  margin-top: var(--space-xs);
+  li { @include list-item; }
+  p { margin: 0 0 var(--space-2xs); }
+}
+
+// Agentの説明。観測項目ごとのカードに、事実・原因の仮説・次の提案を種別の見出しで分けて並べる。
+.explanation-card {
+  margin-top: var(--space-md);
+  h3 { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs); }
+  h4 { margin: var(--space-md) 0 var(--space-2xs); }
+  .section-note { margin: var(--space-2xs) 0; }
+}
+.explanation-meta { color: var(--color-text-muted); font-size: var(--text-note); font-weight: 400; }
+.explanation-metrics, .explanation-items, .explanation-basis, .explanation-outcomes {
+  @include unstyled-list;
+  display: grid;
+  gap: var(--space-xs);
+}
+.explanation-metrics { margin-bottom: var(--space-sm); }
+.explanation-item p { margin: 0 0 var(--space-2xs); }
+.explanation-basis { padding-left: var(--space-md); font-size: var(--text-note); color: var(--color-text-secondary); li { overflow-wrap: anywhere; } }

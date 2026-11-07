@@ -1,3 +1,5 @@
-export { MembershipSection } from "./MembershipSection";
+export { WorkspaceInvitationSection } from "./WorkspaceInvitationSection";
 export { WorkspaceMembershipSection } from "./WorkspaceMembershipSection";
-export { humanRoleLabels, membersPath, scopeMembersPath, type HumanRole, type Member } from "./members";
+export { loadMemberNames } from "./memberNames";
+export { humanRoleLabels, workspaceMembersPath, type HumanRole, type Member } from "./members";
+export { RoleHelpButton } from "./RoleHelp";

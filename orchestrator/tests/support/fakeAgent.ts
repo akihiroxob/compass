@@ -16,7 +16,7 @@ const projectId = env.COMPASS_PROJECT_ID ?? null;
 const subjectId = env.COMPASS_SUBJECT_ID!;
 appendFileSync(
   env.FAKE_AGENT_LOG!,
-  `${JSON.stringify({ role, workspaceId, projectId, subject: `${env.COMPASS_SUBJECT_KIND}:${subjectId}`, key: env.COMPASS_DISPATCH_KEY, attempt: Number(env.COMPASS_DISPATCH_ATTEMPT), pid: process.pid, prompt: env.COMPASS_PROMPT, credentialVisible: Object.hasOwn(env, "ORCHESTRATOR_TOKEN") })}\n`,
+  `${JSON.stringify({ role, workspaceId, projectId, intentId: env.COMPASS_INTENT_ID ?? null, subject: `${env.COMPASS_SUBJECT_KIND}:${subjectId}`, key: env.COMPASS_DISPATCH_KEY, attempt: Number(env.COMPASS_DISPATCH_ATTEMPT), pid: process.pid, prompt: env.COMPASS_PROMPT, credentialVisible: Object.hasOwn(env, "ORCHESTRATOR_TOKEN") })}\n`,
 );
 if (env.FAKE_AGENT_SLEEP_MS) await new Promise((resolve) => setTimeout(resolve, Number(env.FAKE_AGENT_SLEEP_MS)));
 if (env.FAKE_AGENT_EXIT) process.exit(Number(env.FAKE_AGENT_EXIT));
@@ -34,7 +34,7 @@ const call = async (name: string, args: Record<string, unknown>) => {
 };
 
 if (role === "strategist") {
-  const context = await call("get_strategist_context", { workspaceId });
+  const context = await call("get_strategist_context", { workspaceId, intentId: env.COMPASS_INTENT_ID });
   const intentId = context.activeIntent.id as string;
   if (env.COMPASS_SUBJECT_KIND === "evaluation") {
     // 判断待ちのEvaluationを根拠に次を判断する。fixtureは達成としてIntentを完了する。
@@ -43,7 +43,7 @@ if (role === "strategist") {
       intentId,
       type: "intent_complete",
       evaluationId: subjectId,
-      judgment: "Outcome achieved",
+      intentVersion: 1, judgment: "Outcome achieved",
       reason: "Every criterion is met",
       requestKey: `complete:${subjectId}`,
       runRef: env.COMPASS_DISPATCH_KEY!,
@@ -60,7 +60,7 @@ if (role === "strategist") {
       workspaceId,
       intentId,
       type: "additional_research",
-      judgment: "Learn first",
+      intentVersion: 1, judgment: "Learn first",
       reason: "Nothing is known",
       research: { question: "What is known?", scope: "Intent", completionCondition: "Known", budgetTotal: 10 },
       requestKey: `research:${intentId}`,
@@ -72,7 +72,7 @@ if (role === "strategist") {
       intentId,
       title: "First outcome",
       description: "D",
-      rationale: "R",
+      intentVersion: 1, rationale: "R",
       successCriteria: [{ description: "d", measurement: "m" }],
     });
     // Target Projectの選択はStrategistの判断。fixtureは指定されたProjectをすべてTargetにする。
@@ -87,7 +87,7 @@ if (role === "strategist") {
     workspaceId,
     outcomeId: subjectId,
     requestKey: env.COMPASS_DISPATCH_KEY!,
-    runRef: env.COMPASS_DISPATCH_KEY!,
+    runRef: env.COMPASS_DISPATCH_KEY!, method: "quantitative_observation", targetVersion: "test-version", limitations: "テスト用の観測",
     criteria: context.outcome.successCriteria.map(({ id }: { id: string }) => ({ criterionId: id, verdict: "met", rationale: "Observed every Target's Evidence", evidenceIds })),
   });
 } else if (role === "manager") {

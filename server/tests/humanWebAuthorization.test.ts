@@ -9,8 +9,8 @@ import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts"
 import { addTestMembership, addTestWorkspaceMembership, createTestHuman, humanHeaders, requestAs, testSessionCookie, type TestHuman } from "./support/humanSession.ts";
 
 /**
- * Task 42: 既存のHuman向けWeb APIへSession・Project Membership認可を適用する
- * （docs/step-6-human-auth-design.md「権限表（Human Role）」「認可の順序と応答」）。
+ * Human向けWeb APIへSession・所属WorkspaceのMembership認可を適用する（ADR 0003、
+ * docs/step-6-human-auth-design.md「権限表（Human Role）」「認可の順序と応答」）。
  */
 
 const setup = async () => {
@@ -32,7 +32,7 @@ const send = (ctx: Setup, human: TestHuman, method: string, path: string, body?:
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 
-/** ownerがWeb APIでProjectを作り、各Roleのmemberを加える。 */
+/** ownerがWeb APIでProjectを作り、各Roleのmemberを所属Workspaceへ加える（配下Projectも同じRole）。 */
 const seedProject = async (ctx: Setup, name = "Compass") => {
   const owner = await createTestHuman(ctx.database);
   const created = await send(ctx, owner, "POST", "/api/projects", { name, mission: "Keep direction explicit" });
@@ -41,8 +41,6 @@ const seedProject = async (ctx: Setup, name = "Compass") => {
   const members = { owner } as Record<HumanRole, TestHuman>;
   for (const role of ["administrator", "editor", "viewer"] as const) {
     members[role] = await createTestHuman(ctx.database);
-    await addTestMembership(ctx.database, project.id, members[role], role);
-    // Direction（Intent・Outcome等）はWorkspace所有で、Workspace Membershipで認可する（Project Membershipから継承しない）。
     await addTestWorkspaceMembership(ctx.database, project.workspaceId, members[role], role);
   }
   const intent = (await json(await send(ctx, owner, "POST", `/api/workspaces/${project.workspaceId}/intents`, { title: "I", desiredState: "S" })))
@@ -52,7 +50,7 @@ const seedProject = async (ctx: Setup, name = "Compass") => {
       await send(ctx, owner, "POST", `/api/workspaces/${project.workspaceId}/intents/${intent.id}/outcomes`, {
         title: "O",
         description: "D",
-        rationale: "R",
+        intentVersion: 1, rationale: "R",
         successCriteria: [{ description: "C", measurement: "M" }],
       }),
     )
@@ -60,7 +58,7 @@ const seedProject = async (ctx: Setup, name = "Compass") => {
   return { project, intent, outcome, members };
 };
 
-test("Project作成者はowner Membershipになり、一覧は所属Projectだけ、詳細はmyRoleを返す", async () => {
+test("Project作成者は専用Workspaceのowner Membershipになり、一覧は所属WorkspaceのProjectだけ、詳細はmyRoleを返す", async () => {
   const ctx = await setup();
   const alpha = await seedProject(ctx, "Alpha");
   const beta = await seedProject(ctx, "Beta");
@@ -87,10 +85,12 @@ test("Project作成者はowner Membershipになり、一覧は所属Projectだ�
     assert.equal(detail.myRole, role);
     assert.equal(detail.project.id, beta.project.id);
   }
-  const members = (await json(await send(ctx, beta.members.viewer, "GET", `/api/projects/${beta.project.id}/members`))).members as {
+  const members = (await json(await send(ctx, beta.members.viewer, "GET", `/api/workspaces/${beta.project.workspaceId}/members`))).members as {
     membership: { role: string; humanUserId: string };
   }[];
   assert.equal(members.find((member) => member.membership.humanUserId === beta.members.owner.humanUserId)?.membership.role, "owner");
+  // Project単位のMember APIは無い。
+  assert.equal((await send(ctx, beta.members.owner, "GET", `/api/projects/${beta.project.id}/members`)).status, 404);
   await ctx.database.destroy();
 });
 
@@ -108,7 +108,7 @@ test("各Roleは権限表で許可されたCommandだけが成功し、不足は
     ["outcomes", `${workspaceBase}/intents/${intent.id}/outcomes`],
     ["outcome", outcomePath],
     ["grants", `${base}/grants`],
-    ["members", `${base}/members`],
+    ["members", `${workspaceBase}/members`],
     ["research", `${workspaceBase}/research-requests`],
     ["decisions", `${workspaceBase}/intents/${intent.id}/decisions`],
     ["adr", `${workspaceBase}/adr-references`],
@@ -121,13 +121,13 @@ test("各Roleは権限表で許可されたCommandだけが成功し、不足は
   }
 
   const commands: { label: string; method: string; path: string; body?: unknown; minimum: HumanRole; ok: number }[] = [
-    { label: "update intent", method: "PATCH", path: `${workspaceBase}/intents/${intent.id}`, body: { title: "I2" }, minimum: "editor", ok: 200 },
+    { label: "update intent", method: "PATCH", path: `${workspaceBase}/intents/${intent.id}`, body: { expectedVersion: 1, title: "I2" }, minimum: "editor", ok: 200 },
     { label: "update outcome", method: "PATCH", path: outcomePath, body: { title: "O2" }, minimum: "editor", ok: 200 },
     { label: "update project", method: "PATCH", path: base, body: { description: "changed" }, minimum: "administrator", ok: 200 },
     { label: "grant", method: "POST", path: `${base}/grants`, body: { principalId: "agent-1", role: "manager" }, minimum: "administrator", ok: 201 },
     { label: "revoke grant", method: "DELETE", path: `${base}/grants/manager/agent-1`, minimum: "administrator", ok: 200 },
-    { label: "list invitations", method: "GET", path: `${base}/invitations`, minimum: "owner", ok: 200 },
-    { label: "invite", method: "POST", path: `${base}/invitations`, body: { email: "new@example.com", role: "viewer" }, minimum: "owner", ok: 201 },
+    { label: "list invitations", method: "GET", path: `/api/workspaces/${project.workspaceId}/invitations`, minimum: "owner", ok: 200 },
+    { label: "invite", method: "POST", path: `/api/workspaces/${project.workspaceId}/invitations`, body: { email: "new@example.com", role: "viewer" }, minimum: "owner", ok: 201 },
   ];
   const rank = (role: HumanRole) => humanRoles.length - humanRoles.indexOf(role);
   for (const command of commands) {
@@ -145,7 +145,7 @@ test("各Roleは権限表で許可されたCommandだけが成功し、不足は
   }
   // 拒否されたCommandは何も変えていない（Grantは発行後に取消され、招待はownerの1件だけ）。
   assert.equal((await json(await send(ctx, members.viewer, "GET", `${base}/grants`))).grants.length, 0);
-  assert.equal((await json(await send(ctx, members.owner, "GET", `${base}/invitations`))).invitations.length, 1);
+  assert.equal((await json(await send(ctx, members.owner, "GET", `/api/workspaces/${project.workspaceId}/invitations`))).invitations.length, 1);
   assert.equal((await json(await send(ctx, members.viewer, "GET", base))).project.description, "changed");
 
   // archiveはownerだけ（不可逆）。
@@ -176,22 +176,22 @@ test("未所属・存在しないProject・別Projectの子ID・取消済みMemb
   await notFound(outsider, "PATCH", `/api/projects/${beta.project.id}`, { name: "" });
   await notFound(outsider, "POST", `/api/workspaces/${beta.project.workspaceId}/intents`, { title: "x", desiredState: "S" });
   await notFound(outsider, "GET", `/api/workspaces/${beta.project.workspaceId}/intents/${beta.intent.id}`);
-  await notFound(outsider, "GET", `/api/projects/${beta.project.id}/members`);
-  await notFound(outsider, "POST", `/api/projects/${beta.project.id}/invitations`, { email: "x@example.com", role: "owner" });
+  await notFound(outsider, "GET", `/api/workspaces/${beta.project.workspaceId}/members`);
+  await notFound(outsider, "POST", `/api/workspaces/${beta.project.workspaceId}/invitations`, { email: "x@example.com", role: "owner" });
   // 自分のProjectのURLに別Projectの子IDを混ぜても参照・変更できない（既存use caseの404）。
   await notFound(outsider, "GET", `/api/workspaces/${alpha.project.workspaceId}/intents/${beta.intent.id}`);
   await notFound(outsider, "PATCH", `/api/workspaces/${alpha.project.workspaceId}/intents/${beta.intent.id}/outcomes/${beta.outcome.id}`, { title: "x" });
-  const betaMembers = (await json(await send(ctx, beta.members.owner, "GET", `/api/projects/${beta.project.id}/members`))).members as {
+  const betaMembers = (await json(await send(ctx, beta.members.owner, "GET", `/api/workspaces/${beta.project.workspaceId}/members`))).members as {
     membership: { id: string };
   }[];
-  await notFound(outsider, "PATCH", `/api/projects/${alpha.project.id}/members/${betaMembers[0]!.membership.id}`, { role: "viewer" });
+  await notFound(outsider, "PATCH", `/api/workspaces/${alpha.project.workspaceId}/members/${betaMembers[0]!.membership.id}`, { role: "viewer" });
   assert.equal((await json(await send(ctx, beta.members.viewer, "GET", `/api/workspaces/${beta.project.workspaceId}/intents/${beta.intent.id}`))).intent.title, "I");
 
-  // 取消済みMembershipは次のrequestから404（Sessionは失効させない）。
+  // Workspaceから除外したMemberは次のrequestから配下Projectも404（Sessionは失効させない）。
   const viewerMembership = (
-    await json(await send(ctx, beta.members.owner, "GET", `/api/projects/${beta.project.id}/members`))
+    await json(await send(ctx, beta.members.owner, "GET", `/api/workspaces/${beta.project.workspaceId}/members`))
   ).members.find((member: { human: { id: string } }) => member.human.id === beta.members.viewer.humanUserId).membership.id;
-  assert.equal((await send(ctx, beta.members.owner, "DELETE", `/api/projects/${beta.project.id}/members/${viewerMembership}`)).status, 200);
+  assert.equal((await send(ctx, beta.members.owner, "DELETE", `/api/workspaces/${beta.project.workspaceId}/members/${viewerMembership}`)).status, 200);
   await notFound(beta.members.viewer, "GET", `/api/projects/${beta.project.id}`);
   assert.deepEqual((await json(await send(ctx, beta.members.viewer, "GET", "/api/projects"))).projects, []);
   assert.equal((await send(ctx, beta.members.viewer, "GET", "/api/auth/session")).status, 404, "auth routes are not registered without humanAuth");
@@ -201,7 +201,7 @@ test("未所属・存在しないProject・別Projectの子ID・取消済みMemb
 test("Session無し・未知・Bearerだけの呼出しは401、CSRF・Origin不一致の変更は403で、何も保存しない", async () => {
   const ctx = await setup();
   const { project, members } = await seedProject(ctx);
-  const paths = ["/api/projects", `/api/projects/${project.id}`, `/api/workspaces/${project.workspaceId}/intents`, `/api/projects/${project.id}/members`];
+  const paths = ["/api/projects", `/api/projects/${project.id}`, `/api/workspaces/${project.workspaceId}/intents`, `/api/workspaces/${project.workspaceId}/members`];
   for (const path of paths) {
     assert.equal((await ctx.app.request(path)).status, 401, path);
     assert.equal((await ctx.app.request(path, { headers: { Cookie: `${testSessionCookie}=unknown` } })).status, 401, path);
@@ -233,39 +233,80 @@ test("Session無し・未知・Bearerだけの呼出しは401、CSRF・Origin不
   await ctx.database.destroy();
 });
 
-test("Membership管理: owner以外のRole変更・自己昇格・取消を拒否し、最後のownerの降格・取消は409 LAST_OWNER", async () => {
+test("Membership管理: Workspace owner以外のRole変更・自己昇格・除外を拒否し、最後のownerの降格・除外は409 LAST_OWNER。変更は同じSessionの次のProject操作から反映する", async () => {
   const ctx = await setup();
   const { project, members } = await seedProject(ctx);
   const base = `/api/projects/${project.id}`;
+  const membersBase = `/api/workspaces/${project.workspaceId}/members`;
   const list = async () =>
-    (await json(await send(ctx, members.owner, "GET", `${base}/members`))).members as { membership: { id: string; role: string }; human: { id: string } }[];
+    (await json(await send(ctx, members.owner, "GET", membersBase))).members as { membership: { id: string; role: string }; human: { id: string } }[];
   const membershipOf = async (human: TestHuman) => (await list()).find((member) => member.human.id === human.humanUserId)!.membership.id;
 
   // administratorは自分・他人のRoleを変えられず、ownerへの自己昇格もできない。
   const adminId = await membershipOf(members.administrator);
   for (const role of ["administrator", "editor", "viewer"] as const) {
-    assert.equal((await send(ctx, members[role], "PATCH", `${base}/members/${adminId}`, { role: "owner" })).status, 403, role);
-    assert.equal((await send(ctx, members[role], "DELETE", `${base}/members/${await membershipOf(members.viewer)}`)).status, 403, role);
+    assert.equal((await send(ctx, members[role], "PATCH", `${membersBase}/${adminId}`, { role: "owner" })).status, 403, role);
+    assert.equal((await send(ctx, members[role], "DELETE", `${membersBase}/${await membershipOf(members.viewer)}`)).status, 403, role);
   }
   assert.equal((await list()).find((member) => member.membership.id === adminId)!.membership.role, "administrator");
 
-  // 唯一のownerは自分を降格・取消できない。
+  // 同じSessionのまま、降格は次のProject操作から反映する（Project側に古いRoleは残らない）。
+  assert.equal((await send(ctx, members.administrator, "PATCH", base, { description: "by administrator" })).status, 200);
+  assert.equal((await send(ctx, members.owner, "PATCH", `${membersBase}/${adminId}`, { role: "viewer" })).status, 200);
+  const demotedUpdate = await send(ctx, members.administrator, "PATCH", base, { description: "after demotion" });
+  assert.equal(demotedUpdate.status, 403);
+  assert.equal((await json(demotedUpdate)).error.requiredRole, "administrator");
+  assert.equal((await json(await send(ctx, members.administrator, "GET", base))).myRole, "viewer");
+  assert.equal((await send(ctx, members.owner, "PATCH", `${membersBase}/${adminId}`, { role: "administrator" })).status, 200);
+
+  // 唯一のownerは自分を降格・除外できない。
   const ownerId = await membershipOf(members.owner);
-  const demote = await send(ctx, members.owner, "PATCH", `${base}/members/${ownerId}`, { role: "viewer" });
+  const demote = await send(ctx, members.owner, "PATCH", `${membersBase}/${ownerId}`, { role: "viewer" });
   assert.equal(demote.status, 409);
   assert.equal((await json(demote)).error.conflict, "LAST_OWNER");
-  const revoke = await send(ctx, members.owner, "DELETE", `${base}/members/${ownerId}`);
+  const revoke = await send(ctx, members.owner, "DELETE", `${membersBase}/${ownerId}`);
   assert.equal(revoke.status, 409);
   assert.equal((await json(revoke)).error.conflict, "LAST_OWNER");
 
-  // 他にownerがいれば降格できる。以後、元ownerはMembership管理を行えない。
-  const promoted = await send(ctx, members.owner, "PATCH", `${base}/members/${adminId}`, { role: "owner" });
+  // 他にownerがいれば降格できる。以後、元ownerはMembership管理・招待・archiveを行えない。
+  const promoted = await send(ctx, members.owner, "PATCH", `${membersBase}/${adminId}`, { role: "owner" });
   assert.equal(promoted.status, 200);
   assert.equal((await json(promoted)).membership.role, "owner");
-  assert.equal((await send(ctx, members.owner, "PATCH", `${base}/members/${ownerId}`, { role: "editor" })).status, 200);
-  assert.equal((await send(ctx, members.owner, "PATCH", `${base}/members/${ownerId}`, { role: "owner" })).status, 403);
-  assert.equal((await send(ctx, members.owner, "GET", `${base}/invitations`)).status, 403);
-  assert.equal((await send(ctx, members.administrator, "PATCH", `${base}/members/${ownerId}`, { role: "not-a-role" })).status, 400);
+  assert.equal((await send(ctx, members.owner, "PATCH", `${membersBase}/${ownerId}`, { role: "editor" })).status, 200);
+  assert.equal((await send(ctx, members.owner, "PATCH", `${membersBase}/${ownerId}`, { role: "owner" })).status, 403);
+  assert.equal((await send(ctx, members.owner, "GET", `/api/workspaces/${project.workspaceId}/invitations`)).status, 403);
+  assert.equal((await send(ctx, members.owner, "POST", `${base}/archive`, { reason: "x" })).status, 403);
+  assert.equal((await send(ctx, members.administrator, "PATCH", `${membersBase}/${ownerId}`, { role: "not-a-role" })).status, 400);
+  await ctx.database.destroy();
+});
+
+test("同じWorkspaceの既存・新規Projectは同じMembershipのRole水準で参照・編集・管理でき、別WorkspaceのProjectは404", async () => {
+  const ctx = await setup();
+  const alpha = await seedProject(ctx, "Alpha");
+  const beta = await seedProject(ctx, "Beta");
+  // Memberを加えた後にWeb APIで追加したProjectにも、追加操作なしで同じRoleが適用される。
+  const createdResponse = await send(ctx, alpha.members.administrator, "POST", `/api/workspaces/${alpha.project.workspaceId}/projects`, { name: "Alpha 2" });
+  assert.equal(createdResponse.status, 201);
+  const created = (await json(createdResponse)).project as { id: string };
+  for (const projectId of [alpha.project.id, created.id]) {
+    const base = `/api/projects/${projectId}`;
+    for (const role of humanRoles) {
+      assert.equal((await json(await send(ctx, alpha.members[role], "GET", base))).myRole, role, `${role} ${projectId}`);
+      assert.equal((await send(ctx, alpha.members[role], "GET", `${base}/execution`)).status, 200, `${role} execution`);
+    }
+    // 編集（Story起票）はeditor以上、管理（Agent割当）はadministrator以上。
+    assert.equal((await send(ctx, alpha.members.viewer, "POST", `${base}/stories`, { title: "By viewer" })).status, 403);
+    assert.equal((await send(ctx, alpha.members.editor, "POST", `${base}/stories`, { title: "By editor" })).status, 201);
+    assert.equal((await send(ctx, alpha.members.editor, "POST", `${base}/grants`, { principalId: "agent-x", role: "worker" })).status, 403);
+    assert.equal((await send(ctx, alpha.members.administrator, "POST", `${base}/grants`, { principalId: "agent-x", role: "worker" })).status, 201);
+  }
+  // 別Workspaceの各RoleはAlphaのProjectを参照・変更できず、存在も区別しない。
+  for (const role of humanRoles) {
+    for (const projectId of [alpha.project.id, created.id]) {
+      assert.equal((await send(ctx, beta.members[role], "GET", `/api/projects/${projectId}`)).status, 404, `${role} ${projectId}`);
+      assert.equal((await send(ctx, beta.members[role], "POST", `/api/projects/${projectId}/stories`, { title: "x" })).status, 404);
+    }
+  }
   await ctx.database.destroy();
 });
 
@@ -273,7 +314,7 @@ test("招待はownerだけが発行・一覧・取消でき、tokenは発行応�
   const ctx = await setup();
   const { project, members } = await seedProject(ctx);
   const base = `/api/projects/${project.id}`;
-  const created = await send(ctx, members.owner, "POST", `${base}/invitations`, { email: "Guest@Example.com", role: "editor" });
+  const created = await send(ctx, members.owner, "POST", `/api/workspaces/${project.workspaceId}/invitations`, { email: "Guest@Example.com", role: "editor" });
   assert.equal(created.status, 201);
   assert.equal(created.headers.get("Cache-Control"), "no-store");
   const body = await json(created);
@@ -282,19 +323,19 @@ test("招待はownerだけが発行・一覧・取消でき、tokenは発行応�
   assert.equal("tokenHash" in body.invitation, false);
   const token = body.invitationUrl.split("#")[1];
 
-  const listed = await send(ctx, members.owner, "GET", `${base}/invitations`);
+  const listed = await send(ctx, members.owner, "GET", `/api/workspaces/${project.workspaceId}/invitations`);
   assert.equal(listed.status, 200);
   const listedText = await listed.text();
   assert.equal(listedText.includes(token), false);
-  const duplicate = await send(ctx, members.owner, "POST", `${base}/invitations`, { email: "guest@example.com", role: "viewer" });
+  const duplicate = await send(ctx, members.owner, "POST", `/api/workspaces/${project.workspaceId}/invitations`, { email: "guest@example.com", role: "viewer" });
   assert.equal(duplicate.status, 409);
   assert.equal((await json(duplicate)).error.conflict, "INVITATION_PENDING");
 
-  assert.equal((await send(ctx, members.administrator, "DELETE", `${base}/invitations/${body.invitation.id}`)).status, 403);
-  const revoked = await send(ctx, members.owner, "DELETE", `${base}/invitations/${body.invitation.id}`);
+  assert.equal((await send(ctx, members.administrator, "DELETE", `/api/workspaces/${project.workspaceId}/invitations/${body.invitation.id}`)).status, 403);
+  const revoked = await send(ctx, members.owner, "DELETE", `/api/workspaces/${project.workspaceId}/invitations/${body.invitation.id}`);
   assert.equal(revoked.status, 200);
   assert.equal((await json(revoked)).invitation.status, "revoked");
-  assert.equal((await send(ctx, members.owner, "DELETE", `${base}/invitations/${body.invitation.id}`)).status, 409);
+  assert.equal((await send(ctx, members.owner, "DELETE", `/api/workspaces/${project.workspaceId}/invitations/${body.invitation.id}`)).status, 409);
   await ctx.database.destroy();
 });
 
@@ -380,12 +421,12 @@ test("Agent / Runtime Credential管理にも権限表を適用する: administra
     assert.equal((await send(ctx, outsider, method, path, body)).status, 404, `${method} ${path}`);
   }
 
-  // 取消済みMembershipは次のrequestから404。
+  // Workspaceから除外したMemberは次のrequestから404。
   const administratorMembership = (
-    await json(await send(ctx, alpha.members.owner, "GET", `/api/projects/${alpha.project.id}/members`))
+    await json(await send(ctx, alpha.members.owner, "GET", `/api/workspaces/${alpha.project.workspaceId}/members`))
   ).members.find((member: { human: { id: string } }) => member.human.id === alpha.members.administrator.humanUserId).membership.id;
   assert.equal(
-    (await send(ctx, alpha.members.owner, "DELETE", `/api/projects/${alpha.project.id}/members/${administratorMembership}`)).status,
+    (await send(ctx, alpha.members.owner, "DELETE", `/api/workspaces/${alpha.project.workspaceId}/members/${administratorMembership}`)).status,
     200,
   );
   assert.equal((await send(ctx, alpha.members.administrator, "GET", base)).status, 404);

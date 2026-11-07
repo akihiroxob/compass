@@ -4,12 +4,13 @@ import type { Outcome } from "../domain/Outcome.ts";
 import type {
   ChangeOutcomeResult,
   CreateOutcomeResult,
+  UpdateOutcomeResult,
   OutcomeRepository,
 } from "../domain/OutcomeRepository.ts";
 import type { CreateOutcomeInput, UpdateOutcomeInput } from "../domain/OutcomeRepository.ts";
 import type { DirectionDatabase, OutcomeTable } from "./schema.ts";
 import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
-import { insertOutcomeRow, loadOutcomes } from "./outcomeRecord.ts";
+import { insertOutcomeRow, loadOutcomes, replaceOutcomeProblems } from "./outcomeRecord.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 export class SQLiteOutcomeRepository implements OutcomeRepository {
@@ -28,12 +29,15 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
       if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
       const intent = await transaction
         .selectFrom("intent")
-        .select("status")
+        .select(["status", "version"])
         .where("id", "=", intentId)
         .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
+      if (input.intentVersion !== intent.version) {
+        return { kind: "intent_version_conflict", currentVersion: intent.version };
+      }
 
       const now = Date.now();
       const outcome = await insertOutcomeRow(
@@ -106,12 +110,19 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     intentId: string,
     outcomeId: string,
     changes: UpdateOutcomeInput,
-  ): Promise<ChangeOutcomeResult> {
+  ): Promise<UpdateOutcomeResult> {
     // undefinedの項目はKyselyがSETから除外するため、未指定の列は変更されない。
-    return this.changeActive(workspaceId, intentId, outcomeId, {
-      title: changes.title,
-      hypothesis: changes.hypothesis,
-    });
+    return this.changeActive(
+      workspaceId,
+      intentId,
+      outcomeId,
+      { title: changes.title, hypothesis: changes.hypothesis },
+      {
+        expectedRevision: changes.expectedRevision,
+        problems: changes.problems,
+        confirmedIntentVersion: changes.intentVersion,
+      },
+    );
   }
 
   async cancel(
@@ -119,11 +130,16 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     intentId: string,
     outcomeId: string,
     reason: string,
-  ): Promise<ChangeOutcomeResult> {
-    return this.changeActive(workspaceId, intentId, outcomeId, {
+  ): Promise<Exclude<ChangeOutcomeResult, { kind: "stale_revision" }>> {
+    // 取消は版を指定しないため、stale_revisionにはならない。
+    const result = await this.changeActive(workspaceId, intentId, outcomeId, {
       status: "cancelled",
       cancel_reason: reason,
     });
+    if (result.kind === "stale_revision") throw new Error("unreachable: cancel does not check the revision");
+    // 版の確認を指定しない取消は競合にならない。
+    if (result.kind === "intent_version_conflict") throw new Error("unreachable: cancel does not confirm an Intent version");
+    return result;
   }
 
   /** Workspace・Intent配下のactiveなOutcomeだけを、状態確認と同一transactionで更新する。 */
@@ -134,29 +150,50 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     changes: Partial<
       Pick<Selectable<OutcomeTable>, "title" | "hypothesis" | "status" | "cancel_reason">
     >,
-  ): Promise<ChangeOutcomeResult> {
-    return this.database.transaction().execute(async (transaction): Promise<ChangeOutcomeResult> => {
+    options: {
+      expectedRevision?: number | undefined;
+      problems?: UpdateOutcomeInput["problems"];
+      confirmedIntentVersion?: number | undefined;
+    } = {},
+  ): Promise<UpdateOutcomeResult> {
+    const { confirmedIntentVersion } = options;
+    return this.database.transaction().execute(async (transaction): Promise<UpdateOutcomeResult> => {
       if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
       const intent = await transaction
         .selectFrom("intent")
-        .select("id")
+        .select(["id", "version"])
         .where("id", "=", intentId)
         .where("workspace_id", "=", workspaceId)
         .executeTakeFirst();
       if (!intent) return { kind: "intent_not_found" };
+      if (confirmedIntentVersion !== undefined && confirmedIntentVersion !== intent.version) {
+        return { kind: "intent_version_conflict", currentVersion: intent.version };
+      }
 
       const existing = await transaction
         .selectFrom("outcome")
-        .select("status")
+        .select(["status", "revision"])
         .where("id", "=", outcomeId)
         .where("intent_id", "=", intentId)
         .executeTakeFirst();
       if (!existing) return { kind: "outcome_not_found" };
       if (existing.status !== "active") return { kind: "not_active", status: existing.status };
+      if (options.expectedRevision !== undefined && options.expectedRevision !== existing.revision) {
+        return { kind: "stale_revision", currentRevision: existing.revision };
+      }
 
+      const now = Date.now();
+      if (options.problems !== undefined) {
+        await replaceOutcomeProblems(transaction, workspaceId, outcomeId, options.problems, now);
+      }
       const row = await transaction
         .updateTable("outcome")
-        .set({ ...changes, updated_at: Date.now() })
+        .set({
+          ...changes,
+          ...(confirmedIntentVersion === undefined ? {} : { intent_version: confirmedIntentVersion }),
+          revision: existing.revision + 1,
+          updated_at: now,
+        })
         .where("id", "=", outcomeId)
         .returningAll()
         .executeTakeFirstOrThrow();

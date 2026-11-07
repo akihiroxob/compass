@@ -67,7 +67,6 @@ const seed = async (databasePath = ":memory:") => {
   });
   const projectY = await services.createProjectUseCase.execute({ name: "Other", mission: "Elsewhere" }, actorOf(alice));
   await addTestMembership(database, projectA.id, bob, "viewer");
-  await services.human.addWorkspaceMember.execute(actorOf(alice), workspaceId, { humanUserId: bob.humanUserId, role: "viewer" });
   return { ...context, alice, bob, workspaceId, projectA, projectB, projectY };
 };
 
@@ -148,12 +147,14 @@ test("新規DBのWorkspace・Project・Resource参照と認可は同じschemaで
     ((await get(asBob, `/api/workspaces/${workspaceId}/projects?status=archived`)).projects as Body[]).map(({ id }) => id),
     [projectB.id],
   );
-  for (const path of [`/api/projects/${projectB.id}`, `/api/workspaces/${projectY.workspaceId}`, `/api/workspaces/${projectY.workspaceId}/projects`]) {
+  // archivedのProject Bも同じWorkspace Membershipで参照でき、別WorkspaceのYは404のまま。
+  assert.equal((await get(asBob, `/api/projects/${projectB.id}`)).myRole, "viewer");
+  for (const path of [`/api/projects/${projectY.id}`, `/api/workspaces/${projectY.workspaceId}`, `/api/workspaces/${projectY.workspaceId}/projects`]) {
     assert.equal((await get(asBob, path, 404)).error.code, "NOT_FOUND");
   }
 });
 
-test("別Workspaceは未所属と存在しないIDを区別せず404で、Workspace memberにProjectの詳細を継承しない", async () => {
+test("別Workspaceは未所属と存在しないIDを区別せず404で、Workspace memberは配下のすべてのProject詳細を同じRoleで開ける", async () => {
   const { database, app, bob, workspaceId, projectA, projectB, projectY } = await seed();
   const asBob = requestAs(app, bob);
 
@@ -168,12 +169,15 @@ test("別Workspaceは未所属と存在しないIDを区別せず404で、Worksp
     assert.equal((await get(asBob, path, 404)).error.code, "NOT_FOUND");
   }
 
-  // Workspace memberは所属Projectの一覧（purpose・Resource参照）を見られるが、Project詳細はProject Membershipで認可する。
+  // Workspace memberは所属Projectの一覧と、各Projectの詳細を同じWorkspace Membershipで開ける。別WorkspaceのProjectは404。
   const projects = (await get(asBob, `/api/workspaces/${workspaceId}/projects`)).projects as Body[];
   assert.deepEqual(projects.map(({ id }) => id).sort(), [projectA.id, projectB.id].sort());
-  assert.equal((await get(asBob, `/api/projects/${projectA.id}`)).project.workspaceId, workspaceId);
-  assert.equal((await get(asBob, `/api/projects/${projectB.id}`, 404)).error.code, "NOT_FOUND");
-  assert.deepEqual(((await get(asBob, "/api/projects")).projects as Body[]).map(({ id }) => id), [projectA.id]);
+  for (const project of [projectA, projectB]) {
+    const detail = await get(asBob, `/api/projects/${project.id}`);
+    assert.deepEqual([detail.project.workspaceId, detail.myRole], [workspaceId, "viewer"]);
+  }
+  assert.equal((await get(asBob, `/api/projects/${projectY.id}`, 404)).error.code, "NOT_FOUND");
+  assert.deepEqual(((await get(asBob, "/api/projects")).projects as Body[]).map(({ id }) => id).sort(), [projectA.id, projectB.id].sort());
   await database.destroy();
 });
 
@@ -270,28 +274,28 @@ test("HumanはWeb APIでWorkspaceを作成・編集し、Projectを所属させ�
   assert.equal((await get(asCarolAgain, `/api/projects/${project.id}`)).project.workspaceId, workspace.id);
 });
 
-test("Workspaceの管理はWorkspace Membershipの権限表で認可し、Project Roleから継承しない。入力エラーはpath付きの400", async () => {
+test("Workspaceと配下Projectの管理は同じWorkspace Membershipの権限表で認可する。入力エラーはpath付きの400", async () => {
   const { database, services, app, alice, bob, workspaceId, projectA, projectY } = await seed();
   const asAlice = requestAs(app, alice);
   const asBob = requestAs(app, bob);
-  // BobをProject Aのownerにしても、Workspaceはviewerのまま。Workspaceの管理とWorkspace戦略値の変更はできない。
-  await database.updateTable("project_membership").set({ role: "owner" }).where("project_id", "=", projectA.id).where("human_user_id", "=", bob.humanUserId).execute();
-  assert.equal((await get(asBob, `/api/projects/${projectA.id}`)).myRole, "owner");
+  // BobはWorkspaceのviewerで、配下のProjectもviewer。Workspaceの管理・Projectの更新はできない。
+  assert.equal((await get(asBob, `/api/projects/${projectA.id}`)).myRole, "viewer");
   for (const [method, path, body] of [
     ["PATCH", `/api/workspaces/${workspaceId}`, { mission: "Hijacked" }],
     ["POST", `/api/workspaces/${workspaceId}/projects`, { name: "Sneaky" }],
     ["POST", `/api/workspaces/${workspaceId}/archive`, { reason: "No" }],
+    ["PATCH", `/api/projects/${projectA.id}`, { description: "By viewer" }],
   ] as const) {
     const error = (await send(asBob, method, path, body, 403)).error;
     assert.equal(error.code, "FORBIDDEN", `${method} ${path}`);
   }
-  // Projectの更新はMission等を受け取らない（Workspaceの正本を変えない）。
-  assert.equal((await send(asBob, "PATCH", `/api/projects/${projectA.id}`, { mission: "Hijacked" }, 400)).error.code, "VALIDATION_ERROR");
-  await send(asBob, "PATCH", `/api/projects/${projectA.id}`, { description: "Renamed by project owner", mission: "Hijacked" }, 200);
-  assert.equal((await get(asAlice, `/api/workspaces/${workspaceId}`)).workspace.mission, "Make direction explicit");
 
   // administratorは編集・Project追加ができるが、archiveはownerだけ。
   await services.human.changeWorkspaceMemberRole.execute(actorOf(alice), workspaceId, (await services.human.listWorkspaceMembers.execute(actorOf(alice), workspaceId)).find(({ human }) => human.id === bob.humanUserId)!.membership.id, { role: "administrator" });
+  // Projectの更新はMission等を受け取らない（Workspaceの正本を変えない）。
+  assert.equal((await send(asBob, "PATCH", `/api/projects/${projectA.id}`, { mission: "Hijacked" }, 400)).error.code, "VALIDATION_ERROR");
+  await send(asBob, "PATCH", `/api/projects/${projectA.id}`, { description: "Renamed by administrator", mission: "Hijacked" }, 200);
+  assert.equal((await get(asAlice, `/api/workspaces/${workspaceId}`)).workspace.mission, "Make direction explicit");
   await send(asBob, "PATCH", `/api/workspaces/${workspaceId}`, { vision: "Shared vision" }, 200);
   await send(asBob, "POST", `/api/workspaces/${workspaceId}/projects`, { name: "Gamma" }, 201);
   assert.equal((await send(asBob, "POST", `/api/workspaces/${workspaceId}/archive`, { reason: "No" }, 403)).error.code, "FORBIDDEN");
@@ -311,18 +315,18 @@ test("Workspaceの管理はWorkspace Membershipの権限表で認可し、Projec
   await database.destroy();
 });
 
-test("Workspace archive権限の無いProject ownerは、最後のactive Projectをarchiveしても所属Workspaceの状態を変えられない", async () => {
-  const { database, services, app, alice, bob, projectY } = await seed();
+test("最後のactive Projectをarchiveしても所属Workspaceの状態は変わらず、archiveはWorkspace ownerだけが行える", async () => {
+  const { database, app, alice, bob, projectY } = await seed();
   const asAlice = requestAs(app, alice);
   const asBob = requestAs(app, bob);
-  // BobはWorkspace Xのviewerで、その唯一のactive Project Yのowner。
+  // BobはWorkspace Yのadministrator。唯一のactive Project Yをarchiveできない（ownerだけ）。
   const workspaceId = projectY.workspaceId;
-  await addTestMembership(database, projectY.id, bob, "owner");
-  await services.human.addWorkspaceMember.execute(actorOf(alice), workspaceId, { humanUserId: bob.humanUserId, role: "viewer" });
+  await addTestMembership(database, projectY.id, bob, "administrator");
   const before = (await get(asAlice, `/api/workspaces/${workspaceId}`)).workspace;
 
   assert.equal((await send(asBob, "POST", `/api/workspaces/${workspaceId}/archive`, { reason: "No" }, 403)).error.code, "FORBIDDEN");
-  assert.equal((await send(asBob, "POST", `/api/projects/${projectY.id}/archive`, { reason: "Project done" }, 200)).project.status, "archived");
+  assert.equal((await send(asBob, "POST", `/api/projects/${projectY.id}/archive`, { reason: "No" }, 403)).error.code, "FORBIDDEN");
+  assert.equal((await send(asAlice, "POST", `/api/projects/${projectY.id}/archive`, { reason: "Project done" }, 200)).project.status, "archived");
 
   // Workspaceは状態・理由・日時とも変わらず、Direction更新・Project追加は引き続きWorkspace Membershipに従う。
   assert.deepEqual((await get(asAlice, `/api/workspaces/${workspaceId}`)).workspace, before);

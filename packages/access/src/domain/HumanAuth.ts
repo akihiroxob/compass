@@ -1,9 +1,9 @@
 /**
- * Human認証・Project Membership・招待（docs/step-6-human-auth-design.md）。
+ * Human認証・Workspace Membership・招待（docs/step-6-human-auth-design.md、ADR 0003）。
  * Agent / RuntimeのPrincipal・Role Grantとは別の概念で、型・tableとも混在させない。
  */
 
-/** Project内のHuman Role。`owner` > `administrator` > `editor` > `viewer`の順序で、「最低Role」以上を許可する。 */
+/** WorkspaceのHuman Role（配下Projectにも同じRoleを適用する）。`owner` > `administrator` > `editor` > `viewer`の順序で、「最低Role」以上を許可する。 */
 export const humanRoles = ["owner", "administrator", "editor", "viewer"] as const;
 
 export type HumanRole = (typeof humanRoles)[number];
@@ -92,22 +92,9 @@ export type WebSession = {
 export const isSessionValid = (session: WebSession, now: number): boolean =>
   session.revokedAt === null && now < session.expiresAt && now < session.lastSeenAt + sessionIdleTtlMs;
 
-export type ProjectMembership = {
-  readonly id: string;
-  readonly projectId: string;
-  readonly humanUserId: string;
-  readonly role: HumanRole;
-  readonly createdAt: number;
-  readonly updatedAt: number;
-  /** 付与したHuman。bootstrap・orphan補完はnull。 */
-  readonly createdByHumanUserId: string | null;
-  readonly revokedAt: number | null;
-  readonly revokedByHumanUserId: string | null;
-};
-
 /**
- * Workspace内のHuman Role（Roleの値・順序はProject Membershipと同じ）。Workspaceの閲覧・Direction管理・Project作成・
- * member管理に使い、ProjectのMembershipとは別に保持する。Workspace memberであってもProjectのWorkは操作できない。
+ * HumanのWorkspace Membership（ADR 0003）。Humanの所属とRoleの唯一の管理単位で、Workspaceと配下のすべてのProjectへ
+ * 同じRoleを適用する。Project別のMembership・Roleの上書きは持たない。
  */
 export type WorkspaceMembership = {
   readonly id: string;
@@ -116,7 +103,7 @@ export type WorkspaceMembership = {
   readonly role: HumanRole;
   readonly createdAt: number;
   readonly updatedAt: number;
-  /** 付与したHuman。作成者・既存Project Membershipからの移行・orphan補完はnull。 */
+  /** 付与したHuman（作成者・招待の発行者）。orphan補完はnull。 */
   readonly createdByHumanUserId: string | null;
   readonly revokedAt: number | null;
   readonly revokedByHumanUserId: string | null;
@@ -130,9 +117,9 @@ export const invitationMaxTtlHours = 30 * 24;
 export type InvitationStatus = "pending" | "accepted" | "revoked";
 
 /** 招待tokenの平文は発行応答で一度だけ返し、ここには含めない。 */
-export type ProjectInvitation = {
+export type WorkspaceInvitation = {
   readonly id: string;
-  readonly projectId: string;
+  readonly workspaceId: string;
   readonly email: string;
   readonly role: HumanRole;
   /** 保存値。期限切れは状態を書き換えず`expiresAt`で判定する。 */
@@ -146,7 +133,7 @@ export type ProjectInvitation = {
   readonly revokedAt: number | null;
 };
 
-export const isInvitationUsable = (invitation: Pick<ProjectInvitation, "status" | "expiresAt">, now: number) =>
+export const isInvitationUsable = (invitation: Pick<WorkspaceInvitation, "status" | "expiresAt">, now: number) =>
   invitation.status === "pending" && now < invitation.expiresAt;
 
 /** emailはtrim・小文字化だけを行う（Gmailのドット等は正規化しない）。 */
@@ -169,10 +156,10 @@ export type RegistrationFacts = {
         status: InvitationStatus;
         expiresAt: number;
         email: string;
-        /** 招待先Projectに、そのHumanが既に有効なMembershipを持つ。新規Humanではfalse。 */
+        /** 招待先Workspaceに、そのHumanが既に有効なMembershipを持つ。新規Humanではfalse。 */
         alreadyMember: boolean;
-        /** 招待先Projectがarchived（参照専用）。受諾してMembershipを追加しない。 */
-        projectArchived: boolean;
+        /** 招待先Workspaceがarchived（参照専用）。受諾してMembershipを追加しない。 */
+        workspaceArchived: boolean;
       };
   now: number;
 };
@@ -193,7 +180,7 @@ const invitationEmailMatches = (invitationEmail: string, identity: VerifiedIdent
 
 /**
  * closed registrationの判定表（#0〜#4）。いずれの拒否でもHuman・Identity・Membership・Sessionを作らない。
- * 拒否理由は`not_allowed`（未許可・email未検証・email不一致・無効/使用済み/取消済み/archived Projectの招待）と
+ * 拒否理由は`not_allowed`（未許可・email未検証・email不一致・無効/使用済み/取消済み/archived Workspaceの招待）と
  * `invitation_expired`（期限切れ招待）だけに区別し、Project名やHumanの有無を漏らさない。
  */
 export const decideRegistration = (facts: RegistrationFacts): RegistrationDecision => {
@@ -207,7 +194,7 @@ export const decideRegistration = (facts: RegistrationFacts): RegistrationDecisi
     if (
       !invitation.found ||
       invitation.status !== "pending" ||
-      invitation.projectArchived ||
+      invitation.workspaceArchived ||
       !invitationEmailMatches(invitation.email, identity)
     ) {
       return { kind: "login", humanUserId, invitation: "invalid" };
@@ -228,7 +215,7 @@ export const decideRegistration = (facts: RegistrationFacts): RegistrationDecisi
   if (
     invitation?.found &&
     invitation.status === "pending" &&
-    !invitation.projectArchived &&
+    !invitation.workspaceArchived &&
     invitationEmailMatches(invitation.email, identity)
   ) {
     if (now >= invitation.expiresAt) return { kind: "reject", reason: "invitation_expired" };
@@ -239,14 +226,13 @@ export const decideRegistration = (facts: RegistrationFacts): RegistrationDecisi
 
 /**
  * Human向けProject操作の権限表（操作 → 最低Role。docs/step-6-human-auth-design.md「権限表（Human Role）」）。
- * Web routeやUIに重複させず、application層の`HumanProjectAuthorizationService`だけがこの表で検査する。
- * Project作成・一覧・Session取得はMembershipを要しない（認証済みであればよい）ため、ここに含めない。
+ * Roleは対象Projectの所属WorkspaceのMembershipで、application層の`HumanProjectAuthorizationService`だけがこの表で検査する
+ * （Web routeやUIに重複させない）。Projectの一覧・Session取得はここに含めない。Memberの管理はWorkspaceの権限表で行う。
  */
 export const humanProjectPermissions = {
   /** Project・Intent・Outcome・Research・Direction Decision・ADR参照・Execution Summary・Evaluation・Execution（Story / Task / Comment / Change Log）・Project相談の参照。archivedでも参照できる。 */
   "project.read": "viewer",
   "grant.read": "viewer",
-  "member.read": "viewer",
   "direction.write": "editor",
   /** Execution Taskへの介入（受入・差戻し・取消・Comment。Task 46）。archivedでは拒否する。 */
   "execution.intervene": "editor",
@@ -261,16 +247,14 @@ export const humanProjectPermissions = {
   /** Agent / Runtime Credentialの発行・rotation・取消・一覧（Task 37）。 */
   "credential.manage": "administrator",
   "project.archive": "owner",
-  "invitation.manage": "owner",
-  "member.manage": "owner",
 } as const satisfies Record<string, HumanRole>;
 
 export type HumanProjectOperation = keyof typeof humanProjectPermissions;
 
 /**
- * Human向けWorkspace操作の権限表（操作 → 最低Role。compass-workspace-architecture-codex-handoff-v2.md「14.1 Human」）。
- * application層の`HumanWorkspaceAuthorizationService`だけがこの表で検査する。Project Work（Story / Task等）の操作は含めず、
- * それらは引き続きProject Membership（`humanProjectPermissions`）で認可する。Workspace作成は認証済みであればよい。
+ * Human向けWorkspace操作の権限表（操作 → 最低Role。ADR 0003）。application層の`HumanWorkspaceAuthorizationService`だけが
+ * この表で検査する。配下ProjectのWork（Story / Task等）の操作は`humanProjectPermissions`の水準を同じMembershipで検査する。
+ * Workspace作成は認証済みであればよい。
  */
 export const humanWorkspacePermissions = {
   /** Workspace（Mission / Vision / Principles / Constraints・status）・Workspace相談の参照。archivedでも参照できる。 */
@@ -285,12 +269,15 @@ export const humanWorkspacePermissions = {
   "workspace.update": "administrator",
   /** Workspace相談の明示決定（結論の記録と解決）と理由付きの取消。 */
   "consultation.decide": "administrator",
-  /** 既存のWorkspaceへのProject作成。作成者はProjectのownerになる。 */
+  /** 既存のWorkspaceへのProject作成。Project別のMembershipは作らない。 */
   "project.create": "administrator",
-  /** Workspace Direction RoleのAgent Grantの付与・取消。Project Grantは各ProjectのMembershipで認可する。 */
+  /** Workspace Direction RoleのAgent Grantの付与・取消。Project Grantは`humanProjectPermissions`の`grant.manage`。 */
   "grant.manage": "administrator",
-  /** Workspace scopeのAgent / Runtime Credentialの発行・rotation・取消・一覧。Project Credentialは各ProjectのMembershipで認可する。 */
+  /** Workspace scopeのAgent / Runtime Credentialの発行・rotation・取消・一覧。Project Credentialは`humanProjectPermissions`の`credential.manage`。 */
   "credential.manage": "administrator",
+  /** Workspace招待の発行・一覧・取消。 */
+  "invitation.manage": "owner",
+  /** MemberのRole変更・除外。配下の全Projectへの次の操作から反映する。 */
   "member.manage": "owner",
   "workspace.archive": "owner",
 } as const satisfies Record<string, HumanRole>;

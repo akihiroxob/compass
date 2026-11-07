@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { evaluationMethods } from "../domain/Outcome.ts";
 import { criterionVerdicts } from "../domain/OutcomeEvaluation.ts";
 import { parseWith, trimmedText } from "@compass/shared";
 
@@ -29,11 +30,29 @@ const criterionJudgmentSchema = z
  * Evaluatorが送る内容。総合結果は指定させず、Criterionの判定から導出する。principalIdは入力に持たない
  * （来歴のPrincipalはBearerから解決した値だけ）。
  */
-export const recordOutcomeEvaluationSchema = z.object({
+export const recordOutcomeEvaluationSchema = z
+  .object({
   /** transportの再送を同じ操作として扱うkey。Project内で一意で、同じkeyで異なる内容を送ると競合になる。 */
   requestKey: trimmedText("requestKey", 200),
   /** この評価Runを特定できる参照。 */
   runRef: trimmedText("runRef", 200),
+  /** 評価方法。認知的ウォークスルーは設計の点検で、`met`の根拠にできない。 */
+  method: z.enum(evaluationMethods, { error: `method must be one of: ${evaluationMethods.join(", ")}` }),
+  /** 評価した対象の版（commit SHA・リリース版等）。 */
+  targetVersion: trimmedText("targetVersion", 200),
+  /** 評価の限界。データ不足・標本・期間・方法の制約を書く。 */
+  limitations: trimmedText("limitations", 2_000),
+  /** 評価の対象にした課題のid（Outcomeの`problems[].id`）。 */
+  problemIds: z
+    .array(trimmedText("problemId", 200))
+    .max(10, "problemIds must have 10 items or fewer")
+    .default([])
+    .transform((ids) => [...new Set(ids)]),
+  /**
+   * 評価者が読んだ評価計画の`planId`（課題id → `problems[].evaluationPlan.planId`）。計画のある課題は必ず指定する。
+   * 保存時の現在の計画と一致しなければ競合として保存しない（計画を変更した後に旧計画の観測を新計画の結果にしない）。
+   */
+  planIds: z.record(trimmedText("problemId", 200), trimmedText("planId", 200)).default({}),
   criteria: z
     .array(criterionJudgmentSchema)
     .min(1, "criteria must have at least 1 item")
@@ -51,7 +70,14 @@ export const recordOutcomeEvaluationSchema = z.object({
         seen.add(judgment.criterionId);
       });
     }),
-});
+  })
+  .superRefine((input, context) => {
+    for (const problemId of Object.keys(input.planIds)) {
+      if (!input.problemIds.includes(problemId)) {
+        context.addIssue({ code: "custom", path: ["planIds", problemId], message: `planIds key ${problemId} must also be listed in problemIds` });
+      }
+    }
+  });
 
 export type RecordOutcomeEvaluationInput = z.infer<typeof recordOutcomeEvaluationSchema>;
 

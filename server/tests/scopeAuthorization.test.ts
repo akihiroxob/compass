@@ -5,7 +5,7 @@ import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { addTestMembership, addTestWorkspaceMembership, createTestHuman, humanHeaders, requestAs, type TestHuman } from "./support/humanSession.ts";
+import { addTestWorkspaceMembership, createTestHuman, humanHeaders, requestAs, type TestHuman } from "./support/humanSession.ts";
 
 /**
  * S06-04: 公開済みの入口（Human Web API・MCP・Project / Workspace Role Context・Runtime向けAPI）を横断して、
@@ -59,7 +59,7 @@ const setup = async () => {
   const outcome = await services.createOutcomeUseCase.execute(workspace.id, intent.id, {
     title: "Outcome",
     description: "D",
-    rationale: "R",
+    intentVersion: 1, rationale: "R",
     successCriteria: [{ description: "C", measurement: "M" }],
   });
   await services.grantProjectRoleUseCase.execute(project.id, { principalId: "planner", role: "manager" });
@@ -80,6 +80,7 @@ test("MCPはactiveRoleとscopeが一致する入口だけを認可し、全Role�
       ["list_stories", { projectId: project.id }],
       ["list_changes", { projectId: project.id }],
       ["list_task_comments", { taskId: task.id }],
+      ["list_task_pull_requests", { taskId: task.id }],
       ["list_activities", { projectId: project.id }],
       ["get_role_context", { projectId: project.id, role }],
     ];
@@ -184,6 +185,7 @@ test("Project GrantはWorkspace Roleを新規発行せず、残ったDirection R
         ["list_stories", { projectId: project.id }],
         ["list_changes", { projectId: project.id }],
         ["list_task_comments", { taskId: task.id }],
+        ["list_task_pull_requests", { taskId: task.id }],
         ["claim_task", { taskId: task.id, requestId: `legacy-claim-${role}` }],
         ["list_intents", { workspaceId: workspace.id }],
         ["get_strategist_context", { workspaceId: workspace.id }],
@@ -247,13 +249,13 @@ test("remote modeのAgent Credentialは発行scopeのRoleだけで認可し、ac
   }
 });
 
-test("Human Web APIはWorkspace MembershipとProject Membershipを継承せず、Workspace memberだけではProjectのTaskへ入れない", async () => {
-  const { database, app, workspace, project, intent, task } = await setup();
+test("Human Web APIは所属WorkspaceのMembershipでWorkspaceと配下ProjectのTaskを認可し、別WorkspaceのMemberは404。Human SessionとAgent Bearerを混同しない", async () => {
+  const { database, app, workspace, otherWorkspace, project, intent, task } = await setup();
   try {
-    const workspaceOnly = await createTestHuman(database);
-    const projectOnly = await createTestHuman(database);
-    await addTestWorkspaceMembership(database, workspace.id, workspaceOnly, "owner");
-    await addTestMembership(database, project.id, projectOnly, "owner");
+    const member = await createTestHuman(database);
+    const outsider = await createTestHuman(database);
+    await addTestWorkspaceMembership(database, workspace.id, member, "editor");
+    await addTestWorkspaceMembership(database, otherWorkspace.id, outsider, "owner");
 
     const projectPaths = [
       `/api/projects/${project.id}`,
@@ -270,22 +272,21 @@ test("Human Web APIはWorkspace MembershipとProject Membershipを継承せず�
       `/api/workspaces/${workspace.id}/activities`,
     ];
 
-    for (const path of workspacePaths) assert.equal((await requestAs(app, workspaceOnly)(path)).status, 200, path);
-    for (const path of projectPaths) assert.equal((await requestAs(app, workspaceOnly)(path)).status, 404, path);
-    const createTask = await requestAs(app, workspaceOnly)(`/api/projects/${project.id}/tasks`, {
+    const createTask = (human: typeof member) => requestAs(app, human)(`/api/projects/${project.id}/tasks`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Not allowed" }),
+      body: JSON.stringify({ title: "By Human operator" }),
     });
-    assert.equal(createTask.status, 404);
-
-    for (const path of projectPaths) assert.equal((await requestAs(app, projectOnly)(path)).status, 200, path);
-    for (const path of workspacePaths) assert.equal((await requestAs(app, projectOnly)(path)).status, 404, path);
+    for (const path of [...workspacePaths, ...projectPaths]) assert.equal((await requestAs(app, member)(path)).status, 200, path);
+    assert.equal((await createTask(member)).status, 201);
+    // 別Workspaceのownerでも、このWorkspaceと配下Projectは存在を区別せず404。
+    for (const path of [...workspacePaths, ...projectPaths]) assert.equal((await requestAs(app, outsider)(path)).status, 404, path);
+    assert.equal((await createTask(outsider)).status, 404);
 
     // Human SessionはMCPのAgent認可に使わず、Agent BearerはHuman向けWeb APIの認可に使わない。
     const sessionMcp = await app.request("/mcp", {
       method: "POST",
-      headers: humanHeaders(projectOnly, { "Content-Type": "application/json", Accept: "application/json, text/event-stream" }),
+      headers: humanHeaders(member, { "Content-Type": "application/json", Accept: "application/json, text/event-stream" }),
       body: JSON.stringify({ jsonrpc: "2.0", id: ++rpcId, method: "tools/call", params: { name: "list_tasks", arguments: { projectId: project.id } } }),
     });
     const data = (await sessionMcp.text()).split("\n").find((line) => line.startsWith("data: "));

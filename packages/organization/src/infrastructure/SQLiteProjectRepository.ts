@@ -17,20 +17,8 @@ import { writeWorkspace } from "./writeWorkspace.ts";
 
 type Queryable = Kysely<OrganizationDatabase> | Transaction<OrganizationDatabase>;
 
-/**
- * 作成者の初期owner Membership（Accessが所有するtable）を、Project作成と同じtransactionで書く。
- * OrganizationはAccessのtableを直接扱わず、serverがこの書込を配線する。失敗すればProjectもrollbackされる。
- */
-export type ProjectOwnerMembershipWriter = (
-  transaction: Transaction<OrganizationDatabase>,
-  input: { projectId: string; ownerHumanUserId: string; createdAt: number },
-) => Promise<void>;
-
-/** 作成者の初期owner Membership（Project・同時に作るWorkspace）の書込。serverがAccessの実装を配線する。 */
-export type OwnerMembershipWriters = {
-  project: ProjectOwnerMembershipWriter;
-  workspace: WorkspaceOwnerMembershipWriter;
-};
+/** 保存した`required_checks`（JSON配列）。 */
+const parseRequiredChecks = (value: string): string[] => JSON.parse(value) as string[];
 
 /**
  * 指定したRepositoryのうち、ADR Handoff Request/Reference（Directionが所有するtable）から参照されているものがあれば
@@ -45,7 +33,8 @@ export class SQLiteProjectRepository implements ProjectRepository {
   constructor(
     private readonly database: Kysely<OrganizationDatabase>,
     private readonly findRepositoryReference: ProjectRepositoryReferenceFinder,
-    private readonly ownerMembershipWriters?: OwnerMembershipWriters,
+    /** 同時に作るWorkspaceの作成者owner Membership（Access）。serverが配線する。Project単位のMembershipは持たない（ADR 0003）。 */
+    private readonly writeWorkspaceOwnerMembership?: WorkspaceOwnerMembershipWriter,
     private readonly changeObserver: ProjectChangeObserver | null = null,
   ) {}
 
@@ -71,9 +60,8 @@ export class SQLiteProjectRepository implements ProjectRepository {
       });
       await this.insertProject(transaction, { id, workspaceId, input, now });
       if (ownerHumanUserId !== undefined) {
-        // 作成者は同時に作ったWorkspaceのownerにもなる。既存Workspaceへの作成（createInWorkspace）では書かない。
-        await this.requireOwnerMembershipWriters().workspace(transaction, { workspaceId, ownerHumanUserId, createdAt: now });
-        await this.requireOwnerMembershipWriters().project(transaction, { projectId: id, ownerHumanUserId, createdAt: now });
+        // 作成者は同時に作ったWorkspaceのownerになり、そのMembershipでProjectも利用する。
+        await this.requireWorkspaceOwnerMembershipWriter()(transaction, { workspaceId, ownerHumanUserId, createdAt: now });
       }
     });
 
@@ -83,7 +71,6 @@ export class SQLiteProjectRepository implements ProjectRepository {
   async createInWorkspace(
     workspaceId: string,
     input: CreateWorkspaceProjectInput,
-    ownerHumanUserId?: string,
   ): Promise<CreateWorkspaceProjectResult> {
     const id = crypto.randomUUID();
     const now = Date.now();
@@ -99,9 +86,6 @@ export class SQLiteProjectRepository implements ProjectRepository {
       if (workspace.status === "archived") return "workspace_archived" as const;
 
       await this.insertProject(transaction, { id, workspaceId, input, now });
-      if (ownerHumanUserId !== undefined) {
-        await this.requireOwnerMembershipWriters().project(transaction, { projectId: id, ownerHumanUserId, createdAt: now });
-      }
       return "created" as const;
     });
 
@@ -213,7 +197,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
     if (!row) return null;
 
     const [repositories, resources] = await Promise.all([
-      this.database.selectFrom("project_repository_link").select(["id", "name", "url"])
+      this.database.selectFrom("project_repository_link").select(["id", "name", "url", "required_checks"])
         .where("project_id", "=", projectId).orderBy("sort_order").execute(),
       this.database.selectFrom("project_resource").select(["id", "name", "url", "kind"])
         .where("project_id", "=", projectId).orderBy("sort_order").execute(),
@@ -224,7 +208,7 @@ export class SQLiteProjectRepository implements ProjectRepository {
       workspaceId: row.workspace_id,
       name: row.name,
       description: row.description,
-      repositories,
+      repositories: repositories.map(({ required_checks, ...link }) => ({ ...link, requiredChecks: parseRequiredChecks(required_checks) })),
       resources,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -271,9 +255,9 @@ export class SQLiteProjectRepository implements ProjectRepository {
    * あれば最初の1件を返す。`adr_handoff_request` / `adr_reference` の`repository_id`はonDelete cascadeを
    * 付けていない意図的な監査保持のため、削除前にdomainの`repository_referenced`として検査し拒否する。
    */
-  private requireOwnerMembershipWriters(): OwnerMembershipWriters {
-    if (!this.ownerMembershipWriters) throw new Error("OwnerMembershipWriters is not configured");
-    return this.ownerMembershipWriters;
+  private requireWorkspaceOwnerMembershipWriter(): WorkspaceOwnerMembershipWriter {
+    if (!this.writeWorkspaceOwnerMembership) throw new Error("WorkspaceOwnerMembershipWriter is not configured");
+    return this.writeWorkspaceOwnerMembership;
   }
 
   /** Project行とRepository / Resourceを書く。所属Workspaceの作成・検査は呼出し側が同じtransactionで行う。 */
@@ -298,8 +282,8 @@ export class SQLiteProjectRepository implements ProjectRepository {
 
     if (input.repositories.length) {
       await transaction.insertInto("project_repository_link").values(
-        input.repositories.map((item, sortOrder) => ({
-          id: crypto.randomUUID(), project_id: id, ...item, sort_order: sortOrder,
+        input.repositories.map(({ requiredChecks, ...item }, sortOrder) => ({
+          id: crypto.randomUUID(), project_id: id, ...item, required_checks: JSON.stringify(requiredChecks), sort_order: sortOrder,
         })),
       ).execute();
     }
@@ -344,15 +328,17 @@ export class SQLiteProjectRepository implements ProjectRepository {
         .where("project_id", "=", projectId).execute()).map(({ id }) => id),
     );
     const retained = new Set<string>();
-    for (const [sortOrder, { id, name, url }] of items.entries()) {
+    for (const [sortOrder, { id, name, url, requiredChecks }] of items.entries()) {
+      // requiredChecksを省略した既存行は保存済みの値を維持する（undefinedはKyselyがSETから除外する）。
+      const requiredChecksJson = requiredChecks === undefined ? undefined : JSON.stringify(requiredChecks);
       if (id !== undefined && existingIds.has(id)) {
         retained.add(id);
         await transaction.updateTable("project_repository_link")
-          .set({ name, url, sort_order: sortOrder })
+          .set({ name, url, sort_order: sortOrder, required_checks: requiredChecksJson })
           .where("id", "=", id).where("project_id", "=", projectId).execute();
       } else {
         await transaction.insertInto("project_repository_link")
-          .values({ id: crypto.randomUUID(), project_id: projectId, name, url, sort_order: sortOrder })
+          .values({ id: crypto.randomUUID(), project_id: projectId, name, url, required_checks: requiredChecksJson ?? "[]", sort_order: sortOrder })
           .execute();
       }
     }

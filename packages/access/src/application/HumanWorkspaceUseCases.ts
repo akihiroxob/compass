@@ -59,7 +59,9 @@ export class GetHumanWorkspaceUseCase {
   }
 }
 
-/** 既存のWorkspaceへのProject作成（administrator以上）。作成者はProjectのownerになり、WorkspaceのMembershipは変えない。 */
+/**
+ * 既存のWorkspaceへのProject作成（administrator以上）。Project別のMembershipは作らず、WorkspaceのMemberが同じRoleで利用する。
+ */
 export class CreateHumanWorkspaceProjectUseCase {
   constructor(
     private readonly authorization: HumanWorkspaceAuthorizationService,
@@ -68,6 +70,6 @@ export class CreateHumanWorkspaceProjectUseCase {
 
   async execute(actor: HumanActor, workspaceId: string, input: unknown): Promise<ProjectDetail> {
     await this.authorization.authorize(actor, workspaceId, "project.create");
-    return this.createWorkspaceProjectUseCase.execute(workspaceId, input, actor);
+    return this.createWorkspaceProjectUseCase.execute(workspaceId, input);
   }
 }

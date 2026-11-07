@@ -14,6 +14,8 @@ import { withToolContext } from "./toolContext.ts";
 
 const nullableText = (maximum: number) => z.string().max(maximum).nullable().optional();
 const namedLink = { name: z.string(), url: z.string() };
+/** RepositoryのPRレビューで成功を必須とするGitHubのcheck名。省略時は作成なら空（CI不要）、更新なら既存行の値を維持する。 */
+const repositoryLink = { ...namedLink, requiredChecks: z.array(z.string()).optional() };
 
 const projectInputSchema = {
   name: z.string(),
@@ -22,7 +24,7 @@ const projectInputSchema = {
   vision: nullableText(2_000),
   principles: z.array(z.string()).optional(),
   constraints: z.array(z.string()).optional(),
-  repositories: z.array(z.object(namedLink)).optional(),
+  repositories: z.array(z.object(repositoryLink)).optional(),
   resources: z.array(z.object({ ...namedLink, kind: nullableText(100) })).optional(),
 };
 
@@ -30,29 +32,76 @@ const projectUpdateSchema = {
   projectId: z.string().min(1),
   name: z.string().optional(),
   description: nullableText(1_000),
-  repositories: z.array(z.object({ id: z.string().optional(), ...namedLink })).optional(),
+  repositories: z.array(z.object({ id: z.string().optional(), ...repositoryLink })).optional(),
   resources: z
     .array(z.object({ id: z.string().optional(), ...namedLink, kind: nullableText(100) }))
     .optional(),
 };
 
-// Intentの入力規則はshared/intentSchemaが持つ。ここでは型だけを宣言し、上限などはuse caseで検証する。
+// Intentの入力規則はdirectionのintentSchemaが持つ（Web UIと共通）。ここでは型だけを宣言し、必須・上限・日付形式はuse caseで検証する。
+const intentOptionalFields = {
+  background: z.string().nullable().optional(),
+  audience: z.string().nullable().optional(),
+  constraints: z.string().nullable().optional(),
+  completionDefinition: z.string().nullable().optional(),
+  targetDate: z.string().nullable().optional(),
+};
+
 const intentCreateSchema = {
   workspaceId: z.string().min(1),
   title: z.string(),
   desiredState: z.string(),
-  completionDefinition: z.string().nullable().optional(),
+  ...intentOptionalFields,
 };
 
 const intentUpdateSchema = {
   workspaceId: z.string().min(1),
   intentId: z.string().min(1),
+  expectedVersion: z.number().int(),
+  reason: z.string().nullable().optional(),
   title: z.string().optional(),
   desiredState: z.string().optional(),
-  completionDefinition: z.string().nullable().optional(),
+  ...intentOptionalFields,
 };
 
-// Outcomeの入力規則もshared/outcomeSchemaが持つ。成功条件は作成時に固定され、更新用のschemaには含めない。
+const intentFieldsDescription =
+  "Required: title (up to 100 characters) and desiredState (up to 2,000). Optional: background, audience (target / scope), " +
+  "constraints and completionDefinition (each up to 2,000) and targetDate (a calendar date in YYYY-MM-DD). " +
+  "The same validation as the Web UI applies (VALIDATION_ERROR otherwise).";
+
+// Outcomeの入力規則はdirectionのoutcomeSchemaが持つ（Web UIと共通）。成功条件は作成時に固定され、更新用のschemaには含めない。
+const outcomeProblemInput = z.object({
+  id: z.string().optional(),
+  statement: z.string(),
+  evidenceStatus: z.enum(["insufficient", "observed", "refuted"]),
+  observation: z.string().nullable().optional(),
+  causeHypothesis: z.string().nullable().optional(),
+  solutionHypothesis: z.string().nullable().optional(),
+  evaluationPlan: z
+    .object({
+      question: z.string(),
+      method: z.enum(["cognitive_walkthrough", "quantitative_observation", "ab_test", "difference_in_differences", "other"]),
+      premises: z.string().nullable().optional(),
+      observationPeriod: z.string().nullable().optional(),
+      decisionCriteria: z.string(),
+      stopCriteria: z.string().nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  evidence: z.array(z.object({ kind: z.enum(["research_finding", "research_synthesis"]), id: z.string() })).optional(),
+});
+
+const outcomeProblemsDescription =
+  "problems lists the problems (Problem Statements) that block this Outcome, each with statement (up to 500 characters), " +
+  "evidenceStatus (insufficient | observed | refuted), observation (the observed fact), causeHypothesis (a hypothesis about the cause; " +
+  "an observation such as drop-off does not confirm the cause), solutionHypothesis, and evidence (research_finding / research_synthesis " +
+  "ids of the same Workspace; up to 10), and an optional evaluationPlan { question, method (cognitive_walkthrough | quantitative_observation | ab_test | difference_in_differences | other), " +
+  "premises (required for ab_test and difference_in_differences: how the method's assumptions are met), observationPeriod, decisionCriteria, stopCriteria }. " +
+  "A plan is not a result: it stays not run until an Evaluation names the problem in problemIds while that plan is current. The server assigns a planId that changes when a plan is added or its content changes; an Evaluation names the planId it evaluated in planIds, so results of an earlier plan never mark the changed plan as run. Compass runs no statistical analysis. " +
+  "observed and refuted require observation and at least one evidence reference. Up to 10 problems. " +
+  "Evidence of another Workspace fails with VALIDATION_ERROR; newly linking a Synthesis superseded by a later version fails with CONFLICT. " +
+  "Development blockers of Tasks are not problems.";
+
 const outcomeCreateSchema = {
   workspaceId: z.string().min(1),
   intentId: z.string().min(1),
@@ -63,14 +112,19 @@ const outcomeCreateSchema = {
   successCriteria: z.array(
     z.object({ description: z.string(), measurement: z.string(), target: z.string().nullable().optional() }),
   ),
+  intentVersion: z.number().int(),
+  problems: z.array(outcomeProblemInput).optional(),
 };
 
 const outcomeUpdateSchema = {
   workspaceId: z.string().min(1),
   intentId: z.string().min(1),
   outcomeId: z.string().min(1),
+  intentVersion: z.number().int().optional(),
   title: z.string().optional(),
   hypothesis: z.string().nullable().optional(),
+  problems: z.array(outcomeProblemInput).optional(),
+  expectedRevision: z.number().int().optional(),
   // 固定項目は受け付けないが、schemaに無いとzodが黙って捨てるため宣言し、use caseがCONFLICTで拒否できるようにする。
   description: z.unknown().optional(),
   rationale: z.unknown().optional(),
@@ -122,6 +176,7 @@ const usedSynthesisRefSchema = z.object({ synthesisId: z.string().min(1), versio
 const directionDecisionCommonSchema = {
   workspaceId: z.string().min(1),
   intentId: z.string().min(1),
+  intentVersion: z.number().int(),
   judgment: z.string(),
   reason: z.string(),
   options: z.array(z.string()).optional(),
@@ -149,7 +204,7 @@ const createDirectionDecisionMcpSchema = {
 
 const decideNextOutcomeMcpSchema = {
   ...directionDecisionCommonSchema,
-  outcome: z.object(outcomeCreateSchema).omit({ workspaceId: true, intentId: true }),
+  outcome: z.object(outcomeCreateSchema).omit({ workspaceId: true, intentId: true, intentVersion: true }),
 };
 
 // ADR Handoffの入力規則もshared/adrHandoffSchemaが持つ。ここでは型だけを宣言する。
@@ -193,6 +248,11 @@ const outcomeEvaluationSchema = {
   outcomeId: z.string().min(1),
   requestKey: z.string(),
   runRef: z.string(),
+  method: z.string(),
+  targetVersion: z.string(),
+  limitations: z.string(),
+  problemIds: z.array(z.string()).optional(),
+  planIds: z.record(z.string(), z.string()).optional(),
   criteria: z.array(
     z.object({
       criterionId: z.string(),
@@ -263,11 +323,15 @@ export const createMcpServer = (
       ),
     );
   };
-  // Workspace DirectionのHuman管理・入力操作（Intent）。WorkspaceのDirection Role Grantを持つPrincipalとactiveRole指定を拒否する。
+  // Workspace DirectionのHuman管理操作（Intentの放棄）。WorkspaceのDirection Role Grantを持つPrincipalとactiveRole指定を拒否する。
   const asWorkspaceOperator = async <T>(workspaceId: string, operation: () => Promise<T>) => {
     await roleScope.requireNoWorkspaceRole(principal, workspaceId);
     return principal === null ? operation() : withActivityActor({ principalId: principal, role: "operator" }, operation);
   };
+  // Intentの登録・更新。Agentは対象WorkspaceのStrategist Grantで認可し、操作者をそのStrategist（Agent）として記録する。
+  // trusted-localのPrincipalなし・activeRoleなしの保守呼出しだけはGrantを問わず、操作者は`system`になる。
+  const asIntentAuthor = async <T>(workspaceId: string, operation: () => Promise<T>) =>
+    !remote && principal === null && roleScope.activeRole === null ? operation() : asStrategist(workspaceId, operation);
 
   const server = new McpServer(
     { name: "compass", version: "0.1.0" },
@@ -293,7 +357,7 @@ export const createMcpServer = (
     return server;
   }
 
-  // Project作成・構想更新・Intent操作はHumanの管理・入力操作で、Web UIが正規入口。remote modeではMCPへ登録しない。
+  // Project作成・構想更新・Intentの放棄はHumanの管理操作で、Web UIが正規入口。remote modeではMCPへ登録しない。
   if (!remote) server.registerTool(
     "create_project",
     { title: "Create Project", description: "Create a Compass Project.", inputSchema: projectInputSchema },
@@ -341,18 +405,21 @@ export const createMcpServer = (
     ({ projectId }) => execute(() => asGrantedReader(projectId, () => services.getProjectUseCase.execute(projectId))),
   );
 
-  if (!remote) server.registerTool(
+  // Intentの登録・更新は、外部MCPクライアントでHumanと整理した目標をStrategistが登録する正規の入口。Web UIと同じuse caseへ委譲する。
+  server.registerTool(
     "create_intent",
     {
       title: "Create Intent",
       description:
-        "Create an active Intent in a Workspace. A Workspace has at most one active Intent; " +
-        "creating another while one is active fails with CONFLICT. Creating an Intent does not start Strategist or Research. " +
-        "An archived Workspace fails with CONFLICT (workspaceStatus archived).",
+        "Create an active Intent (business goal) in a Workspace. " + intentFieldsDescription + " " +
+        "A Workspace can have multiple active Intents; creating one does not abandon or modify the others. " +
+        "Creating an Intent does not start Strategist or Research. An archived Workspace fails with CONFLICT (workspaceStatus archived). " +
+        "Requires Authorization: Bearer <AgentName> with a Strategist Grant of the Workspace (with X-Compass-Active-Role it must be " +
+        "strategist; Project Grants do not count); UNAUTHENTICATED / FORBIDDEN otherwise. The Activity records the Strategist as the actor.",
       inputSchema: intentCreateSchema,
     },
     ({ workspaceId, ...input }) =>
-      execute(() => asWorkspaceOperator(workspaceId, () => services.createIntentUseCase.execute(workspaceId, input))),
+      execute(() => asIntentAuthor(workspaceId, () => services.createIntentUseCase.execute(workspaceId, input))),
   );
   server.registerTool(
     "list_intents",
@@ -374,18 +441,96 @@ export const createMcpServer = (
     ({ workspaceId, intentId }) =>
       execute(() => asWorkspaceReader(workspaceId, () => services.getIntentUseCase.execute(workspaceId, intentId))),
   );
-  if (!remote) server.registerTool(
+  server.registerTool(
     "update_intent",
     {
       title: "Update Intent",
       description:
-        "Update title, desiredState or completionDefinition of an active Intent. Omitted fields are unchanged; " +
-        "null or an empty string clears completionDefinition. Abandoned or achieved Intents cannot be edited (CONFLICT).",
+        "Update fields of an active Intent. " + intentFieldsDescription + " Omitted fields are unchanged; " +
+        "null or an empty string clears an optional field. Abandoned or achieved Intents cannot be edited (CONFLICT). " +
+        "expectedVersion (required) is the Intent version your edit or judgment is based on (Intent.version from get_intent). " +
+        "If the Intent was saved after that, nothing is changed and CONFLICT (conflict intent_version, currentVersion) is returned: " +
+        "read the current Intent and review it before retrying; never treat evidence from an older version as the current one. " +
+        "Every save creates a new version with the actor and reason (list_intent_revisions). When the Intent already has Outcomes, " +
+        "changing desiredState or completionDefinition requires a reason; it is not forbidden. Existing Outcomes, Evaluations and " +
+        "Decisions keep the version they were based on, and unfinished Outcomes based on an older meaning become re-plan targets " +
+        "(orchestration state intentRevised). Requires a Strategist Grant of the Workspace, the same as create_intent.",
       inputSchema: intentUpdateSchema,
     },
     ({ workspaceId, intentId, ...input }) =>
       execute(() =>
-        asWorkspaceOperator(workspaceId, () => services.updateIntentUseCase.execute(workspaceId, intentId, input)),
+        asIntentAuthor(workspaceId, () => services.updateIntentUseCase.execute(workspaceId, intentId, input)),
+      ),
+  );
+  server.registerTool(
+    "list_intent_revisions",
+    {
+      title: "List Intent Revisions",
+      description:
+        "List the saved versions of an Intent, newest first: the content of each version, whether the meaning changed, the reason " +
+        "and who changed it. Outcomes, Evaluations and Decisions refer to the version they were based on with intentVersion.",
+      inputSchema: { workspaceId: z.string().min(1), intentId: z.string().min(1) },
+    },
+    ({ workspaceId, intentId }) =>
+      execute(() =>
+        asWorkspaceReader(workspaceId, async () => ({
+          revisions: await services.listIntentRevisionsUseCase.execute(workspaceId, intentId),
+        })),
+      ),
+  );
+  // Intentの観測項目と時系列。入力規則はdirectionのintentMetricSchemaが持ち、ここでは型だけを宣言する。
+  server.registerTool(
+    "define_intent_metric",
+    {
+      title: "Define Intent Metric",
+      description:
+        "Define (or update by key) a Metric observed for an active Intent: key (1-64 of a-z, 0-9, _, -, . unique within the Intent), " +
+        "name (up to 100), unit (up to 30, e.g. JPY, users, %), targetValue (an explicit finite number, or null when the goal has no " +
+        "numeric target; never derive it from the Intent text) and staleAfterDays (1-366: the latest observation becomes stale when its " +
+        "period ended more than this many days ago). The same definition again is unchanged (result: unchanged); a different one " +
+        "increments revision (result: updated). The unit of a Metric with observations cannot change (CONFLICT, reason unit_locked). " +
+        "This is not a separate Success Metrics hierarchy: Outcome Success Criteria stay as they are. An Intent of another Workspace " +
+        "fails with NOT_FOUND; a non-active Intent (reason intent_not_active) or an archived Workspace fails with CONFLICT. " +
+        "Requires Authorization: Bearer <AgentName> with a Strategist Grant of the Workspace (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: {
+        workspaceId: z.string().min(1),
+        intentId: z.string().min(1),
+        key: z.string(),
+        name: z.string(),
+        unit: z.string(),
+        targetValue: z.number().nullable().optional(),
+        staleAfterDays: z.number(),
+      },
+    },
+    ({ workspaceId, intentId, ...input }) =>
+      execute(() => services.defineIntentMetricUseCase.execute(principal, workspaceId, intentId, input)),
+  );
+  server.registerTool(
+    "list_intent_metrics",
+    {
+      title: "List Intent Metrics",
+      description:
+        "List the Metrics of an Intent (in definition order) with current = { state, latest, lastObserved } and series = { from, to, " +
+        "points }. state is unmeasured (no observation), failed (the latest period's observation failed), stale (the latest value is " +
+        "older than staleAfterDays) or observed (zero is a valid observed value). points are the latest revision of each observed " +
+        "period overlapping from..to (YYYY-MM-DD, default: the 30 days up to today in UTC, at most 366 days), including failed ones " +
+        "with value null; periods without an observation are absent and must not be filled with zero or estimates. No ratio or " +
+        "progress is computed. An empty metrics list means no Metric is defined. An Intent of another Workspace fails with NOT_FOUND.",
+      inputSchema: {
+        workspaceId: z.string().min(1),
+        intentId: z.string().min(1),
+        from: z.string().optional(),
+        to: z.string().optional(),
+      },
+    },
+    ({ workspaceId, intentId, from, to }) =>
+      execute(() =>
+        asWorkspaceReader(workspaceId, () =>
+          services.listIntentMetricsUseCase.execute(workspaceId, intentId, {
+            ...(from === undefined ? {} : { from }),
+            ...(to === undefined ? {} : { to }),
+          }),
+        ),
       ),
   );
   if (!remote) server.registerTool(
@@ -393,16 +538,18 @@ export const createMcpServer = (
     {
       title: "Abandon Intent",
       description:
-        "Abandon an active Intent with an optional reason. Abandoned Intents cannot be reactivated; create a new Intent instead.",
+        "Abandon an active Intent with an optional reason (and an optional expectedVersion that must match the current version). " +
+        "Its active Outcomes are cancelled, never marked achieved, and Tasks are not changed. Abandoned Intents cannot be reactivated; create a new Intent instead.",
       inputSchema: {
         workspaceId: z.string().min(1),
         intentId: z.string().min(1),
         reason: z.string().nullable().optional(),
+        expectedVersion: z.number().int().optional(),
       },
     },
-    ({ workspaceId, intentId, reason }) =>
+    ({ workspaceId, intentId, reason, expectedVersion }) =>
       execute(() =>
-        asWorkspaceOperator(workspaceId, () => services.abandonIntentUseCase.execute(workspaceId, intentId, { reason })),
+        asWorkspaceOperator(workspaceId, () => services.abandonIntentUseCase.execute(workspaceId, intentId, { reason, expectedVersion })),
       ),
   );
 
@@ -483,7 +630,7 @@ export const createMcpServer = (
       title: "Get Strategist Context",
       description:
         "Get what a Strategist needs to decide the next Outcome: the Workspace (Mission, Vision, Principles, Constraints, status), " +
-        "its active Intent (null if none), every Outcome under that Intent including cancelled ones, " +
+        "the selected Intent (specify intentId; omission is accepted only with at most one Active Intent), every Outcome under that Intent including cancelled ones, " +
         "projects (the Workspace's active Projects in creation order: id, name, description as the Project purpose, and " +
         "Repository / Resource references with name, url and kind; Resource content is not included), outcomeTargets (the current " +
         "Target Projects of those Outcomes, in Outcome order then set order, with projectStatus active | archived; use them with " +
@@ -498,9 +645,9 @@ export const createMcpServer = (
         "of the Execution Summary and Evidence references at evaluation time), newest first; decisionId is the Direction Decision " +
         "already based on it, or null while it still awaits a re-plan or Intent completion decision. unavailable lists inputs that " +
         "are not implemented yet (evidence: Evidence content itself); do not assume or invent them. Requires Authorization: Bearer <AgentName> with a strategist Grant in the Workspace (UNAUTHENTICATED / FORBIDDEN otherwise).",
-      inputSchema: { workspaceId: z.string().min(1) },
+      inputSchema: { workspaceId: z.string().min(1), intentId: z.string().min(1).optional() },
     },
-    ({ workspaceId }) => execute(() => services.getStrategistContextUseCase.execute(principal, workspaceId)),
+    ({ workspaceId, intentId }) => execute(() => services.getStrategistContextUseCase.execute(principal, workspaceId, intentId)),
   );
   server.registerTool(
     "get_research_request",
@@ -527,7 +674,7 @@ export const createMcpServer = (
         "Requires Authorization: Bearer <AgentName> with a strategist Grant in the Workspace (UNAUTHENTICATED / FORBIDDEN otherwise). " +
         "rationale records why this Outcome was chosen. Success Criteria are fixed at creation (1-10 items) and cannot be edited later; " +
         "to change them, cancel the Outcome and create a new one. Outcomes are never generated from an Intent automatically, " +
-        "and Research is not required.",
+        "and Research is not required. Optional: " + outcomeProblemsDescription,
       inputSchema: outcomeCreateSchema,
     },
     ({ workspaceId, intentId, ...input }) =>
@@ -555,7 +702,9 @@ export const createMcpServer = (
     "get_outcome",
     {
       title: "Get Outcome",
-      description: "Get an Outcome and its Success Criteria by ID within a Workspace and Intent.",
+      description:
+        "Get an Outcome by ID within a Workspace and Intent: Success Criteria, problems with evidence (kind, id, requestId, summary, " +
+        "superseded) and revision (use it as expectedRevision of update_outcome).",
       inputSchema: { workspaceId: z.string().min(1), intentId: z.string().min(1), outcomeId: z.string().min(1) },
     },
     ({ workspaceId, intentId, outcomeId }) =>
@@ -570,8 +719,14 @@ export const createMcpServer = (
     {
       title: "Update Outcome",
       description:
-        "Update title or hypothesis of an active Outcome. Omitted fields are unchanged; null or an empty string clears hypothesis. " +
-        "description, rationale and successCriteria are fixed at creation and are rejected with CONFLICT. Cancelled Outcomes cannot be edited.",
+        "Update title, hypothesis or problems of an active Outcome. Omitted fields are unchanged; null or an empty string clears hypothesis. " +
+        "Pass intentVersion (the current Intent.version) to record that you reviewed the Outcome against the current Intent; this clears the " +
+        "re-plan target (intentRevised) after the Intent meaning changed, and fails with CONFLICT if the Intent moved on again. " +
+        "problems replaces the whole list (pass an existing problem id to keep it) and requires expectedRevision, the revision you read " +
+        "with get_outcome; if the Outcome was updated since then the call fails with CONFLICT (currentRevision). Every update increments revision. " +
+        outcomeProblemsDescription + " " +
+        "description, rationale and successCriteria are fixed at creation and are rejected with CONFLICT; Target Projects are not changed. " +
+        "Cancelled Outcomes cannot be edited. Requires a strategist Grant in the Workspace.",
       inputSchema: outcomeUpdateSchema,
     },
     ({ workspaceId, intentId, outcomeId, ...input }) =>
@@ -1046,7 +1201,9 @@ export const createMcpServer = (
         "evaluable, or replan_required when an archived Target has an unreflected or incomplete Execution, with the unfinished " +
         "Targets), the latest Evaluation with the Direction Decision based on it (decisionId null while undecided) and the per-Project " +
         "Execution cursors it evaluated, the active Intent's Research Requests and the Workspace's open (requested / running) Research " +
-        "Requests. An archived Workspace returns only its status with empty lists. No content (Mission, Intent or Outcome text, " +
+        "Requests. Each active Intent carries version and meaningVersion, and each Outcome the intentVersion it is based on; " +
+        "intentRevised is non-null for an active Outcome whose Intent meaning (desiredState / completionDefinition) changed after that " +
+        "version, which marks it as an explicit re-plan target (work is not stopped). An archived Workspace returns only its status with empty lists. No content (Mission, Intent or Outcome text, " +
         "Research findings, Story / Task text) is included: the started Role reads it through its own Role Context. Reading does " +
         "not change state and does not depend on Activity or Runtime event cursors. Requires a Workspace Runtime Credential " +
         "(Authorization: Bearer cmp_runtime...) of the Workspace with the runtime:state:read scope; a Project Credential or a " +
@@ -1080,7 +1237,10 @@ export const createMcpServer = (
     {
       title: "Record Outcome Evaluation",
       description:
-        "Save an Evaluation of an active Outcome: one judgment per fixed Success Criterion (every Criterion exactly once) with " +
+        "Save an Evaluation of an active Outcome. method (cognitive_walkthrough | quantitative_observation | ab_test | difference_in_differences | other), " +
+        "targetVersion (the commit SHA or release evaluated) and limitations (sample, period, method constraints) are required; problemIds optionally names the " +
+        "Outcome's problems[].id it evaluates, and planIds maps each such problem id to the evaluationPlan.planId you read (required for a problem that has a plan; a plan changed since then fails with CONFLICT evaluation_plan_changed, so re-read the Outcome). A cognitive_walkthrough inspects the design and is not evidence from real users, so it cannot judge a Criterion met (VALIDATION_ERROR). " +
+        "Task acceptance or publication is not an effect: without observed Evidence record insufficient_evidence. One judgment per fixed Success Criterion (every Criterion exactly once) with " +
         "verdict met | not_met | insufficient_evidence, a rationale, and evidenceIds (ids from get_evaluator_context's " +
         "targets[].execution.evidence of any Target Project). met and not_met require at least one evidenceId; use insufficient_evidence when the Evidence could not " +
         "be observed - never guess success or failure. The overall result is derived by Compass, not sent: achieved only when every " +
@@ -1103,6 +1263,138 @@ export const createMcpServer = (
       execute(() =>
         asActorOf(ProjectRole.EVALUATOR, () => services.recordOutcomeEvaluationUseCase.execute(principal, workspaceId, outcomeId, input)),
       ),
+  );
+
+  server.registerTool(
+    "record_intent_metric_observations",
+    {
+      title: "Record Intent Metric Observations",
+      description:
+        "Record observations of a defined Intent Metric (metricKey) - 1 to 100 items, each for a distinct period: periodStart and " +
+        "periodEnd (YYYY-MM-DD, inclusive, at most 366 days; a daily value uses the same date), status observed with a finite value " +
+        "(in the Metric's unit; zero is a real value) or status failed with failureReason and no value (never substitute zero or an " +
+        "estimate), source = { name, uri? (http(s), no credentials) } and observedAt (epoch milliseconds when the value was taken; not " +
+        "in the future and not before the period started). Each period keeps append-only revisions: content (status, value, reason, " +
+        "source, observedAt) identical to any existing revision of that period is a resend and is unchanged (no new revision, the " +
+        "response is the latest revision, and a delayed resend never rolls back a correction); anything else becomes the next revision " +
+        "(revised). Send a correction that returns to an earlier value with a new observedAt. Results are returned in input " +
+        "order with kind created | revised | unchanged. Recording does not add Activity, evaluate an Outcome or complete the Intent. " +
+        "An unknown metricKey or an Intent of another Workspace fails with NOT_FOUND; invalid values, periods or times fail with " +
+        "VALIDATION_ERROR; a non-active Intent (reason intent_not_active) or an archived Workspace fails with CONFLICT. " +
+        "Requires Authorization: Bearer <AgentName> with an evaluator Grant of the Workspace (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: {
+        workspaceId: z.string().min(1),
+        intentId: z.string().min(1),
+        metricKey: z.string(),
+        observations: z.array(
+          z.object({
+            periodStart: z.string(),
+            periodEnd: z.string(),
+            status: z.string(),
+            value: z.number().nullable().optional(),
+            failureReason: z.string().nullable().optional(),
+            source: z.object({ name: z.string(), uri: z.string().nullable().optional() }),
+            observedAt: z.number(),
+          }),
+        ),
+      },
+    },
+    ({ workspaceId, intentId, ...input }) =>
+      execute(() => services.recordIntentMetricObservationsUseCase.execute(principal, workspaceId, intentId, input)),
+  );
+
+  // Intentの観測についてのAgentの説明。入力規則はdirectionのintentExplanationSchemaが持ち、ここでは型だけを宣言する。
+  server.registerTool(
+    "record_intent_explanation",
+    {
+      title: "Record Intent Explanation",
+      description:
+        "Append an explanation of an Intent Metric (metricKey) for an analysis period (periodStart..periodEnd, YYYY-MM-DD, at most 366 " +
+        "days), separating items by kind: fact (confirmed from records; needs basis), hypothesis (an interpretation / possible cause " +
+        "- needs basedOn fact positions, confidence low|medium|high and verification: how to confirm or refute it; it is never a causal " +
+        "conclusion) and proposal (a next action; needs basedOn fact/hypothesis positions). basedOn holds positions of EARLIER items in " +
+        "items. basis references existing records by id and the server resolves them on read (nothing is copied): fact -> " +
+        "metric_observation (an observation id of this Metric, from list_intent_metrics)|finding|evaluation; hypothesis -> " +
+        "finding|synthesis|evaluation; proposal -> synthesis|decision. At least one fact is required and every fact needs a basis. " +
+        "relatedOutcomeIds are Outcomes of the same Intent. Each call is the next version for the Intent+Metric; changeFromPrevious " +
+        "says what changed since the previous version (ignored for the first). The same requestKey with identical content is a resend " +
+        "(result: replayed); a different content with the same requestKey fails with CONFLICT (reason request_key_conflict). Recording " +
+        "does not change the Intent or Outcomes and is no evidence that an Agent ran, a measure worked or the goal was achieved; a " +
+        "simple before/after difference must stay a fact or a hypothesis, not an effect. An unknown metricKey or an Intent of another " +
+        "Workspace fails with NOT_FOUND; unknown or out-of-Intent references and invalid structure fail with VALIDATION_ERROR; a " +
+        "non-active Intent (reason intent_not_active) or an archived Workspace fails with CONFLICT. " +
+        "Requires Authorization: Bearer <AgentName> with a Strategist Grant of the Workspace (UNAUTHENTICATED / FORBIDDEN otherwise).",
+      inputSchema: {
+        workspaceId: z.string().min(1),
+        intentId: z.string().min(1),
+        requestKey: z.string(),
+        runRef: z.string(),
+        metricKey: z.string(),
+        periodStart: z.string(),
+        periodEnd: z.string(),
+        changeFromPrevious: z.string().nullable().optional(),
+        relatedOutcomeIds: z.array(z.string()).optional(),
+        items: z.array(
+          z.object({
+            kind: z.string(),
+            statement: z.string(),
+            confidence: z.string().nullable().optional(),
+            verification: z.string().nullable().optional(),
+            basedOn: z.array(z.number()).optional(),
+            basis: z.array(z.object({ type: z.string(), id: z.string() })).optional(),
+          }),
+        ),
+      },
+    },
+    ({ workspaceId, intentId, ...input }) =>
+      execute(() => services.recordIntentExplanationUseCase.execute(principal, workspaceId, intentId, input)),
+  );
+  server.registerTool(
+    "list_intent_explanations",
+    {
+      title: "List Intent Explanations",
+      description:
+        "List the recorded explanations of an Intent (newest first, at most 50) with metrics = the current observation state of each " +
+        "Metric (unmeasured | failed | stale | observed) and explanations = items split into fact | hypothesis | proposal, each basis " +
+        "resolved from the original record with state current | revised | superseded | expired | missing, relatedOutcomes, the " +
+        "previous version and basisOutdated (some basis is no longer current). An empty explanations list means nothing was recorded; " +
+        "do not fill it in from Metrics. An Intent of another Workspace fails with NOT_FOUND.",
+      inputSchema: { workspaceId: z.string().min(1), intentId: z.string().min(1) },
+    },
+    ({ workspaceId, intentId }) =>
+      execute(() => asWorkspaceReader(workspaceId, () => services.listIntentExplanationsUseCase.execute(workspaceId, intentId))),
+  );
+
+  server.registerTool(
+    "record_agent_run",
+    {
+      title: "Record Agent Run",
+      description:
+        "For a runner (Ralph, Orchestrator): record an observation of one Agent run - event started (once, with a runner-generated " +
+        "unique runId), observed (the run is still being observed; extends staleAfterSeconds, default 1800) or finished (result " +
+        "succeeded | failed with an optional reason such as the exit code). Times are the Server's. It is an observation reported by the " +
+        "runner, not proof that a process is alive, and it is not written to Activity. With an Agent Credential (or a trusted-local Agent " +
+        "name) the run is the caller's own: X-Compass-Active-Role is required and the Principal must hold that Role's Grant in scope " +
+        "(an Agent Credential only in its own scope). With a Runtime Credential that has the agent:run:write scope of the same " +
+        "Workspace / Project, pass principalId and role of the started Agent; that Principal must hold the Role Grant in scope. A resend " +
+        "of the same runId is idempotent (recorded: false); the same runId for another Principal, scope or Role, or a different result " +
+        "for a finished run, fails with CONFLICT. observed / finished without started fails with NOT_FOUND. Credentials in reason are " +
+        "redacted. workRef (task, intent, outcome, evaluation, research_request, consultation) is optional.",
+      inputSchema: {
+        runId: z.string(),
+        scope: z.object({ kind: z.enum(["workspace", "project"]), id: z.string() }),
+        event: z.enum(["started", "observed", "finished"]),
+        source: z.enum(["ralph", "orchestrator"]),
+        principalId: z.string().optional(),
+        role: z.enum(projectRoles).optional(),
+        provider: z.string().optional(),
+        workRef: z.object({ kind: z.string(), id: z.string() }).optional(),
+        staleAfterSeconds: z.number().optional(),
+        result: z.enum(["succeeded", "failed"]).optional(),
+        reason: z.string().optional(),
+      },
+    },
+    (input) => execute(() => services.recordAgentRunUseCase.execute(caller, authorization.activeRole, input)),
   );
 
   registerExecutionTools(withToolContext(server, "work"), services, caller);

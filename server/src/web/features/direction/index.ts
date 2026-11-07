@@ -4,7 +4,7 @@ export {
   loadDirection,
   loadOpenResearch,
   loadOutcomeDetail,
-  type DirectionData,
+  type DirectionData, type IntentDirectionData,
   type DirectionPosition,
   type OutcomeDetailData,
   type TargetExecutions,

@@ -8,7 +8,7 @@ import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { addTestMembership, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
+import { addTestWorkspaceMembership, createTestHuman, requestAs, type TestHuman } from "./support/humanSession.ts";
 
 /**
  * S06-03: Credentialは明示scope（Workspace / Project）に束縛する。Workspace CredentialはWorkspace scopeの
@@ -125,16 +125,15 @@ test("Workspace Credentialは新規DBへscope付きで保存し、Workspace Admi
     assert.equal(revoked.status, 200);
     assert.notEqual(((await revoked.json()) as Json).credential.revokedAt, null);
 
-    // Workspace editorは管理できず、Project ownerでもWorkspace Membershipが無ければ404（Membershipを継承しない）。
+    // Workspace editorは管理できず、別Workspaceのownerは404（Workspace Membershipだけで認可する）。
     const editor = await createTestHuman(database, { email: "editor@example.com" });
-    await addTestMembership(database, project.id, editor, "viewer");
-    await services.human.addWorkspaceMember.execute(actorOf(owner), workspace.id, { humanUserId: editor.humanUserId, role: "editor" });
+    await addTestWorkspaceMembership(database, workspace.id, editor, "editor");
     const denied = await issue(webApp, editor, workspacePath, { kind: "agent", principalId: "x" });
     assert.equal(denied.status, 403);
     assert.equal(((await denied.json()) as Json).error.requiredRole, "administrator");
-    const projectOnly = await createTestHuman(database, { email: "project-only@example.com" });
-    await addTestMembership(database, project.id, projectOnly, "owner");
-    assert.equal((await requestAs(webApp, projectOnly)(workspacePath)).status, 404);
+    const otherOwner = await createTestHuman(database, { email: "other-owner@example.com" });
+    await addTestWorkspaceMembership(database, other.id, otherOwner, "owner");
+    assert.equal((await requestAs(webApp, otherOwner)(workspacePath)).status, 404);
     await assert.rejects(
       services.issueAccessCredentialUseCase.execute(actorOf(editor), { kind: "workspace", id: workspace.id }, { kind: "invalid" }),
       code("FORBIDDEN", { requiredRole: "administrator", workspaceId: workspace.id }),

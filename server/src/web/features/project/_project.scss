@@ -1,30 +1,6 @@
-// Project詳細（features/project）。view切替・方向・概要の進み具合。
+// Project詳細（features/project）。方向・概要の進み具合。
 @use "../../styles/mixins" as *;
 
-// viewの切替。ナビゲーションのリンク（選択中は`aria-current="page"`）を下線のタブで示し、sidebarのナビゲーション・表示切替の部品（ViewSwitch）と区別する。
-.project-view-nav {
-  position: sticky;
-  top: 0;
-  z-index: 5;
-  margin: 0 0 var(--space-md);
-  border-bottom: 1px solid var(--color-line);
-  background: var(--color-paper);
-  overflow-x: auto;
-  ul { display: flex; gap: var(--space-lg); @include unstyled-list; white-space: nowrap; }
-  a {
-    display: inline-flex;
-    align-items: center;
-    min-height: var(--control-md-height);
-    border-bottom: 2px solid transparent;
-    color: var(--color-text-secondary);
-    font-weight: 600;
-    text-decoration: none;
-    transition: color var(--motion-fast), border-color var(--motion-fast);
-    &:hover { color: var(--color-text); border-bottom-color: var(--color-line-strong); }
-    &[aria-current="page"] { color: var(--color-brand); border-bottom-color: var(--color-brand); }
-  }
-  @include narrow { margin-left: -4vw; margin-right: -4vw; padding-left: 4vw; padding-right: 4vw; ul { gap: var(--space-md); } }
-}
 .position-work {
   font-variant-numeric: tabular-nums;
   display: flex;

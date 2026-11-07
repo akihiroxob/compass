@@ -126,6 +126,62 @@ export const initializeWorkSchema = async (database: Kysely<WorkDatabase>): Prom
     database,
   );
 
+  // GitHubで確認したPR。同じGitHub PRは1つのTaskにだけ登録できる（Projectを跨いでも一意）。
+  await database.schema.createTable("task_pull_request").ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("task_id", "text", (column) => column.notNull().references("task.id").onDelete("cascade"))
+    .addColumn("project_id", "text", projectId)
+    .addColumn("repository_id", "text", (column) => column.notNull())
+    .addColumn("repository", "text", (column) => column.notNull())
+    .addColumn("number", "integer", (column) => column.notNull())
+    .addColumn("sequence", "integer", (column) => column.notNull())
+    .addColumn("url", "text", (column) => column.notNull())
+    .addColumn("state", "text", (column) => column.notNull().check(sql`state in ('open','closed','merged')`))
+    .addColumn("draft", "integer", (column) => column.notNull())
+    .addColumn("head_branch", "text", (column) => column.notNull())
+    .addColumn("head_sha", "text", (column) => column.notNull())
+    .addColumn("base_branch", "text", (column) => column.notNull())
+    .addColumn("merge_sha", "text")
+    .addColumn("author", "text", (column) => column.notNull())
+    .addColumn("work_claim_id", "text", (column) => column.notNull())
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addColumn("verified_at", "integer", (column) => column.notNull())
+    .addColumn("reviewed_head_sha", "text")
+    .addColumn("review_comment_id", "integer")
+    .addColumn("review_comment_url", "text")
+    .addColumn("accepted_merge_sha", "text")
+    .addColumn("acceptance_evidence", "text")
+    .addColumn("created_at", "integer", (column) => column.notNull())
+    .addColumn("updated_at", "integer", (column) => column.notNull())
+    .addUniqueConstraint("task_pull_request_repository_number_unique", ["repository", "number"])
+    .addUniqueConstraint("task_pull_request_task_sequence_unique", ["task_id", "sequence"])
+    .execute();
+
+  // 公開確認の原記録（追記専用）。PR・受入とは別の事実で、同じ公開先・revision・確認日時の再送は1件に収束する。
+  await database.schema.createTable("publication_record").ifNotExists()
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("project_id", "text", projectId)
+    .addColumn("repository_id", "text", (column) => column.notNull())
+    .addColumn("target", "text", (column) => column.notNull())
+    .addColumn("target_url", "text")
+    .addColumn("revision", "text", (column) => column.notNull())
+    .addColumn("method", "text")
+    .addColumn("evidence", "text", (column) => column.notNull())
+    .addColumn("observed_at", "integer", (column) => column.notNull())
+    .addColumn("received_at", "integer", (column) => column.notNull())
+    .addColumn("sequence", "integer", (column) => column.notNull())
+    .addColumn("principal_id", "text", (column) => column.notNull())
+    .addUniqueConstraint("publication_record_sequence_unique", ["project_id", "sequence"])
+    .addUniqueConstraint("publication_record_observation_unique", ["project_id", "repository_id", "target", "revision", "observed_at"])
+    .execute();
+  // 記録時に判定した、公開revisionと変更の対象Commitの関係。判定できなかったCommitは行を持たない。
+  await database.schema.createTable("publication_revision").ifNotExists()
+    .addColumn("publication_id", "text", (column) => column.notNull().references("publication_record.id").onDelete("cascade"))
+    .addColumn("commit_sha", "text", (column) => column.notNull())
+    .addColumn("relation", "text", (column) => column.notNull().check(sql`relation in ('included','not_included')`))
+    .addPrimaryKeyConstraint("publication_revision_pk", ["publication_id", "commit_sha"])
+    .execute();
+
   await database.schema
     .createTable("change_log")
     .ifNotExists()

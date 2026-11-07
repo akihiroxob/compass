@@ -22,7 +22,13 @@ const toEvaluation = (row: Selectable<OutcomeEvaluationTable>): OutcomeEvaluatio
   workspaceId: row.workspace_id,
   outcomeId: row.outcome_id,
   intentId: row.intent_id,
+  intentVersion: row.intent_version,
   result: row.result,
+  method: row.method as OutcomeEvaluation["method"],
+  targetVersion: row.target_version,
+  limitations: row.limitations,
+  problemIds: JSON.parse(row.problem_ids) as string[],
+  problemPlans: JSON.parse(row.problem_plans) as OutcomeEvaluation["problemPlans"],
   criteria: JSON.parse(row.criteria) as OutcomeEvaluation["criteria"],
   snapshot: JSON.parse(row.snapshot) as OutcomeEvaluation["snapshot"],
   principalId: row.principal_id,
@@ -35,6 +41,8 @@ const toEvaluation = (row: Selectable<OutcomeEvaluationTable>): OutcomeEvaluatio
 const requestHash = (request: OutcomeEvaluationRequest): string =>
   inputHash({
     ...request,
+    problemIds: [...request.problemIds].sort(),
+    planIds: Object.entries(request.planIds).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)),
     criteria: request.criteria
       .map((judgment) => ({ ...judgment, evidenceIds: [...judgment.evidenceIds].sort() }))
       .sort((left, right) => (left.criterionId < right.criterionId ? -1 : left.criterionId > right.criterionId ? 1 : 0)),
@@ -91,7 +99,7 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
       const outcome = await transaction
         .selectFrom("outcome")
-        .select(["title", "status"])
+        .select(["title", "status", "intent_version"])
         .where("id", "=", request.outcomeId)
         .where("workspace_id", "=", workspaceId)
         .executeTakeFirstOrThrow();
@@ -116,7 +124,13 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
           workspace_id: workspaceId,
           outcome_id: request.outcomeId,
           intent_id: input.intentId,
+          intent_version: outcome.intent_version,
           result: input.result,
+          method: request.method,
+          target_version: request.targetVersion,
+          limitations: request.limitations,
+          problem_ids: JSON.stringify(request.problemIds),
+          problem_plans: JSON.stringify(input.problemPlans),
           criteria: JSON.stringify(input.criteria),
           snapshot: JSON.stringify(input.snapshot),
           principal_id: request.principalId,

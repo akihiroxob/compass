@@ -25,8 +25,13 @@ export type WorkspaceOrchestrationTarget = {
 
 export type WorkspaceOrchestrationOutcome = {
   id: string;
+  intentId: string;
   status: string;
   updatedAt: number;
+  /** Outcome が根拠にしている Intent の版。 */
+  intentVersion: number;
+  /** Intent の意味が Outcome の根拠にした版より後に変わった未完了 Outcome の再計画対象。影響なしは null。 */
+  intentRevised: { outcomeIntentVersion: number; meaningVersion: number } | null;
   /** 現在の Target（設定順）。空なら Target なし。 */
   targets: WorkspaceOrchestrationTarget[];
   /** 全 Target から見た評価可能性（`evaluable` / `no_targets` / `replan_required` / `awaiting_execution`）。 */
@@ -45,7 +50,7 @@ export type WorkspaceOrchestrationState = {
   workspace: { id: string; name: string; status: string };
   /** Workspace の active な Project。archived の Project は Target としてだけ現れる。 */
   projects: { id: string; name: string }[];
-  activeIntent: { id: string; status: string; updatedAt: number } | null;
+  activeIntents: { id: string; status: string; version: number; meaningVersion: number; updatedAt: number }[];
   outcomes: WorkspaceOrchestrationOutcome[];
   intentResearchRequests: OrchestrationResearchRequest[];
   openResearchRequests: OrchestrationResearchRequest[];

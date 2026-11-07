@@ -35,9 +35,9 @@ type OutcomeData = {
 
 /**
  * Outcomeの所属Intentを探す。Workspace所有のOutcomeはIntent配下のWeb APIで読むため、Intentごとに一覧を読む
- * （WorkspaceのIntentは少数で、Active Intentは最大1件）。
+ * （複数のActive Intentと終端IntentのOutcomeを対象にする）。
  */
-const loadOutcomeRef = async (workspaceId: string, outcomeId: string): Promise<TaskOutcomeRef | null> => {
+export const loadOutcomeRef = async (workspaceId: string, outcomeId: string): Promise<TaskOutcomeRef | null> => {
   const { intents } = await request<{ intents: { id: string }[] }>(workspaceApiPath(workspaceId, "/intents"));
   const lists = await Promise.all(
     intents.map((intent) => request<{ outcomes: TaskOutcomeRef[] }>(workspaceApiPath(workspaceId, `/intents/${intent.id}/outcomes`)).then(({ outcomes }) => outcomes)),
@@ -46,8 +46,8 @@ const loadOutcomeRef = async (workspaceId: string, outcomeId: string): Promise<T
 };
 
 /**
- * Task詳細の「Task受入とOutcome評価」。Taskの状態（Project Membershipで読むWork）と、StoryのOutcomeへ還流したこのProjectの
- * Execution・Evidence（Project Membership）、Outcomeの評価（Workspace Membership）を別々に読み、Taskの受入をOutcomeの達成として示さない。
+ * Task詳細の「Task受入とOutcome評価」。Taskの状態（Work）と、StoryのOutcomeへ還流したこのProjectの
+ * Execution・Evidence、Outcomeの評価（Workspace Direction）を別々に読み、Taskの受入をOutcomeの達成として示さない。
  * Taskの更新時刻が変わったら（受入・差戻し等の後）読み直す。表示だけで、ここからは何も変更しない。
  */
 export const TaskOutcomeSection = ({ projectId, workspaceId, task, story }: { projectId: string; workspaceId: string | null; task: ExecutionTask; story: ExecutionStory | null }) => {
