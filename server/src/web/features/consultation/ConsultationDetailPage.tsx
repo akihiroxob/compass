@@ -143,7 +143,7 @@ const ReplyForm = ({ scope, consultationId, options, onSaved }: { scope: Consult
 };
 
 /** Humanの明示決定。表示中の版を送り、他の返信・応答で版が進んでいれば拒否される（最新を読んでから決める）。 */
-const DecisionPanel = ({ scope, detail, onCancel, onSaved }: { scope: ConsultationScope; detail: ConsultationDetail; onCancel: () => void; onSaved: () => Promise<void> }) => {
+const DecisionPanel = ({ scope, detail, onCancel, onSaved, onConflict }: { scope: ConsultationScope; detail: ConsultationDetail; onCancel: () => void; onSaved: () => Promise<void>; onConflict: () => Promise<void> }) => {
   const { consultation } = detail;
   const [conclusion, setConclusion] = useState("");
   const [rationale, setRationale] = useState("");
@@ -175,7 +175,7 @@ const DecisionPanel = ({ scope, detail, onCancel, onSaved }: { scope: Consultati
       const classified = classifyError(reason);
       setError(describeOperationFailure(scope)(classified));
       // 版の競合は最新の会話を読み直す。入力は残し、読んだうえで再度決定できる。
-      if (classified.kind === "conflict") { requestId.renew(); await onSaved().catch(() => undefined); }
+      if (classified.kind === "conflict") { requestId.renew(); await onConflict().catch(() => undefined); }
     } finally {
       setPending(false);
     }
@@ -367,9 +367,12 @@ export const ConsultationDetailPage = () => {
   const replyAccess = access("consultation.reply");
   const decideAccess = access("consultation.decide");
   const scopeHome = scope.kind === "project" ? projectViewPath(scope.projectId, "overview") : workspacePath(scope.workspaceId);
+  const reload = async () => {
+    await load().catch(() => undefined);
+  };
   const saved = async () => {
     setDeciding(false);
-    await load().catch(() => undefined);
+    await reload();
   };
   return (
     <main className="narrow">
@@ -404,7 +407,7 @@ export const ConsultationDetailPage = () => {
                 <Button variant="secondary" tone="danger" aria-expanded={cancel.confirming} onClick={() => { setDeciding(false); cancel.open(); }}>相談を取消</Button>
               </div>
             )}
-            {open && deciding && decideAccess === "allowed" && <DecisionPanel scope={scope} detail={detail} onCancel={() => setDeciding(false)} onSaved={saved} />}
+            {deciding && decideAccess === "allowed" && <DecisionPanel scope={scope} detail={detail} onCancel={() => setDeciding(false)} onSaved={saved} onConflict={reload} />}
             {open && cancel.confirming && decideAccess === "allowed" && (
               <ReasonPanel action={cancel} title="この相談を取り消しますか？" description="不要になった相談を閉じます。取り消すと返信・決定はできません。理由は相談に残ります。" label="取消の理由" required confirmLabel="取り消す" pendingLabel="取消中..." />
             )}
