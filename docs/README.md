@@ -1,5 +1,9 @@
 # Compass ドキュメント
 
+## 障害史・発表素材
+
+- [エージェント開発のトラブルと対処](operations/troubleshooting-history.md): 原因の確度・対処・確認結果を残す追記型の障害史。現在仕様の正本とは分離する。
+
 ## 確定した統合設計
 
 - [Architecture Handoff](../compass-codex-architecture-handoff.md): 構成・責務境界・依存方向の正本。
@@ -51,6 +55,6 @@
 - [人への相談・判断待ちの実装計画](planning/consultation-implementation-plan.md): 相談機能に絞った画面・保存・認可・会話・自動再開・ADR反映、受入境界とWacha登録先。登録と実装完了を区別する。実装済みの範囲の現行契約は[相談](consultation-design.md)。
 - [デザインシステムとUIカタログの実装計画](planning/design-system-implementation-plan.md): ムードボード・プロトタイプの参照、配色と視覚方向、実部品を共有するカタログ、画面適用の受入境界とWacha登録先。登録と実装完了を区別する。実装済みの現行の方針・運用は[Web UIの視覚方針](web-ui.md#視覚方針)と[UIカタログ](ui-catalog.md)。
 
-現行文書へ過去の案・段階別の作業記録を併記しない。過去情報はGit履歴から参照する。
+現行文書へ過去の案・段階別の作業記録を併記しない。仕様の過去案・作業差分はGit履歴から参照する。運用障害の経緯は上記の障害史へ分離する。
 
 - [Agent実行観測](agent-run-observation.md): Ralph／Orchestratorのrun記録・認可・Agent画面への接続。
