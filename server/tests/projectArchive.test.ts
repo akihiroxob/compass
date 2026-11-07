@@ -481,6 +481,8 @@ test("AC-16 MCPにarchive・delete・restore系のtoolは無く、list_projects�
       "hand_off_consultation", "get_consultation_handoff_context", "request_consultation_followup", "record_consultation_artifact",
       // Intentの観測値は対象期間ごとの版の追記だけで、削除・書換のtoolは無い。
       "define_intent_metric", "list_intent_metrics", "record_intent_metric_observations",
+      // 説明は版の追記だけで、削除・書換のtoolは無い。
+      "record_intent_explanation", "list_intent_explanations",
     ].sort(),
   );
   const listTool = tools.find(({ name }) => name === "list_projects");

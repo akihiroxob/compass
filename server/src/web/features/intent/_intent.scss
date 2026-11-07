@@ -28,3 +28,20 @@
   li { @include list-item; }
   p { margin: 0 0 var(--space-2xs); }
 }
+
+// Agentの説明。観測項目ごとのカードに、事実・原因の仮説・次の提案を種別の見出しで分けて並べる。
+.explanation-card {
+  margin-top: var(--space-md);
+  h3 { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-xs); }
+  h4 { margin: var(--space-md) 0 var(--space-2xs); }
+  .section-note { margin: var(--space-2xs) 0; }
+}
+.explanation-meta { color: var(--color-text-muted); font-size: var(--text-note); font-weight: 400; }
+.explanation-metrics, .explanation-items, .explanation-basis, .explanation-outcomes {
+  @include unstyled-list;
+  display: grid;
+  gap: var(--space-xs);
+}
+.explanation-metrics { margin-bottom: var(--space-sm); }
+.explanation-item p { margin: 0 0 var(--space-2xs); }
+.explanation-basis { padding-left: var(--space-md); font-size: var(--text-note); color: var(--color-text-secondary); li { overflow-wrap: anywhere; } }

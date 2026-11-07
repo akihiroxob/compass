@@ -5,6 +5,8 @@ export * from "./DirectionDecision.ts";
 export * from "./DirectionDecisionRepository.ts";
 export * from "./Intent.ts";
 export * from "./IntentRepository.ts";
+export * from "./IntentExplanation.ts";
+export * from "./IntentExplanationRepository.ts";
 export * from "./IntentMetric.ts";
 export * from "./IntentMetricRepository.ts";
 export * from "./Outcome.ts";

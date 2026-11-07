@@ -421,6 +421,57 @@ export type IntentMetricObservationTable = {
 };
 
 /**
+ * Intentの観測についてのAgentの説明（追記のみ）。`(intent_id, metric_key, version)`で一意。参照先の本文・値は保持しない。
+ */
+export type IntentExplanationTable = {
+  id: string;
+  workspace_id: string;
+  intent_id: string;
+  metric_key: string;
+  period_start: string;
+  period_end: string;
+  version: number;
+  previous_id: string | null;
+  change_from_previous: string | null;
+  principal_id: string;
+  run_ref: string;
+  request_key: string;
+  input_hash: string;
+  created_at: number;
+};
+
+export type IntentExplanationItemTable = {
+  explanation_id: string;
+  position: number;
+  kind: "fact" | "hypothesis" | "proposal";
+  statement: string;
+  confidence: "low" | "medium" | "high" | null;
+  verification: string | null;
+  /** 先行する項目の位置のJSON配列。 */
+  based_on: string;
+};
+
+/** 項目の根拠。観測値・Finding・Synthesis・Evaluation・Decisionのうち1つを参照する。 */
+export type IntentExplanationBasisTable = {
+  explanation_id: string;
+  workspace_id: string;
+  item_position: number;
+  position: number;
+  observation_id: string | null;
+  finding_id: string | null;
+  synthesis_id: string | null;
+  evaluation_id: string | null;
+  decision_id: string | null;
+};
+
+export type IntentExplanationOutcomeTable = {
+  explanation_id: string;
+  workspace_id: string;
+  outcome_id: string;
+  position: number;
+};
+
+/**
  * Directionが所有するtable。単一SQLite fileの一部で、serverが他Contextのtableと合成する。
  * Workspace所有の`workspace_id`、artifactとExecutionの発生元の`project_id`のFK先はOrganizationが所有する。
  * DirectionはWorkspace/Projectの状態をserverが渡すreaderで読む。
@@ -452,6 +503,10 @@ export type DirectionDatabase = {
   outcome_execution_summary: OutcomeExecutionSummaryTable;
   outcome_execution_evidence: OutcomeExecutionEvidenceTable;
   outcome_evaluation: OutcomeEvaluationTable;
+  intent_explanation: IntentExplanationTable;
+  intent_explanation_item: IntentExplanationItemTable;
+  intent_explanation_basis: IntentExplanationBasisTable;
+  intent_explanation_outcome: IntentExplanationOutcomeTable;
   intent_metric: IntentMetricTable;
   intent_metric_observation: IntentMetricObservationTable;
 };

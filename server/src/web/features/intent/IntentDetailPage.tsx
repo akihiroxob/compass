@@ -8,6 +8,7 @@ import { useProjectWorkspaceDirection } from "../access";
 import { statusBadgeClass } from "../../statusTone";
 import { DecisionSection } from "../decision";
 import { OutcomeSection } from "../outcome";
+import { IntentExplanationSection } from "./IntentExplanationSection";
 import { IntentFacts } from "./IntentFacts";
 import { IntentRevisions } from "./IntentRevisions";
 import { useIntentPage } from "./useIntentPage";
@@ -24,6 +25,7 @@ export const IntentDetailPage = () => {
   return <main className="narrow"><Link to={`/projects/${projectId}`} className="back-link">← Project詳細</Link>{error ? <ErrorState message={error} /> : !intent ? <Loading /> : <>
     <div className="detail-hero"><p className="eyebrow">Intent</p><h1>{intent.title}</h1><p><span className={statusBadgeClass(intent.status === "active" ? "progress" : "muted")}>{intentStatusLabels[intent.status]}</span></p><time>{new Date(intent.updatedAt).toLocaleString("ja-JP")} 更新 ・ v{intent.version}</time></div>
     <section className="detail-section"><IntentFacts intent={intent} /><IntentRevisions workspaceId={intent.workspaceId} intentId={intent.id} version={intent.version} /></section>
+    <IntentExplanationSection projectId={projectId} workspaceId={intent.workspaceId} intentId={intent.id} />
     <OutcomeSection projectId={projectId} workspaceId={intent.workspaceId} intent={intent} access={directionAccess} />
     <DecisionSection projectId={projectId} workspaceId={intent.workspaceId} intentId={intent.id} />
     {intent.status === "abandoned" && <section className="detail-section"><h2>放棄</h2><p>{intent.abandonedReason ?? <span className="unset">理由は記録されていません</span>}</p><p className="section-note">放棄したIntentはActiveに戻せません。{editable ? "続ける場合は新しいIntentを登録してください。" : ""}</p>{editable && <LinkButton variant="secondary" to={intentPath(projectId, "new")}>新しいIntentを登録</LinkButton>}</section>}

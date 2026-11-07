@@ -4,3 +4,4 @@ export { IntentSection } from "./IntentSection";
 export { IntentEmpty, IntentFacts } from "./IntentFacts";
 export { IntentRevisions } from "./IntentRevisions";
 export { intentStatusLabels, splitIntents, type Intent, type IntentRevision, type IntentStatus } from "./intent";
+export { IntentExplanationSection } from "./IntentExplanationSection";

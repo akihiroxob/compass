@@ -315,6 +315,11 @@ export const createApp = (
       ),
     }),
   );
+  // Intentの観測項目についてのAgentの説明（Workspace member）。新しい順で、根拠は原記録から解決する。
+  // 説明が無い場合は空配列で、観測項目ごとの観測状態（未計測・取得失敗・古い観測）を併せて返す。
+  app.get("/api/workspaces/:workspaceId/intents/:intentId/explanations", async (c) =>
+    c.json(await human.listIntentExplanations.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("intentId"))),
+  );
   // Intentの観測項目と、現在の観測状態・時系列（Workspace member）。`from`・`to`（`YYYY-MM-DD`）で範囲を指定し、既定は今日までの30日。
   // 観測の無い期間は含めず、未計測・取得失敗・古い観測は`current.state`で区別する。
   app.get("/api/workspaces/:workspaceId/intents/:intentId/metrics", async (c) =>

@@ -171,6 +171,7 @@ Target の Project が archive されても、Target・既存 Story・Evidence �
 - `create_adr_handoff_request` / `record_adr_reference` / `list_adr_references`（type が "adr_candidate" の Decision の Wacha 引き渡しと結果の記録）
 - 読み取りの `list_intents` / `get_intent`（`list_projects` / `get_project` は Project の Grant がある範囲だけ）
 - `define_intent_metric` / `list_intent_metrics`（Intent の観測項目の定義と、観測値・推移の参照。下記「目標の観測項目」）
+- `record_intent_explanation` / `list_intent_explanations`（観測の説明の記録と参照。下記「観測の説明」）
 - `create_intent` / `update_intent`: 外部 MCP クライアントで Human と相談して整理した目標（Intent）を登録・更新するときだけ使う（下記「目標の登録・更新」）
 - Workspace 相談（`workspaceId` を指定）: `create_consultation` / `list_consultations` / `get_consultation` / `acquire_consultation_lease` / `reply_consultation` / `resolve_consultation` / `cancel_consultation`、解決済みの結論の引継ぎ先 Project の明示 `hand_off_consultation`
 
@@ -199,6 +200,16 @@ Mission・Principles・既存の Intent / Evaluation から決められない Di
 Intent の進み具合を観測値で確かめる必要があるとき、`define_intent_metric` で観測項目（`key`・`name`・`unit`・任意の `targetValue`・`staleAfterDays`）を定義する。Intent の説明文の数字を目標値として抜き出さず、Human と合意した目標値だけを `targetValue` に入れる（数値の目標が無ければ `null`）。同じ `key` で送り直すと定義を更新し、観測値がある項目の単位は変えられない（`CONFLICT`、`reason: unit_locked`）。観測値の記録は Evaluator の責務で、Strategist は記録しない。
 
 `list_intent_metrics` の `current.state` は `unmeasured`（観測なし）・`failed`（最新の取得失敗）・`stale`（古い観測）・`observed` を区別する。観測の無い期間・失敗を、ゼロ・達成・悪化として判断の根拠にしない。単純な前後差を施策の効果と断定しない。
+
+## 観測の説明
+
+観測値の変化を Human へ伝えるときは、`record_intent_explanation` で説明を記録する。対象は観測項目（`metricKey`）と分析期間（`periodStart` / `periodEnd`）で、`items` を次の 3 種に分ける。
+
+- `fact`: 記録から確認できる事実。`basis` に `type: "metric_observation"`（`list_intent_metrics` の観測 id）・`finding`・`evaluation` を 1 件以上付ける。根拠が無いことは事実として書かない
+- `hypothesis`: 原因の仮説。`basedOn` に先行する事実の位置、`confidence`（low / medium / high）、`verification`（何を観測すれば裏付け・否定できるか）を必須とする。`finding` / `synthesis` / `evaluation` を根拠に付けられる。単純な前後差や同時期の出来事を施策の効果と断定せず、他の要因を切り分けていなければ確からしさを低くして書く
+- `proposal`: 次の提案。`basedOn` に先行する事実・仮説の位置を付け、`synthesis` / `decision` を根拠にできる。提案を採用する判断は別途 Direction Decision で記録する
+
+`relatedOutcomeIds` には同じ Intent の関連 Outcome を付ける。同じ観測項目の 2 回目以降は次の版になり、`changeFromPrevious` に前回から変わった点を書く（観測が後から訂正された場合も、古い版を書き換えず新しい版を記録する）。`requestKey` は再送の識別子で、同じ内容の再送は `replayed`、内容が違うと `CONFLICT`（`reason: request_key_conflict`）になる。観測が `unmeasured` / `failed` / `stale` のときは、観測できていない期間を埋めた説明を書かず、記録しない。説明の記録は実行・施策の効果・目標達成の証拠ではなく、Intent・Outcome の状態も変えない。
 
 ## 目標の登録・更新
 
