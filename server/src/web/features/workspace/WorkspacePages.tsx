@@ -287,9 +287,9 @@ const MembersContent = ({ workspace, myRole, reload }: { workspace: Workspace; m
   const archived = workspace.status === "archived";
   return (
     <>
-      <div className="form-actions">
+      <div className="list-toolbar">
         <LinkButton variant="secondary" size="sm" to={workspacePath(workspace.id, "settings")}>設定へ戻る</LinkButton>
-        <RoleHelpButton workspaceName={workspace.name} />
+        <RoleHelpButton workspaceName={workspace.name} size="sm" />
       </div>
       <p className="section-note">変更・除外・招待は、{workspace.name}と配下のすべてのProjectの利用に反映されます。</p>
       <WorkspaceMembershipSection
