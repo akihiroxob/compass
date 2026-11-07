@@ -547,7 +547,7 @@ export const createApp = (
   app.get("/api/consultations", async (c) => {
     const actor = await actorOf(c);
     const query = Object.fromEntries(
-      (["status", "scope", "projectId", "workspaceId", "limit", "cursor"] as const).flatMap((name) => {
+      (["status", "scope", "projectId", "workspaceId", "sort", "limit", "cursor"] as const).flatMap((name) => {
         const value = c.req.query(name);
         return value === undefined ? [] : [[name, value]];
       }),

@@ -59,7 +59,7 @@ export const registerConsultationTools = (server: ToolRegistrar, services: Opera
         "Ask the Humans of a Project or a Workspace to decide a design, requirement or direction question that Agents cannot settle " +
         "within existing requirements, policies and permissions (do not consult on routine decisions already allowed). Give title, " +
         "question (what has to be decided), blockingReason (why work cannot proceed without it), options [{label, description?}], " +
-        "recommendation, impact and refs of the same scope (do not copy Repository / Docs content): {kind:'url', url}; for a Project " +
+        "recommendation, impact, optional dueAt (ISO 8601 with a time zone, the deadline by which a Human answer is needed; omit it when the deadline is unknown, never guess one) and refs of the same scope (do not copy Repository / Docs content): {kind:'url', url}; for a Project " +
         "{kind:'project_resource', resourceId, path?, revision?} and {kind:'task'|'story'|'consultation', id}; for a Workspace " +
         "{kind:'intent', id}, {kind:'outcome', intentId, id} and {kind:'consultation', id}. The Consultation starts waiting_human. To " +
         "change the conclusion of a resolved or canceled Consultation, create a new one with supersedesConsultationId. " +
@@ -73,6 +73,7 @@ export const registerConsultationTools = (server: ToolRegistrar, services: Opera
         options: z.array(z.object({ label: z.string(), description: z.string().nullable().optional() })).optional(),
         recommendation: z.string(),
         impact: z.string(),
+        dueAt: z.string().optional(),
         refs: z.array(z.record(z.string(), z.unknown())).optional(),
         supersedesConsultationId: z.string().optional(),
         requestId,

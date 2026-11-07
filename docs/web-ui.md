@@ -38,7 +38,7 @@ Featureの画面は`<main>`から始まる本文だけを返し、Shell・Provid
 | `project` | Projectの型・入力検証（`project.ts`）、アーカイブ（`projectArchive.ts`）、Project詳細・一覧 |
 | `intent`・`outcome`・`decision`・`research`・`adr` | 各Directionの型・入力検証・変換（`intent.ts`・`outcome.ts`・`decision.ts`・`research.ts`・`adr.ts`）と画面 |
 | `workspace` | Workspaceの型・ナビゲーション（`workspace.ts`）・入力検証（`workspaceForm.ts`）・所属Projectの取得（`workspaceProjects.ts`）と画面 |
-| `consultation` | 相談の型・scope別のWeb API path・横断一覧のquery・表示の判定（`consultation.ts`）、一覧の行（`ConsultationList.tsx`）、Project詳細・Workspaceの「判断待ち」（`ConsultationSection.tsx`）、横断した判断待ち（`ConsultationInboxPage.tsx`）と相談詳細（`ConsultationDetailPage.tsx`） |
+| `consultation` | 相談の型・scope別のWeb API path・横断一覧のquery・表示の判定（`consultation.ts`）、一覧の行（`ConsultationList.tsx`）、Project詳細の「判断待ち」（`ConsultationSection.tsx`）、横断した判断待ちとWorkspaceの「対応待ち」（`ConsultationInboxPage.tsx`。Workspaceは`workspaceId`を固定して同じ一覧を使う）と相談詳細（`ConsultationDetailPage.tsx`） |
 | `execution`・`activity`・`agent`・`grant`・`credential`・`member`・`auth` | 各機能の型・API取得・画面 |
 
 公開入口は2種類とする。

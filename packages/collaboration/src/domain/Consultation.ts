@@ -72,6 +72,8 @@ export type Consultation = {
   recommendation: string;
   /** 判断が及ぼす影響。 */
   impact: string;
+  /** Humanの回答期限（epoch ms）。Agentが期限を把握していない場合はnull（未設定。期限なしや不要の意味ではない）。 */
+  dueAt: number | null;
   refs: ConsultationReference[];
   status: ConsultationStatus;
   /** 会話・結論・取消のたびに1つ進む版。古い版を見た更新（`expectedRevision`）と応答leaseの入力版の照合に使う。 */
