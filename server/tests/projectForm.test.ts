@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { emptyFormValues, formValuesFromProject, type Project } from "../src/web/features/project/project.ts";
+import { emptyFormValues, formValuesFromProject, repositoryNameFromUrl, type Project } from "../src/web/features/project/project.ts";
 import { emptyWorkspaceFormValues, workspaceFormValues } from "../src/web/features/workspace/workspaceForm.ts";
 
 const project: Project = {
@@ -51,4 +51,10 @@ test("Workspaceの編集フォーム値は未設定のVisionを空欄にし、�
   values.principles.push("changed");
   assert.deepEqual(workspace.principles, ["a"]);
   assert.deepEqual(emptyWorkspaceFormValues, { name: "", mission: "", vision: "", principles: [], constraints: [] });
+});
+
+test("Repository URLから表示名を導出する（.git除去・末尾要素・無ければホスト名）", () => {
+  assert.equal(repositoryNameFromUrl("https://github.com/akihiroxob/compass.git"), "compass");
+  assert.equal(repositoryNameFromUrl("https://github.com/akihiroxob/compass/"), "compass");
+  assert.equal(repositoryNameFromUrl("https://example.com"), "example.com");
 });

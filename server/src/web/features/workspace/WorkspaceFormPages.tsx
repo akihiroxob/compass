@@ -139,12 +139,13 @@ export const WorkspaceProjectCreatePage = () => {
       {(workspace) => (
         <ProjectForm
           initial={emptyFormValues}
-          heading={{ eyebrow: `Workspace · ${workspace.name}`, title: "Projectを追加", lede: "ProjectはWorkspaceのMissionを実現する実行の単位です。Mission等はWorkspaceの値を共有するため、ここでは名前・説明・Repository・Resourceを登録します。WorkspaceのMemberは、それぞれのWorkspaceのRoleでこのProjectを利用できます。" }}
+          heading={{ eyebrow: `Workspace · ${workspace.name}`, title: "Projectを追加", lede: "ProjectはWorkspaceのMissionを実現する実行の単位です。Mission等はWorkspaceの値を共有するため、ここでは名前・説明と、任意のRepository URLを登録します。Resourceや追加のRepositoryは作成後の設定から追加できます。WorkspaceのMemberは、それぞれのWorkspaceのRoleでこのProjectを利用できます。" }}
           submitLabel="Projectを追加"
           pendingLabel="追加中..."
           back={{ to: workspaceProjectsPath(workspace.id), label: "WorkspaceのProject" }}
           archivedScope="Workspace"
           notFound={workspaceNotFound}
+          mode="create"
           save={async (values) => {
             const { project } = await request<{ project: Project }>(workspaceApiPath(workspace.id, "/projects"), jsonInit("POST", values));
             navigation?.refreshWorkspace(workspace.id);
