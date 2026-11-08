@@ -54,3 +54,7 @@ export const repositoryNameFromUrl = (url: string): string => {
     return url.trim().slice(0, 100);
   }
 };
+
+/** 保存時、Repositoryの表示名を各URLから導く（名前は入力させない）。空URLの行は名前を補わずserverのURL検証に任せるため、名前だけが原因の別エラーを出さない仮の値を置く。 */
+export const withDerivedNames = (rows: LinkInput[]): LinkInput[] =>
+  rows.map((row) => ({ ...row, name: row.url.trim() ? repositoryNameFromUrl(row.url) : "Repository", url: row.url.trim() }));
