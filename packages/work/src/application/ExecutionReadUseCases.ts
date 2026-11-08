@@ -108,7 +108,7 @@ const normalize = (value: string) => value.toLocaleLowerCase();
 /**
  * ProjectのStory・Task（Human向け読取）。検索・状態・Outcomeの絞り込みと、ページ取得をサーバーで行う。
  * 進捗（`scope`）はOutcome・Storyの範囲で数え、検索語と状態では分母を変えない。該当件数（`matched`）は検索語・状態で絞った件数。
- * 検索語（空白区切りはAND）はStoryの題名・説明（受入条件）とTaskの題名・説明・差戻し理由を対象にする。Storyに当たればそのStoryの全Task、Taskに当たればそのTaskが該当する。
+ * 検索語（空白区切りはAND）はStoryの題名・説明・保存済み成功条件（説明・測定・目標）とTaskの題名・説明・差戻し理由を対象にする。Storyに当たればそのStoryの全Task、Taskに当たればそのTaskが該当する。
  */
 export class SearchExecutionWorkUseCase {
   constructor(private readonly execution: ExecutionReader) {}
@@ -147,7 +147,10 @@ export class SearchExecutionWorkUseCase {
     // 空白区切りの語はすべて含むこと（AND）。Storyの題名・説明（受入条件）は、そのStoryのTaskの検索対象にも含める。
     const words = normalize(text).split(/\s+/).filter(Boolean);
     const matchesWords = (haystack: string) => words.every((word) => haystack.includes(word));
-    const storyText = (story: WorkStoryView | undefined) => (story ? normalize(`${story.title}\n${story.description ?? ""}`) : "");
+    const storyText = (story: WorkStoryView | undefined) =>
+      story
+        ? normalize([story.title, story.description ?? "", ...(story.successCriteria ?? []).flatMap((criterion) => [criterion.description, criterion.measurement, criterion.target ?? ""])].join("\n"))
+        : "";
     const statusMatches = (task: WorkTaskView) =>
       status === undefined ||
       (status === awaitingHumanStatus
