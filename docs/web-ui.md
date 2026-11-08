@@ -38,7 +38,7 @@ Featureの画面は`<main>`から始まる本文だけを返し、Shell・Provid
 | `project` | Projectの型・入力検証（`project.ts`）、アーカイブ（`projectArchive.ts`）、Project詳細・一覧 |
 | `intent`・`outcome`・`decision`・`research`・`adr` | 各Directionの型・入力検証・変換（`intent.ts`・`outcome.ts`・`decision.ts`・`research.ts`・`adr.ts`）と画面 |
 | `workspace` | Workspaceの型・ナビゲーション（`workspace.ts`）・入力検証（`workspaceForm.ts`）・所属Projectの取得（`workspaceProjects.ts`）と画面 |
-| `consultation` | 相談の型・scope別のWeb API path・横断一覧のquery・表示の判定（`consultation.ts`）、一覧の行（`ConsultationList.tsx`）、Project詳細・Workspaceの「判断待ち」（`ConsultationSection.tsx`）、横断した判断待ち（`ConsultationInboxPage.tsx`）と相談詳細（`ConsultationDetailPage.tsx`） |
+| `consultation` | 相談の型・scope別のWeb API path・横断一覧のquery・表示の判定（`consultation.ts`）、一覧の行（`ConsultationList.tsx`）、Project詳細の「判断待ち」（`ConsultationSection.tsx`）、横断した判断待ちとWorkspaceの「対応待ち」（`ConsultationInboxPage.tsx`。Workspaceは`workspaceId`を固定して同じ一覧を使う）と相談詳細（`ConsultationDetailPage.tsx`） |
 | `execution`・`activity`・`agent`・`grant`・`credential`・`member`・`auth` | 各機能の型・API取得・画面 |
 
 公開入口は2種類とする。
@@ -148,7 +148,7 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 | 画面 | 構成 |
 | --- | --- |
 | Workspaceの概要 | 見出し → Mission・Visionの帯 → 主列（取得時刻・再読込、要対応、現在地、最近の記録）・補助列（Project、Agent、Workspaceの管理） |
-| Workspaceの方向 | Mission・Visionの帯 → Intent・Outcome → Principles・Constraints |
+| Workspaceの方向（メニュー「Outcome」） | Mission・Visionの帯 → Outcome一覧（目標をまたぐ検索・絞り込み・ページング。条件はURLのqueryに保持） → Intent・Active Outcome → Principles・Constraints |
 | Projectの概要 | 見出し（更新時刻・Roleを1行）→ タブ → 主列（取得時刻・再読込、次の行動、貢献するOutcome、最近の記録）・補助列（実行境界、実行状況、Claim保持中） |
 | Projectの方向・実行・判断待ち・記録・設定 | 本文の幅を概要とそろえ（`main`の既定幅）、設定の入力欄は`.grant-form`で40remまでに抑える |
 | Task詳細 | パンくず → 見出し・操作 → 主列（相談待ち、差戻し理由、Task受入とOutcome評価、Comment、変更履歴）・補助列（概要: Story・相関ID・Claim等）。狭い画面では補助列（担当）を先に出す |

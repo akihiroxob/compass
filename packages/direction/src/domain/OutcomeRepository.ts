@@ -66,6 +66,8 @@ export interface OutcomeRepository {
   create(workspaceId: string, intentId: string, input: CreateOutcomeInput): Promise<CreateOutcomeResult>;
   /** 指定したWorkspace・Intent配下のOutcomeを新しい順で、成功条件をposition順に含めて返す。 */
   findByIntent(workspaceId: string, intentId: string): Promise<Outcome[]>;
+  /** Workspace内の全Outcomeを新しい順で返す（Intentをまたぐ一覧用）。 */
+  findByWorkspace(workspaceId: string): Promise<Outcome[]>;
   /** 他WorkspaceまたはIntent配下のOutcome IDはnullとして扱う。 */
   findById(workspaceId: string, intentId: string, outcomeId: string): Promise<Outcome | null>;
   /** Intentを指定せず、Workspace内のOutcomeをIDで取得する。他WorkspaceのOutcome IDはnull（Execution向けの参照ポートが使う）。 */

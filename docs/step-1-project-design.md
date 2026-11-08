@@ -22,7 +22,7 @@ Mission / Vision / Principles / Constraintsは所属Workspaceに保持し、Proj
 
 ## 作成と更新
 
-HumanはWeb UIを使う。Web APIは`POST /api/projects`、`GET /api/projects`、`GET /api/projects/:projectId`、`PATCH /api/projects/:projectId`。作成にはログイン、参照にはMembership、更新にはadministrator以上が必要。Web UIからのProject作成は既存Workspaceへの追加（`POST /api/workspaces/:workspaceId/projects`。Workspaceのadministrator以上）を使う。Projectの更新はname・purpose・Repository・Resourceだけで、Mission等は所属Workspaceの更新で変更する。Projectの応答は所属Workspaceの`workspaceId`を含む。所属Workspaceの参照は`GET /api/workspaces/:workspaceId`（Workspace Membership）で行う。
+HumanはWeb UIを使う。Web APIは`POST /api/projects`、`GET /api/projects`、`GET /api/projects/:projectId`、`PATCH /api/projects/:projectId`。作成にはログイン、参照にはMembership、更新にはadministrator以上が必要。Web UIからのProject作成は既存Workspaceへの追加（`POST /api/workspaces/:workspaceId/projects`。Workspaceのadministrator以上）を使う。Projectの更新はname・purpose・Repository・Resourceだけで、Mission等は所属Workspaceの更新で変更する。更新（Project・Workspace）は編集の元にした版`expectedUpdatedAt`（取得時の`updatedAt`）を任意で受け取り、保存済みの版と異なれば何も書かずに409（`conflict: PROJECT_STALE_UPDATE` / `WORKSPACE_STALE_UPDATE`）を返す。Web UIの編集フォームは常に送り、入力を残したまま競合を表示する。省略時（MCP等）は照合しない。`updatedAt`は保存ごとに必ず増える。Projectの応答は所属Workspaceの`workspaceId`を含む。所属Workspaceの参照は`GET /api/workspaces/:workspaceId`（Workspace Membership）で行う。
 
 更新は部分更新で、未指定項目を維持する。任意テキストはnull / 空文字でクリアできる。配列は全体置換で、空配列は全件削除。Repository / Resourceの既存IDを指定するとIDを維持し、未知・別ProjectのIDは新しいIDとして保存する。重複IDと更新項目なしは拒否する。
 
@@ -32,6 +32,6 @@ HumanはWeb UIを使う。Web APIは`POST /api/projects`、`GET /api/projects`�
 
 SQLiteの`project`・`project_repository_link`・`project_resource`と、所属Workspaceの`workspace`・`workspace_principle`・`workspace_constraint`に保存する。子要素は入力順を保持する。`project`は所属`workspace_id`（NOT NULL）・name・purpose（`description`）・状態だけを持ち、Mission等の列・子tableは無い。
 
-画面は参加中のProject`/projects`、作成`/workspaces/:workspaceId/projects/new`、詳細`/projects/:projectId`、編集`/projects/:projectId/edit`。詳細にはIntent・Outcome・Research・Decision・Execution・Member・Agent管理を表示する。未設定・空一覧・読み込み失敗を区別する。
+画面は参加中のProject`/projects`、作成`/workspaces/:workspaceId/projects/new`、詳細`/projects/:projectId`、編集はProject設定`/projects/:projectId?view=settings`の基本情報・Repository・Resource（旧`/edit`は設定へ移す。閲覧者・archive後は同じ内容を読み取り専用で表示し、この画面のarchive成功後や別画面のarchiveで保存が拒否された場合は最新の保存済み内容を参照専用で示しつつ、保存されなかった入力を別領域に残してコピーできるようにし、アーカイブは保存と別の領域）。詳細にはIntent・Outcome・Research・Decision・Execution・Member・Agent管理を表示する。未設定・空一覧・読み込み失敗を区別する。
 
 remote modeのMCPにはProject作成・更新を公開せず、参照はAgent CredentialとProject Grantで認可する。

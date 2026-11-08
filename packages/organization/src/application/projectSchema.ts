@@ -67,6 +67,8 @@ const uniqueIds = (items: { id?: string }[], context: z.RefinementCtx) => {
  */
 export const updateProjectSchema = z
   .object({
+    /** 編集の元にした版（取得時の`updatedAt`）。更新の競合検知に使い、変更項目には数えない。 */
+    expectedUpdatedAt: z.number().int().positive().optional(),
     name: trimmedText("name", 100).optional(),
     description: clearableText(1_000).optional(),
     repositories: z
@@ -76,7 +78,7 @@ export const updateProjectSchema = z
       .optional(),
     resources: z.array(resourceSchema.extend({ id: optionalId })).max(50).superRefine(uniqueIds).optional(),
   })
-  .refine((input) => Object.values(input).some((value) => value !== undefined), {
+  .refine(({ expectedUpdatedAt: _version, ...fields }) => Object.values(fields).some((value) => value !== undefined), {
     message: "at least one field to update is required",
   });
 

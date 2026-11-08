@@ -22,6 +22,7 @@ import {
   parseAcquireLeaseInput,
   parseAgentMessageInput,
   parseAccessibleConsultationListQuery,
+  unknownDueKey,
   parseAgentResolutionInput,
   parseCancelConsultationInput,
   parseConsultationListQuery,
@@ -109,6 +110,7 @@ export class CreateConsultationUseCase {
           options: content.options,
           recommendation: content.recommendation,
           impact: content.impact,
+          dueAt: content.dueAt ?? null,
           refs: content.refs,
           status: "waiting_human",
           revision: 1,
@@ -139,7 +141,8 @@ export class ListConsultationsUseCase {
   }
 }
 
-const encodeCursor = (consultation: Pick<Consultation, "updatedAt" | "id">) => `${consultation.updatedAt}.${consultation.id}`;
+const encodeCursor = (consultation: Pick<Consultation, "updatedAt" | "id" | "dueAt">, sort: "updated" | "due") =>
+  sort === "due" ? `${consultation.dueAt ?? unknownDueKey}.${consultation.updatedAt}.${consultation.id}` : `${consultation.updatedAt}.${consultation.id}`;
 
 /**
  * 閲覧できるscopeを横断した相談一覧（Humanの判断待ち）。閲覧できるProject・Workspaceの集合は入口がMembershipから求めて渡し、
@@ -163,10 +166,11 @@ export class ListAccessibleConsultationsUseCase {
         ...(parsed.workspaceId === undefined ? {} : { workspaceId: parsed.workspaceId }),
         ...(parsed.projectId === undefined ? {} : { projectId: parsed.projectId }),
         ...(parsed.cursor === undefined ? {} : { after: parsed.cursor }),
+        sort: parsed.sort,
         limit: parsed.limit + 1,
       });
       const consultations = page.slice(0, parsed.limit);
-      return { consultations, nextCursor: page.length > parsed.limit ? encodeCursor(consultations[consultations.length - 1]!) : null };
+      return { consultations, nextCursor: page.length > parsed.limit ? encodeCursor(consultations[consultations.length - 1]!, parsed.sort) : null };
     });
   }
 }

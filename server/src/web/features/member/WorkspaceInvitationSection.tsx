@@ -8,7 +8,6 @@ import { statusBadgeClass } from "../../statusTone";
 import {
   defaultInvitationExpiryHours,
   deleteInit,
-  humanRoleDescriptions,
   humanRoleLabels,
   humanRoleOptions,
   invitationDisplayStatus,
@@ -94,6 +93,8 @@ export const WorkspaceInvitationSection = ({ workspaceId, readOnly }: { workspac
   const [issued, setIssued] = useState<InvitationResponse | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const formId = useId();
+  // 参加済みの招待はMember一覧に現れるため、ここには未参加・取消・期限切れだけを並べる。
+  const open = invitations?.filter((invitation) => invitation.status !== "accepted") ?? [];
   const invalid = invalidFieldIds(error);
 
   const load = useCallback(
@@ -125,12 +126,12 @@ export const WorkspaceInvitationSection = ({ workspaceId, readOnly }: { workspac
   return (
     <section className="detail-section" aria-labelledby="invitation-heading">
       <h2 id="invitation-heading">招待</h2>
-      <p className="section-note">参加するとWorkspaceのMemberになり、配下のすべてのProjectを同じRoleで利用できます。招待はメールで送られません。発行したリンクを相手へ渡してください。受諾できるのは一度だけです。</p>
-      {loadError ? <ErrorState message={`招待の読み込みに失敗しました: ${loadError}`} /> : invitations === null ? <Loading /> : invitations.length ? (
+      <p className="section-note">参加するとこのWorkspaceと配下のすべてのProjectを同じRoleで利用できます。招待はメールで送られません。発行したリンクを相手へ渡してください。</p>
+      {loadError ? <><ErrorState message={`招待の読み込みに失敗しました: ${loadError}`} /><Button variant="secondary" onClick={() => { setLoadError(null); void load(); }}>再読み込み</Button></> : invitations === null ? <Loading /> : open.length ? (
         <ul className="grant-list" aria-labelledby="invitation-heading">
-          {invitations.map((invitation) => <InvitationRow key={invitation.id} workspaceId={workspaceId} invitation={invitation} manage={!readOnly} onChanged={() => void load()} />)}
+          {open.map((invitation) => <InvitationRow key={invitation.id} workspaceId={workspaceId} invitation={invitation} manage={!readOnly} onChanged={() => void load()} />)}
         </ul>
-      ) : <p className="unset">招待はありません</p>}
+      ) : <p className="unset">未参加の招待はありません（読み込みは成功しています。参加済みの方は参加者に表示されます）</p>}
       {error && !readOnly && <FormErrorSummary formId={formId} error={error} detailTo={`/workspaces/${workspaceId}`} conflict={{ title: "招待を発行できませんでした" }} />}
       {issued && !readOnly && <IssuedInvitation issued={issued} onDismiss={() => setIssued(null)} />}
       {!readOnly && (
@@ -138,9 +139,9 @@ export const WorkspaceInvitationSection = ({ workspaceId, readOnly }: { workspac
           <Field label="メールアドレス" required description="招待する相手がログインに使うアカウントのメールアドレス。">
             <TextInput {...fieldProps(invalid, "field-email", formId)} type="email" required maxLength={320} autoComplete="off" value={email} onChange={(event) => setEmail(event.target.value)} />
           </Field>
-          <Field label="Role" required description="Workspaceと配下のすべてのProjectに適用されます。">
+          <Field label="Role" required description="このWorkspaceと配下のすべてのProjectに適用されます。">
             <Select {...fieldProps(invalid, "field-role", formId)} value={role} onChange={(event) => setRole(event.target.value as HumanRole)}>
-              {humanRoleOptions.map((option) => <option key={option} value={option}>{humanRoleLabels[option]}（{humanRoleDescriptions[option]}）</option>)}
+              {humanRoleOptions.map((option) => <option key={option} value={option}>{humanRoleLabels[option]}</option>)}
             </Select>
           </Field>
           <Field label="有効期限">

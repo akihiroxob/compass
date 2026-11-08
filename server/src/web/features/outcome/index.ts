@@ -4,3 +4,5 @@ export { OutcomeProblems } from "./OutcomeProblems";
 export { ActiveOutcomes, OutcomeSection } from "./OutcomeList";
 export { EvaluationCard } from "./OutcomeLoopSection";
 export { isReplanTarget, outcomeStatusLabels, problemLabelOf, replanNote, splitOutcomes, type Outcome } from "./outcome";
+export { OutcomeOverviewList } from "./OutcomeOverviewList";
+export { OutcomeOverviewSummary } from "./OutcomeOverviewSummary";

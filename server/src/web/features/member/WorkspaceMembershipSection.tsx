@@ -2,14 +2,15 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { classifyError, describeActionFailure, loadFailureMessage, request } from "../../api";
 import { ReasonPanel, useReasonAction } from "../../components/ReasonPanel";
 import { ErrorState, Loading, StateCard } from "../../components/StateCard";
-import { Button, Field, Select } from "../../components/ui";
+import { Button, Field, Select, TextInput } from "../../components/ui";
 import {
   changeRoleInit,
   deleteInit,
-  humanRoleDescriptions,
+  filterMembers,
   humanRoleLabels,
   humanRoleOptions,
   isLastOwner,
+  paginateMembers,
   workspaceMembersPath,
   type HumanRole,
   type Member,
@@ -54,7 +55,7 @@ const MemberRow = ({ workspaceId, member, members, isSelf, manage, onChanged }: 
       <div>
         <strong>{human.displayName}</strong>{isSelf && <> <span className="status-badge muted">あなた</span></>}
         <small>{human.email}</small>
-        <small>{humanRoleLabels[membership.role]}（{humanRoleDescriptions[membership.role]}）</small>
+        <small>Role: {humanRoleLabels[membership.role]}</small>
       </div>
       {manage && (
         <form className="member-role-form" onSubmit={changeRole}>
@@ -67,7 +68,7 @@ const MemberRow = ({ workspaceId, member, members, isSelf, manage, onChanged }: 
           <Button variant="secondary" size="sm" tone="danger" disabled={lastOwner} aria-expanded={revoke.confirming} onClick={revoke.open}>除外</Button>
         </form>
       )}
-      {manage && lastOwner && <p className="section-note member-note">Workspaceの最後のownerのため、Role変更と除外はできません。</p>}
+      {manage && lastOwner && <p className="section-note member-note">Workspaceの最後のOwnerのため、Role変更と除外はできません。別のMemberをOwnerにしてから変更してください。</p>}
       {error && <div className="member-note"><StateCard tone="error" role="alert">{error}</StateCard></div>}
       {manage && revoke.confirming && (
         <ReasonPanel
@@ -110,18 +111,48 @@ export const WorkspaceMembershipSection = ({
     [workspaceId],
   );
   useEffect(() => { void load(); }, [load]);
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
   const editable = manage && !readOnly;
+  const matched = members ? filterMembers(members, query) : [];
+  const view = paginateMembers(matched, page);
+  const reason = readOnly
+    ? "アーカイブ済みのWorkspaceのため、Memberは変更できません。"
+    : manage ? null : "Role変更・除外・招待はWorkspaceのOwnerだけが行えます。";
   return (
     <section className="detail-section" aria-labelledby="workspace-member-heading">
-      <h2 id="workspace-member-heading">Member</h2>
-      <p className="section-note">
-        このWorkspaceと配下のすべてのProjectを利用できるHumanです。Roleは配下のすべてのProjectに同じく適用されます。
-        {manage ? "Role変更・除外は次の操作から反映されます。" : "Memberの招待・Role変更はWorkspaceのownerが行います。"}
-      </p>
-      {loadError ? <ErrorState message={`Memberの読み込みに失敗しました: ${loadError}`} /> : members === null ? <Loading /> : (
-        <ul className="grant-list" aria-labelledby="workspace-member-heading">
-          {members.map((member) => <MemberRow key={member.membership.id} workspaceId={workspaceId} member={member} members={members} isSelf={member.human.id === currentHumanId} manage={editable} onChanged={() => (member.human.id === currentHumanId ? onSelfChanged() : void load())} />)}
-        </ul>
+      <h2 id="workspace-member-heading">参加者</h2>
+      {reason && <p className="section-note" role="note">{reason}</p>}
+      {loadError ? (
+        <>
+          <ErrorState message={`Memberの読み込みに失敗しました: ${loadError}`} />
+          <Button variant="secondary" onClick={() => { setLoadError(null); void load(); }}>再読み込み</Button>
+        </>
+      ) : members === null ? <Loading /> : members.length === 0 ? (
+        <StateCard role="status">Memberが見つかりません。取得結果が空のため、Workspaceのownerに確認してください。</StateCard>
+      ) : (
+        <>
+          <div className="member-toolbar">
+            <Field label="Memberを検索" layout="inline">
+              <TextInput type="search" size="sm" value={query} placeholder="名前またはメールアドレス" onChange={(event) => { setQuery(event.target.value); setPage(1); }} />
+            </Field>
+            <span aria-live="polite">{query.trim() ? `一致 ${view.total}件 / 全${members.length}件` : `全${members.length}件`}</span>
+          </div>
+          {view.total === 0 ? (
+            <StateCard role="status">「{query.trim()}」に一致するMemberはいません。<Button variant="text" onClick={() => { setQuery(""); setPage(1); }}>検索を解除</Button></StateCard>
+          ) : (
+            <ul className="grant-list" aria-labelledby="workspace-member-heading">
+              {view.items.map((member) => <MemberRow key={member.membership.id} workspaceId={workspaceId} member={member} members={members} isSelf={member.human.id === currentHumanId} manage={editable} onChanged={() => (member.human.id === currentHumanId ? onSelfChanged() : void load())} />)}
+            </ul>
+          )}
+          {view.pageCount > 1 && (
+            <nav className="member-pager" aria-label="Memberのページ">
+              <Button variant="secondary" size="sm" disabled={view.page <= 1} onClick={() => setPage(view.page - 1)}>前のページ</Button>
+              <span aria-live="polite">{view.page} / {view.pageCount} ページ（{view.from}〜{view.to}件目）</span>
+              <Button variant="secondary" size="sm" disabled={view.page >= view.pageCount} onClick={() => setPage(view.page + 1)}>次のページ</Button>
+            </nav>
+          )}
+        </>
       )}
     </section>
   );

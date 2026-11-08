@@ -58,7 +58,7 @@ const WorkspaceForm = ({ initial, heading, submitLabel, pendingLabel, back, save
       <Link to={back.to} className="back-link">← {back.label}</Link>
       <div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div>
       <p className="lede">{heading.lede}</p>
-      {error && <FormErrorSummary error={error} detailTo={back.to} archivedScope="Workspace" />}
+      {error && <FormErrorSummary error={error} conflict={{ title: "保存が競合しました。入力内容は残っています" }} detailTo={back.to} archivedScope="Workspace" />}
       <form onSubmit={submit} className="project-form">
         <section className="form-section">
           <h2>Identity</h2>
@@ -125,7 +125,7 @@ export const WorkspaceEditPage = () => (
         submitLabel="変更を保存"
         pendingLabel="保存中..."
         back={{ to: workspacePath(workspace.id), label: "Workspaceの概要" }}
-        save={async (values) => (await request<{ workspace: Workspace }>(workspaceApiPath(workspace.id), jsonInit("PATCH", values))).workspace}
+        save={async (values) => (await request<{ workspace: Workspace }>(workspaceApiPath(workspace.id), jsonInit("PATCH", { ...values, expectedUpdatedAt: workspace.updatedAt }))).workspace}
       />
     )}
   </WorkspaceOperationGate>
@@ -139,7 +139,7 @@ export const WorkspaceProjectCreatePage = () => {
       {(workspace) => (
         <ProjectForm
           initial={emptyFormValues}
-          heading={{ eyebrow: `Workspace · ${workspace.name}`, title: "Projectを追加", lede: "ProjectはWorkspaceのMissionを実現する実行の単位です。Mission等はWorkspaceの値を共有するため、ここでは名前・説明・Repository・Resourceを登録します。WorkspaceのMemberは、それぞれのWorkspaceのRoleでこのProjectを利用できます。" }}
+          heading={{ eyebrow: `Workspace · ${workspace.name}`, title: "Projectを追加", lede: "ProjectはWorkspaceのMissionを実現する実行の単位です。Mission等はWorkspaceの値を共有するため、ここでは名前・説明と、任意のRepository URLを登録します。Resourceや追加のRepositoryは作成後の設定から追加できます。WorkspaceのMemberは、それぞれのWorkspaceのRoleでこのProjectを利用できます。" }}
           submitLabel="Projectを追加"
           pendingLabel="追加中..."
           back={{ to: workspaceProjectsPath(workspace.id), label: "WorkspaceのProject" }}

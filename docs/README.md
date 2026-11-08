@@ -17,6 +17,7 @@
 - [ADR 0008 Intentの版](adr/0008-intent-versioning.md): 目標の見直しで版・変更履歴・競合検知を持ち、既存Outcome・評価の根拠を保つ。
 - [ADR 0008 Intentの観測値](adr/0008-intent-metric-observations.md): 目標の観測項目（単位・目標値・鮮度）と版付きの時系列をDirectionに保持し、未計測・取得失敗・古い観測を区別する決定。
 - [ADR 0010 Intentの観測の説明](adr/0010-intent-explanation.md): Agentの観測の説明を事実・原因の仮説・次の提案に分け、既存の観測・Research・Evaluation・Decisionを参照して記録する決定。
+- [ADR 0011 相談の回答期限と対応待ちの並び](adr/0011-consultation-due-and-waiting-order.md): 相談に任意の回答期限を持たせ、対応待ちを期限だけで並べ、未設定を後ろに分ける決定。
 - [ADR 0009 公開確認](adr/0009-publication-confirmation.md): 公開確認をRuntimeの原記録としてWorkが保持し、公開記録だけから開発受入と別に公開状況（公開済み・未公開・確認できず）を導出する決定。
 - [Direction・Workの境界](lv6-unification-design.md)
 - [Research・Decision・ADR](research-decision-adr-design.md)

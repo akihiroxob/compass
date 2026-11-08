@@ -169,3 +169,28 @@ test("schemaの初期化は再実行しても既存のWorkspaceを変えない",
   assert.deepEqual(await get.execute(workspace.id), workspace);
   await database.destroy();
 });
+
+test("編集の元にした版が古いWorkspace更新は拒否し、先行する保存を上書きしない", async () => {
+  const { create, update, get } = await setup();
+  const workspace = await create.execute({ name: "Petari", mission: "Mission", vision: null, principles: [], constraints: [] });
+
+  // 二画面が同じ版から編集を始め、Aが先にVisionを保存する。
+  const first = await update.execute(workspace.id, { vision: "先行更新Vision", expectedUpdatedAt: workspace.updatedAt });
+  assert.ok(first.updatedAt > workspace.updatedAt);
+
+  await assert.rejects(
+    update.execute(workspace.id, { name: "古い画面の名前", vision: null, expectedUpdatedAt: workspace.updatedAt }),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "CONFLICT");
+      assert.equal((error as { details?: { conflict?: string } }).details?.conflict, "WORKSPACE_STALE_UPDATE");
+      return true;
+    },
+  );
+  const stored = await get.execute(workspace.id);
+  assert.equal(stored.name, "Petari");
+  assert.equal(stored.vision, "先行更新Vision");
+
+  await update.execute(workspace.id, { name: "新しい名前", expectedUpdatedAt: first.updatedAt });
+  assert.equal((await get.execute(workspace.id)).name, "新しい名前");
+  await rejectsWithCode(() => update.execute(workspace.id, { expectedUpdatedAt: first.updatedAt }), "VALIDATION_ERROR");
+});

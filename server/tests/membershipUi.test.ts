@@ -10,6 +10,9 @@ import {
 } from "../src/web/features/auth/auth.ts";
 import {
   changeRoleInit,
+  filterMembers,
+  memberPageSize,
+  paginateMembers,
   invitationDisplayStatus,
   invitationExpiryOptions,
   invitationInit,
@@ -182,4 +185,16 @@ test("同じ画面のままProject IDや操作が変わった直後は、前のP
   assert.equal(currentProjectOperationResult(allowedA, "project-b", "direction.write"), null);
   assert.equal(currentProjectOperationResult(allowedA, "project-a", "project.update"), null);
   assert.equal(currentProjectOperationResult(null, "project-a", "direction.write"), null);
+});
+
+test("Memberは名前・メールで検索し、ページ範囲を件数に合わせて寄せる", () => {
+  const members = Array.from({ length: 45 }, (_, index) => member(`m${index}`, index === 0 ? "owner" : "viewer"));
+  assert.equal(filterMembers(members, "  ").length, 45);
+  assert.deepEqual(filterMembers(members, "M4").map((m) => m.membership.id), ["m4", "m40", "m41", "m42", "m43", "m44"]);
+  assert.equal(filterMembers(members, "nobody").length, 0);
+  const first = paginateMembers(members, 1);
+  assert.deepEqual([first.items.length, first.pageCount, first.from, first.to], [memberPageSize, 3, 1, 20]);
+  const last = paginateMembers(members, 99);
+  assert.deepEqual([last.page, last.items.length, last.from, last.to], [3, 5, 41, 45]);
+  assert.deepEqual(paginateMembers([], 5), { items: [], page: 1, pageCount: 1, total: 0, from: 0, to: 0 });
 });

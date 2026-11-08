@@ -237,11 +237,19 @@ export const inboxSearch = (query: InboxQuery): string => {
   return search ? `?${search}` : "";
 };
 
-export const inboxPath = (query: InboxQuery) => `${consultationInboxPath}${inboxSearch(query)}`;
+/** 絞り込みを変えた画面のpath。`base`は一覧を置く画面（既定は横断一覧、Workspaceの「対応待ち」はそのpath）。 */
+export const inboxPath = (query: InboxQuery, base: string = consultationInboxPath) => `${base}${inboxSearch(query)}`;
+
+/**
+ * 一覧の並び。Humanの判断待ちは回答期限が近い順（期限未設定は期限のある相談の後ろ。serverが保証する）、それ以外の状態は更新の新しい順。
+ * 影響の重さなどから算出した優先順位は持たず、並びの根拠は期限だけ。
+ */
+export const inboxSort = (status: ConsultationFilter): "due" | "updated" => (status === "waiting_human" ? "due" : "updated");
 
 /** `GET /api/consultations`のpath。`cursor`は前の応答の`nextCursor`。 */
 export const inboxApiPath = (query: InboxQuery, cursor?: string | null) => {
   const params = new URLSearchParams({ status: query.status });
+  if (inboxSort(query.status) === "due") params.set("sort", "due");
   if (query.scope !== "all") params.set("scope", query.scope);
   if (query.workspaceId) params.set("workspaceId", query.workspaceId);
   if (query.projectId) params.set("projectId", query.projectId);
@@ -261,6 +269,27 @@ export const describeConsultationScope = (
   const id = scope.kind === "project" ? scope.projectId : scope.workspaceId;
   const name = (scope.kind === "project" ? names.projects : names.workspaces).get(id) ?? id.slice(0, 8);
   return `${consultationScopeLabels[scope.kind]} · ${name}`;
+};
+
+// ---- 回答期限。未設定（Agentが把握していない）を期限なし・余裕ありとして表示しない。 ----
+
+const dayMs = 24 * 60 * 60 * 1000;
+
+/** 期限の表示。`overdue`は期限を過ぎている。未設定は「期限未設定」で、日付の代わりに空欄やゼロを出さない。 */
+export const describeDue = (dueAt: number | null, now: number, format: (value: number) => string): { label: string; overdue: boolean; known: boolean } => {
+  if (dueAt === null) return { label: "期限未設定", overdue: false, known: false };
+  if (dueAt <= now) return { label: `期限 ${format(dueAt)}（超過）`, overdue: true, known: true };
+  const days = Math.floor((dueAt - now) / dayMs);
+  return { label: `期限 ${format(dueAt)}（${days >= 1 ? `あと${days}日` : "24時間以内"}）`, overdue: false, known: true };
+};
+
+/** 並びの説明。 */
+export const inboxOrderNotes: Record<ConsultationFilter, string> = {
+  waiting_human: "Humanが回答しないと進まない相談だけを、回答期限が近い順に並べます。期限が未設定の相談は期限のある相談の後ろに更新の新しい順で置き、影響の重さは順位に反映していません。",
+  waiting_agent: "更新の新しい順です。Humanの対応は完了し、Agentの応答を待っています。",
+  resolved: "更新の新しい順です。",
+  canceled: "更新の新しい順です。",
+  all: "更新の新しい順です。",
 };
 
 // ---- 再送の冪等性。同じ入力の再試行は同じ`requestId`で送り、入力を変えたら新しい`requestId`にする。 ----

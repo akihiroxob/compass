@@ -252,3 +252,13 @@ test("Research・終了したOutcomeのEvaluation・Outcomeの状態を取得で
   // Active Intentが無ければ、終了したOutcomeの判断待ちは対象外。
   assert.deepEqual(attentionOf([], { activeIntent: null, pendingPastOutcomes: null }).unconfirmed, []);
 });
+
+import { emptyProjectNote } from "../src/web/features/workspace/workspace.ts";
+
+test("Project未登録の概要は未登録を示し、追加できない場合は依頼先を、archivedでは追加不可を示す", () => {
+  assert.match(emptyProjectNote("active", 0, true), /未登録/);
+  assert.doesNotMatch(emptyProjectNote("active", 0, true), /administrator/);
+  assert.match(emptyProjectNote("active", 0, false), /administrator/);
+  assert.doesNotMatch(emptyProjectNote("active", 2, true), /未登録/);
+  assert.match(emptyProjectNote("archived", 0, true), /追加できません/);
+});

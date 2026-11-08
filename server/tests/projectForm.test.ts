@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { emptyFormValues, formValuesFromProject, type Project } from "../src/web/features/project/project.ts";
+import { emptyFormValues, formValuesFromProject, repositoryNameFromUrl, withDerivedNames, type Project } from "../src/web/features/project/project.ts";
 import { emptyWorkspaceFormValues, workspaceFormValues } from "../src/web/features/workspace/workspaceForm.ts";
 
 const project: Project = {
@@ -51,4 +51,23 @@ test("Workspaceの編集フォーム値は未設定のVisionを空欄にし、�
   values.principles.push("changed");
   assert.deepEqual(workspace.principles, ["a"]);
   assert.deepEqual(emptyWorkspaceFormValues, { name: "", mission: "", vision: "", principles: [], constraints: [] });
+});
+
+test("Repository URLから表示名を導出する（.git除去・末尾要素・無ければホスト名）", () => {
+  assert.equal(repositoryNameFromUrl("https://github.com/akihiroxob/compass.git"), "compass");
+  assert.equal(repositoryNameFromUrl("https://github.com/akihiroxob/compass/"), "compass");
+  assert.equal(repositoryNameFromUrl("https://example.com"), "example.com");
+});
+
+test("編集の保存では手入力の名前を使わず、各RepositoryのURLから表示名を導き、idを保持する", () => {
+  assert.deepEqual(
+    withDerivedNames([
+      { id: "r1", name: "古い名前", url: " https://example.com/acme/core.git ", kind: "" },
+      { name: "", url: "", kind: "" },
+    ]),
+    [
+      { id: "r1", name: "core", url: "https://example.com/acme/core.git", kind: "" },
+      { name: "Repository", url: "", kind: "" },
+    ],
+  );
 });

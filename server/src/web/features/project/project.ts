@@ -43,3 +43,18 @@ export const formValuesFromProject = (project: Project): ProjectFormValues => ({
   repositories: project.repositories.map(({ id, name, url }) => ({ id, name, url, kind: "" })),
   resources: project.resources.map(({ id, name, url, kind }) => ({ id, name, url, kind: kind ?? "" })),
 });
+
+/** Repository URLから表示名を導く。末尾のパス要素（`.git`除く）を使い、無ければホスト名にする。 */
+export const repositoryNameFromUrl = (url: string): string => {
+  try {
+    const parsed = new URL(url.trim());
+    const last = parsed.pathname.split("/").filter(Boolean).pop()?.replace(/\.git$/, "");
+    return (last || parsed.hostname).slice(0, 100);
+  } catch {
+    return url.trim().slice(0, 100);
+  }
+};
+
+/** 保存時、Repositoryの表示名を各URLから導く（名前は入力させない）。空URLの行は名前を補わずserverのURL検証に任せるため、名前だけが原因の別エラーを出さない仮の値を置く。 */
+export const withDerivedNames = (rows: LinkInput[]): LinkInput[] =>
+  rows.map((row) => ({ ...row, name: row.url.trim() ? repositoryNameFromUrl(row.url) : "Repository", url: row.url.trim() }));

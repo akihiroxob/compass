@@ -290,6 +290,51 @@ const inbox = async (seeded: Seeded, who: keyof Humans, query = "") => {
   return { ids: body.consultations.map((item: { id: string }) => item.id) as string[], nextCursor: body.nextCursor as string | null, body };
 };
 
+test("横断一覧は期限順（期限未設定は後ろ）に並べ、期限は時刻帯付きISO 8601だけ受け付ける。ページングでも順序が崩れない", async () => {
+  const kit = await open();
+  try {
+    const seeded = await seed(kit);
+    const { workspaceA, projectA1 } = seeded;
+    const at = (offset: number) => { clock.now = 1_800_000_000_000 + offset; };
+    at(1);
+    const unknownOld = ok(await createWorkspaceConsultation(kit, workspaceA.id, "strategist-a", "strategist", { title: "期限不明（古い）" })).consultation;
+    at(2);
+    const late = ok(await createProjectConsultation(kit, projectA1.id, { title: "期限が遅い", dueAt: "2030-01-02T00:00:00Z" })).consultation;
+    at(3);
+    const soon = ok(await createWorkspaceConsultation(kit, workspaceA.id, "strategist-a", "strategist", { title: "期限が近い", dueAt: "2030-01-01T09:00:00+09:00" })).consultation;
+    at(4);
+    const unknownNew = ok(await createProjectConsultation(kit, projectA1.id, { title: "期限不明（新しい）" })).consultation;
+
+    assert.equal(soon.dueAt, Date.parse("2030-01-01T00:00:00Z"));
+    assert.equal(unknownNew.dueAt, null);
+    const query = `?workspaceId=${workspaceA.id}&sort=due`;
+    // 期限が近い順。期限未設定は期限のある相談より後ろで、更新の新しい順（未設定を期限の早い・遅いとして扱わない）。
+    assert.deepEqual((await inbox(seeded, "owner", query)).ids, [soon.id, late.id, unknownNew.id, unknownOld.id]);
+    assert.deepEqual((await inbox(seeded, "owner", `?workspaceId=${workspaceA.id}`)).ids, [unknownNew.id, soon.id, late.id, unknownOld.id]);
+    // ページングでも同じ順序を続きから返す。
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < 5; page += 1) {
+      const result = await inbox(seeded, "owner", `${query}&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
+      seen.push(...result.ids);
+      cursor = result.nextCursor;
+      if (!cursor) break;
+    }
+    assert.deepEqual(seen, [soon.id, late.id, unknownNew.id, unknownOld.id]);
+
+    // 時刻帯の無い・日付だけ・不正な期限は拒否する。
+    for (const dueAt of ["2030-01-01", "2030-01-01T09:00:00", "tomorrow", "2030-13-01T00:00:00Z"]) {
+      assert.equal(failure(await createProjectConsultation(kit, projectA1.id, { dueAt })).code, "VALIDATION_ERROR", dueAt);
+    }
+    // sortとcursorの形式が合わない場合は400。
+    assert.equal((await seeded.as("owner")(`/api/consultations?sort=due&cursor=1.c`)).status, 400);
+    assert.equal((await seeded.as("owner")(`/api/consultations?sort=random`)).status, 400);
+  } finally {
+    clock.now = 1_800_000_000_000;
+    await kit.database.destroy();
+  }
+});
+
 test("横断一覧は閲覧できるProject・Workspaceの相談だけを返し、絞り込み・ページングは認可済みの集合に対して行う", async () => {
   const kit = await open();
   try {

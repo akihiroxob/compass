@@ -39,6 +39,14 @@ const referenceSchema = z.union([
 
 const optionSchema = z.object({ label: trimmedText("label", 200), description: optionalText(2_000) }).strict();
 
+/** 回答期限。時刻帯（`Z`または`+09:00`等）付きのISO 8601で受け取り、epoch msにする。 */
+const dueAtSchema = z
+  .string()
+  .trim()
+  .max(40, "dueAt must be an ISO 8601 date-time with a time zone")
+  .refine((value) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(value) && !Number.isNaN(Date.parse(value)), "dueAt must be an ISO 8601 date-time with a time zone")
+  .transform((value) => Date.parse(value));
+
 const requestId = identifier("requestId");
 const revision = (label: string) => z.number({ error: `${label} is required` }).int().min(1);
 
@@ -54,6 +62,7 @@ const createConsultationSchema = z
     options: z.array(optionSchema).max(maximumConsultationOptions, `options must be ${maximumConsultationOptions} items or fewer`).default([]),
     recommendation: longText("recommendation"),
     impact: longText("impact"),
+    dueAt: dueAtSchema.optional(),
     refs: z.array(referenceSchema).max(maximumConsultationRefs, `refs must be ${maximumConsultationRefs} items or fewer`).default([]),
     supersedesConsultationId: identifier("supersedesConsultationId").optional(),
     requestId,
@@ -125,19 +134,24 @@ export const parseConsultationListQuery = (input: unknown) => parseWith(listQuer
 export const defaultAccessibleConsultationLimit = 30;
 export const maximumAccessibleConsultationLimit = 100;
 
-/** 横断一覧の位置。`<updatedAt>.<id>`（応答の`nextCursor`をそのまま渡す）。 */
-const cursorSchema = z
-  .string()
-  .trim()
-  .max(300, "cursor is invalid")
-  .transform((value, context) => {
-    const match = /^(\d{1,16})\.(.+)$/.exec(value);
-    if (!match) {
-      context.addIssue({ code: "custom", message: "cursor is invalid" });
-      return z.NEVER;
-    }
-    return { updatedAt: Number(match[1]), id: match[2]! };
-  });
+/** 期限が未設定の相談の並び位置（期限のある相談より後ろ）。epoch msより大きい値。 */
+export const unknownDueKey = Number.MAX_SAFE_INTEGER;
+
+/** 横断一覧の並び。`updated`は更新の新しい順、`due`は期限が近い順（期限未設定は後ろで更新の新しい順）。 */
+export const accessibleConsultationSorts = ["updated", "due"] as const;
+export type AccessibleConsultationSort = (typeof accessibleConsultationSorts)[number];
+
+/** 横断一覧の位置。`updated`は`<updatedAt>.<id>`、`due`は`<dueKey>.<updatedAt>.<id>`（応答の`nextCursor`をそのまま渡す）。 */
+export type AccessibleConsultationCursor = { dueKey?: number; updatedAt: number; id: string };
+
+const decodeCursor = (value: string, sort: AccessibleConsultationSort): AccessibleConsultationCursor | null => {
+  if (sort === "due") {
+    const match = /^(\d{1,16})\.(\d{1,16})\.(.+)$/.exec(value);
+    return match ? { dueKey: Number(match[1]), updatedAt: Number(match[2]), id: match[3]! } : null;
+  }
+  const match = /^(\d{1,16})\.(.+)$/.exec(value);
+  return match ? { updatedAt: Number(match[1]), id: match[2]! } : null;
+};
 
 /**
  * 横断一覧（Humanの判断待ち）のquery。状態の既定はHumanの判断待ち（`waiting_human`）で、`all`は全状態。scope・Project・Workspaceで絞る。
@@ -149,10 +163,19 @@ const accessibleListQuerySchema = z
     scope: z.enum(consultationScopeKinds).optional(),
     projectId: identifier("projectId").optional(),
     workspaceId: identifier("workspaceId").optional(),
+    sort: z.enum(accessibleConsultationSorts).default("updated"),
     limit: z.coerce.number().int().min(1).max(maximumAccessibleConsultationLimit).default(defaultAccessibleConsultationLimit),
-    cursor: cursorSchema.optional(),
+    cursor: z.string().trim().max(300, "cursor is invalid").optional(),
   })
-  .strict();
+  .strict()
+  .transform(({ cursor, ...rest }, context) => {
+    const decoded = cursor === undefined ? undefined : decodeCursor(cursor, rest.sort);
+    if (cursor !== undefined && !decoded) {
+      context.addIssue({ code: "custom", path: ["cursor"], message: "cursor is invalid" });
+      return z.NEVER;
+    }
+    return { ...rest, cursor: decoded as AccessibleConsultationCursor | undefined };
+  });
 export type AccessibleConsultationListQuery = z.output<typeof accessibleListQuerySchema>;
 export const parseAccessibleConsultationListQuery = (input: unknown): AccessibleConsultationListQuery =>
   parseWith(accessibleListQuerySchema, input ?? {}, "Consultation query");

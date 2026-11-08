@@ -1,10 +1,9 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { classifyError, withNotFoundMessage } from "../../api";
+import { classifyError, fieldId, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
-import { LinkListInput } from "../../components/ListInputs";
 import { Button, Field, LinkButton, TextArea, TextInput } from "../../components/ui";
-import type { Project, ProjectFormValues } from "./project";
+import { repositoryNameFromUrl, type Project, type ProjectFormValues } from "./project";
 
 type ProjectFormProps = {
   initial: ProjectFormValues;
@@ -19,20 +18,19 @@ type ProjectFormProps = {
   save: (values: ProjectFormValues) => Promise<Project>;
 };
 
-/** Projectの作成（Workspaceへの追加）・編集フォーム。Mission等は所属Workspaceが所有し、Workspaceの編集で扱う。 */
+/** Projectの作成（Workspaceへの追加）フォーム。Repository URLは任意の1件だけ受け、表示名はURLから導出する。Resource・追加Repositoryは作成後のProject設定で扱う。編集はProject設定内で行う。Mission等は所属Workspaceが所有し、Workspaceの編集で扱う。 */
 export const ProjectForm = ({ initial, heading, submitLabel, pendingLabel, back, archivedScope, notFound, save }: ProjectFormProps) => {
   const navigate = useNavigate();
   const [name, setName] = useState(initial.name);
   const [description, setDescription] = useState(initial.description);
-  const [repositories, setRepositories] = useState(initial.repositories);
-  const [resources, setResources] = useState(initial.resources);
+  const [repositoryUrl, setRepositoryUrl] = useState(initial.repositories[0]?.url ?? "");
   const [error, setError] = useState<FormError | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const invalid = invalidFieldIds(error);
   // 保存に失敗しても入力state（上のuseState）は維持し、そのまま再送信できる。
-  const submit = async (event: FormEvent) => { event.preventDefault(); setError(null); setIsSubmitting(true); try { const project = await save({ name, description, repositories, resources }); navigate(`/projects/${project.id}`); } catch (reason) { setError(withNotFoundMessage(classifyError(reason), notFound)); } finally { setIsSubmitting(false); } };
-  return <main className="narrow"><Link to={back.to} className="back-link">← {back.label}</Link><div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div><p className="lede">{heading.lede}</p>{error && <FormErrorSummary error={error} detailTo={back.to} archivedScope={archivedScope} />}<form onSubmit={submit} className="project-form">
+  const submit = async (event: FormEvent) => { event.preventDefault(); setError(null); setIsSubmitting(true); try { const project = await save({ name, description, repositories: repositoryUrl.trim() ? [{ name: repositoryNameFromUrl(repositoryUrl), url: repositoryUrl.trim(), kind: "" }] : [], resources: [] }); navigate(`/projects/${project.id}`); } catch (reason) { setError(withNotFoundMessage(classifyError(reason), notFound)); } finally { setIsSubmitting(false); } };
+  return <main className="narrow"><Link to={back.to} className="back-link">← {back.label}</Link><div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div><p className="lede">{heading.lede}</p>{error && <FormErrorSummary error={error} conflict={{ title: "保存が競合しました。入力内容は残っています" }} detailTo={back.to} archivedScope={archivedScope} />}<form onSubmit={submit} className="project-form">
     <section className="form-section"><h2>Identity</h2><Field label="Project名" required><TextInput {...fieldProps(invalid, "field-name")} required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /></Field><Field label="説明" description="このProjectが担う実行の範囲"><TextArea {...fieldProps(invalid, "field-description")} maxLength={1000} rows={3} value={description} onChange={(event) => setDescription(event.target.value)} /></Field></section>
-    <section className="form-section"><h2>References</h2><LinkListInput legend="Repositories" name="repositories" invalid={invalid} values={repositories} setValues={setRepositories} /><LinkListInput legend="Resources" name="resources" invalid={invalid} values={resources} setValues={setResources} withKind /></section>
+    <section className="form-section"><h2>References</h2><Field label="Repository URL" description="任意。表示名はURLから付きます。Resourceや追加のRepositoryは作成後の設定で追加できます"><TextInput {...fieldProps(invalid, fieldId("repositories.0.url"))} type="url" placeholder="https://..." value={repositoryUrl} onChange={(event) => setRepositoryUrl(event.target.value)} /></Field></section>
     <div className="form-actions"><LinkButton to={back.to} variant="secondary">キャンセル</LinkButton><Button type="submit" pending={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</Button></div></form></main>;
 };

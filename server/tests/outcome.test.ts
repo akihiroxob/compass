@@ -446,6 +446,9 @@ test("Intentを作成してもOutcomeは自動生成されず、Outcomeの状態
     "listOutcomeTargetProjectsUseCase",
     // Target別のWork要約を読むだけ（outcomeTargetProject.test.ts）。
     "listOutcomeTargetWorkUseCase",
+    // Workspace横断のOutcome一覧・詳細の集計を読むだけ（workspaceOutcomeOverview.test.ts）。
+    "listWorkspaceOutcomesUseCase",
+    "getWorkspaceOutcomeOverviewUseCase",
     // Target別に還流済みのExecution Summary・Evidenceを読むだけ（outcomeTargetProject.test.ts）。
     "listOutcomeTargetExecutionsUseCase",
     "updateOutcomeUseCase",
