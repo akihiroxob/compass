@@ -66,6 +66,17 @@ export class SQLiteOutcomeRepository implements OutcomeRepository {
     return loadOutcomes(this.database, rows);
   }
 
+  async findByWorkspace(workspaceId: string): Promise<Outcome[]> {
+    const rows = await this.database
+      .selectFrom("outcome")
+      .selectAll()
+      .where("workspace_id", "=", workspaceId)
+      .orderBy("created_at", "desc")
+      .orderBy(sql`rowid`, "desc")
+      .execute();
+    return loadOutcomes(this.database, rows);
+  }
+
   async findById(workspaceId: string, intentId: string, outcomeId: string): Promise<Outcome | null> {
     const row = await this.database
       .selectFrom("outcome")

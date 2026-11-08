@@ -420,6 +420,24 @@ export const createApp = (
       ),
     ),
   );
+  // Intentをまたぐ Outcome一覧（Workspace member）。検索・目標・問題の有無で絞り、新しい順にページングする。
+  // Task進捗は検索・絞り込みと無関係に集計し、詳細（`/outcomes/:outcomeId/overview`）と同じ組み立てを使う。
+  app.get("/api/workspaces/:workspaceId/outcomes", async (c) =>
+    c.json(
+      await human.listWorkspaceOutcomes.execute(await actorOf(c), c.req.param("workspaceId"), {
+        ...(c.req.query("q") === undefined ? {} : { q: c.req.query("q") }),
+        ...(c.req.query("intentId") === undefined ? {} : { intentId: c.req.query("intentId") }),
+        ...(c.req.query("problem") === undefined ? {} : { problem: c.req.query("problem") as "present" | "none" | "unknown" }),
+        limit: queryNumber(c.req.query("limit")),
+        offset: queryNumber(c.req.query("offset")),
+      }),
+    ),
+  );
+  app.get("/api/workspaces/:workspaceId/outcomes/:outcomeId/overview", async (c) =>
+    c.json(
+      await human.getWorkspaceOutcomeOverview.execute(await actorOf(c), c.req.param("workspaceId"), c.req.param("outcomeId")),
+    ),
+  );
   // OutcomeごとのTarget別Work要約（Workspace member）。Story / Task本文はProjectのExecution閲覧から読む。
   app.get("/api/workspaces/:workspaceId/intents/:intentId/outcome-target-work", async (c) =>
     c.json({

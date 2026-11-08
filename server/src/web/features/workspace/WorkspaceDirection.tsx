@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { classifyError, loadFailureMessage, request, type Part } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { intentPath, outcomePath, researchRequestPath, workspaceIntentEditPath, workspaceOutcomeCreatePath, workspaceOutcomeEditPath, workspaceOutcomePath, workspacePath } from "../../paths";
@@ -21,7 +21,7 @@ import {
 } from "../direction";
 import { EvidenceList, executionPath, executionStateLabels, formatTime, StoryList, verdictLabels, verdictTones, type ExecutionOverview, type OutcomeExecutionRecord } from "../execution";
 import { IntentEmpty, IntentFacts, IntentRevisions, intentStatusLabels } from "../intent";
-import { EvaluationCard, OutcomeProblems, isReplanTarget, outcomeStatusLabels, problemLabelOf, replanNote, type Outcome } from "../outcome";
+import { EvaluationCard, OutcomeOverviewSummary, OutcomeProblems, isReplanTarget, outcomeStatusLabels, problemLabelOf, replanNote, type Outcome } from "../outcome";
 import { openProjects, ProjectName, TargetRow } from "./WorkspaceOverview";
 import type { OverviewProject } from "./workspaceProjects";
 import { LinkButton } from "../../components/ui";
@@ -147,9 +147,11 @@ export const WorkspaceOutcomeDetail = ({ workspaceId, data, projects, canEdit }:
   const stage = execution && outcome.status === "active" ? stageLabels[evaluationStage(execution)] : null;
   const openProject = pickOpenProject(executions.ok ? executions.value.targets.map(({ projectId }) => projectId) : [], openProjects(projects));
   const projectLabel = (projectId: string) => <ProjectName projectId={projectId} projects={projects} view="work" />;
+  // 一覧から開いたときは、検索・目標・問題・ページの条件を保ったまま戻る。
+  const listSearch = (useLocation().state as { listSearch?: unknown } | null)?.listSearch;
   return (
     <>
-      <Link to={workspacePath(workspaceId, "direction")} className="back-link">← 方向</Link>
+      <Link to={`${workspacePath(workspaceId, "direction")}${typeof listSearch === "string" ? listSearch : ""}`} className="back-link">← Outcome一覧</Link>
       <section className="detail-section" aria-labelledby="outcome-position-heading">
         <p className="eyebrow">Outcome</p>
         <h2 id="outcome-position-heading">{outcome.title}</h2>
@@ -164,6 +166,7 @@ export const WorkspaceOutcomeDetail = ({ workspaceId, data, projects, canEdit }:
           </div>
         ) : <p className="locked-note">Intentの詳細（Research・Direction Decision）とOutcomeの取消はProjectの画面から開きます。開けるProjectがありません。</p>}
       </section>
+      <OutcomeOverviewSummary workspaceId={workspaceId} outcomeId={outcome.id} projects={projects} />
       <OutcomeProblems problems={outcome.problems} evidenceTo={(requestId) => (openProject ? researchRequestPath(openProject, requestId) : null)} evaluations={evaluations.ok ? evaluations.value : null} />
       <section className="detail-section" aria-labelledby="workspace-criteria-heading">
         <h2 id="workspace-criteria-heading">成功条件</h2>
