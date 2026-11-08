@@ -1,7 +1,9 @@
 export * from "./model.ts";
 export { ClaimHolderSection } from "./ClaimHolderSection";
 export { EvidenceList } from "./EvidenceList";
-export { ExecutionSection, StoryList } from "./ExecutionSection";
+export { StoryList } from "./ExecutionSection";
+export { WorkSection } from "./WorkSection";
+export { awaitingHumanStatus } from "./work.ts";
 export { StoryCreatePage, StoryEditPage, TaskCreatePage, TaskEditPage } from "./ExecutionItemFormPages";
 export { TaskDetailPage, type TaskProject, type WorkspaceCrumbs } from "./TaskDetailPage";
 export { loadOutcomeRef } from "./TaskOutcomeSection";
@@ -10,6 +12,7 @@ export {
   evaluationResultTones,
   evaluationsPath,
   executionPath,
+  executionViewPath,
   executionStateLabels,
   executionSummaryPath,
   describePrincipal,
@@ -27,6 +30,7 @@ export {
   verdictTones,
   type ExecutionOverview,
   type ExecutionStory,
+  type ExecutionTask,
   type LoopStage,
   type OutcomeEvaluation,
   type OutcomeExecutionRecord,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { ApiError, classifyError, describeActionFailure, jsonPost, loadFailureMessage, request, type ErrorKind } from "../../api";
 import { PageColumns } from "../../components/PageColumns";
 import { ReasonPanel, useReasonAction, type ReasonAction } from "../../components/ReasonPanel";
@@ -10,6 +10,7 @@ import { useProjectOperation, useProjectOperationState } from "../access";
 import { loadMemberNames } from "../member";
 import { TaskOutcomeSection } from "./TaskOutcomeSection";
 import { ChangeItem } from "./ExecutionSection";
+import { readWorkBack } from "./work";
 import { statusBadgeClass } from "../../statusTone";
 import {
   availableTaskOperations,
@@ -29,6 +30,7 @@ import {
   type TaskDetail,
   type TaskOperation,
   taskTone,
+  executionViewPath,
 } from "./execution";
 
 /** 未所属・存在しないProjectと、別ProjectのTask IDはどちらも404（serverが区別を漏らさない）。 */
@@ -138,13 +140,13 @@ export type WorkspaceCrumbs = (project: TaskProject) => ReactNode;
  * Workspace → Project → 実行 → Story → Taskの現在位置。Workspaceの項目は`workspaceCrumbs`が閲覧できる場合だけ出し、Projectを
  * 読めなければProjectはIDで「実行」viewへ辿る。StoryとTaskの行は「実行」viewの該当cardへ移動する。
  */
-const TaskBreadcrumb = ({ projectId, project, story, task, workspaceCrumbs }: { projectId: string; project: TaskProject | null; story: ExecutionStory | null; task: ExecutionTask; workspaceCrumbs: WorkspaceCrumbs }) => (
+const TaskBreadcrumb = ({ projectId, workBack, project, story, task, workspaceCrumbs }: { projectId: string; workBack: string; project: TaskProject | null; story: ExecutionStory | null; task: ExecutionTask; workspaceCrumbs: WorkspaceCrumbs }) => (
   <nav className="breadcrumb" aria-label="現在位置">
     <ol>
       {project && workspaceCrumbs(project)}
       <li><Link to={projectViewPath(projectId, "overview")}>{project?.name ?? "Project"}</Link></li>
-      <li><Link to={projectViewPath(projectId, "work", taskAnchorId(task.id))}>開発詳細</Link></li>
-      {story && <li><Link to={projectViewPath(projectId, "work", storyAnchorId(story.id))}>{story.title}</Link></li>}
+      <li><Link to={workBack}>開発詳細</Link></li>
+      {story && <li><Link to={executionViewPath(projectId, story.id)}>{story.title}</Link></li>}
       <li aria-current="page">{task.title}</li>
     </ol>
   </nav>
@@ -274,18 +276,20 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
   const projectState = project?.projectId === projectId ? project : null;
   const currentNotice = notice?.key === key ? notice : null;
   const intervene = access === "allowed";
+  // 一覧から開いたときは、絞り込み条件とページを残した一覧へ戻る。
+  const workBack = readWorkBack(useLocation().state, projectId);
   return (
     <main>
       {settled?.error ? (
         <>
-          <Link to={projectViewPath(projectId, "work")} className="back-link">← 開発詳細</Link>
+          <Link to={workBack} className="back-link">← 開発詳細</Link>
           <ErrorState message={settled.error} />
         </>
       ) : !detail || !task ? (
         <Loading />
       ) : (
         <>
-          <TaskBreadcrumb projectId={projectId} project={projectState?.project ?? null} story={detail.story} task={task} workspaceCrumbs={workspaceCrumbs} />
+          <TaskBreadcrumb projectId={projectId} workBack={workBack} project={projectState?.project ?? null} story={detail.story} task={task} workspaceCrumbs={workspaceCrumbs} />
           <div className="detail-hero">
             <p className="eyebrow">Task</p>
             <h1>{task.title}</h1>
@@ -309,7 +313,7 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
               <dt>説明</dt>
               <dd>{task.description ?? <span className="unset">未設定</span>}</dd>
               <dt>Story</dt>
-              <dd>{detail.story ? <><Link to={projectViewPath(projectId, "work", storyAnchorId(detail.story.id))}>{detail.story.title}</Link>（{storyStatusLabels[detail.story.status]}）</> : <span className="unset">Storyに属していません</span>}</dd>
+              <dd>{detail.story ? <><Link to={executionViewPath(projectId, detail.story.id)}>{detail.story.title}</Link>（{storyStatusLabels[detail.story.status]}）</> : <span className="unset">Storyに属していません</span>}</dd>
               {detail.story?.correlationId && <><dt>相関ID</dt><dd><code>{detail.story.correlationId}</code></dd></>}
               {task.taskKey && <><dt>taskKey</dt><dd><code>{task.taskKey}</code></dd></>}
               <dt>Claim</dt>

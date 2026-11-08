@@ -25,6 +25,8 @@ export type ExecutionStory = {
   updatedAt: number;
   outcomeId: string | null;
   correlationId: string | null;
+  /** Outcome由来のStoryが作成時に保持する成功条件。手動起票のStoryはnull。 */
+  successCriteria?: { id: string; position: number; description: string; measurement: string; target: string | null }[] | null;
 };
 
 export type ExecutionTask = {
@@ -42,7 +44,9 @@ export type ExecutionTask = {
   activeClaim: { claimId: string; principalId: string; expiresAt: number } | null;
   reclaimable: boolean;
   consultationWait?: { state: "waiting" | "ready" | "resuming"; phase: "work" | "review" | "acceptance";
-    consultations: { id: string; revision: number; resolutionId: string | null }[]; failureReason: string | null } | null;
+    consultations: { id: string; revision: number; resolutionId: string | null }[]; failureReason: string | null;
+    /** 止めている原因。human=Humanの回答待ち、agent=Agentの応答待ち、continuation=Managerの継続確認待ち、ready=再開待ち、resuming=再開中。 */
+    cause: "human" | "agent" | "continuation" | "ready" | "resuming" } | null;
 };
 
 export type ExecutionChange = {
@@ -53,6 +57,8 @@ export type ExecutionChange = {
   claimId: string | null;
   payload: Record<string, unknown>;
   occurredAt: number;
+  /** 「最近の変更」だけ。対象のStory・Taskの題名（対象が無ければ`null`）。 */
+  targetTitle?: string | null;
   outcomeId?: string;
   correlationId?: string;
 };
@@ -155,25 +161,19 @@ export const appendChangePage = (current: ExecutionChange[], page: ExecutionChan
 export type ChangeTarget = { kind: "story" | "task"; id: string; title: string | null };
 
 /**
- * 「最近の変更」でChangeの対象を識別する。Storyの変更（`STORY_*`）は一覧に無くてもIDで出し、
- * Taskの変更は一覧にあるTaskだけを対象にする（Task詳細へのリンクに使う）。
+ * 「最近の変更」でChangeの対象を識別する。対象の題名は応答の`targetTitle`（無ければ`null`でIDだけを出す）。
+ * Storyの変更（`STORY_*`）はStory、それ以外はTask（Task詳細へのリンクに使う）。
  */
-export const changeTarget = (change: Pick<ExecutionChange, "type" | "entityId">, overview: ExecutionOverview): ChangeTarget | null => {
-  if (change.type.startsWith("STORY_")) {
-    const story = overview.stories.find((item) => item.id === change.entityId);
-    return { kind: "story", id: change.entityId, title: story?.title ?? null };
-  }
-  const task = overview.tasks.find((item) => item.id === change.entityId);
-  return task ? { kind: "task", id: task.id, title: task.title } : null;
-};
+export const changeTarget = (change: Pick<ExecutionChange, "type" | "entityId" | "targetTitle">): ChangeTarget =>
+  ({ kind: change.type.startsWith("STORY_") ? "story" : "task", id: change.entityId, title: change.targetTitle ?? null });
 
 /** Project詳細のStory cardのanchor。「最近の変更」のStory変更から辿る。 */
 export const storyAnchorId = (storyId: string) => `execution-story-${storyId}`;
 /** Project詳細のTask行のanchor。概要の「次の行動」から「実行」viewの該当Taskへ辿る。 */
 export const taskAnchorId = (taskId: string) => `execution-task-${taskId}`;
-/** Project詳細の「実行」view。Storyを渡すとそのStory cardへ辿る。Story・Taskの起票・編集の戻り先と保存後の遷移先。 */
+/** Project詳細の「開発詳細」view。Storyを渡すとそのStoryだけを開いた一覧になる。Story・Taskの起票・編集の戻り先と保存後の遷移先。 */
 export const executionViewPath = (projectId: string, storyId?: string) =>
-  projectViewPath(projectId, "work", storyId ? storyAnchorId(storyId) : undefined);
+  `${projectViewPath(projectId, "work")}${storyId ? `&story=${encodeURIComponent(storyId)}` : ""}`;
 
 const editedFieldLabels: Record<string, string> = { title: "タイトル", description: "説明", sortOrder: "並び順" };
 
@@ -366,32 +366,6 @@ export const storyEmptyMessage = (access: ProjectOperationAccess | "loading" | "
       : "Storyはまだありません。Outcomeが確定するとManagerが起票し、ここに表示されます。";
 
 // ---- Project Workの一覧とTask詳細（S10-04）。Humanの判断待ちの絞り込みと、Task受入とOutcome評価の区別。 ----
-
-/** 「実行」viewのTaskの絞り込み。`?tasks=`で表し、再読込・共有・戻るで同じ一覧へ戻る。既定（指定なし・不正値）は全件。 */
-export const taskFilters = ["all", "decision"] as const;
-export type TaskFilter = (typeof taskFilters)[number];
-export const taskFilterLabels: Record<TaskFilter, string> = { all: "すべて", decision: "Humanの判断待ち" };
-export const parseTaskFilter = (value: string | null): TaskFilter => taskFilters.find((filter) => filter === value) ?? "all";
-
-/** 現在のqueryの`tasks`だけを置き換えたsearch。`view`等の他のqueryは残し、既定（全件）はqueryを付けない。 */
-export const taskFilterSearch = (current: URLSearchParams, filter: TaskFilter): string => {
-  const next = new URLSearchParams(current);
-  if (filter === "all") next.delete("tasks");
-  else next.set("tasks", filter);
-  const search = next.toString();
-  return search ? `?${search}` : "";
-};
-
-/** Humanの受入・差戻しを待つTask。Task詳細の介入導線と同じ判定（レビュー待ち・受入待ちで、期限内のClaimが無い）。 */
-export const awaitsHumanDecision = (task: Pick<ExecutionTask, "status" | "activeClaim">): boolean => availableTaskOperations(task).includes("accept");
-
-/** 絞り込んだ一覧。判断待ちは該当Taskと、そのTaskを持つStoryだけを残す（Storyの順序・Taskの順序はAPIの順のまま）。 */
-export const filterExecution = (overview: ExecutionOverview, filter: TaskFilter): ExecutionOverview => {
-  if (filter === "all") return overview;
-  const tasks = overview.tasks.filter(awaitsHumanDecision);
-  const storyIds = new Set(tasks.map((task) => task.storyId));
-  return { stories: overview.stories.filter((story) => storyIds.has(story.id)), tasks };
-};
 
 /** Web API `GET /api/workspaces/:workspaceId/intents/:intentId/outcomes`のOutcomeのうち、Task詳細で使う項目。 */
 export type TaskOutcomeRef = { id: string; intentId: string; title: string };

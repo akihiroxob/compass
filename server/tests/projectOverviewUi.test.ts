@@ -234,3 +234,48 @@ test("URLのhashは要素idにdecodeし、空や不正なpercent-encodingは無�
   assert.equal(hashTargetId("#%"), null);
   assert.equal(hashTargetId("#%E0%A4%A"), null);
 });
+
+test("相談待ちのTaskは再取得待ちにせず、実際に止めている側（Human・Agent・Manager・Runtime）で分ける", () => {
+  const wait = (cause: "human" | "agent" | "continuation" | "ready" | "resuming", phase: "work" | "review" | "acceptance" = "work"): NonNullable<ExecutionTask["consultationWait"]> =>
+    ({ state: cause === "ready" ? "ready" : cause === "resuming" ? "resuming" : "waiting", phase, consultations: [], failureReason: null, cause });
+  const tasks = [
+    task("human", { status: "doing", consultationWait: wait("human") }),
+    task("agent", { status: "doing", consultationWait: wait("agent", "review") }),
+    task("continue", { status: "doing", consultationWait: wait("continuation") }),
+    task("ready", { status: "doing", consultationWait: wait("ready") }),
+    task("reclaim", { status: "doing" }),
+  ];
+  assert.deepEqual(countWork(tasks, now), [{ bucket: "consultation", count: 4 }, { bucket: "reclaimable", count: 1 }]);
+  const next = planNextActions(input({ tasks, assignedRoles: new Set(["worker", "reviewer", "manager", "runtime"]) }));
+  assert.deepEqual(next.mine, [{ kind: "consultation", label: "Humanの回答待ちの相談（1件）", allowed: true, taskId: "human" }]);
+  assert.deepEqual(next.waiting.map(({ kind, role, taskIds }) => [kind, role, taskIds]), [
+    ["reclaimable", "worker", ["reclaim"]],
+    ["consult_agent", "reviewer", ["agent"]],
+    ["consult_continue", "manager", ["continue"]],
+    ["consult_ready", "runtime", ["ready"]],
+  ]);
+  // Human待ちだけならAgentの担当待ちは出さず、「あなたの操作」に出る。
+  assert.deepEqual(planNextActions(input({ tasks: [tasks[0]!] })).waiting, []);
+});
+
+test("相談待ちはwork・review・acceptanceのすべてで通常のレビュー待ち・受入待ちより優先して原因別に分類する", () => {
+  const phases = ["work", "review", "acceptance"] as const;
+  const statusOf = { work: "doing", review: "in_review", acceptance: "wait_accept" } as const;
+  const causes = ["human", "agent", "continuation", "ready", "resuming"] as const;
+  const roles = new Set(["worker", "reviewer", "manager", "runtime"]);
+  for (const phase of phases) {
+    for (const cause of causes) {
+      const t = task("t", { status: statusOf[phase], consultationWait: { state: "waiting", phase, consultations: [], failureReason: null, cause } as NonNullable<ExecutionTask["consultationWait"]> });
+      assert.deepEqual(countWork([t], now), [{ bucket: "consultation", count: 1 }], `${phase}/${cause}`);
+      const next = planNextActions(input({ tasks: [t], assignedRoles: roles }));
+      const plain = next.waiting.filter((item) => item.kind === "in_review" || item.kind === "wait_accept" || item.kind === "reclaimable");
+      assert.deepEqual(plain, [], `${phase}/${cause}`);
+      assert.equal(next.mine.some((action) => action.kind === "accept"), false, `${phase}/${cause}`);
+      assert.equal(next.mine.some((action) => action.kind === "consultation"), cause === "human", `${phase}/${cause}`);
+      const kinds: Record<string, string | undefined> = { agent: "consult_agent", continuation: "consult_continue", ready: "consult_ready" };
+      assert.deepEqual(next.waiting.map((item) => item.kind), kinds[cause] ? [kinds[cause]] : [], `${phase}/${cause}`);
+    }
+  }
+  // 相談待ちでないレビュー・受入待ちは従来どおり。
+  assert.deepEqual(countWork([task("r", { status: "in_review" }), task("a", { status: "wait_accept" })], now), [{ bucket: "in_review", count: 1 }, { bucket: "wait_accept", count: 1 }]);
+});

@@ -9,3 +9,6 @@
   margin: 0 0 var(--space-md);
 }
 .waiting-unassigned { color: var(--color-danger); }
+
+// Outcomeごとの Task進捗（概要）。
+.project-progress { display: grid; gap: .25rem; margin: var(--space-xs) 0; p { margin: 0; } progress { width: 100%; } }
