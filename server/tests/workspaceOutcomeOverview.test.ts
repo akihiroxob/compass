@@ -178,6 +178,10 @@ test("Workspace横断のOutcome一覧: 目標をまたいで集計し、検索�
     assert.equal((await get(`${base}?problem=unknown`)).total, 0);
     const detailWithProblems = await get(`${base}/${first.id}/overview`);
     assert.deepEqual(detailWithProblems.problems, problems);
+    // 提供状況は未確認、効果は評価が無ければ未評価。一覧と詳細は同じ値で、Task進捗から推測しない。
+    assert.deepEqual({ delivery: detailWithProblems.delivery, effect: detailWithProblems.effect }, { delivery: { state: "unknown" }, effect: { state: "not_evaluated" } });
+    assert.deepEqual(withProblems.items[0].delivery, detailWithProblems.delivery);
+    assert.deepEqual(withProblems.items[0].effect, detailWithProblems.effect);
     // 問題の有無で絞っても分母は変わらない。
     assert.deepEqual(withProblems.items[0].progress, progress);
   } finally {
@@ -196,11 +200,12 @@ test("問題を取得できないときは「問題なし」ではなく「未�
     { listByWorkspace: async () => [], listByOutcome: async () => [] } as never,
     { summarizeOutcomeProjects: async () => [] },
     problemPort,
+    { findByOutcome: async (_w: string, outcomeId: string) => (outcomeId === "o1" ? [{ result: "achieved", createdAt: 7 }] : []) } as never,
   ] as const;
   const fact: OutcomeProblemFact = { consultationId: "c", kind: "waiting_agent", scope: "workspace", title: "t", reason: "r", projectIds: [], taskIds: [], updatedAt: 1 };
   const failing: OutcomeProblemPort = { listOutcomeProblems: async () => { throw new Error("unavailable"); } };
-  const [w, i, o, t, s, p] = deps(failing);
-  const down = { list: new ListWorkspaceOutcomesUseCase(w, i, o, t, s, p), get: new GetWorkspaceOutcomeOverviewUseCase(w, i, o, t, s, p) };
+  const [w, i, o, t, s, p, e] = deps(failing);
+  const down = { list: new ListWorkspaceOutcomesUseCase(w, i, o, t, s, p, e), get: new GetWorkspaceOutcomeOverviewUseCase(w, i, o, t, s, p, e) };
   const page = await down.list.execute("w");
   assert.deepEqual([...new Set(page.items.map((item) => item.problems.state))], ["unknown"]);
   assert.equal((await down.list.execute("w", { problem: "none" })).total, 0);
@@ -211,9 +216,15 @@ test("問題を取得できないときは「問題なし」ではなく「未�
   const available: OutcomeProblemPort = {
     listOutcomeProblems: async (_w, ids) => ids.map((outcomeId) => ({ outcomeId, problems: outcomeId === "o1" ? [fact, { ...fact }] : [] })),
   };
-  const [w2, i2, o2, t2, s2, p2] = deps(available);
-  const up = new ListWorkspaceOutcomesUseCase(w2, i2, o2, t2, s2, p2);
+  const [w2, i2, o2, t2, s2, p2, e2] = deps(available);
+  const up = new ListWorkspaceOutcomesUseCase(w2, i2, o2, t2, s2, p2, e2);
   const present = (await up.execute("w")).items.map((item) => item.problems);
   assert.deepEqual(present.map((problems) => problems.state), ["present", "none"]);
+  // 提供状況は記録が無いため未確認。効果は最新の評価だけで決め、評価の無いOutcomeは未評価（Task進捗から推測しない）。
+  const confirmations = (await up.execute("w")).items.map(({ delivery, effect }) => ({ delivery, effect }));
+  assert.deepEqual(confirmations, [
+    { delivery: { state: "unknown" }, effect: { state: "evaluated", result: "achieved", evaluatedAt: 7 } },
+    { delivery: { state: "unknown" }, effect: { state: "not_evaluated" } },
+  ]);
   assert.equal(present[0]?.state === "present" && present[0].items.length, 1);
 });

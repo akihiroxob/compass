@@ -32,6 +32,15 @@ export type OutcomeProblemSummary =
   | { state: "none" }
   | { state: "present"; representative: OutcomeProblemFact; otherCount: number; waitingHumanCount: number; waitingAgentCount: number; items: OutcomeProblemFact[] };
 
+/** 提供状況（公開）。公開の記録が無いため現在は常に未確認。Task進捗や還流を公開として扱わない。 */
+export type OutcomeDelivery = { state: "unknown" };
+
+/** 効果の確認状況。最新のEvaluationの結果だけで決める。 */
+export type OutcomeEffect =
+  | { state: "not_evaluated" }
+  | { state: "evaluated"; result: "achieved" | "failed" | "insufficient_evidence"; evaluatedAt: number }
+  | { state: "unknown" };
+
 export type OutcomeOverview = {
   outcomeId: string;
   intentId: string;
@@ -46,6 +55,8 @@ export type OutcomeOverview = {
   targets: { projectId: string; projectStatus: "active" | "archived"; progress: TaskProgress }[];
   progress: TaskProgress & { targetProjectCount: number; unplannedProjectCount: number };
   problems: OutcomeProblemSummary;
+  delivery: OutcomeDelivery;
+  effect: OutcomeEffect;
 };
 
 export type OutcomeOverviewPage = { items: OutcomeOverview[]; total: number; workspaceTotal: number; limit: number; offset: number };

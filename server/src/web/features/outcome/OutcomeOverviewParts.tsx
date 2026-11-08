@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { statusBadgeClass } from "../../statusTone";
 import { consultationDestination } from "./outcomeOverviewLinks";
-import { problemKindLabels, progressPercent, progressText, type OutcomeOverview, type OutcomeProblemFact, type OutcomeProblemSummary, type TaskProgress } from "./outcomeOverview";
+import { problemKindLabels, progressPercent, progressText, type OutcomeOverview, type OutcomeDelivery, type OutcomeEffect, type OutcomeProblemFact, type OutcomeProblemSummary, type TaskProgress } from "./outcomeOverview";
 
 /**
  * Task進捗。受入済みを分子、取消を除いたTaskを分母とし、取消は別に示す。Outcomeの達成度や効果ではない。
@@ -57,3 +57,21 @@ export const ProblemList = ({ workspaceId, problems }: { workspaceId: string; pr
 );
 
 export const overviewAriaLabel = (overview: OutcomeOverview) => `${overview.title}（${overview.intentTitle}）`;
+
+const effectLabels = { achieved: "達成", failed: "未達", insufficient_evidence: "根拠不足" } as const;
+const effectTones = { achieved: "done", failed: "attention", insufficient_evidence: "warning" } as const;
+
+/**
+ * 提供状況（公開）と効果（Evaluation）の確認状況。Task進捗とは別の事実で、一覧と詳細が同じ値を示す。
+ * 公開の記録は無いため提供状況は未確認。評価が無い・取得できないときも成功や達成に見せない。
+ */
+export const ConfirmationView = ({ delivery, effect }: { delivery: OutcomeDelivery; effect: OutcomeEffect }) => (
+  <dl className="outcome-confirmation">
+    <div><dt>提供状況</dt><dd>{delivery.state === "unknown" && <><span className={statusBadgeClass("muted")}>未確認</span> 公開の記録がありません</>}</dd></div>
+    <div><dt>効果</dt><dd>
+      {effect.state === "not_evaluated" && <><span className={statusBadgeClass("muted")}>未評価</span> Evaluationがありません</>}
+      {effect.state === "unknown" && <><span className={statusBadgeClass("warning")}>未取得</span> 評価を取得できていません</>}
+      {effect.state === "evaluated" && <><span className={statusBadgeClass(effectTones[effect.result])}>{effectLabels[effect.result]}</span> 最新のEvaluation（{new Date(effect.evaluatedAt).toLocaleDateString("ja-JP")}）</>}
+    </dd></div>
+  </dl>
+);

@@ -87,3 +87,15 @@
   .outcome-row-head { display: none; }
   .outcome-cell-label { display: block; }
 }
+
+.outcome-confirmation {
+  display: grid;
+  gap: var(--space-xs);
+  margin: var(--space-xs) 0;
+  font-size: var(--font-size-sm);
+
+  div { display: flex; flex-wrap: wrap; gap: var(--space-xs); align-items: baseline; }
+  dt { color: var(--color-text-muted); }
+  dt::after { content: "："; }
+  dd { margin: 0; }
+}

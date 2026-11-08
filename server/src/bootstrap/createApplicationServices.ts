@@ -417,9 +417,9 @@ export const createApplicationServices = (
       workspaceOutcomeRepository, outcomeTargetProjectRepository, executionSummaryService),
     // Workspace横断のOutcome一覧と詳細の集計。同じ組み立てでTask進捗（Work）と問題（相談）を読取専用ポートから集める。
     listWorkspaceOutcomesUseCase: new ListWorkspaceOutcomesUseCase(workspaceRepository, workspaceIntentRepository,
-      workspaceOutcomeRepository, outcomeTargetProjectRepository, executionSummaryService, outcomeProblemReader),
+      workspaceOutcomeRepository, outcomeTargetProjectRepository, executionSummaryService, outcomeProblemReader, outcomeEvaluationRepository),
     getWorkspaceOutcomeOverviewUseCase: new GetWorkspaceOutcomeOverviewUseCase(workspaceRepository, workspaceIntentRepository,
-      workspaceOutcomeRepository, outcomeTargetProjectRepository, executionSummaryService, outcomeProblemReader),
+      workspaceOutcomeRepository, outcomeTargetProjectRepository, executionSummaryService, outcomeProblemReader, outcomeEvaluationRepository),
     // Target別に還流済みのExecution Summary・Evidence参照（Directionが保存した記録だけを読む）。
     listOutcomeTargetExecutionsUseCase: new ListOutcomeTargetExecutionsUseCase(workspaceRepository, workspaceOutcomeRepository,
       outcomeTargetProjectRepository, outcomeExecutionRepository),

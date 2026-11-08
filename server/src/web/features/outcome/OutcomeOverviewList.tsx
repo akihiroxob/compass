@@ -5,7 +5,7 @@ import { ErrorState, Loading, StateCard } from "../../components/StateCard";
 import { Button, Field, Select, TextInput } from "../../components/ui";
 import { projectViewPath, workspaceOutcomePath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
-import { ProblemSummaryView, TaskProgressView } from "./OutcomeOverviewParts";
+import { ConfirmationView, ProblemSummaryView, TaskProgressView } from "./OutcomeOverviewParts";
 import {
   conditionsSearch, hasConditions, loadOutcomeOverviews, outcomePageSize, outcomeProblemFilters, problemFilterLabels,
   readConditions, type OutcomeListConditions, type OutcomeOverview, type OutcomeOverviewPage, type OutcomeProblemFilter,
@@ -38,7 +38,7 @@ const RelatedProjects = ({ overview, projects }: { overview: OutcomeOverview; pr
 /**
  * Workspaceの固定メニュー「Outcome」の一覧。ビジネス目標をまたぎ、目的・Task進捗・止まっている問題を同じ行（スマートフォンはカード内）で比べる。
  * 検索・目標・問題の有無はURLに保持し、詳細から戻っても同じ条件・ページで開く。検索は表示するOutcomeを選ぶだけで、Task進捗の分母は変えない。
- * Task進捗はOutcomeの達成度ではない（提供状況・効果は詳細のEvaluationで別に確認する）。
+ * Task進捗はOutcomeの達成度ではない（提供状況・効果の確認状況はTask進捗と別に示す）。
  */
 export const OutcomeOverviewList = ({ workspaceId, intents, projects }: { workspaceId: string; intents: { id: string; title: string }[]; projects: Part<{ project: { id: string; name: string; status: string } }[]> }) => {
   const [search, setSearch] = useSearchParams();
@@ -103,6 +103,7 @@ export const OutcomeOverviewList = ({ workspaceId, intents, projects }: { worksp
                     <h3><Link to={workspaceOutcomePath(workspaceId, overview.intentId, overview.outcomeId)} state={{ listSearch }}>{overview.title}</Link>{" "}
                       {overview.status !== "active" && <span className={statusBadgeClass(outcomeTone(overview.status))}>{outcomeStatusLabels[overview.status as Outcome["status"]] ?? overview.status}</span>}</h3>
                     <p className="outcome-hypothesis">{overview.hypothesis ?? overview.description}</p>
+                    <ConfirmationView delivery={overview.delivery} effect={overview.effect} />
                     <RelatedProjects overview={overview} projects={labels} />
                   </div>
                   <div className="outcome-cell"><p className="outcome-cell-label">Task進捗</p>
