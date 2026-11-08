@@ -2488,7 +2488,11 @@ export class TaskCoordinationService {
    */
   async listRecentChangesOfProject(projectId: string, beforeCursor: number | null = null, limit = 50) {
     const rows = await this.store.listChangesBefore(projectId, beforeCursor, limit + 1);
-    const changes = await this.decorateChanges(projectId, rows.slice(0, limit));
+    const decorated = await this.decorateChanges(projectId, rows.slice(0, limit));
+    // 全件を読まない画面（開発詳細）でも対象を示せるよう、対象のStory・Taskの題名を添える（削除済み等で無ければnull）。
+    const [stories, tasks] = decorated.length ? await Promise.all([this.store.listStories(projectId), this.store.listTasks(projectId)]) : [[], []];
+    const titles = new Map<string, string>([...stories, ...tasks].map((entity) => [entity.id, entity.title]));
+    const changes = decorated.map((change) => ({ ...change, targetTitle: titles.get(change.entityId) ?? null }));
     return { changes, nextCursor: rows.length > limit ? (changes.at(-1)?.cursor ?? null) : null };
   }
 

@@ -25,3 +25,86 @@
 }
 .claim-holder-agent { font-family: var(--font-mono); font-size: .9em; font-weight: 700; overflow-wrap: anywhere; }
 .claim-holder-stale { margin: 1rem 0 0; padding: var(--space-sm) 1rem; border: 1px solid var(--color-danger-line); border-radius: var(--radius-sm); color: var(--color-danger); background: var(--color-danger-soft); }
+
+// 開発詳細（UI-W1）。検索・絞り込み・Story／Task一覧・ページング。長い題名・受入条件は折り返し、狭幅で横にはみ出さない。
+.work-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs) var(--space-sm);
+  margin-top: var(--space-md);
+  @include narrow { .field, .select { flex: 1 1 100%; } }
+}
+.work-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-xs) var(--space-sm);
+  margin-top: var(--space-sm);
+  .field { flex: 1 1 18rem; }
+  @include narrow { .field, .button { flex: 1 1 100%; } }
+}
+.work-summary {
+  margin-top: var(--space-md);
+  h3 { margin: 0 0 var(--space-xs); overflow-wrap: anywhere; }
+  p { margin: 0 0 var(--space-xs); }
+  progress { width: 100%; }
+}
+.work-result-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  min-height: 2rem;
+  font-variant-numeric: tabular-nums;
+  scroll-margin-top: 1rem;
+}
+.work-story {
+  scroll-margin-top: 1rem;
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  h3 { margin: 0 0 var(--space-xs); }
+  &:focus-visible, &:target { @include focus-ring; }
+  summary { cursor: pointer; }
+}
+.work-story-summary {
+  display: grid;
+  gap: var(--space-2xs);
+  min-height: 44px;
+  align-content: center;
+  overflow-wrap: anywhere;
+}
+.work-story-title { font-weight: 600; }
+.work-story-scope, .work-story-count { color: var(--color-text-muted); font-size: var(--text-small); font-variant-numeric: tabular-nums; }
+.work-story-body {
+  margin-top: var(--space-sm);
+  h4 { margin: 0 0 var(--space-2xs); font-size: var(--text-small); }
+}
+.work-story-description { margin: 0 0 var(--space-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
+.work-task-rows {
+  margin: var(--space-xs) 0 0;
+  padding: 0;
+  list-style: none;
+  @include divided-list;
+}
+.work-task-list { margin-top: var(--space-sm); }
+.work-task-row {
+  display: grid;
+  gap: var(--space-2xs);
+  padding: var(--space-xs) 0;
+  overflow-wrap: anywhere;
+  small { color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+}
+.work-task-title { font-weight: 600; }
+.work-task-blocker strong { color: var(--color-text); }
+.work-pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  font-variant-numeric: tabular-nums;
+}

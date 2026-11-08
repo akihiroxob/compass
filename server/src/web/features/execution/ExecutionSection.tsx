@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { Button, LinkButton, ViewSwitch } from "../../components/ui";
-import { storyCreatePath, storyEditPath, taskCreatePath, taskPath } from "../../paths";
-import { useHashTarget } from "../../useHashTarget";
-import { useProjectOperationState } from "../access";
+import { Button, LinkButton } from "../../components/ui";
+import { storyEditPath, taskCreatePath, taskPath } from "../../paths";
 import { statusBadgeClass } from "../../statusTone";
 import {
   appendChangePage,
-  awaitsHumanDecision,
   changeEditSummary,
   changeNote,
   changeTarget,
@@ -17,19 +14,12 @@ import {
   changeTypeLabel,
   describeClaim,
   describePrincipal,
-  executionPath,
-  filterExecution,
   formatTime,
   groupTasksByStory,
   isManualOpenStory,
-  parseTaskFilter,
   storyAnchorId,
-  storyEmptyMessage,
   storyStatusLabels,
   taskAnchorId,
-  taskFilterLabels,
-  taskFilters,
-  taskFilterSearch,
   taskStatusLabels,
   type ChangePage,
   type ChangeTarget,
@@ -37,7 +27,6 @@ import {
   type ExecutionOverview,
   type ExecutionTask,
   type StoryGroup,
-  type TaskFilter,
   storyStatusTones,
   taskTone,
 } from "./execution";
@@ -95,25 +84,11 @@ export const StoryList = ({ overview, empty, plan = false }: { overview: Executi
   );
 };
 
-/** Taskの絞り込み。URLの`?tasks=`で表し、`view`等の他のqueryは残す。件数は絞り込み前の一覧から数える。 */
-const TaskFilterSwitch = ({ current, counts }: { current: TaskFilter; counts: Record<TaskFilter, number> }) => {
-  const [searchParams] = useSearchParams();
-  return (
-    <div className="list-toolbar">
-      <ViewSwitch
-        label="Taskの絞り込み"
-        size="sm"
-        items={taskFilters.map((filter) => ({ key: filter, to: { search: taskFilterSearch(searchParams, filter) }, label: taskFilterLabels[filter], current: filter === current, count: counts[filter] }))}
-      />
-    </div>
-  );
-};
-
 /** Changeの対象。TaskはTask詳細へ、Storyは同じ画面のStory cardへ辿る。一覧に無いStoryはIDだけを出す。 */
 const ChangeTargetLabel = ({ target, projectId }: { target: ChangeTarget; projectId: string }) => {
-  if (target.kind === "task") return <Link to={taskPath(projectId, target.id)}>{target.title}</Link>;
+  if (target.kind === "task") return <Link to={taskPath(projectId, target.id)}>{target.title ?? <>Task <code>{target.id}</code></>}</Link>;
   if (target.title === null) return <>Story <code>{target.id}</code></>;
-  return <a href={`#${storyAnchorId(target.id)}`}>Story「{target.title}」</a>;
+  return <>Story「{target.title}」</>;
 };
 
 /** Execution Change Logの1件。`target`（「最近の変更」だけ）があれば、対象のTask・Storyを出す。 */
@@ -135,7 +110,7 @@ export const ChangeItem = ({ change, target, projectId, humanNames }: { change: 
 };
 
 /** Projectの「最近の変更」。新しい順に取得し、「さらに古い変更」でcursorを辿る。 */
-const RecentChanges = ({ projectId, overview }: { projectId: string; overview: ExecutionOverview }) => {
+export const RecentChanges = ({ projectId }: { projectId: string }) => {
   const [changes, setChanges] = useState<ExecutionChange[] | null>(null);
   const [nextCursor, setNextCursor] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -180,7 +155,7 @@ const RecentChanges = ({ projectId, overview }: { projectId: string; overview: E
       ) : changes.length ? (
         <>
           <ul className="grant-list change-list" aria-labelledby="changes-heading">
-            {changes.map((change) => <ChangeItem key={change.cursor} change={change} target={changeTarget(change, overview)} projectId={projectId} />)}
+            {changes.map((change) => <ChangeItem key={change.cursor} change={change} target={changeTarget(change)} projectId={projectId} />)}
           </ul>
           {moreError && <p role="alert" className="error-title">{moreError}</p>}
           {reachedEnd && <p ref={endNote} tabIndex={-1} className="unset">これより古い変更はありません</p>}
@@ -196,65 +171,5 @@ const RecentChanges = ({ projectId, overview }: { projectId: string; overview: E
         <p className="unset">変更はまだありません</p>
       )}
     </div>
-  );
-};
-
-/**
- * Project詳細のExecution section。Story・Task・Claim・Change Logは主にAgent（MCP）が作る。受入・差戻し・取消・Commentは
- * Task詳細から行い（Task 46）、editor以上はここからStory・Taskを手動起票・編集できる（Task 47。archivedでは導線を出さない）。
- */
-export const ExecutionSection = ({ projectId }: { projectId: string }) => {
-  const planAccess = useProjectOperationState(projectId, "execution.plan").access;
-  const plan = planAccess === "allowed";
-  const requestedFilter = parseTaskFilter(useSearchParams()[0].get("tasks"));
-  const [overview, setOverview] = useState<ExecutionOverview | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let current = true;
-    setOverview(null);
-    setError(null);
-    request<ExecutionOverview>(executionPath(projectId))
-      .then((body) => { if (current) setOverview(body); })
-      .catch((reason: unknown) => { if (current) setError(loadFailureMessage(classifyError(reason), "Projectが見つかりません。")); });
-    return () => { current = false; };
-  }, [projectId]);
-  // 概要の「次の行動」などから`?view=work#…`で辿ったTask・Storyへ、一覧の読込後に移動する。
-  useHashTarget(overview !== null);
-  // Taskが1件も無ければ絞り込みを出さず、Storyの空状態の案内をそのまま出す。
-  const filter = overview?.tasks.length ? requestedFilter : "all";
-  return (
-    <section className="detail-section" aria-labelledby="execution-heading">
-      <h2 id="execution-heading">Execution</h2>
-      <p className="section-note">
-        Manager・Worker・ReviewerのAgentがMCPで進めるStory・Taskです。Claim・Evidence・Comment・変更履歴の確認と、受入・差戻し・取消・CommentはTask詳細から行えます。
-        {plan && " Humanが手動でStory・Taskを起票することもできます（OutcomeからManagerが起票したStory・Taskは編集できません）。"}
-      </p>
-      {plan && (
-        <div className="action-row">
-          <LinkButton to={storyCreatePath(projectId)}>Storyを起票</LinkButton>
-          <LinkButton variant="secondary" to={taskCreatePath(projectId)}>Taskを起票</LinkButton>
-        </div>
-      )}
-      {error ? (
-        <ErrorState message={`Executionの読み込みに失敗しました: ${error}`} />
-      ) : overview === null ? (
-        <Loading />
-      ) : (
-        <>
-          {overview.tasks.length > 0 && (
-            <TaskFilterSwitch current={filter} counts={{ all: overview.tasks.length, decision: overview.tasks.filter(awaitsHumanDecision).length }} />
-          )}
-          {filter === "decision" && (
-            <p className="section-note">レビュー待ち・受入待ちで、AgentがClaimを持っていないTaskです。Task詳細から受入・差戻しを判断できます（Editor以上）。</p>
-          )}
-          <StoryList
-            overview={filterExecution(overview, filter)}
-            empty={filter === "decision" ? "Humanの判断を待つTaskはありません。" : storyEmptyMessage(planAccess)}
-            plan={plan}
-          />
-          <RecentChanges projectId={projectId} overview={overview} />
-        </>
-      )}
-    </section>
   );
 };

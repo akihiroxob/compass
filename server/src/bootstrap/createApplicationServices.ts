@@ -98,6 +98,7 @@ import {
   GetExecutionTaskUseCase,
   KyselyWorkStore,
   ListExecutionUseCase,
+  SearchExecutionWorkUseCase,
   ListProjectReleasesUseCase,
   ListRecentExecutionChangesUseCase,
   RecordPublicationUseCase,
@@ -660,6 +661,7 @@ export const createApplicationServices = (
         workspaceDirection.getExecutionSummaryUseCase.execute(await projectWorkspaceId(projectRepository, projectId), projectId, outcomeId),
     },
     listExecutionUseCase: new ListExecutionUseCase(taskCoordinationService),
+    searchExecutionWorkUseCase: new SearchExecutionWorkUseCase(taskCoordinationService),
     getExecutionTaskUseCase: new GetExecutionTaskUseCase(taskCoordinationService),
     listRecentExecutionChangesUseCase: new ListRecentExecutionChangesUseCase(taskCoordinationService),
     grantWorkspaceRoleUseCase: new GrantWorkspaceRoleUseCase(new GetWorkspaceUseCase(workspaceRepository), workspaceGrantRepository),
@@ -831,6 +833,7 @@ export const createApplicationServices = (
     getExecutionSummary: authorized("project.read", services.getExecutionSummaryUseCase),
     // Execution閲覧（Task 45）。archivedのProjectも参照できる（介入はTask 46の`execution.intervene`）。
     listExecution: authorized("project.read", services.listExecutionUseCase),
+    searchExecutionWork: authorized("project.read", services.searchExecutionWorkUseCase),
     getExecutionTask: authorized("project.read", services.getExecutionTaskUseCase),
     listRecentExecutionChanges: authorized("project.read", services.listRecentExecutionChangesUseCase),
     // リリース履歴（開発の受入と公開確認を別の項目で返す）。archivedのProjectも参照できる。公開記録の入力はRuntimeだけ。

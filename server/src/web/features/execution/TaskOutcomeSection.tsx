@@ -37,13 +37,16 @@ type OutcomeData = {
  * Outcomeの所属Intentを探す。Workspace所有のOutcomeはIntent配下のWeb APIで読むため、Intentごとに一覧を読む
  * （複数のActive Intentと終端IntentのOutcomeを対象にする）。
  */
-export const loadOutcomeRef = async (workspaceId: string, outcomeId: string): Promise<TaskOutcomeRef | null> => {
+export const loadWorkspaceOutcomes = async (workspaceId: string): Promise<TaskOutcomeRef[]> => {
   const { intents } = await request<{ intents: { id: string }[] }>(workspaceApiPath(workspaceId, "/intents"));
   const lists = await Promise.all(
     intents.map((intent) => request<{ outcomes: TaskOutcomeRef[] }>(workspaceApiPath(workspaceId, `/intents/${intent.id}/outcomes`)).then(({ outcomes }) => outcomes)),
   );
-  return findTaskOutcome(lists, outcomeId);
+  return lists.flat();
 };
+
+export const loadOutcomeRef = async (workspaceId: string, outcomeId: string): Promise<TaskOutcomeRef | null> =>
+  findTaskOutcome([await loadWorkspaceOutcomes(workspaceId)], outcomeId);
 
 /**
  * Task詳細の「Task受入とOutcome評価」。Taskの状態（Work）と、StoryのOutcomeへ還流したこのProjectの
