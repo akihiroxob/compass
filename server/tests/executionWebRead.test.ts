@@ -122,6 +122,7 @@ test("Task詳細は説明・状態・Claim・Comment・差戻し理由・関連C
   assert.deepEqual(detail.comments.map((comment: any) => [comment.body, comment.principalId]), [["implemented", "wrk"]]);
   assert.deepEqual(detail.changes.map((change: any) => change.type), ["TASK_CREATED", "TASK_CLAIMED", "TASK_COMPLETED", "TASK_CLAIMED", "TASK_REJECTED"]);
   assert.ok(detail.changes.every((change: any) => change.entityId === alpha.rejected.id && change.correlationId === `outcome:${alpha.outcome.id}`));
+  assert.deepEqual(detail.pullRequests, [], "PR未登録のTaskは空配列（未接続を成功にしない）");
 
   const claimed = await json(await kit.app.request(`/api/projects/${alpha.project.id}/tasks/${alpha.doing.id}`));
   assert.equal(claimed.task.activeClaim.claimId, alpha.claim.claimId);

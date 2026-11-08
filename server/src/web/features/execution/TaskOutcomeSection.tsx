@@ -16,8 +16,6 @@ import {
   loopStageTone,
   outcomeLoopStage,
   taskAcceptanceNote,
-  taskStatusLabels,
-  taskTone,
   type ExecutionStory,
   type ExecutionTask,
   type OutcomeEvaluation,
@@ -79,10 +77,6 @@ export const TaskOutcomeSection = ({ projectId, workspaceId, task, story }: { pr
       <h2 id="task-outcome-heading">Task受入とOutcome評価</h2>
       <p className="section-note">{taskAcceptanceNote(task, outcomeId !== null)}</p>
       <div className="detail-columns task-outcome-columns">
-        <div>
-          <p className="section-label">Task受入（Project）</p>
-          <p><span className={statusBadgeClass(taskTone(task))}>{taskStatusLabels[task.status]}</span></p>
-        </div>
         <div>
           <p className="section-label">Outcome評価（Workspace）</p>
           {outcomeId === null ? (

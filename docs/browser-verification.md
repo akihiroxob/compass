@@ -33,6 +33,8 @@ ReviewerはPR head、Managerは統合SHAを照合する。Workerは検証時HEAD
 
 リリース履歴には、専用Workspace `[受入] リリース履歴`（Intent・Outcome・Target Project）に専用Project（manifestの`releaseHistory`）を加える。GitHub互換のloopback serverを読む公開記録のRepository（`release-demo`）へ、受入成果物のcommit付きで受入済みTaskを24件作り、Owner Sessionで発行したProject Runtime Credential（`publication:write`のみ）が公開Web API（`POST /api/projects/:projectId/publications`）で`production`の公開記録を1件追加する。結果は公開済み12件・未公開10件（公開されたrevisionに含まれない）・確認できず2件（履歴を比較できない）で、ページ（20件）を超える件数を含む。各Taskには題名と異なる完了時の実装メモ（変更の要約の原記録）を残す。manifestの`releaseHistory.screenPath`（画面。`?view=releases`）・`apiPath`（Web APIの接頭辞`/api`を除いたpath）・`expected`から、一覧・詳細・原記録・複数Taskを含む公開を確認する。公開済みは効果の評価を意味しない。
 
+Task詳細の関連PRには、同じWorkspaceの専用Project（manifestの`taskPullRequests`）に作業中のTaskを1件置き、Workerが公開の`register_task_pull_request`でPR 2件（#101はloopback GitHubでmerge済み、#102がopenの現在のPR）を登録する。GitHub互換のloopbackは読取だけに答え、GitHubへの書込みやSQL直書きは使わない。`screenPath`・`expected`（番号・state・保存SHA・merge SHA）から、PC/SPの表示、PR・Commitリンクと保存SHAの一致、Claim期限内の表示を確認する。
+
 Ownerは`preview-owner@example.test`、Viewerは`preview-viewer@example.test`で開発用ログインする。ViewerはWorkspaceからの招待を受諾し、後二者のWorkspaceのviewerになる（配下のProject A・Bとも同じRole。[ADR 0003](adr/0003-workspace-human-membership.md)）。Targetなしのworkspaceには所属しない。Workspace Directionと両ProjectのWorkの参照、未所属Workspaceの参照拒否、編集操作の拒否を比較できる。
 
 ## 対象SHAとの一致

@@ -18,6 +18,7 @@ import {
   formatClaimExpiry,
   formatTime,
   isManualEditableTask,
+  pullRequestStateLabels,
   storyAnchorId,
   storyStatusLabels,
   taskAnchorId,
@@ -221,6 +222,12 @@ const CommentForm = ({ projectId, taskId, onAdded }: { projectId: string; taskId
  * Claim・差戻し理由、Task受入とOutcome評価（Evidence）の区別、Comment・当該TaskのChangeを表示し、editor以上には状態に応じた
  * 受入・差戻し・取消とCommentの導線を出す（archivedでは出さない）。操作後はserverから読み直し、拒否は常にserverが行う。
  */
+const CommitLink = ({ repository, sha }: { repository: string; sha: string }) => (
+  <a href={`https://github.com/${repository}/commit/${sha}`} target="_blank" rel="noreferrer" title={sha} aria-label={`Commit ${sha}を開く`}>
+    <code>{sha.slice(0, 7)}</code>
+  </a>
+);
+
 export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: WorkspaceCrumbs }) => {
   const { projectId = "", taskId = "" } = useParams();
   const [state, setState] = useState<{ key: string; detail: TaskDetail | null; error: string | null } | null>(null);
@@ -349,9 +356,46 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
           ) : (
             <Loading />
           )}
+          <section className="detail-section" aria-labelledby="task-pr-heading">
+            <h2 id="task-pr-heading">関連PR</h2>
+            {detail.pullRequests.length ? (
+              <ul className="grant-list task-pr-list">
+                {detail.pullRequests.map((pr) => (
+                  <li key={pr.id}>
+                    <p>
+                      <a href={pr.url} target="_blank" rel="noreferrer">{pr.repository}#{pr.number}</a>{" "}
+                      <span className={statusBadgeClass(pr.state === "merged" ? "done" : pr.state === "closed" ? "muted" : "progress")}>
+                        {pullRequestStateLabels[pr.state]}{pr.draft ? "（draft）" : ""}
+                      </span>
+                      {pr.current && <> <span className="status-badge muted">現在のPR</span></>}
+                    </p>
+                    <small>
+                      <code>{pr.headBranch}</code> → <code>{pr.baseBranch}</code> ・ 対象Commit <CommitLink repository={pr.repository} sha={pr.headSha} />
+                      {pr.mergeSha && <> ・ merge Commit <CommitLink repository={pr.repository} sha={pr.mergeSha} /></>}
+                      {pr.reviewedHeadSha && <> ・ レビュー済みCommit <CommitLink repository={pr.repository} sha={pr.reviewedHeadSha} /></>}
+                      {" "}・ {formatTime(pr.verifiedAt)} にGitHubで確認
+                    </small>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="unset">登録されたPRはありません（PRが不要なTaskか、まだ登録されていません）</p>
+            )}
+            <p className="section-note">PRの状態はWorkerが登録した時点にGitHubで確認した内容です。Task受入は、PRのmerge・公開・Outcome達成を意味しません。</p>
+          </section>
+          <section className="detail-section" aria-labelledby="task-changes-heading">
+            <h2 id="task-changes-heading">活動履歴</h2>
+            {detail.changes.length ? (
+              <ul className="grant-list change-list">
+                {detail.changes.map((change) => <ChangeItem key={change.cursor} change={change} projectId={projectId} humanNames={names} />)}
+              </ul>
+            ) : (
+              <p className="unset">変更はありません</p>
+            )}
+          </section>
           <section className="detail-section" aria-labelledby="comments-heading">
-            <h2 id="comments-heading">Comment</h2>
-            <p className="section-note">AgentがClaimのもとで残した引継ぎ・検証の記録と、HumanのCommentです。</p>
+            <h2 id="comments-heading">コメント</h2>
+            <p className="section-note">Workerの変更・検証報告、Reviewer・Managerの確認内容、Humanのコメントです。操作の履歴は上の活動履歴に分けています。</p>
             {detail.comments.length ? (
               <ul className="grant-list">
                 {detail.comments.map((comment) => (
@@ -362,7 +406,7 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
                 ))}
               </ul>
             ) : (
-              <p className="unset">Commentはありません</p>
+              <p className="unset">コメントはありません</p>
             )}
             {intervene && (
               <CommentForm
@@ -370,16 +414,6 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
                 taskId={taskId}
                 onAdded={() => load().catch(() => undefined)}
               />
-            )}
-          </section>
-          <section className="detail-section" aria-labelledby="task-changes-heading">
-            <h2 id="task-changes-heading">変更履歴</h2>
-            {detail.changes.length ? (
-              <ul className="grant-list change-list">
-                {detail.changes.map((change) => <ChangeItem key={change.cursor} change={change} projectId={projectId} humanNames={names} />)}
-              </ul>
-            ) : (
-              <p className="unset">変更はありません</p>
             )}
           </section>
           </>} />

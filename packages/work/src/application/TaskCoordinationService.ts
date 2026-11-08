@@ -595,11 +595,12 @@ export class TaskCoordinationService {
   async getTaskDetailOfProject(projectId: string, taskId: string) {
     const row = await this.store.findTaskInProject(projectId, taskId);
     if (!row) return null;
-    const [list, story, { comments }, changes] = await Promise.all([
+    const [list, story, { comments }, changes, pullRequestRows] = await Promise.all([
       this.buildTaskList(projectId, null),
       row.story_id ? this.store.findStory(row.story_id) : Promise.resolve(null),
       this.readTaskComments(taskId),
       this.store.listEntityChanges(projectId, taskId),
+      this.store.listTaskPullRequests(taskId),
     ]);
     const task = list.tasks.find((candidate) => candidate.id === taskId);
     if (!task) return null;
@@ -608,6 +609,8 @@ export class TaskCoordinationService {
       story: story ? storyDto(story) : null,
       comments,
       changes: await this.decorateChanges(projectId, changes),
+      /** GitHubで確認して登録したPR（登録順。最後が現在のPR）。 */
+      pullRequests: pullRequestRows.map((pr, index) => pullRequestDto(pr, index === pullRequestRows.length - 1)),
     };
   }
 
