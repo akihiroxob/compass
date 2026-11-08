@@ -203,8 +203,8 @@ export const WorkSection = ({ projectId, workspaceId }: { projectId: string; wor
       <h2 id="work-heading">Story・Task</h2>
       {plan && (
         <div className="action-row">
-          <LinkButton to={storyCreatePath(projectId)}>Storyを起票</LinkButton>
-          <LinkButton variant="secondary" to={taskCreatePath(projectId)}>Taskを起票</LinkButton>
+          <LinkButton to={storyCreatePath(projectId)}>Storyを追加</LinkButton>
+          <LinkButton variant="secondary" to={taskCreatePath(projectId)}>Taskを追加</LinkButton>
         </div>
       )}
       {names.state === "error" && <p role="alert" className="error-title">Outcomeの名称を取得できませんでした。Outcomeは「名称を取得できません」と表示します。</p>}

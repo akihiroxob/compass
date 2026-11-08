@@ -110,3 +110,13 @@
   margin-top: var(--space-md);
   font-variant-numeric: tabular-nums;
 }
+
+// Task追加フォームの所属先（対象Storyまたは「Storyに属さない」）。選択欄ではなく固定表示。
+.form-fixed-target {
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-subtle);
+  overflow-wrap: anywhere;
+}
