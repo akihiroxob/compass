@@ -3,7 +3,8 @@ import { jsonInit, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { WorkspaceDirectionGate } from "../access";
 import { emptyOutcomeFormValues, formValuesFromOutcome, outcomeStatusLabels, problemsInput, type Outcome, type OutcomeFormValues } from "./outcome";
-import { intentPath, outcomePath, workspaceApiPath, workspaceOutcomePath, workspacePath } from "../../paths";
+import { workspaceApiPath } from "../../paths";
+import { projectPlacement, workspacePlacement, type Placement } from "./outcomeFormPlacement";
 import { createOutcome } from "./createOutcome";
 import { OutcomeForm } from "./OutcomeForm";
 import { useIntentVersion } from "./useIntentVersion";
@@ -15,28 +16,6 @@ const editLede = "変更した内容は保存するまで反映されません�
 /** 課題は一覧全体の置換のため、読み込んだ版を`expectedRevision`として送り、他での更新を上書きしない。 */
 const updateOutcome = (workspaceId: string, outcome: Outcome) => async (values: OutcomeFormValues) =>
   (await request<{ outcome: Outcome }>(workspaceApiPath(workspaceId, `/intents/${outcome.intentId}/outcomes/${outcome.id}`), jsonInit("PATCH", { title: values.title, hypothesis: values.hypothesis, problems: problemsInput(values.problems), expectedRevision: outcome.revision }))).outcome;
-
-/** 画面の配置ごとの戻り先・保存後の行き先。Project配下はIntent・Outcome詳細、Workspace配下はWorkspaceのOutcome詳細。 */
-type Placement = { back: { to: string; label: string }; savedTo: (outcome: Outcome) => string; detailTo: string; conflictTo: { to: string; label: string }; state?: unknown };
-
-const projectPlacement = (projectId: string, intentId: string, outcomeId?: string): Placement => ({
-  back: outcomeId ? { to: outcomePath(projectId, intentId, outcomeId), label: "← Outcome詳細" } : { to: intentPath(projectId, intentId), label: "← Intent詳細" },
-  savedTo: (outcome) => outcomePath(projectId, intentId, outcome.id),
-  detailTo: `/projects/${projectId}`,
-  conflictTo: outcomeId ? { to: outcomePath(projectId, intentId, outcomeId), label: "最新のOutcomeを開く →" } : { to: intentPath(projectId, intentId), label: "Intentを開く →" },
-});
-
-/** Workspace配下の配置。`state`（Outcome一覧の絞り込み条件）は戻る・キャンセル・保存後の遷移へ引き継ぐ。 */
-export const workspacePlacement = (workspaceId: string, intentId: string, outcomeId: string | undefined, state: unknown): Placement => {
-  const direction = workspacePath(workspaceId, "direction");
-  return {
-    state,
-    back: outcomeId ? { to: workspaceOutcomePath(workspaceId, intentId, outcomeId), label: "← Outcome詳細" } : { to: direction, label: "← Outcome" },
-    savedTo: (outcome) => workspaceOutcomePath(workspaceId, intentId, outcome.id),
-    detailTo: direction,
-    conflictTo: outcomeId ? { to: workspaceOutcomePath(workspaceId, intentId, outcomeId), label: "最新のOutcomeを開く →" } : { to: direction, label: "Outcomeの一覧を開く →" },
-  };
-};
 
 const conflictLink = (placement: Placement) => <Link to={placement.conflictTo.to} state={placement.state} className="text-link">{placement.conflictTo.label}</Link>;
 
