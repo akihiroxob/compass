@@ -3,6 +3,7 @@ export * from "./application/port/DirectionAuthorizationPort.ts";
 export * from "./application/port/DirectionProjectReader.ts";
 export * from "./application/port/ExecutionSummaryPort.ts";
 export * from "./application/port/OutcomeProblemPort.ts";
+export * from "./application/port/OutcomeDeliveryPort.ts";
 export * from "./application/AbandonIntentUseCase.ts";
 export * from "./application/AckRuntimeEventUseCase.ts";
 export * from "./application/CancelOutcomeUseCase.ts";

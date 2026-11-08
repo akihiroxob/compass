@@ -32,8 +32,14 @@ export type OutcomeProblemSummary =
   | { state: "none" }
   | { state: "present"; representative: OutcomeProblemFact; otherCount: number; waitingHumanCount: number; waitingAgentCount: number; items: OutcomeProblemFact[] };
 
-/** 提供状況（公開）。公開の記録が無いため現在は常に未確認。Task進捗や還流を公開として扱わない。 */
-export type OutcomeDelivery = { state: "unknown" };
+/**
+ * 提供状況（公開）。Workの公開記録だけから、Target ProjectのOutcome相関Storyの変更ごとの公開状況を数える。
+ * `unknown`は取得できなかったこと、`no_changes`は公開確認の対象になる変更が無いこと。Outcome全体の提供済みは判断しない。
+ */
+export type OutcomeDelivery =
+  | { state: "unknown" }
+  | { state: "no_changes" }
+  | { state: "tracked"; changeCount: number; published: number; notPublished: number; unconfirmed: number; notConfigured: number };
 
 /** 効果の確認状況。最新のEvaluationの結果だけで決める。 */
 export type OutcomeEffect =

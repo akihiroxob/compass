@@ -10,6 +10,7 @@ import type { OutcomeTargetProjectRepository, OutcomeTargetProjectView } from ".
 import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
 import type { OutcomeProjectWorkSummary, OutcomeWorkSummaryPort } from "./port/ExecutionSummaryPort.ts";
 import type { OutcomeProblemFact, OutcomeProblemPort } from "./port/OutcomeProblemPort.ts";
+import type { OutcomeDeliveryPort, OutcomeProjectDelivery } from "./port/OutcomeDeliveryPort.ts";
 
 /** Target Project 1件のTask進捗。Storyが無ければ`progress.kind`は`not_planned`（未起票）。 */
 export type OutcomeTargetProgress = {
@@ -35,10 +36,17 @@ export type OutcomeProblemSummary =
     };
 
 /**
- * 提供状況（公開）。Compassには公開・リリースの記録がなく、Task受入や還流を公開として扱わないため、現在は常に`unknown`（未確認）。
- * 公開の記録を持つ入口ができたときに値を増やす。
+ * 提供状況（公開）。Workの公開確認（公開記録）だけから、Target ProjectのOutcome相関Storyの変更ごとの公開状況を数える。
+ * Outcome全体が提供済みかは判断せず（変更の列挙は、まだ起票されていない作業を含まない）、件数だけを示す。
+ * Task受入・PRのmerge・還流・効果は公開として扱わない。
+ * - `unknown`: 公開確認を取得できなかった（記録なしとは別）
+ * - `no_changes`: 公開確認の対象になる変更（PR登録または受入成果物のあるTask）が無い
+ * - `tracked`: 変更の公開状況の件数。`notConfigured`は公開確認の入力元も記録も無い変更の件数（`unconfirmed`の内数）
  */
-export type OutcomeDeliveryStatus = { state: "unknown" };
+export type OutcomeDeliveryStatus =
+  | { state: "unknown" }
+  | { state: "no_changes" }
+  | { state: "tracked"; changeCount: number; published: number; notPublished: number; unconfirmed: number; notConfigured: number };
 
 /**
  * 効果の確認状況。最新のOutcome Evaluationの結果だけから決める。Task進捗・還流からは推測しない。
@@ -94,12 +102,34 @@ const summarizeProblems = (facts: OutcomeProblemFact[] | null): OutcomeProblemSu
   };
 };
 
+/** Target Projectごとの公開確認。ポートが返さなかったTargetは取得できていないものとして扱う（変更なしにしない）。 */
+const refsOf = (deliveries: OutcomeProjectDelivery[], outcomeId: string, targets: OutcomeTargetProjectView[]): OutcomeProjectDelivery[] =>
+  targets.map((target) =>
+    deliveries.find((delivery) => delivery.outcomeId === outcomeId && delivery.projectId === target.projectId)
+    ?? { outcomeId, projectId: target.projectId, changes: null });
+
+const summarizeDelivery = (projects: OutcomeProjectDelivery[] | null): OutcomeDeliveryStatus => {
+  if (projects === null || projects.some(({ changes }) => changes === null)) return { state: "unknown" };
+  const changes = projects.flatMap(({ changes: found }) => found ?? []);
+  if (changes.length === 0) return { state: "no_changes" };
+  const count = (predicate: (change: (typeof changes)[number]) => boolean) => changes.filter(predicate).length;
+  return {
+    state: "tracked",
+    changeCount: changes.length,
+    published: count(({ status }) => status === "published"),
+    notPublished: count(({ status }) => status === "not_published"),
+    unconfirmed: count(({ status }) => status === "unconfirmed"),
+    notConfigured: count(({ reason }) => reason === "not_configured"),
+  };
+};
+
 /** 一覧と詳細が同じ集計で組み立てるための読取。Task進捗は検索・絞り込みと無関係に、Outcomeの全Target Projectから数える。 */
 class OutcomeOverviewBuilder {
   constructor(
     private readonly workSummary: OutcomeWorkSummaryPort,
     private readonly problemPort: OutcomeProblemPort,
     private readonly evaluationRepository: Pick<OutcomeEvaluationRepository, "findByOutcome">,
+    private readonly deliveryPort: OutcomeDeliveryPort,
   ) {}
 
   private async effectOf(workspaceId: string, outcomeId: string): Promise<OutcomeEffectStatus> {
@@ -130,6 +160,12 @@ class OutcomeOverviewBuilder {
       problemsByOutcome = new Map(facts.map(({ outcomeId, problems }) => [outcomeId, problems]));
     } catch {
       problemsByOutcome = null;
+    }
+    let deliveries: OutcomeProjectDelivery[] | null;
+    try {
+      deliveries = await this.deliveryPort.listOutcomeDeliveries(refs);
+    } catch {
+      deliveries = null;
     }
     const effects = new Map(await Promise.all(outcomes.map(async ({ id }) => [id, await this.effectOf(workspaceId, id)] as const)));
     return outcomes.map((outcome) => {
@@ -164,7 +200,7 @@ class OutcomeOverviewBuilder {
           unplannedProjectCount,
         },
         problems: summarizeProblems(problemsByOutcome === null ? null : (problemsByOutcome.get(outcome.id) ?? [])),
-        delivery: { state: "unknown" },
+        delivery: summarizeDelivery(deliveries === null ? null : refsOf(deliveries, outcome.id, outcomeTargets)),
         effect: effects.get(outcome.id) ?? { state: "unknown" },
       };
     });
@@ -215,8 +251,9 @@ export class ListWorkspaceOutcomesUseCase {
     workSummary: OutcomeWorkSummaryPort,
     problemPort: OutcomeProblemPort,
     evaluationRepository: Pick<OutcomeEvaluationRepository, "findByOutcome">,
+    deliveryPort: OutcomeDeliveryPort,
   ) {
-    this.builder = new OutcomeOverviewBuilder(workSummary, problemPort, evaluationRepository);
+    this.builder = new OutcomeOverviewBuilder(workSummary, problemPort, evaluationRepository, deliveryPort);
   }
 
   async execute(workspaceId: string, query: ListWorkspaceOutcomesQuery = {}): Promise<WorkspaceOutcomePage> {
@@ -255,8 +292,9 @@ export class GetWorkspaceOutcomeOverviewUseCase {
     workSummary: OutcomeWorkSummaryPort,
     problemPort: OutcomeProblemPort,
     evaluationRepository: Pick<OutcomeEvaluationRepository, "findByOutcome">,
+    deliveryPort: OutcomeDeliveryPort,
   ) {
-    this.builder = new OutcomeOverviewBuilder(workSummary, problemPort, evaluationRepository);
+    this.builder = new OutcomeOverviewBuilder(workSummary, problemPort, evaluationRepository, deliveryPort);
   }
 
   async execute(workspaceId: string, outcomeId: string): Promise<WorkspaceOutcomeOverview> {

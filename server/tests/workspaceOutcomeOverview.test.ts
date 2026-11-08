@@ -5,6 +5,7 @@ import {
   ListWorkspaceOutcomesUseCase,
   summarizeTaskProgress,
   type OutcomeProblemFact,
+  type OutcomeDeliveryPort,
   type OutcomeProblemPort,
 } from "@compass/direction";
 import { CreateWorkspaceProjectUseCase, CreateWorkspaceUseCase, SQLiteProjectRepository, SQLiteWorkspaceRepository } from "@compass/organization";
@@ -178,8 +179,8 @@ test("Workspace横断のOutcome一覧: 目標をまたいで集計し、検索�
     assert.equal((await get(`${base}?problem=unknown`)).total, 0);
     const detailWithProblems = await get(`${base}/${first.id}/overview`);
     assert.deepEqual(detailWithProblems.problems, problems);
-    // 提供状況は未確認、効果は評価が無ければ未評価。一覧と詳細は同じ値で、Task進捗から推測しない。
-    assert.deepEqual({ delivery: detailWithProblems.delivery, effect: detailWithProblems.effect }, { delivery: { state: "unknown" }, effect: { state: "not_evaluated" } });
+    // 提供状況は公開確認の対象となる変更が無ければ対象なし、効果は評価が無ければ未評価。一覧と詳細は同じ値で、Task進捗から推測しない。
+    assert.deepEqual({ delivery: detailWithProblems.delivery, effect: detailWithProblems.effect }, { delivery: { state: "no_changes" }, effect: { state: "not_evaluated" } });
     assert.deepEqual(withProblems.items[0].delivery, detailWithProblems.delivery);
     assert.deepEqual(withProblems.items[0].effect, detailWithProblems.effect);
     // 問題の有無で絞っても分母は変わらない。
@@ -193,7 +194,8 @@ test("問題を取得できないときは「問題なし」ではなく「未�
   const outcome = (id: string, intentId: string) => ({ id, intentId, title: id, description: "", hypothesis: null, status: "active", createdAt: 1, updatedAt: 1 });
   const outcomes = [outcome("o1", "i1"), outcome("o2", "i1")];
   const intent = { id: "i1", title: "Goal", status: "active" };
-  const deps = (problemPort: OutcomeProblemPort) => [
+  const noDelivery: OutcomeDeliveryPort = { listOutcomeDeliveries: async () => [] };
+  const deps = (problemPort: OutcomeProblemPort, deliveryPort: OutcomeDeliveryPort = noDelivery) => [
     { findById: async () => ({ id: "w" }) } as never,
     { findByWorkspace: async () => [intent], findById: async () => intent } as never,
     { findByWorkspace: async () => outcomes, findByIdInWorkspace: async (_w: string, id: string) => outcomes.find((item) => item.id === id) ?? null } as never,
@@ -201,11 +203,12 @@ test("問題を取得できないときは「問題なし」ではなく「未�
     { summarizeOutcomeProjects: async () => [] },
     problemPort,
     { findByOutcome: async (_w: string, outcomeId: string) => (outcomeId === "o1" ? [{ result: "achieved", createdAt: 7 }] : []) } as never,
+    deliveryPort,
   ] as const;
   const fact: OutcomeProblemFact = { consultationId: "c", kind: "waiting_agent", scope: "workspace", title: "t", reason: "r", projectIds: [], taskIds: [], updatedAt: 1 };
   const failing: OutcomeProblemPort = { listOutcomeProblems: async () => { throw new Error("unavailable"); } };
-  const [w, i, o, t, s, p, e] = deps(failing);
-  const down = { list: new ListWorkspaceOutcomesUseCase(w, i, o, t, s, p, e), get: new GetWorkspaceOutcomeOverviewUseCase(w, i, o, t, s, p, e) };
+  const [w, i, o, t, s, p, e, d] = deps(failing);
+  const down = { list: new ListWorkspaceOutcomesUseCase(w, i, o, t, s, p, e, d), get: new GetWorkspaceOutcomeOverviewUseCase(w, i, o, t, s, p, e, d) };
   const page = await down.list.execute("w");
   assert.deepEqual([...new Set(page.items.map((item) => item.problems.state))], ["unknown"]);
   assert.equal((await down.list.execute("w", { problem: "none" })).total, 0);
@@ -216,15 +219,60 @@ test("問題を取得できないときは「問題なし」ではなく「未�
   const available: OutcomeProblemPort = {
     listOutcomeProblems: async (_w, ids) => ids.map((outcomeId) => ({ outcomeId, problems: outcomeId === "o1" ? [fact, { ...fact }] : [] })),
   };
-  const [w2, i2, o2, t2, s2, p2, e2] = deps(available);
-  const up = new ListWorkspaceOutcomesUseCase(w2, i2, o2, t2, s2, p2, e2);
+  const [w2, i2, o2, t2, s2, p2, e2, d2] = deps(available);
+  const up = new ListWorkspaceOutcomesUseCase(w2, i2, o2, t2, s2, p2, e2, d2);
   const present = (await up.execute("w")).items.map((item) => item.problems);
   assert.deepEqual(present.map((problems) => problems.state), ["present", "none"]);
-  // 提供状況は記録が無いため未確認。効果は最新の評価だけで決め、評価の無いOutcomeは未評価（Task進捗から推測しない）。
+  // Targetの無いOutcomeは公開確認の対象となる変更が無い。効果は最新の評価だけで決め、評価の無いOutcomeは未評価（Task進捗から推測しない）。
   const confirmations = (await up.execute("w")).items.map(({ delivery, effect }) => ({ delivery, effect }));
   assert.deepEqual(confirmations, [
-    { delivery: { state: "unknown" }, effect: { state: "evaluated", result: "achieved", evaluatedAt: 7 } },
-    { delivery: { state: "unknown" }, effect: { state: "not_evaluated" } },
+    { delivery: { state: "no_changes" }, effect: { state: "evaluated", result: "achieved", evaluatedAt: 7 } },
+    { delivery: { state: "no_changes" }, effect: { state: "not_evaluated" } },
   ]);
   assert.equal(present[0]?.state === "present" && present[0].items.length, 1);
+});
+
+test("提供状況は公開記録の変更別の公開状況から数え、取得できないProjectを変更なし・公開なしにしない", async () => {
+  const outcome = { id: "o1", intentId: "i1", title: "o1", description: "", hypothesis: null, status: "active", createdAt: 1, updatedAt: 1 };
+  const intent = { id: "i1", title: "Goal", status: "active" };
+  const targets = ["p1", "p2"].map((projectId) => ({ outcomeId: "o1", projectId, projectStatus: "active" }));
+  const noProblems: OutcomeProblemPort = { listOutcomeProblems: async (_w, ids) => ids.map((outcomeId) => ({ outcomeId, problems: [] })) };
+  const build = (deliveryPort: OutcomeDeliveryPort) => {
+    const args = [
+      { findById: async () => ({ id: "w" }) } as never,
+      { findByWorkspace: async () => [intent], findById: async () => intent } as never,
+      { findByWorkspace: async () => [outcome], findByIdInWorkspace: async () => outcome } as never,
+      { listByWorkspace: async () => targets, listByOutcome: async () => targets } as never,
+      { summarizeOutcomeProjects: async () => [] },
+      noProblems,
+      { findByOutcome: async () => [] } as never,
+      deliveryPort,
+    ] as const;
+    return { list: new ListWorkspaceOutcomesUseCase(...args), get: new GetWorkspaceOutcomeOverviewUseCase(...args) };
+  };
+  const change = (taskId: string, status: "published" | "not_published" | "unconfirmed", reason: "not_configured" | "no_record" | null = null) => ({ taskId, status, reason });
+  const known = build({
+    listOutcomeDeliveries: async () => [
+      { outcomeId: "o1", projectId: "p1", changes: [change("t1", "published"), change("t2", "unconfirmed", "no_record")] },
+      { outcomeId: "o1", projectId: "p2", changes: [change("t3", "unconfirmed", "not_configured"), change("t4", "not_published")] },
+    ],
+  });
+  const expected = { state: "tracked", changeCount: 4, published: 1, notPublished: 1, unconfirmed: 2, notConfigured: 1 };
+  assert.deepEqual((await known.list.execute("w")).items[0]?.delivery, expected);
+  assert.deepEqual((await known.get.execute("w", "o1")).delivery, expected);
+
+  // 変更が無いProjectだけなら対象なし。一部のProjectを取得できない・ポートが返さないTargetは未取得で、公開なしや対象なしにしない。
+  const none = build({ listOutcomeDeliveries: async () => targets.map(({ projectId }) => ({ outcomeId: "o1", projectId, changes: [] })) });
+  assert.deepEqual((await none.get.execute("w", "o1")).delivery, { state: "no_changes" });
+  const partial = build({
+    listOutcomeDeliveries: async () => [
+      { outcomeId: "o1", projectId: "p1", changes: [change("t1", "published")] },
+      { outcomeId: "o1", projectId: "p2", changes: null },
+    ],
+  });
+  assert.deepEqual((await partial.get.execute("w", "o1")).delivery, { state: "unknown" });
+  const missing = build({ listOutcomeDeliveries: async () => [{ outcomeId: "o1", projectId: "p1", changes: [] }] });
+  assert.deepEqual((await missing.list.execute("w")).items[0]?.delivery, { state: "unknown" });
+  const failing = build({ listOutcomeDeliveries: async () => { throw new Error("unavailable"); } });
+  assert.deepEqual((await failing.get.execute("w", "o1")).delivery, { state: "unknown" });
 });

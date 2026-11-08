@@ -1,3 +1,4 @@
+import { OutcomeDeliveryReader } from "./OutcomeDeliveryReader.ts";
 import { OutcomeProblemReader } from "./OutcomeProblemReader.ts";
 import { projectWorkspaceId } from "../infrastructure/repository/projectWorkspace.ts";
 import { AgentContextService } from "../application/agentContext/AgentContextService.ts";
@@ -387,6 +388,7 @@ export const createApplicationServices = (
   // Direction → Executionは読取専用ポート（Execution自身のtableだけを読む）を通す。Direction側の還流先は自身のRepository。
   const executionSummaryService = new ExecutionSummaryService(workStore);
   const outcomeProblemReader = new OutcomeProblemReader(workStore, new KyselyConsultationStore(asCollaborationDatabase(applicationDatabase)));
+  const outcomeDeliveryReader = new OutcomeDeliveryReader((projectId) => listProjectReleasesUseCase.execute(projectId));
   const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders);
   const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(
     directionDatabase,
@@ -417,9 +419,9 @@ export const createApplicationServices = (
       workspaceOutcomeRepository, outcomeTargetProjectRepository, executionSummaryService),
     // Workspace横断のOutcome一覧と詳細の集計。同じ組み立てでTask進捗（Work）と問題（相談）を読取専用ポートから集める。
     listWorkspaceOutcomesUseCase: new ListWorkspaceOutcomesUseCase(workspaceRepository, workspaceIntentRepository,
-      workspaceOutcomeRepository, outcomeTargetProjectRepository, executionSummaryService, outcomeProblemReader, outcomeEvaluationRepository),
+      workspaceOutcomeRepository, outcomeTargetProjectRepository, executionSummaryService, outcomeProblemReader, outcomeEvaluationRepository, outcomeDeliveryReader),
     getWorkspaceOutcomeOverviewUseCase: new GetWorkspaceOutcomeOverviewUseCase(workspaceRepository, workspaceIntentRepository,
-      workspaceOutcomeRepository, outcomeTargetProjectRepository, executionSummaryService, outcomeProblemReader, outcomeEvaluationRepository),
+      workspaceOutcomeRepository, outcomeTargetProjectRepository, executionSummaryService, outcomeProblemReader, outcomeEvaluationRepository, outcomeDeliveryReader),
     // Target別に還流済みのExecution Summary・Evidence参照（Directionが保存した記録だけを読む）。
     listOutcomeTargetExecutionsUseCase: new ListOutcomeTargetExecutionsUseCase(workspaceRepository, workspaceOutcomeRepository,
       outcomeTargetProjectRepository, outcomeExecutionRepository),
