@@ -16,7 +16,7 @@ const draftText = (draft: Draft): string => [
   `Project名: ${draft.name}`,
   `説明: ${draft.description}`,
   ...draft.repositories.filter((item) => item.url.trim()).map((item) => `Repository: ${item.url}`),
-  ...draft.resources.filter((item) => item.name.trim() || item.url.trim()).map((item) => `Resource: ${item.name} / ${item.url}${item.kind ? ` / ${item.kind}` : ""}`),
+  ...draft.resources.filter((item) => item.name.trim() || item.url.trim() || item.kind.trim()).map((item) => `Resource: ${item.name} / ${item.url}${item.kind ? ` / ${item.kind}` : ""}`),
 ].join("\n");
 
 export const ProjectSettingsSection = ({ project, readOnly, readOnlyReason, onSaved, reload }: { project: Project; readOnly: boolean; readOnlyReason: string; onSaved: (project: Project) => void; reload: () => Promise<Project> }) => {
