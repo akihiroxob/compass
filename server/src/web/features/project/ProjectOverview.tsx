@@ -10,6 +10,7 @@ import {
   ClaimHolderSection,
   executionPath,
   executionViewPath,
+  awaitingHumanStatus,
   formatTime,
   storyStatusLabels,
   storyStatusTones,
@@ -41,10 +42,10 @@ import type { Project } from "./project";
 import { PageColumns } from "../../components/PageColumns";
 import { Button, LinkButton } from "../../components/ui";
 
-const workBucketLabels: Record<WorkBucket, string> = { ...taskStatusLabels, reclaimable: "再取得待ち" };
-const waitingLabels: Record<WaitingKind, string> = { ...workBucketLabels, story: "Story起票待ち", decompose: "Task分解待ち", reflection: "還流待ち" };
-const workBucketTones: Record<WorkBucket, StatusTone> = { ...taskStatusTones, reclaimable: "warning" };
-const waitingTones: Record<WaitingKind, StatusTone> = { ...workBucketTones, story: "waiting", decompose: "waiting", reflection: "waiting" };
+const workBucketLabels: Record<WorkBucket, string> = { ...taskStatusLabels, consultation: "相談待ち", reclaimable: "再取得待ち" };
+const waitingLabels: Record<WaitingKind, string> = { ...workBucketLabels, consult_agent: "相談の応答待ち", consult_continue: "継続確認待ち", consult_ready: "再開待ち", story: "Story起票待ち", decompose: "Task分解待ち", reflection: "還流待ち" };
+const workBucketTones: Record<WorkBucket, StatusTone> = { ...taskStatusTones, consultation: "waiting", reclaimable: "warning" };
+const waitingTones: Record<WaitingKind, StatusTone> = { ...workBucketTones, consult_agent: "waiting", consult_continue: "waiting", consult_ready: "waiting", story: "waiting", decompose: "waiting", reflection: "waiting" };
 
 /** 実行状況に並べる未完了Storyの上限と、最近の記録の件数。続きは「実行」「記録」で読む。 */
 const storyDisplayLimit = 5;
@@ -227,6 +228,7 @@ const WorkProgress = ({ projectId, execution, now }: { projectId: string; execut
 const actionTarget = (projectId: string, action: MyAction): string => {
   switch (action.kind) {
     case "accept": return taskPath(projectId, action.taskId);
+    case "consultation": return `/projects/${projectId}?view=work&status=${awaitingHumanStatus}`;
     case "grant": return projectViewPath(projectId, "settings", agentRoleAnchorId(action.role));
     case "credential": return projectViewPath(projectId, "settings", credentialSectionId);
   }

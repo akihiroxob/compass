@@ -3,6 +3,7 @@ export { ClaimHolderSection } from "./ClaimHolderSection";
 export { EvidenceList } from "./EvidenceList";
 export { StoryList } from "./ExecutionSection";
 export { WorkSection } from "./WorkSection";
+export { awaitingHumanStatus } from "./work.ts";
 export { StoryCreatePage, StoryEditPage, TaskCreatePage, TaskEditPage } from "./ExecutionItemFormPages";
 export { TaskDetailPage, type TaskProject, type WorkspaceCrumbs } from "./TaskDetailPage";
 export { loadOutcomeRef } from "./TaskOutcomeSection";

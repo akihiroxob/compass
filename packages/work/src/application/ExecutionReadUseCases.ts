@@ -82,7 +82,7 @@ export type WorkView = (typeof workViews)[number];
 export const workPageSizes: Record<WorkView, number> = { stories: 10, tasks: 20 };
 /** Outcomeに紐付かないStory（手動起票）と、Storyに属さないTaskだけを対象にする`outcome`の値。 */
 export const unsetOutcomeFilter = "none";
-/** Humanの受入・差戻しを待つTask（レビュー待ち・受入待ちで、期限内のClaimが無い）を表す`status`の値。 */
+/** Humanの対応を待つTask（レビュー待ち・受入待ちで期限内のClaimが無い、またはHumanの回答待ちの相談を持つ）を表す`status`の値。 */
 export const awaitingHumanStatus = "awaiting_human";
 export const maximumWorkQueryLength = 200;
 
@@ -151,7 +151,7 @@ export class SearchExecutionWorkUseCase {
     const statusMatches = (task: WorkTaskView) =>
       status === undefined ||
       (status === awaitingHumanStatus
-        ? (task.status === TaskStatus.IN_REVIEW || task.status === TaskStatus.WAIT_ACCEPT) && task.activeClaim === null
+        ? ((task.status === TaskStatus.IN_REVIEW || task.status === TaskStatus.WAIT_ACCEPT) && task.activeClaim === null) || task.consultationWait?.cause === "human"
         : task.status === status);
     const taskMatches = (task: WorkTaskView) =>
       statusMatches(task) &&

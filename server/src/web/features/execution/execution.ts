@@ -42,7 +42,9 @@ export type ExecutionTask = {
   activeClaim: { claimId: string; principalId: string; expiresAt: number } | null;
   reclaimable: boolean;
   consultationWait?: { state: "waiting" | "ready" | "resuming"; phase: "work" | "review" | "acceptance";
-    consultations: { id: string; revision: number; resolutionId: string | null }[]; failureReason: string | null } | null;
+    consultations: { id: string; revision: number; resolutionId: string | null }[]; failureReason: string | null;
+    /** 止めている原因。human=Humanの回答待ち、agent=Agentの応答待ち、continuation=Managerの継続確認待ち、ready=再開待ち、resuming=再開中。 */
+    cause: "human" | "agent" | "continuation" | "ready" | "resuming" } | null;
 };
 
 export type ExecutionChange = {

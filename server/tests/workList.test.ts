@@ -65,7 +65,12 @@ test("止まっている理由は状態・差戻し理由・相談・Claimだけ
   assert.equal(taskBlocker(task({ status: "in_review", activeClaim: claim })), null);
   assert.equal(taskBlocker(task({ status: "doing", activeClaim: claim })), null);
   assert.deepEqual(taskBlocker(task({ status: "doing", reclaimable: true })), { side: "agent", reason: "Claimの期限切れ（再取得待ち）" });
-  assert.deepEqual(taskBlocker(task({ status: "doing", consultationWait: { state: "waiting", phase: "work", consultations: [], failureReason: null } })), { side: "human", reason: "Humanへの相談の回答待ち" });
+  const wait = (cause: string) => task({ status: "doing", consultationWait: { state: "waiting", phase: "work", consultations: [], failureReason: null, cause } });
+  assert.deepEqual(taskBlocker(wait("human")), { side: "human", reason: "Humanへの相談の回答待ち" });
+  assert.deepEqual(taskBlocker(wait("agent")), { side: "agent", reason: "相談へのAgentの応答待ち" });
+  assert.deepEqual(taskBlocker(wait("continuation")), { side: "agent", reason: "相談の結論後、Managerの継続確認待ち" });
+  assert.deepEqual(taskBlocker(wait("ready")), { side: "agent", reason: "相談の結論を受けて再開待ち" });
+  assert.deepEqual(taskBlocker(wait("resuming")), { side: "agent", reason: "相談の結論を受けて再開中" });
   assert.equal(taskBlocker(task({ status: "accepted" })), null);
   assert.equal(taskBlocker(task({ status: "todo" })), null);
 });

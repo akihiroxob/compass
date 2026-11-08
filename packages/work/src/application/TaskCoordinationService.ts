@@ -268,6 +268,9 @@ export type IssueStoryInput = {
   correlationId?: string;
 };
 
+/** 相談待ちTaskを止めている原因。human=Humanの回答待ち、agent=Agentの応答待ち、continuation=結論・取消・要件変更後のManagerの継続確認待ち、ready=再開待ち、resuming=再開中。 */
+export type ConsultationWaitCause = "human" | "agent" | "continuation" | "ready" | "resuming";
+
 export class TaskCoordinationService {
   private readonly claimTtlMs: number;
 
@@ -625,6 +628,14 @@ export class TaskCoordinationService {
       this.store.listConsultationWaits(projectId),
     ]);
     const waits = new Map(consultationWaits.map((wait) => [wait.task_id, wait]));
+    // 待機中の相談の現在状態から、止めている担当側を決める（失敗理由の文章は照合に使わない）。
+    const waitCauses = new Map<string, ConsultationWaitCause>();
+    for (const wait of consultationWaits) {
+      if (wait.state !== "waiting") { waitCauses.set(wait.task_id, wait.state); continue; }
+      const statuses = await Promise.all((JSON.parse(wait.consultations) as ConsultationWaitReference[]).map((ref) => this.store.consultations.find(projectId, ref.id)));
+      waitCauses.set(wait.task_id, statuses.some((current) => current?.status === "waiting_human") ? "human"
+        : statuses.some((current) => current?.status === "waiting_agent") ? "agent" : "continuation");
+    }
     const storyOrders = new Map(stories.map((story) => [story.id, story.sort_order]));
     const activeClaims = new Map(claims.map((claim) => [claim.task_id, claim]));
     const roles = new Set<string>(grantedRoles);
@@ -702,6 +713,7 @@ export class TaskCoordinationService {
           state: waits.get(task.id)!.state, phase: waits.get(task.id)!.phase,
           consultations: JSON.parse(waits.get(task.id)!.consultations) as ConsultationWaitReference[],
           failureReason: waits.get(task.id)!.failure_reason,
+          cause: waitCauses.get(task.id)!,
         } : null,
         activeClaim: unexpiredClaim
           ? {

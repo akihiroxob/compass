@@ -94,10 +94,16 @@ export const progressPercent = (scope: Pick<WorkPage["scope"], "accepted" | "tas
  * 動く必要が無い（作業中・未着手・終端）は`null`。
  */
 export type TaskBlocker = { side: "human" | "agent"; reason: string };
+/** 相談待ちの原因から、止めている担当側と理由。Agentの応答待ち・継続確認待ち・再開はHumanの操作を要しない。 */
+export const consultationBlocker = (cause: NonNullable<ExecutionTask["consultationWait"]>["cause"]): TaskBlocker => (({
+  human: { side: "human", reason: "Humanへの相談の回答待ち" },
+  agent: { side: "agent", reason: "相談へのAgentの応答待ち" },
+  continuation: { side: "agent", reason: "相談の結論後、Managerの継続確認待ち" },
+  ready: { side: "agent", reason: "相談の結論を受けて再開待ち" },
+  resuming: { side: "agent", reason: "相談の結論を受けて再開中" },
+}) satisfies Record<string, TaskBlocker>)[cause];
 export const taskBlocker = (task: Pick<ExecutionTask, "status" | "activeClaim" | "rejectReason" | "consultationWait" | "reclaimable">): TaskBlocker | null => {
-  if (task.consultationWait) {
-    return { side: "human", reason: task.consultationWait.state === "waiting" ? "Humanへの相談の回答待ち" : "相談の結論を受けて再開待ち" };
-  }
+  if (task.consultationWait) return consultationBlocker(task.consultationWait.cause);
   if (task.status === "rejected") return { side: "agent", reason: task.rejectReason?.trim() ? `差戻し: ${task.rejectReason}` : "差戻し（理由は記録されていません）" };
   if (availableTaskOperations(task).includes("accept")) return { side: "human", reason: task.status === "wait_accept" ? "受入の判断待ち" : "レビューの確認待ち" };
   if (task.reclaimable) return { side: "agent", reason: "Claimの期限切れ（再取得待ち）" };
