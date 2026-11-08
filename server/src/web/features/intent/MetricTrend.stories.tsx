@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { MemoryRouter } from "react-router-dom";
 import { IntentGoalCard } from "./IntentGoalCard";
 import { MetricTrend } from "./MetricTrend";
 import { addDays, type IntentMetric, type MetricObservation } from "./metric";
@@ -22,7 +21,7 @@ const meta = {
   title: "Patterns/MetricTrend",
   component: MetricTrend,
   tags: ["autodocs"],
-  decorators: [(Story) => <MemoryRouter><div style={{ maxWidth: "36rem" }}><Story /></div></MemoryRouter>],
+  decorators: [(Story) => <div style={{ maxWidth: "36rem" }}><Story /></div>],
   parameters: { docs: { description: { component: "目標の観測値の日次の推移。観測の無い日・取得失敗の日をまたいで線を結ばず、0や補間値で埋めない。値はfixtureで、実データ・達成を表さない。" } } },
   args: { metric: metric(daily, "observed"), to, days: 30 },
 } satisfies Meta<typeof MetricTrend>;
