@@ -82,3 +82,11 @@ test("Task詳細の戻り先は、同じProjectの開発詳細のqueryだけを�
   assert.equal(readWorkBack(null, "p1"), "/projects/p1?view=work");
   assert.equal(readWorkBack({ workBack: "https://evil.example/" }, "p1"), "/projects/p1?view=work");
 });
+
+test("Storyの成功条件は位置順に表示用へ整える", async () => {
+  const { storyCriteria } = await import("../src/web/features/execution/work.ts");
+  const c = (id: string, position: number) => ({ id, position, description: `d${id}`, measurement: `m${id}`, target: null });
+  assert.deepEqual(storyCriteria({ successCriteria: [c("b", 2), c("a", 1)] }).map((item) => item.id), ["a", "b"]);
+  assert.deepEqual(storyCriteria({ successCriteria: null }), []);
+  assert.deepEqual(storyCriteria({}), []);
+});

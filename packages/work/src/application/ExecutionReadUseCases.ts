@@ -151,7 +151,7 @@ export class SearchExecutionWorkUseCase {
     const statusMatches = (task: WorkTaskView) =>
       status === undefined ||
       (status === awaitingHumanStatus
-        ? ((task.status === TaskStatus.IN_REVIEW || task.status === TaskStatus.WAIT_ACCEPT) && task.activeClaim === null) || task.consultationWait?.cause === "human"
+        ? task.consultationWait ? task.consultationWait.cause === "human" : (task.status === TaskStatus.IN_REVIEW || task.status === TaskStatus.WAIT_ACCEPT) && task.activeClaim === null
         : task.status === status);
     const taskMatches = (task: WorkTaskView) =>
       statusMatches(task) &&

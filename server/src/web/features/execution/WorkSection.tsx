@@ -19,6 +19,7 @@ import {
   parseWorkQuery,
   progressDenominator,
   progressPercent,
+  storyCriteria,
   taskBlocker,
   unsetOutcome,
   workApiPath,
@@ -69,6 +70,7 @@ const TaskRow = ({ projectId, item, backState, withContext, names }: { projectId
  */
 const StoryItem = ({ projectId, item, plan, defaultOpen, backState, names }: { projectId: string; item: WorkStoryItem; plan: boolean; defaultOpen: boolean; backState: ReturnType<typeof workBackState>; names: OutcomeNames }) => {
   const { story, tasks, taskCount, acceptedCount } = item;
+  const criteria = storyCriteria(story);
   return (
     <article id={storyAnchorId(story.id)} tabIndex={-1} className="work-story">
       <details open={defaultOpen || undefined}>
@@ -79,7 +81,13 @@ const StoryItem = ({ projectId, item, plan, defaultOpen, backState, names }: { p
         </summary>
         <div className="work-story-body">
           <h4>受入条件・説明</h4>
-          {story.description?.trim() ? <p className="work-story-description">{story.description}</p> : <p className="unset">受入条件・説明は記録されていません</p>}
+          {story.description?.trim() && <p className="work-story-description">{story.description}</p>}
+          {criteria.length > 0 && (
+            <ol className="work-story-criteria">
+              {criteria.map((item) => <li key={item.id}>{item.description}<small>測定: {item.measurement}{item.target ? ` ・ 目標: ${item.target}` : ""}</small></li>)}
+            </ol>
+          )}
+          {!story.description?.trim() && criteria.length === 0 && <p className="unset">受入条件・説明は記録されていません</p>}
           <p className="execution-meta">
             {story.correlationId ? <>相関ID <code>{story.correlationId}</code></> : "手動起票"} ・ {formatTime(story.updatedAt)} 更新
           </p>

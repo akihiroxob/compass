@@ -118,3 +118,7 @@ export const readWorkBack = (state: unknown, projectId: string): string => {
   const prefix = `/projects/${projectId}?`;
   return typeof back === "string" && back.startsWith(prefix) ? back : `/projects/${projectId}?view=work`;
 };
+
+/** Outcome由来Storyが作成時に保持する成功条件を位置順で返す。手動Story・条件なしは空。 */
+export const storyCriteria = (story: Pick<ExecutionStory, "successCriteria">): NonNullable<ExecutionStory["successCriteria"]> =>
+  [...(story.successCriteria ?? [])].sort((a, b) => a.position - b.position);

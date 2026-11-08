@@ -83,6 +83,8 @@
   margin-top: var(--space-sm);
   h4 { margin: 0 0 var(--space-2xs); font-size: var(--text-small); }
 }
+.work-story-criteria { margin: 0 0 var(--space-xs); padding-left: 1.5em; overflow-wrap: anywhere; }
+.work-story-criteria small { display: block; }
 .work-story-description { margin: 0 0 var(--space-xs); white-space: pre-wrap; overflow-wrap: anywhere; }
 .work-task-rows {
   margin: var(--space-xs) 0 0;

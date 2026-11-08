@@ -25,6 +25,8 @@ export type ExecutionStory = {
   updatedAt: number;
   outcomeId: string | null;
   correlationId: string | null;
+  /** Outcome由来のStoryが作成時に保持する成功条件。手動起票のStoryはnull。 */
+  successCriteria?: { id: string; position: number; description: string; measurement: string; target: string | null }[] | null;
 };
 
 export type ExecutionTask = {

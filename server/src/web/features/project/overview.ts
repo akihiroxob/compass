@@ -30,10 +30,11 @@ export const workBuckets = ["todo", "doing", "consultation", "reclaimable", "in_
 /** `now`時点で期限内のClaimを持つか（表示中に期限を過ぎた場合も、serverの`reclaimable`と同じく保持していない扱い）。 */
 export const holdsClaim = (task: Pick<OverviewTask, "activeClaim">, now: number) => task.activeClaim !== null && task.activeClaim.expiresAt > now;
 
-/** Taskの区分。受入済み・取消は数えない。期限内Claimの無い`doing`は、相談待ちなら「相談待ち」、そうでなければ再取得待ち。 */
+/** Taskの区分。受入済み・取消は数えない。期限内Claimの無い相談待ちは段階（work/review/acceptance）に関わらず「相談待ち」。期限内Claimの無い`doing`で相談待ちでなければ再取得待ち。 */
 export const workBucket = (task: Pick<OverviewTask, "status" | "activeClaim" | "consultationWait">, now: number): WorkBucket | null => {
-  if (task.status === "doing") return holdsClaim(task, now) ? "doing" : task.consultationWait ? "consultation" : "reclaimable";
   if (task.status === "accepted" || task.status === "canceled") return null;
+  if (task.consultationWait && !holdsClaim(task, now)) return "consultation";
+  if (task.status === "doing") return holdsClaim(task, now) ? "doing" : "reclaimable";
   return task.status;
 };
 
