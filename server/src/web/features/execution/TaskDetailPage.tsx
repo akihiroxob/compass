@@ -311,6 +311,7 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
               <p className="section-note">Agentが受入・レビューのClaimを持っているため、受入・差戻しはClaimの解放後にできます。</p>
             )}
             {access === "archived" && <p className="section-note">アーカイブ済みのProjectのため、受入・差戻し・取消・Commentはできません。</p>}
+            {access === "forbidden" && <p className="section-note">閲覧のみの権限のため、受入・差戻し・取消・Commentはできません。操作には編集者以上のRoleが必要です。必要な場合はWorkspaceのownerにRoleの変更を依頼してください。</p>}
           </div>
           {/* 補助列は担当（Claim）・Story等の事実、主列は判断と履歴。狭い画面では担当を先に出す。 */}
           <PageColumns sideFirst side={
