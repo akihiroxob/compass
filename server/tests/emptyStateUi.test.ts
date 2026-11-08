@@ -16,10 +16,10 @@ test("登録できない空一覧には理由と依頼先を示し、登録で�
 
 test("Storyの空一覧は起票するAgentを示し、手動起票は起票できる場合だけ案内する", () => {
   assert.match(storyEmptyMessage("allowed"), /Managerが起票/);
-  assert.match(storyEmptyMessage("allowed"), /「Storyを起票」/);
+  assert.match(storyEmptyMessage("allowed"), /「Storyを追加」/);
   for (const access of ["forbidden", "loading", "error"] as const) {
     assert.match(storyEmptyMessage(access), /Managerが起票/);
-    assert.doesNotMatch(storyEmptyMessage(access), /「Storyを起票」/);
+    assert.doesNotMatch(storyEmptyMessage(access), /「Storyを追加」/);
   }
   assert.equal(storyEmptyMessage("archived"), "Storyはありません。アーカイブ済みのため、新しいStoryは起票されません。");
 });

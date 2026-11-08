@@ -16,10 +16,8 @@ import {
   describeClaim,
   executionPath,
   groupTasksByStory,
-  initialTaskStoryId,
   isManualEditableTask,
   isManualOpenStory,
-  manualTaskStoryOptions,
   storiesApiPath,
   tasksApiPath,
   executionViewPath,
@@ -183,13 +181,6 @@ test("手動起票（Task 47）: handoff・完了・取消のStoryと、handoff�
   assert.equal(isManualEditableTask(task("t", "s"), story("s", { correlationId: "outcome:o" })), false);
   assert.equal(isManualEditableTask(task("t", null, { status: "accepted" }), null), false);
   assert.equal(isManualEditableTask(task("t", null, { status: "canceled" }), null), false);
-
-  const options = manualTaskStoryOptions([story("a"), story("h", { correlationId: "outcome:o" }), story("d", { status: "done" }), story("b", { status: "doing" })]);
-  assert.deepEqual(options.map((item) => item.id), ["a", "b"]);
-  // URLの`?storyId=`は選択肢にあるStoryだけを初期値にする。
-  assert.equal(initialTaskStoryId("b", options), "b");
-  assert.equal(initialTaskStoryId("h", options), "");
-  assert.equal(initialTaskStoryId(null, options), "");
 });
 
 test("手動起票の画面・APIのpath", () => {

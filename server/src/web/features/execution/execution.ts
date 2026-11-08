@@ -250,13 +250,6 @@ export const isManualEditableTask = (
   story: Pick<ExecutionStory, "correlationId"> | null,
 ): boolean => task.taskKey === null && (story?.correlationId ?? null) === null && !isSettledTask(task.status);
 
-/** Task起票フォームの対象Storyの選択肢（手動起票で開いているStoryだけ。順序はAPIの順）。 */
-export const manualTaskStoryOptions = (stories: ExecutionStory[]): ExecutionStory[] => stories.filter(isManualOpenStory);
-
-/** URLの`?storyId=`を初期値にする。選択肢に無いStory（handoff・完了・別Project）は無視し、未選択にする。 */
-export const initialTaskStoryId = (requested: string | null, options: Pick<ExecutionStory, "id">[]): string =>
-  requested !== null && options.some((story) => story.id === requested) ? requested : "";
-
 export type ExecutionItemFormValues = { title: string; description: string };
 export const executionItemFormValues = (item?: { title: string; description: string | null }): ExecutionItemFormValues => ({
   title: item?.title ?? "",
@@ -362,7 +355,7 @@ export const storyEmptyMessage = (access: ProjectOperationAccess | "loading" | "
   access === "archived"
     ? "Storyはありません。アーカイブ済みのため、新しいStoryは起票されません。"
     : access === "allowed"
-      ? "Storyはまだありません。Outcomeが確定するとManagerが起票し、ここに表示されます。Outcomeに依らない作業は「Storyを起票」から手動で起票できます。"
+      ? "Storyはまだありません。Outcomeが確定するとManagerが起票し、ここに表示されます。Outcomeに依らない作業は「Storyを追加」から手動で起票できます。"
       : "Storyはまだありません。Outcomeが確定するとManagerが起票し、ここに表示されます。";
 
 // ---- Project Workの一覧とTask詳細（S10-04）。Humanの判断待ちの絞り込みと、Task受入とOutcome評価の区別。 ----
