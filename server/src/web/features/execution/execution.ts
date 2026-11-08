@@ -66,7 +66,26 @@ export type ExecutionChange = {
 export type TaskComment = { id: string; body: string; principalId: string; claimId: string | null; createdAt: number };
 
 export type ExecutionOverview = { stories: ExecutionStory[]; tasks: ExecutionTask[] };
-export type TaskDetail = { task: ExecutionTask; story: ExecutionStory | null; comments: TaskComment[]; changes: ExecutionChange[] };
+/** GitHubで確認して登録したPR（登録順。`current`が現在のPR）。 */
+export type TaskPullRequest = {
+  id: string;
+  repository: string;
+  number: number;
+  url: string;
+  state: "open" | "closed" | "merged";
+  draft: boolean;
+  headBranch: string;
+  headSha: string;
+  baseBranch: string;
+  mergeSha: string | null;
+  author: string;
+  reviewedHeadSha: string | null;
+  reviewCommentUrl: string | null;
+  acceptedMergeSha: string | null;
+  verifiedAt: number;
+  current: boolean;
+};
+export type TaskDetail = { task: ExecutionTask; story: ExecutionStory | null; comments: TaskComment[]; changes: ExecutionChange[]; pullRequests: TaskPullRequest[] };
 export type ChangePage = { changes: ExecutionChange[]; nextCursor: number | null };
 
 export const executionPath = (projectId: string, outcomeId?: string) =>
@@ -79,6 +98,8 @@ export const evaluationsPath = (workspaceId: string, outcomeId: string) =>
   `/api/workspaces/${workspaceId}/outcomes/${outcomeId}/evaluations`;
 export const executionSummaryPath = (projectId: string, outcomeId: string) =>
   `/api/projects/${projectId}/outcomes/${outcomeId}/execution-summary`;
+
+export const pullRequestStateLabels: Record<TaskPullRequest["state"], string> = { open: "オープン", closed: "クローズ", merged: "マージ済み" };
 
 export const storyStatusLabels: Record<StoryStatus, string> = { todo: "未着手", doing: "進行中", done: "完了", canceled: "取消" };
 export const taskStatusLabels: Record<TaskStatus, string> = {
