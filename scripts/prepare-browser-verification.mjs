@@ -95,6 +95,33 @@ const prepareIntentExplanations = async (services, workspaceId, projectId, inten
   return { metricKeys: ['completion_rate', 'weekly_retention'], explanationIds: { completionRateV1: first.explanation.id, weeklyRetention: second.explanation.id, completionRateV2: revised.explanation.id } };
 };
 const scenarios = [];
+// Daily trend fixtures for the Workspace overview and goal detail (UI-M3). The values are display fixtures, not business results.
+// The series has a missing span (offsets 12-13), a failed day (offset 5) and one multi-day observation, so the chart must not join, zero-fill or spread them.
+const prepareGoalOverview = async (services, direction, workspaceId, intent) => {
+  const strategist = identities.strategist;
+  const evaluator = identities.evaluator;
+  const source = { name: '検証用の集計表', uri: 'https://example.test/fixtures/metrics' };
+  const observedAt = Date.now() - 60_000;
+  await services.defineIntentMetricUseCase.execute(strategist, workspaceId, intent.id, { key: 'monthly_revenue', name: '月間売上', unit: '円', targetValue: 300000, staleAfterDays: 3 });
+  const daily = [];
+  for (let offset = 29; offset >= 0; offset -= 1) {
+    if (offset === 12 || offset === 13) continue;
+    daily.push(offset === 5
+      ? { periodStart: isoDay(offset), periodEnd: isoDay(offset), status: 'failed', failureReason: '集計表の取得に失敗した', source, observedAt }
+      : { periodStart: isoDay(offset), periodEnd: isoDay(offset), status: 'observed', value: 120000 + (29 - offset) * 2000, source, observedAt });
+  }
+  daily.push({ periodStart: isoDay(21), periodEnd: isoDay(15), status: 'observed', value: 810000, source, observedAt });
+  await services.recordIntentMetricObservationsUseCase.execute(evaluator, workspaceId, intent.id, { metricKey: 'monthly_revenue', observations: daily });
+  const failed = await direction.createIntentUseCase.execute(workspaceId, { title: '利用者の継続を確認できる状態にする', desiredState: '毎日使う人数を毎日の観測で確認できる',
+    background: '観測基盤の接続が不安定で、最新の値を取得できない日がある。', audience: '無料体験の利用者', constraints: '取得できない日を0人として扱わない。' });
+  await services.defineIntentMetricUseCase.execute(strategist, workspaceId, failed.id, { key: 'dau', name: 'DAU', unit: '人', targetValue: 1000, staleAfterDays: 3 });
+  await services.recordIntentMetricObservationsUseCase.execute(evaluator, workspaceId, failed.id, { metricKey: 'dau', observations: [
+    { periodStart: isoDay(3), periodEnd: isoDay(3), status: 'observed', value: 580, source, observedAt },
+    { periodStart: isoDay(2), periodEnd: isoDay(2), status: 'observed', value: 600, source, observedAt },
+    { periodStart: isoDay(0), periodEnd: isoDay(0), status: 'failed', failureReason: '計測基盤が応答しなかった', source, observedAt },
+  ] });
+  return { revenueIntentId: intent.id, failedIntentId: failed.id, expected: 'monthly_revenue: 29 daily values, gap on days 12-13, failed day 5, one 7-day value excluded from the daily trend; dau: latest day failed (state failed, last value 600)' };
+};
 // Project and Workspace Consultations reflected in a real document commit through the normal Work flow.
 // Human steps (Repository registration, replies) use the owner's Human use cases and are recorded as in-scope Entities;
 // Agent steps use the policy-checked public MCP.
@@ -295,8 +322,10 @@ const prepareConsultationLifecycle = async (services, owner, client, entry, insp
   // 方針訂正: 解決済みの相談を参照する新しい相談。Workspace相談はHuman待ちのまま残す。viewerが所属しないWorkspaceの相談はviewerに見えない。
   const correction = await client.call('manager', 'create_consultation', { projectId: projectA, ...consultation('通知テーブルの方針訂正',
     '保存期間の要件が追加されたため、通知テーブルを使わない方針を見直しますか', { supersedesConsultationId: resumedIds.consultationId }) });
+  // The Direction Entities were created by the Human/Direction preparation in this Workspace; observe them so the Outcome reference is in scope.
+  client.observe({ workspaceId }, { intentId: entry.intentId, outcomeId: entry.outcomeId });
   const workspaceWaiting = await client.call('strategist', 'create_consultation', { workspaceId,
-    ...consultation('次に優先するOutcome', '検索改善と通知改善のどちらを先に追いますか', { dueAt: inHours(30) }) });
+    ...consultation('次に優先するOutcome', '検索改善と通知改善のどちらを先に追いますか', { dueAt: inHours(30), refs: [{ kind: 'outcome', intentId: entry.intentId, id: entry.outcomeId }] }) });
   const hidden = await client.call('strategist', 'create_consultation', { workspaceId: hiddenWorkspaceId,
     ...consultation('未所属Workspaceの判断', 'viewerが所属しないWorkspaceの非公開の判断') });
 
@@ -470,7 +499,7 @@ try {
   };
   for (const scenario of ['no-target', 'partial-work', 'evaluated']) {
     const name = { 'no-target': '[受入] Targetなし', 'partial-work': '[受入] 一部Project未着手', evaluated: '[受入] 複数Targetと評価根拠' }[scenario];
-    const workspace = await services.human.createWorkspace.execute({ name, mission: '保存済みデータからDirectionの表示・遷移・権限差を検証する' }, owner);
+    const workspace = await services.human.createWorkspace.execute({ name, mission: '保存済みデータからDirectionの表示・遷移・権限差を検証する', vision: '各Projectの貢献と判断の根拠をたどれて、複数の目標への到達点と変化を一目で比べられる状態をつくる。Workspace一覧では2行までに収め、概要では全文を折りたたまずに読めることを確認する。' }, owner);
     for (const role of ['strategist', 'evaluator']) await services.grantWorkspaceRoleUseCase.execute(workspace.id, { principalId: identities[role], role });
     const intent = await direction.createIntentUseCase.execute(workspace.id, { title: `${name} Intent`, desiredState: '各Projectの貢献と判断根拠が追跡できる' });
     const outcome = await direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
@@ -542,6 +571,7 @@ try {
       entry.intentExplanations = { ...await prepareIntentExplanations(services, workspace.id, intentProject.id, intent, outcome,
         { findingId: result.findings[0].id, synthesisId: synthesis.id, decisionId: decision.decision.id, evaluationId: saved.evaluation.id }),
         path: `/projects/${intentProject.id}/intents/${intent.id}`, expected: 'completion_rate: v2 (previous v1 whose basis was corrected) and weekly_retention v1; all with kind-separated items' };
+      entry.goalOverview = { ...await prepareGoalOverview(services, direction, workspace.id, intent), overviewPath: `/workspaces/${workspace.id}`, detailPath: `/workspaces/${workspace.id}/direction/intents/${intent.id}`, listPath: '/' };
     }
     scenarios.push(entry);
   }

@@ -6,3 +6,5 @@ export { EvaluationCard } from "./OutcomeLoopSection";
 export { isReplanTarget, outcomeStatusLabels, problemLabelOf, replanNote, splitOutcomes, type Outcome } from "./outcome";
 export { OutcomeOverviewList } from "./OutcomeOverviewList";
 export { OutcomeOverviewSummary } from "./OutcomeOverviewSummary";
+export { IntentOutcomeSummaries } from "./IntentOutcomeSummaries";
+export { problemKindLabels, type OutcomeOverview, type OutcomeOverviewPage } from "./outcomeOverview";

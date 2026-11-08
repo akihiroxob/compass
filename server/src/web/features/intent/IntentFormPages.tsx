@@ -3,7 +3,7 @@ import { jsonInit, jsonPost, request } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
 import { WorkspaceDirectionGate } from "../access";
 import { emptyIntentFormValues, formValuesFromIntent, intentStatusLabels, type Intent, type IntentFormValues } from "./intent";
-import { intentPath, workspaceApiPath, workspacePath } from "../../paths";
+import { intentPath, workspaceApiPath, workspaceIntentPath, workspacePath } from "../../paths";
 import { IntentForm } from "./IntentForm";
 import { useIntentPage } from "./useIntentPage";
 
@@ -27,9 +27,15 @@ const projectPlacement = (projectId: string, intentId?: string): Placement => ({
   detailTo: `/projects/${projectId}`,
 });
 
-const workspacePlacement = (workspaceId: string): Placement => {
-  const direction = workspacePath(workspaceId, "direction");
-  return { back: { to: direction, label: "← Outcome" }, savedTo: () => direction, activeIntentTo: () => direction, detailTo: direction };
+/** Workspace配下の目標。作成はWorkspace概要から、編集は目標詳細から開き、保存後は目標詳細へ戻る。 */
+const workspacePlacement = (workspaceId: string, intentId?: string): Placement => {
+  const overview = workspacePath(workspaceId);
+  return {
+    back: intentId ? { to: workspaceIntentPath(workspaceId, intentId), label: "← 目標詳細" } : { to: overview, label: "← Workspace概要" },
+    savedTo: (intent) => workspaceIntentPath(workspaceId, intent.id),
+    activeIntentTo: (id) => workspaceIntentPath(workspaceId, id),
+    detailTo: overview,
+  };
 };
 
 const CreateForm = ({ workspaceId, placement }: { workspaceId: string; placement: Placement }) => (
@@ -65,6 +71,6 @@ export const WorkspaceIntentCreatePage = () => {
 
 export const WorkspaceIntentEditPage = () => {
   const { workspaceId = "", intentId = "" } = useParams();
-  const placement = workspacePlacement(workspaceId);
+  const placement = workspacePlacement(workspaceId, intentId);
   return <WorkspaceDirectionGate scope={{ workspaceId }} back={placement.back}>{(id) => <EditForm workspaceId={id} intentId={intentId} placement={placement} />}</WorkspaceDirectionGate>;
 };
