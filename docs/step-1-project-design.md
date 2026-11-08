@@ -32,6 +32,6 @@ HumanはWeb UIを使う。Web APIは`POST /api/projects`、`GET /api/projects`�
 
 SQLiteの`project`・`project_repository_link`・`project_resource`と、所属Workspaceの`workspace`・`workspace_principle`・`workspace_constraint`に保存する。子要素は入力順を保持する。`project`は所属`workspace_id`（NOT NULL）・name・purpose（`description`）・状態だけを持ち、Mission等の列・子tableは無い。
 
-画面は参加中のProject`/projects`、作成`/workspaces/:workspaceId/projects/new`、詳細`/projects/:projectId`、編集`/projects/:projectId/edit`。詳細にはIntent・Outcome・Research・Decision・Execution・Member・Agent管理を表示する。未設定・空一覧・読み込み失敗を区別する。
+画面は参加中のProject`/projects`、作成`/workspaces/:workspaceId/projects/new`、詳細`/projects/:projectId`、編集はProject設定`/projects/:projectId?view=settings`の基本情報・Repository・Resource（旧`/edit`は設定へ移す。閲覧者・archive後は同じ内容を読み取り専用で表示し、アーカイブは保存と別の領域）。詳細にはIntent・Outcome・Research・Decision・Execution・Member・Agent管理を表示する。未設定・空一覧・読み込み失敗を区別する。
 
 remote modeのMCPにはProject作成・更新を公開せず、参照はAgent CredentialとProject Grantで認可する。

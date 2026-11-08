@@ -145,7 +145,6 @@ export const WorkspaceProjectCreatePage = () => {
           back={{ to: workspaceProjectsPath(workspace.id), label: "WorkspaceのProject" }}
           archivedScope="Workspace"
           notFound={workspaceNotFound}
-          mode="create"
           save={async (values) => {
             const { project } = await request<{ project: Project }>(workspaceApiPath(workspace.id, "/projects"), jsonInit("POST", values));
             navigation?.refreshWorkspace(workspace.id);
