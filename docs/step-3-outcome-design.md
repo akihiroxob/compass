@@ -41,3 +41,19 @@ WorkのStoryはOutcomeを参照し、作成時の成功条件等をsnapshotと�
 現在のEvaluationはevaluator Grantを持つAgentが全Criterionを`met` / `not_met` / `insufficient_evidence`で判定する。評価できるのは全Target ProjectからSummaryが還流し`incomplete`が無いOutcomeだけで、`met` / `not_met`にはいずれかのTargetが還流したEvidence参照が必要。総合結果は全件metならachieved、not_metがあればfailed、それ以外はinsufficient_evidenceとして導出する。Evaluationは`method`・`targetVersion`（評価した対象の版）・`limitations`（限界）を必須で保存し、評価対象の課題（`problemIds`、このOutcomeの課題だけ）を任意で持つ。`cognitive_walkthrough`は設計の点検で実ユーザーの証拠ではないため、Criterionを`met`とは判定できない（`VALIDATION_ERROR`）。根拠が不足する場合は`insufficient_evidence`（判断不能）で保存し、Taskの受入・公開を効果達成として扱わない。
 
 Evaluation保存はOutcomeのstatusを変更しない。StrategistはEvaluationを根拠に次Outcome・追加調査・Intent完了等を判断する。実Agentによる自律運転は未検証。
+
+## Task進捗と問題の集計（Outcome一覧・詳細）
+
+Workspaceの固定メニュー「Outcome」の一覧（`GET /api/workspaces/:workspaceId/outcomes`）と詳細（`GET .../outcomes/:outcomeId/overview`）は、Directionの`ListWorkspaceOutcomesUseCase` / `GetWorkspaceOutcomeOverviewUseCase`が同じ組み立てで返す。Workspace Membership（viewer以上）で認可し、Story・Task本文はDirectionへ複製しない。
+
+**Task進捗の集計規則**（`packages/direction/src/domain/OutcomeProgress.ts`）:
+
+- 対象はOutcomeのTarget Projectのうち、Outcomeへ相関付いた（`outcome_ref`）StoryのTask。Outcome未設定のStory・Task、Target外のProjectのStoryは数えない。複数ProjectのTaskは合算し、Project別の内訳も返す。
+- 分子は受入済み（`accepted`）、分母は取消（`canceled`）を除いたTask数。取消は分母に含めず`canceled`として別に返し、総数（`total`）は分母＋取消。未完了（todo・doing・in_review・wait_accept・rejected）は分母に含まれる。
+- 分母が0なら割合（`ratio`）は`null`で、0%や完了にしない。`kind`で区別する: `no_target`（Target未設定）、`not_planned`（Targetはあるが相関付いたStoryが無い＝未起票）、`no_countable_tasks`（StoryはあるがTaskが0件、または全て取消）、`counted`（分母1件以上）。集約では、未起票のProjectは分母に寄与せず`unplannedProjectCount`で示す。
+- 検索・ビジネス目標・問題の有無・ページングは表示するOutcomeを選ぶだけで、集計の分母を変えない。
+- 割合はTask進捗であり、Outcomeの達成度・効果ではない。提供状況（公開）と効果の確認（Evaluation）は別の事実として扱う。
+
+**問題**: 開発を止めているのは、Human待ち（`waiting_human`）とAgentが対処する（`waiting_agent`）相談。Outcomeとの関連は構造化された参照だけで決める — Target ProjectのOutcome相関Storyに属するTaskが待つ相談（`task_consultation_wait`）、そのStory・Taskを参照するProject相談、Outcomeを参照するWorkspace相談。題名・理由の文章一致は使わない。同じ相談は複数のProject・Taskに関わっても相談IDで1件に数える。代表は、Human待ちを優先し、待ちの長い（更新の古い）ものとする。残りは`otherCount`（ほかN件）で示し、詳細は`items`で全件を返す。問題の情報を取得できないときは`unknown`（未取得）とし、`none`（確認できた問題なし）と区別する。`problem=none`の絞り込みは未取得を含めない。
+
+**一覧の問い合わせ**: `q`（Outcome名・説明・貢献仮説・目標名の部分一致）、`intentId`、`problem`（`present` / `none` / `unknown`）、`limit`（1〜100、既定20）、`offset`。新しい順。Web UIは条件をURLのqueryに保持し、詳細から戻るとき同じ条件・ページで開く。MCPの専用toolは追加していない（Agentは既存の`list_outcomes`・`list_outcome_target_work`を使う）。

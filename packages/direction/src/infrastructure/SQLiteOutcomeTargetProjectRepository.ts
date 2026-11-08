@@ -80,6 +80,20 @@ export class SQLiteOutcomeTargetProjectRepository implements OutcomeTargetProjec
     });
   }
 
+  async listByWorkspace(workspaceId: string): Promise<OutcomeTargetProjectView[]> {
+    return this.database.transaction().execute(async (transaction) => {
+      const rows = await transaction
+        .selectFrom("outcome_target_project")
+        .innerJoin("outcome", "outcome.id", "outcome_target_project.outcome_id")
+        .selectAll("outcome_target_project")
+        .where("outcome.workspace_id", "=", workspaceId)
+        .orderBy("outcome_target_project.created_at")
+        .orderBy(sql`outcome_target_project.rowid`)
+        .execute();
+      return toTargetViews(transaction, this.projects, rows);
+    });
+  }
+
   async listByIntent(workspaceId: string, intentId: string): Promise<OutcomeTargetProjectView[]> {
     return this.database.transaction().execute(async (transaction) => {
       const rows = await transaction

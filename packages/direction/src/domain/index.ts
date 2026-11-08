@@ -15,6 +15,7 @@ export * from "./OutcomeEvaluation.ts";
 export * from "./OutcomeEvaluationRepository.ts";
 export * from "./OutcomeExecution.ts";
 export * from "./OutcomeExecutionRepository.ts";
+export * from "./OutcomeProgress.ts";
 export * from "./OutcomeRepository.ts";
 export * from "./OutcomeTargetProject.ts";
 export * from "./ProjectArchivedResult.ts";

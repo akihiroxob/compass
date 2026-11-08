@@ -15,6 +15,8 @@ type OutcomeFormProps = {
   submitLabel: string;
   pendingLabel: string;
   cancelTo: string;
+  /** 戻り先・保存後の画面へ引き継ぐrouter state（Outcome一覧の絞り込み条件）。 */
+  linkState?: unknown;
   save: (values: OutcomeFormValues) => Promise<Outcome>;
   /** 保存後に開く画面。 */
   savedTo: (outcome: Outcome) => string;
@@ -28,7 +30,7 @@ type OutcomeFormProps = {
  * Outcomeの作成・編集フォーム。目指す変化・判断理由・成功条件は作成時に固定し、編集ではタイトル・貢献仮説・課題を変更する
  * （契約はserverの`outcomeSchema`、MCPと共通）。課題は一覧全体を保存し、表示後に他で更新されていれば競合として拒否される。
  */
-export const OutcomeForm = ({ workspaceId, mode, initial, heading, submitLabel, pendingLabel, cancelTo, save, savedTo, detailTo, conflictAction }: OutcomeFormProps) => {
+export const OutcomeForm = ({ workspaceId, mode, initial, heading, submitLabel, pendingLabel, cancelTo, linkState, save, savedTo, detailTo, conflictAction }: OutcomeFormProps) => {
   const navigate = useNavigate();
   const [title, setTitle] = useState(initial.title);
   const [description, setDescription] = useState(initial.description);
@@ -42,8 +44,8 @@ export const OutcomeForm = ({ workspaceId, mode, initial, heading, submitLabel, 
   const invalid = invalidFieldIds(error);
   const updateCriterion = (index: number, changes: Partial<(typeof criteria)[number]>) => setCriteria(criteria.map((item, i) => i === index ? { ...item, ...changes } : item));
   // 保存に失敗しても入力state（上のuseState）は維持し、そのまま再送信できる。
-  const submit = async (event: FormEvent) => { event.preventDefault(); setError(null); setIsSubmitting(true); try { const outcome = await save({ title, description, hypothesis, rationale, successCriteria: criteria, problems }); navigate(savedTo(outcome)); } catch (reason) { const classified = classifyError(reason); setError(classified.kind === "not_found" ? { kind: "other", message: "Workspace、Intent、またはOutcomeが見つかりません。削除されたか、閲覧する権限がありません。" } : classified); } finally { setIsSubmitting(false); } };
-  return <main className="narrow"><Link to={cancelTo} className="back-link">← 戻る</Link><div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div><p className="lede">{heading.lede}</p>
+  const submit = async (event: FormEvent) => { event.preventDefault(); setError(null); setIsSubmitting(true); try { const outcome = await save({ title, description, hypothesis, rationale, successCriteria: criteria, problems }); navigate(savedTo(outcome), { state: linkState }); } catch (reason) { const classified = classifyError(reason); setError(classified.kind === "not_found" ? { kind: "other", message: "Workspace、Intent、またはOutcomeが見つかりません。削除されたか、閲覧する権限がありません。" } : classified); } finally { setIsSubmitting(false); } };
+  return <main className="narrow"><Link to={cancelTo} state={linkState} className="back-link">← 戻る</Link><div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div><p className="lede">{heading.lede}</p>
     {error && <FormErrorSummary error={error} detailTo={detailTo} archivedScope="Workspace" conflict={{ title: "この操作は現在のIntentまたはOutcomeの状態と競合しています。", action: conflictAction }} />}
     <form onSubmit={submit} className="project-form"><section className="form-section"><Field label="Outcome名" required description="Outcomeを一言で表す名前（100文字まで）"><TextInput {...fieldProps(invalid, "field-title")} required maxLength={100} value={title} onChange={(event) => setTitle(event.target.value)} /></Field>
       {mode === "create" && <Field label="目指す変化" required description="目標へ近づくために実現する、観測可能な変化。作成後は変更できません。"><TextArea {...fieldProps(invalid, "field-description")} required maxLength={2000} rows={5} value={description} onChange={(event) => setDescription(event.target.value)} /></Field>}
@@ -58,5 +60,5 @@ export const OutcomeForm = ({ workspaceId, mode, initial, heading, submitLabel, 
         <Button variant="text" disabled={criteria.length >= maxSuccessCriteria} onClick={() => setCriteria([...criteria, emptyCriterion])}>＋ 成功条件を追加</Button></fieldset></section> : <p className="fixed-note">目指す変化・判断理由・成功条件は作成時に固定されています。編集できるのはOutcome名・貢献仮説・課題です。</p>}
     <section className="form-section" aria-labelledby="outcome-problems-heading"><h2 id="outcome-problems-heading">解決したい課題</h2><p className="fixed-note">課題ごとに根拠と解決策の仮説を記録します（任意、{maxOutcomeProblems}件まで）。Taskの停止などの開発上の障害はここに含めません。</p>
       <ProblemFields problems={problems} onChange={setProblems} invalid={invalid} options={evidenceOptions} /></section>
-    <div className="form-actions"><LinkButton to={cancelTo} variant="secondary">キャンセル</LinkButton><Button type="submit" pending={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</Button></div></form></main>;
+    <div className="form-actions"><LinkButton to={cancelTo} state={linkState} variant="secondary">キャンセル</LinkButton><Button type="submit" pending={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</Button></div></form></main>;
 };

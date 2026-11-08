@@ -17,6 +17,7 @@ import { humanRoleLabels, RoleHelpButton, WorkspaceInvitationSection, WorkspaceM
 import { archiveInit, describeArchiveFailure, parseListStatus, ProjectListSwitch, summarizeReason, validateArchiveReason, type ProjectStatus } from "../project";
 import { useWorkspaceNavigation } from "./WorkspaceContext";
 import { DirectionIntents, WorkspaceOutcomeDetail } from "./WorkspaceDirection";
+import { OutcomeOverviewList } from "../outcome";
 import { WorkspaceOverview } from "./WorkspaceOverview";
 import { chooseHomeWorkspace, workspaceSectionLabels, type Workspace, type WorkspaceProject } from "./workspace";
 import { loadProjects } from "./workspaceProjects";
@@ -158,8 +159,9 @@ const DirectionContent = ({ workspace, myRole }: { workspace: Workspace; myRole:
   return (
     <>
       <DirectionPanel mission={workspace.mission} vision={workspace.vision} />
+      {value && <OutcomeOverviewList workspaceId={workspace.id} intents={[...value[0].activeIntents, ...value[0].pastIntents]} projects={value[1]} />}
       <section className="detail-section intent-section" aria-labelledby="workspace-direction-intent-heading">
-        <h2 id="workspace-direction-intent-heading">Intent・Outcome</h2>
+        <h2 id="workspace-direction-intent-heading">ビジネス目標（Intent）とActive Outcome</h2>
         <p className="section-note">IntentはHumanが今実現したい状態、OutcomeはIntentへ近づくために達成すべき観測可能な状態です。OutcomeはWorkspaceに属し、Target ProjectのStoryが貢献します。</p>
         {workspaceDirectionAccess(workspace, myRole) === "allowed" && <div className="action-row"><LinkButton size="sm" to={workspaceIntentCreatePath(workspace.id)}>目標を作成</LinkButton></div>}
         {error ? <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${error}`} /> : !value ? <Loading /> : <DirectionIntents workspaceId={workspace.id} direction={value[0]} projects={value[1]} canEdit={workspaceDirectionAccess(workspace, myRole) === "allowed"} />}
@@ -176,7 +178,7 @@ const outcomeNotFound = "Outcomeが見つからないか、このWorkspaceを閲
 const OutcomeContent = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
   const { intentId = "", outcomeId = "" } = useParams();
   const { value, error } = useLoad(`${workspace.id}/${intentId}/${outcomeId}`, () => Promise.all([loadOutcomeDetail(workspace.id, intentId, outcomeId, outcomeNotFound), settle(loadProjects(workspace.id), workspaceNotFound)]), outcomeNotFound);
-  if (error) return <><Link to={workspacePath(workspace.id, "direction")} className="back-link">← 方向</Link><ErrorState message={error} /></>;
+  if (error) return <><Link to={workspacePath(workspace.id, "direction")} className="back-link">← Outcome一覧</Link><ErrorState message={error} /></>;
   return !value ? <Loading /> : <WorkspaceOutcomeDetail workspaceId={workspace.id} data={value[0]} projects={value[1]} canEdit={workspaceDirectionAccess(workspace, myRole) === "allowed"} />;
 };
 

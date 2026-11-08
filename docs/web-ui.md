@@ -148,7 +148,7 @@ URLで表す遷移と表示切替はリンクのままにし、新しいタブ�
 | 画面 | 構成 |
 | --- | --- |
 | Workspaceの概要 | 見出し → Mission・Visionの帯 → 主列（取得時刻・再読込、要対応、現在地、最近の記録）・補助列（Project、Agent、Workspaceの管理） |
-| Workspaceの方向 | Mission・Visionの帯 → Intent・Outcome → Principles・Constraints |
+| Workspaceの方向（メニュー「Outcome」） | Mission・Visionの帯 → Outcome一覧（目標をまたぐ検索・絞り込み・ページング。条件はURLのqueryに保持） → Intent・Active Outcome → Principles・Constraints |
 | Projectの概要 | 見出し（更新時刻・Roleを1行）→ タブ → 主列（取得時刻・再読込、次の行動、貢献するOutcome、最近の記録）・補助列（実行境界、実行状況、Claim保持中） |
 | Projectの方向・実行・判断待ち・記録・設定 | 本文の幅を概要とそろえ（`main`の既定幅）、設定の入力欄は`.grant-form`で40remまでに抑える |
 | Task詳細 | パンくず → 見出し・操作 → 主列（相談待ち、差戻し理由、Task受入とOutcome評価、Comment、変更履歴）・補助列（概要: Story・相関ID・Claim等）。狭い画面では補助列（担当）を先に出す |
