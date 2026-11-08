@@ -12,6 +12,7 @@ ReviewerはPR head、Managerは統合SHAを照合する。Workerは検証時HEAD
 | 一部未着手 | Target Project A/B。Aにはaccepted Taskを持つStoryとExecution Evidence、BにはStoryなし |
 | 評価と判断 | 両Targetのaccepted WorkとEvidence、成功条件ごとのEvaluation、Research Result/Finding/Synthesis、関連するDirection Decision |
 | 観測の説明 | 評価と判断のWorkspaceのIntent（`intentExplanations.path`）に、観測項目2件と各観測値、版付きの説明（事実・原因の仮説・次の提案、観測・Finding・Synthesis・Evaluation・Decisionへの根拠、後から訂正された観測）。一部未着手のWorkspaceの`intentExplanationStates`に、観測項目は未計測で説明なしのIntentと、観測項目なしで説明なしのIntent |
+| 目標の俯瞰 | 評価と判断のWorkspaceの`goalOverview`。Intent（`revenueIntentId`）に観測項目`monthly_revenue`（目標30万円）の日次29日分（欠損2日・取得失敗1日・複数日の観測1件）と、最新が取得失敗の目標（`failedIntentId`、DAU）。3つのWorkspaceにVision、一部未着手のWorkspaceのOutcomeを参照するWorkspace相談（一覧の問題の代表理由）。一覧は`/`、概要・目標詳細のpathは`overviewPath`・`detailPath` |
 | 相談の段階 | 一部未着手のWorkspaceに`consultationLifecycle`。Project Aの相談と待機Taskを各段階に置き、Workspace相談と、viewerが所属しないTargetなしのWorkspaceの相談を加える |
 
 評価と判断のシナリオには`consultationReflection`として、Project相談とWorkspace相談（Project Aへ引継ぎ）の結論を文書へ反映した状態も準備する。専用ディレクトリ内のbare repository（`verification-docs.git`）とcheckoutを作り、Project Aへ`https://example.test/verification-docs.git`として登録する。`request_consultation_followup`→Workerの`claim_task`と実際の文書commit→通常の`claim_review`・`reviewed_task`→`claim_acceptance`・`accept_task`（`deliverables`にcommitとpath）→`record_consultation_artifact`を公開MCPで通す。manifestの`path`から反映済み表示・再読込・viewerとの権限差の確認へ進める。HumanのRepository登録・返信はOwnerのHuman use caseで行う。これらは検証用Principalの公開操作で、実Agentの稼働を示さない。対象SHAに反映の公開契約が無い場合は`status: unavailable`と`kind`（`tool_unavailable` / `policy_denied`）を記録し、内部操作で補わない。

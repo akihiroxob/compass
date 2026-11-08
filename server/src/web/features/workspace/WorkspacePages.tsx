@@ -18,8 +18,10 @@ import { archiveInit, describeArchiveFailure, parseListStatus, ProjectListSwitch
 import { useWorkspaceNavigation } from "./WorkspaceContext";
 import { DirectionIntents, WorkspaceOutcomeDetail } from "./WorkspaceDirection";
 import { OutcomeOverviewList } from "../outcome";
+import { WorkspaceIntentContent } from "./WorkspaceIntentPage";
+import { WorkspaceList } from "./WorkspaceList";
 import { WorkspaceOverview } from "./WorkspaceOverview";
-import { chooseHomeWorkspace, workspaceSectionLabels, type Workspace, type WorkspaceProject } from "./workspace";
+import { workspaceSectionLabels, type Workspace, type WorkspaceProject } from "./workspace";
 import { loadProjects } from "./workspaceProjects";
 
 /** 読込の状態。`key`は取得対象（URLのID・status）で、入力が変わった最初のrenderから前の結果を出さない。 */
@@ -39,33 +41,14 @@ const useLoad = <T,>(key: string, load: () => Promise<T>, notFound: string): { v
 
 const workspaceNotFound = "Workspaceが見つからないか、このWorkspaceを閲覧する権限がありません。WorkspaceのownerにMembershipの追加を依頼してください。";
 
-/** ホーム（`/`）。前回選択したWorkspace、無ければ一覧の先頭の概要へ移る。参加していなければ理由と次の行動を出す。 */
-export const WorkspaceHomePage = () => {
-  const navigation = useWorkspaceNavigation();
-  if (!navigation || navigation.error) {
-    return <main className="narrow"><StateCard tone="error" role="alert"><p>Workspaceの一覧を読み込めませんでした: {navigation?.error ?? "不明なエラー"}</p>{navigation && <Button variant="secondary" onClick={navigation.reload}>再試行</Button>}</StateCard></main>;
-  }
-  const { workspaces, rememberedId } = navigation;
-  if (workspaces === null) return <main className="narrow"><Loading /></main>;
-  const home = chooseHomeWorkspace(workspaces, rememberedId);
-  if (home) return <Navigate to={workspacePath(home.id)} replace />;
-  return (
-    <main className="narrow">
-      <div className="detail-hero"><p className="eyebrow">Workspace</p><h1>参加しているWorkspaceはありません</h1></div>
-      <StateCard>
-        <p>Workspaceは、Mission・Visionを共有して複数のProjectで成果を実現する単位です。Workspaceを作成するとあなたがownerになり、Projectを追加できます。</p>
-        <p>既存のWorkspaceに参加するには、そのWorkspaceのownerにMembershipの追加を依頼してください。</p>
-        <div className="action-row"><LinkButton to={workspaceCreatePath}>Workspaceを作成</LinkButton><LinkButton variant="secondary" to="/projects">参加中のProject</LinkButton></div>
-      </StateCard>
-    </main>
-  );
-};
+/** ホーム（`/`）。参加しているWorkspaceを比べて、見る対象を選ぶ一覧（Missionの下のVision・問題・対応待ち）。 */
+export const WorkspaceHomePage = () => <WorkspaceList />;
 
 /**
  * Workspaceの画面の共通枠。URLのWorkspaceをWorkspace Membershipで取得し、閲覧できなければ一覧に無いWorkspaceと同じく
  * 理由だけを出す（未所属・不在はserverが区別せず404）。見出しにWorkspace名・項目・状態・自分のRoleを出す。
  */
-const WorkspaceFrame = ({ section, title, children }: { section: WorkspaceSection; title?: string; children: (workspace: Workspace, myRole: HumanRole, reload: () => void) => ReactNode }) => {
+const WorkspaceFrame = ({ section, title, children }: { section: WorkspaceSection; title?: string | null; children: (workspace: Workspace, myRole: HumanRole, reload: () => void) => ReactNode }) => {
   const { workspaceId = "" } = useParams();
   // archive等で状態が変わった後に取り直す。再取得中は読み込み中を出し、古い状態の操作を残さない。
   const [revision, setRevision] = useState(0);
@@ -74,12 +57,20 @@ const WorkspaceFrame = ({ section, title, children }: { section: WorkspaceSectio
     <main>
       {error ? <ErrorState message={error} /> : !value ? <Loading /> : (
         <>
-          <div className="detail-hero project-hero">
-            <p className="eyebrow">Workspace · {value.workspace.name}</p>
-            <h1>{title ?? (section === "overview" ? value.workspace.name : workspaceSectionLabels[section])}</h1>
-            {value.workspace.status === "archived" && <p><span className="status-badge muted">アーカイブ済み</span></p>}
-            <p className="section-note">あなたのWorkspaceでのRole: {humanRoleLabels[value.myRole]}</p>
-          </div>
+          {title !== null && (
+            <div className="detail-hero project-hero">
+              <p className="eyebrow">{section === "overview" && title === undefined ? "Workspace概要" : `Workspace · ${value.workspace.name}`}</p>
+              <h1>{title ?? (section === "overview" ? value.workspace.name : workspaceSectionLabels[section])}</h1>
+              {section === "overview" && title === undefined && (
+                <>
+                  <p className="lede workspace-mission">{value.workspace.mission}</p>
+                  <p className="workspace-vision">{value.workspace.vision ?? <span className="unset">Visionは未設定です。</span>}</p>
+                </>
+              )}
+              {value.workspace.status === "archived" && <p><span className="status-badge muted">アーカイブ済み</span></p>}
+              <p className="section-note">あなたのWorkspaceでのRole: {humanRoleLabels[value.myRole]}</p>
+            </div>
+          )}
           {value.workspace.status === "archived" && (
             <section className="detail-section archive-notice" aria-labelledby="workspace-archive-heading">
               <h2 id="workspace-archive-heading">このWorkspaceはアーカイブされています</h2>
@@ -142,13 +133,8 @@ const ManageSection = ({ workspace, myRole, reload }: { workspace: Workspace; my
   );
 };
 
-/** 概要。Mission・Visionの帯と、要対応・現在地・最近の記録・Project・Agent（`WorkspaceOverview`）、補助列のWorkspaceの管理。 */
-const OverviewContent = ({ workspace, myRole, reload }: { workspace: Workspace; myRole: HumanRole; reload: () => void }) => (
-  <>
-    <DirectionPanel mission={workspace.mission} vision={workspace.vision} />
-    <WorkspaceOverview workspace={workspace} myRole={myRole} manage={<ManageSection workspace={workspace} myRole={myRole} reload={reload} />} />
-  </>
-);
+/** 概要。見出しにMission・Vision（フレーム）、本文は現状の概要・ビジネス目標・プロダクト・対応待ち（`WorkspaceOverview`）。Workspaceの管理は設定に置く。 */
+const OverviewContent = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => <WorkspaceOverview workspace={workspace} myRole={myRole} />;
 
 /**
  * 方向。Mission・Vision、Intent（Active・過去）→ Outcome → Target Project別のWork、Principles・Constraints。いずれもWorkspaceが正本で、
@@ -282,7 +268,8 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
   );
 };
 
-export const WorkspaceOverviewPage = () => <WorkspaceFrame section="overview">{(workspace, myRole, reload) => <OverviewContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
+export const WorkspaceOverviewPage = () => <WorkspaceFrame section="overview">{(workspace, myRole) => <OverviewContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
+export const WorkspaceIntentPage = () => <WorkspaceFrame section="overview" title={null}>{(workspace, myRole) => <WorkspaceIntentContent workspace={workspace} canEdit={workspaceDirectionAccess(workspace, myRole) === "allowed"} />}</WorkspaceFrame>;
 export const WorkspaceDirectionPage = () => <WorkspaceFrame section="direction">{(workspace, myRole) => <DirectionContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceOutcomePage = () => <WorkspaceFrame section="direction">{(workspace, myRole) => <OutcomeContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceConsultationsPage = () => <WorkspaceFrame section="consultations">{(workspace) => <WorkspaceWaitingList workspaceId={workspace.id} basePath={workspacePath(workspace.id, "consultations")} />}</WorkspaceFrame>;

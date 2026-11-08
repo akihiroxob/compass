@@ -49,7 +49,8 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
       dataPreparation: Preparation;
       scenarios: { scenario: string; workspaceId: string; intentId: string; outcomeId: string;
         projects: { id: string }[]; evaluationId?: string; decisionId?: string; researchRequestId?: string; consultationReflection?: Reflection;
-        consultationLifecycle?: Lifecycle }[];
+        consultationLifecycle?: Lifecycle;
+        goalOverview?: { revenueIntentId: string; failedIntentId: string; overviewPath: string; detailPath: string } }[];
       releaseHistory: { projectId: string; workspaceId: string; counts: { published: number; notPublished: number; unconfirmed: number } };
       persistenceCheck: { snapshotPath: string; paths: string[] };
     };
@@ -113,6 +114,21 @@ test("preview fixtures persist usable Direction scenarios and enforce Viewer sco
           assert.equal(decision.evaluationId, scenario.evaluationId);
           const research = await app.request(`${base}/research-requests/${scenario.researchRequestId}`, { headers: { Cookie: viewer } });
           assert.equal(research.status, 200);
+        }
+        if (scenario.scenario === "evaluated") {
+          // 目標の俯瞰: 日次の欠損・取得失敗・複数日の観測と、最新が取得失敗の目標。値の無い日を補わない。
+          const goals = scenario.goalOverview!;
+          const revenue = (await (await app.request(`${base}/intents/${goals.revenueIntentId}/metrics`, { headers: { Cookie: viewer } })).json()).metrics
+            .find((metric: { key: string }) => metric.key === "monthly_revenue");
+          assert.equal(revenue.current.state, "observed");
+          assert.equal(revenue.targetValue, 300000);
+          const points = revenue.series.points as { periodStart: string; periodEnd: string; status: string }[];
+          assert.equal(points.filter((point) => point.periodStart === point.periodEnd).length, 28);
+          assert.equal(points.filter((point) => point.status === "failed").length, 1);
+          assert.equal(points.filter((point) => point.periodStart !== point.periodEnd).length, 1);
+          const dau = (await (await app.request(`${base}/intents/${goals.failedIntentId}/metrics`, { headers: { Cookie: viewer } })).json()).metrics[0];
+          assert.equal(dau.current.state, "failed");
+          assert.equal(dau.current.lastObserved.value, 600);
         }
         if (scenario.scenario === "no-target") {
           assert.equal((await app.request(base, { headers: { Cookie: viewer } })).status, 404);
