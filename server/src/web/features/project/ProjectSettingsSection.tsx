@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { classifyError, jsonInit, request, withNotFoundMessage } from "../../api";
 import { FormErrorSummary, fieldProps, invalidFieldIds, type FormError } from "../../components/FormErrorSummary";
 import { LinkListInput } from "../../components/ListInputs";
@@ -30,21 +30,24 @@ export const ProjectSettingsSection = ({ project, readOnly, readOnlyReason, onSa
   const [unsaved, setUnsaved] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const invalid = invalidFieldIds(error);
+  // archive（別画面の保存拒否後の再取得・この画面のarchive成功）でProjectがarchivedになったら、入力を保存済み内容へ揃える。保存されていない入力は破棄せず区別して残す。
+  const archivedNow = project.status === "archived";
+  useEffect(() => {
+    if (!archivedNow) return;
+    const values = formValuesFromProject(project);
+    const draft = draftText({ name, description, repositories, resources });
+    if (draft !== draftText(values)) setUnsaved(draft);
+    setName(values.name); setDescription(values.description); setRepositories(values.repositories); setResources(values.resources);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- archivedへ変わった時だけ実行する。
+  }, [archivedNow]);
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setError(null); setSaved(false); setIsSubmitting(true);
     try { const { project: next } = await request<{ project: Project }>(`/api/projects/${project.id}`, jsonInit("PATCH", { name, description, repositories: withDerivedNames(repositories), resources, expectedUpdatedAt: project.updatedAt })); const values = formValuesFromProject(next); setName(values.name); setDescription(values.description); setRepositories(values.repositories); setResources(values.resources); setSaved(true); onSaved(next); }
     catch (reason) {
       const failure = withNotFoundMessage(classifyError(reason), "Projectが見つかりません。");
       setError(failure);
-      // 別の画面で既にアーカイブされていた場合は最新の状態を参照専用で示す。保存されなかった入力は破棄せず、保存済みの内容と区別して残す。
-      if (failure.kind === "project_archived") {
-        const draft = { name, description, repositories, resources };
-        await reload().then((latest) => {
-          const values = formValuesFromProject(latest);
-          if (draftText(draft) !== draftText(values)) setUnsaved(draftText(draft));
-          setName(values.name); setDescription(values.description); setRepositories(values.repositories); setResources(values.resources);
-        }).catch(() => undefined);
-      }
+      // 別の画面で既にアーカイブされていた場合は最新を再取得する。参照専用表示への切替と未保存入力の回収は上のeffectが行う。
+      if (failure.kind === "project_archived") await reload().catch(() => undefined);
     }
     finally { setIsSubmitting(false); }
   };
