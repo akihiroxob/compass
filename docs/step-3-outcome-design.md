@@ -54,6 +54,8 @@ Workspaceの固定メニュー「Outcome」の一覧（`GET /api/workspaces/:wor
 - 検索・ビジネス目標・問題の有無・ページングは表示するOutcomeを選ぶだけで、集計の分母を変えない。
 - 割合はTask進捗であり、Outcomeの達成度・効果ではない。提供状況（公開）と効果の確認（Evaluation）は別の事実として扱う。
 
+**提供状況と効果の確認状況**（`delivery` / `effect`）: Task進捗とは別の項目として、一覧・詳細が同じ集計で返す。提供状況（公開）はCompassに公開・リリースの記録がないため現在は常に`unknown`（未確認）で、Task受入・還流・PRマージを公開として扱わない。効果は最新のOutcome Evaluationの結果だけから決め、`not_evaluated`（評価なし）、`evaluated`（`achieved` / `failed` / `insufficient_evidence`と評価日時）、`unknown`（評価を取得できない）を区別する。Task進捗や還流から効果を推測しない。
+
 **問題**: 開発を止めているのは、Human待ち（`waiting_human`）とAgentが対処する（`waiting_agent`）相談。Outcomeとの関連は構造化された参照だけで決める — Target ProjectのOutcome相関Storyに属するTaskが待つ相談（`task_consultation_wait`）、そのStory・Taskを参照するProject相談、Outcomeを参照するWorkspace相談。題名・理由の文章一致は使わない。同じ相談は複数のProject・Taskに関わっても相談IDで1件に数える。代表は、Human待ちを優先し、待ちの長い（更新の古い）ものとする。残りは`otherCount`（ほかN件）で示し、詳細は`items`で全件を返す。問題の情報を取得できないときは`unknown`（未取得）とし、`none`（確認できた問題なし）と区別する。`problem=none`の絞り込みは未取得を含めない。
 
 **一覧の問い合わせ**: `q`（Outcome名・説明・貢献仮説・目標名の部分一致）、`intentId`、`problem`（`present` / `none` / `unknown`）、`limit`（1〜100、既定20）、`offset`。新しい順。Web UIは条件をURLのqueryに保持し、詳細から戻るとき同じ条件・ページで開く。MCPの専用toolは追加していない（Agentは既存の`list_outcomes`・`list_outcome_target_work`を使う）。

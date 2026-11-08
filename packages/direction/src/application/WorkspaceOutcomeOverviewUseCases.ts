@@ -3,6 +3,8 @@ import type { Intent } from "../domain/Intent.ts";
 import type { IntentRepository } from "../domain/IntentRepository.ts";
 import type { Outcome, OutcomeStatus } from "../domain/Outcome.ts";
 import { addTaskCounts, emptyTaskCounts, summarizeTaskProgress, type TaskProgress } from "../domain/OutcomeProgress.ts";
+import type { EvaluationResult } from "../domain/OutcomeEvaluation.ts";
+import type { OutcomeEvaluationRepository } from "../domain/OutcomeEvaluationRepository.ts";
 import type { OutcomeRepository } from "../domain/OutcomeRepository.ts";
 import type { OutcomeTargetProjectRepository, OutcomeTargetProjectView } from "../domain/OutcomeTargetProject.ts";
 import type { DirectionWorkspaceReader } from "./port/DirectionWorkspaceReader.ts";
@@ -32,6 +34,21 @@ export type OutcomeProblemSummary =
       items: OutcomeProblemFact[];
     };
 
+/**
+ * 提供状況（公開）。Compassには公開・リリースの記録がなく、Task受入や還流を公開として扱わないため、現在は常に`unknown`（未確認）。
+ * 公開の記録を持つ入口ができたときに値を増やす。
+ */
+export type OutcomeDeliveryStatus = { state: "unknown" };
+
+/**
+ * 効果の確認状況。最新のOutcome Evaluationの結果だけから決める。Task進捗・還流からは推測しない。
+ * `not_evaluated`は評価がまだ無いこと、`unknown`は評価を取得できなかったこと。
+ */
+export type OutcomeEffectStatus =
+  | { state: "not_evaluated" }
+  | { state: "evaluated"; result: EvaluationResult; evaluatedAt: number }
+  | { state: "unknown" };
+
 export type OutcomeAggregateProgress = TaskProgress & {
   targetProjectCount: number;
   /** Target Projectのうち、相関付いたStoryがまだ無いもの。 */
@@ -52,6 +69,8 @@ export type WorkspaceOutcomeOverview = {
   targets: OutcomeTargetProgress[];
   progress: OutcomeAggregateProgress;
   problems: OutcomeProblemSummary;
+  delivery: OutcomeDeliveryStatus;
+  effect: OutcomeEffectStatus;
 };
 
 const compareProblems = (left: OutcomeProblemFact, right: OutcomeProblemFact) =>
@@ -80,7 +99,17 @@ class OutcomeOverviewBuilder {
   constructor(
     private readonly workSummary: OutcomeWorkSummaryPort,
     private readonly problemPort: OutcomeProblemPort,
+    private readonly evaluationRepository: Pick<OutcomeEvaluationRepository, "findByOutcome">,
   ) {}
+
+  private async effectOf(workspaceId: string, outcomeId: string): Promise<OutcomeEffectStatus> {
+    try {
+      const [latest] = await this.evaluationRepository.findByOutcome(workspaceId, outcomeId);
+      return latest ? { state: "evaluated", result: latest.result, evaluatedAt: latest.createdAt } : { state: "not_evaluated" };
+    } catch {
+      return { state: "unknown" };
+    }
+  }
 
   async build(
     workspaceId: string,
@@ -102,6 +131,7 @@ class OutcomeOverviewBuilder {
     } catch {
       problemsByOutcome = null;
     }
+    const effects = new Map(await Promise.all(outcomes.map(async ({ id }) => [id, await this.effectOf(workspaceId, id)] as const)));
     return outcomes.map((outcome) => {
       const intent = intents.get(outcome.intentId);
       const outcomeTargets = targets.filter(({ outcomeId }) => outcomeId === outcome.id);
@@ -134,6 +164,8 @@ class OutcomeOverviewBuilder {
           unplannedProjectCount,
         },
         problems: summarizeProblems(problemsByOutcome === null ? null : (problemsByOutcome.get(outcome.id) ?? [])),
+        delivery: { state: "unknown" },
+        effect: effects.get(outcome.id) ?? { state: "unknown" },
       };
     });
   }
@@ -182,8 +214,9 @@ export class ListWorkspaceOutcomesUseCase {
     private readonly targetRepository: Pick<OutcomeTargetProjectRepository, "listByWorkspace">,
     workSummary: OutcomeWorkSummaryPort,
     problemPort: OutcomeProblemPort,
+    evaluationRepository: Pick<OutcomeEvaluationRepository, "findByOutcome">,
   ) {
-    this.builder = new OutcomeOverviewBuilder(workSummary, problemPort);
+    this.builder = new OutcomeOverviewBuilder(workSummary, problemPort, evaluationRepository);
   }
 
   async execute(workspaceId: string, query: ListWorkspaceOutcomesQuery = {}): Promise<WorkspaceOutcomePage> {
@@ -221,8 +254,9 @@ export class GetWorkspaceOutcomeOverviewUseCase {
     private readonly targetRepository: Pick<OutcomeTargetProjectRepository, "listByOutcome">,
     workSummary: OutcomeWorkSummaryPort,
     problemPort: OutcomeProblemPort,
+    evaluationRepository: Pick<OutcomeEvaluationRepository, "findByOutcome">,
   ) {
-    this.builder = new OutcomeOverviewBuilder(workSummary, problemPort);
+    this.builder = new OutcomeOverviewBuilder(workSummary, problemPort, evaluationRepository);
   }
 
   async execute(workspaceId: string, outcomeId: string): Promise<WorkspaceOutcomeOverview> {
