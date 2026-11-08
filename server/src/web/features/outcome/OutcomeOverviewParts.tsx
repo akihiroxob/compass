@@ -61,13 +61,30 @@ export const overviewAriaLabel = (overview: OutcomeOverview) => `${overview.titl
 const effectLabels = { achieved: "達成", failed: "未達", insufficient_evidence: "根拠不足" } as const;
 const effectTones = { achieved: "done", failed: "attention", insufficient_evidence: "warning" } as const;
 
+const DeliveryView = ({ delivery }: { delivery: OutcomeDelivery }) => {
+  if (delivery.state === "unknown") return <><span className={statusBadgeClass("warning")}>未取得</span> 公開の確認を取得できていません</>;
+  if (delivery.state === "no_changes") return <><span className={statusBadgeClass("muted")}>対象なし</span> 公開を確認する変更がありません</>;
+  return (
+    <>
+      <span className={statusBadgeClass(delivery.published === delivery.changeCount ? "done" : "muted")}>
+        公開済み {delivery.published}/{delivery.changeCount}件
+      </span>
+      {" "}
+      未公開 {delivery.notPublished}件・確認できず {delivery.unconfirmed}件
+      {delivery.notConfigured > 0 && <>（うち公開確認の入力元が未設定 {delivery.notConfigured}件）</>}
+    </>
+  );
+};
+
+
 /**
  * 提供状況（公開）と効果（Evaluation）の確認状況。Task進捗とは別の事実で、一覧と詳細が同じ値を示す。
- * 公開の記録は無いため提供状況は未確認。評価が無い・取得できないときも成功や達成に見せない。
+ * 提供状況はWorkの公開記録から数えた変更ごとの公開状況で、Outcome全体の提供済みは判断しない。
+ * 取得できない・確認できない・評価が無いときも成功や達成に見せない。
  */
 export const ConfirmationView = ({ delivery, effect }: { delivery: OutcomeDelivery; effect: OutcomeEffect }) => (
   <dl className="outcome-confirmation">
-    <div><dt>提供状況</dt><dd>{delivery.state === "unknown" && <><span className={statusBadgeClass("muted")}>未確認</span> 公開の記録がありません</>}</dd></div>
+    <div><dt>提供状況</dt><dd><DeliveryView delivery={delivery} /></dd></div>
     <div><dt>効果</dt><dd>
       {effect.state === "not_evaluated" && <><span className={statusBadgeClass("muted")}>未評価</span> Evaluationがありません</>}
       {effect.state === "unknown" && <><span className={statusBadgeClass("warning")}>未取得</span> 評価を取得できていません</>}

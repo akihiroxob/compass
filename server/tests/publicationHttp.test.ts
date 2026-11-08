@@ -79,8 +79,8 @@ const send = (method: string, body: unknown): RequestInit => ({ method, headers:
 
 let commentId = 100;
 /** Manager起票→Worker（PR登録・完了）→Reviewer（根拠コメント・merge照合）→Manager（merge SHAで受入）。`stopAt`でその手前に止める。 */
-const runTask = async (app: App, projectId: string, repositoryId: string, number: number, label: string, stopAt: "in_review" | "accepted") => {
-  const task = ok(await callTool(app, "issue_task", { projectId, title: label, requestId: `${label}-issue` }, "manager-a", "manager"));
+const runTask = async (app: App, projectId: string, repositoryId: string, number: number, label: string, stopAt: "in_review" | "accepted", storyId?: string) => {
+  const task = ok(await callTool(app, "issue_task", { projectId, title: label, requestId: `${label}-issue`, ...(storyId ? { storyId, taskKey: label } : {}) }, "manager-a", "manager"));
   const work = ok(await callTool(app, "claim_task", { taskId: task.id, requestId: `${label}-claim` }, "worker-a", "worker"));
   const headSha = sha(String.fromCharCode(97 + number));
   pulls.set(number, { state: "open", merged: false, headSha, mergeSha: null });
@@ -208,6 +208,65 @@ test("Runtimeの公開確認を開発受入と別の記録として残し、Huma
     // viewerではないHuman（未所属）は読めない。
     const stranger = await createTestHuman(database, { email: "stranger@example.test" });
     assert.equal((await requestAs(app, stranger)(`/api/projects/${project.id}/releases`)).status, 404);
+  } finally {
+    await database.destroy();
+  }
+});
+
+test("Outcomeの提供状況は同じ公開記録から数え、一覧と詳細で一致し、受入・mergeを公開済みにしない（UI-O3）", async () => {
+  const database = createDatabase(":memory:");
+  await initializeSchema(database);
+  const github = new GitHubPullRequestGateway({ apiBaseUrl });
+  const services = createApplicationServices(database, undefined, undefined, { initialOwnerEmail: null }, { pullRequests: github, revisions: github });
+  const app = createApp(services);
+  try {
+    const owner = await createTestHuman(database, { email: "outcome-owner@example.test" });
+    const asOwner = requestAs(app, owner);
+    const { project } = await (await asOwner("/api/projects", send("POST", { name: "Delivery", mission: "提供を辿れる", repositories: [
+      { name: "widget", url: "https://github.com/acme/widget" },
+    ] }))).json() as { project: { id: string; workspaceId: string; repositories: { id: string }[] } };
+    const repositoryId = project.repositories[0]!.id;
+    for (const [principalId, role] of [["manager-a", "manager"], ["worker-a", "worker"], ["reviewer-a", "reviewer"]]) {
+      assert.equal((await asOwner(`/api/projects/${project.id}/grants`, send("POST", { principalId, role }))).status, 201);
+    }
+    const workspaceId = project.workspaceId;
+    const intent = await services.createIntentUseCase.execute(workspaceId, { title: "継続率を上げる", desiredState: "State" });
+    const outcomeInput = (title: string) => ({ title, description: `${title}の説明`, intentVersion: 1, hypothesis: "仮説", rationale: "Reason", successCriteria: [{ description: "Done", measurement: "Check" }] });
+    const delivered = await services.createOutcomeUseCase.execute(workspaceId, intent.id, outcomeInput("初回導線を短くする"));
+    const untouched = await services.createOutcomeUseCase.execute(workspaceId, intent.id, outcomeInput("起票前のOutcome"));
+    await services.setOutcomeTargetProjectUseCase.execute(workspaceId, delivered.id, project.id);
+    await services.setOutcomeTargetProjectUseCase.execute(workspaceId, untouched.id, project.id);
+    const story = ok(await callTool(app, "issue_story", { projectId: project.id, title: "Deliver", outcomeId: delivered.id, requestId: "delivery-story" }, "manager-a", "manager"));
+    await runTask(app, project.id, repositoryId, 4, "delivered-a", "accepted", story.id);
+    await runTask(app, project.id, repositoryId, 5, "delivered-b", "accepted", story.id);
+
+    const read = async () => {
+      const list = await (await asOwner(`/api/workspaces/${workspaceId}/outcomes`)).json() as Json;
+      const detail = await (await asOwner(`/api/workspaces/${workspaceId}/outcomes/${delivered.id}/overview`)).json() as Json;
+      const listed = list.items.find((item: Json) => item.outcomeId === delivered.id);
+      assert.deepEqual(listed.delivery, detail.delivery, "一覧と詳細は同じ提供状況");
+      const other = list.items.find((item: Json) => item.outcomeId === untouched.id);
+      return { delivery: detail.delivery as Json, untouched: other.delivery as Json, progress: detail.progress as Json };
+    };
+    // 入力元も記録も無い: 受入済み・merge済みでも公開済みにせず確認できず（入力元の未設定は内数で区別）。起票前のOutcomeは対象なし。
+    const before = await read();
+    assert.deepEqual(before.delivery, { state: "tracked", changeCount: 2, published: 0, notPublished: 0, unconfirmed: 2, notConfigured: 2 });
+    assert.deepEqual(before.untouched, { state: "no_changes" });
+    assert.equal(before.progress.accepted, 2, "Task進捗は受入済みだが提供状況とは別");
+
+    // 1件目のmergeだけを含むrevisionを公開: 公開済み1件・未公開1件。
+    const credential = await asOwner(`/api/projects/${project.id}/credentials`, send("POST", { kind: "runtime", principalId: "deployer", scopes: ["publication:write"] }));
+    const token = ((await credential.json()) as { token: string }).token;
+    const recorded = await app.request(`/api/projects/${project.id}/publications`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ repositoryId, revision: sha("5"), target: "production", method: "github-actions", observedAt: Date.now() - 1_000,
+        evidence: [{ kind: "deployment", uri: "https://github.com/acme/widget/actions/runs/2" }] }),
+    });
+    assert.equal(recorded.status, 201);
+    const after = await read();
+    assert.deepEqual(after.delivery, { state: "tracked", changeCount: 2, published: 1, notPublished: 1, unconfirmed: 0, notConfigured: 0 });
+    assert.deepEqual(after.untouched, { state: "no_changes" });
   } finally {
     await database.destroy();
   }
