@@ -8,6 +8,8 @@ import {
   consultationListPath,
   consultationsApiPath,
   describeActor,
+  describeDue,
+  inboxSort,
   describeConsultationReference,
   describeConsultationScope,
   describeReflection,
@@ -59,7 +61,8 @@ test("横断一覧の絞り込みはURLのqueryで、既定はHumanの判断待�
   const defaults = parseInboxQuery(new URLSearchParams());
   assert.deepEqual(defaults, { status: "waiting_human", scope: "all", projectId: null, workspaceId: null });
   assert.equal(inboxPath(defaults), "/consultations");
-  assert.equal(inboxApiPath(defaults), "/api/consultations?status=waiting_human");
+  assert.equal(inboxApiPath(defaults), "/api/consultations?status=waiting_human&sort=due");
+  assert.equal(inboxPath(defaults, "/workspaces/w1/consultations"), "/workspaces/w1/consultations");
   const query = parseInboxQuery(new URLSearchParams("status=all&scope=workspace&workspaceId=w1&projectId=p1"));
   assert.deepEqual(query, { status: "all", scope: "project", projectId: "p1", workspaceId: "w1" });
   assert.equal(inboxPath(query), "/consultations?status=all&scope=project&workspaceId=w1&projectId=p1");
@@ -106,4 +109,15 @@ test("文書反映の状況はTaskの状態と受入済み成果物から出し�
   assert.equal(describeReflection({ status: "in_progress", task: task("doing"), artifacts: [] }), "文書反映Task: 作業中");
   assert.equal(describeReflection({ status: "in_progress", task: task("accepted"), artifacts: [] }), "Taskは受入済みです。成果物の参照の登録を待っています");
   assert.equal(describeReflection({ status: "in_progress", task: null, artifacts: [] }), "文書反映Taskが見つかりません");
+});
+
+test("回答期限は未設定を期限なしにせず、超過・24時間以内・日数で表す。並びの根拠は期限だけ", () => {
+  const now = Date.parse("2030-01-01T00:00:00Z");
+  const format = (value: number) => new Date(value).toISOString().slice(0, 10);
+  assert.deepEqual(describeDue(null, now, format), { label: "期限未設定", overdue: false, known: false });
+  assert.deepEqual(describeDue(now - 1, now, format), { label: "期限 2029-12-31（超過）", overdue: true, known: true });
+  assert.equal(describeDue(now + 3_600_000, now, format).label, "期限 2030-01-01（24時間以内）");
+  assert.equal(describeDue(now + 3 * 86_400_000 + 1, now, format).label, "期限 2030-01-04（あと3日）");
+  assert.equal(inboxSort("waiting_human"), "due");
+  assert.equal(inboxSort("all"), "updated");
 });

@@ -1,4 +1,4 @@
-import type { Kysely, Selectable } from "kysely";
+import { sql, type Kysely, type Selectable } from "kysely";
 import type {
   Consultation,
   ConsultationActor,
@@ -17,6 +17,7 @@ import type {
   FollowupKind,
   ResolutionSource,
 } from "../domain/Consultation.ts";
+import { unknownDueKey } from "../application/consultationSchema.ts";
 import type { AccessibleConsultationQuery, ConsultationStore } from "../application/port/ConsultationStore.ts";
 import type {
   CollaborationDatabase,
@@ -46,6 +47,7 @@ const toConsultation = (row: Selectable<ConsultationTable>): Consultation => ({
   options: JSON.parse(row.options) as ConsultationOption[],
   recommendation: row.recommendation,
   impact: row.impact,
+  dueAt: row.due_at,
   refs: JSON.parse(row.refs) as ConsultationReference[],
   status: row.status as ConsultationStatus,
   revision: row.revision,
@@ -151,6 +153,7 @@ export class KyselyConsultationStore implements ConsultationStore {
         options: JSON.stringify(consultation.options),
         recommendation: consultation.recommendation,
         impact: consultation.impact,
+        due_at: consultation.dueAt,
         refs: JSON.stringify(consultation.refs),
         status: consultation.status,
         revision: consultation.revision,
@@ -221,6 +224,24 @@ export class KyselyConsultationStore implements ConsultationStore {
     if (query.status !== undefined) select = select.where("status", "=", query.status);
     if (query.workspaceId !== undefined) select = select.where("workspace_id", "=", query.workspaceId);
     if (query.projectId !== undefined) select = select.where("project_id", "=", query.projectId);
+    if (query.sort === "due") {
+      // 期限未設定は最大値として最後に置く（未設定を期限の早い・遅いに偽装しない）。
+      const dueKey = sql<number>`coalesce(due_at, ${unknownDueKey})`;
+      if (after !== undefined) {
+        const afterDueKey = after.dueKey ?? unknownDueKey;
+        select = select.where(({ or, and, eb }) =>
+          or([
+            eb(dueKey, ">", afterDueKey),
+            and([
+              eb(dueKey, "=", afterDueKey),
+              or([eb("updated_at", "<", after.updatedAt), and([eb("updated_at", "=", after.updatedAt), eb("id", ">", after.id)])]),
+            ]),
+          ]),
+        );
+      }
+      const rows = await select.orderBy(dueKey).orderBy("updated_at", "desc").orderBy("id").limit(query.limit).execute();
+      return rows.map(toConsultation);
+    }
     if (after !== undefined) {
       select = select.where(({ or, and, eb }) =>
         or([eb("updated_at", "<", after.updatedAt), and([eb("updated_at", "=", after.updatedAt), eb("id", ">", after.id)])]),

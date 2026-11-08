@@ -8,7 +8,7 @@ import { projectViewPath, workspaceApiPath, workspaceCreatePath, workspaceEditPa
 import { canOperateWorkspace, workspaceDirectionAccess } from "../access";
 import { WorkspaceActivityStream } from "../activity";
 import { WorkspaceAgentDetail, WorkspaceAgentList } from "../agent";
-import { ConsultationSection } from "../consultation";
+import { WorkspaceWaitingList } from "../consultation";
 import { useSession } from "../auth";
 import { CredentialSection } from "../credential";
 import { DirectionPanel, loadDirection, loadOutcomeDetail } from "../direction";
@@ -283,7 +283,7 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
 export const WorkspaceOverviewPage = () => <WorkspaceFrame section="overview">{(workspace, myRole, reload) => <OverviewContent workspace={workspace} myRole={myRole} reload={reload} />}</WorkspaceFrame>;
 export const WorkspaceDirectionPage = () => <WorkspaceFrame section="direction">{(workspace, myRole) => <DirectionContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceOutcomePage = () => <WorkspaceFrame section="direction">{(workspace, myRole) => <OutcomeContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
-export const WorkspaceConsultationsPage = () => <WorkspaceFrame section="consultations">{(workspace) => <ConsultationSection scope={{ kind: "workspace", workspaceId: workspace.id }} />}</WorkspaceFrame>;
+export const WorkspaceConsultationsPage = () => <WorkspaceFrame section="consultations">{(workspace) => <WorkspaceWaitingList workspaceId={workspace.id} basePath={workspacePath(workspace.id, "consultations")} />}</WorkspaceFrame>;
 export const WorkspaceProjectsPage = () => <WorkspaceFrame section="projects">{(workspace, myRole) => <ProjectsContent workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;
 export const WorkspaceActivityPage = () => <WorkspaceFrame section="activity">{(workspace) => <ActivityContent workspace={workspace} />}</WorkspaceFrame>;
 export const WorkspaceAgentsPage = () => <WorkspaceFrame section="agents">{(workspace, myRole) => <WorkspaceAgentList workspace={workspace} myRole={myRole} />}</WorkspaceFrame>;

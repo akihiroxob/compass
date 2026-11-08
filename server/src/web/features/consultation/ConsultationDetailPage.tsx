@@ -21,6 +21,7 @@ import {
   consultationStatusTones,
   describeActor,
   describeConsultationReference,
+  describeDue,
   isOpenConsultation,
   messageAnchorId,
   messageKindLabel,
@@ -79,25 +80,30 @@ const OperationError = ({ id, message }: { id: string; message: string }) => {
 };
 
 /** Humanの返信。送信するとAgentの応答待ちになる。失敗時は入力を残し、成功時だけ空にする。 */
-const ReplyForm = ({ scope, consultationId, onSaved }: { scope: ConsultationScope; consultationId: string; onSaved: () => Promise<void> }) => {
+const ReplyForm = ({ scope, consultationId, options, onSaved }: { scope: ConsultationScope; consultationId: string; options: ConsultationDetail["consultation"]["options"]; onSaved: () => Promise<void> }) => {
   const [body, setBody] = useState("");
+  const [choice, setChoice] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const requestId = useRequestId();
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!body.trim()) {
-      setError("返信を入力してください。");
+    const selected = choice === "" ? undefined : options[Number(choice)];
+    if (!body.trim() && !selected) {
+      setError("選択肢を選ぶか、返信を入力してください。");
       return;
     }
+    // 選択肢は返信の本文に「選択: ○○」として残し、Agentと他のHumanが同じ会話で読める。選択肢だけでも自由文だけでも送れる。
+    const message = [selected ? `選択: ${selected.label}` : "", body.trim()].filter(Boolean).join("\n");
     setError(null);
     setSent(false);
     setPending(true);
     try {
-      await request(consultationApiPath(scope, consultationId, "/messages"), jsonPost({ body, requestId: requestId.current() }));
+      await request(consultationApiPath(scope, consultationId, "/messages"), jsonPost({ body: message, requestId: requestId.current() }));
       requestId.renew();
       setBody("");
+      setChoice("");
       setSent(true);
       await onSaved();
     } catch (reason) {
@@ -108,10 +114,18 @@ const ReplyForm = ({ scope, consultationId, onSaved }: { scope: ConsultationScop
   };
   return (
     <form className="grant-form" onSubmit={submit} noValidate>
-      <Field label="返信" required description="質問への回答・確認したいことを書きます。返信するとAgentが内容を読んで回答・追加質問・結論の整理を行います。明確に方針を決める場合は、administrator以上が「この方針で決定」から記録できます。">
+      {options.length > 0 && (
+        <Field label="選択肢" description="推奨は事前に選択されていません。選ばずに自由文だけで回答することもできます。">
+          <Select value={choice} onChange={(event) => { setChoice(event.target.value); setSent(false); requestId.renew(); }}>
+            <option value="">選択肢を選ばない</option>
+            {options.map((option, index) => <option key={index} value={String(index)}>{option.label}</option>)}
+          </Select>
+        </Field>
+      )}
+      <Field label={options.length > 0 ? "補足・質問・別案" : "返信"} required={options.length === 0} description="質問への回答・確認したいこと・別案を書きます。返信を保存するとAgentが内容を読んで回答・追加質問・結論の整理を行います。明確に方針を決める場合は、administrator以上が「この方針で決定」から記録できます。">
         <TextArea
           id="consultation-reply-body"
-          required
+          required={options.length === 0}
           maxLength={20000}
           rows={4}
           value={body}
@@ -123,13 +137,13 @@ const ReplyForm = ({ scope, consultationId, onSaved }: { scope: ConsultationScop
       <div className="form-actions">
         <Button type="submit" pending={pending}>{pending ? "送信中..." : "返信する"}</Button>
       </div>
-      {sent && <p className="grant-notice" role="status">返信しました。Agentの応答を待っています。</p>}
+      {sent && <p className="grant-notice" role="status">返信を保存しました。Agentの応答待ちです。待機中のTaskは、Agentが結論を記録するまで再開しません。</p>}
     </form>
   );
 };
 
 /** Humanの明示決定。表示中の版を送り、他の返信・応答で版が進んでいれば拒否される（最新を読んでから決める）。 */
-const DecisionPanel = ({ scope, detail, onCancel, onSaved }: { scope: ConsultationScope; detail: ConsultationDetail; onCancel: () => void; onSaved: () => Promise<void> }) => {
+const DecisionPanel = ({ scope, detail, onCancel, onSaved, onConflict }: { scope: ConsultationScope; detail: ConsultationDetail; onCancel: () => void; onSaved: () => Promise<void>; onConflict: () => Promise<void> }) => {
   const { consultation } = detail;
   const [conclusion, setConclusion] = useState("");
   const [rationale, setRationale] = useState("");
@@ -161,7 +175,7 @@ const DecisionPanel = ({ scope, detail, onCancel, onSaved }: { scope: Consultati
       const classified = classifyError(reason);
       setError(describeOperationFailure(scope)(classified));
       // 版の競合は最新の会話を読み直す。入力は残し、読んだうえで再度決定できる。
-      if (classified.kind === "conflict") { requestId.renew(); await onSaved().catch(() => undefined); }
+      if (classified.kind === "conflict") { requestId.renew(); await onConflict().catch(() => undefined); }
     } finally {
       setPending(false);
     }
@@ -214,19 +228,23 @@ const MessageItem = ({ message, messages, names }: { message: ConsultationMessag
 /** 質問・選択肢・推奨・影響・参照と、方針変更元の相談。 */
 const QuestionFacts = ({ scope, detail, resources }: { scope: ConsultationScope; detail: ConsultationDetail; resources: readonly ConsultationResourceLink[] | null }) => {
   const { consultation } = detail;
+  const open = isOpenConsultation(consultation.status);
+  const due = describeDue(consultation.dueAt, Date.now(), formatTime);
   return (
     <section className="detail-section" aria-labelledby="consultation-question-heading">
       <h2 id="consultation-question-heading">判断したいこと</h2>
       <p className="pre-wrap">{consultation.question}</p>
       <dl className="intent-facts">
+        <dt>回答期限</dt>
+        <dd>{open ? <span className={due.overdue ? "consultation-due overdue" : due.known ? "consultation-due" : "consultation-due unknown"}>{due.label}</span> : due.known ? formatTime(consultation.dueAt!) : <span className="unset">期限未設定</span>}</dd>
+        <dt>回答しない場合の影響</dt>
+        <dd className="pre-wrap">{consultation.impact}</dd>
+        <dt>Agentの推奨</dt>
+        <dd className="pre-wrap">{consultation.recommendation}</dd>
         <dt>進めない理由</dt>
         <dd className="pre-wrap">{consultation.blockingReason}</dd>
         <dt>選択肢</dt>
         <dd>{consultation.options.length ? <ol className="consultation-options">{consultation.options.map((option, index) => <li key={index}><strong>{option.label}</strong>{option.description && <> — {option.description}</>}</li>)}</ol> : <span className="unset">選択肢はありません</span>}</dd>
-        <dt>Agentの推奨</dt>
-        <dd className="pre-wrap">{consultation.recommendation}</dd>
-        <dt>影響</dt>
-        <dd className="pre-wrap">{consultation.impact}</dd>
         <dt>参照</dt>
         <dd>
           {consultation.refs.length ? (
@@ -340,6 +358,7 @@ export const ConsultationDetailPage = () => {
   const scopeFacts = facts?.scopeKey === scopeKey(scope) ? facts.facts : null;
   const names = humanNames?.scopeKey === scopeKey(scope) ? humanNames.names : undefined;
   const label = consultationScopeLabels[scope.kind];
+  const listLabel = scope.kind === "workspace" ? "対応待ち" : "判断待ち";
   const access = (operation: "consultation.reply" | "consultation.decide"): ProjectOperationAccess | null =>
     scopeFacts
       ? projectOperationAccess(scopeFacts, scope.kind === "project" ? canOperate(scopeFacts.myRole, operation) : canOperateWorkspace(scopeFacts.myRole, operation))
@@ -348,13 +367,16 @@ export const ConsultationDetailPage = () => {
   const replyAccess = access("consultation.reply");
   const decideAccess = access("consultation.decide");
   const scopeHome = scope.kind === "project" ? projectViewPath(scope.projectId, "overview") : workspacePath(scope.workspaceId);
+  const reload = async () => {
+    await load().catch(() => undefined);
+  };
   const saved = async () => {
     setDeciding(false);
-    await load().catch(() => undefined);
+    await reload();
   };
   return (
     <main className="narrow">
-      <Link to={consultationListPath(scope)} className="back-link">← 判断待ち</Link>
+      <Link to={consultationListPath(scope)} className="back-link">← {listLabel}</Link>
       {settled?.error ? (
         <>
           <ErrorState message={settled.error} />
@@ -367,7 +389,7 @@ export const ConsultationDetailPage = () => {
           <nav className="breadcrumb" aria-label="現在位置">
             <ol>
               <li><Link to={scopeHome}>{scopeFacts?.name ?? label}</Link></li>
-              <li><Link to={consultationListPath(scope)}>判断待ち</Link></li>
+              <li><Link to={consultationListPath(scope)}>{listLabel}</Link></li>
               <li aria-current="page">{detail.consultation.title}</li>
             </ol>
           </nav>
@@ -376,6 +398,8 @@ export const ConsultationDetailPage = () => {
             <h1>{detail.consultation.title}</h1>
             <p><span className={statusBadgeClass(consultationStatusTones[detail.consultation.status])}>{consultationStatusLabels[detail.consultation.status]}</span></p>
             <time>{formatTime(detail.consultation.updatedAt)} 更新（版 {detail.consultation.revision}）</time>
+            {detail.consultation.status === "waiting_human" && <p className="section-note">Humanの回答待ちです。権限のある誰か一人が返信または決定すれば進みます。</p>}
+            {detail.consultation.status === "waiting_agent" && <p className="section-note">返信は保存済みです。Agentの応答（または結論の整理）を待っています。待機中のTaskは、結論が記録されるまで再開しません。</p>}
             {detail.responder && <p className="section-note">{describeActor({ kind: "agent", principalId: detail.responder.principalId, role: detail.responder.role })}が応答中です（期限 {formatTime(detail.responder.expiresAt)}）。</p>}
             {open && decideAccess === "allowed" && (
               <div className="action-row">
@@ -383,7 +407,7 @@ export const ConsultationDetailPage = () => {
                 <Button variant="secondary" tone="danger" aria-expanded={cancel.confirming} onClick={() => { setDeciding(false); cancel.open(); }}>相談を取消</Button>
               </div>
             )}
-            {open && deciding && decideAccess === "allowed" && <DecisionPanel scope={scope} detail={detail} onCancel={() => setDeciding(false)} onSaved={saved} />}
+            {deciding && decideAccess === "allowed" && <DecisionPanel scope={scope} detail={detail} onCancel={() => setDeciding(false)} onSaved={saved} onConflict={reload} />}
             {open && cancel.confirming && decideAccess === "allowed" && (
               <ReasonPanel action={cancel} title="この相談を取り消しますか？" description="不要になった相談を閉じます。取り消すと返信・決定はできません。理由は相談に残ります。" label="取消の理由" required confirmLabel="取り消す" pendingLabel="取消中..." />
             )}
@@ -401,7 +425,7 @@ export const ConsultationDetailPage = () => {
             ) : (
               <p className="unset">まだ返信はありません</p>
             )}
-            {open && replyAccess === "allowed" && <ReplyForm scope={scope} consultationId={consultationId} onSaved={saved} />}
+            {open && replyAccess === "allowed" && <ReplyForm scope={scope} consultationId={consultationId} options={detail.consultation.options} onSaved={saved} />}
             {open && replyAccess !== null && replyAccess !== "allowed" && <p className="section-note">{projectOperationDeniedMessage(replyAccess, label)}</p>}
             {!open && <p className="section-note">この相談は{consultationStatusLabels[detail.consultation.status]}です。方針を変える場合は、Agentがこの相談を参照する新しい相談を登録します。</p>}
           </section>

@@ -200,6 +200,8 @@ const prepareConsultationLifecycle = async (services, owner, client, entry, insp
     await writeFile(join(worktreePath, 'preview-artifact.txt'), `uncommitted artifact ${name}\n`);
     return { worktreePath, read: () => inspectRuntime({ worktreePath, contextPath, pullRequest: null, verificationRefs: [] }) };
   };
+  // Due dates are relative to the preparation time (display fixtures). Consultations without `dueAt` are intentionally left unknown.
+  const inHours = (hours) => new Date(Date.now() + hours * 3_600_000).toISOString();
   const consultation = (title, question, extra = {}) => ({ title: `[検証専用] ${title}`, question, blockingReason: '既存方針で決められない選択',
     options: [{ label: 'A案' }, { label: 'B案' }], recommendation: 'A案', impact: '専用プレビューの検証データのみ', ...extra });
   const humanReply = async (consultationId, body, requestId = key('reply')) => {
@@ -221,7 +223,7 @@ const prepareConsultationLifecycle = async (services, owner, client, entry, insp
 
   // Human待ち: 回答不足への追加質問で`waiting_human`へ戻り、Taskは待機を続ける。
   const humanCreated = await client.call('worker', 'create_consultation', { projectId: projectA,
-    ...consultation('通知の保存先', '通知履歴をCollaborationとActivityのどちらに保存しますか') });
+    ...consultation('通知の保存先', '通知履歴をCollaborationとActivityのどちらに保存しますか', { dueAt: inHours(5) }) });
   const humanIds = { projectId: projectA, consultationId: humanCreated.consultation.id };
   const humanWait = await waitingTask('human', 'Human待ちの相談を待つTask', [humanIds.consultationId]);
   same('wait_for_consultation resent with the same requestId', humanWait.waited, await client.call('worker', 'wait_for_consultation', humanWait.input));
@@ -294,7 +296,7 @@ const prepareConsultationLifecycle = async (services, owner, client, entry, insp
   const correction = await client.call('manager', 'create_consultation', { projectId: projectA, ...consultation('通知テーブルの方針訂正',
     '保存期間の要件が追加されたため、通知テーブルを使わない方針を見直しますか', { supersedesConsultationId: resumedIds.consultationId }) });
   const workspaceWaiting = await client.call('strategist', 'create_consultation', { workspaceId,
-    ...consultation('次に優先するOutcome', '検索改善と通知改善のどちらを先に追いますか') });
+    ...consultation('次に優先するOutcome', '検索改善と通知改善のどちらを先に追いますか', { dueAt: inHours(30) }) });
   const hidden = await client.call('strategist', 'create_consultation', { workspaceId: hiddenWorkspaceId,
     ...consultation('未所属Workspaceの判断', 'viewerが所属しないWorkspaceの非公開の判断') });
 
@@ -313,6 +315,11 @@ const prepareConsultationLifecycle = async (services, owner, client, entry, insp
       { stage: 'workspace_waiting_human', consultationId: workspaceWaiting.consultation.id, path: `/workspaces/${workspaceId}/consultations/${workspaceWaiting.consultation.id}` },
       { stage: 'hidden_from_viewer', workspaceId: hiddenWorkspaceId, consultationId: hidden.consultation.id, path: `/workspaces/${hiddenWorkspaceId}/consultations/${hidden.consultation.id}` },
     ],
+    // The Workspace「対応待ち」 (waiting_human, due ascending, unknown last): 5h, 30h, then the correction without a due date.
+    // The responding / resumed / resolved / canceled consultations are not Human-waiting and must not be listed.
+    workspaceWaitingList: { path: `/workspaces/${workspaceId}/consultations`,
+      expectedOrder: [humanIds.consultationId, workspaceWaiting.consultation.id, correction.consultation.id],
+      notListed: [respondingIds.consultationId, resumedIds.consultationId, decidedIds.consultationId, canceledIds.consultationId, hidden.consultation.id] },
     observations,
   };
 };

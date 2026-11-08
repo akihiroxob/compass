@@ -16,7 +16,7 @@ ReviewerはPR head、Managerは統合SHAを照合する。Workerは検証時HEAD
 
 評価と判断のシナリオには`consultationReflection`として、Project相談とWorkspace相談（Project Aへ引継ぎ）の結論を文書へ反映した状態も準備する。専用ディレクトリ内のbare repository（`verification-docs.git`）とcheckoutを作り、Project Aへ`https://example.test/verification-docs.git`として登録する。`request_consultation_followup`→Workerの`claim_task`と実際の文書commit→通常の`claim_review`・`reviewed_task`→`claim_acceptance`・`accept_task`（`deliverables`にcommitとpath）→`record_consultation_artifact`を公開MCPで通す。manifestの`path`から反映済み表示・再読込・viewerとの権限差の確認へ進める。HumanのRepository登録・返信はOwnerのHuman use caseで行う。これらは検証用Principalの公開操作で、実Agentの稼働を示さない。対象SHAに反映の公開契約が無い場合は`status: unavailable`と`kind`（`tool_unavailable` / `policy_denied`）を記録し、内部操作で補わない。
 
-一部未着手のシナリオの`consultationLifecycle`は、同じ公開MCPとOwnerのHuman use caseで次の段階を作り、`stages`に相談・Task・画面パスを記録する。待機Taskの成果物とContextは専用ディレクトリ内の対象SHAの別checkoutに置く。
+一部未着手のシナリオの`consultationLifecycle`は、同じ公開MCPとOwnerのHuman use caseで次の段階を作り、`stages`に相談・Task・画面パスを記録する。待機Taskの成果物とContextは専用ディレクトリ内の対象SHAの別checkoutに置く。`workspaceWaitingList`には、そのWorkspaceの「対応待ち」のpathと、Humanの回答待ち（期限5時間後・30時間後・未設定の順）の相談ID、一覧に出ない相談ID（応答中・再開済み・解決・取消・別Workspace）を記録する。期限は準備時刻からの相対値の表示用fixtureである。
 
 | `stage` | 状態 |
 | --- | --- |

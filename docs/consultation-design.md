@@ -15,7 +15,7 @@ scopeは決定対象の所有で決め、影響するProject数では決めな�
 
 | 記録 | 内容 |
 | --- | --- |
-| Consultation | scope・所属Workspace・Project（Project scopeだけ）、タイトル、判断したいこと（`question`）、進めない理由（`blockingReason`）、選択肢（`options`。`label`・任意の`description`）、推奨（`recommendation`）、影響（`impact`）、参照（`refs`）、状態、版（`revision`）、方針変更元（`supersedesConsultationId`）、起票者、取消の理由・主体・日時 |
+| Consultation | scope・所属Workspace・Project（Project scopeだけ）、タイトル、判断したいこと（`question`）、進めない理由（`blockingReason`）、選択肢（`options`。`label`・任意の`description`）、推奨（`recommendation`）、影響（`impact`）、回答期限（`dueAt`。epoch ms。任意で、Agentが把握していなければ未設定。期限なし・不要の意味ではない）、参照（`refs`）、状態、版（`revision`）、方針変更元（`supersedesConsultationId`）、起票者、取消の理由・主体・日時 |
 | Message | 相談内の順序（`sequence`）、記録主体（`author`）、本文、訂正元（`correctsMessageId`）、発言で進んだ版。追記だけで書き換えない |
 | Resolution | 相談につき1件。結論・判断の根拠・適用範囲・採用した選択肢（`selectedOption`）・根拠の発言（`basisMessageIds`）と版（`basisRevision`）・判断の由来（`source`）・記録主体 |
 | 応答lease | 相談ID・入力版・保持Principal・期限（5分）・解放日時。TaskのClaimとは別 |
@@ -73,10 +73,11 @@ HumanはWorkspace Membershipで、そのWorkspaceの相談と配下ProjectのPro
 
 ## 横断一覧
 
-`GET /api/consultations`は、呼出しHumanの有効なWorkspace Membershipを持つWorkspaceのWorkspace相談と、その配下ProjectのProject相談を、更新の新しい順（同時刻はID順）に返す。
+`GET /api/consultations`は、呼出しHumanの有効なWorkspace Membershipを持つWorkspaceのWorkspace相談と、その配下ProjectのProject相談を、`sort`に応じた順（既定は更新の新しい順・同時刻はID順）に返す。
 
 | query | 内容 |
 | --- | --- |
+| `sort` | `updated`（既定。更新の新しい順）・`due`（回答期限が近い順。期限未設定は期限のある相談の後ろに更新の新しい順で置く。同じ期限は更新の新しい順）。`cursor`は`nextCursor`をそのまま、同じ`sort`で渡す（形式が合わない場合は`VALIDATION_ERROR`） |
 | `status` | `waiting_human`（既定）・`waiting_agent`・`resolved`・`canceled`・`all` |
 | `scope` | `project`・`workspace`（省略で両方） |
 | `projectId` | そのProjectのProject相談だけ（Workspace相談を含めない） |
@@ -98,13 +99,14 @@ Web API（Human。Session・CSRF）。`:scopePath`は`/api/projects/:projectId`�
 | `POST .../resolution` | 明示決定`{ conclusion, rationale, applicability?, selectedOption?, basisMessageIds?, expectedRevision, requestId }`（201） |
 | `POST .../cancel` | 取消`{ reason, expectedRevision, requestId }` |
 
-MCP（Agent）: `create_consultation`・`list_consultations`・`get_consultation`・`acquire_consultation_lease`・`reply_consultation`・`resolve_consultation`・`cancel_consultation`、結論の引継ぎ先の`hand_off_consultation`と文書反映の`get_consultation_handoff_context`・`request_consultation_followup`・`record_consultation_artifact`（後述）。文書反映以外は`projectId`（Project相談）と`workspaceId`（Workspace相談）のどちらか一方を受け取り、両方・どちらも無い入力は`VALIDATION_ERROR`。Humanの明示決定のtoolは無い。Runtime向けの`get_project_consultation_state`（Project Runtime Credential）・`get_workspace_consultation_state`（Workspace Runtime Credential。所属Projectの相談を含めない、archivedは空）は相談ID・未処理の入力版だけを返し、会話本文を返さない。
+MCP（Agent）: `create_consultation`（`dueAt`は時刻帯付きISO 8601で任意。期限を把握していなければ省略し、推測しない）・`list_consultations`・`get_consultation`・`acquire_consultation_lease`・`reply_consultation`・`resolve_consultation`・`cancel_consultation`、結論の引継ぎ先の`hand_off_consultation`と文書反映の`get_consultation_handoff_context`・`request_consultation_followup`・`record_consultation_artifact`（後述）。文書反映以外は`projectId`（Project相談）と`workspaceId`（Workspace相談）のどちらか一方を受け取り、両方・どちらも無い入力は`VALIDATION_ERROR`。Humanの明示決定のtoolは無い。Runtime向けの`get_project_consultation_state`（Project Runtime Credential）・`get_workspace_consultation_state`（Workspace Runtime Credential。所属Projectの相談を含めない、archivedは空）は相談ID・未処理の入力版だけを返し、会話本文を返さない。
 
 Web UI:
 
 - 横断一覧「判断待ち（すべて）」（`/consultations`。サイドバーの下部から開く）: 状態・scopeの切替、Workspace・Projectの選択をURLのqueryで表し（既定はHumanの判断待ち・全scope）、行に所属（`Project · 名前` / `Workspace · 名前`）を出す。続きは「さらに表示」。名前は閲覧できるProject・Workspaceの一覧から引く。
-- scopeの一覧: Project詳細の「判断待ち」view（`?view=consultations`）とWorkspaceの「判断待ち」（`/workspaces/:workspaceId/consultations`）。`?status=`で絞り込み、既定はHumanの判断待ち。
-- 相談詳細（`/projects/:projectId/consultations/:consultationId`・`/workspaces/:workspaceId/consultations/:consultationId`）: 上段に質問・選択肢・推奨・影響・参照（Task・Story・Intent・Outcome・相談は画面へ、Resource・URLは正本へ）、下段に会話（Humanの発言とAgentの発言を帯の色と文言で区別）と返信、結論または取消の理由を出し、開いている間は15秒ごとに読み直す。導線はscopeのMembershipのRoleとscopeの状態で出し分け、拒否はserverが行う。
+- Project詳細の「判断待ち」view（`?view=consultations`）: Project相談の一覧。`?status=`で絞り込み、既定はHumanの判断待ち。
+- Workspaceの「対応待ち」（`/workspaces/:workspaceId/consultations`）: そのWorkspaceのWorkspace相談と配下Projectの相談を、横断一覧と同じ`GET /api/consultations?workspaceId=`で集約する。既定はHumanが回答しないと進まない`waiting_human`だけで、回答期限が近い順（`sort=due`）に並べる。期限が未設定の相談は後ろに置き、影響の重さからの順位は算出しない（優先順位の規則は未確定）。Agentの応答待ち・解決済み・取消は状態の切替で明示的に開く。行は状態・所属・題名・質問・影響・Agentの推奨・期限（超過・24時間以内・未設定を文言で区別）を出し、返信・決定は詳細で行う。個々の相談の所有・認可はそれぞれのscopeのままで、一覧は認可済みの相談を集約するだけ。
+- 相談詳細（`/projects/:projectId/consultations/:consultationId`・`/workspaces/:workspaceId/consultations/:consultationId`）: 上段に質問・回答期限・回答しない場合の影響・Agentの推奨・進めない理由・選択肢・参照（Task・Story・Intent・Outcome・相談は画面へ、Resource・URLは正本へ）、下段に会話（Humanの発言とAgentの発言を帯の色と文言で区別）と返信（選択肢を選ぶ、自由文を書く、またはその両方。選択肢は「選択: ○○」として返信本文に残り、推奨は事前に選択しない。editor以上の誰か一人が返信すれば進む）、結論または取消の理由を出す。返信の保存（`waiting_agent`）とAgent・待機Taskの再開（結論の記録後）は別の状態として文言で区別する。開いている間は15秒ごとに読み直す。導線はscopeのMembershipのRoleとscopeの状態で出し分け、拒否はserverが行う。
 - 相談詳細は、結論の下に「文書への反映」（反映状況・種類・反映先Repository・文書反映Task・目的・元Taskの再開条件・成果物のpath/commit/PR。Workspace相談では反映担当Projectも出し、閲覧者がMemberのProjectの依頼だけを表示する）を出し、Project相談では「この相談を待つTask」（Taskの状態・待機状態・保持した段階・失敗理由、Task詳細へ）も出す。文書の本文は出さない（`ConsultationFollowupSection.tsx`）。
 
 ## 専用環境での公開操作による確認
