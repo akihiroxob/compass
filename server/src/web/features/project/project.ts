@@ -43,3 +43,14 @@ export const formValuesFromProject = (project: Project): ProjectFormValues => ({
   repositories: project.repositories.map(({ id, name, url }) => ({ id, name, url, kind: "" })),
   resources: project.resources.map(({ id, name, url, kind }) => ({ id, name, url, kind: kind ?? "" })),
 });
+
+/** Repository URLから表示名を導く。末尾のパス要素（`.git`除く）を使い、無ければホスト名にする。 */
+export const repositoryNameFromUrl = (url: string): string => {
+  try {
+    const parsed = new URL(url.trim());
+    const last = parsed.pathname.split("/").filter(Boolean).pop()?.replace(/\.git$/, "");
+    return (last || parsed.hostname).slice(0, 100);
+  } catch {
+    return url.trim().slice(0, 100);
+  }
+};
