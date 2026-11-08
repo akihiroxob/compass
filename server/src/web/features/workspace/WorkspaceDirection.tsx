@@ -156,7 +156,7 @@ export const WorkspaceOutcomeDetail = ({ workspaceId, data, projects, canEdit }:
         <p className="eyebrow">Outcome</p>
         <h2 id="outcome-position-heading">{outcome.title}</h2>
         <p><span className={statusBadgeClass(outcomeTone(outcome))}>{outcomeStatusLabels[outcome.status]}</span>{stage && <> <span className={statusBadgeClass(stage.tone)}>{stage.label}</span></>}</p>
-        {canEdit && outcome.status === "active" && <div className="action-row"><LinkButton variant="secondary" size="sm" to={workspaceOutcomeEditPath(workspaceId, outcome.intentId, outcome.id)}>編集</LinkButton></div>}
+        {canEdit && outcome.status === "active" && <div className="action-row"><LinkButton variant="secondary" size="sm" to={workspaceOutcomeEditPath(workspaceId, outcome.intentId, outcome.id)} state={{ listSearch }}>編集</LinkButton></div>}
         <dl className="intent-facts"><dt>目指す変化</dt><dd>{outcome.description}</dd><dt>目標への貢献仮説</dt><dd>{outcome.hypothesis ?? <span className="unset">未設定</span>}</dd><dt>判断理由（Strategistの判断）</dt><dd>{outcome.rationale}</dd></dl>
         {outcome.status === "cancelled" && <><h3>取消の理由</h3><p>{outcome.cancelReason}</p></>}
         {openProject ? (
