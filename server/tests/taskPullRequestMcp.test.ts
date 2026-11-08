@@ -195,6 +195,19 @@ test("Workerは現在のWork ClaimでopenなPRを登録し、Task別の履歴を
     assert.ok(!JSON.stringify(final).includes("fixture-token"));
     assert.ok(observedAuthorization.every((value) => value === "Bearer fixture-token"));
 
+    // Human向けTask詳細のWeb APIは、登録済みPR（非空）を保存した事実のまま返す。Commitリンクの元になるSHAは保存値と一致する。
+    const detail = await (await asOwner(`/api/projects/${a.projectId}/tasks/${a.taskId}`)).json() as { pullRequests: any[] };
+    assert.equal(detail.pullRequests.length, 1);
+    const [shown] = detail.pullRequests;
+    assert.deepEqual(
+      [shown.number, shown.repository, shown.url, shown.state, shown.draft, shown.headSha, shown.mergeSha, shown.baseBranch, shown.headBranch, shown.current],
+      [7, "acme/widget", "https://github.com/Acme/Widget/pull/7", "open", false, "a".repeat(40), null, "main", "task-7", true],
+    );
+    assert.equal(typeof shown.verifiedAt, "number");
+    assert.equal(shown.id, registered.id);
+    const otherDetail = await (await asOwner(`/api/projects/${b.projectId}/tasks/${b.taskId}`)).json() as { pullRequests: any[] };
+    assert.deepEqual(otherDetail.pullRequests.map((pr) => [pr.number, pr.headSha]), [[3, "d".repeat(40)]]);
+
     // 確認の履歴はTaskのChange Logに残る（canonical Activityには投影しない）。
     const changes = ok(await callTool(app, "list_changes", { projectId: a.projectId }, "worker-a", "worker")).changes as { type: string; entityId: string }[];
     assert.equal(changes.filter((change) => change.type === "TASK_PULL_REQUEST_REGISTERED" && change.entityId === a.taskId).length, 1);
