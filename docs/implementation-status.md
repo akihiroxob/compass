@@ -260,7 +260,7 @@ UI方針・token・部品・カタログの4つの正本と、カタログ・製
 
 ## 新UIと業務契約の統合検証
 
-UI-R12の配下Task（Workspace・目標・Work・対応待ち・Activity・Agent管理・設定・公開履歴）を同じ統合SHAでつないだ確認。対象SHAは`7943738`と`519619a`（検証時のHEAD。後者の差分は文書のみ）。専用`preview.db`・loopback GitHub・検証用Principalだけを使い、運用DB・稼働中Claimは触らない。準備は[ブラウザ検証データ](browser-verification.md)で、Workspace版の準備スクリプトを使う。
+UI-R12の配下Task（Workspace・目標・Work・対応待ち・Activity・Agent管理・設定・公開履歴）を同じ統合SHAでつないだ確認。対象SHAは`7943738`・`519619a`・`e86941f`（検証時のHEAD。後二者の差分は文書のみ）。専用`preview.db`・loopback GitHub・検証用Principalだけを使い、運用DB・稼働中Claimは触らない。準備は[ブラウザ検証データ](browser-verification.md)で、Workspace版の準備スクリプトを使う。
 
 - 自動検証（対象SHA・ローカル）: `npm run typecheck`・`lint`・`build`・`check:ui`・`catalog:build`が成功。登録済みホスト検証の結合テスト（Human認証・Lv6・Research・Strategist・Orchestrator・Ralph）も成功した。実Agent（Codex）による相談の再開検証（`scripts/verify-consultation-resumption.mjs`）はこの確認では再実行していない。
 - 0件のOwnerからの実ブラウザ操作（PC 1440px、新規Workspace）: 空入力の必須検証→Workspace作成→再読込→招待（Administrator・Editor・Viewer。取消済み表示、誤メールのアカウントは`not_allowed`で拒否、正しいメールで参加）→Intent作成→Outcome作成（Target未設定・効果未評価・提供状況「対象なし」を区別）→Project追加まで、各入口で保存と再読込を確認した。
@@ -269,8 +269,21 @@ UI-R12の配下Task（Workspace・目標・Work・対応待ち・Activity・Agen
 - 権限（Owner・Administrator・Editor・Viewer、別Workspace、公開Web API・直接URL）: 招待一覧・招待・Member管理はOwnerだけ、Workspace更新・Project追加はAdministrator以上、Intent作成はEditor以上、ViewerはReadだけで、期待どおり`403 FORBIDDEN`。所属しないWorkspaceの参照・書込みは`404 NOT_FOUND`。Viewerの直接URL（Intent作成）は権限不足の表示。最後のOwnerのRole変更・除外は`409 CONFLICT`で保存されず、別MemberをOwnerにした後は変更できる。不正なRoleは`400 VALIDATION_ERROR`。
 - Agent scope（MCP）: Workspace scopeのStrategistはProjectのStoryを起票できず（`FORBIDDEN`）、Project scopeのManagerは自Projectだけを操作でき、別ProjectとWorkspace Directionは`FORBIDDEN`。Grantの無いPrincipalは拒否される。
 - SP 390px: Workspace・Outcome・Activity・Agent管理・設定・Member・Project（概要・開発詳細・リリース履歴）・Task詳細で横あふれ0。右ハンバーガー（44px）・右ドロワー（×44px、Escapeで閉じてメニューへfocus復帰）、offline時の読込失敗（「0件」でなく「取得できません」と表示し、再接続後に復帰）を画像で確認した。
-- 準備: `9cca1f3`の準備コピーはOutcome・評価・Direction Decisionの入力契約とWorkspace招待に非互換で、リリース履歴・Task PR等のfixtureも含まない。HEADの準備スクリプトを専用コピーへ反映して検証した。
-- 未検証: 招待・Intent・Outcome・Project追加の実ブラウザ操作は別の新規Workspaceで行い、上記の系列ではAPI・MCPで通した（Target設定のHuman入口は無い）。多Project・Story一覧の多件数の実画面（リリース履歴24件を除く）、Workspaceのarchive・Credentialのrotation/取消、×付きの共通Dialogの個別操作（SP右ドロワーの×・Escape・focus復帰は確認済み）、入力失敗・空状態のSP画像（PCの必須検証のみ）、実Google認証・remote mode・実Agentの自律運転、実Agentの相談再開（今回は再実行していない）。
+- 主要画面と状態の実ブラウザ確認（対象HEAD `e86941f`、専用preview、PC 1440px・SP 390px、Owner。証跡は`z1-ac3/`の画像70枚）: 下表の画面・状態を操作して保存画像を確認した。全画面で横あふれ0、console・HTTPのerrorは通信失敗の意図的な遮断だけ。
+
+| 対象 | PC 1440px | SP 390px |
+| --- | --- | --- |
+| 主要画面（Workspace概要・対応待ち・Outcome・Activity・Agent管理・設定・Member、Workspace/Project/目標の作成、参加中のProject、判断待ち、Project概要・開発詳細・リリース履歴・記録・設定・Story絞り込み、Task詳細） | 19画面を撮影し、h1・横あふれを確認 | 同じ19画面 |
+| 共通Dialog | 「Agentを登録」「権限について」: 名前（読み上げ名）・×44px・初期focusがDialog内・Escapeで閉じて開いたボタンへfocus復帰 | 「権限について」: 同上。「Agentを登録」はPC専用でSPに出ない（意図した仕様） |
+| 右ドロワー | - | 右ハンバーガーで開き、項目44px、Escapeで閉じてメニューへfocus復帰 |
+| 入力失敗 | Workspace・Project・目標の作成で空送信はブラウザの必須検証で止まる。空白だけの入力はサーバー検証で「入力内容を確認してください」と項目リンクを表示し、遷移しない | 同じ3フォームの空送信と、Workspace作成の空白入力 |
+| 空状態 | Target・Storyの無いProject B（開発詳細0件）、TargetなしのWorkspace（観測なしの目標・Activity 2件） | 同じ画面 |
+| 通信失敗 | API遮断で「サーバーに接続できませんでした」と再試行を表示（0件や成功にしない） | 同上 |
+| 多数件・ページング | リリース履歴24件を20件ずつ2ページ。次へ→`page=2`・21〜24件、再読込で維持、前へで1ページ目。開発詳細・記録の「さらに古い変更／Activity」で45→65件 | 同じ操作と結果 |
+
+- 実測の注記: 入力検証のメッセージの一部が英語（`name is required`）。Story単体の多数件（20件超）の実画面は準備データに無く未確認。Credential発行の個別Dialogは開かなかった（発行は専用の操作系列）。
+- 準備: `9cca1f3`の準備コピーはOutcome・評価・Direction Decisionの入力契約とWorkspace招待に非互換で、リリース履歴・Task PR等のfixtureも含まない。HEADの準備スクリプトを専用コピーへ反映して検証した。本Taskでの準備ファイルの変更は無い。
+- 未検証: 招待・Intent・Outcome・Project追加の実ブラウザ操作は別の新規Workspaceで行い、上記の系列ではAPI・MCPで通した（Target設定のHuman入口は無い）。Story単体の多数件（20件超）の実画面、Workspaceのarchive・Credentialのrotation/取消、実Google認証・remote mode・実Agentの自律運転、実Agentの相談再開（今回は再実行していない）。
 
 ## 未実装・未接続・未検証
 
