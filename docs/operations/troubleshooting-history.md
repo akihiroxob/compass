@@ -262,6 +262,14 @@
 - 復旧状態: 停止中に対象の実行記録・結果・診断結果を`/tmp/compass-a2-claim-refresh-backup-20261107/`へ退避し、Roleロック下で通常のresume／保留復元を実施。A2のWorktreeと保存済みapproveを保持して再開待ちへ戻した。旧証跡は変更せず、GitHub／Wachaの業務状態も変更していない。ユーザー自身が起動する指示に従い、Runner・Agentは起動していない。実運用での再検証・merge・受入完了は未確認。
 - 追加確認: 復旧作業時、PR #72はopen・対象head `ff625f1`のままだが、GitHubの`mergeable`はfalseへ変化していた。Claim問題の解消をマージ可能・レビュー完了と同一視しない。製品の競合処理は次回起動時の通常Reviewer／Workerフローで扱う。
 
+### I-38: 新規Workspaceの通し検証に必要なTarget設定が検証Policyで拒否された
+
+- 日時・対象: 11/09、UI-Z1、PR #89。ACに必要なDirection操作が検証Policyの対象外だったためReviewerが保留した。
+- 対処: 専用プレビューのStrategistに限り、分類metadata未提供の`set_outcome_target`と`list_outcome_targets`を明示許可。Workspace／Project scope、観測済みEntity、ServerのGrant検証を維持し、他のDirection・Human管理・Runtime操作は開放しない。新規系列の公開操作・scope登録を手順書へ反映した。
+- 確認結果: Humanが作成した専用Workspace・Project・Intent・Outcomeで、Ownerの公開Web APIから検証用StrategistへGrantを付与し、公開MCPでTarget設定・再取得に成功。証跡は`/tmp/compass-human-preview-data-20261109/target-operation-evidence.json`。範囲外・未観測Entity・別Role・Runtime分類・他Toolの拒否を2件の回帰テストで確認。専用previewのbuild成功。Z1全ACの完了を意味しない。
+- 配布・復旧: commit `65ba367`をローカルRalphの`verification.preparationRevision`へ反映。旧実行と証跡を通常のretained経路へ退避して保留解除。Runner／Agentは起動していない。Claim解放済み実行へのabandonはreason違いの同一requestIdで`IDEMPOTENCY_CONFLICT`となったため、元のblocked理由で成功receiptを照合してから退避した。保守前の記録・設定は`/tmp/compass-z1-policy-recovery-20261109/`に保持。
+- 残る問題: 次回Reviewerの独立した通し検証とManager受入。コミットは未push。製品本体・業務認可は変更していない。
+
 ## 今後の追記方法
 
 - 新しい運用障害を調査・復旧したとき、最終報告前に本書を更新する。同じ原因は既存IDへ再発日・差分を追記する。一般的な一度だけのテスト失敗をすべて障害項目へ増やさない。

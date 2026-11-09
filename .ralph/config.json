@@ -49,7 +49,7 @@
       "scripts/verify-consultation-resumption.mjs",
       "docs/browser-verification.md"
     ],
-    "preparationRevision": "9cca1f332ce1051256eb47e69abc23a486f6de30",
+    "preparationRevision": "65ba367c63c70fd1b0e54e4e41a0d47c2d17f8ae",
     "hostCommands": [
       [
         "node",
@@ -72,7 +72,10 @@
       ]
     ],
     "browser": {
-      "command": ["npm", "start"],
+      "command": [
+        "npm",
+        "start"
+      ],
       "env": {
         "PORT": "{port}",
         "COMPASS_DB_PATH": "{dataDir}/preview.db",
@@ -84,8 +87,16 @@
       },
       "readyPath": "/",
       "setupCommands": [
-        ["npm", "ci", "--ignore-scripts"],
-        ["npm", "rebuild", "better-sqlite3"],
+        [
+          "npm",
+          "ci",
+          "--ignore-scripts"
+        ],
+        [
+          "npm",
+          "rebuild",
+          "better-sqlite3"
+        ],
         [
           "node",
           "--import",
@@ -128,9 +139,21 @@
           ],
           "readyPath": "/index.json",
           "setupCommands": [
-            ["npm", "ci", "--ignore-scripts"],
-            ["npm", "rebuild", "better-sqlite3"],
-            ["npm", "run", "build"]
+            [
+              "npm",
+              "ci",
+              "--ignore-scripts"
+            ],
+            [
+              "npm",
+              "rebuild",
+              "better-sqlite3"
+            ],
+            [
+              "npm",
+              "run",
+              "build"
+            ]
           ]
         },
         "catalog-static": {
@@ -146,10 +169,26 @@
           ],
           "readyPath": "/index.json",
           "setupCommands": [
-            ["npm", "ci", "--ignore-scripts"],
-            ["npm", "rebuild", "better-sqlite3"],
-            ["npm", "run", "build"],
-            ["npm", "run", "catalog:build"]
+            [
+              "npm",
+              "ci",
+              "--ignore-scripts"
+            ],
+            [
+              "npm",
+              "rebuild",
+              "better-sqlite3"
+            ],
+            [
+              "npm",
+              "run",
+              "build"
+            ],
+            [
+              "npm",
+              "run",
+              "catalog:build"
+            ]
           ]
         }
       }
