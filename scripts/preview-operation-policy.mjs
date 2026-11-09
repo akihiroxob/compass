@@ -10,6 +10,8 @@ export const previewOperationPolicy = {
   kind: 'scoped-public-operations',
   contexts: ['work', 'collaboration'],
   caller: 'agent',
+  // Direction tools do not yet publish context metadata. Keep this exception exact and role-bound.
+  roleTools: { strategist: ['set_outcome_target', 'list_outcome_targets'] },
   roleScopes: { manager: 'project', worker: 'project', reviewer: 'project', strategist: 'workspace', evaluator: 'workspace' },
   entities: 'dedicated-preview-database-only',
 };
@@ -77,6 +79,7 @@ const classificationDenial = (preparation, role, tool) => {
   const actor = actorDenial(preparation, role);
   if (actor) return actor;
   const { context, caller } = classifyTool(tool);
+  if (policy.roleTools?.[role]?.includes(tool.name) && context === null && caller === null) return null;
   if (!policy.contexts.includes(context) || caller !== policy.caller) {
     return `${tool.name} (context ${context ?? 'none'}, caller ${caller ?? 'none'}) is outside the permitted ${policy.contexts.join('/')} operations`;
   }
