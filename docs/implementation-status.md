@@ -260,13 +260,17 @@ UI方針・token・部品・カタログの4つの正本と、カタログ・製
 
 ## 新UIと業務契約の統合検証
 
-UI-R12の配下Task（Workspace・目標・Work・対応待ち・Activity・Agent管理・設定・公開履歴）を同じ統合SHAでつないだ確認。対象SHAは`6a6a65d`。専用`preview.db`・loopback GitHub・検証用Principalだけを使い、運用DB・稼働中Claimは触らない。準備は[ブラウザ検証データ](browser-verification.md)。
+UI-R12の配下Task（Workspace・目標・Work・対応待ち・Activity・Agent管理・設定・公開履歴）を同じ統合SHAでつないだ確認。対象SHAは`7943738`（検証時のHEAD）。専用`preview.db`・loopback GitHub・検証用Principalだけを使い、運用DB・稼働中Claimは触らない。準備は[ブラウザ検証データ](browser-verification.md)で、Workspace版の準備スクリプトを使う。
 
-- 自動検証（対象SHA・ローカル）: `npm run typecheck`・`lint`・`build`・`check:ui`・`catalog:build`・`npm test`（server 727件ほか全workspace）が成功。登録済みホスト検証の結合テスト（Human認証・Lv6・Research・Strategist・Orchestrator・Ralph）と、実Agent（Codex）による相談の応答・再開・文書反映・再起動の検証（`scripts/verify-consultation-resumption.mjs`）も成功した。
-- 実ブラウザ（専用preview、Owner / Viewer）: Workspace一覧、Workspace概要（Desktop 1440px。メニューは概要→対応待ち→Outcome→Activity→Agent管理→設定、未計測の目標を0にしない）、SP 390pxの右ハンバーガー・右ドロワー（×、Escapeでメニューへfocus復帰）、リリース履歴（24件・2ページ・公開済み／未公開／確認できずを区別）、Task詳細（作業中・Claim期限切れ・関連PRのmerge済み／open・Outcome未還流を区別）を確認した。
-- 権限（公開Web API、Viewer）: 未所属Workspaceは`404 NOT_FOUND`で存在を示さず、所属Workspaceの編集操作は`403 FORBIDDEN`（`requiredRole: editor`）。
-- 検証準備: preview準備はWorkspace版の`scripts/prepare-browser-verification.mjs`で成功する。
-- 未検証: 0件のOwnerから作成・招待・目標・Target・Work・レビュー／受入・公開までを通した1本の実ブラウザ操作、管理者・編集者のRole別の直接URL操作、SP 390pxの全主要画面・入力失敗・通信失敗（offline）・空状態の個別の画像確認は、この統合検証では行っていない。各段階の保存・再読込は、先行Taskの専用preview確認と自動テストに依存する。
+- 自動検証（対象SHA・ローカル）: `npm run typecheck`・`lint`・`build`・`check:ui`・`catalog:build`が成功。登録済みホスト検証の結合テスト（Human認証・Lv6・Research・Strategist・Orchestrator・Ralph）も成功した。実Agent（Codex）による相談の再開検証（`scripts/verify-consultation-resumption.mjs`）はこの確認では再実行していない。
+- 0件のOwnerからの実ブラウザ操作（PC 1440px、新規Workspace）: 空入力の必須検証→Workspace作成→再読込→招待（Administrator・Editor・Viewer。取消済み表示、誤メールのアカウントは`not_allowed`で拒否、正しいメールで参加）→Intent作成→Outcome作成（Target未設定・効果未評価・提供状況「対象なし」を区別）→Project追加まで、各入口で保存と再読込を確認した。
+- Target・Work・レビュー／受入（公開MCP、検証用Principal）: Target設定（`set_outcome_target`）はStrategistのMCPだけでHuman UIの入口は無く、準備manifestの範囲外でもあるため、新規Workspaceでは行っていない。準備済みのTarget Project Bで、Story→Task→Worker完了→Reviewer→Manager受入の経路と、PRなしTaskのManager直受入（Changeの`path`が`manager_direct_review`）を通した。Outcome詳細は受入済み3/3件でも成功条件・Evaluationを「未評価」、提供状況を「対象なし」と示し、Project Bに還流が無い点を区別した。
+- 公開確認（リリース履歴のfixture。公開記録は準備時にRuntime Credentialの公開Web APIで追加）: PC・SPで24件・20件ごと2ページ・公開済み12／未公開10／確認できず2を確認した。公開済みの絞り込みは12件で全件が公開済み。Outcome詳細は受入済み24/25件・公開済み12/25件・効果は未評価で別の値として表示する。Task詳細は関連PR（#101 merge済み・#102 open）を区別する。
+- 権限（Owner・Administrator・Editor・Viewer、別Workspace、公開Web API・直接URL）: 招待一覧・招待・Member管理はOwnerだけ、Workspace更新・Project追加はAdministrator以上、Intent作成はEditor以上、ViewerはReadだけで、期待どおり`403 FORBIDDEN`。所属しないWorkspaceの参照・書込みは`404 NOT_FOUND`。Viewerの直接URL（Intent作成）は権限不足の表示。最後のOwnerのRole変更・除外は`409 CONFLICT`で保存されず、別MemberをOwnerにした後は変更できる。不正なRoleは`400 VALIDATION_ERROR`。
+- Agent scope（MCP）: Workspace scopeのStrategistはProjectのStoryを起票できず（`FORBIDDEN`）、Project scopeのManagerは自Projectだけを操作でき、別ProjectとWorkspace Directionは`FORBIDDEN`。Grantの無いPrincipalは拒否される。
+- SP 390px: Workspace・Outcome・Activity・Agent管理・設定・Member・Project（概要・開発詳細・リリース履歴）・Task詳細で横あふれ0。右ハンバーガー（44px）・右ドロワー（×44px、Escapeで閉じてメニューへfocus復帰）、offline時の読込失敗（「0件」でなく「取得できません」と表示し、再接続後に復帰）を画像で確認した。
+- 準備: `9cca1f3`の準備コピーはOutcome・評価・Direction Decisionの入力契約とWorkspace招待に非互換で、リリース履歴・Task PR等のfixtureも含まない。HEADの準備スクリプトを専用コピーへ反映して検証した。
+- 未検証: 新規Workspaceでの Target設定から公開までの1本の通し操作（Target設定のHuman入口が無い）。多Project・Story一覧の多件数の実画面（リリース履歴24件を除く）、SPのリリース履歴の個別の文字確認（横あふれの実測と画像保存まで）、Workspaceのarchive・Credentialのrotation/取消、×付きの共通Dialogの個別操作（確認操作は画面内の確認カード）、実Google認証・remote mode・実Agentの自律運転。
 
 ## 未実装・未接続・未検証
 
