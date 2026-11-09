@@ -8,6 +8,8 @@ export type OverviewTask = {
   id: string;
   status: "todo" | "doing" | "in_review" | "wait_accept" | "accepted" | "rejected" | "canceled";
   activeClaim: { expiresAt: number } | null;
+  /** 相談待ちの原因と段階。相談待ちのTaskはClaimを持たないが、再取得待ちではない。 */
+  consultationWait?: { cause: "human" | "agent" | "continuation" | "ready" | "resuming"; phase: "work" | "review" | "acceptance" } | null;
 };
 /** 概要で判定に使うProject scopeのAgentのRole。 */
 export type OverviewRole = "manager" | "worker" | "reviewer" | "runtime";
@@ -22,16 +24,17 @@ export const parseProjectView = (value: string | null): ProjectView =>
 
 // ---- 現在地のWork。各Taskをどれか1つの区分に入れる。 ----
 
-export type WorkBucket = "todo" | "doing" | "reclaimable" | "in_review" | "wait_accept" | "rejected";
-export const workBuckets = ["todo", "doing", "reclaimable", "in_review", "wait_accept", "rejected"] as const satisfies readonly WorkBucket[];
+export type WorkBucket = "todo" | "doing" | "consultation" | "reclaimable" | "in_review" | "wait_accept" | "rejected";
+export const workBuckets = ["todo", "doing", "consultation", "reclaimable", "in_review", "wait_accept", "rejected"] as const satisfies readonly WorkBucket[];
 
 /** `now`時点で期限内のClaimを持つか（表示中に期限を過ぎた場合も、serverの`reclaimable`と同じく保持していない扱い）。 */
 export const holdsClaim = (task: Pick<OverviewTask, "activeClaim">, now: number) => task.activeClaim !== null && task.activeClaim.expiresAt > now;
 
-/** Taskの区分。受入済み・取消は数えない。期限内Claimの無い`doing`は再取得待ち。 */
-export const workBucket = (task: Pick<OverviewTask, "status" | "activeClaim">, now: number): WorkBucket | null => {
-  if (task.status === "doing") return holdsClaim(task, now) ? "doing" : "reclaimable";
+/** Taskの区分。受入済み・取消は数えない。期限内Claimの無い相談待ちは段階（work/review/acceptance）に関わらず「相談待ち」。期限内Claimの無い`doing`で相談待ちでなければ再取得待ち。 */
+export const workBucket = (task: Pick<OverviewTask, "status" | "activeClaim" | "consultationWait">, now: number): WorkBucket | null => {
   if (task.status === "accepted" || task.status === "canceled") return null;
+  if (task.consultationWait && !holdsClaim(task, now)) return "consultation";
+  if (task.status === "doing") return holdsClaim(task, now) ? "doing" : "reclaimable";
   return task.status;
 };
 
@@ -90,9 +93,10 @@ export type OverviewPermissions = { intervene: boolean; grantManage: boolean; cr
 export type MyAction =
   | { kind: "accept"; label: string; allowed: true; taskId: string }
   | { kind: "grant"; role: OverviewRole; label: string; allowed: boolean; requestTo: string }
+  | { kind: "consultation"; label: string; allowed: true; taskId: string }
   | { kind: "credential"; label: string; allowed: true; principalIds: readonly string[] };
 
-export type WaitingKind = "story" | "decompose" | "reflection" | "todo" | "rejected" | "reclaimable" | "in_review" | "wait_accept";
+export type WaitingKind = "story" | "decompose" | "reflection" | "todo" | "rejected" | "reclaimable" | "in_review" | "wait_accept" | "consult_agent" | "consult_continue" | "consult_ready";
 export type WaitingItem = {
   kind: WaitingKind;
   count: number;
@@ -137,6 +141,27 @@ const taskWaiting: { kind: Extract<WaitingKind, WorkBucket>; role: OverviewRole;
   { kind: "wait_accept", role: "manager", note: "Managerの担当待ち。Editor以上はHumanとしても受入できます" },
 ];
 
+const phaseRoles: Record<"work" | "review" | "acceptance", OverviewRole> = { work: "worker", review: "reviewer", acceptance: "manager" };
+
+/**
+ * 相談待ちのTaskを、実際に止めている側で分ける。Humanの回答待ちは「あなたの操作」に出し、ここにはAgentが対処するものだけを返す。
+ * Agentの応答待ちは相談を持つRoleの段階、継続確認待ちはManager、再開待ちはRuntimeが次に動く。
+ */
+const consultationWaiting = (tasks: readonly OverviewTask[], assignedRoles: ReadonlySet<string>): WaitingItem[] => {
+  const groups: { kind: WaitingKind; match: (task: OverviewTask) => boolean; role: (task: OverviewTask) => OverviewRole; note: string }[] = [
+    { kind: "consult_agent", match: (task) => task.consultationWait?.cause === "agent", role: (task) => phaseRoles[task.consultationWait!.phase], note: "Humanの入力後、相談へのAgentの応答待ち" },
+    { kind: "consult_continue", match: (task) => task.consultationWait?.cause === "continuation", role: () => "manager", note: "相談の結論・取消または要件変更後、Managerの継続確認待ち" },
+    { kind: "consult_ready", match: (task) => task.consultationWait?.cause === "ready", role: () => "runtime", note: "相談の結論を受けて、Runtimeの再開待ち" },
+  ];
+  return groups.flatMap(({ kind, match, role, note }): WaitingItem[] => {
+    const matched = tasks.filter(match);
+    if (matched.length === 0) return [];
+    const roles = new Set(matched.map(role));
+    const first = [...roles][0]!;
+    return [{ kind, count: matched.length, role: first, note, unassigned: [...roles].some((item) => !assignedRoles.has(item)), outcomes: [], taskIds: matched.map((task) => task.id) }];
+  });
+};
+
 /**
  * 貢献Outcome 1件の担当待ち。Workspaceの要対応（`planWorkspaceAttention`）と同じ規則で、このProjectのTargetだけを見る。
  * 最新Evaluationが判断済みのOutcomeには起票・分解待ちを出さない。
@@ -172,13 +197,16 @@ export const planNextActions = (input: NextActionInput): NextActions => {
       const matched = tasksIn(kind);
       return { kind, count: matched.length, role, note, unassigned: !assignedRoles.has(role), outcomes: [], taskIds: matched.map((task) => task.id) };
     }),
+    ...consultationWaiting(waitingTasks, assignedRoles),
     outcomeWaiting("reflection", "runtime", "Workは終わったが、Runtimeの結果還流待ち"),
   ].filter((item) => item.count > 0);
 
   const grant = (role: OverviewRole, needed: boolean): MyAction[] =>
     needed && !assignedRoles.has(role) ? [{ kind: "grant", role, label: `${roleNames[role]}を割り当てる`, allowed: permissions.grantManage, requestTo: "Administrator以上へ依頼" }] : [];
   const acceptable = tasksIn("wait_accept");
+  const humanConsults = tasks.filter((task) => task.consultationWait?.cause === "human");
   const mine: MyAction[] = [
+    ...(humanConsults.length ? [{ kind: "consultation", label: `Humanの回答待ちの相談（${humanConsults.length}件）`, allowed: true, taskId: humanConsults[0]!.id } as const] : []),
     ...(acceptable.length && permissions.intervene ? [{ kind: "accept", label: `受入待ちのTaskを確認（${acceptable.length}件）`, allowed: true, taskId: acceptable[0]!.id } as const] : []),
     ...grant("manager", outcomesAt("story").length + outcomesAt("decompose").length > 0),
     ...grant("worker", tasksIn("todo").length + tasksIn("rejected").length + tasksIn("reclaimable").length > 0),

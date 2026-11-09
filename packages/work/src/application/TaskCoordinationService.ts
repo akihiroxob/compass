@@ -268,6 +268,9 @@ export type IssueStoryInput = {
   correlationId?: string;
 };
 
+/** 相談待ちTaskを止めている原因。human=Humanの回答待ち、agent=Agentの応答待ち、continuation=結論・取消・要件変更後のManagerの継続確認待ち、ready=再開待ち、resuming=再開中。 */
+export type ConsultationWaitCause = "human" | "agent" | "continuation" | "ready" | "resuming";
+
 export class TaskCoordinationService {
   private readonly claimTtlMs: number;
 
@@ -592,11 +595,12 @@ export class TaskCoordinationService {
   async getTaskDetailOfProject(projectId: string, taskId: string) {
     const row = await this.store.findTaskInProject(projectId, taskId);
     if (!row) return null;
-    const [list, story, { comments }, changes] = await Promise.all([
+    const [list, story, { comments }, changes, pullRequestRows] = await Promise.all([
       this.buildTaskList(projectId, null),
       row.story_id ? this.store.findStory(row.story_id) : Promise.resolve(null),
       this.readTaskComments(taskId),
       this.store.listEntityChanges(projectId, taskId),
+      this.store.listTaskPullRequests(taskId),
     ]);
     const task = list.tasks.find((candidate) => candidate.id === taskId);
     if (!task) return null;
@@ -605,6 +609,8 @@ export class TaskCoordinationService {
       story: story ? storyDto(story) : null,
       comments,
       changes: await this.decorateChanges(projectId, changes),
+      /** GitHubで確認して登録したPR（登録順。最後が現在のPR）。 */
+      pullRequests: pullRequestRows.map((pr, index) => pullRequestDto(pr, index === pullRequestRows.length - 1)),
     };
   }
 
@@ -625,6 +631,14 @@ export class TaskCoordinationService {
       this.store.listConsultationWaits(projectId),
     ]);
     const waits = new Map(consultationWaits.map((wait) => [wait.task_id, wait]));
+    // 待機中の相談の現在状態から、止めている担当側を決める（失敗理由の文章は照合に使わない）。
+    const waitCauses = new Map<string, ConsultationWaitCause>();
+    for (const wait of consultationWaits) {
+      if (wait.state !== "waiting") { waitCauses.set(wait.task_id, wait.state); continue; }
+      const statuses = await Promise.all((JSON.parse(wait.consultations) as ConsultationWaitReference[]).map((ref) => this.store.consultations.find(projectId, ref.id)));
+      waitCauses.set(wait.task_id, statuses.some((current) => current?.status === "waiting_human") ? "human"
+        : statuses.some((current) => current?.status === "waiting_agent") ? "agent" : "continuation");
+    }
     const storyOrders = new Map(stories.map((story) => [story.id, story.sort_order]));
     const activeClaims = new Map(claims.map((claim) => [claim.task_id, claim]));
     const roles = new Set<string>(grantedRoles);
@@ -702,6 +716,7 @@ export class TaskCoordinationService {
           state: waits.get(task.id)!.state, phase: waits.get(task.id)!.phase,
           consultations: JSON.parse(waits.get(task.id)!.consultations) as ConsultationWaitReference[],
           failureReason: waits.get(task.id)!.failure_reason,
+          cause: waitCauses.get(task.id)!,
         } : null,
         activeClaim: unexpiredClaim
           ? {
@@ -2488,7 +2503,11 @@ export class TaskCoordinationService {
    */
   async listRecentChangesOfProject(projectId: string, beforeCursor: number | null = null, limit = 50) {
     const rows = await this.store.listChangesBefore(projectId, beforeCursor, limit + 1);
-    const changes = await this.decorateChanges(projectId, rows.slice(0, limit));
+    const decorated = await this.decorateChanges(projectId, rows.slice(0, limit));
+    // 全件を読まない画面（開発詳細）でも対象を示せるよう、対象のStory・Taskの題名を添える（削除済み等で無ければnull）。
+    const [stories, tasks] = decorated.length ? await Promise.all([this.store.listStories(projectId), this.store.listTasks(projectId)]) : [[], []];
+    const titles = new Map<string, string>([...stories, ...tasks].map((entity) => [entity.id, entity.title]));
+    const changes = decorated.map((change) => ({ ...change, targetTitle: titles.get(change.entityId) ?? null }));
     return { changes, nextCursor: rows.length > limit ? (changes.at(-1)?.cursor ?? null) : null };
   }
 

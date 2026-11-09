@@ -490,6 +490,21 @@ export const createApp = (
     const outcomeId = c.req.query("outcomeId");
     return c.json(await human.listExecution.execute(actor, c.req.param("projectId"), outcomeId === undefined ? {} : { outcomeId }));
   });
+  // 開発詳細の検索・ページング（UI-W1）。検索・状態・Outcomeの絞り込みと件数・ページをサーバーで決める。
+  app.get("/api/projects/:projectId/work", async (c) => {
+    const actor = await actorOf(c);
+    const optional = (name: string) => c.req.query(name);
+    return c.json(
+      await human.searchExecutionWork.execute(actor, c.req.param("projectId"), {
+        ...(optional("view") === undefined ? {} : { view: optional("view") }),
+        ...(optional("q") === undefined ? {} : { q: optional("q") }),
+        ...(optional("status") === undefined ? {} : { status: optional("status") }),
+        ...(optional("outcome") === undefined ? {} : { outcome: optional("outcome") }),
+        ...(optional("storyId") === undefined ? {} : { storyId: optional("storyId") }),
+        ...(optional("page") === undefined ? {} : { page: queryNumber(optional("page")) }),
+      }),
+    );
+  });
   app.get("/api/projects/:projectId/tasks/:taskId", async (c) =>
     c.json(await human.getExecutionTask.execute(await actorOf(c), c.req.param("projectId"), c.req.param("taskId"))),
   );

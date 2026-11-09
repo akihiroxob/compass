@@ -6,7 +6,7 @@ import { IntentCreatePage, IntentDetailPage, IntentEditPage, WorkspaceIntentCrea
 import { OutcomeCreatePage, OutcomeDetailPage, OutcomeEditPage, WorkspaceOutcomeCreatePage, WorkspaceOutcomeEditPage } from "../features/outcome";
 import { ProjectDetailPage, ProjectEditPage, ProjectListPage } from "../features/project";
 import { ResearchRequestDetailPage } from "../features/research";
-import { WorkspaceActivityPage, WorkspaceAgentPage, WorkspaceAgentsPage, WorkspaceBreadcrumbItems, WorkspaceConsultationsPage, WorkspaceCreatePage, WorkspaceDirectionPage, WorkspaceEditPage, WorkspaceHomePage, WorkspaceOutcomePage, WorkspaceOverviewPage, WorkspaceProjectCreatePage, WorkspaceMembersPage, WorkspaceProjectsPage, WorkspaceSettingsPage } from "../features/workspace";
+import { WorkspaceActivityPage, WorkspaceAgentPage, WorkspaceAgentsPage, WorkspaceBreadcrumbItems, WorkspaceConsultationsPage, WorkspaceCreatePage, WorkspaceDirectionPage, WorkspaceEditPage, WorkspaceHomePage, WorkspaceIntentPage, WorkspaceOutcomePage, WorkspaceOverviewPage, WorkspaceProjectCreatePage, WorkspaceMembersPage, WorkspaceProjectsPage, WorkspaceSettingsPage } from "../features/workspace";
 import { AuthenticatedLayout, PublicLayout } from "./AppLayout";
 import { NotFoundPage } from "./NotFoundPage";
 
@@ -26,6 +26,7 @@ export const App = () => (
       <Route path="/workspaces/:workspaceId" element={<WorkspaceOverviewPage />} />
       <Route path="/workspaces/:workspaceId/edit" element={<WorkspaceEditPage />} />
       <Route path="/workspaces/:workspaceId/direction" element={<WorkspaceDirectionPage />} />
+      <Route path="/workspaces/:workspaceId/direction/intents/:intentId" element={<WorkspaceIntentPage />} />
       <Route path="/workspaces/:workspaceId/direction/intents/new" element={<WorkspaceIntentCreatePage />} />
       <Route path="/workspaces/:workspaceId/direction/intents/:intentId/edit" element={<WorkspaceIntentEditPage />} />
       <Route path="/workspaces/:workspaceId/direction/intents/:intentId/outcomes/new" element={<WorkspaceOutcomeCreatePage />} />

@@ -8,7 +8,7 @@ import { canOperate, useProjectWorkspaceDirection } from "../access";
 import { ActivitySection } from "../activity";
 import { AdrReferenceSection } from "../adr";
 import { CredentialSection } from "../credential";
-import { ExecutionSection } from "../execution";
+import { WorkSection } from "../execution";
 import { AgentSettingsSection } from "../grant";
 import { ConsultationSection } from "../consultation";
 import { DirectionPanel } from "../direction";
@@ -57,7 +57,7 @@ export const ProjectDetailPage = () => {
   return <main>{project && direction.access !== "error" ? <><Link to={workspaceProjectsPath(project.workspaceId)} className="back-link">← Project一覧</Link>{archived && <> <Link to={workspaceProjectsPath(project.workspaceId, "archived")} className="back-link">アーカイブ済み一覧</Link></>}</> : <Link to={projectListPath(archived ? "archived" : "active")} className="back-link">← 参加中のProject</Link>}{error ? <ErrorState message={error} /> : !project ? <Loading /> : <><div className="detail-hero project-hero">{/* viewの切替はメニューのProjectの階層。見出しで現在のviewを示す。 */}<p className="eyebrow">{view === "overview" ? "Project" : `Project · ${project.name}`}</p><h1>{view === "overview" ? project.name : projectViewLabels[view]}</h1>{archived && <p><span className="status-badge muted">{projectStatusLabels.archived}</span></p>}{/* 概要ではPurposeとして出す。 */}{view !== "overview" && project.description && <p className="lede">{project.description}</p>}<p className="section-note"><time>{new Date(project.updatedAt).toLocaleString("ja-JP")} 更新</time>{myRole && <> ・ あなたのRole: {humanRoleLabels[myRole]}</>}</p></div>    {/* keyでview切替ごとに作り直し、表示の切替を短いfadeで示す（reduced-motionでは動かさない）。 */}{archived && view !== "settings" && <ArchiveNotice project={project} />}<div key={view} className="view-panel">
     {view === "overview" && (direction.access === "loading" ? <Loading /> : <ProjectOverview key={`${myRole ?? ""}/${direction.access}`} project={project} direction={direction.access === "error" ? { workspaceId: null, message: direction.message } : { workspaceId: direction.workspaceId }} archived={archived} permissions={permissions} />)}
     {view === "direction" && <><DirectionPanel mission={project.mission} vision={project.vision} />{direction.workspaceId === null ? directionUnavailable : <IntentSection projectId={project.id} workspaceId={direction.workspaceId} access={directionAccess} />}<div className="detail-columns"><ListSection title="Principles" values={project.principles} /><ListSection title="Constraints" values={project.constraints} /></div></>}
-    {view === "work" && <ExecutionSection projectId={project.id} />}
+    {view === "work" && <WorkSection projectId={project.id} workspaceId={direction.workspaceId} />}
     {view === "releases" && <ReleaseHistorySection project={project} />}
     {view === "consultations" && <ConsultationSection scope={{ kind: "project", projectId: project.id }} />}
     {view === "records" && <><ActivitySection scope={{ kind: "project", projectId: project.id }} resources={[...project.repositories, ...project.resources]} related={<Link to={workspacePath(project.workspaceId, "activity")}>所属Workspaceの記録を開く</Link>} />{direction.workspaceId === null ? directionUnavailable : <><ResearchSection projectId={project.id} workspaceId={direction.workspaceId} /><AdrReferenceSection workspaceId={direction.workspaceId} /></>}<LinkSection title="Repositories" values={project.repositories} /><LinkSection title="Resources" values={project.resources} /></>}

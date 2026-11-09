@@ -2,22 +2,23 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { request, settle, type Part } from "../../api";
 import { ErrorState, Loading } from "../../components/StateCard";
-import { projectViewPath, workspaceOutcomePath, workspacePath } from "../../paths";
+import { projectViewPath, taskPath, workspaceOutcomePath, workspacePath } from "../../paths";
 import { statusBadgeClass, type StatusTone } from "../../statusTone";
 import { activitiesPath, RecentActivityList, type ActivityPage, type ActivitySummary } from "../activity";
 import { credentialSectionId, credentialStatus, credentialsPath, type Credential } from "../credential";
 import {
   ClaimHolderSection,
   executionPath,
+  executionViewPath,
+  awaitingHumanStatus,
   formatTime,
-  storyAnchorId,
   storyStatusLabels,
   storyStatusTones,
-  taskAnchorId,
   taskStatusLabels,
   taskStatusTones,
   type ExecutionOverview,
   type ExecutionStory,
+  type ExecutionTask,
 } from "../execution";
 import { agentRoleAnchorId, grantRoleLabels, grantsPath, type Grant } from "../grant";
 import { loadDirection, stageLabels, WorkCounts, type DirectionData } from "../direction";
@@ -41,10 +42,10 @@ import type { Project } from "./project";
 import { PageColumns } from "../../components/PageColumns";
 import { Button, LinkButton } from "../../components/ui";
 
-const workBucketLabels: Record<WorkBucket, string> = { ...taskStatusLabels, reclaimable: "再取得待ち" };
-const waitingLabels: Record<WaitingKind, string> = { ...workBucketLabels, story: "Story起票待ち", decompose: "Task分解待ち", reflection: "還流待ち" };
-const workBucketTones: Record<WorkBucket, StatusTone> = { ...taskStatusTones, reclaimable: "warning" };
-const waitingTones: Record<WaitingKind, StatusTone> = { ...workBucketTones, story: "waiting", decompose: "waiting", reflection: "waiting" };
+const workBucketLabels: Record<WorkBucket, string> = { ...taskStatusLabels, consultation: "相談待ち", reclaimable: "再取得待ち" };
+const waitingLabels: Record<WaitingKind, string> = { ...workBucketLabels, consult_agent: "相談の応答待ち", consult_continue: "継続確認待ち", consult_ready: "再開待ち", story: "Story起票待ち", decompose: "Task分解待ち", reflection: "還流待ち" };
+const workBucketTones: Record<WorkBucket, StatusTone> = { ...taskStatusTones, consultation: "waiting", reclaimable: "warning" };
+const waitingTones: Record<WaitingKind, StatusTone> = { ...workBucketTones, consult_agent: "waiting", consult_continue: "waiting", consult_ready: "waiting", story: "waiting", decompose: "waiting", reflection: "waiting" };
 
 /** 実行状況に並べる未完了Storyの上限と、最近の記録の件数。続きは「実行」「記録」で読む。 */
 const storyDisplayLimit = 5;
@@ -102,8 +103,27 @@ const ExecutionBoundary = ({ project, direction }: { project: Project; direction
   );
 };
 
+/**
+ * このProjectの、Outcomeを参照するStoryのTask進捗。受入済みを分子、取消を除くTaskを分母とし（Outcome一覧と同じ）、
+ * Taskが無いときは0%にせず未起票と示す。Outcomeの達成度や効果ではない。
+ */
+const OutcomeTaskProgress = ({ stories, tasks }: { stories: readonly ExecutionStory[]; tasks: readonly ExecutionTask[] }) => {
+  const ids = new Set(stories.map((story) => story.id));
+  const own = tasks.filter((task) => task.storyId !== null && ids.has(task.storyId));
+  const accepted = own.filter((task) => task.status === "accepted").length;
+  const denominator = own.filter((task) => task.status !== "canceled").length;
+  if (stories.length === 0) return <p className="unset">Storyがまだないため、Task進捗は算出できません。</p>;
+  if (denominator === 0) return <p className="unset">対象のTaskがないため、Task進捗は算出できません。</p>;
+  return (
+    <div className="project-progress">
+      <p><strong>Task進捗 {Math.floor((accepted / denominator) * 100)}%</strong> ・ 受入済み {accepted} / 対象{denominator}件</p>
+      <progress max={denominator} value={accepted} aria-label={`Task進捗 受入済み${accepted}件、対象${denominator}件`} />
+    </div>
+  );
+};
+
 /** 貢献Outcome 1件。このProjectのWorkとStoryだけを出し、ほかのTarget ProjectはWorkspaceのOutcome詳細で見る。 */
-const ContributionItem = ({ projectId, workspaceId, contribution, stories }: { projectId: string; workspaceId: string; contribution: ProjectContribution; stories: readonly ExecutionStory[] | null }) => {
+const ContributionItem = ({ projectId, workspaceId, contribution, stories, tasks }: { projectId: string; workspaceId: string; contribution: ProjectContribution; stories: readonly ExecutionStory[] | null; tasks: readonly ExecutionTask[] | null }) => {
   const { outcome, target, otherTargets } = contribution;
   const stage = contributionStage(contribution);
   const label = stage ? stageLabels[stage] : null;
@@ -120,11 +140,13 @@ const ContributionItem = ({ projectId, workspaceId, contribution, stories }: { p
           {target.work !== null && <WorkCounts work={target.work} />}
         </li>
       </ul>
-      {stories === null ? <p role="alert" className="error-title">Storyを確認できません。</p> : stories.length > 0 && (
+      {stories === null || tasks === null ? <p role="alert" className="error-title">Storyを確認できません。Task進捗は表示していません。</p> : <OutcomeTaskProgress stories={stories} tasks={tasks} />}
+      <Link to={projectViewPath(projectId, "work") + `&outcome=${encodeURIComponent(outcome.id)}`} className="text-link">このOutcomeのStory・Taskを開く →</Link>
+      {stories !== null && stories.length > 0 && (
         <ul className="outcome-list">
           {stories.map((story) => (
             <li key={story.id}>
-              <Link to={projectViewPath(projectId, "work", storyAnchorId(story.id))}>
+              <Link to={executionViewPath(projectId, story.id)}>
                 <span className={statusBadgeClass(storyStatusTones[story.status])}>{storyStatusLabels[story.status]}</span> {story.title}
               </Link>
             </li>
@@ -143,6 +165,7 @@ const Contributions = ({ projectId, direction, data }: { projectId: string; dire
   if (data.direction.value.activeIntents.length === 0) return <p className="unset">所属WorkspaceにActiveなIntentがありません。IntentはWorkspaceの方向でHumanが登録します。</p>;
   const { items, unknown } = projectContributions(data.direction.value.outcomes, projectId);
   const stories = data.execution.ok ? data.execution.value.stories : null;
+  const tasks = data.execution.ok ? data.execution.value.tasks : null;
   return (
     <>
       {items.length === 0 ? (
@@ -153,7 +176,7 @@ const Contributions = ({ projectId, direction, data }: { projectId: string; dire
         </p>
       ) : (
         <ul className="outcome-positions">
-          {items.map((item) => <ContributionItem key={item.outcome.id} projectId={projectId} workspaceId={direction.workspaceId} contribution={item} stories={stories && stories.filter((story) => story.outcomeId === item.outcome.id)} />)}
+          {items.map((item) => <ContributionItem key={item.outcome.id} projectId={projectId} workspaceId={direction.workspaceId} contribution={item} stories={stories && stories.filter((story) => story.outcomeId === item.outcome.id)} tasks={tasks} />)}
         </ul>
       )}
       {items.length > 0 && unknown.length > 0 && <p role="alert" className="error-title">ほかにOutcome {unknown.length}件のTarget Projectを確認できません。再読込してください。</p>}
@@ -185,7 +208,7 @@ const WorkProgress = ({ projectId, execution, now }: { projectId: string; execut
               const counts = countWork(tasks.filter((task) => task.storyId === story.id), now);
               return (
                 <li key={story.id}>
-                  <Link to={projectViewPath(projectId, "work", storyAnchorId(story.id))}>
+                  <Link to={executionViewPath(projectId, story.id)}>
                     <span className={statusBadgeClass(storyStatusTones[story.status])}>{storyStatusLabels[story.status]}</span> {story.title}
                     <small>{counts.length ? counts.map(({ bucket, count }) => `${workBucketLabels[bucket]} ${count}`).join(" ・ ") : "未完了のTaskはありません"}</small>
                   </Link>
@@ -204,7 +227,8 @@ const WorkProgress = ({ projectId, execution, now }: { projectId: string; execut
 
 const actionTarget = (projectId: string, action: MyAction): string => {
   switch (action.kind) {
-    case "accept": return projectViewPath(projectId, "work", taskAnchorId(action.taskId));
+    case "accept": return taskPath(projectId, action.taskId);
+    case "consultation": return `/projects/${projectId}?view=work&status=${awaitingHumanStatus}`;
     case "grant": return projectViewPath(projectId, "settings", agentRoleAnchorId(action.role));
     case "credential": return projectViewPath(projectId, "settings", credentialSectionId);
   }
@@ -224,7 +248,7 @@ const WaitingItemRow = ({ projectId, workspaceId, item }: { projectId: string; w
   <li>
     <span><span className={statusBadgeClass(waitingTones[item.kind])}>{waitingLabels[item.kind]}</span> {item.count}件 — {item.note}{item.unassigned && <strong className="waiting-unassigned">（{grantRoleLabels[item.role]}が未割当）</strong>}</span>
     {item.outcomes.length > 0 && workspaceId !== null && <small>{item.outcomes.map((outcome, index) => <span key={outcome.id}>{index > 0 && "、"}<Link to={workspaceOutcomePath(workspaceId, outcome.intentId, outcome.id)}>{outcome.title}</Link></span>)}</small>}
-    {item.taskIds[0] && <small><Link to={projectViewPath(projectId, "work", taskAnchorId(item.taskIds[0]))}>該当Taskへ</Link></small>}
+    {item.taskIds[0] && <small><Link to={taskPath(projectId, item.taskIds[0])}>該当Taskへ</Link></small>}
   </li>
 );
 

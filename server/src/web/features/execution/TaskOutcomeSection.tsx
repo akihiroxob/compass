@@ -16,8 +16,6 @@ import {
   loopStageTone,
   outcomeLoopStage,
   taskAcceptanceNote,
-  taskStatusLabels,
-  taskTone,
   type ExecutionStory,
   type ExecutionTask,
   type OutcomeEvaluation,
@@ -37,13 +35,16 @@ type OutcomeData = {
  * Outcomeの所属Intentを探す。Workspace所有のOutcomeはIntent配下のWeb APIで読むため、Intentごとに一覧を読む
  * （複数のActive Intentと終端IntentのOutcomeを対象にする）。
  */
-export const loadOutcomeRef = async (workspaceId: string, outcomeId: string): Promise<TaskOutcomeRef | null> => {
+export const loadWorkspaceOutcomes = async (workspaceId: string): Promise<TaskOutcomeRef[]> => {
   const { intents } = await request<{ intents: { id: string }[] }>(workspaceApiPath(workspaceId, "/intents"));
   const lists = await Promise.all(
     intents.map((intent) => request<{ outcomes: TaskOutcomeRef[] }>(workspaceApiPath(workspaceId, `/intents/${intent.id}/outcomes`)).then(({ outcomes }) => outcomes)),
   );
-  return findTaskOutcome(lists, outcomeId);
+  return lists.flat();
 };
+
+export const loadOutcomeRef = async (workspaceId: string, outcomeId: string): Promise<TaskOutcomeRef | null> =>
+  findTaskOutcome([await loadWorkspaceOutcomes(workspaceId)], outcomeId);
 
 /**
  * Task詳細の「Task受入とOutcome評価」。Taskの状態（Work）と、StoryのOutcomeへ還流したこのProjectの
@@ -76,10 +77,6 @@ export const TaskOutcomeSection = ({ projectId, workspaceId, task, story }: { pr
       <h2 id="task-outcome-heading">Task受入とOutcome評価</h2>
       <p className="section-note">{taskAcceptanceNote(task, outcomeId !== null)}</p>
       <div className="detail-columns task-outcome-columns">
-        <div>
-          <p className="section-label">Task受入（Project）</p>
-          <p><span className={statusBadgeClass(taskTone(task))}>{taskStatusLabels[task.status]}</span></p>
-        </div>
         <div>
           <p className="section-label">Outcome評価（Workspace）</p>
           {outcomeId === null ? (

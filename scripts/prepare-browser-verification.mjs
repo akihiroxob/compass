@@ -95,6 +95,33 @@ const prepareIntentExplanations = async (services, workspaceId, projectId, inten
   return { metricKeys: ['completion_rate', 'weekly_retention'], explanationIds: { completionRateV1: first.explanation.id, weeklyRetention: second.explanation.id, completionRateV2: revised.explanation.id } };
 };
 const scenarios = [];
+// Daily trend fixtures for the Workspace overview and goal detail (UI-M3). The values are display fixtures, not business results.
+// The series has a missing span (offsets 12-13), a failed day (offset 5) and one multi-day observation, so the chart must not join, zero-fill or spread them.
+const prepareGoalOverview = async (services, direction, workspaceId, intent) => {
+  const strategist = identities.strategist;
+  const evaluator = identities.evaluator;
+  const source = { name: '検証用の集計表', uri: 'https://example.test/fixtures/metrics' };
+  const observedAt = Date.now() - 60_000;
+  await services.defineIntentMetricUseCase.execute(strategist, workspaceId, intent.id, { key: 'monthly_revenue', name: '月間売上', unit: '円', targetValue: 300000, staleAfterDays: 3 });
+  const daily = [];
+  for (let offset = 29; offset >= 0; offset -= 1) {
+    if (offset === 12 || offset === 13) continue;
+    daily.push(offset === 5
+      ? { periodStart: isoDay(offset), periodEnd: isoDay(offset), status: 'failed', failureReason: '集計表の取得に失敗した', source, observedAt }
+      : { periodStart: isoDay(offset), periodEnd: isoDay(offset), status: 'observed', value: 120000 + (29 - offset) * 2000, source, observedAt });
+  }
+  daily.push({ periodStart: isoDay(21), periodEnd: isoDay(15), status: 'observed', value: 810000, source, observedAt });
+  await services.recordIntentMetricObservationsUseCase.execute(evaluator, workspaceId, intent.id, { metricKey: 'monthly_revenue', observations: daily });
+  const failed = await direction.createIntentUseCase.execute(workspaceId, { title: '利用者の継続を確認できる状態にする', desiredState: '毎日使う人数を毎日の観測で確認できる',
+    background: '観測基盤の接続が不安定で、最新の値を取得できない日がある。', audience: '無料体験の利用者', constraints: '取得できない日を0人として扱わない。' });
+  await services.defineIntentMetricUseCase.execute(strategist, workspaceId, failed.id, { key: 'dau', name: 'DAU', unit: '人', targetValue: 1000, staleAfterDays: 3 });
+  await services.recordIntentMetricObservationsUseCase.execute(evaluator, workspaceId, failed.id, { metricKey: 'dau', observations: [
+    { periodStart: isoDay(3), periodEnd: isoDay(3), status: 'observed', value: 580, source, observedAt },
+    { periodStart: isoDay(2), periodEnd: isoDay(2), status: 'observed', value: 600, source, observedAt },
+    { periodStart: isoDay(0), periodEnd: isoDay(0), status: 'failed', failureReason: '計測基盤が応答しなかった', source, observedAt },
+  ] });
+  return { revenueIntentId: intent.id, failedIntentId: failed.id, expected: 'monthly_revenue: 29 daily values, gap on days 12-13, failed day 5, one 7-day value excluded from the daily trend; dau: latest day failed (state failed, last value 600)' };
+};
 // Project and Workspace Consultations reflected in a real document commit through the normal Work flow.
 // Human steps (Repository registration, replies) use the owner's Human use cases and are recorded as in-scope Entities;
 // Agent steps use the policy-checked public MCP.
@@ -295,8 +322,10 @@ const prepareConsultationLifecycle = async (services, owner, client, entry, insp
   // 方針訂正: 解決済みの相談を参照する新しい相談。Workspace相談はHuman待ちのまま残す。viewerが所属しないWorkspaceの相談はviewerに見えない。
   const correction = await client.call('manager', 'create_consultation', { projectId: projectA, ...consultation('通知テーブルの方針訂正',
     '保存期間の要件が追加されたため、通知テーブルを使わない方針を見直しますか', { supersedesConsultationId: resumedIds.consultationId }) });
+  // The Direction Entities were created by the Human/Direction preparation in this Workspace; observe them so the Outcome reference is in scope.
+  client.observe({ workspaceId }, { intentId: entry.intentId, outcomeId: entry.outcomeId });
   const workspaceWaiting = await client.call('strategist', 'create_consultation', { workspaceId,
-    ...consultation('次に優先するOutcome', '検索改善と通知改善のどちらを先に追いますか', { dueAt: inHours(30) }) });
+    ...consultation('次に優先するOutcome', '検索改善と通知改善のどちらを先に追いますか', { dueAt: inHours(30), refs: [{ kind: 'outcome', intentId: entry.intentId, id: entry.outcomeId }] }) });
   const hidden = await client.call('strategist', 'create_consultation', { workspaceId: hiddenWorkspaceId,
     ...consultation('未所属Workspaceの判断', 'viewerが所属しないWorkspaceの非公開の判断') });
 
@@ -330,9 +359,19 @@ const prepareConsultationLifecycle = async (services, owner, client, entry, insp
 // Published (included), unpublished (not included) and unconfirmed (history not comparable) all come from recorded observations.
 const releaseCommit = (index) => index.toString(16).padStart(40, '0');
 const releaseHistoryShas = [];
+// Loopback GitHub PRs for the Task detail fixture (read-only REST shape; the server registers them through the public MCP/use case).
+const previewPulls = new Map();
 const releaseGithub = createServer((request, response) => {
   const url = new URL(request.url ?? '', 'http://localhost');
   const send = (status, body) => response.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(body));
+  const pull = /^\/repos\/preview-org\/release-demo\/pulls\/(\d+)$/.exec(url.pathname);
+  if (pull) {
+    const found = previewPulls.get(Number(pull[1]));
+    if (!found) return send(404, { message: 'Not Found' });
+    return send(200, { number: found.number, html_url: `https://github.com/preview-org/release-demo/pull/${found.number}`, state: found.merged ? 'closed' : 'open',
+      draft: false, merged: found.merged, merge_commit_sha: found.merged ? found.mergeSha : null, user: { login: 'preview-worker' },
+      head: { ref: `preview/task-${found.number}`, sha: found.headSha }, base: { ref: 'main', repo: { full_name: 'preview-org/release-demo' } } });
+  }
   let match = /^\/repos\/preview-org\/release-demo\/commits\/([a-f0-9]{40})$/.exec(url.pathname);
   if (match) return releaseHistoryShas.includes(match[1]) ? send(200, { sha: match[1] }) : send(422, { message: 'No commit found' });
   match = /^\/repos\/preview-org\/release-demo\/compare\/([a-f0-9]{40})\.\.\.([a-f0-9]{40})$/.exec(url.pathname);
@@ -399,6 +438,34 @@ const prepareReleaseHistory = async (services, owner, app) => {
       unconfirmed: tasks.slice(comparable).map(({ taskId }) => taskId) },
     note: '公開記録はRuntime Credential（publication:write）の公開APIで追加した。公開済みはHEAD履歴に含まれる変更、未公開は含まれない変更、確認できずは履歴を比較できない変更。効果の評価ではない。' };
 };
+// Task detail: a doing Task whose Worker registered two PRs through the public register_task_pull_request contract
+// (the first was merged on the loopback GitHub, then the next PR became current), plus a viewer-visible Comment.
+// No GitHub write and no SQL: the loopback only answers the server's read-only PR lookups.
+const prepareTaskPullRequests = async (services, owner, releaseHistory) => {
+  const work = services.taskCoordinationService;
+  const workspaceId = releaseHistory.workspaceId;
+  const project = await services.human.createWorkspaceProject.execute(owner, workspaceId, { name: '[受入] Task詳細 PR Project',
+    repositories: [{ name: 'release-demo', url: 'https://github.com/preview-org/release-demo' }] });
+  for (const role of ['manager', 'worker', 'reviewer']) await services.grantProjectRoleUseCase.execute(project.id, { principalId: identities[role], role });
+  await services.workspaceDirection.setOutcomeTargetProjectUseCase.execute(workspaceId, releaseHistory.outcomeId, project.id);
+  const repository = project.repositories[0];
+  const story = await work.issueStory(identities.manager, { projectId: project.id, outcomeId: releaseHistory.outcomeId, title: 'Task詳細のPR表示確認用Story' }, key('story'));
+  const task = await work.issueTask(identities.manager, { projectId: project.id, storyId: story.id, taskKey: 'task-detail-pr', title: '関連PRを持つTask' }, key('task'));
+  const claim = await work.claimTask(identities.worker, task.id, key('claim'));
+  const first = { number: 101, headSha: 'a1'.repeat(20), mergeSha: 'b2'.repeat(20), merged: false };
+  const second = { number: 102, headSha: 'c3'.repeat(20), mergeSha: 'd4'.repeat(20), merged: false };
+  previewPulls.set(first.number, first);
+  await work.registerTaskPullRequest(identities.worker, { taskId: task.id, claimId: claim.claimId, repositoryId: repository.id, number: first.number }, key('pr'));
+  first.merged = true;
+  previewPulls.set(second.number, second);
+  await work.registerTaskPullRequest(identities.worker, { taskId: task.id, claimId: claim.claimId, repositoryId: repository.id, number: second.number }, key('pr'));
+  await work.addTaskComment(identities.worker, task.id, claim.claimId, '実装メモ: 関連PRを2件登録した。画面検証専用の決定的fixtureで、実Agentの成果ではない。', key('comment'));
+  return { projectId: project.id, taskId: task.id, storyId: story.id, repositoryId: repository.id, claimId: claim.claimId,
+    screenPath: `/projects/${project.id}/tasks/${task.id}`, apiPath: `/projects/${project.id}/tasks/${task.id}`,
+    expected: { pullRequests: [{ number: 102, current: true, state: 'open', headSha: second.headSha }, { number: 101, current: false, state: 'merged', headSha: first.headSha, mergeSha: first.mergeSha }],
+      repositoryUrl: 'https://github.com/preview-org/release-demo' },
+    note: 'PRは公開のregister_task_pull_request（loopback GitHubの読取）で登録した。GitHubへの書込み・SQL直書きなし。Claimは期限内。' };
+};
 const persistenceSnapshot = async (app, entries) => {
   const origin = 'http://localhost';
   const signedIn = await app.request(`${origin}/auth/local/login`, { method: 'POST', redirect: 'manual', headers: { Origin: origin },
@@ -414,6 +481,7 @@ const persistenceSnapshot = async (app, entries) => {
 };
 let observedTools = [];
 let releaseHistory;
+let taskPullRequests;
 let preparation;
 let persistence;
 try {
@@ -470,7 +538,7 @@ try {
   };
   for (const scenario of ['no-target', 'partial-work', 'evaluated']) {
     const name = { 'no-target': '[受入] Targetなし', 'partial-work': '[受入] 一部Project未着手', evaluated: '[受入] 複数Targetと評価根拠' }[scenario];
-    const workspace = await services.human.createWorkspace.execute({ name, mission: '保存済みデータからDirectionの表示・遷移・権限差を検証する' }, owner);
+    const workspace = await services.human.createWorkspace.execute({ name, mission: '保存済みデータからDirectionの表示・遷移・権限差を検証する', vision: '各Projectの貢献と判断の根拠をたどれて、複数の目標への到達点と変化を一目で比べられる状態をつくる。Workspace一覧では2行までに収め、概要では全文を折りたたまずに読めることを確認する。' }, owner);
     for (const role of ['strategist', 'evaluator']) await services.grantWorkspaceRoleUseCase.execute(workspace.id, { principalId: identities[role], role });
     const intent = await direction.createIntentUseCase.execute(workspace.id, { title: `${name} Intent`, desiredState: '各Projectの貢献と判断根拠が追跡できる' });
     const outcome = await direction.createOutcomeUseCase.execute(workspace.id, intent.id, {
@@ -542,12 +610,14 @@ try {
       entry.intentExplanations = { ...await prepareIntentExplanations(services, workspace.id, intentProject.id, intent, outcome,
         { findingId: result.findings[0].id, synthesisId: synthesis.id, decisionId: decision.decision.id, evaluationId: saved.evaluation.id }),
         path: `/projects/${intentProject.id}/intents/${intent.id}`, expected: 'completion_rate: v2 (previous v1 whose basis was corrected) and weekly_retention v1; all with kind-separated items' };
+      entry.goalOverview = { ...await prepareGoalOverview(services, direction, workspace.id, intent), overviewPath: `/workspaces/${workspace.id}`, detailPath: `/workspaces/${workspace.id}/direction/intents/${intent.id}`, listPath: '/' };
     }
     scenarios.push(entry);
   }
   releaseHistory = await prepareReleaseHistory(services, owner, app);
+  taskPullRequests = await prepareTaskPullRequests(services, owner, releaseHistory);
   preparation = { endpointPath: '/mcp', actors: identities,
-    projectIds: [...scenarios.flatMap(({ projects }) => projects.map(({ id }) => id)), releaseHistory.projectId],
+    projectIds: [...scenarios.flatMap(({ projects }) => projects.map(({ id }) => id)), releaseHistory.projectId, taskPullRequests.projectId],
     workspaceIds: [...scenarios.map(({ workspaceId }) => workspaceId), releaseHistory.workspaceId], operationPolicy: previewOperationPolicy };
   // Read the inspected revision's public MCP contract; permission comes from the policy, not from listed names.
   const client = createPreviewMcpClient({ origin: 'http://localhost', preparation, fetch: (url, init) => app.request(url, init) });
@@ -593,7 +663,7 @@ const manifest = { schemaVersion: 1, purpose: 'browser-verification-fixtures', h
     instructions: 'Read policyPath. Use only the dedicated preview URL and these preview actors. Any current tool classified by operationPolicy is permitted within projectIds/workspaceIds; execution Task/Claim, operational MCP and Human management tools are outside this permission.',
   },
   login: { mode: 'trusted-local', ownerEmail, viewerEmail, instructions: 'ログイン画面からemailを入力する。viewerは[受入] 一部Project未着手・[受入] 複数Targetと評価根拠のWorkspaceのviewer（配下のProject A・Bとも同じRole）で、[受入] TargetなしのWorkspaceは未所属。' },
-  releaseHistory, scenarios, limitations: ['データ準備は公開APIによる管理操作のAC検証ではない', '判定・Evidenceは表示確認用fixtureであり、実Agentの自律運転や実成果を示さない'] };
+  releaseHistory, taskPullRequests, scenarios, limitations: ['データ準備は公開APIによる管理操作のAC検証ではない', '判定・Evidenceは表示確認用fixtureであり、実Agentの自律運転や実成果を示さない'] };
 const manifestPath = join(data, 'browser-fixtures.json');
 // The preview server reopens this DB file, so comparing its Web API responses with this snapshot checks a same-DB restart.
 const persistencePath = join(data, 'persistence-before-restart.json');

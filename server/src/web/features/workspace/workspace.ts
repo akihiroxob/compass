@@ -81,6 +81,8 @@ export const parseShellLocation = (pathname: string, search = ""): ShellLocation
           ? "projects"
           : rest === "direction" && /^intents\/[^/]+\/outcomes\/[^/]+$/.test(subPage)
             ? "direction"
+          : rest === "direction" && /^intents\/[^/]+$/.test(subPage) && subPage !== "intents/new"
+            ? "overview"
           : rest === "consultations" && /^[^/]+$/.test(subPage)
             ? "consultations"
           : rest === "agents" && /^[^/]+$/.test(subPage)

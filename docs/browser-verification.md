@@ -12,6 +12,7 @@ ReviewerはPR head、Managerは統合SHAを照合する。Workerは検証時HEAD
 | 一部未着手 | Target Project A/B。Aにはaccepted Taskを持つStoryとExecution Evidence、BにはStoryなし |
 | 評価と判断 | 両Targetのaccepted WorkとEvidence、成功条件ごとのEvaluation、Research Result/Finding/Synthesis、関連するDirection Decision |
 | 観測の説明 | 評価と判断のWorkspaceのIntent（`intentExplanations.path`）に、観測項目2件と各観測値、版付きの説明（事実・原因の仮説・次の提案、観測・Finding・Synthesis・Evaluation・Decisionへの根拠、後から訂正された観測）。一部未着手のWorkspaceの`intentExplanationStates`に、観測項目は未計測で説明なしのIntentと、観測項目なしで説明なしのIntent |
+| 目標の俯瞰 | 評価と判断のWorkspaceの`goalOverview`。Intent（`revenueIntentId`）に観測項目`monthly_revenue`（目標30万円）の日次29日分（欠損2日・取得失敗1日・複数日の観測1件）と、最新が取得失敗の目標（`failedIntentId`、DAU）。3つのWorkspaceにVision、一部未着手のWorkspaceのOutcomeを参照するWorkspace相談（一覧の問題の代表理由）。一覧は`/`、概要・目標詳細のpathは`overviewPath`・`detailPath` |
 | 相談の段階 | 一部未着手のWorkspaceに`consultationLifecycle`。Project Aの相談と待機Taskを各段階に置き、Workspace相談と、viewerが所属しないTargetなしのWorkspaceの相談を加える |
 
 評価と判断のシナリオには`consultationReflection`として、Project相談とWorkspace相談（Project Aへ引継ぎ）の結論を文書へ反映した状態も準備する。専用ディレクトリ内のbare repository（`verification-docs.git`）とcheckoutを作り、Project Aへ`https://example.test/verification-docs.git`として登録する。`request_consultation_followup`→Workerの`claim_task`と実際の文書commit→通常の`claim_review`・`reviewed_task`→`claim_acceptance`・`accept_task`（`deliverables`にcommitとpath）→`record_consultation_artifact`を公開MCPで通す。manifestの`path`から反映済み表示・再読込・viewerとの権限差の確認へ進める。HumanのRepository登録・返信はOwnerのHuman use caseで行う。これらは検証用Principalの公開操作で、実Agentの稼働を示さない。対象SHAに反映の公開契約が無い場合は`status: unavailable`と`kind`（`tool_unavailable` / `policy_denied`）を記録し、内部操作で補わない。
@@ -31,6 +32,8 @@ ReviewerはPR head、Managerは統合SHAを照合する。Workerは検証時HEAD
 `observations`には、作成中に確認した再送の同一結果、待機Taskの候補除外と直接Claimの拒否（`TASK_NOT_CLAIMABLE`）、viewerの返信拒否、同じ版の別Principalのlease（`LEASE_HELD`）、古い版の結論（`STALE_REVISION`）、二重の再開（`CLAIM_CONFLICT`）、Workerの継続確認（`FORBIDDEN`）を、期待値・観測値・一致で記録する。不一致があっても準備は止めないため、Managerは`matched: false`を製品の挙動として扱う。これらも検証用Principalの公開操作で、実Agentの稼働を示さない。
 
 リリース履歴には、専用Workspace `[受入] リリース履歴`（Intent・Outcome・Target Project）に専用Project（manifestの`releaseHistory`）を加える。GitHub互換のloopback serverを読む公開記録のRepository（`release-demo`）へ、受入成果物のcommit付きで受入済みTaskを24件作り、Owner Sessionで発行したProject Runtime Credential（`publication:write`のみ）が公開Web API（`POST /api/projects/:projectId/publications`）で`production`の公開記録を1件追加する。結果は公開済み12件・未公開10件（公開されたrevisionに含まれない）・確認できず2件（履歴を比較できない）で、ページ（20件）を超える件数を含む。各Taskには題名と異なる完了時の実装メモ（変更の要約の原記録）を残す。manifestの`releaseHistory.screenPath`（画面。`?view=releases`）・`apiPath`（Web APIの接頭辞`/api`を除いたpath）・`expected`から、一覧・詳細・原記録・複数Taskを含む公開を確認する。公開済みは効果の評価を意味しない。
+
+Task詳細の関連PRには、同じWorkspaceの専用Project（manifestの`taskPullRequests`）に作業中のTaskを1件置き、Workerが公開の`register_task_pull_request`でPR 2件（#101はloopback GitHubでmerge済み、#102がopenの現在のPR）を登録する。GitHub互換のloopbackは読取だけに答え、GitHubへの書込みやSQL直書きは使わない。`screenPath`・`expected`（番号・state・保存SHA・merge SHA）から、PC/SPの表示、PR・Commitリンクと保存SHAの一致、Claim期限内の表示を確認する。
 
 Ownerは`preview-owner@example.test`、Viewerは`preview-viewer@example.test`で開発用ログインする。ViewerはWorkspaceからの招待を受諾し、後二者のWorkspaceのviewerになる（配下のProject A・Bとも同じRole。[ADR 0003](adr/0003-workspace-human-membership.md)）。Targetなしのworkspaceには所属しない。Workspace Directionと両ProjectのWorkの参照、未所属Workspaceの参照拒否、編集操作の拒否を比較できる。
 

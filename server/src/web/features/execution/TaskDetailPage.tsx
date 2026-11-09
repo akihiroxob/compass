@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { ApiError, classifyError, describeActionFailure, jsonPost, loadFailureMessage, request, type ErrorKind } from "../../api";
 import { PageColumns } from "../../components/PageColumns";
 import { ReasonPanel, useReasonAction, type ReasonAction } from "../../components/ReasonPanel";
@@ -10,6 +10,7 @@ import { useProjectOperation, useProjectOperationState } from "../access";
 import { loadMemberNames } from "../member";
 import { TaskOutcomeSection } from "./TaskOutcomeSection";
 import { ChangeItem } from "./ExecutionSection";
+import { readWorkBack } from "./work";
 import { statusBadgeClass } from "../../statusTone";
 import {
   availableTaskOperations,
@@ -17,6 +18,7 @@ import {
   formatClaimExpiry,
   formatTime,
   isManualEditableTask,
+  pullRequestStateLabels,
   storyAnchorId,
   storyStatusLabels,
   taskAnchorId,
@@ -29,6 +31,7 @@ import {
   type TaskDetail,
   type TaskOperation,
   taskTone,
+  executionViewPath,
 } from "./execution";
 
 /** 未所属・存在しないProjectと、別ProjectのTask IDはどちらも404（serverが区別を漏らさない）。 */
@@ -138,13 +141,13 @@ export type WorkspaceCrumbs = (project: TaskProject) => ReactNode;
  * Workspace → Project → 実行 → Story → Taskの現在位置。Workspaceの項目は`workspaceCrumbs`が閲覧できる場合だけ出し、Projectを
  * 読めなければProjectはIDで「実行」viewへ辿る。StoryとTaskの行は「実行」viewの該当cardへ移動する。
  */
-const TaskBreadcrumb = ({ projectId, project, story, task, workspaceCrumbs }: { projectId: string; project: TaskProject | null; story: ExecutionStory | null; task: ExecutionTask; workspaceCrumbs: WorkspaceCrumbs }) => (
+const TaskBreadcrumb = ({ projectId, workBack, project, story, task, workspaceCrumbs }: { projectId: string; workBack: string; project: TaskProject | null; story: ExecutionStory | null; task: ExecutionTask; workspaceCrumbs: WorkspaceCrumbs }) => (
   <nav className="breadcrumb" aria-label="現在位置">
     <ol>
       {project && workspaceCrumbs(project)}
       <li><Link to={projectViewPath(projectId, "overview")}>{project?.name ?? "Project"}</Link></li>
-      <li><Link to={projectViewPath(projectId, "work", taskAnchorId(task.id))}>開発詳細</Link></li>
-      {story && <li><Link to={projectViewPath(projectId, "work", storyAnchorId(story.id))}>{story.title}</Link></li>}
+      <li><Link to={workBack}>開発詳細</Link></li>
+      {story && <li><Link to={executionViewPath(projectId, story.id)}>{story.title}</Link></li>}
       <li aria-current="page">{task.title}</li>
     </ol>
   </nav>
@@ -219,6 +222,12 @@ const CommentForm = ({ projectId, taskId, onAdded }: { projectId: string; taskId
  * Claim・差戻し理由、Task受入とOutcome評価（Evidence）の区別、Comment・当該TaskのChangeを表示し、editor以上には状態に応じた
  * 受入・差戻し・取消とCommentの導線を出す（archivedでは出さない）。操作後はserverから読み直し、拒否は常にserverが行う。
  */
+const CommitLink = ({ repository, sha }: { repository: string; sha: string }) => (
+  <a href={`https://github.com/${repository}/commit/${sha}`} target="_blank" rel="noreferrer" title={sha} aria-label={`Commit ${sha}を開く`}>
+    <code>{sha.slice(0, 7)}</code>
+  </a>
+);
+
 export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: WorkspaceCrumbs }) => {
   const { projectId = "", taskId = "" } = useParams();
   const [state, setState] = useState<{ key: string; detail: TaskDetail | null; error: string | null } | null>(null);
@@ -274,18 +283,20 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
   const projectState = project?.projectId === projectId ? project : null;
   const currentNotice = notice?.key === key ? notice : null;
   const intervene = access === "allowed";
+  // 一覧から開いたときは、絞り込み条件とページを残した一覧へ戻る。
+  const workBack = readWorkBack(useLocation().state, projectId);
   return (
     <main>
       {settled?.error ? (
         <>
-          <Link to={projectViewPath(projectId, "work")} className="back-link">← 開発詳細</Link>
+          <Link to={workBack} className="back-link">← 開発詳細</Link>
           <ErrorState message={settled.error} />
         </>
       ) : !detail || !task ? (
         <Loading />
       ) : (
         <>
-          <TaskBreadcrumb projectId={projectId} project={projectState?.project ?? null} story={detail.story} task={task} workspaceCrumbs={workspaceCrumbs} />
+          <TaskBreadcrumb projectId={projectId} workBack={workBack} project={projectState?.project ?? null} story={detail.story} task={task} workspaceCrumbs={workspaceCrumbs} />
           <div className="detail-hero">
             <p className="eyebrow">Task</p>
             <h1>{task.title}</h1>
@@ -300,6 +311,7 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
               <p className="section-note">Agentが受入・レビューのClaimを持っているため、受入・差戻しはClaimの解放後にできます。</p>
             )}
             {access === "archived" && <p className="section-note">アーカイブ済みのProjectのため、受入・差戻し・取消・Commentはできません。</p>}
+            {access === "forbidden" && <p className="section-note">閲覧のみの権限のため、受入・差戻し・取消・Commentはできません。操作には編集者以上のRoleが必要です。必要な場合はWorkspaceのownerにRoleの変更を依頼してください。</p>}
           </div>
           {/* 補助列は担当（Claim）・Story等の事実、主列は判断と履歴。狭い画面では担当を先に出す。 */}
           <PageColumns sideFirst side={
@@ -309,7 +321,7 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
               <dt>説明</dt>
               <dd>{task.description ?? <span className="unset">未設定</span>}</dd>
               <dt>Story</dt>
-              <dd>{detail.story ? <><Link to={projectViewPath(projectId, "work", storyAnchorId(detail.story.id))}>{detail.story.title}</Link>（{storyStatusLabels[detail.story.status]}）</> : <span className="unset">Storyに属していません</span>}</dd>
+              <dd>{detail.story ? <><Link to={executionViewPath(projectId, detail.story.id)}>{detail.story.title}</Link>（{storyStatusLabels[detail.story.status]}）</> : <span className="unset">Storyに属していません</span>}</dd>
               {detail.story?.correlationId && <><dt>相関ID</dt><dd><code>{detail.story.correlationId}</code></dd></>}
               {task.taskKey && <><dt>taskKey</dt><dd><code>{task.taskKey}</code></dd></>}
               <dt>Claim</dt>
@@ -345,9 +357,46 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
           ) : (
             <Loading />
           )}
+          <section className="detail-section" aria-labelledby="task-pr-heading">
+            <h2 id="task-pr-heading">関連PR</h2>
+            {detail.pullRequests.length ? (
+              <ul className="grant-list task-pr-list">
+                {detail.pullRequests.map((pr) => (
+                  <li key={pr.id}>
+                    <p>
+                      <a href={pr.url} target="_blank" rel="noreferrer">{pr.repository}#{pr.number}</a>{" "}
+                      <span className={statusBadgeClass(pr.state === "merged" ? "done" : pr.state === "closed" ? "muted" : "progress")}>
+                        {pullRequestStateLabels[pr.state]}{pr.draft ? "（draft）" : ""}
+                      </span>
+                      {pr.current && <> <span className="status-badge muted">現在のPR</span></>}
+                    </p>
+                    <small>
+                      <code>{pr.headBranch}</code> → <code>{pr.baseBranch}</code> ・ 対象Commit <CommitLink repository={pr.repository} sha={pr.headSha} />
+                      {pr.mergeSha && <> ・ merge Commit <CommitLink repository={pr.repository} sha={pr.mergeSha} /></>}
+                      {pr.reviewedHeadSha && <> ・ レビュー済みCommit <CommitLink repository={pr.repository} sha={pr.reviewedHeadSha} /></>}
+                      {" "}・ {formatTime(pr.verifiedAt)} にGitHubで確認
+                    </small>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="unset">登録されたPRはありません（PRが不要なTaskか、まだ登録されていません）</p>
+            )}
+            <p className="section-note">PRの状態はWorkerが登録した時点にGitHubで確認した内容です。Task受入は、PRのmerge・公開・Outcome達成を意味しません。</p>
+          </section>
+          <section className="detail-section" aria-labelledby="task-changes-heading">
+            <h2 id="task-changes-heading">活動履歴</h2>
+            {detail.changes.length ? (
+              <ul className="grant-list change-list">
+                {detail.changes.map((change) => <ChangeItem key={change.cursor} change={change} projectId={projectId} humanNames={names} />)}
+              </ul>
+            ) : (
+              <p className="unset">変更はありません</p>
+            )}
+          </section>
           <section className="detail-section" aria-labelledby="comments-heading">
-            <h2 id="comments-heading">Comment</h2>
-            <p className="section-note">AgentがClaimのもとで残した引継ぎ・検証の記録と、HumanのCommentです。</p>
+            <h2 id="comments-heading">コメント</h2>
+            <p className="section-note">Workerの変更・検証報告、Reviewer・Managerの確認内容、Humanのコメントです。操作の履歴は上の活動履歴に分けています。</p>
             {detail.comments.length ? (
               <ul className="grant-list">
                 {detail.comments.map((comment) => (
@@ -358,7 +407,7 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
                 ))}
               </ul>
             ) : (
-              <p className="unset">Commentはありません</p>
+              <p className="unset">コメントはありません</p>
             )}
             {intervene && (
               <CommentForm
@@ -366,16 +415,6 @@ export const TaskDetailPage = ({ workspaceCrumbs }: { workspaceCrumbs: Workspace
                 taskId={taskId}
                 onAdded={() => load().catch(() => undefined)}
               />
-            )}
-          </section>
-          <section className="detail-section" aria-labelledby="task-changes-heading">
-            <h2 id="task-changes-heading">変更履歴</h2>
-            {detail.changes.length ? (
-              <ul className="grant-list change-list">
-                {detail.changes.map((change) => <ChangeItem key={change.cursor} change={change} projectId={projectId} humanNames={names} />)}
-              </ul>
-            ) : (
-              <p className="unset">変更はありません</p>
             )}
           </section>
           </>} />

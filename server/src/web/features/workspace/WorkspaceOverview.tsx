@@ -1,77 +1,61 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { request, settle, type Part } from "../../api";
-import { PageColumns } from "../../components/PageColumns";
-import { ErrorState, Loading } from "../../components/StateCard";
-import { intentPath, outcomePath, projectViewPath, workspaceProjectCreatePath, researchRequestPath, workspaceIntentCreatePath, workspaceOutcomePath, workspacePath, workspaceProjectsPath } from "../../paths";
-import { statusBadgeClass, type StatusTone } from "../../statusTone";
+import { Loading, ErrorState } from "../../components/StateCard";
+import { Button, LinkButton } from "../../components/ui";
+import { projectViewPath, workspaceApiPath, workspaceIntentCreatePath, workspaceProjectCreatePath, workspacePath, workspaceIntentPath } from "../../paths";
 import { canOperateWorkspace } from "../access";
-import { activitiesPath, RecentActivityList, type ActivityPage, type ActivitySummary } from "../activity";
-import {
-  attentionSummary,
-  evaluationStage,
-  loadDirection,
-  loadOpenResearch,
-  noTargetNote,
-  pickOpenProject,
-  planWorkspaceAttention,
-  projectTargetNote,
-  stageLabels,
-  WorkCounts,
-  type AttentionItem,
-  type AttentionKind,
-  type AttentionRef,
-  type DirectionData, type IntentDirectionData,
-  type OutcomePosition,
-  type OverviewResearch,
-  type TargetWork,
-} from "../direction";
+import type { InboxPage } from "../consultation";
+import { WorkCounts, type TargetWork } from "../direction";
 import { formatTime } from "../execution";
+import {
+  IntentGoalCard,
+  itemKindLabels,
+  loadIntentExplanations,
+  loadIntentMetrics,
+  splitExplanationVersions,
+  type Intent,
+  type IntentExplanation,
+  type IntentExplanations,
+  type IntentMetrics,
+} from "../intent";
 import type { HumanRole } from "../member";
 import { emptyProjectNote, type Workspace } from "./workspace";
+import { summarizeWaiting, waitingCountPath, waitingCountText, type WaitingCount } from "./workspaceComparison";
 import { loadProjects, type OverviewProject } from "./workspaceProjects";
-import { Button, LinkButton } from "../../components/ui";
+import { statusBadgeClass } from "../../statusTone";
+
+type GoalData = { intent: Intent; metrics: Part<IntentMetrics>; explanations: Part<IntentExplanations> };
 
 type OverviewData = {
-  direction: Part<DirectionData>;
-  /** Workspaceの未終了のResearch Request。要対応の判定にだけ使う。 */
-  research: Part<OverviewResearch[]>;
+  /** Active Intent（目標）。取得できなければエラー。 */
+  goals: Part<GoalData[]>;
   projects: Part<OverviewProject[]>;
-  activities: Part<ActivitySummary[]>;
+  waiting: WaitingCount;
   fetchedAt: number;
 };
-
-/** 概要に出す最近の記録の件数。続きは「記録」で読む。 */
-const recentActivityLimit = 5;
 
 const notFound = "Workspaceが見つからないか、閲覧する権限がありません。";
 
 const loadOverview = async (workspaceId: string): Promise<OverviewData> => {
-  const [direction, research, projects, activities] = await Promise.all([
-    settle(loadDirection(workspaceId), notFound),
-    settle(loadOpenResearch(workspaceId), notFound),
+  const [intents, projects, waiting] = await Promise.all([
+    settle(request<{ intents: Intent[] }>(workspaceApiPath(workspaceId, "/intents")).then(({ intents }) => intents.filter((intent) => intent.status === "active")), notFound),
     settle(loadProjects(workspaceId), notFound),
-    settle(request<ActivityPage>(activitiesPath({ kind: "workspace", workspaceId }, { limit: recentActivityLimit })).then((page) => page.activities), notFound),
+    settle(request<InboxPage>(waitingCountPath(workspaceId)), notFound),
   ]);
-  return { direction, research, projects, activities, fetchedAt: Date.now() };
-};
-
-const attentionLabels: Record<AttentionKind, { label: string; tone: StatusTone }> = {
-  intent: { label: "Intent未登録", tone: "attention" },
-  next_direction: { label: "次の判断待ち", tone: "attention" },
-  outcome: { label: "Outcome未登録", tone: "attention" },
-  research: { label: "調査待ち", tone: "progress" },
-  no_targets: { label: "Target未設定", tone: "attention" },
-  replan: { label: "再計画待ち", tone: "warning" },
-  decision: { label: "判断待ち", tone: "attention" },
-  story: { label: "Story起票待ち", tone: "waiting" },
-  decompose: { label: "Task分解待ち", tone: "waiting" },
-  todo: { label: "未着手", tone: "waiting" },
-  rejected: { label: "差戻し", tone: "attention" },
-  in_review: { label: "レビュー待ち", tone: "progress" },
-  wait_accept: { label: "受入待ち", tone: "attention" },
-  reflection: { label: "還流待ち", tone: "waiting" },
-  evaluation: { label: "評価待ち", tone: "waiting" },
+  const goals: Part<GoalData[]> = intents.ok
+    ? {
+        ok: true,
+        value: await Promise.all(intents.value.map(async (intent) => {
+          const [metrics, explanations] = await Promise.all([
+            settle(loadIntentMetrics(workspaceId, intent.id), notFound),
+            settle(loadIntentExplanations(workspaceId, intent.id), notFound),
+          ]);
+          return { intent, metrics, explanations };
+        })),
+      }
+    : intents;
+  return { goals, projects, waiting: summarizeWaiting(waiting.ok ? waiting.value : null), fetchedAt: Date.now() };
 };
 
 /** Project名とリンク。一覧を取得できなければIDだけを出す。 */
@@ -86,10 +70,6 @@ export const ProjectName = ({ projectId, projects, view }: { projectId: string; 
   );
 };
 
-/** Outcome名。WorkspaceのOutcome詳細（Workspace Membershipで閲覧）へ辿る。 */
-const OutcomeName = ({ workspaceId, outcome }: { workspaceId: string; outcome: OutcomePosition["outcome"] }) =>
-  <Link to={workspaceOutcomePath(workspaceId, outcome.intentId, outcome.id)}>{outcome.title}</Link>;
-
 export const openProjects = (projects: Part<OverviewProject[]>) =>
   projects.ok ? projects.value.map(({ project }) => ({ id: project.id, status: project.status })) : [];
 
@@ -100,141 +80,86 @@ export const TargetRow = ({ target, projects }: { target: TargetWork; projects: 
   </li>
 );
 
-/** 現在地: Active Intent → Active Outcome → Target Project別のWork → 評価可能性。Taskの受入をOutcomeの達成として出さない。 */
-const CurrentPosition = (props: { workspaceId: string; direction: DirectionData; projects: Part<OverviewProject[]> }) => props.direction.directions.length === 0 ? <p className="unset">目標（Intent）は未登録です。</p> : <>{props.direction.directions.map((direction) => <IntentPosition key={direction.activeIntent!.id} {...props} direction={direction} />)}</>;
 
-const IntentPosition = ({ workspaceId, direction, projects }: { workspaceId: string; direction: IntentDirectionData; projects: Part<OverviewProject[]> }) => {
-  const intentProject = pickOpenProject([], openProjects(projects));
-  if (!direction.activeIntent) return <p className="unset">ActiveなIntentはありません。</p>;
+const summaryKinds = ["fact", "hypothesis", "proposal"] as const;
+
+/** 目標1つの最新のAgentの説明。事実・原因の仮説・次の提案を分け、根拠・版は目標詳細で読む。 */
+const SummaryCard = ({ workspaceId, goal }: { workspaceId: string; goal: GoalData }) => {
+  const { intent, explanations } = goal;
+  const heading = <h3><Link to={workspaceIntentPath(workspaceId, intent.id)}>{intent.title}</Link></h3>;
+  if (!explanations.ok) return <article className="summary-card">{heading}<p role="alert" className="error-title">Agentの説明を取得できません: {explanations.error}</p></article>;
+  const { latest } = splitExplanationVersions(explanations.value.explanations);
+  const newest: IntentExplanation | undefined = latest[0];
+  if (!newest) return <article className="summary-card">{heading}<p className="unset">Agentの説明はまだ記録されていません。観測値から説明は作っていません。</p></article>;
+  const metricName = explanations.value.metrics.find((metric) => metric.key === newest.metricKey)?.name ?? newest.metricKey;
   return (
-    <>
-      <p className="section-label">Active Intent</p>
-      <p className="workspace-intent">{intentProject ? <Link to={intentPath(intentProject, direction.activeIntent.id)}>{direction.activeIntent.title}</Link> : direction.activeIntent.title}</p>
-      <p className="section-label">Active Outcome（{direction.outcomes.length}件）</p>
-      {direction.outcomes.length === 0 ? <p className="unset">ActiveなOutcomeはありません。</p> : (
-        <ul className="outcome-positions">
-          {direction.outcomes.map((position) => {
-            const stage = position.execution ? stageLabels[evaluationStage(position.execution)] : null;
-            return (
-              <li key={position.outcome.id}>
-                <div className="outcome-position-head">
-                  <OutcomeName workspaceId={workspaceId} outcome={position.outcome} />
-                  {stage ? <span className={statusBadgeClass(stage.tone)}>{stage.label}</span> : <span className="status-badge muted">還流・評価の状態を確認できません</span>}
-                </div>
-                <p className="section-label">Target Project</p>
-                {position.targets === null ? <p role="alert" className="error-title">Target Projectを確認できません。</p> : position.targets.length === 0 ? <p className="unset">{noTargetNote("active")}</p> : (
-                  <ul className="target-works">{position.targets.map((target) => <TargetRow key={target.projectId} target={target} projects={projects} />)}</ul>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </>
+    <article className="summary-card">
+      {heading}
+      <p className="section-note">{metricName}・分析期間 {newest.periodStart === newest.periodEnd ? newest.periodStart : `${newest.periodStart}〜${newest.periodEnd}`}{newest.basisOutdated && <> <span className={statusBadgeClass("warning")}>根拠に古い記録あり</span></>}</p>
+      <div className="summary-kinds">
+        {summaryKinds.map((kind) => {
+          const items = newest.items.filter((item) => item.kind === kind);
+          return (
+            <section key={kind} aria-label={itemKindLabels[kind]}>
+              <h4>{itemKindLabels[kind]}</h4>
+              {items.length === 0 ? <p className="unset">記録されていません</p> : <ul>{items.map((item) => <li key={item.position}>{item.statement}</li>)}</ul>}
+            </section>
+          );
+        })}
+      </div>
+      {latest.length > 1 && <p className="section-note">ほか{latest.length - 1}件の観測項目の説明は目標詳細で確認できます。</p>}
+    </article>
   );
 };
 
-/** 要対応の根拠。OutcomeはWorkspaceのOutcome詳細、Intent・Research RequestはProject配下の詳細を開けるProject（`openProject`）から辿る。 */
-const AttentionRefItem = ({ workspaceId, refItem, kind, projects, openProject }: { workspaceId: string; refItem: AttentionRef; kind: AttentionKind; projects: Part<OverviewProject[]>; openProject: string | null }) => {
-  if (refItem.on === "intent") return <span className="attention-ref">{openProject ? <Link to={intentPath(openProject, refItem.intent.id)}>{refItem.intent.title}</Link> : refItem.intent.title}</span>;
-  if (refItem.on === "research") return <span className="attention-ref">{openProject ? <Link to={researchRequestPath(openProject, refItem.request.id)}>{refItem.request.question}</Link> : refItem.request.question}</span>;
-  return (
-    <span className="attention-ref">
-      <OutcomeName workspaceId={workspaceId} outcome={refItem.outcome} />
-      {refItem.projectId && <> / <ProjectName projectId={refItem.projectId} projects={projects} view={kind === "story" || kind === "decompose" || kind === "replan" ? "overview" : "work"} /></>}
-      {refItem.count !== null && <> {refItem.count}件</>}
-    </span>
-  );
+const CurrentSummary = ({ workspaceId, goals }: { workspaceId: string; goals: Part<GoalData[]> }) => {
+  if (!goals.ok) return <ErrorState message={`目標の読み込みに失敗しました: ${goals.error}`} />;
+  if (goals.value.length === 0) return <p className="unset">目標が未登録のため、現状の概要はありません。</p>;
+  return <div className="summary-cards">{goals.value.map((goal) => <SummaryCard key={goal.intent.id} workspaceId={workspaceId} goal={goal} />)}</div>;
 };
 
-/** 根拠のReact key。 */
-const refKey = (refItem: AttentionRef) =>
-  refItem.on === "outcome" ? `${refItem.outcome.id}-${refItem.projectId ?? ""}` : refItem.on === "intent" ? `intent-${refItem.intent.id}` : `research-${refItem.request.id}`;
-
-/**
- * Humanの登録（Intent・Outcome）の導線。目標（Intent）はWorkspaceの方向から作成する。
- * Outcomeの作成画面はProject配下のため、開けるProjectが無ければ理由を出す。
- */
-const HumanAction = ({ workspaceId, item, intentId, projectId, canWrite }: { workspaceId: string; item: AttentionItem; intentId: string | null; projectId: string | null; canWrite: boolean }) => {
-  if (!canWrite) return <small>Workspace Editor以上へ依頼</small>;
-  if (item.kind === "intent") return <LinkButton size="sm" to={workspaceIntentCreatePath(workspaceId)}>目標を作成</LinkButton>;
-  if (!projectId) return <small>登録画面を開けるactiveなProjectがありません</small>;
-  return intentId ? <LinkButton size="sm" to={outcomePath(projectId, intentId, "new")}>Outcomeを登録</LinkButton> : null;
+const Goals = ({ workspace, canWrite, goals }: { workspace: Workspace; canWrite: boolean; goals: Part<GoalData[]> }) => {
+  if (!goals.ok) return <ErrorState message={`目標の読み込みに失敗しました: ${goals.error}`} />;
+  if (goals.value.length === 0) {
+    return (
+      <>
+        <p className="unset">ビジネス目標は未登録です。{canWrite ? "目標を作成すると、観測値と推移をここで比べられます。" : "登録はWorkspaceのeditor以上に依頼してください。"}</p>
+      </>
+    );
+  }
+  return <div className="goal-cards">{goals.value.map(({ intent, metrics }) => <IntentGoalCard key={intent.id} workspaceId={workspace.id} intent={intent} metrics={metrics} />)}</div>;
 };
 
-const Attention = (props: { workspace: Workspace; myRole: HumanRole; direction: DirectionData; research: Part<OverviewResearch[]>; projects: Part<OverviewProject[]> }) => <>{(props.direction.directions.length > 0 ? props.direction.directions : [{ activeIntent: null, pastIntents: [], outcomes: [], otherOutcomes: [], pendingPastOutcomes: [] }]).map((direction, index) => <IntentAttention key={direction.activeIntent?.id ?? "empty"} {...props} direction={direction} research={props.research.ok ? { ok: true, value: props.research.value.filter((request) => request.originIntentId === direction.activeIntent?.id || (request.originIntentId === null && index === 0)) } : props.research} />)}</>;
-
-const IntentAttention = ({ workspace, myRole, direction, research, projects }: { workspace: Workspace; myRole: HumanRole; direction: IntentDirectionData; research: Part<OverviewResearch[]>; projects: Part<OverviewProject[]> }) => {
-  if (workspace.status === "archived") return <p className="unset">アーカイブ済みのため、要対応はありません。</p>;
-  const attention = planWorkspaceAttention({
-    activeIntent: direction.activeIntent && { id: direction.activeIntent.id, title: direction.activeIntent.title },
-    outcomes: direction.outcomes,
-    pendingPastOutcomes: direction.pendingPastOutcomes,
-    research: research.ok ? research.value : null,
-  });
-  const summary = attentionSummary(attention);
-  const canWrite = canOperateWorkspace(myRole, "direction.write");
-  const project = pickOpenProject([], openProjects(projects));
-  return (
-    <>
-      {summary && <p className="next-action-summary">{summary}</p>}
-      {attention.items.length > 0 && (
-        <ul className="next-action-list waiting">
-          {attention.items.map((item) => {
-            const total = item.refs.reduce((sum, refItem) => sum + (refItem.on === "outcome" ? refItem.count ?? 1 : 1), 0);
-            return (
-              <li key={item.kind}>
-                <span><span className={statusBadgeClass(attentionLabels[item.kind].tone)}>{attentionLabels[item.kind].label}</span>{item.refs.length > 0 && <> {total}件</>} — {item.note}</span>
-                {item.actor === "human" && <HumanAction workspaceId={workspace.id} item={item} intentId={direction.activeIntent?.id ?? null} projectId={project} canWrite={canWrite} />}
-                {item.refs.length > 0 && <small className="attention-refs">{item.refs.map((refItem, index) => <span key={refKey(refItem)}>{index > 0 && "、"}<AttentionRefItem workspaceId={workspace.id} refItem={refItem} kind={item.kind} projects={projects} openProject={project} /></span>)}</small>}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      {attention.outcomeFailures > 0 && <p role="alert" className="error-title">一部のOutcome（{attention.outcomeFailures}件）のTarget Project・還流・評価の状態を確認できません。再読込してください。</p>}
-      {attention.unconfirmed.map((note) => <p key={note} role="alert" className="error-title">{note}。再読込してください。</p>)}
-    </>
-  );
-};
-
-/** `outcomes`はActive Outcomeの現在地。Intent・Outcomeを取得できなければnullで、Targetかどうかを断定しない。 */
-const ProjectSummary = ({ workspace, myRole, projects, outcomes }: { workspace: Workspace; myRole: HumanRole; projects: Part<OverviewProject[]>; outcomes: readonly OutcomePosition[] | null }) => {
+const Products = ({ workspace, myRole, projects }: { workspace: Workspace; myRole: HumanRole; projects: Part<OverviewProject[]> }) => {
   if (!projects.ok) return <ErrorState message={`Projectの読み込みに失敗しました: ${projects.error}`} />;
   const active = projects.value.filter(({ project }) => project.status === "active");
   const archivedCount = projects.value.length - active.length;
+  const canCreate = workspace.status === "active" && canOperateWorkspace(myRole, "project.create");
   return (
     <>
       {active.length === 0 ? (
-        <>
-          <p className="unset">{emptyProjectNote(workspace.status, archivedCount, canOperateWorkspace(myRole, "project.create"))}</p>
-          {workspace.status === "active" && canOperateWorkspace(myRole, "project.create") && <div className="action-row"><LinkButton size="sm" to={workspaceProjectCreatePath(workspace.id)}>Projectを追加</LinkButton></div>}
-        </>
+        <p className="unset">{emptyProjectNote(workspace.status, archivedCount, canOperateWorkspace(myRole, "project.create"))}</p>
       ) : (
-        <ul className="link-list workspace-project-links">
-          {active.map(({ project }) => <li key={project.id}><Link to={projectViewPath(project.id, "overview")}><span>{project.name}</span><small>{projectTargetNote(outcomes, project.id)}</small></Link></li>)}
+        <ul className="product-list">
+          {active.map(({ project }) => (
+            <li key={project.id}>
+              <Link to={projectViewPath(project.id, "overview")}>{project.name}</Link>
+              {project.description && <p>{project.description}</p>}
+            </li>
+          ))}
         </ul>
       )}
       {archivedCount > 0 && <p className="section-note">アーカイブ済みのProjectが{archivedCount}件あります。</p>}
-      <Link to={workspaceProjectsPath(workspace.id)} className="text-link">Projectを開く →</Link>
+      {canCreate && active.length === 0 && <div className="action-row"><LinkButton size="sm" to={workspaceProjectCreatePath(workspace.id)}>Projectを追加</LinkButton></div>}
     </>
   );
 };
 
-const RecentActivity = ({ workspace, activities }: { workspace: Workspace; activities: Part<ActivitySummary[]> }) => (
-  <>
-    {!activities.ok ? <ErrorState message={`記録の読み込みに失敗しました: ${activities.error}`} /> : activities.value.length === 0 ? <p className="unset">Workspaceの記録はまだありません。</p> : (
-      <RecentActivityList activities={activities.value} />
-    )}
-    <Link to={workspacePath(workspace.id, "activity")} className="text-link">記録を開く →</Link>
-  </>
-);
-
 /**
- * Workspaceの概要（S10-01）。現在地（どのOutcomeをどのProjectが担当し、どこまで進んだか）・要対応・Project・Agent・最近の記録を
- * 実データから出す。部分ごとに取得失敗・空・archivedを区別し、Role割当やClaimからAgentが稼働中であるとは表示しない。
+ * Workspaceの概要。現状の概要（Agentの説明）→ ビジネス目標（現在値・目標値・7日の推移）→ プロダクト → 対応待ちの順に、実データから出す。
+ * 部分ごとに取得失敗・未計測・空を区別し、値の無い目標を達成や0として扱わず、Task・Outcomeの進み具合から目標の到達を示さない。
  */
-export const WorkspaceOverview = ({ workspace, myRole, manage }: { workspace: Workspace; myRole: HumanRole; manage: ReactNode }) => {
+export const WorkspaceOverview = ({ workspace, myRole }: { workspace: Workspace; myRole: HumanRole }) => {
   const [data, setData] = useState<OverviewData | null>(null);
   const [pending, setPending] = useState(false);
   const load = useCallback((isCurrent: () => boolean = () => true) => {
@@ -250,43 +175,36 @@ export const WorkspaceOverview = ({ workspace, myRole, manage }: { workspace: Wo
     return () => { current = false; };
   }, [load]);
   if (!data) return <Loading />;
-  const outcomes = data.direction.ok ? data.direction.value.outcomes : null;
-  // 主列は要対応 → 現在地 → 最近の記録の順に判断へ使う情報、補助列はProject・Agent・管理の参照と導線。
-  const main = (
-    <>
+  const canWrite = workspace.status === "active" && canOperateWorkspace(myRole, "direction.write");
+  return (
+    <div className="workspace-overview-page">
       <div className="claim-holder-toolbar">
         <span>{formatTime(data.fetchedAt)} 取得</span>
         <Button variant="secondary" size="sm" pending={pending} onClick={() => void load()}>{pending ? "読み込み中..." : "再読込"}</Button>
       </div>
-      <section className="detail-section" aria-labelledby="workspace-attention-heading">
-        <h2 id="workspace-attention-heading">要対応</h2>
-        {data.direction.ok ? <Attention workspace={workspace} myRole={myRole} direction={data.direction.value} research={data.research} projects={data.projects} /> : <p role="alert" className="error-title">Intent・Outcomeを確認できないため、要対応を判定できません。</p>}
+      <section className="detail-section" aria-labelledby="workspace-summary-heading">
+        <h2 id="workspace-summary-heading">現状の概要</h2>
+        <CurrentSummary workspaceId={workspace.id} goals={data.goals} />
       </section>
-      <section className="detail-section workspace-overview" aria-labelledby="workspace-position-heading">
-        <h2 id="workspace-position-heading">現在地</h2>
-        {data.direction.ok ? <CurrentPosition workspaceId={workspace.id} direction={data.direction.value} projects={data.projects} /> : <ErrorState message={`Intent・Outcomeの読み込みに失敗しました: ${data.direction.error}`} />}
-        {outcomes && outcomes.length > 0 && <p className="section-note">Taskの件数は状態だけを数えたもので、Agentの稼働やClaimの有効性を示しません。Claimの状況は各Projectの概要で確認します。</p>}
-        <Link to={workspacePath(workspace.id, "direction")} className="text-link">Outcomeを開く →</Link>
+      <section className="detail-section" aria-labelledby="workspace-goals-heading">
+        <div className="section-heading-row">
+          <h2 id="workspace-goals-heading">ビジネス目標</h2>
+          {canWrite && <LinkButton variant="secondary" size="sm" to={workspaceIntentCreatePath(workspace.id)}>目標を作成</LinkButton>}
+        </div>
+        <Goals workspace={workspace} canWrite={canWrite} goals={data.goals} />
       </section>
-      <section className="detail-section" aria-labelledby="workspace-recent-heading">
-        <h2 id="workspace-recent-heading">最近の記録</h2>
-        <RecentActivity workspace={workspace} activities={data.activities} />
+      <section className="detail-section" aria-labelledby="workspace-products-heading">
+        <h2 id="workspace-products-heading">プロダクト</h2>
+        <Products workspace={workspace} myRole={myRole} projects={data.projects} />
       </section>
-    </>
+      <section className="detail-section" aria-labelledby="workspace-waiting-heading">
+        <h2 id="workspace-waiting-heading" className="visually-hidden">対応待ち</h2>
+        <Link className="waiting-bar" to={workspacePath(workspace.id, "consultations")}>
+          <span>対応待ち</span>
+          <strong>{data.waiting.state === "unknown" ? "件数を取得できません" : `${waitingCountText(data.waiting)}件`}</strong>
+        </Link>
+        {data.waiting.state === "unknown" && <p className="section-note">件数を取得できませんでした。0件ではありません。</p>}
+      </section>
+    </div>
   );
-  const side = (
-    <>
-      <section className="detail-section" aria-labelledby="workspace-projects-heading">
-        <h2 id="workspace-projects-heading">Project</h2>
-        <ProjectSummary workspace={workspace} myRole={myRole} projects={data.projects} outcomes={outcomes} />
-      </section>
-      <section className="detail-section" aria-labelledby="workspace-overview-agents-heading">
-        <h2 id="workspace-overview-agents-heading">Agent</h2>
-        <p className="section-note">Agentの稼働状況は、この画面では判断しません。Role割当・Credential・Claimは稼働を示さないため、担当待ちは「要対応」に、Role割当・Credential・保持中のClaimはAgent画面に出します。</p>
-        <Link to={workspacePath(workspace.id, "agents")} className="text-link">Agent管理を開く →</Link>
-      </section>
-      {manage}
-    </>
-  );
-  return <PageColumns main={main} side={side} />;
 };

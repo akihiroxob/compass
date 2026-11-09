@@ -454,6 +454,7 @@ test("MCP相談待ち→Human返信→Manager結論→元WorkerのClaim再取得
     assert.equal(failure(await callTool(kit.app, "claim_task", { taskId: task.id, requestId: next("steal") }, "worker-a", "worker")).code, "TASK_NOT_CLAIMABLE");
     const detail = await json(await as("viewer")(`/api/projects/${project.id}/tasks/${task.id}`));
     assert.equal(detail.task.consultationWait.state, "waiting");
+    assert.equal(detail.task.consultationWait.cause, "human");
     assert.equal(detail.task.reclaimable, false);
     assert.equal(detail.task.consultationWait.consultations[0].id, id);
     const reply = await json(await as("editor")(`/api/projects/${project.id}/consultations/${id}/messages`, post({ body: "案Aで実装してください", requestId: next("reply") })));
