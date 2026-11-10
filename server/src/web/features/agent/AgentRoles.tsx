@@ -26,8 +26,7 @@ const RoleDefinitionDetails = ({ role }: { role: AgentRole }) => {
         <>
           <p className="role-definition-source">
             <code>{definition.role.path}</code>
-            {definition.source.revision ? <> · revision <code>{definition.source.revision.slice(0, 12)}</code></> : " · revisionは取得できません"}
-            {definition.source.dirty && " · 未commitの変更あり"}
+            {definition.source.revision ? <> · デプロイ版 <code>{definition.source.revision.slice(0, 12)}</code></> : " · デプロイ版は未設定"}
           </p>
           <h4>このRoleが参照するSkill</h4>
           {definition.skills.length ? (

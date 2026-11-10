@@ -569,8 +569,7 @@ export const createMcpServer = (
         "successCriteria and the correlationId of their Stories; empty when the Project has no Target) and the recent Project " +
         "Activity summaries (activity: newest first, summary and refs only, same shape as list_activities). Fetch a Skill body and its requiredKnowledge with get_skill_context only when the work needs it, " +
         "an Activity body with get_activity, older Activities with list_activities, and read Project documents from their " +
-        "Repository / Docs. unavailable lists inputs that are not connected yet (currently none); do not assume or invent them. source.revision is the Git commit the Role, Policy and Skill " +
-        "files were read from (source.dirty=true means uncommitted changes; null when not available). Does not replace " +
+        "Repository / Docs. unavailable lists inputs that are not connected yet (currently none); do not assume or invent them. source.revision is the deployed Compass Git SHA, or null if unspecified. Does not replace " +
         "get_strategist_context / get_researcher_context / get_evaluator_context / get_outcome_handoff_context. Workspace Roles get their " +
         "Workspace context with get_workspace_role_context. Requires Authorization: Bearer <AgentName> with a Grant " +
         "of the requested role in the Project (with X-Compass-Active-Role it must be the same role); UNAUTHENTICATED / FORBIDDEN otherwise. " +
@@ -592,8 +591,8 @@ export const createMcpServer = (
         "no Story, Task or Resource content) and the recent Workspace Activity summaries (activity: newest first, summary and refs only, " +
         "same shape as list_workspace_activities; Project Activities are not included). Fetch a Skill body with get_skill_context, " +
         "an Activity body with get_workspace_activity, older Activities with list_workspace_activities, and read Project documents from " +
-        "their Repository / Docs. unavailable lists inputs that are not connected yet (currently none). source.revision is the Git commit " +
-        "the Role, Policy and Skill files were read from. Does not replace get_strategist_context / get_researcher_context / " +
+        "their Repository / Docs. unavailable lists inputs that are not connected yet (currently none). source.revision is the deployed Compass Git SHA, or null if unspecified. " +
+        "Does not replace get_strategist_context / get_researcher_context / " +
         "get_evaluator_context. Requires Authorization: Bearer <AgentName> with a Workspace Role Grant of the requested role in the " +
         "Workspace (with X-Compass-Active-Role it must be the same role; Project Grants do not count); UNAUTHENTICATED / FORBIDDEN " +
         "otherwise. Fails with INSTRUCTION_UNAVAILABLE if a Role, Policy or Skill file cannot be read.",

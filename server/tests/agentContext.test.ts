@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
-import { promisify } from "node:util";
 import { projectRoles, workspaceRoles, type HumanActor } from "@compass/access";
 import { createApp } from "../src/bootstrap/app.ts";
 import { createSignedInApp, createTestHuman } from "./support/humanSession.ts";
@@ -18,13 +16,12 @@ import { parseFrontmatter } from "../src/infrastructure/agentAssets/frontmatter.
 
 /**
  * Role・Policy・Skill・KnowledgeのJIT配信（docs/architecture-migration-mapping.md Task 06）。
- * Role→Skillの一方向参照、Skillに認可を持たせないこと、namespace付きTool metadata、Git revisionでの再現性を確認する。
+ * Role→Skillの一方向参照、Skillに認可を持たせないこと、namespace付きTool metadata、デプロイ版の応答を確認する。
  */
 
 type App = ReturnType<typeof createApp>;
 type ToolResult = { isError?: boolean; structuredContent: Record<string, any> };
 
-const git = promisify(execFile);
 const repoRoot = new URL("../../", import.meta.url);
 
 const setup = async (agentContextService?: AgentContextService) => {
@@ -106,10 +103,6 @@ const minimalAssets = {
   "knowledge/tips/a.md": "# Tip A\n",
 };
 
-const gitAvailable = await git("git", ["--version"]).then(
-  () => true,
-  () => false,
-);
 
 test("frontmatterはscalar・数値・inline list・block listを読み、本文から除く。解釈できない行は例外", () => {
   const parsed = parseFrontmatter("---\nname: a\nversion: 3\ntags: [x, 'y']\nlist:\n  - p\n  - \"q\"\n---\n\n# Body\n");
@@ -199,11 +192,7 @@ test("get_role_contextはRole・Policy・Skill metadata・Project情報・Resour
   // Activity summaryは接続済み。履歴が無いProjectでは空の一覧になる（内容の検証はactivity.test.ts）。
   assert.deepEqual(context.activity, { activities: [], nextCursor: null });
   assert.deepEqual(context.unavailable, []);
-  if (gitAvailable) {
-    const head = (await git("git", ["rev-parse", "HEAD"], { cwd: new URL(".", repoRoot) })).stdout.trim();
-    assert.equal(context.source.revision, head);
-    assert.equal(typeof context.source.dirty, "boolean");
-  }
+  assert.deepEqual(context.source, { revision: process.env.COMPASS_DEPLOY_REVISION && /^[a-f0-9]{40}$/i.test(process.env.COMPASS_DEPLOY_REVISION) ? process.env.COMPASS_DEPLOY_REVISION : null });
   await database.destroy();
 });
 
@@ -492,30 +481,18 @@ test("Skillの不正（allowRoles・namespaceなしのTool・未知のSkill参�
   });
 });
 
-test("sourceはGit revisionと未commit変更を示し、revisionの資産から同じSkillを再現できる。Git管理外はnull", { skip: !gitAvailable }, async () => {
-  await withAssetRoot(minimalAssets, async (root) => {
-    const service = new AgentContextService(new FileAgentAssetRepository(root));
-    assert.deepEqual((await service.listSkills()).source, { revision: null, dirty: null });
-
-    const run = (...args: string[]) => git("git", args, { cwd: root });
-    await run("init", "-q");
-    await run("add", ".");
-    await run("-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "v1");
-    const first = (await run("rev-parse", "HEAD")).stdout.trim();
-    const served = await service.getSkillContext("implement");
-    assert.deepEqual(served.source, { revision: first, dirty: false });
-
-    // 資産の未commit変更はdirtyで示す（revisionだけでは再現できない）。
-    await writeAssets(root, { "skills/implement.md": skillFile("implement").replace("手順本文", "変更後の手順") });
-    assert.deepEqual((await service.getSkillContext("implement")).source, { revision: first, dirty: true });
-    await run("-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "-q", "-am", "v2");
-    const second = await service.getSkillContext("implement");
-    assert.notEqual(second.source.revision, first);
-    assert.equal(second.source.dirty, false);
-    assert.ok(second.skill.content.includes("変更後の手順"));
-
-    // 記録したrevisionから、当時配信したSkill本文を再現できる。
-    const atFirst = (await run("show", `${first}:skills/implement.md`)).stdout;
-    assert.equal(parseFrontmatter(atFirst).content, served.skill.content);
-  });
+test("source returns the configured deployment SHA or null", async () => {
+  const original = process.env.COMPASS_DEPLOY_REVISION;
+  try {
+    const repository = new FileAgentAssetRepository();
+    delete process.env.COMPASS_DEPLOY_REVISION;
+    assert.deepEqual(await repository.getSource(), { revision: null });
+    process.env.COMPASS_DEPLOY_REVISION = "a".repeat(40);
+    assert.deepEqual(await repository.getSource(), { revision: "a".repeat(40) });
+    process.env.COMPASS_DEPLOY_REVISION = "invalid";
+    assert.deepEqual(await repository.getSource(), { revision: null });
+  } finally {
+    if (original === undefined) delete process.env.COMPASS_DEPLOY_REVISION;
+    else process.env.COMPASS_DEPLOY_REVISION = original;
+  }
 });

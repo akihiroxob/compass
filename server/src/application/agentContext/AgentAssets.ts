@@ -5,12 +5,9 @@ import type { ProjectRole } from "@compass/access";
  * Serverが必要時にMCPで配信する。Skillは認可を担わず、Role→Skillの一方向参照だけを持つ。
  */
 
-/** 配信した資産の版。再現性の正本はGit revision。Git管理外・取得失敗はnull。 */
+/** デプロイされたCompassの版。未指定の場合はnull。 */
 export type AgentAssetSource = {
-  /** 資産を読んだ作業treeのHEAD commit。 */
   revision: string | null;
-  /** roles/・policies/・skills/・knowledge/に未commitの変更があるか。trueならrevisionだけでは再現できない。 */
-  dirty: boolean | null;
 };
 
 export type RoleDefinition = {
@@ -46,7 +43,7 @@ export type SkillMetadata = {
   name: string;
   description: string;
   status: SkillStatus;
-  /** 人間向けの版。再現性の正本はGit revision。 */
+  /** 人間向けの版。 */
   version: number;
   path: string;
   /** knowledge/からの相対path。 */

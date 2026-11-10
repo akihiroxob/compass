@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process";
-import { readdir, readFile, realpath } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { projectRoles, type ProjectRole } from "@compass/access";
 import {
   skillStatuses,
@@ -16,11 +14,6 @@ import {
 } from "../../application/agentContext/AgentAssets.ts";
 import { InstructionUnavailableError } from "../../application/agentContext/InstructionUnavailableError.ts";
 import { parseFrontmatter, type FrontmatterValue } from "./frontmatter.ts";
-
-const run = promisify(execFile);
-
-/** 構成資産を置くrepo直下のdirectory。Git revisionと未commit変更はこの範囲で判定する。 */
-export const agentAssetDirectories = ["roles", "policies", "skills", "knowledge"] as const;
 
 const defaultAssetRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const toolIdentifier = /^[a-z][a-z0-9-]*:[a-z][a-z0-9_]*$/;
@@ -95,19 +88,10 @@ export class FileAgentAssetRepository implements AgentAssetRepository {
     return { name, path, content: await readAsset(this.root, path) };
   }
 
-  /** HEADと構成資産の未commit変更。Git管理外・gitが使えない場合はnull（推測で埋めない）。 */
+  /** デプロイ時に指定されたCompassのcommit SHA。未指定・不正値は不明として扱う。 */
   async getSource(): Promise<AgentAssetSource> {
-    try {
-      const git = (...args: string[]) => run("git", args, { cwd: this.root, timeout: 5_000 });
-      // 別repoの中のdirectoryを読んでいる場合に、無関係なrevisionを返さない。
-      const topLevel = (await git("rev-parse", "--show-toplevel")).stdout.trim();
-      if ((await realpath(topLevel)) !== (await realpath(this.root))) return { revision: null, dirty: null };
-      const revision = (await git("rev-parse", "HEAD")).stdout.trim();
-      const status = (await git("status", "--porcelain", "--", ...agentAssetDirectories)).stdout.trim();
-      return { revision, dirty: status !== "" };
-    } catch {
-      return { revision: null, dirty: null };
-    }
+    const revision = process.env.COMPASS_DEPLOY_REVISION;
+    return { revision: revision && /^[a-f0-9]{40}$/i.test(revision) ? revision : null };
   }
 
   private async readSkill(path: string, fileName: string): Promise<Skill> {

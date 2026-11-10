@@ -21,8 +21,8 @@ export const agentRolePath = (role: AgentRole) => `/api/agent-roles/${role}`;
 export type AgentRoleDefinition = {
   role: { name: AgentRole; path: string; content: string };
   skills: { name: string; description: string; status: "draft" | "active" | "deprecated"; version: number; path: string; requiredKnowledge: string[]; requiredTools: string[] }[];
-  /** 資産を読んだGit revision。未commitの変更があれば`dirty`。 */
-  source: { revision: string | null; dirty: boolean | null };
+  /** デプロイされたCompassのGit SHA。 */
+  source: { revision: string | null };
 };
 
 /** Grant・Credentialのscope。Workspace GrantとProject Grant、Workspace CredentialとProject Credentialは互いに継承しない。 */
