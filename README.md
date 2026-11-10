@@ -33,6 +33,8 @@ COMPASS_AUTH_MODE=trusted-local COMPASS_INITIAL_OWNER_EMAIL=you@example.com npm 
 
 設定項目は [.env.example](.env.example) を参照してください。 `COMPASS_DEPLOY_REVISION`にデプロイしたCompassの40桁のGit SHAを指定すると、Role・Skillの取得結果とAgent管理画面へ参考情報として表示します。未設定または不正な値は不明として扱います。起動ディレクトリに`.env`があればserverが読み込みます。`.env.example`自体は読み込みません。`PORT`は`.env`読込前に確定するため、シェルの環境変数として渡してください。既定portは51800、`COMPASS_DB_PATH`はSQLiteの保存先、`COMPASS_CLAIM_TTL_MS`はClaim有効期間（既定30分）です。DBが無い場合は起動時に現在の定義からschemaを作成します。
 
+空のSQLite DBには、明示的に`COMPASS_DB_PATH=/path/to/compass.db npm run db:migrate`で`server/migrations/`のSQLを適用できます。適用履歴は`compass_schema_migration`に保存され、再実行時は未適用分だけを適用します。履歴がない既存DBは自動的に初期化済みと判断せず、内容を保持してエラーにします。Server起動時にはschema作成処理も実行されます。
+
 リリース前の開発DBはschema変更時に破棄・再作成できます。schemaは新規DBの定義だけを持ち（`create ... if not exists`で同じschemaのDBへは再適用できます）、起動時の列追加・旧Projectの戦略値の変換・Membershipの補完などの旧DB向けmigrationは行いません。旧定義のDBでは起動できない、または正しく動かないことがあります。DBを開いているCompassプロセスを停止してから、`COMPASS_DB_PATH`が指すDB fileを削除し、serverを起動してください。データ・ログイン情報・Credential・cursorは引き継ぎません。旧DBの非破壊migrationや旧クライアント互換は開発の必須条件にしません。
 
 portが使用中なら既存プロセスを停止せず、同じ認証設定に`PORT=52000`等を加えて起動します。開発用の`npm run dev`はserverとViteを起動します。Viteの画面を使う場合は、そのoriginを`COMPASS_PUBLIC_ORIGIN`へ指定してください。

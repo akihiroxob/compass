@@ -13,6 +13,7 @@
     "prestart": "npm run build",
     "start": "tsx server/src/main.ts",
     "cli": "tsx server/src/cli/main.ts",
+    "db:migrate": "node --import tsx server/src/cli/migrateSqlite.ts",
     "dev": "npm-run-all --parallel dev:server dev:frontend",
     "dev:server": "tsx watch server/src/main.ts",
     "dev:frontend": "vite --config server/src/web/vite.config.ts",
