@@ -6,9 +6,9 @@ import test from "node:test";
 import { ArchiveWorkspaceUseCase, SQLiteWorkspaceRepository } from "@compass/organization";
 import { SQLiteWorkspaceGrantRepository, workspaceRoles, executionRoles } from "@compass/access";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { asAccessDatabase, asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
+import { asAccessDatabase, asOrganizationDatabase } from "../src/infrastructure/database/contextDatabase.ts";
 import { accessWorkspaceReaders } from "../src/infrastructure/repository/contextAdapters.ts";
 
 const setup = async (path = ":memory:") => {

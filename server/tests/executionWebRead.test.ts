@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createApp } from "../src/bootstrap/app.ts";
+import { createApp } from "../src/presentation/http/createApp.ts";
 import { addTestMembership, addTestWorkspaceMembership, createSignedInApp, createTestHuman, requestAs, type TestHuman, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 /**
  * Human向けのExecution閲覧Web API（Task 45）。Story・Task・Claim・Comment・ChangeはMCP（Agent）で作り、

@@ -10,10 +10,10 @@ import { register } from "tsx/esm/api";
 import type { ResearchRequest, ResearchRequestDetail } from "../src/web/features/research/research.ts";
 import { sql } from "kysely";
 import { CreateWorkspaceProjectUseCase, CreateWorkspaceUseCase, SQLiteProjectRepository, SQLiteWorkspaceRepository } from "@compass/organization";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import { asOrganizationDatabase } from "../src/infrastructure/database/contextDatabase.ts";
 import { projectRepositoryReferenceFinder } from "../src/infrastructure/repository/contextAdapters.ts";
 import { createSignedInApp, seedLegacyProjectGrant } from "./support/humanSession.ts";
 

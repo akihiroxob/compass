@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 const setup = async (path = ":memory:") => {
   const database = createDatabase(path);

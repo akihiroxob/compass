@@ -4,13 +4,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { projectRoles, workspaceRoles, type HumanActor } from "@compass/access";
-import { createApp } from "../src/bootstrap/app.ts";
+import { createApp } from "../src/presentation/http/createApp.ts";
 import { createSignedInApp, createTestHuman } from "./support/humanSession.ts";
 import { AgentContextService } from "../src/application/agentContext/AgentContextService.ts";
 import { InstructionUnavailableError } from "../src/application/agentContext/InstructionUnavailableError.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 import { FileAgentAssetRepository } from "../src/infrastructure/agentAssets/FileAgentAssetRepository.ts";
 import { parseFrontmatter } from "../src/infrastructure/agentAssets/frontmatter.ts";
 

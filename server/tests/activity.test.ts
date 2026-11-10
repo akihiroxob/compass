@@ -6,13 +6,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { KyselyActivityStore } from "@compass/activity";
 import { SQLiteProjectRepository, SQLiteWorkspaceRepository, CreateWorkspaceUseCase, CreateWorkspaceProjectUseCase } from "@compass/organization";
-import { asActivityDatabase, asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import { asActivityDatabase, asOrganizationDatabase } from "../src/infrastructure/database/contextDatabase.ts";
 import { projectRepositoryReferenceFinder } from "../src/infrastructure/repository/contextAdapters.ts";
-import type { createApp } from "../src/bootstrap/app.ts";
+import type { createApp } from "../src/presentation/http/createApp.ts";
 import { createSignedInApp, seedLegacyProjectGrant, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 /**
  * Activity（docs/architecture-migration-mapping.md Task 07）。MCPでの記録・参照の認可、必須summary・refs・runIdの拒否、

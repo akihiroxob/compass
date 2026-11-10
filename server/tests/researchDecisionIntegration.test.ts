@@ -9,11 +9,11 @@ import test from "node:test";
 import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createApp } from "../src/bootstrap/app.ts";
+import { createApp } from "../src/presentation/http/createApp.ts";
 import { createTestHuman, humanHeaders, type TestHuman, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 /**
  * 空DBから、Intent作成 → Strategist（追加Researchの判断）→ Researcher（Result・Synthesis・確定）→

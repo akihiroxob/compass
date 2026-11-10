@@ -1,9 +1,9 @@
 import { serve } from "@hono/node-server";
 import { existsSync } from "node:fs";
 import { loadEnvFile } from "node:process";
-import { createApp } from "./bootstrap/app.ts";
+import { createApp } from "./presentation/http/createApp.ts";
 import { createApplicationServices } from "./bootstrap/createApplicationServices.ts";
-import { createDatabase } from "./bootstrap/database/createDatabase.ts";
+import { createDatabase } from "./infrastructure/database/createDatabase.ts";
 import { GitHubPullRequestGateway } from "@compass/work";
 import { GoogleOidcIdentityProvider } from "./auth/GoogleOidcIdentityProvider.ts";
 import {

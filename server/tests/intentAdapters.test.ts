@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { createApp } from "../src/bootstrap/app.ts";
+import type { createApp } from "../src/presentation/http/createApp.ts";
 import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/container.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 type App = ReturnType<typeof createApp>;
 type IntentBody = { intent: Record<string, unknown> };
@@ -168,7 +168,7 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
   });
   const toolsData = (await toolsResponse.text()).split("\n").find((line) => line.startsWith("data: "))!;
   assert.deepEqual(
-    (JSON.parse(toolsData.slice(6)).result.tools as { name: string }[]).map((tool) => tool.name),
+    (JSON.parse(toolsData.slice(6)).result.tools as { name: string }[]).map((tool) => tool.name).sort(),
     [
       "create_project", "update_project", "list_projects", "get_project",
       "create_intent", "list_intents", "get_intent", "update_intent", "list_intent_revisions", "define_intent_metric", "list_intent_metrics", "abandon_intent",
@@ -195,7 +195,7 @@ test("MCPはIntent toolを公開し、Web APIと同じ保存内容・入力規�
       // 受入済み成果物の参照の登録（反映担当ProjectのManager）。
       "hand_off_consultation", "get_consultation_handoff_context", "request_consultation_followup", "record_consultation_artifact",
       "get_project_consultation_state", "get_workspace_consultation_state",
-    ],
+    ].sort(),
   );
 
   const created = await callTool(app, "create_intent", { workspaceId, ...intentInput });

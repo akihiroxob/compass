@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
 import { createSqliteOrganizationInfrastructure } from "../src/bootstrap/organizationInfrastructure.ts";
 
 test("OrganizationのRepositoryを注入するとProject一覧はその契約を使う", async () => {

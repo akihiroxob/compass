@@ -6,8 +6,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 import { requestIntentResearch } from "./support/intentResearch.ts";
 import { runtimeEventVersion } from "@compass/direction";
 

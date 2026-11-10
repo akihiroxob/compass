@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { SQLiteWorkspaceRepository } from "@compass/organization";
-import type { createApp } from "../src/bootstrap/app.ts";
+import type { createApp } from "../src/presentation/http/createApp.ts";
 import { createSignedInApp, issueWorkspaceRuntimeToken, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { asOrganizationDatabase } from "../src/infrastructure/database/contextDatabase.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 /**
  * Directionが確定したOutcomeを、外部RuntimeがManagerを起動してExecutionのStoryへ引き渡す経路（Task 33）。

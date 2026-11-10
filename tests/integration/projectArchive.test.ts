@@ -4,17 +4,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
-import type { createApp } from "../../server/src/bootstrap/app.ts";
+import type { createApp } from "../../server/src/presentation/http/createApp.ts";
 import { archiveTestWorkspace, createSignedInApp, seedLegacyProjectGrant, seedProjectWorkspaceGrant } from "../../server/tests/support/humanSession.ts";
 import { requestIntentResearch } from "../../server/tests/support/intentResearch.ts";
 import { createApplicationServices } from "../../server/src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../../server/src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../../server/src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../../server/src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../../server/src/infrastructure/database/initializeSchema.ts";
 import { SQLiteIntentRepository, SQLiteOutcomeRepository } from "@compass/direction";
 import { SQLiteProjectRepository } from "@compass/organization";
 import { SQLiteProjectGrantRepository } from "@compass/access";
 import { cliUsage, runCli } from "../../cli/src/runCli.ts";
-import { asAccessDatabase, asDirectionDatabase, asOrganizationDatabase } from "../../server/src/bootstrap/database/contextDatabase.ts";
+import { asAccessDatabase, asDirectionDatabase, asOrganizationDatabase } from "../../server/src/infrastructure/database/contextDatabase.ts";
 import {
   accessProjectReaders,
   directionProjectReaders,

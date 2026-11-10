@@ -83,6 +83,8 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
     COMPASS_INITIAL_OWNER_EMAIL: ownerEmail,
     ...(options.claimTtlMs ? { COMPASS_CLAIM_TTL_MS: String(options.claimTtlMs) } : {}),
   });
+  const migration = await exited(runTs(join(repositoryRoot, "database/src/main.ts"), [], directory, serverEnv));
+  assert.equal(migration.code, 0, migration.stderr);
   let server: ChildProcess;
   let serverExit: Promise<{ code: number | null; stdout: string; stderr: string }>;
   const startServer = async () => {

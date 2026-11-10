@@ -16,11 +16,11 @@ import {
   SQLiteProjectRepository,
   SQLiteWorkspaceRepository,
 } from "@compass/organization";
-import { createApp } from "../src/bootstrap/app.ts";
-import { asDirectionDatabase, asOrganizationDatabase, asWorkDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import { createApp } from "../src/presentation/http/createApp.ts";
+import { asDirectionDatabase, asOrganizationDatabase, asWorkDatabase } from "../src/infrastructure/database/contextDatabase.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 import {
   directionProjectReaders,
   directionWorkspaceReaders,

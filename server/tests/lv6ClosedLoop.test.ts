@@ -1,6 +1,6 @@
 import { seedWorkspaceGrant } from "./support/humanSession.ts";
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
@@ -13,11 +13,11 @@ import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Kysely } from "kysely";
-import { createApp } from "../src/bootstrap/app.ts";
+import { createApp } from "../src/presentation/http/createApp.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import type { Database } from "../src/bootstrap/database/schema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
+import type { Database } from "../src/infrastructure/database/schema.ts";
 import { GoogleOidcIdentityProvider } from "../src/auth/GoogleOidcIdentityProvider.ts";
 import { assertBootstrapConfigured, loadHumanAuthConfig } from "../src/auth/humanAuthConfig.ts";
 import {
@@ -522,12 +522,18 @@ const freePort = () =>
   });
 
 test(
-  "server/src/main.tsを1コマンドで空DBから起動すると、同一portで/health・/api・Web UI・統一/mcp（Direction・Execution tools）を提供する",
+  "schema適用済みDBでserver/src/main.tsを起動すると、同一portで/health・/api・Web UI・統一/mcp（Direction・Execution tools）を提供する",
   { skip: loopbackSkip },
   async () => {
     const directory = await mkdtemp(join(tmpdir(), "compass-lv6-start-"));
     const port = await freePort();
     const origin = `http://localhost:${port}`;
+    const migration = spawnSync(process.execPath, ["--import", tsx, fileURLToPath(new URL("../../database/src/main.ts", import.meta.url))], {
+      cwd: directory,
+      env: { PATH: process.env.PATH ?? "", COMPASS_DB_PATH: join(directory, "compass.db") },
+      encoding: "utf8",
+    });
+    assert.equal(migration.status, 0, migration.stderr);
     const child = spawn(process.execPath, ["--import", tsx, serverEntry], {
       cwd: directory,
       env: {

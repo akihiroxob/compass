@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { UnauthenticatedError } from "@compass/shared";
 import { agentPrincipalOf, type Caller } from "@compass/access";
-import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
+import type { OperationServices } from "../application/ApplicationServices.ts";
 import { StoryStatus, TaskStatus } from "@compass/work";
 import { execute } from "./toolExecution.ts";
 import { runtimeToolMeta, type ToolRegistrar } from "./toolContext.ts";

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { createApp } from "../src/bootstrap/app.ts";
+import type { createApp } from "../src/presentation/http/createApp.ts";
 import { createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/container.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 type App = ReturnType<typeof createApp>;
 type OutcomeBody = { outcome: { id: string; status: string; successCriteria: { position: number; description: string }[]; [key: string]: unknown } };

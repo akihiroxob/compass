@@ -2,7 +2,7 @@ import { z } from "zod";
 import { consultationStatuses, followupKinds, type ConsultationScope } from "@compass/collaboration";
 import { agentPrincipalOf, type Caller } from "@compass/access";
 import { ValidationError } from "@compass/shared";
-import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
+import type { OperationServices } from "../application/ApplicationServices.ts";
 import { execute } from "./toolExecution.ts";
 import { runtimeToolMeta, type ToolRegistrar } from "./toolContext.ts";
 

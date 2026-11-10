@@ -8,7 +8,7 @@ Compassはリリース前のため、開発DBはtableのDROPまたはDB file削�
 
 ## 前提となる現況
 
-- DBは単一SQLite file（`COMPASS_DB_PATH`、`server/src/bootstrap/database/createDatabase.ts`）で、`foreign_keys = ON`。table定義は各packageの`infrastructure/schema.ts`、初期化は`initialize*Schema.ts`をserverの`initializeSchema.ts`が順に呼ぶ（Organization → Direction → Work → Access → Activity）。
+- DBは単一SQLite file（`COMPASS_DB_PATH`、`server/src/infrastructure/database/createDatabase.ts`）で、`foreign_keys = ON`。table定義は各packageの`infrastructure/schema.ts`、初期化は`initialize*Schema.ts`をserverの`initializeSchema.ts`が順に呼ぶ（Organization → Direction → Work → Access → Activity）。
 - migrationのversion管理・起動時migrationはない。各tableは新規DBの`create ... if not exists`定義だけで、server起動のたびに同じschemaへ冪等に再適用される。旧定義のDBへの列追加・戦略値の変換・Membershipの補完は行わない（S12-01で除去。開発DBは再作成する）。
 - OrganizationはWorkspaceとProjectを保存する。DirectionのIntent・Outcome・成功条件はWorkspace所有で、`intent.workspace_id`・`outcome.workspace_id`は`workspace.id`をFK参照し、成功条件は`outcome_id`でOutcomeを参照する。Research/Decision/ADRはWorkspace scopeへ切替済みで、ADRは対象artifactのProject/Repository参照も持つ。Evaluation・Runtime event・配送・ackはWorkspace scope。Execution Summary/EvidenceはWorkspace所有で発生元Projectも保持し、Outcome/ProjectのWorkspace一致は複合FKで強制する。WorkはProject scopeで、`project_id`は`project.id`を参照する。Activityは`workspace_id`で`workspace.id`、`project_id`で`project.id`を参照し、3 scopeとID組合せのCHECKを持つ。Direction canonical ActivityはWorkspace scopeで内部保存・取得まで実装済み。Directionの通知はEvaluationを含め全てWorkspace IDを直接使う。AccessにはProject単位のtableに加え、`workspace_membership`があり`workspace.id`を参照する。Workspace DirectionのWeb/API/MCP入口はWorkspace Membership・Role Grant・Runtime Credentialで認可する（S03-04で接続済み）。Workspace Role Grantの付与・取消とWorkspace member管理は、Web APIとWeb UIのWorkspace「設定」で接続済み（S11-03）。Workspace ActivityのMCP・Web API（S07-02）とWorkspace Role Context（S07-03）は接続済みで、Web UIはS11-01でWorkspace・Projectの「記録」にscope別に接続済み。
 - 戦略値（Mission等）は所属Workspaceから読む。Projectの参照モデル`ProjectDetail`・`DirectionReferenceLookupService`（Story作成時のConstraints snapshot）・`GetRoleContextUseCase`・`GetStrategistContextUseCase`がWorkspaceの値を合成する。
@@ -206,7 +206,7 @@ DirectionのActivityはWorkspaceに保存され、Project Activityの一覧（`l
 
 `X-Compass-Active-Role`の解決（`server/src/auth/resolvePrincipal.ts`）は`projectRoles`（Workspace Role・Project Role・`runtime`）を受け付け、scopeとの組合せはAccessが操作ごとに検査する（S06-02で実装）。公開済みのMCP・Web API・Project Role Context・Runtime向けAPIの入口横断の検証はS06-04（`server/tests/scopeAuthorization.test.ts`）。
 
-### Web API（`server/src/bootstrap/app.ts`）
+### Web API（`server/src/presentation/http/createApp.ts`）
 
 | route | 変更 | Task |
 | --- | --- | --- |

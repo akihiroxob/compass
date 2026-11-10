@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { CreateWorkspaceUseCase, SQLiteWorkspaceRepository } from "@compass/organization";
-import { asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import { asOrganizationDatabase } from "../src/infrastructure/database/contextDatabase.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { sql } from "kysely";
 import { SQLiteIntentRepository, SQLiteOutcomeRepository } from "@compass/direction";
 import { CreateWorkspaceProjectUseCase, SQLiteProjectRepository } from "@compass/organization";
-import { asDirectionDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import { asDirectionDatabase } from "../src/infrastructure/database/contextDatabase.ts";
 import { directionWorkspaceReaders, projectRepositoryReferenceFinder } from "../src/infrastructure/repository/contextAdapters.ts";
 
 

@@ -3,11 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import type { createApp } from "../src/bootstrap/app.ts";
+import type { createApp } from "../src/presentation/http/createApp.ts";
 import { archiveTestWorkspace, createSignedInApp, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 /**
  * Outcome Evaluation（Task 35）。Evaluatorとして振る舞うのはtest内のMCP呼び出しだけで、Evaluatorの自動起動は未接続。

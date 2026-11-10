@@ -178,6 +178,8 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
   });
   const runTs = (script: string, args: string[]) =>
     spawn(process.execPath, ["--import", tsx, script, ...args], { cwd: directory, env: serverEnv, stdio: ["ignore", "pipe", "pipe"] });
+  const migration = await exited(runTs(join(repositoryRoot, "database/src/main.ts"), []));
+  assert.equal(migration.code, 0, migration.stderr);
   const server = runTs(join(repositoryRoot, "server/src/main.ts"), []);
   const serverExit = exited(server);
   await waitFor(async () => (await fetch(`${serverUrl}/health`)).ok, "the Compass server");

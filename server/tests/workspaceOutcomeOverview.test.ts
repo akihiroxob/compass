@@ -9,11 +9,11 @@ import {
   type OutcomeProblemPort,
 } from "@compass/direction";
 import { CreateWorkspaceProjectUseCase, CreateWorkspaceUseCase, SQLiteProjectRepository, SQLiteWorkspaceRepository } from "@compass/organization";
-import { createApp } from "../src/bootstrap/app.ts";
-import { asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import { createApp } from "../src/presentation/http/createApp.ts";
+import { asOrganizationDatabase } from "../src/infrastructure/database/contextDatabase.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 import { projectRepositoryReferenceFinder } from "../src/infrastructure/repository/contextAdapters.ts";
 import { createSignedInApp, seedWorkspaceGrant } from "./support/humanSession.ts";
 
