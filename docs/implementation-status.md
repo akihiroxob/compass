@@ -177,7 +177,7 @@ Agent資産の名前・frontmatter・Skill参照の検証は`TextAgentAssetRepos
 
 ## Serverの責務配置
 
-HTTPのルート登録は`server/src/presentation/http/`に置き、Organization・Direction・Access・Runtime・Work・Activity・Collaborationごとに分ける。`createApp.ts`はmiddleware・認証route・各routeの登録・MCP transport・静的配信・エラー応答を組み立てる。MCPは`server/src/mcp/`で接続の生成とTool群の登録を分離し、認証済みrequestの主体とRoleは共通のrequest Contextから渡す。
+HTTPのルート登録は`server/src/presentation/http/`に置き、Organization・Direction・Access・Runtime・Work・Activity・Collaborationごとに分ける。`createApp.ts`はmiddleware・認証route・各routeの登録・MCP transport・注入された静的配信・エラー応答を組み立てる。Node起動では`infrastructure/http/createNodeStaticAssets.ts`を渡し、実行環境固有のfilesystem配信をHTTP本体から分離する。MCPは`server/src/mcp/`で接続の生成とTool群の登録を分離し、認証済みrequestの主体とRoleは共通のrequest Contextから渡す。
 
 BootstrapはContext別の生成関数でRepository・UseCase・transactionの配線を組み立てる。公開サービスの型は`application/ApplicationServices.ts`が定義し、Presentationはこの契約に依存する。
 
