@@ -4,7 +4,7 @@ import { loadEnvFile } from "node:process";
 import { createApp } from "./bootstrap/app.ts";
 import { createApplicationServices } from "./bootstrap/createApplicationServices.ts";
 import { createDatabase } from "./bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "./bootstrap/database/initializeSchema.ts";
+import { assertSqliteMigrationsApplied } from "./bootstrap/database/migrateSqlite.ts";
 import { GitHubPullRequestGateway } from "@compass/work";
 import { GoogleOidcIdentityProvider } from "./auth/GoogleOidcIdentityProvider.ts";
 import {
@@ -20,7 +20,7 @@ const start = async () => {
   // 設定不正（remoteの必須値欠落・https以外・trusted-localの非loopback bind等）はDBを開く前に起動を拒否する。
   const authConfig = loadHumanAuthConfig(process.env, { port });
   const database = createDatabase();
-  await initializeSchema(database);
+  await assertSqliteMigrationsApplied(database);
   // GitHubの読取（読取専用）。tokenは任意で、値をログへ出さない。API URLは検証用のGitHub互換adapterへ向けるときだけ指定する。
   const github = new GitHubPullRequestGateway({
     apiBaseUrl: process.env.COMPASS_GITHUB_API_URL || undefined,

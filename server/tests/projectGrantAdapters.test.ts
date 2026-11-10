@@ -11,6 +11,7 @@ import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { migrateSqlite } from "../src/bootstrap/database/migrateSqlite.ts";
 import { runCli } from "../src/cli/runCli.ts";
 
 const cliEntry = fileURLToPath(new URL("../src/cli/main.ts", import.meta.url));
@@ -202,8 +203,8 @@ test("runCli: 引数不足・未知のコマンドは終了コード2、未知�
 test("npm run cliの実体はサーバー無しで空DBに対し、Project作成後のGrantを発行・一覧・取消できる（再起動後も保持）", async () => {
   const directory = await mkdtemp(join(tmpdir(), "compass-cli-"));
   const path = join(directory, "cli.db");
+  await migrateSqlite(path);
   const database = createDatabase(path);
-  await initializeSchema(database);
   const project = await createApplicationServices(database).createProjectUseCase.execute({ name: "Compass", mission: "Mission" });
   await database.destroy();
 

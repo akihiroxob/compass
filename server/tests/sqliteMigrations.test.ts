@@ -7,7 +7,7 @@ import Database from "better-sqlite3";
 import { sql } from "kysely";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { migrateSqlite } from "../src/bootstrap/database/migrateSqlite.ts";
+import { assertSqliteMigrationsApplied, migrateSqlite } from "../src/bootstrap/database/migrateSqlite.ts";
 
 test("initial migration matches the current schema and is idempotent", async () => {
   const directory = await mkdtemp(join(tmpdir(), "compass-migrations-"));
@@ -15,8 +15,11 @@ test("initial migration matches the current schema and is idempotent", async () 
   const reference = createDatabase(":memory:");
   try {
     await initializeSchema(reference);
+    await assert.rejects(assertSqliteMigrationsApplied(reference), /migration history is missing/);
     assert.deepEqual(await migrateSqlite(path), ["0001_initial_schema.sql"]);
     assert.deepEqual(await migrateSqlite(path), []);
+    const migrated = createDatabase(path);
+    try { await assertSqliteMigrationsApplied(migrated); } finally { await migrated.destroy(); }
     const actual = new Database(path, { readonly: true });
     try {
       const expected = (await sql`SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE ${"sqlite_%"} ORDER BY type, name`.execute(reference)).rows;

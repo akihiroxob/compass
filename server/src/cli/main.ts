@@ -1,12 +1,12 @@
 import { createApplicationServices } from "../bootstrap/createApplicationServices.ts";
 import { createDatabase } from "../bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../bootstrap/database/initializeSchema.ts";
+import { assertSqliteMigrationsApplied } from "../bootstrap/database/migrateSqlite.ts";
 import { runCli } from "./runCli.ts";
 
 // サーバーを起動せずに、同じDB file（COMPASS_DB_PATH）とUse Caseを使う。import時にDBを開くcontainerは読み込まない。
 const database = createDatabase();
 try {
-  await initializeSchema(database);
+  await assertSqliteMigrationsApplied(database);
   const result = await runCli(process.argv.slice(2), createApplicationServices(database));
   if (result.stdout) console.log(result.stdout);
   if (result.stderr) console.error(result.stderr);

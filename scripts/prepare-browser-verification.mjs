@@ -38,7 +38,7 @@ const targetModule = async (name) => {
 const reserved = await open(databasePath, 'wx', 0o600);
 await reserved.close();
 const { createDatabase } = await targetModule('server/src/bootstrap/database/createDatabase.ts');
-const { initializeSchema } = await targetModule('server/src/bootstrap/database/initializeSchema.ts');
+const { migrateSqlite } = await targetModule('server/src/bootstrap/database/migrateSqlite.ts');
 const { createApplicationServices } = await targetModule('server/src/bootstrap/createApplicationServices.ts');
 const { deriveCsrfToken } = await targetModule('packages/access/src/index.ts');
 const { GitHubPullRequestGateway } = await targetModule('packages/work/src/index.ts');
@@ -485,7 +485,7 @@ let taskPullRequests;
 let preparation;
 let persistence;
 try {
-  await initializeSchema(database);
+  await migrateSqlite(databasePath);
   const releaseGithubGateway = new GitHubPullRequestGateway({ apiBaseUrl: releaseApiBaseUrl });
   const services = createApplicationServices(database, undefined, undefined, { initialOwnerEmail: ownerEmail },
     { pullRequests: releaseGithubGateway, revisions: releaseGithubGateway });

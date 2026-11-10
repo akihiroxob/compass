@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { createApplicationServices } from "../../src/bootstrap/createApplicationServices.ts";
 import type { Kysely } from "kysely";
 import { createApp } from "../../src/bootstrap/app.ts";
 import {
@@ -172,7 +173,7 @@ export const createSignedInApp = async (
   services?: Parameters<typeof createApp>[0],
   options: { email?: string } = {},
 ) => {
-  const app = createApp(services);
+  const app = createApp(services ?? createApplicationServices(database));
   const human = await createTestHuman(database, { email: options.email ?? "tester@example.com" });
   const original = app.request.bind(app);
   // 並行requestでも同じWorkspaceへ二重に補完しないよう、補完だけを直列にする。

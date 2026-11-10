@@ -10,7 +10,7 @@ import { ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError, Val
 import { parseProjectStatusFilter, parseWorkspaceStatusFilter } from "@compass/organization";
 import { CoordinationError } from "@compass/work";
 import type { CredentialScope, HumanActor } from "@compass/access";
-import { applicationServices, type ApplicationServices } from "./container.ts";
+import type { ApplicationServices } from "./createApplicationServices.ts";
 import {
   CsrfRejectedError,
   registerHumanAuthRoutes,
@@ -19,7 +19,7 @@ import {
 } from "../auth/registerHumanAuthRoutes.ts";
 
 export const createApp = (
-  services: ApplicationServices = applicationServices,
+  services: ApplicationServices,
   /** Human認証（Session Cookie・`/auth/*`）。server起動時は設定から必ず渡す。無ければ認証routeを登録しない。 */
   options: { humanAuth?: HumanAuthHttpOptions } = {},
 ) => {

@@ -226,7 +226,7 @@ const workspaceConsultationScope = (workspaceId: string): ConsultationScope => (
 /** Agentが担うRole（Workspace Direction Role・Project Execution Role）。RuntimeはCredential scopeのため含めない。 */
 const isAgentRole = (role: string): role is ProjectRole => [...workspaceRoles, ...executionRoles].some((candidate) => candidate === role);
 
-/** DBを開かずにUse Caseを組み立てる。containerはimport時にDBを開くため、CLIなどはこちらを使う。 */
+/** DBを開かずにUse Caseを組み立てる。 */
 export const createApplicationServices = (
   applicationDatabase: Kysely<Database>,
   /** Role・Policy・Skill・Knowledgeの配信。既定はrepo直下のGit管理資産を読む。 */
