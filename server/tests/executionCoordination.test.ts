@@ -10,9 +10,9 @@ import {
 import { ProjectArchivedError } from "@compass/organization";
 import { ProjectRole } from "@compass/access";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { asWorkDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
+import { asWorkDatabase } from "../src/infrastructure/database/contextDatabase.ts";
 import { workExternalReaders } from "../src/infrastructure/repository/contextAdapters.ts";
 
 /**

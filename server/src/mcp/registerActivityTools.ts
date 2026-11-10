@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { activityEntityKinds, maximumActivityPageSize } from "@compass/activity";
 import { agentPrincipalOf, type Caller } from "@compass/access";
-import type { OperationServices } from "../bootstrap/createApplicationServices.ts";
+import type { OperationServices } from "../application/ApplicationServices.ts";
 import { execute } from "./toolExecution.ts";
 
 const refsDescription =

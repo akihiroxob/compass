@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { register } from "tsx/esm/api";
-import type { createApp } from "../src/bootstrap/app.ts";
+import type { createApp } from "../src/presentation/http/createApp.ts";
 import { createSignedInApp } from "./support/humanSession.ts";
 import { createApplicationServices } from "../src/bootstrap/container.ts";
 import { classifyError, request } from "../src/web/api.ts";
@@ -18,8 +18,8 @@ import {
   validateArchiveReason,
 } from "../src/web/features/project/projectArchive.ts";
 import { chooseHomeWorkspace, resolveCurrentWorkspace, type Workspace } from "../src/web/features/workspace/workspace.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 type App = ReturnType<typeof createApp>;
 type FetchLike = (path: string, init?: RequestInit) => Promise<Response>;

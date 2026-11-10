@@ -5,8 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { sql } from "kysely";
 import { createApplicationServices } from "../src/bootstrap/container.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 const projectInput = { name: "Compass", mission: "Keep direction explicit" };
 const intentInput = {

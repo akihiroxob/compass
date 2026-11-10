@@ -102,9 +102,9 @@ try {
   assert.equal(manifest.headSha, headSha);
   assert.equal(manifest.dataPreparation.consultationResumptionEnabled, true, 'Inspected SHA has no complete resumption contract');
   const actors = manifest.dataPreparation.actors;
-  const { createDatabase } = await imported('server/src/bootstrap/database/createDatabase.ts');
+  const { createDatabase } = await imported('server/src/infrastructure/database/createDatabase.ts');
   const { createApplicationServices } = await imported('server/src/bootstrap/createApplicationServices.ts');
-  const { createApp } = await imported('server/src/bootstrap/app.ts');
+  const { createApp } = await imported('server/src/presentation/http/createApp.ts');
   const { serve } = await import(pathToFileURL(requireTarget.resolve('@hono/node-server')).href);
   // The Server process stays; `startServer` replaces the services on the same DB file to restart the application.
   let fetchHandler = () => new Response('starting', { status: 503 });

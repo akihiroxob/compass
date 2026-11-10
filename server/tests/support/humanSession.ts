@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createApplicationServices } from "../../src/bootstrap/createApplicationServices.ts";
 import type { Kysely } from "kysely";
-import { createApp } from "../../src/bootstrap/app.ts";
+import { createApp } from "../../src/presentation/http/createApp.ts";
 import {
   deriveCsrfToken,
   generateSecretToken,
@@ -10,8 +10,8 @@ import {
   type HumanRole,
 } from "@compass/access";
 import { SQLiteWorkspaceRepository } from "@compass/organization";
-import { asOrganizationDatabase } from "../../src/bootstrap/database/contextDatabase.ts";
-import type { Database } from "../../src/bootstrap/database/schema.ts";
+import { asOrganizationDatabase } from "../../src/infrastructure/database/contextDatabase.ts";
+import type { Database } from "../../src/infrastructure/database/schema.ts";
 
 type App = ReturnType<typeof createApp>;
 

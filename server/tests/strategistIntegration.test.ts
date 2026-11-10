@@ -12,13 +12,13 @@ import { promisify } from "node:util";
 import { serve } from "@hono/node-server";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { createApp } from "../src/bootstrap/app.ts";
+import { createApp } from "../src/presentation/http/createApp.ts";
 import { createTestHuman, humanHeaders, type TestHuman, seedProjectWorkspaceGrant } from "./support/humanSession.ts";
 import { AgentContextService } from "../src/application/agentContext/AgentContextService.ts";
 import { FileAgentAssetRepository } from "../src/infrastructure/agentAssets/FileAgentAssetRepository.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 /**
  * 空DBへ旧Direction Grant fixtureを配置 → 認証 → Instruction → Context → create_outcome までを、実HTTPサーバー・CLIプロセス・MCP SDK clientで通す。

@@ -37,7 +37,7 @@ const targetModule = async (name) => {
 // Exclusive creation protects every existing database, including a previous failed preparation.
 const reserved = await open(databasePath, 'wx', 0o600);
 await reserved.close();
-const { createDatabase } = await targetModule('server/src/bootstrap/database/createDatabase.ts');
+const { createDatabase } = await targetModule('server/src/infrastructure/database/createDatabase.ts');
 const { MigrateDatabaseUseCase } = await targetModule('database/src/MigrateDatabaseUseCase.ts');
 const { FileMigrationSource } = await targetModule('database/src/FileMigrationSource.ts');
 const { SqliteMigrationRepository } = await targetModule('database/src/SqliteMigrationRepository.ts');
@@ -496,7 +496,7 @@ try {
   const owner = { kind: 'human', humanUserId: login.session.humanUserId };
   const direction = services.workspaceDirection;
   const work = services.taskCoordinationService;
-  const { createApp } = await targetModule('server/src/bootstrap/app.ts');
+  const { createApp } = await targetModule('server/src/presentation/http/createApp.ts');
   const app = createApp(services, { humanAuth: { mode: 'trusted-local', publicOrigin: 'http://localhost' } });
   // 招待の受諾で所属WorkspaceのMembership（配下のすべてのProjectに同じRole）になる（ADR 0003）。
   const addViewer = async (workspaceId) => {

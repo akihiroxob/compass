@@ -1,7 +1,7 @@
 import { SQLiteProjectRepository, SQLiteWorkspaceRepository, type ProjectRepository, type WorkspaceRepository } from "@compass/organization";
 import type { Kysely } from "kysely";
-import type { Database } from "./database/schema.ts";
-import { asOrganizationDatabase } from "./database/contextDatabase.ts";
+import type { Database } from "../infrastructure/database/schema.ts";
+import { asOrganizationDatabase } from "../infrastructure/database/contextDatabase.ts";
 import {
   projectChangeActivityObserver,
   projectRepositoryReferenceFinder,

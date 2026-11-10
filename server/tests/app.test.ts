@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createApp } from "../src/bootstrap/app.ts";
+import { createApp } from "../src/presentation/http/createApp.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
 
 test("health and api are served by the same app", async () => {
   const database = createDatabase(":memory:");

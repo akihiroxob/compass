@@ -8,7 +8,7 @@ import {
   sessionAbsoluteTtlMs,
   type HumanLoginResult,
 } from "@compass/access";
-import type { ApplicationServices } from "../bootstrap/createApplicationServices.ts";
+import type { ApplicationServices } from "../application/ApplicationServices.ts";
 import type { AuthMode } from "./humanAuthConfig.ts";
 
 /** Web層でのHuman認証の設定。Google routeは`services`にOIDCのuse caseがあるときだけ登録する。 */

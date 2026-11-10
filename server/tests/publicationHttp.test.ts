@@ -3,10 +3,10 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import test, { after } from "node:test";
 import { formatReviewMarker, GitHubPullRequestGateway } from "@compass/work";
-import { createApp } from "../src/bootstrap/app.ts";
+import { createApp } from "../src/presentation/http/createApp.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 import { createTestHuman, requestAs } from "./support/humanSession.ts";
 
 /**

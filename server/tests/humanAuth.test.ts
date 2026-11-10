@@ -6,9 +6,9 @@ import { join } from "node:path";
 import test from "node:test";
 import type { Kysely } from "kysely";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import type { Database } from "../src/bootstrap/database/schema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
+import type { Database } from "../src/infrastructure/database/schema.ts";
 import {
   decideRegistration,
   sessionAbsoluteTtlMs,

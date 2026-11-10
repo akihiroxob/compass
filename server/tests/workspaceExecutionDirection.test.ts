@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
-import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
-import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
+import { createDatabase } from "../src/infrastructure/database/createDatabase.ts";
+import { initializeSchema } from "../src/infrastructure/database/initializeSchema.ts";
 
 // Projectが存在しなくてもWorkspace Directionの確定イベントを保存する。
 test("Direction events belong to Workspace without fabricating a Project", async () => {
@@ -30,8 +30,8 @@ import { join } from "node:path";
 import { sql } from "kysely";
 import { SQLiteOutcomeExecutionRepository, type RecordOutcomeExecutionInput } from "@compass/direction";
 import { CreateWorkspaceProjectUseCase, SQLiteProjectRepository, SQLiteWorkspaceRepository } from "@compass/organization";
-import { asOrganizationDatabase } from "../src/bootstrap/database/contextDatabase.ts";
-import { asDirectionDatabase } from "../src/bootstrap/database/contextDatabase.ts";
+import { asOrganizationDatabase } from "../src/infrastructure/database/contextDatabase.ts";
+import { asDirectionDatabase } from "../src/infrastructure/database/contextDatabase.ts";
 import { directionProjectReaders, directionWorkspaceReaders, projectRepositoryReferenceFinder } from "../src/infrastructure/repository/contextAdapters.ts";
 
 const setup = async (path = ":memory:") => {

@@ -105,7 +105,7 @@ Compass `3eebc9e`の`git ls-files`全311 file（`src/` 224・`test/` 53・`agent
 
 | 現在 | 移行先 | 備考 |
 | --- | --- | --- |
-| `src/app.ts` | `server/src/bootstrap/app.ts` | app.tsのAPI routeは同Taskでserver/src/api/へ分割可 |
+| `src/app.ts` | `server/src/presentation/http/createApp.ts` | app.tsのAPI routeは同Taskでserver/src/api/へ分割可 |
 | `src/application/error/ConflictError.ts` | `packages/shared/src/errors/` | 業務概念を含まない汎用エラーのみ |
 | `src/application/error/CoordinationError.ts` | `packages/work/src/application/error/` |  |
 | `src/application/error/ForbiddenError.ts` | `packages/shared/src/errors/` | 業務概念を含まない汎用エラーのみ |
@@ -211,8 +211,8 @@ Compass `3eebc9e`の`git ls-files`全311 file（`src/` 224・`test/` 53・`agent
 | `src/domain/repository/ResearchRepository.ts` | `packages/direction/src/domain/ResearchRepository.ts` |  |
 | `src/domain/repository/RuntimeEventRepository.ts` | `packages/direction/src/domain/RuntimeEventRepository.ts` |  |
 | `src/infrastructure/database/createDatabase.ts` | `server/src/bootstrap/database/` | 02で移動 |
-| `src/infrastructure/database/initializeSchema.ts` | server/src/bootstrap/database/initializeSchema.ts（02）→ 各package infrastructureへtable定義を分割（03/04） | 単一SQLite fileを維持 |
-| `src/infrastructure/database/schema.ts` | server/src/bootstrap/database/schema.ts（02）→ 各package infrastructureへtable定義を分割（03/04） | 単一SQLite fileを維持 |
+| `src/infrastructure/database/initializeSchema.ts` | server/src/infrastructure/database/initializeSchema.ts（02）→ 各package infrastructureへtable定義を分割（03/04） | 単一SQLite fileを維持 |
+| `src/infrastructure/database/schema.ts` | server/src/infrastructure/database/schema.ts（02）→ 各package infrastructureへtable定義を分割（03/04） | 単一SQLite fileを維持 |
 | `src/infrastructure/identity/GoogleOidcIdentityProvider.ts` | `server/src/auth/GoogleOidcIdentityProvider.ts` | HumanIdentityProvider portのadapter |
 | `src/infrastructure/repository/SQLiteAccessCredentialRepository.ts` | `packages/access/src/infrastructure/SQLiteAccessCredentialRepository.ts` |  |
 | `src/infrastructure/repository/SQLiteAdrHandoffRepository.ts` | `packages/direction/src/infrastructure/SQLiteAdrHandoffRepository.ts` |  |
