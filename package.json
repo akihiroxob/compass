@@ -12,18 +12,21 @@
   "scripts": {
     "prestart": "npm run build",
     "start": "tsx server/src/main.ts",
-    "cli": "tsx server/src/cli/main.ts",
-    "db:migrate": "node --import tsx server/src/cli/migrateSqlite.ts",
+    "cli": "tsx cli/src/main.ts",
+    "db:migrate": "node --import tsx database/src/main.ts",
     "dev": "npm-run-all --parallel dev:server dev:frontend",
     "dev:server": "tsx watch server/src/main.ts",
     "dev:frontend": "vite --config server/src/web/vite.config.ts",
     "build": "npm run build --workspace server",
-    "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present && npm run typecheck:tools",
+    "typecheck:tools": "tsc -p cli/tsconfig.json && tsc -p database/tsconfig.json && tsc -p tests/tsconfig.json",
+    "test": "npm test --workspaces --if-present && npm run test:tools && npm run test:integration",
     "lint": "npm run lint --workspaces --if-present",
     "check:ui": "npm run check:ui --workspace server",
     "catalog:dev": "npm run catalog:dev --workspace server",
-    "catalog:build": "npm run catalog:build --workspace server"
+    "catalog:build": "npm run catalog:build --workspace server",
+    "test:tools": "node --import tsx --test cli/tests/*.test.ts database/tests/*.test.ts",
+    "test:integration": "node --import tsx --test tests/integration/*.test.ts"
   },
   "devDependencies": {
     "npm-run-all": "^4.1.5"

@@ -31,9 +31,13 @@ COMPASS_AUTH_MODE=trusted-local COMPASS_INITIAL_OWNER_EMAIL=you@example.com npm 
 
 ブラウザで`/login`を開き、初期ownerのemailでログインします。trusted-localはloopback限定の開発用で、emailの本人確認を行いません。`NODE_ENV=production`では起動を拒否します。
 
-設定項目は [.env.example](.env.example) を参照してください。 `COMPASS_DEPLOY_REVISION`にデプロイしたCompassの40桁のGit SHAを指定すると、Role・Skillの取得結果とAgent管理画面へ参考情報として表示します。未設定または不正な値は不明として扱います。起動ディレクトリに`.env`があればserverが読み込みます。`.env.example`自体は読み込みません。`PORT`は`.env`読込前に確定するため、シェルの環境変数として渡してください。既定portは51800、`COMPASS_DB_PATH`はSQLiteの保存先、`COMPASS_CLAIM_TTL_MS`はClaim有効期間（既定30分）です。ServerとCLIは適用済みマイグレーションを確認し、未適用の場合は起動を停止します。
+設定項目は [.env.example](.env.example) を参照してください。 `COMPASS_DEPLOY_REVISION`にデプロイしたCompassの40桁のGit SHAを指定すると、Role・Skillの取得結果とAgent管理画面へ参考情報として表示します。未設定または不正な値は不明として扱います。起動ディレクトリに`.env`があればserverが読み込みます。`.env.example`自体は読み込みません。`PORT`は`.env`読込前に確定するため、シェルの環境変数として渡してください。既定portは51800、`COMPASS_DB_PATH`はSQLiteの保存先、`COMPASS_CLAIM_TTL_MS`はClaim有効期間（既定30分）です。Server・CLIは必要なschemaが準備済みであることを前提に動作します。
 
-空のSQLite DBには、明示的に`COMPASS_DB_PATH=/path/to/compass.db npm run db:migrate`で`server/migrations/`のSQLを適用できます。適用履歴は`compass_schema_migration`に保存され、再実行時は未適用分だけを適用します。履歴がない既存DBは自動的に初期化済みと判断せず、内容を保持してエラーにします。Serverの起動前にマイグレーションを実行してください。
+保守用のGrant CLIは`cli/`、DBのマイグレーションツールとSQLは`database/`に置きます。CLIは既存packageのUse Caseを呼び、Serverには依存しません。
+
+CLIの単体テストは`cli/tests/`、DBツールは`database/tests/`に置き、`npm run test:tools`で実行します。実行単位をまたぐテストは`tests/integration/`に置き、`npm run test:integration`で実行します。`npm test`は各workspaceとこれらのテストを実行します。Serverの型チェックは`server/`内を対象とし、CLI・DBツール・結合テストは`npm run typecheck:tools`で確認します。
+
+SQLite DBの準備には`COMPASS_DB_PATH=/path/to/compass.db npm run db:migrate`で`database/migrations/`のSQLを適用します。Server・CLIの起動はマイグレーションを実行しません。適用履歴は`compass_schema_migration`に保存され、再実行時は未適用分だけを適用します。履歴がない既存DBは自動的に初期化済みと判断せず、内容を保持してエラーにします。
 
 リリース前の開発DBは再作成できます。マイグレーション履歴がない既存DBは自動変更しません。必要なデータを確認したうえで、新しいDBへマイグレーションを適用してください。
 

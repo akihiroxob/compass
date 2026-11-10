@@ -237,8 +237,8 @@ Compass `3eebc9e`の`git ls-files`全311 file（`src/` 224・`test/` 53・`agent
 | `src/infrastructure/repository/outcomeRecord.ts` | `packages/direction/src/infrastructure/outcomeRecord.ts` |  |
 | `src/infrastructure/repository/researchRequestRecord.ts` | `packages/direction/src/infrastructure/researchRequestRecord.ts` |  |
 | `src/infrastructure/repository/runtimeEventRecord.ts` | `packages/direction/src/infrastructure/runtimeEventRecord.ts` |  |
-| `src/presentation/cli/main.ts` | `server/src/cli/main.ts` | 保守用途 |
-| `src/presentation/cli/runCli.ts` | `server/src/cli/runCli.ts` | 保守用途 |
+| `src/presentation/cli/main.ts` | `cli/src/main.ts` | 保守用途 |
+| `src/presentation/cli/runCli.ts` | `cli/src/runCli.ts` | 保守用途 |
 | `src/presentation/http/humanAuthConfig.ts` | `server/src/auth/humanAuthConfig.ts` |  |
 | `src/presentation/http/registerHumanAuthRoutes.ts` | `server/src/auth/registerHumanAuthRoutes.ts` |  |
 | `src/presentation/mcp/createMcpServer.ts` | `server/src/mcp/createMcpServer.ts` |  |
@@ -317,11 +317,11 @@ Compass `3eebc9e`の`git ls-files`全311 file（`src/` 224・`test/` 53・`agent
 | `test/outcomeForm.test.ts` | `server/tests/outcomeForm.test.ts` | Web UI module | direction |  |
 | `test/project.test.ts` | `server/tests/project.test.ts` | use case＋`SQLiteProjectRepository`＋DB直接 | direction | 04でV5解消後に`packages/direction/tests/`へ（Direction schemaだけで実行） |
 | `test/projectAdapters.test.ts` | `server/tests/projectAdapters.test.ts` | server合成（`app.ts`） | direction |  |
-| `test/projectArchive.test.ts` | `server/tests/projectArchive.test.ts` | server合成（`app.ts`）＋各SQLite repository＋`runCli` | direction |  |
+| `test/projectArchive.test.ts` | `tests/integration/projectArchive.test.ts` | server合成（`app.ts`）＋各SQLite repository＋`runCli` | direction |  |
 | `test/projectArchiveUi.test.ts` | `server/tests/projectArchiveUi.test.ts` | server合成（`app.ts`）＋Web UI module | direction |  |
 | `test/projectForm.test.ts` | `server/tests/projectForm.test.ts` | Web UI module | direction |  |
 | `test/projectGrant.test.ts` | `server/tests/projectGrant.test.ts` | server合成（`createApplicationServices`） | access |  |
-| `test/projectGrantAdapters.test.ts` | `server/tests/projectGrantAdapters.test.ts` | server合成（`app.ts`）＋`runCli` | access |  |
+| `test/projectGrantAdapters.test.ts` | `tests/integration/projectGrantAdapters.test.ts` | server合成（`app.ts`）＋`runCli` | access |  |
 | `test/remoteMcpHumanCommands.test.ts` | `server/tests/remoteMcpHumanCommands.test.ts` | server合成（`app.ts`） | access |  |
 | `test/research.test.ts` | `server/tests/research.test.ts` | server合成（`createApplicationServices`） | direction |  |
 | `test/researchDecisionIntegration.test.ts` | `server/tests/researchDecisionIntegration.test.ts` | server合成（`app.ts`） | direction |  |

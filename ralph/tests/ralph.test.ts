@@ -198,7 +198,7 @@ const setup = async (options: { claimTtlMs?: number } = {}) => {
     }
   };
   const cli = async (...args: string[]) => {
-    const result = await exited(runTs(join(repositoryRoot, "server/src/cli/main.ts"), args));
+    const result = await exited(runTs(join(repositoryRoot, "cli/src/main.ts"), args));
     assert.equal(result.code, 0, result.stderr);
   };
 

@@ -30,7 +30,7 @@ type ToolResult = { isError?: boolean; structuredContent?: Record<string, any>; 
 
 const assetRoot = new URL("../../", import.meta.url);
 const publicIndex = new URL("../public/index.html", import.meta.url);
-const cliEntry = fileURLToPath(new URL("../src/cli/main.ts", import.meta.url));
+const cliEntry = fileURLToPath(new URL("../../cli/src/main.ts", import.meta.url));
 const execFileAsync = promisify(execFile);
 
 const outcomeInput = {

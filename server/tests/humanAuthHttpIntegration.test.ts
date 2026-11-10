@@ -9,17 +9,30 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { sql, type Kysely } from "kysely";
+import type { Kysely } from "kysely";
 import { createApp } from "../src/bootstrap/app.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
 import { sessionIdleTtlMs } from "@compass/access";
 import { createDatabase } from "../src/bootstrap/database/createDatabase.ts";
 import { initializeSchema } from "../src/bootstrap/database/initializeSchema.ts";
-import { migrateSqlite } from "../src/bootstrap/database/migrateSqlite.ts";
 import type { Database } from "../src/bootstrap/database/schema.ts";
 import { GoogleOidcIdentityProvider } from "../src/auth/GoogleOidcIdentityProvider.ts";
 import { assertBootstrapConfigured, loadHumanAuthConfig } from "../src/auth/humanAuthConfig.ts";
 import { createOidcFixture, type Claims } from "./support/oidcFixture.ts";
+
+const migrateSqlite = async (path: string) => {
+  const migrationEntry = fileURLToPath(new URL("../../database/src/main.ts", import.meta.url));
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(process.execPath, ["--import", import.meta.resolve("tsx"), migrationEntry], {
+      env: { ...process.env, COMPASS_DB_PATH: path }, stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stdout.resume();
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("exit", (code) => code === 0 ? resolve() : reject(new Error(`Migration command failed: ${stderr}`)));
+  });
+};
 
 /**
  * Task 44: Human認証・認可を実HTTP server（@hono/node-server、実port）で通して検証する。
@@ -590,21 +603,6 @@ const freePort = () =>
       probe.close(() => resolve(port));
     });
   });
-
-test("serverは未マイグレーションDBを変更せず起動を拒否する", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "compass-unmigrated-"));
-  try {
-    const path = join(directory, "compass.db");
-    const server = runServer(directory, { COMPASS_DB_PATH: path, PORT: "51800", COMPASS_AUTH_MODE: "trusted-local", COMPASS_INITIAL_OWNER_EMAIL: ownerEmail });
-    assert.equal(await server.exited, 1);
-    assert.match(server.output.stderr, /migration history is missing/);
-    const database = createDatabase(path);
-    try {
-      const tables = await sql<{ name: string }>`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`.execute(database);
-      assert.deepEqual(tables.rows, []);
-    } finally { await database.destroy(); }
-  } finally { await rm(directory, { recursive: true, force: true }); }
-});
 
 test("server/src/main.tsはremoteの必須値欠落・初期owner未設定で起動を拒否し、secretの値を出力しない", async () => {
   const directory = await mkdtemp(join(tmpdir(), "compass-auth-startup-"));
