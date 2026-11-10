@@ -1,5 +1,6 @@
 import { OutcomeDeliveryReader } from "./OutcomeDeliveryReader.ts";
 import { OutcomeProblemReader } from "./OutcomeProblemReader.ts";
+import { createSqliteOrganizationInfrastructure, type OrganizationInfrastructure } from "./organizationInfrastructure.ts";
 import { projectWorkspaceId } from "../infrastructure/repository/projectWorkspace.ts";
 import { AgentContextService } from "../application/agentContext/AgentContextService.ts";
 import { GetRoleContextUseCase } from "../application/agentContext/GetRoleContextUseCase.ts";
@@ -81,8 +82,6 @@ import {
   ListProjectsUseCase,
   ListWorkspacesUseCase,
   ListWorkspaceProjectsUseCase,
-  SQLiteProjectRepository,
-  SQLiteWorkspaceRepository,
   UpdateProjectUseCase,
   UpdateWorkspaceUseCase,
 } from "@compass/organization";
@@ -201,7 +200,6 @@ import {
   asActivityDatabase,
   asCollaborationDatabase,
   asDirectionDatabase,
-  asOrganizationDatabase,
   asWorkDatabase,
 } from "./database/contextDatabase.ts";
 import type { Database } from "./database/schema.ts";
@@ -216,9 +214,6 @@ import {
   directionChangeObserver,
   directionProjectReaders,
   directionWorkspaceReaders,
-  workspaceOwnerMembershipWriter,
-  projectChangeActivityObserver,
-  projectRepositoryReferenceFinder,
   workChangeActivityObserver,
   workExternalReaders,
 } from "../infrastructure/repository/contextAdapters.ts";
@@ -250,18 +245,11 @@ export const createApplicationServices = (
    * `revisions`はGitHubのcommitの関係の読取で、無ければGitHub Repositoryの公開記録をGITHUB_UNAVAILABLEで拒否する。
    */
   integrations: { pullRequests?: PullRequestGateway | null; revisions?: RevisionGateway | null } = {},
+  /** Organizationの永続化契約。未指定時は同じDBを使うSQLite実装。 */
+  organization: OrganizationInfrastructure = createSqliteOrganizationInfrastructure(applicationDatabase),
 ) => {
   // Project（Workspaceを含む）はOrganizationが所有する。Projectのarchiveも同じtransactionでcanonical Activityへ投影する。
-  const projectRepository = new SQLiteProjectRepository(
-    asOrganizationDatabase(applicationDatabase),
-    projectRepositoryReferenceFinder,
-    workspaceOwnerMembershipWriter,
-    projectChangeActivityObserver,
-  );
-  const workspaceRepository = new SQLiteWorkspaceRepository(
-    asOrganizationDatabase(applicationDatabase),
-    workspaceOwnerMembershipWriter,
-  );
+  const { projectRepository, workspaceRepository } = organization;
   // Directionのrepositoryへは同じ接続を、自身のtable型で渡す。Workspace/Project状態は同じtransactionで読むreaderを渡す。
   const directionDatabase = asDirectionDatabase(applicationDatabase);
   // Directionの重要な状態変更も、同じtransactionでcanonical Activityへ投影する。
