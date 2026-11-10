@@ -171,6 +171,10 @@ Workspace Membership（`workspace_membership`）はHumanの所属とRole（owner
 
 Accessは`project`・`workspace`のtableを直接読まない。archive判定・Projectの存在・owner不在Projectの補完に使うProject一覧は`ProjectStateReader` port、Workspaceのarchive判定・Workspace一覧・所属Project一覧は`WorkspaceStateReader` portで読み、Membership・Grant・Credentialの書込と同じtransactionで検査する。Workspace・Project作成時の初期owner Membershipは、OrganizationのWorkspace・Project作成（`SQLiteWorkspaceRepository`・`SQLiteProjectRepository`）のtransactionの中で、serverが`OwnerMembershipWriters`として渡したAccessの`writeWorkspaceOwnerMembership`・`writeProjectOwnerMembership`が書く。いずれもserverが`contextAdapters.ts`で配線する。AccessがOrganizationから使うのは公開indexのuse case（`GetProjectUseCase`・`ListProjectsUseCase`・`GetWorkspaceUseCase`・`ListWorkspacesUseCase`・`CreateWorkspaceProjectUseCase`。所属Project一覧の`ListWorkspaceProjectsUseCase`はserverが`HumanWorkspaceAuthorizedUseCase`で包む）・型（`ProjectDetail`・`ProjectStatus`・`Workspace`・`WorkspaceStatus`）・`ProjectArchivedError`・`WorkspaceArchivedError`だけで、AccessはDirection・Workに依存せず、OrganizationはAccessに依存しない。
 
+## Agent資産の配信元
+
+Agent資産の名前・frontmatter・Skill参照の検証は`TextAgentAssetRepository`で共通化する。Node起動では`FileAgentAssetRepository`がGit管理の文書をfilesystemから読み、`BundledAgentAssetRepository`はビルドで収集した文書を不変のsnapshotとして配信する。埋め込み版はfilesystem・Git・環境変数へアクセスしない。どちらも同じ`AgentAssetRepository`契約を実装し、不正・欠落を`INSTRUCTION_UNAVAILABLE`で返す。Bundled版のAdapterは実装済みだが、Workers用の生成・起動・配信への接続は未実装。
+
 ## Serverの責務配置
 
 HTTPのルート登録は`server/src/presentation/http/`に置き、Organization・Direction・Access・Runtime・Work・Activity・Collaborationごとに分ける。`createApp.ts`はmiddleware・認証route・各routeの登録・MCP transport・静的配信・エラー応答を組み立てる。MCPは`server/src/mcp/`で接続の生成とTool群の登録を分離し、認証済みrequestの主体とRoleは共通のrequest Contextから渡す。
