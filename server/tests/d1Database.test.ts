@@ -1,31 +1,14 @@
+import { createD1TestRuntime } from "./support/d1Runtime.ts";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { Miniflare } from "miniflare";
 import { sql } from "kysely";
-import type { D1Database } from "@cloudflare/workers-types";
-import { createD1Database, D1InteractiveTransactionUnsupportedError } from "../src/infrastructure/database/d1/D1Dialect.ts";
+import { D1InteractiveTransactionUnsupportedError } from "../src/infrastructure/database/d1/D1Dialect.ts";
 import { D1AtomicBatch, D1PreconditionFailedError } from "../src/infrastructure/database/d1/D1AtomicBatch.ts";
 
-const setup = async () => {
-  const runtime = new Miniflare({
-    workers: [{ config: {
-      name: "compass-d1-test",
-      compatibilityDate: "2026-11-10",
-      manifest: { mainModule: "index.js", modulesRoot: process.cwd(), modules: {
-        "index.js": { type: "esm", contents: 'export default { fetch() { return new Response("test"); } };' },
-      } },
-      env: { DB: { type: "d1", id: "compass-d1-test" } },
-    } }],
-  });
-  // MiniflareとアプリのCloudflare型の版を隔離する。実体はworkerdのD1 binding。
-  const binding = await runtime.getD1Database("DB") as unknown as D1Database;
-  const database = createD1Database(binding);
-  return { runtime, binding, database };
-};
 
 test("D1 accepts the shared initial schema and Kysely preserves query values and RETURNING", async () => {
-  const { runtime, binding, database } = await setup();
+  const { runtime, binding, database } = await createD1TestRuntime();
   try {
     const schema = await readFile(new URL("../../database/migrations/0001_initial_schema.sql", import.meta.url), "utf8");
     // 現行の初期DDLはtriggerや文字列内のsemicolonを含まない。execの行単位処理を避ける。
@@ -47,7 +30,7 @@ test("D1 accepts the shared initial schema and Kysely preserves query values and
 });
 
 test("D1 batches reject stale concurrent writes and roll back mutations on SQL failure", async () => {
-  const { runtime, binding, database } = await setup();
+  const { runtime, binding, database } = await createD1TestRuntime();
   try {
     await binding.prepare(await readFile(new URL("../../database/d1/atomic-guards.sql", import.meta.url), "utf8")).run();
     await binding.batch([

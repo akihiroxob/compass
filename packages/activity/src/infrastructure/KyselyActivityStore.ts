@@ -23,6 +23,31 @@ const toActivity = (row: ActivityRow): Activity => ({
   recordedAt: row.recorded_at,
 });
 
+/** 同じ列・dedupe規則で、即時実行または外側のbatchへの組込みに使う。 */
+export const insertActivityQuery = (database: Kysely<ActivityDatabase>, activity: NewActivity) =>
+  database
+    .insertInto("activity")
+    .values({
+      id: activity.id,
+      scope: activity.scope,
+      workspace_id: activity.workspaceId,
+      project_id: activity.projectId,
+      type: activity.type,
+      principal_id: activity.principalId,
+      role: activity.role,
+      summary: activity.summary,
+      body: activity.body,
+      refs: JSON.stringify(activity.refs),
+      corrects_activity_id: activity.correctsActivityId,
+      source: activity.source,
+      dedupe_key: activity.dedupeKey,
+      input_hash: activity.inputHash,
+      occurred_at: activity.occurredAt,
+      recorded_at: activity.recordedAt,
+    })
+    .onConflict((conflict) => conflict.column("dedupe_key").doNothing())
+    .returningAll();
+
 /**
  * `ActivityStore`のKysely（SQLite）実装。transactionを受け取れば、その中で読み書きする（状態変更と同時に確定する）。
  * 一意制約（`dedupe_key`）の衝突は`on conflict do nothing`で吸収し、並行した再送でも1件に収束させる。
@@ -31,29 +56,7 @@ export class KyselyActivityStore implements ActivityStore {
   constructor(private readonly db: Kysely<ActivityDatabase>) {}
 
   async append(activity: NewActivity) {
-    const inserted = await this.db
-      .insertInto("activity")
-      .values({
-        id: activity.id,
-        scope: activity.scope,
-        workspace_id: activity.workspaceId,
-        project_id: activity.projectId,
-        type: activity.type,
-        principal_id: activity.principalId,
-        role: activity.role,
-        summary: activity.summary,
-        body: activity.body,
-        refs: JSON.stringify(activity.refs),
-        corrects_activity_id: activity.correctsActivityId,
-        source: activity.source,
-        dedupe_key: activity.dedupeKey,
-        input_hash: activity.inputHash,
-        occurred_at: activity.occurredAt,
-        recorded_at: activity.recordedAt,
-      })
-      .onConflict((conflict) => conflict.column("dedupe_key").doNothing())
-      .returningAll()
-      .executeTakeFirst();
+    const inserted = await insertActivityQuery(this.db, activity).executeTakeFirst();
     if (inserted) return { activity: toActivity(inserted), created: true, inputHash: inserted.input_hash };
     const existing = await this.db
       .selectFrom("activity")
