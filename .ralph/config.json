@@ -49,7 +49,7 @@
       "scripts/verify-consultation-resumption.mjs",
       "docs/browser-verification.md"
     ],
-    "preparationRevision": "65ba367c63c70fd1b0e54e4e41a0d47c2d17f8ae",
+    "preparationRevision": "5dea8241375e413a0d1f578198cd0dd5df893577",
     "hostCommands": [
       [
         "node",
