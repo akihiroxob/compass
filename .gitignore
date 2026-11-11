@@ -194,3 +194,4 @@ storybook-static/
 .dev.vars
 .dev.vars.*
 /database/.generated/
+/server/.generated/

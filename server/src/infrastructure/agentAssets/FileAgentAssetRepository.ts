@@ -4,12 +4,11 @@ import { fileURLToPath } from "node:url";
 import { InstructionUnavailableError } from "../../application/agentContext/InstructionUnavailableError.ts";
 import { TextAgentAssetRepository } from "./TextAgentAssetRepository.ts";
 
-const defaultAssetRoot = fileURLToPath(new URL("../../../../", import.meta.url));
 const reasonOf = (error: unknown) => error instanceof Error ? error.message : String(error);
 
 /** Node開発環境でrepo直下のGit管理資産を読む。 */
 export class FileAgentAssetRepository extends TextAgentAssetRepository {
-  constructor(root = defaultAssetRoot) {
+  constructor(root = fileURLToPath(new URL("../../../../", import.meta.url))) {
     super({
       read: async (path) => {
         try {

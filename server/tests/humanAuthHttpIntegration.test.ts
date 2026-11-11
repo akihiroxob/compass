@@ -1,3 +1,4 @@
+import { createNodeStaticAssets } from "../src/infrastructure/http/createNodeStaticAssets.ts";
 import { seedLegacyProjectGrant } from "./support/humanSession.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -104,7 +105,7 @@ const startServer = async (path: string, clock: { now: number }, fixture: Return
     }),
   });
   assertBootstrapConfigured(config, await services.getHumanAuthBootstrapStatusUseCase.execute());
-  const running = await listen(createApp(services, { humanAuth: { mode: config.mode, publicOrigin: config.publicOrigin } }));
+  const running = await listen(createApp(services, { humanAuth: { mode: config.mode, publicOrigin: config.publicOrigin }, staticAssets: createNodeStaticAssets() }));
   return {
     ...running,
     database,
