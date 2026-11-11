@@ -53,6 +53,11 @@ test("D1 batches reject stale concurrent writes and roll back mutations on SQL f
     assert.equal((await binding.prepare("SELECT COUNT(*) AS n FROM compass_d1_guard").first<{ n: number }>())?.n, 0);
     await assert.rejects(writer.execute([], [update, sql`insert into missing_table values (1)`.compile(database)]));
     assert.equal((await binding.prepare("SELECT version FROM counter").first<{ version: number }>())?.version, 1);
+    const manyGuards = Array.from({ length: 205 }, () => sql`SELECT 1`.compile(database));
+    const batch = await writer.execute(manyGuards, [update]);
+    assert.equal(batch.length, 1);
+    assert.equal((await binding.prepare("SELECT version FROM counter").first<{ version: number }>())?.version, 2);
+    assert.equal((await binding.prepare("SELECT COUNT(*) AS n FROM compass_d1_guard").first<{ n: number }>())?.n, 0);
   } finally {
     await database.destroy();
     await runtime.dispose();

@@ -23,9 +23,13 @@ export class D1AtomicBatch {
       `INSERT INTO compass_d1_guard (id, satisfied) SELECT ?, CASE WHEN EXISTS (${query.sql}) THEN 1 ELSE 0 END`,
     ).bind(ids[index], ...query.parameters));
     const statements = mutations.map((query) => this.binding.prepare(query.sql).bind(...query.parameters));
-    if (ids.length) statements.push(this.binding.prepare(
-      `DELETE FROM compass_d1_guard WHERE id IN (${ids.map(() => "?").join(", ")})`,
-    ).bind(...ids));
+    // D1は1 statementにつき100 bind parametersまで。検査が多いbatchも一括commitのまま掃除する。
+    for (let offset = 0; offset < ids.length; offset += 100) {
+      const chunk = ids.slice(offset, offset + 100);
+      statements.push(this.binding.prepare(
+        `DELETE FROM compass_d1_guard WHERE id IN (${chunk.map(() => "?").join(", ")})`,
+      ).bind(...chunk));
+    }
     try {
       const results = await this.binding.batch([...guards, ...statements]);
       return results.slice(guards.length, guards.length + mutations.length);
