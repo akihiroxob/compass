@@ -1,5 +1,6 @@
 import { D1IntentRepository } from "../src/infrastructure/repository/d1/D1IntentRepository.ts";
 import { D1RuntimeEventRepository } from "../src/infrastructure/repository/d1/D1RuntimeEventRepository.ts";
+import { D1OutcomeTargetProjectRepository } from "../src/infrastructure/repository/d1/D1OutcomeTargetProjectRepository.ts";
 import { planD1DirectionActivity } from "../src/infrastructure/repository/d1/planD1DirectionActivity.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -11,7 +12,7 @@ import { activityActorContext } from "../src/infrastructure/activity/NodeActivit
 import { asAccessDatabase, asDirectionDatabase, asActivityDatabase } from "../src/infrastructure/database/contextDatabase.ts";
 import { createApp } from "../src/presentation/http/createApp.ts";
 
-test("shared HTTP auth, Workspace, Grant and Credential and Direction routes use D1 repositories through DI", async () => {
+test("shared HTTP auth, Organization, Access and Direction routes use D1 repositories through DI", async () => {
   const { runtime, binding, database } = await createD1TestRuntime();
   try {
     await initializeD1TestSchema(binding);
@@ -22,6 +23,7 @@ test("shared HTTP auth, Workspace, Grant and Credential and Direction routes use
           intentRepository: new D1IntentRepository(asDirectionDatabase(database), binding,
             planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
           runtimeEventRepository: new D1RuntimeEventRepository(asDirectionDatabase(database), binding),
+          outcomeTargetProjectRepository: new D1OutcomeTargetProjectRepository(asDirectionDatabase(database), binding),
         },
       });
     const origin = "http://localhost";
@@ -56,6 +58,13 @@ test("shared HTTP auth, Workspace, Grant and Credential and Direction routes use
     const { intent } = await intentResponse.json() as { intent: { id: string } };
     const edited = await request(`/api/workspaces/${workspace.id}/intents/${intent.id}`, "PATCH", { expectedVersion: 1, title: "Updated intent" });
     assert.equal(edited.status, 200, await edited.clone().text());
+    await database.insertInto("outcome").values({ id: "http-outcome", workspace_id: workspace.id, intent_id: intent.id, intent_version: 2,
+      title: "Outcome", description: "Description", rationale: "Reason", status: "active", revision: 1, created_at: 1, updated_at: 1 }).execute();
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, "http-outcome", project.id);
+    const targetsResponse = await request(`/api/workspaces/${workspace.id}/outcomes/http-outcome/target-projects`);
+    assert.equal(targetsResponse.status, 200, await targetsResponse.clone().text());
+    const { targets } = await targetsResponse.json() as { targets: { projectId: string }[] };
+    assert.deepEqual(targets.map(({ projectId }) => projectId), [project.id]);
     assert.equal((await request(`/api/workspaces/${workspace.id}/intents/${intent.id}/abandon`, "POST", { expectedVersion: 2 })).status, 200);
     const runtimeResponse = await request(`/api/workspaces/${workspace.id}/credentials`, "POST", {
       kind: "runtime", principalId: "runtime", scopes: ["runtime:event:read", "runtime:event:ack"],
