@@ -95,3 +95,4 @@ export { planOutcomeExecutionRecord } from "./infrastructure/outcomeExecutionRec
 export { toSummary as outcomeExecutionSummaryFromRow, toEvidence as outcomeExecutionEvidenceFromRow } from "./infrastructure/outcomeTargetExecutionRecord.ts";
 export { outcomeEvaluationFromRow, outcomeEvaluationReplay, outcomeEvaluationRow } from "./infrastructure/SQLiteOutcomeEvaluationRepository.ts";
 export { insertOutcomeEvaluatedEventQuery } from "./infrastructure/runtimeEventRecord.ts";
+export { loadIntentExplanations, explanationReferenceQueries, planIntentExplanationRecord } from "./infrastructure/intentExplanationRecord.ts";

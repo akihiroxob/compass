@@ -1,49 +1,24 @@
-import { D1IntentRepository } from "../src/infrastructure/repository/d1/D1IntentRepository.ts";
-import { D1RuntimeEventRepository } from "../src/infrastructure/repository/d1/D1RuntimeEventRepository.ts";
-import { D1OutcomeTargetProjectRepository } from "../src/infrastructure/repository/d1/D1OutcomeTargetProjectRepository.ts";
-import { D1OutcomeRepository } from "../src/infrastructure/repository/d1/D1OutcomeRepository.ts";
-import { D1IntentMetricRepository } from "../src/infrastructure/repository/d1/D1IntentMetricRepository.ts";
-import { D1ResearchRepository } from "../src/infrastructure/repository/d1/D1ResearchRepository.ts";
-import { D1DirectionDecisionRepository } from "../src/infrastructure/repository/d1/D1DirectionDecisionRepository.ts";
-import { D1AdrHandoffRepository } from "../src/infrastructure/repository/d1/D1AdrHandoffRepository.ts";
-import { D1OutcomeExecutionRepository } from "../src/infrastructure/repository/d1/D1OutcomeExecutionRepository.ts";
-import { D1OutcomeEvaluationRepository } from "../src/infrastructure/repository/d1/D1OutcomeEvaluationRepository.ts";
-import { planD1DirectionActivity } from "../src/infrastructure/repository/d1/planD1DirectionActivity.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createD1TestRuntime, initializeD1TestSchema } from "./support/d1Runtime.ts";
 import { createApplicationServices } from "../src/bootstrap/createApplicationServices.ts";
+import { createD1DirectionInfrastructure } from "../src/bootstrap/d1DirectionInfrastructure.ts";
 import { createD1AccessInfrastructure } from "../src/bootstrap/d1AccessInfrastructure.ts";
 import { createD1OrganizationInfrastructure } from "../src/bootstrap/d1OrganizationInfrastructure.ts";
 import { activityActorContext } from "../src/infrastructure/activity/NodeActivityActorContext.ts";
-import { asAccessDatabase, asDirectionDatabase, asActivityDatabase } from "../src/infrastructure/database/contextDatabase.ts";
+import { asAccessDatabase } from "../src/infrastructure/database/contextDatabase.ts";
 import { createApp } from "../src/presentation/http/createApp.ts";
 
 test("shared HTTP auth, Organization, Access and Direction routes use D1 repositories through DI", async () => {
   const { runtime, binding, database } = await createD1TestRuntime();
   try {
     await initializeD1TestSchema(binding);
-    const execution = new D1OutcomeExecutionRepository(asDirectionDatabase(database), binding);
+    const direction = createD1DirectionInfrastructure(database, binding, activityActorContext);
+    const execution = direction.outcomeExecutionRepository;
     const services = createApplicationServices(database, undefined, Date.now, { initialOwnerEmail: "owner@example.test" }, {},
       createD1OrganizationInfrastructure(database, binding, activityActorContext), {
         access: createD1AccessInfrastructure(asAccessDatabase(database), binding, Date.now),
-        direction: {
-          intentRepository: new D1IntentRepository(asDirectionDatabase(database), binding,
-            planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
-          runtimeEventRepository: new D1RuntimeEventRepository(asDirectionDatabase(database), binding),
-          outcomeTargetProjectRepository: new D1OutcomeTargetProjectRepository(asDirectionDatabase(database), binding),
-          outcomeRepository: new D1OutcomeRepository(asDirectionDatabase(database), binding,
-            planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
-          intentMetricRepository: new D1IntentMetricRepository(asDirectionDatabase(database), binding),
-          researchRepository: new D1ResearchRepository(asDirectionDatabase(database), binding,
-            planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
-          directionDecisionRepository: new D1DirectionDecisionRepository(asDirectionDatabase(database), binding,
-            planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
-          adrHandoffRepository: new D1AdrHandoffRepository(asDirectionDatabase(database), binding),
-          outcomeExecutionRepository: execution,
-          outcomeEvaluationRepository: new D1OutcomeEvaluationRepository(asDirectionDatabase(database), binding,
-            planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
-        },
+        direction,
       });
     const origin = "http://localhost";
     const app = createApp(services, { humanAuth: { mode: "trusted-local", publicOrigin: origin } });
@@ -106,13 +81,19 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
     assert.equal(evaluationsResponse.status, 200, await evaluationsResponse.clone().text());
     assert.equal((await evaluationsResponse.json() as { evaluations: unknown[] }).evaluations.length, 1);
     await services.defineIntentMetricUseCase.execute("strategist", workspace.id, intent.id, { key: "revenue", name: "Revenue", unit: "JPY", staleAfterDays: 2 });
-    await services.recordIntentMetricObservationsUseCase.execute("evaluator", workspace.id, intent.id, { metricKey: "revenue", observations: [{
+    const observations = await services.recordIntentMetricObservationsUseCase.execute("evaluator", workspace.id, intent.id, { metricKey: "revenue", observations: [{
       periodStart: "2026-01-01", periodEnd: "2026-01-01", status: "observed", value: 0, source: { name: "Report" }, observedAt: Date.parse("2026-01-02T00:00:00Z"),
     }] });
     const metricsResponse = await request(`/api/workspaces/${workspace.id}/intents/${intent.id}/metrics?from=2026-01-01&to=2026-01-02`);
     assert.equal(metricsResponse.status, 200, await metricsResponse.clone().text());
     const { metrics } = await metricsResponse.json() as { metrics: { series: { points: { value: number }[] } }[] };
     assert.equal(metrics[0]?.series.points[0]?.value, 0);
+    await services.recordIntentExplanationUseCase.execute("strategist", workspace.id, intent.id, { requestKey: "http-explanation", runRef: "run",
+      metricKey: "revenue", periodStart: "2026-01-01", periodEnd: "2026-01-02", items: [{ kind: "fact", statement: "Observed zero revenue",
+        basis: [{ type: "metric_observation", id: observations.observations[0]!.observation.id }] }] });
+    const explanationsResponse = await request(`/api/workspaces/${workspace.id}/intents/${intent.id}/explanations`);
+    assert.equal(explanationsResponse.status, 200, await explanationsResponse.clone().text());
+    assert.equal((await explanationsResponse.json() as { explanations: unknown[] }).explanations.length, 1);
     const research = await services.createResearchRequestUseCase.execute(workspace.id, { requestKey: "http-research", kind: "decision",
       originIntentId: intent.id, question: "Which approach?", scope: "Scope", completionCondition: "Evidence exists", budgetTotal: 10 });
     const researchResult = await services.registerResearchResultUseCase.execute(workspace.id, research.id, { requestKey: "http-result", principalId: "researcher",
