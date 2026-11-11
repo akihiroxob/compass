@@ -72,11 +72,10 @@ export const recordOutcomeConfirmedEvent = async (
  * Outcome Evaluationの確定を、Evaluationの保存と同じtransactionで追記する。同じEvaluationのイベントは1件に収束し、
  * 再送（同じrequestKey）では呼ばれない。相関IDはOutcomeの`outcome:{outcomeId}`で、確定からExecution・評価までを1本で辿れる。
  */
-export const recordOutcomeEvaluatedEvent = async (
+export const insertOutcomeEvaluatedEventQuery = (
   transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
   evaluation: { workspaceId: string; intentId: string; outcomeId: string; evaluationId: string; occurredAt: number },
-): Promise<void> => {
-  await transaction
+) => transaction
     .insertInto("runtime_event")
     .values({
       id: crypto.randomUUID(),
@@ -91,6 +90,9 @@ export const recordOutcomeEvaluatedEvent = async (
       conclusion: null,
       created_at: evaluation.occurredAt,
     })
-    .onConflict((conflict) => conflict.column("evaluation_id").doNothing())
-    .execute();
-};
+    .onConflict((conflict) => conflict.column("evaluation_id").doNothing());
+
+
+export const recordOutcomeEvaluatedEvent = async (
+  transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>, evaluation: Parameters<typeof insertOutcomeEvaluatedEventQuery>[1],
+): Promise<void> => { await insertOutcomeEvaluatedEventQuery(transaction, evaluation).execute(); };

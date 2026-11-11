@@ -17,7 +17,7 @@ import { readOutcomeExecutionRecords, readOutcomeTargetViews } from "./outcomeTa
 import { recordOutcomeEvaluatedEvent } from "./runtimeEventRecord.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
-const toEvaluation = (row: Selectable<OutcomeEvaluationTable>): OutcomeEvaluation => ({
+export const outcomeEvaluationFromRow = (row: Selectable<OutcomeEvaluationTable>): OutcomeEvaluation => ({
   id: row.id,
   workspaceId: row.workspace_id,
   outcomeId: row.outcome_id,
@@ -38,7 +38,7 @@ const toEvaluation = (row: Selectable<OutcomeEvaluationTable>): OutcomeEvaluatio
 });
 
 /** 判定の並び順・Evidence参照の並び順に依存しない、内容の同一性。導出した結果・snapshotは含めない。 */
-const requestHash = (request: OutcomeEvaluationRequest): string =>
+export const outcomeEvaluationRequestHash = (request: OutcomeEvaluationRequest): string =>
   inputHash({
     ...request,
     problemIds: [...request.problemIds].sort(),
@@ -58,12 +58,12 @@ const findByKey = (database: Reader, workspaceId: string, requestKey: string) =>
     .where("request_key", "=", requestKey)
     .executeTakeFirst();
 
-const replayOf = (
+export const outcomeEvaluationReplay = (
   existing: Selectable<OutcomeEvaluationTable>,
   request: OutcomeEvaluationRequest,
 ): FindEvaluationReplayResult =>
-  existing.input_hash === requestHash(request)
-    ? { kind: "replayed", evaluation: toEvaluation(existing) }
+  existing.input_hash === outcomeEvaluationRequestHash(request)
+    ? { kind: "replayed", evaluation: outcomeEvaluationFromRow(existing) }
     : { kind: "key_conflict", requestKey: request.requestKey };
 
 export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepository {
@@ -76,7 +76,7 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
 
   async findReplay(workspaceId: string, request: OutcomeEvaluationRequest): Promise<FindEvaluationReplayResult> {
     const existing = await findByKey(this.database, workspaceId, request.requestKey);
-    return existing ? replayOf(existing, request) : { kind: "none" };
+    return existing ? outcomeEvaluationReplay(existing, request) : { kind: "none" };
   }
 
   async record(workspaceId: string, input: RecordOutcomeEvaluationInput): Promise<RecordOutcomeEvaluationResult> {
@@ -85,7 +85,7 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
       // 並行した再送は、先に保存された1件へ収束させる（archive後の再送も、保存済みの評価はそのまま返す）。
       const existing = await findByKey(transaction, workspaceId, request.requestKey);
       if (existing) {
-        const replay = replayOf(existing, request);
+        const replay = outcomeEvaluationReplay(existing, request);
         return replay.kind === "replayed" ? replay : { kind: "key_conflict", requestKey: request.requestKey };
       }
       if (await this.workspaces(transaction).isArchived(workspaceId)) return { kind: "workspace_archived" };
@@ -117,30 +117,7 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
         return { kind: "targets_changed" };
       }
 
-      const row = await transaction
-        .insertInto("outcome_evaluation")
-        .values({
-          id: crypto.randomUUID(),
-          workspace_id: workspaceId,
-          outcome_id: request.outcomeId,
-          intent_id: input.intentId,
-          intent_version: outcome.intent_version,
-          result: input.result,
-          method: request.method,
-          target_version: request.targetVersion,
-          limitations: request.limitations,
-          problem_ids: JSON.stringify(request.problemIds),
-          problem_plans: JSON.stringify(input.problemPlans),
-          criteria: JSON.stringify(input.criteria),
-          snapshot: JSON.stringify(input.snapshot),
-          principal_id: request.principalId,
-          run_ref: request.runRef,
-          request_key: request.requestKey,
-          input_hash: requestHash(request),
-          created_at: input.at,
-        })
-        .returningAll()
-        .executeTakeFirstOrThrow();
+      const row = await transaction.insertInto("outcome_evaluation").values(outcomeEvaluationRow(workspaceId, input, outcome.intent_version)).returningAll().executeTakeFirstOrThrow();
       // 評価とStrategist起動の条件（outcome_evaluated）を同じtransactionで保存し、片方だけを残さない。
       await recordOutcomeEvaluatedEvent(transaction, {
         workspaceId,
@@ -163,7 +140,7 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
         principalId: request.principalId,
         occurredAt: input.at,
       });
-      return { kind: "created", evaluation: toEvaluation(row) };
+      return { kind: "created", evaluation: outcomeEvaluationFromRow(row) };
     });
   }
 
@@ -176,7 +153,7 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
       .orderBy("created_at", "desc")
       .orderBy(sql`rowid`, "desc")
       .execute();
-    return rows.map(toEvaluation);
+    return rows.map(outcomeEvaluationFromRow);
   }
 
   async findLatestByIntent(workspaceId: string, intentId: string): Promise<OutcomeEvaluation[]> {
@@ -190,6 +167,14 @@ export class SQLiteOutcomeEvaluationRepository implements OutcomeEvaluationRepos
       .execute();
     const latest = new Map<string, Selectable<OutcomeEvaluationTable>>();
     for (const row of rows) if (!latest.has(row.outcome_id)) latest.set(row.outcome_id, row);
-    return [...latest.values()].map(toEvaluation);
+    return [...latest.values()].map(outcomeEvaluationFromRow);
   }
 }
+
+export const outcomeEvaluationRow = (workspaceId: string, input: RecordOutcomeEvaluationInput, intentVersion: number): Selectable<OutcomeEvaluationTable> => ({
+  id: crypto.randomUUID(), workspace_id: workspaceId, outcome_id: input.request.outcomeId, intent_id: input.intentId, intent_version: intentVersion,
+  result: input.result, method: input.request.method, target_version: input.request.targetVersion, limitations: input.request.limitations,
+  problem_ids: JSON.stringify(input.request.problemIds), problem_plans: JSON.stringify(input.problemPlans), criteria: JSON.stringify(input.criteria),
+  snapshot: JSON.stringify(input.snapshot), principal_id: input.request.principalId, run_ref: input.request.runRef, request_key: input.request.requestKey,
+  input_hash: outcomeEvaluationRequestHash(input.request), created_at: input.at,
+});

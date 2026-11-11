@@ -1,4 +1,4 @@
-import type { IntentRepository, IntentMetricRepository, OutcomeRepository, ResearchRepository, RuntimeEventRepository, OutcomeTargetProjectRepository, DirectionDecisionRepository, AdrHandoffRepository } from "@compass/direction";
+import type { IntentRepository, IntentMetricRepository, OutcomeRepository, ResearchRepository, RuntimeEventRepository, OutcomeTargetProjectRepository, DirectionDecisionRepository, AdrHandoffRepository, OutcomeExecutionRepository, OutcomeEvaluationRepository } from "@compass/direction";
 import { type OrganizationInfrastructure } from "./organizationInfrastructure.ts";
 
 import { systemActivityActor } from "../application/activityActor.ts";
@@ -58,6 +58,8 @@ export type DirectionRepositoryOverrides = {
   researchRepository?: ResearchRepository;
   directionDecisionRepository?: DirectionDecisionRepository;
   adrHandoffRepository?: AdrHandoffRepository;
+  outcomeExecutionRepository?: OutcomeExecutionRepository;
+  outcomeEvaluationRepository?: OutcomeEvaluationRepository;
   runtimeEventRepository?: RuntimeEventRepository;
   outcomeTargetProjectRepository?: OutcomeTargetProjectRepository;
 };
@@ -118,8 +120,8 @@ export const createDirectionFoundation = (applicationDatabase: Kysely<Database>,
     listDirectionDecisionsUseCase: new ListDirectionDecisionsUseCase(workspaceRepository, workspaceIntentRepository, workspaceDecisionRepository),
   };
   const runtimeEventRepository = infrastructure.runtimeEventRepository ?? new SQLiteRuntimeEventRepository(directionDatabase);
-  const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders);
-  const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(
+  const outcomeExecutionRepository = infrastructure.outcomeExecutionRepository ?? new SQLiteOutcomeExecutionRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders);
+  const outcomeEvaluationRepository = infrastructure.outcomeEvaluationRepository ?? new SQLiteOutcomeEvaluationRepository(
     directionDatabase,
     directionWorkspaceReaders,
     directionProjectReaders,

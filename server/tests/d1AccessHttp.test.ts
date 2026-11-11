@@ -6,6 +6,8 @@ import { D1IntentMetricRepository } from "../src/infrastructure/repository/d1/D1
 import { D1ResearchRepository } from "../src/infrastructure/repository/d1/D1ResearchRepository.ts";
 import { D1DirectionDecisionRepository } from "../src/infrastructure/repository/d1/D1DirectionDecisionRepository.ts";
 import { D1AdrHandoffRepository } from "../src/infrastructure/repository/d1/D1AdrHandoffRepository.ts";
+import { D1OutcomeExecutionRepository } from "../src/infrastructure/repository/d1/D1OutcomeExecutionRepository.ts";
+import { D1OutcomeEvaluationRepository } from "../src/infrastructure/repository/d1/D1OutcomeEvaluationRepository.ts";
 import { planD1DirectionActivity } from "../src/infrastructure/repository/d1/planD1DirectionActivity.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -21,6 +23,7 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
   const { runtime, binding, database } = await createD1TestRuntime();
   try {
     await initializeD1TestSchema(binding);
+    const execution = new D1OutcomeExecutionRepository(asDirectionDatabase(database), binding);
     const services = createApplicationServices(database, undefined, Date.now, { initialOwnerEmail: "owner@example.test" }, {},
       createD1OrganizationInfrastructure(database, binding, activityActorContext), {
         access: createD1AccessInfrastructure(asAccessDatabase(database), binding, Date.now),
@@ -37,6 +40,9 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
           directionDecisionRepository: new D1DirectionDecisionRepository(asDirectionDatabase(database), binding,
             planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
           adrHandoffRepository: new D1AdrHandoffRepository(asDirectionDatabase(database), binding),
+          outcomeExecutionRepository: execution,
+          outcomeEvaluationRepository: new D1OutcomeEvaluationRepository(asDirectionDatabase(database), binding,
+            planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
         },
       });
     const origin = "http://localhost";
@@ -76,7 +82,7 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
       successCriteria: [{ description: "Criterion", measurement: "Measure" }],
     });
     assert.equal(outcomeResponse.status, 201, await outcomeResponse.clone().text());
-    const { outcome } = await outcomeResponse.json() as { outcome: { id: string } };
+    const { outcome } = await outcomeResponse.json() as { outcome: { id: string; successCriteria: { id: string }[] } };
     const outcomeEdit = await request(`/api/workspaces/${workspace.id}/intents/${intent.id}/outcomes/${outcome.id}`, "PATCH", { expectedRevision: 1, title: "Updated Outcome" });
     assert.equal(outcomeEdit.status, 200, await outcomeEdit.clone().text());
     await services.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, project.id);
@@ -88,6 +94,17 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
       const grantResponse = await request(`/api/workspaces/${workspace.id}/grants`, "POST", { principalId: role, role });
       assert.equal(grantResponse.status, 201, await grantResponse.clone().text());
     }
+    const reflected = await execution.record(workspace.id, project.id, { outcomeId: outcome.id, correlationId: `outcome:${outcome.id}`,
+      state: "accepted", stories: [], executionCursor: 10, changeCursor: 10, principalId: "runtime", at: 100,
+      evidence: [{ kind: "url", uri: "https://example.test/evidence", versionHash: null, observedAt: 100 }] });
+    assert.ok(reflected.kind === "recorded");
+    const evaluated = await services.recordOutcomeEvaluationUseCase.execute("evaluator", workspace.id, outcome.id, { requestKey: "http-evaluation", runRef: "run",
+      method: "quantitative_observation", targetVersion: "a".repeat(40), limitations: "Limited sample", criteria: [{ criterionId: outcome.successCriteria[0]!.id,
+        verdict: "met", rationale: "Measured", evidenceIds: [reflected.record.evidence[0]!.id] }] });
+    assert.equal(evaluated.evaluation.result, "achieved");
+    const evaluationsResponse = await request(`/api/workspaces/${workspace.id}/outcomes/${outcome.id}/evaluations`);
+    assert.equal(evaluationsResponse.status, 200, await evaluationsResponse.clone().text());
+    assert.equal((await evaluationsResponse.json() as { evaluations: unknown[] }).evaluations.length, 1);
     await services.defineIntentMetricUseCase.execute("strategist", workspace.id, intent.id, { key: "revenue", name: "Revenue", unit: "JPY", staleAfterDays: 2 });
     await services.recordIntentMetricObservationsUseCase.execute("evaluator", workspace.id, intent.id, { metricKey: "revenue", observations: [{
       periodStart: "2026-01-01", periodEnd: "2026-01-01", status: "observed", value: 0, source: { name: "Report" }, observedAt: Date.parse("2026-01-02T00:00:00Z"),
@@ -137,7 +154,7 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
     const runtimeCredential = await runtimeResponse.json() as { token: string };
     const events = await app.request(`/api/workspaces/${workspace.id}/runtime-events`, { headers: { Authorization: `Bearer ${runtimeCredential.token}` } });
     assert.equal(events.status, 200, await events.clone().text());
-    assert.equal((await events.json() as { events: unknown[] }).events.length, 4);
+    assert.equal((await events.json() as { events: unknown[] }).events.length, 5);
     assert.equal((await request("/api/auth/logout", "POST")).status, 204);
     assert.equal((await request(`/api/workspaces/${workspace.id}`)).status, 401);
   } finally {

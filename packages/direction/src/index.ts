@@ -91,3 +91,7 @@ export { planOutcomeCreationRecord } from "./infrastructure/outcomeRecord.ts";
 export { planDirectionDecisionRecord, decisionsFromRecords, validateResearchReferences, validateEvaluationReference } from "./infrastructure/directionDecisionRecord.ts";
 export { additionalResearchRequestKey, additionalResearchCorrelationId } from "./domain/AdditionalResearchRequest.ts";
 export { buildAdrHandoffPayload, findDecisionForHandoff, toRequest as adrHandoffRequestFromRow, toReference as adrReferenceFromRow } from "./infrastructure/adrHandoffRecord.ts";
+export { planOutcomeExecutionRecord } from "./infrastructure/outcomeExecutionRecordPlan.ts";
+export { toSummary as outcomeExecutionSummaryFromRow, toEvidence as outcomeExecutionEvidenceFromRow } from "./infrastructure/outcomeTargetExecutionRecord.ts";
+export { outcomeEvaluationFromRow, outcomeEvaluationReplay, outcomeEvaluationRow } from "./infrastructure/SQLiteOutcomeEvaluationRepository.ts";
+export { insertOutcomeEvaluatedEventQuery } from "./infrastructure/runtimeEventRecord.ts";
