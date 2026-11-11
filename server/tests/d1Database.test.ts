@@ -32,7 +32,7 @@ test("D1 accepts the shared initial schema and Kysely preserves query values and
 test("D1 batches reject stale concurrent writes and roll back mutations on SQL failure", async () => {
   const { runtime, binding, database } = await createD1TestRuntime();
   try {
-    await binding.prepare(await readFile(new URL("../../database/d1/atomic-guards.sql", import.meta.url), "utf8")).run();
+    await binding.prepare(await readFile(new URL("../../database/d1/migrations/0000_d1_atomic_guards.sql", import.meta.url), "utf8")).run();
     await binding.batch([
       binding.prepare("CREATE TABLE counter (id TEXT PRIMARY KEY, version INTEGER NOT NULL)"),
       binding.prepare("CREATE TABLE event (id TEXT PRIMARY KEY)"),

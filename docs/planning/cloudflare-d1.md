@@ -28,9 +28,10 @@ D1にcallback transactionはない。Node用のtransactionをno-opに置き換�
 - ADR Handoffの依頼・参照記録・一覧はD1実装済み。Project／Workspace境界、再送、参照済みRepositoryの削除保護、payload作成中のRepository／Workspace制約変更との競合、共通HTTP参照を検証済み。
 - Outcome Executionの還流・参照とOutcome Evaluationの保存・参照はD1実装済み。cursorの単調性、Evidenceの重複／Project別上限、同時追加、保存失敗時の全体ロールバック、Target／Summary／Evidence／Project archiveの直前変更による評価拒否、再送、共通HTTP参照を検証済み。Execution保存計画とEvaluationの整形・再送判定はSQLiteと共有する。
 - Intent Explanationの記録・参照とDirection全体のD1用DIは実装済み。説明の同時版管理、再送、根拠／関連Outcomeの境界、子要素の保存失敗時のロールバック、100件超の根拠解決、最新50版の参照、共通HTTP経路を検証済み。
-- 未実装: Work・Collaboration・ActivityのD1 Repository／Unit of Work、D1向けmigration配布コマンド、資産bundle生成、Workers Bootstrap・起動・Wrangler設定、Google認証・Agent Credentialを通すWorkers上の通し検証、デプロイ文書。
+- D1 migration配布SQLの生成コマンドは実装済み。共通SQLとD1専用SQLの内容・名前を維持し、WranglerのローカルD1へ明示適用・再実行・CHECK制約を検証済み。リモートDBへの適用は未実施。
+- 未実装: Work・Collaboration・ActivityのD1 Repository／Unit of Work、資産bundle生成、Workers Bootstrap・起動・Wrangler設定、Google認証・Agent Credentialを通すWorkers上の通し検証、デプロイ文書。
 
-D1原子的batchの前提検査は`database/d1/atomic-guards.sql`のCHECK制約を使う。前提不成立を例外にしてbatch全体を巻き戻し、成功時は検査行を同じbatchで削除する。このSQLのデプロイ用migrationへの組込みは未実装。
+D1原子的batchの前提検査は`database/d1/migrations/0000_d1_atomic_guards.sql`のCHECK制約を使う。前提不成立を例外にしてbatch全体を巻き戻し、成功時は検査行を同じbatchで削除する。D1専用migrationとして共通の初期schemaと一緒に配布する。`npm run db:prepare:d1`は配布物だけを生成し、DBへ適用しない。
 
 ## Repository対応の単位
 

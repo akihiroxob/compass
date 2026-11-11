@@ -24,5 +24,5 @@ export const createD1TestRuntime = async () => {
 export const initializeD1TestSchema = async (binding: D1Database) => {
   const schema = await readFile(new URL("../../../database/migrations/0001_initial_schema.sql", import.meta.url), "utf8");
   await binding.batch(schema.split(";").filter((statement) => statement.trim()).map((statement) => binding.prepare(statement)));
-  await binding.prepare(await readFile(new URL("../../../database/d1/atomic-guards.sql", import.meta.url), "utf8")).run();
+  await binding.prepare(await readFile(new URL("../../../database/d1/migrations/0000_d1_atomic_guards.sql", import.meta.url), "utf8")).run();
 };
