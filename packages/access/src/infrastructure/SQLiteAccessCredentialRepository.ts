@@ -15,7 +15,7 @@ import type { AccessWorkspaceReaders } from "./AccessWorkspaceReaders.ts";
 /** 最終利用日時の更新間隔。毎回のrequestで書き込まない。 */
 const lastUsedResolutionMilliseconds = 60 * 1000;
 
-const toCredential = (row: Selectable<AccessCredentialTable>): AccessCredential => ({
+export const accessCredentialFromRow = (row: Selectable<AccessCredentialTable>): AccessCredential => ({
   id: row.id,
   // CHECK制約でscopeに対応するIDの列だけが非NULL。
   scope: { kind: row.scope_kind, id: (row.scope_kind === "workspace" ? row.workspace_id : row.project_id) as string },
@@ -31,13 +31,13 @@ const toCredential = (row: Selectable<AccessCredentialTable>): AccessCredential 
   rotatedFromId: row.rotated_from_id,
 });
 
-const scopeColumns = (scope: CredentialScope) => ({
+export const accessCredentialScopeColumns = (scope: CredentialScope) => ({
   scope_kind: scope.kind,
   workspace_id: scope.kind === "workspace" ? scope.id : null,
   project_id: scope.kind === "project" ? scope.id : null,
 });
 
-const inScope = (scope: CredentialScope) => (eb: ExpressionBuilder<AccessDatabase, "access_credential">) =>
+export const accessCredentialInScope = (scope: CredentialScope) => (eb: ExpressionBuilder<AccessDatabase, "access_credential">) =>
   eb.and([
     eb("scope_kind", "=", scope.kind),
     eb(scope.kind === "workspace" ? "workspace_id" : "project_id", "=", scope.id),
@@ -48,23 +48,32 @@ const inScope = (scope: CredentialScope) => (eb: ExpressionBuilder<AccessDatabas
  * 有効なAgent Credentialを持つか。Grant側（`SQLiteProjectGrantRepository`・`SQLiteWorkspaceGrantRepository`）も
  * 同じ束縛を逆向きに検査する。
  */
-export const isAgentPrincipalBoundElsewhere = async (
+export const agentPrincipalBindingQueries = (
   database: Kysely<AccessDatabase> | Transaction<AccessDatabase>,
   scope: CredentialScope,
   principalId: string,
   now: number,
-): Promise<boolean> => {
+) => {
   let projectGrant = database.selectFrom("project_grant").select("project_id").where("principal_id", "=", principalId);
   if (scope.kind === "project") projectGrant = projectGrant.where("project_id", "!=", scope.id);
-  if (await projectGrant.executeTakeFirst()) return true;
+
   let workspaceGrant = database.selectFrom("workspace_grant").select("workspace_id").where("principal_id", "=", principalId);
   if (scope.kind === "workspace") workspaceGrant = workspaceGrant.where("workspace_id", "!=", scope.id);
-  if (await workspaceGrant.executeTakeFirst()) return true;
-  return (await findActiveAgentCredentialElsewhere(database, scope, principalId, now)) !== undefined;
+
+  return [projectGrant, workspaceGrant, activeAgentCredentialElsewhereQuery(database, scope, principalId, now)] as const;
+};
+
+export const isAgentPrincipalBoundElsewhere = async (
+  database: Kysely<AccessDatabase> | Transaction<AccessDatabase>, scope: CredentialScope, principalId: string, now: number,
+): Promise<boolean> => {
+  for (const query of agentPrincipalBindingQueries(database, scope, principalId, now)) {
+    if (await query.executeTakeFirst()) return true;
+  }
+  return false;
 };
 
 /** `scope`以外に束縛された有効なAgent Credential。 */
-export const findActiveAgentCredentialElsewhere = (
+export const activeAgentCredentialElsewhereQuery = (
   database: Kysely<AccessDatabase> | Transaction<AccessDatabase>,
   scope: CredentialScope,
   principalId: string,
@@ -75,10 +84,13 @@ export const findActiveAgentCredentialElsewhere = (
     .select("id")
     .where("kind", "=", "agent")
     .where("principal_id", "=", principalId)
-    .where((eb) => eb.not(inScope(scope)(eb)))
+    .where((eb) => eb.not(accessCredentialInScope(scope)(eb)))
     .where("revoked_at", "is", null)
-    .where("expires_at", ">", now)
-    .executeTakeFirst();
+    .where("expires_at", ">", now);
+
+export const findActiveAgentCredentialElsewhere = (
+  database: Kysely<AccessDatabase> | Transaction<AccessDatabase>, scope: CredentialScope, principalId: string, now: number,
+) => activeAgentCredentialElsewhereQuery(database, scope, principalId, now).executeTakeFirst();
 
 export class SQLiteAccessCredentialRepository implements AccessCredentialRepository {
   constructor(
@@ -106,7 +118,7 @@ export class SQLiteAccessCredentialRepository implements AccessCredentialReposit
         .insertInto("access_credential")
         .values({
           id: credential.id,
-          ...scopeColumns(credential.scope),
+          ...accessCredentialScopeColumns(credential.scope),
           kind: credential.kind,
           principal_id: credential.principalId,
           scopes_json: JSON.stringify(credential.scopes),
@@ -122,7 +134,7 @@ export class SQLiteAccessCredentialRepository implements AccessCredentialReposit
         })
         .returningAll()
         .executeTakeFirstOrThrow();
-      return { kind: "issued", credential: toCredential(row) };
+      return { kind: "issued", credential: accessCredentialFromRow(row) };
     });
   }
 
@@ -137,7 +149,7 @@ export class SQLiteAccessCredentialRepository implements AccessCredentialReposit
         .selectFrom("access_credential")
         .selectAll()
         .where("id", "=", credentialId)
-        .where(inScope(scope))
+        .where(accessCredentialInScope(scope))
         .executeTakeFirst();
       if (!previous) return { kind: "not_found" };
       if (await this.isScopeArchived(transaction, scope)) return { kind: "scope_archived" };
@@ -147,7 +159,7 @@ export class SQLiteAccessCredentialRepository implements AccessCredentialReposit
         .insertInto("access_credential")
         .values({
           id: next.id,
-          ...scopeColumns(scope),
+          ...accessCredentialScopeColumns(scope),
           kind: previous.kind,
           principal_id: previous.principal_id,
           scopes_json: previous.scopes_json,
@@ -169,7 +181,7 @@ export class SQLiteAccessCredentialRepository implements AccessCredentialReposit
         .where("id", "=", previous.id)
         .returningAll()
         .executeTakeFirstOrThrow();
-      return { kind: "rotated", credential: toCredential(row), previous: toCredential(shortened) };
+      return { kind: "rotated", credential: accessCredentialFromRow(row), previous: accessCredentialFromRow(shortened) };
     });
   }
 
@@ -178,7 +190,7 @@ export class SQLiteAccessCredentialRepository implements AccessCredentialReposit
       .updateTable("access_credential")
       .set({ revoked_at: now, revoked_by_human_user_id: humanUserId })
       .where("id", "=", credentialId)
-      .where(inScope(scope))
+      .where(accessCredentialInScope(scope))
       .where("revoked_at", "is", null)
       .execute();
     return this.findInScope(scope, credentialId);
@@ -188,11 +200,11 @@ export class SQLiteAccessCredentialRepository implements AccessCredentialReposit
     const rows = await this.database
       .selectFrom("access_credential")
       .selectAll()
-      .where(inScope(scope))
+      .where(accessCredentialInScope(scope))
       .orderBy("created_at", "desc")
       .orderBy("id", "asc")
       .execute();
-    return rows.map(toCredential);
+    return rows.map(accessCredentialFromRow);
   }
 
   async findInScope(scope: CredentialScope, id: string): Promise<AccessCredential | null> {
@@ -200,14 +212,14 @@ export class SQLiteAccessCredentialRepository implements AccessCredentialReposit
       .selectFrom("access_credential")
       .selectAll()
       .where("id", "=", id)
-      .where(inScope(scope))
+      .where(accessCredentialInScope(scope))
       .executeTakeFirst();
-    return row ? toCredential(row) : null;
+    return row ? accessCredentialFromRow(row) : null;
   }
 
   async findForAuthentication(id: string): Promise<CredentialForAuthentication | null> {
     const row = await this.database.selectFrom("access_credential").selectAll().where("id", "=", id).executeTakeFirst();
-    return row ? { ...toCredential(row), secretHash: row.secret_hash } : null;
+    return row ? { ...accessCredentialFromRow(row), secretHash: row.secret_hash } : null;
   }
 
   async recordUse(id: string, now: number): Promise<void> {
