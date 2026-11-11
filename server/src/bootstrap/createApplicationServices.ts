@@ -33,6 +33,7 @@ import {
   TaskCoordinationService,
   type PullRequestGateway,
   type RevisionGateway,
+  type WorkStore,
 } from "@compass/work";
 import {
   AuthenticateAccessCredentialUseCase,
@@ -88,7 +89,7 @@ export const createApplicationServices = (
   integrations: { pullRequests?: PullRequestGateway | null; revisions?: RevisionGateway | null } = {},
   /** Organizationの永続化契約。未指定時は同じDBを使うSQLite実装。 */
   organization: OrganizationInfrastructure = createSqliteOrganizationInfrastructure(applicationDatabase),
-  infrastructure: { access?: AccessInfrastructure; direction?: DirectionRepositoryOverrides } = {},
+  infrastructure: { access?: AccessInfrastructure; direction?: DirectionRepositoryOverrides; work?: WorkStore } = {},
 ): ApplicationServices => {
   // Project（Workspaceを含む）はOrganizationが所有する。Projectのarchiveも同じtransactionでcanonical Activityへ投影する。
   const {
@@ -139,7 +140,7 @@ export const createApplicationServices = (
   const {
     consultations,
   } = createConsultationServices(applicationDatabase, directionReferenceLookup, clock);
-  const work = createWorkServices(applicationDatabase, directionReferenceLookup, accessCredentialRepository, clock, integrations);
+  const work = createWorkServices(applicationDatabase, directionReferenceLookup, accessCredentialRepository, clock, integrations, infrastructure.work);
   const {
     taskCoordinationService,
     recordPublicationUseCase,

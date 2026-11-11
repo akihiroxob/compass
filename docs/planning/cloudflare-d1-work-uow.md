@@ -1,6 +1,6 @@
 # Work用D1 Unit of Workの実装方針
 
-未実装の設計・検証項目。現在のD1対応状況は[Workers + D1対応計画](cloudflare-d1.md)に記載する。
+WorkのD1用保存計画と、残る結合検証の条件。基本のUnit of Work・DIは実装済みで、Collaborationからの文書反映Taskとの同一計画は未接続。現在のD1対応状況は[Workers + D1対応計画](cloudflare-d1.md)に記載する。
 
 ## 維持する契約
 
@@ -10,18 +10,18 @@ D1ではcallback内でDBへ逐次書き込まない。読取条件・更新SQL�
 
 ## 保存計画
 
-- Work用の計画Storeを用意し、Story／Task／Claim／Comment／PR／Publication／Receipt／相談待機の変更を保持する。既存の読取SQLは可能な範囲で共有する。
+- `D1WorkStore`と`D1WritePlan`が、Story／Task／Claim／Comment／PR／Publication／Receipt／相談待機の変更を保持する。既存の`KyselyWorkStore`の読取SQLを共有し、変更したtableだけをCTEで重ねる。
 - 保存前の読取には、同じSQLの結果が確定時にも一致することを検査する条件を付ける。空集合・集計・一覧の追加／削除も検出する。Grant、Project状態、Repository、Outcome Target、相談の準備状態も対象にする。
 - 更新後の読取は、計画した追加・更新・削除を重ねる。単一行だけでなく、active Claim、一覧、件数、sort order、最新履歴、現在のPR等を検証する。
-- Change cursorは返却値・Activityで使うため、確定前に採番する方法が必要。グローバルな最新cursorを条件にした採番を検証し、競合時は計画全体を作り直す。独自のJSロックは使わない。
+- Change cursorと計画中のrowidは、最新値をSQL条件で保護して採番する。競合時は計画全体を作り直す。独自のJSロックは使わない。
 - 計画中のDB接続から直接更新SQLを実行できないようにし、未対応メソッドが原子的保存を迂回しないことを確認する。
-- 入れ子のUnit of Workは同じ計画へ参加する。Collaborationからの文書反映Task作成等も、同じbatchへ接続する。
+- Work内の入れ子のUnit of Workは同じ計画へ参加する。Collaborationからの文書反映Task作成は同じbatchへの接続が未完了。
 
 ## 再試行と成否
 
 SQL前提条件の不成立だけを有限回再試行する。通信断や成否不明を競合扱いにしない。受付記録のある操作は同じrequest IDで再照合できる状態を維持する。callback内の外部Gateway操作を調査し、再試行で外部変更を重複させるものがあれば計画の外へ分離する。
 
-## 必須の検証
+## 検証条件
 
 1. Story／Task作成からClaim、更新、Comment、完了、Review、Acceptまでを、既存Applicationの同じ経路で通す。
 2. 同時Claimは1件だけ成功し、期限切れ・更新・解放・再取得で所有権が崩れない。
@@ -32,3 +32,12 @@ SQL前提条件の不成立だけを有限回再試行する。通信断や成�
 7. PR・公開記録の番号／受付順と、cursorの競合を検出する。
 8. 複数Project・大量のStory／Task・D1のSQLパラメータ上限を検証し、全Workデータの毎回読込を前提にしない。
 9. Collaboration・Activityとの同一batchを接続してから、Workers用DIへ組み込む。
+
+## 確認済みと残る検証
+
+- ローカルD1で、更新後の再読取・JOIN・集計・条件付き更新・削除・入れ子、PR更新・Publicationの複合キー、100件超のID条件を確認済み。
+- 既存ApplicationでWorker→Reviewer→Managerを通し、自己レビュー／自己受入拒否、同時Claim、同じrequest IDの同時再送、Claim更新・期限切れ・解放・再取得を確認済み。
+- 保存直前のGrant失効、Receipt保存失敗の全体ロールバック、成否不明時の自動再試行禁止と同じIDでの復旧を確認済み。
+- 異なる行を更新する並行計画でも、集計の前提が崩れた計画を拒否するwrite skew検証を実施済み。
+- 共通HTTP／MCPでHumanのTask作成からAgent CredentialのClaim取得まで接続済み。
+- PR・公開記録の外部Gatewayを通すD1検証、Project archive／Target解除との保存直前の競合、Activity単独操作・Collaborationとの共通計画、大きい本文・大量更新時のD1上限検証は未完了。

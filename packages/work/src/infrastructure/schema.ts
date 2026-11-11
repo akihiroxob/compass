@@ -12,7 +12,7 @@ import type {
   TaskRecord,
 } from "../application/port/WorkStore.ts";
 
-/** 列の定義は`WorkStore`のrecordと同じ。`change_log.cursor`だけDBが採番する。 */
+/** 列の定義は`WorkStore`のrecordと同じ。`change_log.cursor`は永続化実装が原子的に採番する。 */
 export type StoryTable = StoryRecord;
 export type TaskTable = TaskRecord;
 export type TaskCommentTable = TaskCommentRecord;

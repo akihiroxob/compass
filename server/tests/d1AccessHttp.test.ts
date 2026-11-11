@@ -5,11 +5,12 @@ import { createApplicationServices } from "../src/bootstrap/createApplicationSer
 import { createD1DirectionInfrastructure } from "../src/bootstrap/d1DirectionInfrastructure.ts";
 import { createD1AccessInfrastructure } from "../src/bootstrap/d1AccessInfrastructure.ts";
 import { createD1OrganizationInfrastructure } from "../src/bootstrap/d1OrganizationInfrastructure.ts";
+import { createD1WorkInfrastructure } from "../src/bootstrap/d1WorkInfrastructure.ts";
 import { activityActorContext } from "../src/infrastructure/activity/NodeActivityActorContext.ts";
 import { asAccessDatabase } from "../src/infrastructure/database/contextDatabase.ts";
 import { createApp } from "../src/presentation/http/createApp.ts";
 
-test("shared HTTP auth, Organization, Access and Direction routes use D1 repositories through DI", async () => {
+test("shared HTTP and MCP auth, Organization, Access, Direction and Work use D1 infrastructure through DI", async () => {
   const { runtime, binding, database } = await createD1TestRuntime();
   try {
     await initializeD1TestSchema(binding);
@@ -19,6 +20,7 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
       createD1OrganizationInfrastructure(database, binding, activityActorContext), {
         access: createD1AccessInfrastructure(asAccessDatabase(database), binding, Date.now),
         direction,
+        work: createD1WorkInfrastructure(database, binding),
       });
     const origin = "http://localhost";
     const app = createApp(services, { humanAuth: { mode: "trusted-local", publicOrigin: origin } });
@@ -47,6 +49,19 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
     assert.ok(caller);
     const rotated = await request(`/api/projects/${project.id}/credentials/${credential.id}/rotate`, "POST", {});
     assert.equal(rotated.status, 201, await rotated.clone().text());
+    const rotatedCredential = await rotated.json() as { token: string };
+    const taskResponse = await request(`/api/projects/${project.id}/tasks`, "POST", { title: "Task from Human" });
+    assert.equal(taskResponse.status, 201, await taskResponse.clone().text());
+    const { task } = await taskResponse.json() as { task: { id: string } };
+    const claimed = await app.request("/mcp", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream",
+      Authorization: `Bearer ${rotatedCredential.token}`, "X-Compass-Active-Role": "worker" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "claim_task", arguments: { taskId: task.id, requestId: "http-claim" } } }) });
+    assert.equal(claimed.status, 200, await claimed.clone().text());
+    const data = (await claimed.text()).split("\n").find((line) => line.startsWith("data: "));
+    assert.ok(data);
+    const claimResult = JSON.parse(data.slice(6)) as { result: { isError?: boolean } };
+    assert.equal(claimResult.result.isError, undefined, data);
+    assert.equal((await database.selectFrom("task").select("status").where("id", "=", task.id).executeTakeFirstOrThrow()).status, "doing");
     const intentResponse = await request(`/api/workspaces/${workspace.id}/intents`, "POST", { title: "Intent", desiredState: "Business goal" });
     assert.equal(intentResponse.status, 201, await intentResponse.clone().text());
     const { intent } = await intentResponse.json() as { intent: { id: string } };
