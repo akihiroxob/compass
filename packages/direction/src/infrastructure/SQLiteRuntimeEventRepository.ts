@@ -159,46 +159,38 @@ export class SQLiteRuntimeEventRepository implements RuntimeEventRepository {
       .where("event_sequence", "=", key.event_sequence)
       .executeTakeFirst();
 
-    if (!existing) {
-      const row = {
-        ...key,
-        workspace_id: input.workspaceId,
-        outcome: input.outcome,
-        retry_count: input.outcome === "retryable_failure" ? 1 : 0,
-        last_failure_reason: input.reason,
-        created_at: input.at,
-        updated_at: input.at,
-      };
-      await transaction.insertInto("runtime_event_delivery").values(row).execute();
-      return { kind: "recorded", recorded: true, delivery: toDelivery(row, event) };
+    const plan = planRuntimeEventAck(input, event, existing);
+    if (plan.row) {
+      if (!existing) await transaction.insertInto("runtime_event_delivery").values(plan.row).execute();
+      else await transaction.updateTable("runtime_event_delivery").set({
+        outcome: plan.row.outcome, retry_count: plan.row.retry_count,
+        last_failure_reason: plan.row.last_failure_reason, updated_at: plan.row.updated_at,
+      }).where("consumer_id", "=", key.consumer_id).where("event_sequence", "=", key.event_sequence).execute();
     }
-
-    if (isSettledAckOutcome(existing.outcome)) {
-      // 確定済み。別attemptIdでも同じ結果なら何も変えず既存の記録を返し、別の結果への変更は拒否する。
-      return existing.outcome === input.outcome
-        ? { kind: "recorded", recorded: false, delivery: toDelivery(existing, event) }
-        : { kind: "conflict", current: existing.outcome };
-    }
-
-    const updated = {
-      ...existing,
-      outcome: input.outcome,
-      retry_count: existing.retry_count + (input.outcome === "retryable_failure" ? 1 : 0),
-      // processedへ進むときは、再試行の履歴（回数・最後の理由）を残す。
-      last_failure_reason: input.outcome === "processed" ? existing.last_failure_reason : input.reason,
-      updated_at: input.at,
-    };
-    await transaction
-      .updateTable("runtime_event_delivery")
-      .set({
-        outcome: updated.outcome,
-        retry_count: updated.retry_count,
-        last_failure_reason: updated.last_failure_reason,
-        updated_at: updated.updated_at,
-      })
-      .where("consumer_id", "=", key.consumer_id)
-      .where("event_sequence", "=", key.event_sequence)
-      .execute();
-    return { kind: "recorded", recorded: true, delivery: toDelivery(updated, event) };
+    return plan.result;
   }
 }
+
+/** Ackの状態遷移と失敗回数の計算を両DBで共用する。書込と受付記録は呼出側が同時に保存する。 */
+export const planRuntimeEventAck = (
+  input: Parameters<RuntimeEventRepository["recordAck"]>[0],
+  event: Selectable<RuntimeEventTable>,
+  existing?: Selectable<RuntimeEventDeliveryTable>,
+): { result: AckRuntimeEventRecord; row: RuntimeEventDeliveryTable | null } => {
+  if (existing && isSettledAckOutcome(existing.outcome)) {
+    return { result: existing.outcome === input.outcome
+      ? { kind: "recorded", recorded: false, delivery: toDelivery(existing, event) }
+      : { kind: "conflict", current: existing.outcome }, row: null };
+  }
+  const row: RuntimeEventDeliveryTable = existing ? {
+    ...existing, outcome: input.outcome,
+    retry_count: existing.retry_count + (input.outcome === "retryable_failure" ? 1 : 0),
+    last_failure_reason: input.outcome === "processed" ? existing.last_failure_reason : input.reason,
+    updated_at: input.at,
+  } : {
+    consumer_id: input.consumerId, event_sequence: event.sequence, workspace_id: input.workspaceId,
+    outcome: input.outcome, retry_count: input.outcome === "retryable_failure" ? 1 : 0,
+    last_failure_reason: input.reason, created_at: input.at, updated_at: input.at,
+  };
+  return { result: { kind: "recorded", recorded: true, delivery: toDelivery(row, event) }, row };
+};
