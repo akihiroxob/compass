@@ -1,3 +1,4 @@
+import type { AccessInfrastructure } from "./accessInfrastructure.ts";
 import { createDirectionServices } from "./directionServices.ts";
 import { createDirectionFoundation } from "./directionFoundation.ts";
 import { createAccessServices } from "./accessServices.ts";
@@ -87,6 +88,7 @@ export const createApplicationServices = (
   integrations: { pullRequests?: PullRequestGateway | null; revisions?: RevisionGateway | null } = {},
   /** Organizationの永続化契約。未指定時は同じDBを使うSQLite実装。 */
   organization: OrganizationInfrastructure = createSqliteOrganizationInfrastructure(applicationDatabase),
+  infrastructure: { access?: AccessInfrastructure } = {},
 ): ApplicationServices => {
   // Project（Workspaceを含む）はOrganizationが所有する。Projectのarchiveも同じtransactionでcanonical Activityへ投影する。
   const {
@@ -120,7 +122,7 @@ export const createApplicationServices = (
     loginAttemptRepository,
     registerOrLoginHumanUseCase,
     identityProvider,
-  } = createAccessServices(applicationDatabase, clock, humanAuth);
+  } = createAccessServices(applicationDatabase, clock, humanAuth, infrastructure.access);
   const getProjectUseCase = new GetProjectUseCase(projectRepository);
   const {
     listActivitiesUseCase,
