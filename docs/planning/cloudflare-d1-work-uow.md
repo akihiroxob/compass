@@ -1,6 +1,6 @@
 # Work用D1 Unit of Workの実装方針
 
-WorkのD1用保存計画と、残る結合検証の条件。基本のUnit of Work・DIは実装済みで、Collaborationからの文書反映Taskとの同一計画は未接続。現在のD1対応状況は[Workers + D1対応計画](cloudflare-d1.md)に記載する。
+WorkのD1用保存計画と、残る結合検証の条件。基本のUnit of Work・DIは実装済みで、Collaborationからの文書反映Taskは同一計画へ接続済み。現在のD1対応状況は[Workers + D1対応計画](cloudflare-d1.md)に記載する。
 
 ## 維持する契約
 
@@ -15,7 +15,7 @@ D1ではcallback内でDBへ逐次書き込まない。読取条件・更新SQL�
 - 更新後の読取は、計画した追加・更新・削除を重ねる。単一行だけでなく、active Claim、一覧、件数、sort order、最新履歴、現在のPR等を検証する。
 - Change cursorと計画中のrowidは、最新値をSQL条件で保護して採番する。競合時は計画全体を作り直す。独自のJSロックは使わない。
 - 計画中のDB接続から直接更新SQLを実行できないようにし、未対応メソッドが原子的保存を迂回しないことを確認する。
-- Work内の入れ子のUnit of Workは同じ計画へ参加する。Collaborationからの文書反映Task作成は同じbatchへの接続が未完了。
+- Work内の入れ子のUnit of Workは同じ計画へ参加する。Collaborationからの文書反映Task作成・Activityも同じbatchへ参加する。
 
 ## 再試行と成否
 
@@ -40,4 +40,4 @@ SQL前提条件の不成立だけを有限回再試行する。通信断や成�
 - 保存直前のGrant失効、Receipt保存失敗の全体ロールバック、成否不明時の自動再試行禁止と同じIDでの復旧を確認済み。
 - 異なる行を更新する並行計画でも、集計の前提が崩れた計画を拒否するwrite skew検証を実施済み。
 - 共通HTTP／MCPでHumanのTask作成からAgent CredentialのClaim取得まで接続済み。
-- PR・公開記録の外部Gatewayを通すD1検証、Project archive／Target解除との保存直前の競合、Activity単独操作・Collaborationとの共通計画、大きい本文・大量更新時のD1上限検証は未完了。
+- PR・公開記録の外部Gatewayを通すD1検証、Project archive／Target解除との保存直前の競合、Workspace相談の引継ぎ・受入成果物参照、大きい本文・大量更新時のD1上限検証は未完了。

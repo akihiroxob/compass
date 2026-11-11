@@ -7,3 +7,4 @@ export * from "./application/AgentConsultationUseCases.ts";
 export * from "./infrastructure/initializeCollaborationSchema.ts";
 export * from "./infrastructure/KyselyConsultationStore.ts";
 export * from "./infrastructure/schema.ts";
+export * from "./infrastructure/consultationValues.ts";

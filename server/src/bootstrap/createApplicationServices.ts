@@ -1,3 +1,4 @@
+import type { ConsultationUnitOfWork } from "@compass/collaboration";
 import type { AccessInfrastructure } from "./accessInfrastructure.ts";
 import { createDirectionServices } from "./directionServices.ts";
 import { createDirectionFoundation, type DirectionRepositoryOverrides } from "./directionFoundation.ts";
@@ -89,7 +90,7 @@ export const createApplicationServices = (
   integrations: { pullRequests?: PullRequestGateway | null; revisions?: RevisionGateway | null } = {},
   /** Organizationの永続化契約。未指定時は同じDBを使うSQLite実装。 */
   organization: OrganizationInfrastructure = createSqliteOrganizationInfrastructure(applicationDatabase),
-  infrastructure: { access?: AccessInfrastructure; direction?: DirectionRepositoryOverrides; work?: WorkStore; activity?: ActivityInfrastructure } = {},
+  infrastructure: { access?: AccessInfrastructure; direction?: DirectionRepositoryOverrides; work?: WorkStore; activity?: ActivityInfrastructure; consultation?: (references: DirectionReferenceLookupService) => ConsultationUnitOfWork } = {},
 ): ApplicationServices => {
   // Project（Workspaceを含む）はOrganizationが所有する。Projectのarchiveも同じtransactionでcanonical Activityへ投影する。
   const {
@@ -139,7 +140,7 @@ export const createApplicationServices = (
   const directionReferenceLookup = new DirectionReferenceLookupService(projectRepository, workspaceOutcomeRepository, outcomeTargetProjectRepository);
   const {
     consultations,
-  } = createConsultationServices(applicationDatabase, directionReferenceLookup, clock);
+  } = createConsultationServices(applicationDatabase, directionReferenceLookup, clock, infrastructure.consultation?.(directionReferenceLookup));
   const work = createWorkServices(applicationDatabase, directionReferenceLookup, accessCredentialRepository, clock, integrations, infrastructure.work);
   const {
     taskCoordinationService,

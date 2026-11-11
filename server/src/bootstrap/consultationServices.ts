@@ -21,8 +21,8 @@ import { asCollaborationDatabase } from "../infrastructure/database/contextDatab
 import type { Database } from "../infrastructure/database/schema.ts";
 import { consultationFollowupLinks, consultationScopeReader } from "../infrastructure/repository/contextAdapters.ts";
 
-export const createConsultationServices = (applicationDatabase: Kysely<Database>, directionReferenceLookup: DirectionReferenceLookupService, clock: () => number) => {
-  const consultationUnitOfWork: ConsultationUnitOfWork = {
+export const createConsultationServices = (applicationDatabase: Kysely<Database>, directionReferenceLookup: DirectionReferenceLookupService, clock: () => number, infrastructure?: ConsultationUnitOfWork) => {
+  const consultationUnitOfWork: ConsultationUnitOfWork = infrastructure ?? {
     execute: (work) => applicationDatabase.transaction().execute((transaction) =>
       work(
         new KyselyConsultationStore(asCollaborationDatabase(transaction)),

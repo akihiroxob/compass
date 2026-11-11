@@ -1,5 +1,5 @@
 import type { D1Database } from "@cloudflare/workers-types";
-import type { CompiledQuery, Kysely } from "kysely";
+import type { Kysely } from "kysely";
 import { KyselyWorkStore, type WorkDatabase, type WorkExternalReaders, type WorkStore, type WorkChangeNotice,
   type StoryRecord, type TaskRecord, type TaskClaimRecord, type TaskCommentRecord, type TaskPullRequestRecord,
   type PublicationRecord, type PublicationRevisionRecord, type CommandReceiptRecord, type TaskConsultationWait } from "@compass/work";
@@ -9,13 +9,14 @@ import { D1PreconditionFailedError } from "../../database/d1/D1AtomicBatch.ts";
 import { createD1Database } from "../../database/d1/D1Dialect.ts";
 import { asWorkDatabase } from "../../database/contextDatabase.ts";
 
-const tables: D1PlanTables = {
+export const d1WorkPlanTables: D1PlanTables = {
+  activity: { key: ["cursor"], rowIdColumn: "cursor" },
   story: { key: ["id"] }, task: { key: ["id"] }, task_claim: { key: ["id"] }, task_comment: { key: ["id"] },
   task_pull_request: { key: ["id"] }, task_consultation_wait: { key: ["task_id"] },
   change_log: { key: ["cursor"], rowIdColumn: "cursor" }, command_receipt: { key: ["principal_id", "tool_name", "request_id"] },
   publication_record: { key: ["id"] }, publication_revision: { key: ["publication_id", "commit_sha"] },
 };
-export type D1WorkChangePlanner = (database: D1WritePlan["database"], notice: WorkChangeNotice) => Promise<CompiledQuery[]>;
+export type D1WorkChangePlanner = (plan: D1WritePlan, notice: WorkChangeNotice) => Promise<void>;
 
 /** ApplicationのUnit of WorkをSQL保存計画へ変換し、業務規則は既存Serviceへ残す。 */
 export class D1WorkStore extends KyselyWorkStore {
@@ -29,7 +30,7 @@ export class D1WorkStore extends KyselyWorkStore {
   override async transaction<T>(work: (store: WorkStore) => Promise<T>): Promise<T> {
     if (this.plan) return work(this);
     for (let attempt = 0; attempt < 3; attempt++) {
-      const plan = new D1WritePlan(this.binding, tables);
+      const plan = new D1WritePlan(this.binding, d1WorkPlanTables);
       try {
         const store = new D1WorkStore(this.database, this.binding, this.readers, this.changePlanner, plan);
         const result = await work(store);
@@ -85,7 +86,7 @@ export class D1WorkStore extends KyselyWorkStore {
         const story = task ? null : await store.findStory(change.entity_id);
         const subject: WorkChangeNotice["subject"] = task ? { kind: "task", id: task.id, title: task.title, storyId: task.story_id }
           : story ? { kind: "story", id: story.id, title: story.title, storyId: null } : null;
-        plan.add(...await this.changePlanner(plan.database, { ...change, cursor, subject }));
+        await this.changePlanner(plan, { ...change, cursor, subject });
       }
       return cursor;
     });
