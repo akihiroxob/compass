@@ -23,11 +23,8 @@ const toActivity = (row: ActivityRow): Activity => ({
   recordedAt: row.recorded_at,
 });
 
-/** 同じ列・dedupe規則で、即時実行または外側のbatchへの組込みに使う。 */
-export const insertActivityQuery = (database: Kysely<ActivityDatabase>, activity: NewActivity) =>
-  database
-    .insertInto("activity")
-    .values({
+/** SQLiteとD1で共有する保存値。 */
+export const activityValues = (activity: NewActivity) => ({
       id: activity.id,
       scope: activity.scope,
       workspace_id: activity.workspaceId,
@@ -44,7 +41,13 @@ export const insertActivityQuery = (database: Kysely<ActivityDatabase>, activity
       input_hash: activity.inputHash,
       occurred_at: activity.occurredAt,
       recorded_at: activity.recordedAt,
-    })
+    });
+
+/** 同じ列・dedupe規則で、即時実行または外側のbatchへの組込みに使う。 */
+export const insertActivityQuery = (database: Kysely<ActivityDatabase>, activity: NewActivity) =>
+  database
+    .insertInto("activity")
+    .values(activityValues(activity))
     .onConflict((conflict) => conflict.column("dedupe_key").doNothing())
     .returningAll();
 

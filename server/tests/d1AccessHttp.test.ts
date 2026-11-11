@@ -1,3 +1,4 @@
+import { createD1ActivityInfrastructure } from "../src/bootstrap/d1ActivityInfrastructure.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createD1TestRuntime, initializeD1TestSchema } from "./support/d1Runtime.ts";
@@ -20,7 +21,7 @@ test("shared HTTP and MCP auth, Organization, Access, Direction and Work use D1 
       createD1OrganizationInfrastructure(database, binding, activityActorContext), {
         access: createD1AccessInfrastructure(asAccessDatabase(database), binding, Date.now),
         direction,
-        work: createD1WorkInfrastructure(database, binding),
+        work: createD1WorkInfrastructure(database, binding), activity: createD1ActivityInfrastructure(binding),
       });
     const origin = "http://localhost";
     const app = createApp(services, { humanAuth: { mode: "trusted-local", publicOrigin: origin } });
