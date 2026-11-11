@@ -5,6 +5,7 @@ import { D1OutcomeRepository } from "../src/infrastructure/repository/d1/D1Outco
 import { D1IntentMetricRepository } from "../src/infrastructure/repository/d1/D1IntentMetricRepository.ts";
 import { D1ResearchRepository } from "../src/infrastructure/repository/d1/D1ResearchRepository.ts";
 import { D1DirectionDecisionRepository } from "../src/infrastructure/repository/d1/D1DirectionDecisionRepository.ts";
+import { D1AdrHandoffRepository } from "../src/infrastructure/repository/d1/D1AdrHandoffRepository.ts";
 import { planD1DirectionActivity } from "../src/infrastructure/repository/d1/planD1DirectionActivity.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -35,6 +36,7 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
             planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
           directionDecisionRepository: new D1DirectionDecisionRepository(asDirectionDatabase(database), binding,
             planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
+          adrHandoffRepository: new D1AdrHandoffRepository(asDirectionDatabase(database), binding),
         },
       });
     const origin = "http://localhost";
@@ -52,9 +54,9 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
     const created = await request("/api/workspaces", "POST", { name: "Business", mission: "Goal" });
     assert.equal(created.status, 201, await created.clone().text());
     const { workspace } = await created.json() as { workspace: { id: string } };
-    const projectResponse = await request(`/api/workspaces/${workspace.id}/projects`, "POST", { name: "Product" });
+    const projectResponse = await request(`/api/workspaces/${workspace.id}/projects`, "POST", { name: "Product", repositories: [{ name: "Source", url: "https://github.com/example/source" }] });
     assert.equal(projectResponse.status, 201, await projectResponse.clone().text());
-    const { project } = await projectResponse.json() as { project: { id: string } };
+    const { project } = await projectResponse.json() as { project: { id: string; repositories: { id: string }[] } };
     const grant = await request(`/api/projects/${project.id}/grants`, "POST", { role: "worker", principalId: "worker" });
     assert.equal(grant.status, 201, await grant.clone().text());
     const issued = await request(`/api/projects/${project.id}/credentials`, "POST", { kind: "agent", principalId: "worker" });
@@ -118,6 +120,15 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
     assert.equal(decisionsResponse.status, 200, await decisionsResponse.clone().text());
     const { decisions } = await decisionsResponse.json() as { decisions: unknown[] };
     assert.equal(decisions.length, 2);
+    const candidate = await services.createDirectionDecisionUseCase.execute(workspace.id, "strategist", { type: "adr_candidate", intentId: intent.id,
+      intentVersion: 2, judgment: "Record this architecture", reason: "Evidence", requestKey: "http-adr", runRef: "run" });
+    const handoffInput = { projectId: project.id, repositoryId: project.repositories[0]!.id, decisionId: candidate.decision.id, correlationId: "http-adr" };
+    await services.createAdrHandoffRequestUseCase.execute(workspace.id, "strategist", { ...handoffInput, requestKey: "http-handoff" });
+    await services.recordAdrReferenceUseCase.execute(workspace.id, "strategist", { ...handoffInput, requestKey: "http-reference", path: "docs/adr/0001.md", commitSha: "a".repeat(40) });
+    const referencesResponse = await request(`/api/workspaces/${workspace.id}/adr-references`);
+    assert.equal(referencesResponse.status, 200, await referencesResponse.clone().text());
+    const { references } = await referencesResponse.json() as { references: unknown[] };
+    assert.equal(references.length, 1);
     assert.equal((await request(`/api/workspaces/${workspace.id}/intents/${intent.id}/abandon`, "POST", { expectedVersion: 2 })).status, 200);
     const runtimeResponse = await request(`/api/workspaces/${workspace.id}/credentials`, "POST", {
       kind: "runtime", principalId: "runtime", scopes: ["runtime:event:read", "runtime:event:ack"],

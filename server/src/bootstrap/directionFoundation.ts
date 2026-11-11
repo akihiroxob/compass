@@ -1,4 +1,4 @@
-import type { IntentRepository, IntentMetricRepository, OutcomeRepository, ResearchRepository, RuntimeEventRepository, OutcomeTargetProjectRepository, DirectionDecisionRepository } from "@compass/direction";
+import type { IntentRepository, IntentMetricRepository, OutcomeRepository, ResearchRepository, RuntimeEventRepository, OutcomeTargetProjectRepository, DirectionDecisionRepository, AdrHandoffRepository } from "@compass/direction";
 import { type OrganizationInfrastructure } from "./organizationInfrastructure.ts";
 
 import { systemActivityActor } from "../application/activityActor.ts";
@@ -57,6 +57,7 @@ export type DirectionRepositoryOverrides = {
   intentMetricRepository?: IntentMetricRepository;
   researchRepository?: ResearchRepository;
   directionDecisionRepository?: DirectionDecisionRepository;
+  adrHandoffRepository?: AdrHandoffRepository;
   runtimeEventRepository?: RuntimeEventRepository;
   outcomeTargetProjectRepository?: OutcomeTargetProjectRepository;
 };
@@ -99,7 +100,7 @@ export const createDirectionFoundation = (applicationDatabase: Kysely<Database>,
     clock,
     directionChangeObserver,
   );
-  const adrHandoffRepository = new SQLiteAdrHandoffRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders);
+  const adrHandoffRepository = infrastructure.adrHandoffRepository ?? new SQLiteAdrHandoffRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders);
   const workspaceDirectionBasics = {
     ...workspaceBasics,
     createAdrHandoffRequestUseCase: new CreateAdrHandoffRequestUseCase(workspaceRepository, adrHandoffRepository),

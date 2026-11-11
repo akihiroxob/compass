@@ -90,3 +90,4 @@ export { intentResearchSummaryFromRecords } from "./infrastructure/researchSumma
 export { planOutcomeCreationRecord } from "./infrastructure/outcomeRecord.ts";
 export { planDirectionDecisionRecord, decisionsFromRecords, validateResearchReferences, validateEvaluationReference } from "./infrastructure/directionDecisionRecord.ts";
 export { additionalResearchRequestKey, additionalResearchCorrelationId } from "./domain/AdditionalResearchRequest.ts";
+export { buildAdrHandoffPayload, findDecisionForHandoff, toRequest as adrHandoffRequestFromRow, toReference as adrReferenceFromRow } from "./infrastructure/adrHandoffRecord.ts";
