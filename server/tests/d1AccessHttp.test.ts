@@ -1,6 +1,7 @@
 import { D1IntentRepository } from "../src/infrastructure/repository/d1/D1IntentRepository.ts";
 import { D1RuntimeEventRepository } from "../src/infrastructure/repository/d1/D1RuntimeEventRepository.ts";
 import { D1OutcomeTargetProjectRepository } from "../src/infrastructure/repository/d1/D1OutcomeTargetProjectRepository.ts";
+import { D1OutcomeRepository } from "../src/infrastructure/repository/d1/D1OutcomeRepository.ts";
 import { planD1DirectionActivity } from "../src/infrastructure/repository/d1/planD1DirectionActivity.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -24,6 +25,8 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
             planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
           runtimeEventRepository: new D1RuntimeEventRepository(asDirectionDatabase(database), binding),
           outcomeTargetProjectRepository: new D1OutcomeTargetProjectRepository(asDirectionDatabase(database), binding),
+          outcomeRepository: new D1OutcomeRepository(asDirectionDatabase(database), binding,
+            planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
         },
       });
     const origin = "http://localhost";
@@ -58,10 +61,16 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
     const { intent } = await intentResponse.json() as { intent: { id: string } };
     const edited = await request(`/api/workspaces/${workspace.id}/intents/${intent.id}`, "PATCH", { expectedVersion: 1, title: "Updated intent" });
     assert.equal(edited.status, 200, await edited.clone().text());
-    await database.insertInto("outcome").values({ id: "http-outcome", workspace_id: workspace.id, intent_id: intent.id, intent_version: 2,
-      title: "Outcome", description: "Description", rationale: "Reason", status: "active", revision: 1, created_at: 1, updated_at: 1 }).execute();
-    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, "http-outcome", project.id);
-    const targetsResponse = await request(`/api/workspaces/${workspace.id}/outcomes/http-outcome/target-projects`);
+    const outcomeResponse = await request(`/api/workspaces/${workspace.id}/intents/${intent.id}/outcomes`, "POST", {
+      title: "Outcome", description: "Description", rationale: "Reason", intentVersion: 2,
+      successCriteria: [{ description: "Criterion", measurement: "Measure" }],
+    });
+    assert.equal(outcomeResponse.status, 201, await outcomeResponse.clone().text());
+    const { outcome } = await outcomeResponse.json() as { outcome: { id: string } };
+    const outcomeEdit = await request(`/api/workspaces/${workspace.id}/intents/${intent.id}/outcomes/${outcome.id}`, "PATCH", { expectedRevision: 1, title: "Updated Outcome" });
+    assert.equal(outcomeEdit.status, 200, await outcomeEdit.clone().text());
+    await services.setOutcomeTargetProjectUseCase.execute(workspace.id, outcome.id, project.id);
+    const targetsResponse = await request(`/api/workspaces/${workspace.id}/outcomes/${outcome.id}/target-projects`);
     assert.equal(targetsResponse.status, 200, await targetsResponse.clone().text());
     const { targets } = await targetsResponse.json() as { targets: { projectId: string }[] };
     assert.deepEqual(targets.map(({ projectId }) => projectId), [project.id]);
@@ -73,7 +82,7 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
     const runtimeCredential = await runtimeResponse.json() as { token: string };
     const events = await app.request(`/api/workspaces/${workspace.id}/runtime-events`, { headers: { Authorization: `Bearer ${runtimeCredential.token}` } });
     assert.equal(events.status, 200, await events.clone().text());
-    assert.deepEqual((await events.json() as { events: unknown[] }).events, []);
+    assert.equal((await events.json() as { events: unknown[] }).events.length, 1);
     assert.equal((await request("/api/auth/logout", "POST")).status, 204);
     assert.equal((await request(`/api/workspaces/${workspace.id}`)).status, 401);
   } finally {

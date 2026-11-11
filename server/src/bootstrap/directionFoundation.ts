@@ -1,4 +1,4 @@
-import type { IntentRepository, RuntimeEventRepository, OutcomeTargetProjectRepository } from "@compass/direction";
+import type { IntentRepository, OutcomeRepository, RuntimeEventRepository, OutcomeTargetProjectRepository } from "@compass/direction";
 import { type OrganizationInfrastructure } from "./organizationInfrastructure.ts";
 
 import { systemActivityActor } from "../application/activityActor.ts";
@@ -53,6 +53,7 @@ import { directionChangeObserver, directionProjectReaders, directionWorkspaceRea
 
 export type DirectionRepositoryOverrides = {
   intentRepository?: IntentRepository;
+  outcomeRepository?: OutcomeRepository;
   runtimeEventRepository?: RuntimeEventRepository;
   outcomeTargetProjectRepository?: OutcomeTargetProjectRepository;
 };
@@ -62,7 +63,7 @@ export const createDirectionFoundation = (applicationDatabase: Kysely<Database>,
   const directionDatabase = asDirectionDatabase(applicationDatabase);
   // Directionの重要な状態変更も、同じtransactionでcanonical Activityへ投影する。
   const workspaceIntentRepository = infrastructure.intentRepository ?? new SQLiteIntentRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
-  const workspaceOutcomeRepository = new SQLiteOutcomeRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
+  const workspaceOutcomeRepository = infrastructure.outcomeRepository ?? new SQLiteOutcomeRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
   // Target ProjectとOutcomeのWorkspace一致は、書込と同じtransactionでProject（Organization）を読んで検査する。
   const outcomeTargetProjectRepository = infrastructure.outcomeTargetProjectRepository ?? new SQLiteOutcomeTargetProjectRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders, clock);
   // 変更主体は、認可済みの入口（Web UIのHuman操作・MCPのAgent操作）が固定した主体。特定できない保守呼出しは`system`。

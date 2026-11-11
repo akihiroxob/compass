@@ -21,6 +21,7 @@ D1にcallback transactionはない。Node用のtransactionをno-opに置き換�
 - DirectionのRuntime event配信・Ack記録はD1実装済み。attempt IDによる再送、失敗回数、受付記録のロールバック、未確定イベントを追い越さない再開cursorをローカルD1で検証済み。
 - DirectionのIntent作成・版管理・放棄はD1実装済み。Activityとの一括保存、競合編集、意味変更理由、関連Outcome／Researchの取消を検証済み。共有HTTP入口でIntent操作とRuntime event参照をローカルD1へ接続して検証済み。
 - OutcomeのTarget Project追加・解除・一覧はD1実装済み。同時追加／解除、Workspace境界、archive後の追加拒否と解除許可、SQL失敗時の保持、Project状態を含む一覧と共通HTTP経路を検証済み。
+- Outcome本体の作成・更新・取消・一覧はD1実装済み。成功条件／課題／根拠参照／Activity／Runtime eventの一括保存、編集競合、評価計画ID保持、保存直前の根拠置換拒否、上限件数、共通HTTP経路を検証済み。読取も同じbatchから親・子・根拠を組み立てる。
 - 未実装: Directionの残り・Work・Collaboration・ActivityのD1 Repository／Unit of Work、D1向けmigration配布コマンド、資産bundle生成、Workers Bootstrap・起動・Wrangler設定、Google認証・Agent Credentialを通すWorkers上の通し検証、デプロイ文書。
 
 D1原子的batchの前提検査は`database/d1/atomic-guards.sql`のCHECK制約を使う。前提不成立を例外にしてbatch全体を巻き戻し、成功時は検査行を同じbatchで削除する。このSQLのデプロイ用migrationへの組込みは未実装。

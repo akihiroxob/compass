@@ -78,3 +78,6 @@ export * from "./infrastructure/directionWorkspaceReaders.ts";
 export { recordOutcomeConfirmedEvent } from "./infrastructure/runtimeEventRecord.ts";
 
 export { recordRuntimeEvent } from "./infrastructure/runtimeEventRecord.ts";
+
+export { planOutcomeProblems, outcomesFromRecords, outcomeProblemsFromRecords, type OutcomeEvidenceRecord } from "./infrastructure/outcomeRecord.ts";
+export { insertOutcomeConfirmedEventQuery } from "./infrastructure/runtimeEventRecord.ts";

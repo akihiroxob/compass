@@ -41,11 +41,10 @@ export const recordRuntimeEvent = async (
  * Outcome確定を、Outcomeの保存と同じtransactionで追記する。相関IDは`outcome:{outcomeId}`で決定的にし、
  * RuntimeがManagerを起動して`issue_story`へ渡す相関IDと一致させる。同じOutcomeのイベントは1件に収束する。
  */
-export const recordOutcomeConfirmedEvent = async (
+export const insertOutcomeConfirmedEventQuery = (
   transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
   outcome: { workspaceId: string; intentId: string; outcomeId: string; occurredAt: number },
-): Promise<void> => {
-  await transaction
+) => transaction
     .insertInto("runtime_event")
     .values({
       id: crypto.randomUUID(),
@@ -60,9 +59,12 @@ export const recordOutcomeConfirmedEvent = async (
       created_at: outcome.occurredAt,
     })
     // 一意性はoutcome_confirmedに限った部分索引（runtime_event_outcome_confirmed_idx）が持つ。
-    .onConflict((conflict) => conflict.doNothing())
-    .execute();
-};
+    .onConflict((conflict) => conflict.doNothing());
+
+export const recordOutcomeConfirmedEvent = async (
+  transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
+  outcome: { workspaceId: string; intentId: string; outcomeId: string; occurredAt: number },
+): Promise<void> => { await insertOutcomeConfirmedEventQuery(transaction, outcome).execute(); };
 
 /**
  * Outcome Evaluationの確定を、Evaluationの保存と同じtransactionで追記する。同じEvaluationのイベントは1件に収束し、
