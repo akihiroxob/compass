@@ -16,7 +16,8 @@ D1にcallback transactionはない。Node用のtransactionをno-opに置き換�
 - D1ローカル検証済み: 共有初期schema、パラメータ保持・RETURNING、callback transactionの拒否、競合更新の排他、SQL失敗時のロールバック。
 - Organization実装・ローカルD1検証済み: Workspace／Projectの作成・参照・更新・archive。作成者Membership、ProjectのADR参照保護、archive Activityを同じbatchへ配線する。Workersの起動経路は未接続。
 - AccessのOIDCログイン試行、Workspace Membershipの更新・失効、Project／Workspace Grant、Credentialの発行・rotationはD1実装済み。並行消費、最後のownerの保護、Grantの冪等性、Credentialのscope束縛、rotationの原子性、archive後の更新拒否をローカルD1で検証済み。
-- 未実装: Accessの残り・Direction・Work・Collaboration・ActivityのD1 Repository／Unit of Work、D1向けmigration配布コマンド、資産bundle生成、Workers Bootstrap・起動・Wrangler設定、Google認証・Agent Credentialを通すWorkers上の通し検証、デプロイ文書。
+- 招待の発行・再発行・取消とAgent実行観測はD1実装済み。同時発行の一意性、期限切れ招待の置換、終了結果の競合、終了後の観測の冪等性をローカルD1で検証済み。
+- 未実装: AccessのHuman登録／Session・Direction・Work・Collaboration・ActivityのD1 Repository／Unit of Work、D1向けmigration配布コマンド、資産bundle生成、Workers Bootstrap・起動・Wrangler設定、Google認証・Agent Credentialを通すWorkers上の通し検証、デプロイ文書。
 
 D1原子的batchの前提検査は`database/d1/atomic-guards.sql`のCHECK制約を使う。前提不成立を例外にしてbatch全体を巻き戻し、成功時は検査行を同じbatchで削除する。このSQLのデプロイ用migrationへの組込みは未実装。
 
