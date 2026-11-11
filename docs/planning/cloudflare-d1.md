@@ -24,6 +24,7 @@ D1にcallback transactionはない。Node用のtransactionをno-opに置き換�
 - Outcome本体の作成・更新・取消・一覧はD1実装済み。成功条件／課題／根拠参照／Activity／Runtime eventの一括保存、編集競合、評価計画ID保持、保存直前の根拠置換拒否、上限件数、共通HTTP経路を検証済み。読取も同じbatchから親・子・根拠を組み立てる。
 - Intent Metricの定義・観測記録・時系列参照はD1実装済み。同時定義、観測後の単位変更禁止と競合保護、観測の同時訂正・遅延再送・複数期間の一括ロールバック、失敗／ゼロ値の区別、共有HTTP参照を検証済み。
 - ResearchのRequest作成・結果／Synthesis登録・終了／取消・詳細／Brief参照はD1実装済み。再送、期限・予算、結果の順序、Synthesis置換の競合、根拠のWorkspace境界、Activity／Runtime event失敗時の一括ロールバック、100件超の結果読取、共通HTTP詳細参照を検証済み。保存計画・復元・Briefの規則はSQLiteと共有する。
+- Direction Decisionの記録・追加Research・次Outcome作成・Intent完了はD1実装済み。保存計画をSQLiteと共有し、再送、評価の最新性／二重利用、保存直前の再評価、上限100 Finding参照、100件超の一覧、関連履歴の一括ロールバック、共通HTTP参照を検証済み。
 - 未実装: Directionの残り・Work・Collaboration・ActivityのD1 Repository／Unit of Work、D1向けmigration配布コマンド、資産bundle生成、Workers Bootstrap・起動・Wrangler設定、Google認証・Agent Credentialを通すWorkers上の通し検証、デプロイ文書。
 
 D1原子的batchの前提検査は`database/d1/atomic-guards.sql`のCHECK制約を使う。前提不成立を例外にしてbatch全体を巻き戻し、成功時は検査行を同じbatchで削除する。このSQLのデプロイ用migrationへの組込みは未実装。

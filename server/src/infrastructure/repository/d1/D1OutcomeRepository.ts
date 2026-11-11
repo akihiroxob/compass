@@ -1,6 +1,6 @@
 import type { D1Database, D1Result } from "@cloudflare/workers-types";
-import { sql, type Kysely, type Selectable } from "kysely";
-import { planOutcomeProblems, insertOutcomeConfirmedEventQuery, type DirectionDatabase, type OutcomeRepository, type OutcomeTable,
+import { sql, type Kysely } from "kysely";
+import { planOutcomeCreationRecord, planOutcomeProblems, insertOutcomeConfirmedEventQuery, type DirectionDatabase, type OutcomeRepository,
   type CreateOutcomeInput, type CreateOutcomeResult, type UpdateOutcomeInput, type UpdateOutcomeResult, type ChangeOutcomeResult } from "@compass/direction";
 import { ConflictError } from "@compass/shared";
 import { asOrganizationDatabase } from "../../database/contextDatabase.ts";
@@ -23,20 +23,13 @@ export class D1OutcomeRepository implements OutcomeRepository {
       if (intent.status !== "active") return { kind: "intent_not_active", status: intent.status };
       if (intent.version !== input.intentVersion) return { kind: "intent_version_conflict", currentVersion: intent.version };
       const now = this.clock();
-      const row: Selectable<OutcomeTable> = { id: crypto.randomUUID(), workspace_id: workspaceId, intent_id: intentId,
-        intent_version: intent.version, title: input.title, description: input.description, hypothesis: input.hypothesis,
-        rationale: input.rationale, status: "active", cancel_reason: null, origin_decision_id: null, revision: 1, created_at: now, updated_at: now };
-      const problems = await planOutcomeProblems(this.database, workspaceId, row.id, input.problems, now);
+      const plan = await planOutcomeCreationRecord(this.database, workspaceId, intentId, crypto.randomUUID(), null, input, now);
+      const row = plan.row;
       try {
         const results = await this.atomic.execute([this.writableWorkspace(workspaceId).compile(),
           this.intent(workspaceId, intentId).where("status", "=", "active").where("version", "=", intent.version).compile(),
-          ...problems.preconditions], [
-          this.database.insertInto("outcome").values(row).compile(),
-          ...input.successCriteria.map((criterion, position) => this.database.insertInto("success_criterion").values({ id: crypto.randomUUID(),
-            outcome_id: row.id, position, description: criterion.description, measurement: criterion.measurement, target: criterion.target, created_at: now }).compile()),
-          ...problems.mutations,
-          ...this.activity({ type: "outcome_confirmed", workspaceId, recordId: row.id, title: row.title,
-            refs: [{ kind: "outcome", id: row.id }, { kind: "intent", id: intentId }], result: null, reason: null, principalId: null, occurredAt: now }),
+          ...plan.preconditions], [
+          ...plan.mutations, ...this.activity(plan.notice),
           insertOutcomeConfirmedEventQuery(this.database, { workspaceId, intentId, outcomeId: row.id, occurredAt: now }).compile(),
           ...this.snapshotQueries(row.id),
         ]);

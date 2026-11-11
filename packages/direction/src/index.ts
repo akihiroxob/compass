@@ -87,3 +87,6 @@ export { researchResultsFromRecords, researchSynthesesFromRecords } from "./infr
 export { planResearchResultRecord, planResearchSynthesisRecord } from "./infrastructure/researchWriteRecord.ts";
 export { insertRuntimeEventQuery } from "./infrastructure/runtimeEventRecord.ts";
 export { intentResearchSummaryFromRecords } from "./infrastructure/researchSummaryRecord.ts";
+export { planOutcomeCreationRecord } from "./infrastructure/outcomeRecord.ts";
+export { planDirectionDecisionRecord, decisionsFromRecords, validateResearchReferences, validateEvaluationReference } from "./infrastructure/directionDecisionRecord.ts";
+export { additionalResearchRequestKey, additionalResearchCorrelationId } from "./domain/AdditionalResearchRequest.ts";

@@ -4,7 +4,7 @@ import { ConflictError, ValidationError } from "@compass/shared";
 import { Outcome, type EvaluationPlan, type EvaluationPlanInput, type OutcomeProblem, type ProblemEvidence, type SuccessCriterion } from "../domain/Outcome.ts";
 import type { CreateOutcomeInput, OutcomeProblemInput } from "../domain/OutcomeRepository.ts";
 import type { DirectionDatabase, OutcomeTable, OutcomeProblemTable, SuccessCriterionTable } from "./schema.ts";
-import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
+import { notifyDirectionChange, type DirectionChangeObserver, type DirectionChangeNotice } from "./directionChange.ts";
 
 type Executor = Kysely<DirectionDatabase> | Transaction<DirectionDatabase>;
 
@@ -292,56 +292,26 @@ export const insertOutcomeRow = async (
     .where("id", "=", intentId)
     .where("workspace_id", "=", workspaceId)
     .executeTakeFirstOrThrow();
-  const row = await transaction
-    .insertInto("outcome")
-    .values({
-      id,
-      workspace_id: workspaceId,
-      intent_id: intentId,
-      intent_version: intent.version,
-      title: input.title,
-      description: input.description,
-      hypothesis: input.hypothesis,
-      rationale: input.rationale,
-      status: "active",
-      cancel_reason: null,
-      origin_decision_id: originDecisionId,
-      revision: 1,
-      created_at: now,
-      updated_at: now,
-    })
-    .returningAll()
-    .executeTakeFirstOrThrow();
-  await transaction
-    .insertInto("success_criterion")
-    .values(
-      input.successCriteria.map((criterion, position) => ({
-        id: crypto.randomUUID(),
-        outcome_id: row.id,
-        position,
-        description: criterion.description,
-        measurement: criterion.measurement,
-        target: criterion.target,
-        created_at: now,
-      })),
-    )
-    .execute();
-  await replaceOutcomeProblems(transaction, workspaceId, row.id, input.problems, now);
-  await notifyDirectionChange(observer, transaction, {
-    type: "outcome_confirmed",
-    workspaceId,
-    recordId: row.id,
-    title: row.title,
-    refs: [
-      { kind: "outcome", id: row.id },
-      { kind: "intent", id: intentId },
-      ...(originDecisionId ? [{ kind: "decision" as const, id: originDecisionId }] : []),
-    ],
-    result: null,
-    reason: null,
-    principalId: null,
-    occurredAt: now,
-  });
+  const plan = await planOutcomeCreationRecord(transaction, workspaceId, intentId, id, originDecisionId, { ...input, intentVersion: intent.version }, now);
+  for (const query of plan.mutations) await transaction.executeQuery(query);
+  await notifyDirectionChange(observer, transaction, plan.notice);
+  const row = plan.row;
   const [outcome] = await loadOutcomes(transaction, [row]);
   return outcome!;
+};
+
+/** Outcome作成の採番・子要素・通知内容。保存時のIntent版とWorkspace状態は呼出側が保証する。 */
+export const planOutcomeCreationRecord = async (database: Executor, workspaceId: string, intentId: string, id: string,
+  originDecisionId: string | null, input: CreateOutcomeInput, now: number) => {
+  const row: Selectable<OutcomeTable> = { id, workspace_id: workspaceId, intent_id: intentId, intent_version: input.intentVersion,
+    title: input.title, description: input.description, hypothesis: input.hypothesis, rationale: input.rationale, status: "active",
+    cancel_reason: null, origin_decision_id: originDecisionId, revision: 1, created_at: now, updated_at: now };
+  const problems = await planOutcomeProblems(database, workspaceId, id, input.problems, now);
+  const notice: DirectionChangeNotice = { type: "outcome_confirmed", workspaceId, recordId: id, title: row.title,
+    refs: [{ kind: "outcome", id }, { kind: "intent", id: intentId }, ...(originDecisionId ? [{ kind: "decision" as const, id: originDecisionId }] : [])],
+    result: null, reason: null, principalId: null, occurredAt: now };
+  return { row, notice, preconditions: problems.preconditions, mutations: [database.insertInto("outcome").values(row).compile(),
+    ...input.successCriteria.map((criterion, position) => database.insertInto("success_criterion").values({ id: crypto.randomUUID(), outcome_id: id,
+      position, description: criterion.description, measurement: criterion.measurement, target: criterion.target, created_at: now }).compile()),
+    ...problems.mutations] };
 };
