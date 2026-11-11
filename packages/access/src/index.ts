@@ -37,3 +37,4 @@ export * from "./application/RoleScopeAuthorizationService.ts";
 export * from "./infrastructure/SQLiteWorkspaceGrantRepository.ts";
 export * from "./infrastructure/SQLiteAgentRunRepository.ts";
 export * from "./application/AgentRunUseCases.ts";
+export { toWorkspaceMembership } from "./infrastructure/humanAuthRecord.ts";
