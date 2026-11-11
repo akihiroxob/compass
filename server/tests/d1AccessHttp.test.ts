@@ -3,6 +3,7 @@ import { D1RuntimeEventRepository } from "../src/infrastructure/repository/d1/D1
 import { D1OutcomeTargetProjectRepository } from "../src/infrastructure/repository/d1/D1OutcomeTargetProjectRepository.ts";
 import { D1OutcomeRepository } from "../src/infrastructure/repository/d1/D1OutcomeRepository.ts";
 import { D1IntentMetricRepository } from "../src/infrastructure/repository/d1/D1IntentMetricRepository.ts";
+import { D1ResearchRepository } from "../src/infrastructure/repository/d1/D1ResearchRepository.ts";
 import { planD1DirectionActivity } from "../src/infrastructure/repository/d1/planD1DirectionActivity.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -29,6 +30,8 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
           outcomeRepository: new D1OutcomeRepository(asDirectionDatabase(database), binding,
             planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
           intentMetricRepository: new D1IntentMetricRepository(asDirectionDatabase(database), binding),
+          researchRepository: new D1ResearchRepository(asDirectionDatabase(database), binding,
+            planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
         },
       });
     const origin = "http://localhost";
@@ -88,6 +91,19 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
     assert.equal(metricsResponse.status, 200, await metricsResponse.clone().text());
     const { metrics } = await metricsResponse.json() as { metrics: { series: { points: { value: number }[] } }[] };
     assert.equal(metrics[0]?.series.points[0]?.value, 0);
+    const research = await services.createResearchRequestUseCase.execute(workspace.id, { requestKey: "http-research", kind: "decision",
+      originIntentId: intent.id, question: "Which approach?", scope: "Scope", completionCondition: "Evidence exists", budgetTotal: 10 });
+    const researchResult = await services.registerResearchResultUseCase.execute(workspace.id, research.id, { requestKey: "http-result", principalId: "researcher",
+      runRef: "run", summary: "Result", budgetUsed: 1, evidenceRefs: [{ kind: "url", uri: "https://example.test", retrievedAt: 100 }],
+      findings: [{ statement: "Finding", confidence: "high", observedAt: 100, evidenceIndexes: [0] }], unknowns: [], options: [], risks: [] });
+    await services.registerResearchSynthesisUseCase.execute(workspace.id, research.id, { requestKey: "http-synthesis", principalId: "researcher", runRef: "run",
+      conclusion: "Conclusion", findingIds: researchResult.findings.map(({ id }) => id), validAsOf: 100, risks: [], options: [], unknowns: [] });
+    await services.completeResearchRequestUseCase.execute(workspace.id, research.id, { conclusion: "completed" });
+    const researchResponse = await request(`/api/workspaces/${workspace.id}/research-requests/${research.id}`);
+    assert.equal(researchResponse.status, 200, await researchResponse.clone().text());
+    const { detail } = await researchResponse.json() as { detail: { request: { status: string }; results: unknown[] } };
+    assert.equal(detail.request.status, "completed");
+    assert.equal(detail.results.length, 1);
     assert.equal((await request(`/api/workspaces/${workspace.id}/intents/${intent.id}/abandon`, "POST", { expectedVersion: 2 })).status, 200);
     const runtimeResponse = await request(`/api/workspaces/${workspace.id}/credentials`, "POST", {
       kind: "runtime", principalId: "runtime", scopes: ["runtime:event:read", "runtime:event:ack"],
@@ -96,7 +112,7 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
     const runtimeCredential = await runtimeResponse.json() as { token: string };
     const events = await app.request(`/api/workspaces/${workspace.id}/runtime-events`, { headers: { Authorization: `Bearer ${runtimeCredential.token}` } });
     assert.equal(events.status, 200, await events.clone().text());
-    assert.equal((await events.json() as { events: unknown[] }).events.length, 1);
+    assert.equal((await events.json() as { events: unknown[] }).events.length, 3);
     assert.equal((await request("/api/auth/logout", "POST")).status, 204);
     assert.equal((await request(`/api/workspaces/${workspace.id}`)).status, 401);
   } finally {

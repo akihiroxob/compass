@@ -1,4 +1,4 @@
-import type { IntentRepository, IntentMetricRepository, OutcomeRepository, RuntimeEventRepository, OutcomeTargetProjectRepository } from "@compass/direction";
+import type { IntentRepository, IntentMetricRepository, OutcomeRepository, ResearchRepository, RuntimeEventRepository, OutcomeTargetProjectRepository } from "@compass/direction";
 import { type OrganizationInfrastructure } from "./organizationInfrastructure.ts";
 
 import { systemActivityActor } from "../application/activityActor.ts";
@@ -55,6 +55,7 @@ export type DirectionRepositoryOverrides = {
   intentRepository?: IntentRepository;
   outcomeRepository?: OutcomeRepository;
   intentMetricRepository?: IntentMetricRepository;
+  researchRepository?: ResearchRepository;
   runtimeEventRepository?: RuntimeEventRepository;
   outcomeTargetProjectRepository?: OutcomeTargetProjectRepository;
 };
@@ -85,7 +86,7 @@ export const createDirectionFoundation = (applicationDatabase: Kysely<Database>,
     unsetOutcomeTargetProjectUseCase: new UnsetOutcomeTargetProjectUseCase(workspaceRepository, outcomeTargetProjectRepository),
     listOutcomeTargetProjectsUseCase: new ListOutcomeTargetProjectsUseCase(workspaceRepository, outcomeTargetProjectRepository),
   };
-  const workspaceResearchRepository = new SQLiteResearchRepository(
+  const workspaceResearchRepository = infrastructure.researchRepository ?? new SQLiteResearchRepository(
     directionDatabase,
     directionWorkspaceReaders,
     clock,

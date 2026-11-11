@@ -81,3 +81,9 @@ export { recordRuntimeEvent } from "./infrastructure/runtimeEventRecord.ts";
 
 export { planOutcomeProblems, outcomesFromRecords, outcomeProblemsFromRecords, type OutcomeEvidenceRecord } from "./infrastructure/outcomeRecord.ts";
 export { insertOutcomeConfirmedEventQuery } from "./infrastructure/runtimeEventRecord.ts";
+
+export { researchRequestRow, toRequest as researchRequestFromRow } from "./infrastructure/researchRequestRecord.ts";
+export { researchResultsFromRecords, researchSynthesesFromRecords } from "./infrastructure/researchReadRecord.ts";
+export { planResearchResultRecord, planResearchSynthesisRecord } from "./infrastructure/researchWriteRecord.ts";
+export { insertRuntimeEventQuery } from "./infrastructure/runtimeEventRecord.ts";
+export { intentResearchSummaryFromRecords } from "./infrastructure/researchSummaryRecord.ts";

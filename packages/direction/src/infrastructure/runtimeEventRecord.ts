@@ -8,7 +8,7 @@ import type { DirectionDatabase } from "./schema.ts";
  * 確定イベントを、呼び出し元の状態変更と同じtransactionで追記する。
  * 同じRequest・同じ種類のイベントは1件に収束し、重複して呼んでも新しい行を作らない。
  */
-export const recordRuntimeEvent = async (
+export const insertRuntimeEventQuery = (
   transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
   event: {
     type: RuntimeEventType;
@@ -19,8 +19,7 @@ export const recordRuntimeEvent = async (
     conclusion: ResearchConclusion | null;
     occurredAt: number;
   },
-): Promise<void> => {
-  await transaction
+) => transaction
     .insertInto("runtime_event")
     .values({
       id: crypto.randomUUID(),
@@ -33,9 +32,12 @@ export const recordRuntimeEvent = async (
       conclusion: event.conclusion,
       created_at: event.occurredAt,
     })
-    .onConflict((conflict) => conflict.columns(["research_request_id", "event_type"]).doNothing())
-    .execute();
-};
+    .onConflict((conflict) => conflict.columns(["research_request_id", "event_type"]).doNothing());
+
+
+export const recordRuntimeEvent = async (
+  transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>, event: Parameters<typeof insertRuntimeEventQuery>[1],
+): Promise<void> => { await insertRuntimeEventQuery(transaction, event).execute(); };
 
 /**
  * Outcome確定を、Outcomeの保存と同じtransactionで追記する。相関IDは`outcome:{outcomeId}`で決定的にし、
