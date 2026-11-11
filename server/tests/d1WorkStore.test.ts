@@ -216,3 +216,49 @@ test("D1 Work concurrent claims produce one owner and one business conflict", as
     assert.equal((await database.selectFrom("command_receipt").selectAll().execute()).length, 1);
   } finally { await database.destroy(); await runtime.dispose(); }
 });
+
+test("D1 Work rejects a Project archive that wins immediately before committing a Claim", async () => {
+  const { runtime, binding, database, project, store, task } = await setup();
+  try {
+    await store.insertTask(task);
+    let inject = true;
+    const racing = new Proxy(binding, { get(target, property) {
+      if (property === "batch") return async (statements: Parameters<typeof binding.batch>[0]) => {
+        if (inject) { inject = false; await database.updateTable("project").set({ status: "archived" }).where("id", "=", project.id).execute(); }
+        return target.batch(statements);
+      };
+      const value = Reflect.get(target, property); return typeof value === "function" ? value.bind(target) : value;
+    } });
+    const service = new TaskCoordinationService(new D1WorkStore(asWorkDatabase(database), racing, workExternalReaders, planD1WorkActivity), noDirection, () => 1000);
+    await assert.rejects(service.claimTask("worker", task.id, "archive-race"));
+    assert.equal((await store.findTask(task.id))?.status, "todo");
+    assert.equal(await store.findActiveClaim(task.id), null);
+    assert.equal((await database.selectFrom("command_receipt").selectAll().execute()).length, 0);
+  } finally { await database.destroy(); await runtime.dispose(); }
+});
+
+test("D1 Story creation rechecks the Target removed immediately before commit", async () => {
+  const { runtime, binding, database, project, store } = await setup();
+  try {
+    await database.insertInto("intent").values({ id: "intent", workspace_id: project.workspaceId, title: "Intent", desired_state: "Goal", status: "active", version: 1, meaning_version: 1, created_at: 1, updated_at: 1 }).execute();
+    await database.insertInto("outcome").values({ id: "outcome", workspace_id: project.workspaceId, intent_id: "intent", intent_version: 1,
+      title: "Outcome", description: "Goal", rationale: "Reason", status: "active", revision: 1, created_at: 1, updated_at: 1 }).execute();
+    await database.insertInto("outcome_target_project").values({ outcome_id: "outcome", project_id: project.id, created_at: 1 }).execute();
+    const references: DirectionReferenceLookupPort = {
+      getProjectExecutionContext: async () => ({ projectId: project.id, workspaceId: project.workspaceId, constraints: [], repositories: [] }),
+      getOutcomeSnapshot: async () => ({ outcomeId: "outcome", intentId: "intent", title: "Outcome", description: "Goal", hypothesis: null, originDecisionId: null, status: "active", successCriteria: [], targetProjectIds: [project.id] }),
+    };
+    let inject = true;
+    const racing = new Proxy(binding, { get(target, property) {
+      if (property === "batch") return async (statements: Parameters<typeof binding.batch>[0]) => {
+        if (inject) { inject = false; await database.deleteFrom("outcome_target_project").where("outcome_id", "=", "outcome").execute(); }
+        return target.batch(statements);
+      };
+      const value = Reflect.get(target, property); return typeof value === "function" ? value.bind(target) : value;
+    } });
+    const service = new TaskCoordinationService(new D1WorkStore(asWorkDatabase(database), racing, workExternalReaders, planD1WorkActivity), references, () => 1000);
+    await assert.rejects(service.issueStory("manager", { projectId: project.id, title: "Story", outcomeId: "outcome" }, "target-race"), /not a Target Project/);
+    assert.deepEqual(await store.listStories(project.id), []);
+    assert.equal((await database.selectFrom("command_receipt").selectAll().execute()).length, 0);
+  } finally { await database.destroy(); await runtime.dispose(); }
+});

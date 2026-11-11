@@ -104,3 +104,33 @@ test("D1 Consultation rejects stale responses and expired leases, extends owners
     assert.equal((await c.get.execute(scope, consultation.id, [project.id])).consultation.status, "canceled");
   } finally { await database.destroy(); await runtime.dispose(); }
 });
+
+test("D1 Workspace consultation hands off to a Project and records only accepted document references", async () => {
+  const { runtime, database, consultations: c, project, uow } = await setup();
+  try {
+    const scope: ConsultationScope = { kind: "workspace", workspaceId: project.workspaceId };
+    const strategist: ConsultationActor = { ...manager, role: "strategist" };
+    const { consultation } = await c.create.execute(scope, strategist, input);
+    await c.resolve.execute(scope, consultation.id, human, { conclusion: "Use D1", rationale: "Selected", expectedRevision: 1, requestId: "decide" });
+    const followupInput = { kind: "adr", repositoryId: project.repositories[0]!.id, title: "Record decision", purpose: "Persist", decision: "D1", rationale: "Cloudflare", verification: "Review", resumptionDependency: "ADR required", requestId: "followup" };
+    await assert.rejects(c.requestFollowup.execute(project.id, scope, consultation.id, manager, followupInput));
+    const handoff = await c.handOff.execute(project.workspaceId, consultation.id, strategist, { projectId: project.id, requestId: "handoff" });
+    assert.equal(handoff.handoff.projectId, project.id);
+    assert.deepEqual((await c.handOff.execute(project.workspaceId, consultation.id, strategist, { projectId: project.id, requestId: "handoff-again" })).handoff, handoff.handoff);
+    const { followup } = await c.requestFollowup.execute(project.id, scope, consultation.id, manager, followupInput);
+    const artifactInput = { followupId: followup.id, taskId: followup.taskId, repositoryId: followup.repositoryId, path: "docs/adr/d1.md", commitSha: "a".repeat(40), requestId: "artifact" };
+    await assert.rejects(c.recordArtifact.execute(project.id, scope, consultation.id, manager, artifactInput), /accepted document Task/);
+    // 受入済みWorkの証跡をfixtureとして準備し、Collaborationが正本を照合することを検証する。
+    await database.updateTable("task").set({ status: "accepted" }).where("id", "=", followup.taskId).execute();
+    await database.insertInto("change_log").values({ project_id: project.id, entity_id: followup.taskId, type: "TASK_ACCEPTED", principal_id: "accepting-manager", claim_id: null,
+      payload: JSON.stringify({ deliverables: [{ repositoryId: followup.repositoryId, commitSha: artifactInput.commitSha, paths: [artifactInput.path], pullRequestUrl: null }] }), occurred_at: 2000 }).execute();
+    await assert.rejects(c.recordArtifact.execute(project.id, scope, consultation.id, manager, { ...artifactInput, path: "other.md" }), /not among the deliverables/);
+    const recorded = await c.recordArtifact.execute(project.id, scope, consultation.id, manager, artifactInput);
+    assert.equal(recorded.followup.status, "reflected");
+    assert.equal(recorded.followup.blocksResumption, false);
+    assert.equal((await c.recordArtifact.execute(project.id, scope, consultation.id, manager, artifactInput)).artifact.id, recorded.artifact.id);
+    const artifacts = await uow.execute((store) => store.listArtifacts(consultation.id));
+    assert.equal(artifacts.length, 1);
+    assert.equal((await database.selectFrom("activity").selectAll().where("type", "=", "consultation.followup_reflected").execute()).length, 1);
+  } finally { await database.destroy(); await runtime.dispose(); }
+});
