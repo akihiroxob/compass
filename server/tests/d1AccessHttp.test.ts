@@ -2,6 +2,7 @@ import { D1IntentRepository } from "../src/infrastructure/repository/d1/D1Intent
 import { D1RuntimeEventRepository } from "../src/infrastructure/repository/d1/D1RuntimeEventRepository.ts";
 import { D1OutcomeTargetProjectRepository } from "../src/infrastructure/repository/d1/D1OutcomeTargetProjectRepository.ts";
 import { D1OutcomeRepository } from "../src/infrastructure/repository/d1/D1OutcomeRepository.ts";
+import { D1IntentMetricRepository } from "../src/infrastructure/repository/d1/D1IntentMetricRepository.ts";
 import { planD1DirectionActivity } from "../src/infrastructure/repository/d1/planD1DirectionActivity.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -27,6 +28,7 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
           outcomeTargetProjectRepository: new D1OutcomeTargetProjectRepository(asDirectionDatabase(database), binding),
           outcomeRepository: new D1OutcomeRepository(asDirectionDatabase(database), binding,
             planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
+          intentMetricRepository: new D1IntentMetricRepository(asDirectionDatabase(database), binding),
         },
       });
     const origin = "http://localhost";
@@ -74,6 +76,18 @@ test("shared HTTP auth, Organization, Access and Direction routes use D1 reposit
     assert.equal(targetsResponse.status, 200, await targetsResponse.clone().text());
     const { targets } = await targetsResponse.json() as { targets: { projectId: string }[] };
     assert.deepEqual(targets.map(({ projectId }) => projectId), [project.id]);
+    for (const role of ["strategist", "evaluator"]) {
+      const grantResponse = await request(`/api/workspaces/${workspace.id}/grants`, "POST", { principalId: role, role });
+      assert.equal(grantResponse.status, 201, await grantResponse.clone().text());
+    }
+    await services.defineIntentMetricUseCase.execute("strategist", workspace.id, intent.id, { key: "revenue", name: "Revenue", unit: "JPY", staleAfterDays: 2 });
+    await services.recordIntentMetricObservationsUseCase.execute("evaluator", workspace.id, intent.id, { metricKey: "revenue", observations: [{
+      periodStart: "2026-01-01", periodEnd: "2026-01-01", status: "observed", value: 0, source: { name: "Report" }, observedAt: Date.parse("2026-01-02T00:00:00Z"),
+    }] });
+    const metricsResponse = await request(`/api/workspaces/${workspace.id}/intents/${intent.id}/metrics?from=2026-01-01&to=2026-01-02`);
+    assert.equal(metricsResponse.status, 200, await metricsResponse.clone().text());
+    const { metrics } = await metricsResponse.json() as { metrics: { series: { points: { value: number }[] } }[] };
+    assert.equal(metrics[0]?.series.points[0]?.value, 0);
     assert.equal((await request(`/api/workspaces/${workspace.id}/intents/${intent.id}/abandon`, "POST", { expectedVersion: 2 })).status, 200);
     const runtimeResponse = await request(`/api/workspaces/${workspace.id}/credentials`, "POST", {
       kind: "runtime", principalId: "runtime", scopes: ["runtime:event:read", "runtime:event:ack"],
