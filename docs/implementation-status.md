@@ -10,9 +10,9 @@ HumanのMembershipはWorkspace単位だけで、Projectの操作は所属Workspa
 
 | 領域 | 現在の構成・機能 |
 | --- | --- |
-| 起動 | npm workspaces。`orchestrator/`（`@compass/orchestrator`）はServerと別に実行するBatch、`ralph/`（`@compass/ralph`。bash実装でnpm workspaceはテスト・構文検査用）はServerと別に実行するLoop。`server/`（`@compass/server`）がWeb UI（`server/src/web`、build出力`server/public/`）・`/api`・`/mcp`をHonoで同一portに提供。rootの`npm start`等はroot cwdのまま`server/`のentryを起動 |
+| 起動 | npm workspaces。`orchestrator/`（`@compass/orchestrator`）はServerと別に実行するBatch、`ralph/`（`@compass/ralph`。bash実装でnpm workspaceはテスト・構文検査用）はServerと別に実行するLoop。`server/`（`@compass/server`）がWeb UI（`server/src/web`、build出力`server/public/`）・`/api`・`/mcp`をHonoで同一portに提供。rootの`npm start`等はroot cwdのままNode用entryを起動。Workersは`server/src/worker.ts`から同じWeb UI・API・MCPを提供する |
 | 構成 | `packages/organization`（`@compass/organization`。Workspace・Project・Repository / Resourceのmodel・use case・保存）・`packages/direction`（`@compass/direction`）・`packages/work`（`@compass/work`）・`packages/access`（`@compass/access`。Principal・Role Grant・Credential・Membership・Human認証のuse case・規則）・`packages/activity`（`@compass/activity`。Activityのmodel・use case・保存）・`packages/collaboration`（`@compass/collaboration`。Project / Workspace相談と結論の文書反映のmodel・use case・保存）・`packages/shared`（`@compass/shared`。汎用errorと入力検証の部品）。transport（OIDC adapter・Cookie・Bearer解決）・DIは`server/src`にある。packageは`src/index.ts`で公開し、serverが配線する |
-| 保存 | 単一SQLite file / Kysely。table型は各Contextが所有し、`database/migrations/`のSQLは配備・運用時に適用し、Server・CLIは準備済みのschemaを前提とする |
+| 保存 | Nodeは単一SQLite file、WorkersはD1。KyselyとDomain/Application契約を共有し、各Contextのtable型に対して実行環境別の永続化Adapterを注入する。D1は前提条件・変更・Receipt・Activityを原子的batchで確定する。SQLは明示migrationで適用し、Server・CLIは準備済みschemaを前提とする |
 | Organization | Workspace（公開入口はHuman向けWeb APIの作成・参照・更新・archive・Project作成）・Project・Repository / Resource。Project作成（専用Workspaceと同時、または既存Workspaceへ）・更新・archive・参照・一覧のuse case |
 | Direction | Workspace所有のIntent・Outcome・固定成功条件、Intentの観測項目（単位・目標値・鮮度）と対象期間ごとの版付き観測値、Outcome配下の課題・根拠参照・解決策の仮説・評価計画（問い・方法・適用前提・観測期間・判断/中止条件。未実施は現在の計画を対象にした評価が無い間の表示で、計画の内容を識別する`planId`をEvaluationが入力で指定して保持し、保存時の現計画と違えば競合として拒否し、変更前の計画への結果は現計画の評価にしない）、評価の方法・対象版・限界・対象課題（認知的ウォークスルーは`met`にできず、根拠不足は判断不能。統計解析は持たない）（`revision`による競合検出、[Outcome仕様](step-3-outcome-design.md#課題根拠解決策の仮説)）。Research・Decision・ADR依頼/参照もWorkspace scope（ADR artifactのProject/Repositoryを明示）。EvaluationとRuntime eventもWorkspace scope。Execution Summary/EvidenceはWorkspace所有で発生元Projectを保持し、Target Projectだけが還流してProject別にOutcomeへ集約する。OutcomeTargetProject（Outcomeを担当する同じWorkspaceのProject）の設定・解除・一覧。OrganizationのWorkspace/Project状態・参照はserverが渡すreaderで読む |
 | Execution | Story・Task・Claim・Comment・Change Log・Review・Acceptance |
@@ -37,6 +37,12 @@ Evaluation/Execution/Runtimeの内部Use Caseは`workspaceDirection`へ配線済
 `server/tests/workspaceExecutionDirection.test.ts`は新規DBでProject別Summary/cursor/Evidence、複合FKによるOutcome/Intent/Project/event/delivery/ackのWorkspace一致、評価・イベント・Activityのrollback、archiveガード、同じschemaでのfile DB再初期化と評価・ack再送を検証する。旧DBの変換は行わず、開発DBを再作成する。Execution SummaryのProject入口とEvaluation・Runtime eventのWorkspace入口の分離（Project Grant・trusted-localのAgent名から継承しない）も同テストで検証し、各入口の契約・認可は既存のExecution/Evaluation/Runtimeテストで回帰検証する。HTTPは`app.request`またはMCPのテスト呼出であり、実Agentの自律運転を示すものではない。
 
 `server/tests/multiProjectOutcomeEvaluation.test.ts`は新規file DBで、同じWorkspaceのTarget A / BそれぞれのManager・Worker・Reviewer（Project Grant）によるTask受入、Runtimeの還流、Evaluator・Strategist（Workspace Grant）の判断をMCP・Web APIで通す。Aだけの受入では評価を`CONFLICT`（`awaiting_execution`・`unfinishedProjectIds`にB）で拒否してEvaluation・`outcome_evaluated`・Activityを作らず、Evaluator Context・`list_outcome_target_executions`・`/target-executions`から欠けているTargetを辿れる。Evidenceを還流していないTargetの成功条件は`insufficient_evidence`となり、Project別snapshotとStrategist Contextで根拠と欠落Targetを辿って追加Research・次のOutcome（`failed`）・Intent完了（`achieved`）へ接続する。評価・判断の再送と同じschemaでの再起動後の再送は保存済みの結果を返す。単一TargetのOutcomeは他Projectのある同じWorkspaceでもそのTargetだけで評価できる。既存の単一Project Outcome・再送・再起動の契約は`outcomeEvaluation.test.ts`・`evaluationReplan.test.ts`・`lv6ClosedLoop.test.ts`で回帰検証する。
+
+## Workers + D1
+
+Workers用BootstrapはOrganization・Access・Direction・Work・Collaboration・ActivityをD1へ接続する。Agent文書はビルド時に同梱し、Web UIはASSETS bindingで配信する。HumanはGoogle OIDC、Agent／RuntimeはCompassのCredentialを使う。Node＋SQLiteの開発起動は維持する。Ralph・OrchestratorはWorkersへ含めず、別プロセスからServerへ接続する。
+
+配布bundleのworkerd実行でUI配信、署名付きOIDC fixtureによるログイン、Human API、Agent CredentialのMCP、GitHub互換fixtureによるPR登録、Runtime Credentialの公開記録と再送を検証済み。実Google・実GitHub・Cloudflare実環境への接続は未検証。配置と明示migrationの操作は[Workers + D1への配置](cloudflare-deployment.md)を参照する。
 
 ## Role / Skill Contextの現行契約
 

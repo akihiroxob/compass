@@ -14,7 +14,7 @@ D1にcallback transactionはない。Node用のtransactionをno-opに置き換�
 
 - 実装・単体検証済み: Agent資産の共通解析と埋め込みAdapter、HTTPへの静的配信注入、D1 Kysely Dialect、D1原子的batch基盤。
 - D1ローカル検証済み: 共有初期schema、パラメータ保持・RETURNING、callback transactionの拒否、競合更新の排他、SQL失敗時のロールバック。
-- Organization実装・ローカルD1検証済み: Workspace／Projectの作成・参照・更新・archive。作成者Membership、ProjectのADR参照保護、archive Activityを同じbatchへ配線する。Workersの起動経路は未接続。
+- Organization実装・ローカルD1検証済み: Workspace／Projectの作成・参照・更新・archive。作成者Membership、ProjectのADR参照保護、archive Activityを同じbatchへ配線する。Workers起動時も同じD1実装を使う。
 - AccessのOIDCログイン試行、Workspace Membershipの更新・失効、Project／Workspace Grant、Credentialの発行・rotationはD1実装済み。並行消費、最後のownerの保護、Grantの冪等性、Credentialのscope束縛、rotationの原子性、archive後の更新拒否をローカルD1で検証済み。
 - 招待の発行・再発行・取消とAgent実行観測はD1実装済み。同時発行の一意性、期限切れ招待の置換、終了結果の競合、終了後の観測の冪等性をローカルD1で検証済み。
 - AccessのHuman登録・Session作成／失効とD1用DIは実装済み。初期owner同時作成、招待受諾の競合、Session保存失敗時のロールバックを検証済み。共有HTTP入口とローカルD1で、ログイン・Workspace／Project作成・Grant・Credential発行／rotation・ログアウトを検証済み。
@@ -29,10 +29,11 @@ D1にcallback transactionはない。Node用のtransactionをno-opに置き換�
 - Outcome Executionの還流・参照とOutcome Evaluationの保存・参照はD1実装済み。cursorの単調性、Evidenceの重複／Project別上限、同時追加、保存失敗時の全体ロールバック、Target／Summary／Evidence／Project archiveの直前変更による評価拒否、再送、共通HTTP参照を検証済み。Execution保存計画とEvaluationの整形・再送判定はSQLiteと共有する。
 - Intent Explanationの記録・参照とDirection全体のD1用DIは実装済み。説明の同時版管理、再送、根拠／関連Outcomeの境界、子要素の保存失敗時のロールバック、100件超の根拠解決、最新50版の参照、共通HTTP経路を検証済み。
 - D1 migration配布SQLの生成コマンドは実装済み。共通SQLとD1専用SQLの内容・名前を維持し、WranglerのローカルD1へ明示適用・再実行・CHECK制約を検証済み。リモートDBへの適用は未実施。
-- WorkのD1 Unit of WorkとDIは実装済み。既存の読取SQLへ計画中の変更を重ね、読取結果・更新・Change・Receipt・canonical Activityを同じbatchで検査・保存する。同時Claimと同時再送、期限切れ／更新／解放／再取得、自己レビュー／自己受入禁止、Grant失効、Receipt保存失敗、commit後の通信断と同じIDによる復旧、PR／PublicationのStore操作、100件超の参照、Human APIからTask作成→Agent Credential・MCPでClaim取得を検証済み。PR／公開記録の外部Gatewayを通したD1検証は未完了。
+- WorkのD1 Unit of WorkとDIは実装済み。既存の読取SQLへ計画中の変更を重ね、読取結果・更新・Change・Receipt・canonical Activityを同じbatchで検査・保存する。同時Claimと同時再送、期限切れ／更新／解放／再取得、自己レビュー／自己受入禁止、Grant失効、Receipt保存失敗、commit後の通信断と同じIDによる復旧、PR／PublicationのStore操作、100件超の参照、Human APIからTask作成→Agent Credential・MCPでClaim取得を検証済み。PRのGitHub互換Gatewayを通す検証は配布bundleでも実施済み。
 - ActivityのD1 Unit of WorkとDIは実装済み。既存の保存値・読取SQLを共有し、参照先の状態とdedupe照合・追記を同じbatchで検査・保存する。同時再送の収束、入力違いの拒否、訂正、保存前の読取、失敗時の巻戻し、archive後の成功済み再送を検証済み。
-- CollaborationのD1 Unit of WorkとDIは実装済み。相談の保存値・読取SQLと業務判断をSQLiteと共有し、相談・Work文書反映Task・両方のReceipt・Change・Activityを同じ保存計画で確定する。同時再送・Human返信の競合・応答leaseの排他／期限／更新・古い版の応答拒否・解決／取消・100件超の認可scope・文書反映Taskの生成と全体巻戻しを検証済み。Workのcanonical Activityも同じ計画へ重ねる。Workspace引継ぎと受入成果物参照のD1通し検証は未完了。
-- 未実装: 資産bundle生成、Workers Bootstrap・起動・Wrangler設定、Google認証・Agent Credentialを通すWorkers上の通し検証、デプロイ文書。
+- CollaborationのD1 Unit of WorkとDIは実装済み。相談の保存値・読取SQLと業務判断をSQLiteと共有し、相談・Work文書反映Task・両方のReceipt・Change・Activityを同じ保存計画で確定する。同時再送・Human返信の競合・応答leaseの排他／期限／更新・古い版の応答拒否・解決／取消・100件超の認可scope・文書反映Taskの生成と全体巻戻しを検証済み。Workのcanonical Activityも同じ計画へ重ねる。Workspace相談の明示引継ぎと受入済みWork証跡による成果物参照の照合もD1で検証済み。
+- Workers Bootstrap・全ContextのD1 DI・資産bundle生成・Wrangler設定・配置文書は実装済み。配布bundleをworkerdで動かし、未migration時の503、UI配信、署名付きGoogle互換fixtureでのOIDC callback・Human API・Agent Credential・MCPでのClaim／GitHub互換fixtureによるPR登録・Role Context取得・専用Runtime Credentialによる公開記録API／同一観測の再送を検証済み。実Google・実GitHub・Cloudflare実環境への配置は未検証。
+- Project archive／Target解除の保存直前競合もD1で検証済み。残る確認: 大きい本文・大量更新時のD1上限。実環境のD1 ID・公開origin・Google設定・Secretは配置時に設定する。
 
 D1原子的batchの前提検査は`database/d1/migrations/0000_d1_atomic_guards.sql`のCHECK制約を使う。前提不成立を例外にしてbatch全体を巻き戻し、成功時は検査行を同じbatchで削除する。D1専用migrationとして共通の初期schemaと一緒に配布する。`npm run db:prepare:d1`は配布物だけを生成し、DBへ適用しない。
 

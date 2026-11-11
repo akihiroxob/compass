@@ -27,7 +27,7 @@ SQL前提条件の不成立だけを有限回再試行する。通信断や成�
 2. 同時Claimは1件だけ成功し、期限切れ・更新・解放・再取得で所有権が崩れない。
 3. 同じrequest IDの並行実行と再送は、更新・Change・Activityを重複させない。
 4. 更新後の再読取、条件付き更新、複数行更新がSQLiteと一致する。
-5. 保存直前のGrant失効、Project archive、Target解除、Claim変更を検出する。
+5. 保存直前のGrant失効・Project archive・Outcome Target解除、Project archive、Target解除、Claim変更を検出する。
 6. Receipt／Change／Activityの保存失敗で、Task／Claim等も巻き戻る。
 7. PR・公開記録の番号／受付順と、cursorの競合を検出する。
 8. 複数Project・大量のStory／Task・D1のSQLパラメータ上限を検証し、全Workデータの毎回読込を前提にしない。
@@ -37,7 +37,7 @@ SQL前提条件の不成立だけを有限回再試行する。通信断や成�
 
 - ローカルD1で、更新後の再読取・JOIN・集計・条件付き更新・削除・入れ子、PR更新・Publicationの複合キー、100件超のID条件を確認済み。
 - 既存ApplicationでWorker→Reviewer→Managerを通し、自己レビュー／自己受入拒否、同時Claim、同じrequest IDの同時再送、Claim更新・期限切れ・解放・再取得を確認済み。
-- 保存直前のGrant失効、Receipt保存失敗の全体ロールバック、成否不明時の自動再試行禁止と同じIDでの復旧を確認済み。
+- 保存直前のGrant失効・Project archive・Outcome Target解除、Receipt保存失敗の全体ロールバック、成否不明時の自動再試行禁止と同じIDでの復旧を確認済み。
 - 異なる行を更新する並行計画でも、集計の前提が崩れた計画を拒否するwrite skew検証を実施済み。
-- 共通HTTP／MCPでHumanのTask作成からAgent CredentialのClaim取得まで接続済み。
-- PR・公開記録の外部Gatewayを通すD1検証、Project archive／Target解除との保存直前の競合、Workspace相談の引継ぎ・受入成果物参照、大きい本文・大量更新時のD1上限検証は未完了。
+- 共通HTTP／MCPでHumanのTask作成からAgent CredentialのClaim取得まで接続済み。配布bundleのworkerd上でPR登録・公開記録APIも接続済み。
+- 大きい本文・大量更新時のD1上限検証は未完了。
