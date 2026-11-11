@@ -1,3 +1,6 @@
+import { D1IntentRepository } from "../src/infrastructure/repository/d1/D1IntentRepository.ts";
+import { D1RuntimeEventRepository } from "../src/infrastructure/repository/d1/D1RuntimeEventRepository.ts";
+import { planD1DirectionActivity } from "../src/infrastructure/repository/d1/planD1DirectionActivity.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createD1TestRuntime, initializeD1TestSchema } from "./support/d1Runtime.ts";
@@ -5,16 +8,21 @@ import { createApplicationServices } from "../src/bootstrap/createApplicationSer
 import { createD1AccessInfrastructure } from "../src/bootstrap/d1AccessInfrastructure.ts";
 import { createD1OrganizationInfrastructure } from "../src/bootstrap/d1OrganizationInfrastructure.ts";
 import { activityActorContext } from "../src/infrastructure/activity/NodeActivityActorContext.ts";
-import { asAccessDatabase } from "../src/infrastructure/database/contextDatabase.ts";
+import { asAccessDatabase, asDirectionDatabase, asActivityDatabase } from "../src/infrastructure/database/contextDatabase.ts";
 import { createApp } from "../src/presentation/http/createApp.ts";
 
-test("shared HTTP auth, Workspace, Grant and Credential routes use D1 repositories through DI", async () => {
+test("shared HTTP auth, Workspace, Grant and Credential and Direction routes use D1 repositories through DI", async () => {
   const { runtime, binding, database } = await createD1TestRuntime();
   try {
     await initializeD1TestSchema(binding);
     const services = createApplicationServices(database, undefined, Date.now, { initialOwnerEmail: "owner@example.test" }, {},
       createD1OrganizationInfrastructure(database, binding, activityActorContext), {
         access: createD1AccessInfrastructure(asAccessDatabase(database), binding, Date.now),
+        direction: {
+          intentRepository: new D1IntentRepository(asDirectionDatabase(database), binding,
+            planD1DirectionActivity(asActivityDatabase(database), activityActorContext)),
+          runtimeEventRepository: new D1RuntimeEventRepository(asDirectionDatabase(database), binding),
+        },
       });
     const origin = "http://localhost";
     const app = createApp(services, { humanAuth: { mode: "trusted-local", publicOrigin: origin } });
@@ -43,6 +51,20 @@ test("shared HTTP auth, Workspace, Grant and Credential routes use D1 repositori
     assert.ok(caller);
     const rotated = await request(`/api/projects/${project.id}/credentials/${credential.id}/rotate`, "POST", {});
     assert.equal(rotated.status, 201, await rotated.clone().text());
+    const intentResponse = await request(`/api/workspaces/${workspace.id}/intents`, "POST", { title: "Intent", desiredState: "Business goal" });
+    assert.equal(intentResponse.status, 201, await intentResponse.clone().text());
+    const { intent } = await intentResponse.json() as { intent: { id: string } };
+    const edited = await request(`/api/workspaces/${workspace.id}/intents/${intent.id}`, "PATCH", { expectedVersion: 1, title: "Updated intent" });
+    assert.equal(edited.status, 200, await edited.clone().text());
+    assert.equal((await request(`/api/workspaces/${workspace.id}/intents/${intent.id}/abandon`, "POST", { expectedVersion: 2 })).status, 200);
+    const runtimeResponse = await request(`/api/workspaces/${workspace.id}/credentials`, "POST", {
+      kind: "runtime", principalId: "runtime", scopes: ["runtime:event:read", "runtime:event:ack"],
+    });
+    assert.equal(runtimeResponse.status, 201, await runtimeResponse.clone().text());
+    const runtimeCredential = await runtimeResponse.json() as { token: string };
+    const events = await app.request(`/api/workspaces/${workspace.id}/runtime-events`, { headers: { Authorization: `Bearer ${runtimeCredential.token}` } });
+    assert.equal(events.status, 200, await events.clone().text());
+    assert.deepEqual((await events.json() as { events: unknown[] }).events, []);
     assert.equal((await request("/api/auth/logout", "POST")).status, 204);
     assert.equal((await request(`/api/workspaces/${workspace.id}`)).status, 401);
   } finally {

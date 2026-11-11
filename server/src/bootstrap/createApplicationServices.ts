@@ -1,6 +1,6 @@
 import type { AccessInfrastructure } from "./accessInfrastructure.ts";
 import { createDirectionServices } from "./directionServices.ts";
-import { createDirectionFoundation } from "./directionFoundation.ts";
+import { createDirectionFoundation, type DirectionRepositoryOverrides } from "./directionFoundation.ts";
 import { createAccessServices } from "./accessServices.ts";
 import { createActivityServices } from "./activityServices.ts";
 import { createConsultationServices } from "./consultationServices.ts";
@@ -88,14 +88,14 @@ export const createApplicationServices = (
   integrations: { pullRequests?: PullRequestGateway | null; revisions?: RevisionGateway | null } = {},
   /** Organizationの永続化契約。未指定時は同じDBを使うSQLite実装。 */
   organization: OrganizationInfrastructure = createSqliteOrganizationInfrastructure(applicationDatabase),
-  infrastructure: { access?: AccessInfrastructure } = {},
+  infrastructure: { access?: AccessInfrastructure; direction?: DirectionRepositoryOverrides } = {},
 ): ApplicationServices => {
   // Project（Workspaceを含む）はOrganizationが所有する。Projectのarchiveも同じtransactionでcanonical Activityへ投影する。
   const {
     projectRepository,
     workspaceRepository,
   } = organization;
-  const directionFoundation = createDirectionFoundation(applicationDatabase, workspaceRepository, clock);
+  const directionFoundation = createDirectionFoundation(applicationDatabase, workspaceRepository, clock, infrastructure.direction);
   const {
     workspaceIntentRepository,
     workspaceOutcomeRepository,

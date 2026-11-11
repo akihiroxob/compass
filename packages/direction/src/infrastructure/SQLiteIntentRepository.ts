@@ -14,7 +14,7 @@ import type { DirectionDatabase, IntentRevisionTable, IntentTable } from "./sche
 import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
-const toIntent = (row: Selectable<IntentTable>): Intent =>
+export const intentFromRow = (row: Selectable<IntentTable>): Intent =>
   new Intent({
     id: row.id,
     workspaceId: row.workspace_id,
@@ -52,14 +52,14 @@ const toRevision = (row: Selectable<IntentRevisionTable>): IntentRevision => ({
 });
 
 /** 保存した版の内容を履歴へ残す。同じ版は1件だけ（主キー）。 */
-const insertRevision = async (
-  transaction: Transaction<DirectionDatabase>,
+export const insertIntentRevisionQuery = (
+  transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
   intent: Selectable<IntentTable>,
   meaningChanged: boolean,
   reason: string | null,
   actor: IntentActor,
-): Promise<void> => {
-  await transaction
+) =>
+  transaction
     .insertInto("intent_revision")
     .values({
       intent_id: intent.id,
@@ -77,9 +77,8 @@ const insertRevision = async (
       changed_by: actor.principalId,
       changed_by_role: actor.role,
       created_at: intent.updated_at,
-    })
-    .execute();
-};
+    });
+
 
 export class SQLiteIntentRepository implements IntentRepository {
   constructor(
@@ -113,7 +112,7 @@ export class SQLiteIntentRepository implements IntentRepository {
         })
         .returningAll()
         .executeTakeFirstOrThrow();
-      await insertRevision(transaction, row, false, null, actor);
+      await insertIntentRevisionQuery(transaction, row, false, null, actor).execute();
       await notifyDirectionChange(this.changeObserver, transaction, {
         type: "intent_created",
         workspaceId,
@@ -125,7 +124,7 @@ export class SQLiteIntentRepository implements IntentRepository {
         principalId: null,
         occurredAt: now,
       });
-      return { kind: "created", intent: toIntent(row) };
+      return { kind: "created", intent: intentFromRow(row) };
     });
   }
 
@@ -137,7 +136,7 @@ export class SQLiteIntentRepository implements IntentRepository {
       .orderBy("created_at", "desc")
       .orderBy(sql`rowid`, "desc")
       .execute();
-    return rows.map(toIntent);
+    return rows.map(intentFromRow);
   }
 
   async findById(workspaceId: string, intentId: string): Promise<Intent | null> {
@@ -147,7 +146,7 @@ export class SQLiteIntentRepository implements IntentRepository {
       .where("id", "=", intentId)
       .where("workspace_id", "=", workspaceId)
       .executeTakeFirst();
-    return row ? toIntent(row) : null;
+    return row ? intentFromRow(row) : null;
   }
 
   async update(
@@ -171,13 +170,7 @@ export class SQLiteIntentRepository implements IntentRepository {
         return { kind: "version_conflict", currentVersion: existing.version };
       }
 
-      const changedMeaning = [
-        ...(input.desiredState !== undefined && input.desiredState !== existing.desired_state ? ["desiredState"] : []),
-        ...(input.completionDefinition !== undefined && input.completionDefinition !== existing.completion_definition
-          ? ["completionDefinition"]
-          : []),
-      ];
-      const reason = input.reason ?? null;
+      const { changedMeaning, reason, next, unchanged } = planIntentEdit(existing, input);
       if (changedMeaning.length > 0 && reason === null) {
         // Outcomeは、そのIntentの意味に対する仮説。意味を変えるなら、既存の根拠をどう扱うかを理由として残させる。
         const outcome = await transaction
@@ -188,19 +181,8 @@ export class SQLiteIntentRepository implements IntentRepository {
         if (outcome) return { kind: "reason_required", fields: changedMeaning } satisfies ReasonRequiredResult;
       }
 
-      const next = {
-        title: input.title ?? existing.title,
-        desired_state: input.desiredState ?? existing.desired_state,
-        background: input.background === undefined ? existing.background : input.background,
-        audience: input.audience === undefined ? existing.audience : input.audience,
-        constraints: input.constraints === undefined ? existing.constraints : input.constraints,
-        completion_definition:
-          input.completionDefinition === undefined ? existing.completion_definition : input.completionDefinition,
-        target_date: input.targetDate === undefined ? existing.target_date : input.targetDate,
-      };
-      const unchanged = (Object.keys(next) as (keyof typeof next)[]).every((key) => next[key] === existing[key]);
       // 内容が変わらない保存は版を進めず、履歴も増やさない。
-      if (unchanged) return { kind: "changed", intent: toIntent(existing) };
+      if (unchanged) return { kind: "changed", intent: intentFromRow(existing) };
 
       const version = existing.version + 1;
       const row = await transaction
@@ -216,8 +198,8 @@ export class SQLiteIntentRepository implements IntentRepository {
         .where("version", "=", existing.version)
         .returningAll()
         .executeTakeFirstOrThrow();
-      await insertRevision(transaction, row, changedMeaning.length > 0, reason, actor);
-      return { kind: "changed", intent: toIntent(row) };
+      await insertIntentRevisionQuery(transaction, row, changedMeaning.length > 0, reason, actor).execute();
+      return { kind: "changed", intent: intentFromRow(row) };
     });
   }
 
@@ -320,7 +302,30 @@ export class SQLiteIntentRepository implements IntentRepository {
         .returningAll()
         .executeTakeFirstOrThrow();
       await hooks.afterChange?.(transaction, row);
-      return { kind: "changed", intent: toIntent(row) };
+      return { kind: "changed", intent: intentFromRow(row) };
     });
   }
 }
+
+/** 編集内容・意味の変更・同一内容の判定を保存方式間で共用する。 */
+export const planIntentEdit = (existing: Selectable<IntentTable>, input: UpdateIntentInput) => {
+  const changedMeaning = [
+    ...(input.desiredState !== undefined && input.desiredState !== existing.desired_state ? ["desiredState"] : []),
+    ...(input.completionDefinition !== undefined && input.completionDefinition !== existing.completion_definition
+      ? ["completionDefinition"]
+      : []),
+  ];
+  const reason = input.reason ?? null;
+  const next = {
+    title: input.title ?? existing.title,
+    desired_state: input.desiredState ?? existing.desired_state,
+    background: input.background === undefined ? existing.background : input.background,
+    audience: input.audience === undefined ? existing.audience : input.audience,
+    constraints: input.constraints === undefined ? existing.constraints : input.constraints,
+    completion_definition:
+      input.completionDefinition === undefined ? existing.completion_definition : input.completionDefinition,
+    target_date: input.targetDate === undefined ? existing.target_date : input.targetDate,
+  };
+  const unchanged = (Object.keys(next) as (keyof typeof next)[]).every((key) => next[key] === existing[key]);
+  return { changedMeaning, reason, next, unchanged };
+};

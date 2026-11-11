@@ -1,3 +1,4 @@
+import type { IntentRepository, RuntimeEventRepository } from "@compass/direction";
 import { type OrganizationInfrastructure } from "./organizationInfrastructure.ts";
 
 import { systemActivityActor } from "../application/activityActor.ts";
@@ -50,11 +51,16 @@ import { asDirectionDatabase } from "../infrastructure/database/contextDatabase.
 import type { Database } from "../infrastructure/database/schema.ts";
 import { directionChangeObserver, directionProjectReaders, directionWorkspaceReaders } from "../infrastructure/repository/contextAdapters.ts";
 
-export const createDirectionFoundation = (applicationDatabase: Kysely<Database>, workspaceRepository: OrganizationInfrastructure["workspaceRepository"], clock: () => number) => {
+export type DirectionRepositoryOverrides = {
+  intentRepository?: IntentRepository;
+  runtimeEventRepository?: RuntimeEventRepository;
+};
+
+export const createDirectionFoundation = (applicationDatabase: Kysely<Database>, workspaceRepository: OrganizationInfrastructure["workspaceRepository"], clock: () => number, infrastructure: DirectionRepositoryOverrides = {}) => {
   // Directionのrepositoryへは同じ接続を、自身のtable型で渡す。Workspace/Project状態は同じtransactionで読むreaderを渡す。
   const directionDatabase = asDirectionDatabase(applicationDatabase);
   // Directionの重要な状態変更も、同じtransactionでcanonical Activityへ投影する。
-  const workspaceIntentRepository = new SQLiteIntentRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
+  const workspaceIntentRepository = infrastructure.intentRepository ?? new SQLiteIntentRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
   const workspaceOutcomeRepository = new SQLiteOutcomeRepository(directionDatabase, directionWorkspaceReaders, directionChangeObserver);
   // Target ProjectとOutcomeのWorkspace一致は、書込と同じtransactionでProject（Organization）を読んで検査する。
   const outcomeTargetProjectRepository = new SQLiteOutcomeTargetProjectRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders, clock);
@@ -105,7 +111,7 @@ export const createDirectionFoundation = (applicationDatabase: Kysely<Database>,
     decideNextOutcomeUseCase: new DecideNextOutcomeUseCase(workspaceRepository, workspaceResearchRepository, workspaceDecisionRepository),
     listDirectionDecisionsUseCase: new ListDirectionDecisionsUseCase(workspaceRepository, workspaceIntentRepository, workspaceDecisionRepository),
   };
-  const runtimeEventRepository = new SQLiteRuntimeEventRepository(directionDatabase);
+  const runtimeEventRepository = infrastructure.runtimeEventRepository ?? new SQLiteRuntimeEventRepository(directionDatabase);
   const outcomeExecutionRepository = new SQLiteOutcomeExecutionRepository(directionDatabase, directionProjectReaders, directionWorkspaceReaders);
   const outcomeEvaluationRepository = new SQLiteOutcomeEvaluationRepository(
     directionDatabase,
