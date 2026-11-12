@@ -124,9 +124,10 @@ export class KyselyActivityStore implements ActivityStore {
     if (query.occurredFrom !== undefined) filtered = filtered.where("occurred_at", ">=", query.occurredFrom);
     if (query.occurredTo !== undefined) filtered = filtered.where("occurred_at", "<=", query.occurredTo);
     if (query.text !== undefined) {
-      const pattern = `%${query.text.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+      // D1のLIKE patternは50 bytesまで。literalの部分一致はinstrで同じ意味を保つ。
       filtered = filtered.where(
-        sql<boolean>`(summary like ${pattern} escape '\\' or coalesce(body, '') like ${pattern} escape '\\' or type like ${pattern} escape '\\' or principal_id like ${pattern} escape '\\')`,
+        sql<boolean>`(instr(lower(summary), lower(${query.text})) > 0 or instr(lower(coalesce(body, '')), lower(${query.text})) > 0
+          or instr(lower(type), lower(${query.text})) > 0 or instr(lower(principal_id), lower(${query.text})) > 0)`,
       );
     }
     // 種別の候補は、種別以外の条件に一致する記録の種別（現在のページに限らない）。

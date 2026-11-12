@@ -35,6 +35,12 @@ test("D1 Activity handles concurrent replays, corrections and rollback with exis
     assert.equal(await store.findByDedupeKey("rollback"), null);
     const page = await store.listWorkspaceStream(project.workspaceId, { limit: 20 });
     assert.ok(page.activities.some(({ id }) => id === original.id));
+    const longText = `AbC%_\\${"日本語".repeat(20)}`;
+    await useCase.execute("worker", { ...input, requestId: "long-search", summary: "Long investigation", body: longText });
+    const found = await store.listWorkspaceStream(project.workspaceId, { limit: 20, text: longText.replace("AbC", "abc") });
+    assert.equal(found.activities.length, 1);
+    assert.equal(found.activities[0]?.summary, "Long investigation");
+    assert.equal((await store.listWorkspaceStream(project.workspaceId, { limit: 20, text: `${longText}missing` })).activities.length, 0);
     await projectRepository.archive(project.id, "Completed");
     assert.equal((await useCase.execute("worker", input)).activity.id, original.id);
     await assert.rejects(useCase.execute("worker", { ...input, requestId: "after-archive" }), /archived/);
