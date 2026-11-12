@@ -15,7 +15,7 @@
   },
   "d1_databases": [
     {
-      "binding": "compass",
+      "binding": "DB",
       "database_name": "compass",
       // Replace with the ID returned by `wrangler d1 create compass` before deploying.
       "database_id": "9c37c0f9-d5ee-4c4f-b2a8-98e89249fa56",
@@ -26,10 +26,13 @@
   "observability": {
     "enabled": true,
   },
+  "vars": {
+    "COMPASS_PUBLIC_ORIGIN": "https://compass.akihiro-ob.workers.dev",
+  },
   "previews": {
     "d1_databases": [
       {
-        "binding": "compass",
+        "binding": "DB",
         "database_id": "9c37c0f9-d5ee-4c4f-b2a8-98e89249fa56",
       },
     ],
