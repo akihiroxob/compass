@@ -27,7 +27,7 @@ SQL前提条件の不成立だけを有限回再試行する。通信断や成�
 2. 同時Claimは1件だけ成功し、期限切れ・更新・解放・再取得で所有権が崩れない。
 3. 同じrequest IDの並行実行と再送は、更新・Change・Activityを重複させない。
 4. 更新後の再読取、条件付き更新、複数行更新がSQLiteと一致する。
-5. 保存直前のGrant失効・Project archive・Outcome Target解除、Project archive、Target解除、Claim変更を検出する。
+5. 保存直前のGrant失効・Project archive・Outcome Target解除・Claim変更を検出する。
 6. Receipt／Change／Activityの保存失敗で、Task／Claim等も巻き戻る。
 7. PR・公開記録の番号／受付順と、cursorの競合を検出する。
 8. 複数Project・大量のStory／Task・D1のSQLパラメータ上限を検証し、全Workデータの毎回読込を前提にしない。
@@ -40,4 +40,6 @@ SQL前提条件の不成立だけを有限回再試行する。通信断や成�
 - 保存直前のGrant失効・Project archive・Outcome Target解除、Receipt保存失敗の全体ロールバック、成否不明時の自動再試行禁止と同じIDでの復旧を確認済み。
 - 異なる行を更新する並行計画でも、集計の前提が崩れた計画を拒否するwrite skew検証を実施済み。
 - 共通HTTP／MCPでHumanのTask作成からAgent CredentialのClaim取得まで接続済み。配布bundleのworkerd上でPR登録・公開記録APIも接続済み。
-- 大きい本文・大量更新時のD1上限検証は未完了。
+- 100列の読取、200件・合計2.4MBのTaskの一括保存と読取、JSON化で2MBを超える改行本文の更新を確認済み。分割した読取検査でも途中の変更・末尾への追加を検出する。
+- 検査用JSONと保存予定行のJSONは小分けにし、幅の広い行はjson_objectの引数数を抑え、大きい本文は生の値でも照合する。確定batch自体は分割しない。
+- テスト用D1接続はSQL長・bind数・文字列値・json_object引数の公開上限を照合する。実環境のCPU・通信・invocation全体の上限や、任意サイズでの性能を保証する検証ではない。

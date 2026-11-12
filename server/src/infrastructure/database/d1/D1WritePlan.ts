@@ -10,6 +10,20 @@ type Row = Record<string, unknown>;
 export type D1PlanTables = Partial<Record<Table, { key: readonly string[]; rowIdColumn?: string }>>;
 type Entry = { key: Row; row: Row | null; rowId: number };
 type Overlay = { columns: string[]; entries: Map<string, Entry> };
+const encoder = new TextEncoder();
+/** JSONへのescapeで大きくなる行も、SQLの単一bind値上限を超えない形で扱う。 */
+const rowGroups = (rows: Row[]) => {
+  const groups: { rows: Row[]; raw: boolean }[] = [];
+  let group: Row[] = [], size = 2;
+  for (const row of rows) {
+    const bytes = encoder.encode(JSON.stringify(row)).byteLength + 1;
+    if (group.length && size + bytes > 250_000) { groups.push({ rows: group, raw: false }); group = []; size = 2; }
+    if (bytes > 2_000_000) groups.push({ rows: [row], raw: true });
+    else { group.push(row); size += bytes; }
+  }
+  if (group.length) groups.push({ rows: group, raw: false });
+  return groups;
+};
 
 const field = (name: string) => {
   if (!/^[a-z_][a-z_0-9]*$/.test(name)) throw new Error(`Unsupported planned SQL column: ${name}`);
@@ -56,9 +70,21 @@ export class D1WritePlan implements KyselyPlugin {
       const keyMatch = sql.join(keys.map((key) => sql`${sql.ref(`base.${field(key)}`)} IS json_extract(changed.value, ${sql.lit(`$.${key}`)})`), sql` AND `);
       const changed = entries.filter(({ row }) => row !== null).map(({ row, rowId }) => ({ ...row, rowid: rowId }));
       const selected = sql.join(columns.map((column) => sql`json_extract(staged.value, ${sql.lit(`$.${field(column)}`)})`));
-      const view = sql<Row>`SELECT ${unchanged} FROM ${sql.id("main", table)} AS base
-        WHERE NOT EXISTS (SELECT 1 FROM json_each(${JSON.stringify(entries.map(({ key }) => key))}) AS changed WHERE ${keyMatch})
-        UNION ALL SELECT ${selected} FROM json_each(${JSON.stringify(changed)}) AS staged`;
+      const exclusions = rowGroups(entries.map(({ key }) => key)).map(({ rows }) =>
+        sql`NOT EXISTS (SELECT 1 FROM json_each(${JSON.stringify(rows)}) AS changed WHERE ${keyMatch})`);
+      const groups = rowGroups(changed);
+      const normal = groups.filter(({ raw }) => !raw);
+      // VALUESでJSON断片を渡し、断片ごとのUNIONでcompound SELECT上限を消費しない。
+      const staged = normal.length ? [sql`SELECT ${selected}
+        FROM (VALUES ${sql.join(normal.map(({ rows }) => sql`(${JSON.stringify(rows)})`))}) AS chunks,
+          json_each(chunks.column1) AS staged`] : [];
+      for (const { rows } of groups.filter(({ raw }) => raw)) {
+        staged.push(sql`SELECT ${sql.join(columns.map((column) => sql`${rows[0]![column]}`))}`);
+      }
+      const view = sql<Row>`${sql.join([
+        sql`SELECT ${unchanged} FROM ${sql.id("main", table)} AS base WHERE ${sql.join(exclusions, sql` AND `)}`,
+        ...staged,
+      ], sql` UNION ALL `)}`;
       const operation = this.compiler.with(table, () => sql<Row>`(${view})`).selectNoFrom(sql<number>`1`.as("unused")).toOperationNode();
       expressions.push(operation.with!.expressions[0]!);
     }
