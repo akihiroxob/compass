@@ -270,6 +270,15 @@
 - 配布・復旧: commit `65ba367`をローカルRalphの`verification.preparationRevision`へ反映。旧実行と証跡を通常のretained経路へ退避して保留解除。Runner／Agentは起動していない。Claim解放済み実行へのabandonはreason違いの同一requestIdで`IDEMPOTENCY_CONFLICT`となったため、元のblocked理由で成功receiptを照合してから退避した。保守前の記録・設定は`/tmp/compass-z1-policy-recovery-20261109/`に保持。
 - 残る問題: 次回Reviewerの独立した通し検証とManager受入。コミットは未push。製品本体・業務認可は変更していない。
 
+### I-39: Workersの初期化失敗でD1の未適用schemaをログから識別できない
+
+- 日時・対象: 2026-11-13、Cloudflare上のCompass Worker。
+- 症状・影響: UIへのGETが503 `SERVICE_UNAVAILABLE`を返し、ログは`Compass request initialization failed`だけで例外の原因が残っていなかった。
+- 原因・確度: 現在の停止原因は直接確認。Cloudflare MCPからデプロイ済みWorkerの設定と接続先D1の`sqlite_master`を読み、bindingが`DB`であることと、DBには内部テーブル`_cf_KV`しかなくCompassのschemaが未適用であることを確認した。Google設定は名前の存在だけを確認し、Secret値の正しさは未検証。初回のbinding不一致は手元の設定で観測したが、過去の実デプロイの例外としては確定していない。
+- 対処: 用意済みの`0000_d1_atomic_guards.sql`・`0001_initial_schema.sql`を`npm run db:migrate:d1:remote`で明示適用する。ユーザー自身がコマンドを実行する選択のため、Agentから実DBへのmigration・設定変更は実施していない。起動時の自動migrationは追加しない。
+- 確認結果: MCP接続・実Workerのbinding・接続先DBのschema不足を確認。読み取り照会でDBへの書込みは行っていない。ユーザーがremote migrationを実行した後、ページが開き、Googleログインも成功したと報告した。復旧の確認根拠はユーザーによる実環境での操作結果であり、Agentによるログイン代行ではない。
+- 復旧状態・参照: 初期化失敗は解消し、Googleログインまでユーザーが実環境で確認済み。初期化例外を捨てるログは、別途診断改善が必要。[配置手順](../cloudflare-deployment.md)。
+
 ## 今後の追記方法
 
 - 新しい運用障害を調査・復旧したとき、最終報告前に本書を更新する。同じ原因は既存IDへ再発日・差分を追記する。一般的な一度だけのテスト失敗をすべて障害項目へ増やさない。
