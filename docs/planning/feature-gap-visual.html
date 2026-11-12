@@ -1,0 +1,468 @@
+<title>Compass 移行マップ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* layout: 上に全体の割合、下に機能ごとの対応表。状態で絞り込める */
+:root {
+  --bg: #F2F5F7; --panel: #FFFFFF; --panel2: #E8EDF1; --fg: #15202B; --muted: #5A6875; --line: #C3CCD5;
+  --accent: #1B6B88;
+  --done: #2A7549; --done-soft: #E1F1E7;
+  --part: #946200; --part-soft: #FBF0D6;
+  --todo: #B4400E; --todo-soft: #FBE9DF;
+  --new: #1B6B88; --new-soft: #DCEBF1;
+  --dev: #5A6875; --dev-soft: #E8EDF1;
+  --need: #6A45A8; --need-soft: #ECE4F7;
+  --sans: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0F151B; --panel: #18212A; --panel2: #1F2A35; --fg: #E2E9EF; --muted: #96A4B1; --line: #3A4855;
+  --accent: #62B4D1;
+  --done: #6DC390; --done-soft: #173224; --part: #E3B341; --part-soft: #33290F;
+  --todo: #F08A4E; --todo-soft: #3A2217; --new: #62B4D1; --new-soft: #173543; --dev: #96A4B1; --dev-soft: #1F2A35; --need: #B79CE8; --need-soft: #2A2140; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0F151B; --panel: #18212A; --panel2: #1F2A35; --fg: #E2E9EF; --muted: #96A4B1; --line: #3A4855;
+  --accent: #62B4D1;
+  --done: #6DC390; --done-soft: #173224; --part: #E3B341; --part-soft: #33290F;
+  --todo: #F08A4E; --todo-soft: #3A2217; --new: #62B4D1; --new-soft: #173543; --dev: #96A4B1; --dev-soft: #1F2A35; --need: #B79CE8; --need-soft: #2A2140; color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.7;
+  padding-block: 40px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 44px; }
+header, section { display: flex; flex-direction: column; gap: 14px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; color: var(--accent); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.25; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 21px; line-height: 1.35; margin: 0; font-weight: 700; }
+p { margin: 0; max-width: 44em; }
+.note { color: var(--muted); font-size: 13px; }
+code { font-family: var(--mono); font-size: .92em; }
+
+.bar { display: flex; height: 28px; border-radius: 4px; overflow: hidden; border: 1px solid var(--line); }
+.bar span { display: block; min-width: 2px; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px; }
+.legend button { font: inherit; font-size: 13px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 4px;
+  padding: 6px 10px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.legend button[aria-pressed="true"] { border-color: var(--fg); box-shadow: inset 0 0 0 1px var(--fg); }
+.legend button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.legend b { font-variant-numeric: tabular-nums; font-weight: 600; }
+.sw { width: 12px; height: 12px; border-radius: 2px; flex: none; }
+.c-done { background: var(--done); } .c-part { background: var(--part); } .c-todo { background: var(--todo); } .c-new { background: var(--new); } .c-dev { background: var(--dev); } .c-need { background: var(--need); }
+
+.tablebox { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; min-width: 860px; font-size: 13.5px; line-height: 1.55; }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px; border-bottom: 1px solid var(--line); }
+thead th { font-size: 12px; color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--panel); }
+th.src, td.src { text-align: center; width: 76px; white-space: nowrap; }
+tr.group th { background: var(--panel2); font-size: 13px; font-weight: 700; color: var(--fg); padding-block: 7px; }
+td.name { font-weight: 500; min-width: 220px; }
+td.memo { color: var(--muted); font-size: 12.5px; min-width: 240px; }
+.mk { font-family: var(--mono); font-size: 12px; display: inline-block; min-width: 44px; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line); }
+.mk.y { border-color: var(--fg); font-weight: 600; }
+.mk.p { border-style: dashed; border-color: var(--fg); }
+.mk.n { color: var(--muted); border-color: transparent; }
+.st { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 3px; white-space: nowrap; }
+.st.done { background: var(--done-soft); color: var(--done); }
+.st.part { background: var(--part-soft); color: var(--part); }
+.st.todo { background: var(--todo-soft); color: var(--todo); }
+.st.new { background: var(--new-soft); color: var(--new); }
+.st.dev { background: var(--dev-soft); color: var(--dev); }
+.st.need { background: var(--need-soft); color: var(--need); }
+
+button.more { font: inherit; font-weight: 500; color: var(--fg); background: none; border: 0; padding: 0; text-align: left; cursor: pointer;
+  display: inline-flex; gap: 8px; align-items: baseline; }
+button.more:hover span:last-child { text-decoration: underline; }
+button.more:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.caret { font-family: var(--mono); color: var(--accent); width: 1em; flex: none; }
+tr.row.is-open td { border-bottom-color: transparent; }
+tr.detail-row td { padding: 0 12px 14px 32px; background: var(--panel); }
+.detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px 24px; padding: 12px 14px; background: var(--panel2); border-radius: 4px; }
+.detail > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.detail h4 { margin: 0; font-size: 12px; color: var(--muted); font-weight: 600; }
+.detail p { font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.tools { display: flex; justify-content: flex-end; }
+.tools button { font: inherit; font-size: 13px; color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+.tools button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.todo-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.todo-list > div { border-top: 3px solid var(--todo); padding-top: 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.todo-list > div.add { border-top-color: var(--need); }
+.todo-list h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.todo-list p { font-size: 13.5px; color: var(--muted); }
+.ord { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">COMPASS / MIGRATION MAP / 2026-11</div>
+  <h1>Compass に入った機能、残っている機能、新しく必要な機能</h1>
+  <p>Wacha（作業管理）の機能は、ほぼ Compass に入っています。残っているのは、agent-foundation の Ralph が持つ「Git 操作・検証・復旧・運用」の部分です。下の表で、移行済みの機能も含めて1行ずつ確認できます。表の最後に、3つのどこにもなく、Compass の目的のために新しく必要になる機能を加えました。</p>
+  <p class="note">根拠は 2026-11-12 時点のコードです（Wacha <code>3bcb5bf</code>、agent-foundation <code>b26668c</code>、Compass <code>feat/fit2cloudflare</code>）。「一部」には、細かい差を照合していない項目を含みます。備考にその旨を書いています。「新しく必要」の行は事実の整理ではなく、レビューに基づく提案です。</p>
+</header>
+
+<section>
+  <h2>全体の割合</h2>
+  <div class="bar" id="bar" role="img" aria-label="状態ごとの機能数の割合"></div>
+  <div class="legend" id="legend"></div>
+  <p class="note">状態のボタンを押すと、その状態の行だけに絞り込めます。もう一度押すと全件に戻ります。</p>
+</section>
+
+<section>
+  <h2>機能ごとの対応表</h2>
+  <p class="note">機能名を押すと、どんな機能か・元の実装・Compass の現状が開きます。</p>
+  <div class="tools"><button type="button" id="toggle-all">詳細をすべて開く</button></div>
+  <div class="tablebox">
+    <table>
+      <thead><tr><th>機能</th><th class="src">Wacha</th><th class="src">agent-<br>foundation</th><th class="src">Compass</th><th>状態</th><th>備考・次にやること</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <p class="note">あり＝その場所に実装がある。一部＝実装はあるが範囲が狭い。なし＝実装がない。</p>
+</section>
+
+<section>
+  <h2>これから追加するもの</h2>
+  <div class="todo-list">
+    <div><span class="ord">1　最大の塊</span><h3>Git・GitHub 操作をホスト側で行う仕組み</h3><p>commit・push・PR 作成・レビューコメント・merge、Role 別の権限、変更できるパスの保護。製品は今、Agent 自身が行う設計です。どちらに置くかを先に決める必要があります。</p></div>
+    <div><span class="ord">2</span><h3>Manager の受入の自動起動</h3><p>agent-foundation 版は、Reviewer を通過した受入待ちの Task に Manager を起動します。製品の Ralph は相談からの再開だけです。</p></div>
+    <div><span class="ord">3</span><h3>検証の仕組み</h3><p>実ブラウザ検証（専用プレビュー）、ホスト検証、検証準備の専用コピー。準備スクリプトと手順書は Compass にありますが、動かす側が agent-foundation にあります。</p></div>
+    <div><span class="ord">4</span><h3>復旧と運用</h3><p>操作エラーの復旧、保留と再評価、Task の依存関係、一時停止・再開・状態表示、Agent の時間切れとプロセス管理。障害史の対処の多くがここに入っています。</p></div>
+    <div><span class="ord">5　Server 側</span><h3>変更を伴わない運用 Task</h3><p>Wacha の <code>completionMode: evidence</code>（PR を作らず証跡で完了する Task）が、Compass の Work にありません。</p></div>
+    <div><span class="ord">6</span><h3>Knowledge の差分</h3><p>Wacha の <code>frontend-quality-gates.md</code> と <code>project-defaults.md</code> が Compass にありません。10月以降の Wacha 側の更新（Task の大きさの調整など）も未照合です。</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>どこにもなく、新しく作るもの</h2>
+  <p>Compass の目的は、Human が方向を与え、Agent が評価まで継続して回すことです。そのために足りない機能を、効果の大きい順に並べました。詳細は表の最後のグループにあります。</p>
+  <div class="todo-list">
+    <div class="add"><span class="ord">まず　1周を閉じる</span><h3>成果を Outcome へ戻す処理の起動、実 Agent での通し検証</h3><p>これが無いと評価まで届かず、設計が実際に成り立つかも分かりません。</p></div>
+    <div class="add"><span class="ord">次に　安全に回す</span><h3>規則の変更の承認、sandbox と通信の制限、一時停止、費用の上限</h3><p>Agent だけで回すための土台です。規則の保護は設定だけで始められます。</p></div>
+    <div class="add"><span class="ord">その次　任せきれるようにする</span><h3>戻せない操作の前の確認、出どころの区別、証拠の自動取得、重複起動の抑止、通知</h3><p>常駐で動かし、Human が画面を見ていなくても成り立たせるための機能です。</p></div>
+    <div class="add"><span class="ord">後で　一緒に作る</span><h3>対話しながらの開発、目標を一緒に練る場、運用ログの振り返り</h3><p>Human と Agent が組む場面を広げます。上の土台ができてから進めます。</p></div>
+  </div>
+</section>
+</div>
+
+<script>
+(function () {
+  var S = { done: "移行済み", part: "一部", todo: "未移行", "new": "Compass だけ", dev: "開発用のまま", need: "新しく必要" };
+  var M = { y: "あり", p: "一部", n: "なし" };
+  // [group, name, wacha, agent-foundation, compass, status, memo, what, 元の実装, Compass の現状]
+  var D = [
+    ["作業管理（Server）", "Story・Task・Claim・コメント・変更履歴", "y","n","y","done", "packages/work に統合済み",
+      "仕事を Story と Task に分け、1人だけが作業できるように Claim（期限付きの作業権）で排他します。コメントで引き継ぎ、状態の変更を履歴に残します。",
+      "Wacha: src/application/service/TaskCoordinationService.ts と src/mcp/createMcpServer.ts。MCP の issue_task・claim_task・complete_task など。",
+      "packages/work/src/application/TaskCoordinationService.ts と infrastructure/KyselyWorkStore.ts。同じ名前の MCP を server/src/mcp が公開します。"],
+    ["作業管理（Server）", "レビュー・受入、自己レビューと自己受入の禁止", "y","n","y","done", "",
+      "Task は 実装 → レビュー → 受入 の順に進みます。自分が実装した Task を自分でレビュー・受入することはできません。",
+      "Wacha: TaskCoordinationService が claim_review・reviewed_task・claim_acceptance・accept_task・reject_task で状態を進めます。",
+      "packages/work が同じ状態遷移を持ち、禁止は主体（Principal）単位で強制します。役割を切り替えても回避できません。"],
+    ["作業管理（Server）", "Project ごとの役割の付与（Grant）", "y","n","y","done", "Workspace 単位の付与と Credential を追加済み",
+      "どの Agent が、どの Project で、どの役割（manager・worker・reviewer）として動いてよいかを記録します。",
+      "Wacha: scripts/grant-project-role.ts と Project Role の table。Agent 名を Bearer で名乗る方式です。",
+      "packages/access の GrantProjectRoleUseCase.ts・WorkspaceGrantUseCases.ts。発行した Credential（cmp_agent…）で認証し、Web UI から付与します。"],
+    ["作業管理（Server）", "Task の PR の登録と GitHub での照合", "y","n","y","done", "head・merge・必須 CI・レビュー根拠まで照合",
+      "Task に PR を結び付け、Server が GitHub を読んで「本当に merge されたか」「レビューした版と同じか」を確かめます。Agent の自己申告に頼りません。",
+      "Wacha: src/infrastructure/github/GitHubPullRequestGateway.ts と register_task_pull_request・list_task_pull_requests。",
+      "packages/work/src/infrastructure/GitHubPullRequestGateway.ts と domain/PullRequest.ts。契約は ADR 0004・0005。"],
+    ["作業管理（Server）", "Repository の設定（統合先ブランチ・必須 CI）", "y","n","y","done", "",
+      "Project ごとに、対象の Repository・統合先のブランチ・通過が必要な CI を設定します。PR の照合がこの設定を使います。",
+      "Wacha: Project の workflow 設定（Web UI の RepositoryWorkflowSettings）。",
+      "packages/organization/src/domain/Project.ts（baseBranch・requiredChecks）と Project 設定の画面。"],
+    ["作業管理（Server）", "変更を伴わない運用 Task（証跡で完了）", "y","y","n","todo", "Wacha の completionMode: evidence。Work への追加が必要",
+      "設定の確認や手動の運用作業など、Repository を変更しない Task です。PR を作らず、操作と検証の証跡だけで完了・レビュー・受入します。",
+      "Wacha: Task の completionMode（schema/task.ts、TaskCoordinationService）。agent-foundation の Ralph は、未変更の作業フォルダを確認して完了を反映します（ralph/GITHUB.md）。",
+      "なし。Work の Task にこの区分が無く、PR のある Task と無い Task の区別だけです。"],
+    ["作業管理（Server）", "Web UI（Project・Story・Task）", "y","n","y","done", "画面は大幅に拡張済み",
+      "Human が Project・Story・Task を見て、起票・編集・受入・差し戻しを行う画面です。",
+      "Wacha: src/frontend/pages の5画面（Project 一覧・詳細、Story の追加・編集、Task の編集）。",
+      "server/src/web/features。Workspace・目標・相談・記録・リリース履歴などの画面も持ちます。"],
+
+    ["役割・手順・知識の配信", "Manager・Worker・Reviewer の役割文書と共通の決まり", "y","n","y","done", "roles/・policies/ が正本",
+      "各役割の責務と、全役割に共通の決まりを書いた文書です。Agent は起動時に MCP から取得して従います。",
+      "Wacha: agent/manager.md・worker.md・reviewer.md・role-policy.md を get_role_instructions で返します。",
+      "roles/ と policies/role-policy.md。strategist・researcher・evaluator・runtime の文書を追加済みです。"],
+    ["役割・手順・知識の配信", "作業手順（Skill）7種", "y","n","y","done", "相談用の2種を追加済み",
+      "「Task を実装する」「レビューする」「Story を分解する」などの手順書です。役割文書から参照され、必要なときだけ読み込みます。",
+      "Wacha: skill/ の7ファイルを list_skills・get_skill_context で返します。",
+      "skills/ の9ファイル。Skill 側の allowRoles を除き、役割から Skill を参照する一方向にしました。"],
+    ["役割・手順・知識の配信", "共通知識（原則・ヒント）", "y","n","p","part", "2ファイルが未移行。10月以降の更新は未照合",
+      "設計の原則や、Task の書き方・レビューの観点などのヒント集です。Skill が必要な知識として参照します。",
+      "Wacha: knowledge/principles（4件）と knowledge/tips（9件）。",
+      "knowledge/principles（3件）と knowledge/tips（8件）。frontend-quality-gates.md と project-defaults.md がありません。"],
+    ["役割・手順・知識の配信", "役割ごとの文脈をまとめて返す入口", "n","n","y","new", "get_role_context / get_workspace_role_context",
+      "役割文書・決まり・Skill の一覧に加えて、対象の Project や Workspace の現在の情報と最近の履歴を、1回の呼出しで返します。",
+      "元はありません。Wacha は役割文書をそのまま返すだけでした。",
+      "server/src/application/agentContext の GetRoleContextUseCase.ts と GetWorkspaceRoleContextUseCase.ts。"],
+
+    ["実行ループ（Ralph）", "Worker・Reviewer を1 Task ずつ起動", "n","y","y","done", "",
+      "対象の Task があるかを定期的に確認し、あれば Agent を1 Task 分だけ起動します。終わったらまた確認します。",
+      "agent-foundation: ralph/bin/ralph-loop と backends/wacha.sh。list_tasks の availableFor で対象を数えます。",
+      "ralph/bin/ralph-loop と backends/compass.sh。同じ方式で Compass の /mcp に接続します。"],
+    ["実行ループ（Ralph）", "Manager の受入を自動で起動", "n","y","n","todo", "製品は相談からの再開だけ",
+      "Reviewer を通過して受入待ちになった Task に、Manager を起動して受入・差し戻しを判断させます。",
+      "agent-foundation: ralph run manager。availableFor: acceptance のうち wait_accept だけを対象にします（prompts/github-manager.md）。",
+      "なし。任意の manager 設定はありますが、受入段階で相談待ちになった実行を再開する用途だけです。auto の順は Reviewer → Worker です。"],
+    ["実行ループ（Ralph）", "Claude Code・Codex の切替", "n","y","y","done", "",
+      "役割ごとに、どの CLI とモデルで Agent を動かすかを設定で選べます。",
+      "agent-foundation: ralph/providers/claude.sh・codex.sh。",
+      "ralph/providers/claude.sh・codex.sh。"],
+    ["実行ループ（Ralph）", "役割ごとに別の主体・別の認証", "n","y","y","done", "製品は activeRole の固定も追加",
+      "Worker と Reviewer を別の主体として接続します。同じ主体だと自己レビューになるためです。",
+      "agent-foundation: lib/runtime_state.py が主体と役割を管理し、役割ごとの Agent 名で Wacha に接続します。",
+      "役割別の tokenEnv と X-Compass-Active-Role。同じ Credential の設定は起動を拒否し、Agent には自分の役割の token だけ渡します。"],
+    ["実行ループ（Ralph）", "主体ごとの並行実行", "n","y","p","part", "製品は同じ Project の重複起動を抑止しない",
+      "複数の Worker を別の端末で同時に動かしても、同じ役割・同じ主体が二重に動かないようにします。",
+      "agent-foundation: lib/runtime_state.py の OS ロックと、--principal の指定。",
+      "Task の排他は Server の Claim が保証します。同じ Project を複数の Ralph で監視したときの Agent の重複起動は抑止しません。"],
+    ["実行ループ（Ralph）", "利用上限に達したときの待機", "n","y","p","part", "待機はある。Provider をまたいだ共有は未照合",
+      "モデルの利用上限に達したら、解除時刻まで待ちます。その間も、別の Provider を使う役割は動かし続けます。",
+      "agent-foundation: lib/limit_reset.py が解除時刻を読み取り、.ralph/runtime.json に Provider と quotaKey 単位で保存します。",
+      "ralph/bin/ralph-loop に失敗時の待機と再試行があります。Provider ごとの共有まで同じかは照合していません。"],
+    ["実行ループ（Ralph）", "一時停止・再開・状態表示", "n","y","n","todo", "ralph resume / status",
+      "役割を止めた理由を残し、原因を直した後に再開します。今どの Task が実行中・再試行待ち・保留かを一覧で見られます。",
+      "agent-foundation: bin/ralph の resume・status、lib/execution_status.py、.ralph/runtime.json の paused・reason。",
+      "なし。--once と常駐の2通りで、止まった理由や保留の一覧を見る手段がありません。"],
+    ["実行ループ（Ralph）", "保留した Task の記録と自動の再評価", "n","y","n","todo", "",
+      "先に進めない Task を、成果物と理由を残したまま脇に置きます。別の Task が受入されたら、前提が解消したかを Agent に再評価させます。",
+      "agent-foundation: lib/operation_recovery.py の defer_execution・restore_deferred。記録は .ralph/github-state/<役割>/deferred/。",
+      "なし。"],
+    ["実行ループ（Ralph）", "Task の依存関係（先行 Task の待ち）", "n","y","n","todo", "設定ファイルで指定する方式",
+      "先行する Task が受入されるまで、後続の Task を Claim も起動もしません。",
+      "agent-foundation: lib/task_dependencies.py。.ralph/config.json の taskDependencies に Task ID の対応を書きます。",
+      "なし。Server にも依存関係の項目はありません。設定ファイルではなく Work の項目にするかは、取り込みのときに決める点です。"],
+    ["実行ループ（Ralph）", "Agent の時間切れ・停止の制御", "n","y","n","todo", "Ctrl+C での停止、プロセスの後始末",
+      "Agent の実行時間に上限を設け、超えたら子プロセスごと止めます。Ctrl+C でも、成果物と記録を残して止まります。",
+      "agent-foundation: lib/agent_timeout.py と lib/managed_process.py。",
+      "なし。Orchestrator には lease 切れでの停止がありますが、製品の Ralph にはありません。"],
+    ["実行ループ（Ralph）", "日ごとのログ保存", "n","y","p","part", "製品にもログはある。保存期限の扱いは未照合",
+      "実行ログを日付ごとのファイルに追記し、古い日付を自動で消します。複数プロセスが同時に書いても壊れません。",
+      "agent-foundation: lib/log_stream.py。.ralph/logs/ralph.YYYY-MM-DD.log、既定で20日分を保持します。",
+      "ralph/bin/ralph-loop にログ出力があります。日付での分割と保存期限まで同じかは照合していません。"],
+    ["実行ループ（Ralph）", "初期設定とインストール", "n","y","n","dev", "製品は直接起動する方針で、移さない",
+      "利用先の Repository に設定ファイルを作り、ralph コマンドを使えるようにします。",
+      "agent-foundation: bin/ralph の init と scripts/install_ralph.py（~/.local/share へコピー）。",
+      "移さない方針です（architecture-migration-mapping.md）。ralph/bin/ralph を直接起動します。一本化するなら、この方針の見直しが要ります。"],
+    ["実行ループ（Ralph）", "相談待ちの Task の自動再開", "n","n","y","new", "",
+      "Agent が Human に相談して待っている Task を、結論が出たら元の作業フォルダと文脈のまま再開します。",
+      "元はありません。",
+      "ralph/runtime/consultation-context.mjs・worktree-lock.py と、MCP の wait_for_consultation・resume_consultation_task。"],
+    ["実行ループ（Ralph）", "Agent の実行状況の記録", "n","n","y","new", "record_agent_run",
+      "Ralph と Orchestrator が「いま作業中・待機・エラー」を Server に報告し、Web UI の Agent 一覧で見られます。",
+      "元はありません。agent-foundation はローカルのファイルに記録するだけです。",
+      "ralph/backends/compass.sh が record_agent_run を呼び、packages/access/src/application/AgentRunUseCases.ts が保存します。"],
+
+    ["Git・GitHub", "commit・push・PR 作成・merge をホスト側が実行", "n","y","n","todo", "製品は Agent が実行する設計。方針の決定が必要",
+      "Agent は「何を変えたか」と判断だけをファイルに書きます。commit・push・PR 作成・レビューコメント・merge は、Ralph（ホスト側）が行います。",
+      "agent-foundation: lib/github_workflow.py。Agent は .ralph-result.json を書くだけで、GitHub の権限を持ちません。",
+      "なし。Agent が gh コマンドで push・PR 作成・merge を行う手順です（knowledge/tips/github-workflow.md）。Server は後から照合します。"],
+    ["Git・GitHub", "役割ごとの GitHub 権限", "n","y","n","todo", "",
+      "Worker・Reviewer・Manager に別々の GitHub の権限を割り当て、Git の通信のときだけ一時的に渡します。",
+      "agent-foundation: lib/git_credential.py（一時的な credential helper）と、設定の github.tokenEnvs。",
+      "なし。GitHub の権限は Agent の実行環境に置く前提です。"],
+    ["Git・GitHub", "commit できるパスの保護", "n","y","n","todo", "設定ファイルなどを Agent が変更できないようにする",
+      "Agent が申告した変更ファイルのうち、Ralph の設定や MCP の設定などは commit を拒否します。",
+      "agent-foundation: lib/github_workflow.py の Protected commit manifest path の検査（.ralph/config.json・.mcp.json など）。",
+      "なし。roles/ や policies/ を含め、変更できるパスの制限がありません。"],
+    ["Git・GitHub", "作業フォルダ（worktree）の作成と掃除", "n","y","p","part", "製品は相談再開用の排他だけ",
+      "Task ごとに独立した作業フォルダを作り、終わったら片付けます。並行する Agent が互いの変更を壊しません。",
+      "agent-foundation: lib/github_workflow.py が .ralph/worktrees/<役割>/ を作成・掃除します。",
+      "ralph/runtime/worktree-lock.py が、相談から再開する作業フォルダの排他だけを行います。通常の Task は projectRoot で作業します。"],
+    ["Git・GitHub", "統合先の更新の取り込み", "n","y","n","todo", "",
+      "作業中に統合先のブランチが進んだ場合、Worker がその更新を取り込んだことを確認してから反映します。",
+      "agent-foundation: lib/github_workflow.py（ralph/GITHUB.md「Workerによる上流commitの取り込み」）。",
+      "なし。"],
+    ["Git・GitHub", "commit 前のエラーを Worker に戻して自動修正", "n","y","n","todo", "",
+      "commit 前の検査（空白の誤りなど）で失敗したら、場所と内容だけを Worker に返して直させます。回数に上限があります。",
+      "agent-foundation: lib/github_workflow.py の Worker repair。",
+      "なし。"],
+
+    ["検証", "実ブラウザ検証（専用プレビューの起動と停止）", "n","y","n","todo", "準備スクリプトと手順書は Compass にある",
+      "検証用のサーバーを専用の DB とポートで起動し、Agent がブラウザを操作して画面の受入条件を確かめます。終わったら停止し、証跡を残します。",
+      "agent-foundation: lib/browser_preview.py と Playwright MCP、Skill の verify-browser-ac。",
+      "動かす仕組みはありません。準備の中身（scripts/prepare-browser-verification.mjs、docs/browser-verification.md）は Compass にあります。"],
+    ["検証", "ホスト検証（登録済みコマンドの実行）", "n","y","n","todo", "",
+      "Agent の sandbox ではできない検証（実際の HTTP 通信を伴う結合テストなど）を、Project が登録したコマンドに限ってホスト側で実行します。",
+      "agent-foundation: lib/host_verification.py（Agent から見ると MCP の Tool）。設定の verification.hostCommands。",
+      "なし。"],
+    ["検証", "検証準備の専用コピー", "n","y","n","todo", "",
+      "検証データを作るスクリプトを、実行ごとの専用コピーで使います。検証対象の本体を変えずに、準備側の不具合だけを直せます。",
+      "agent-foundation: lib/preparation_workspace.py。設定の verification.preparationFiles・preparationRevision。",
+      "なし。"],
+    ["検証", "MCP 設定を各 CLI へ渡す", "n","y","p","part", "製品は Compass への接続だけ",
+      "Project の MCP 設定を読み、Claude Code と Codex それぞれの形式に変換して Agent に渡します。",
+      "agent-foundation: lib/mcp_config.py・mcp_config.sh。",
+      "ralph/providers が Compass の MCP への接続だけを渡します。他の MCP（Playwright など）は渡しません。"],
+
+    ["復旧", "操作エラーを Agent が診断して復旧", "n","y","n","todo", "",
+      "push の失敗などで結果を反映できなかったとき、診断専用の Agent を起動して「再試行・修正・保留」を選ばせます。成果物は保持します。",
+      "agent-foundation: lib/operation_recovery.py と prompts/github-recovery.md。回数と時間に上限があります。",
+      "なし。"],
+    ["復旧", "Claim の期限切れ後の再取得", "n","y","y","done", "方式は異なる。製品は期限後に取り直す",
+      "Agent が止まって Claim の期限が切れても、Task が宙に浮かないようにします。",
+      "agent-foundation: Ralph が実行中の Claim を60秒ごとに更新し、切れたら取り直して保存済みの結果を照合します。",
+      "Ralph は Claim を保持しません。止まった Agent の Task は、期限後に次の実行が取り直します。"],
+    ["復旧", "スリープ後の復旧と時間の上限", "n","y","n","todo", "",
+      "Mac の自動スリープを抑止し、中断後は Task・Claim・対象の版を照合して再開します。復旧にかける時間に上限を設けます。",
+      "agent-foundation: caffeinate の利用と、monotonic 時計での時間計測（ralph/GITHUB.md「スリープと復旧予算」）。",
+      "なし。"],
+
+    ["開発 Agent 向けの配布", "共通の手順 6種（不具合調査・ブラウザ検証など）", "n","y","n","dev", "apm で開発 Agent に配布済み。製品の skills/ とは別",
+      "どの Repository でも使える開発 Agent 向けの手順です。不具合調査、実行の復旧、文書への影響確認、MCP の使い方、ブラウザ検証、情報設計。",
+      "agent-foundation: .apm/skills/ の6種。apm install で .claude/skills などへ配られます。",
+      "apm.yml の依存として受け取っています。製品が Agent に配る skills/ には入れていません。"],
+    ["開発 Agent 向けの配布", "危険なコマンドを止める hook", "n","y","n","dev", "同上",
+      "pkill や強制的な削除など、危険なコマンドを実行前に止めます。",
+      "agent-foundation: .apm/hooks/scripts/check-dangerous-command.py。",
+      "apm 経由で .claude/hooks に配られています。製品の Ralph が起動する Agent に適用する仕組みはありません。"],
+
+    ["Compass だけの機能", "Workspace・目標・Outcome・成功条件・評価", "n","n","y","new", "",
+      "Human の目標を、観測できる達成状態（Outcome）と固定の成功条件に落とし、証拠で判定します。",
+      "元は Shirube の考え方です。Wacha と agent-foundation にはありません。",
+      "packages/direction と packages/organization（Workspace・Project）。"],
+    ["Compass だけの機能", "調査・方向の判断・ADR の依頼", "n","n","y","new", "",
+      "判断に必要な調査を依頼し、結果と判断の記録を残します。設計判断は ADR として Repository に反映するよう依頼できます。",
+      "元はありません。",
+      "packages/direction の Research・Direction Decision・ADR 参照。"],
+    ["Compass だけの機能", "Agent から Human への相談", "n","n","y","new", "",
+      "Agent が自分では決められない問題を Human に問い、会話と結論を残します。",
+      "元はありません。",
+      "packages/collaboration。Web UI の「対応待ち」と相談詳細。"],
+    ["Compass だけの機能", "意味のある履歴（Activity）", "n","n","y","new", "",
+      "「何が決まり、何が起きたか」を要約付きで残し、Agent が次の実行で文脈を取り戻せるようにします。",
+      "元はありません。Wacha には機械的な変更履歴だけがあります。",
+      "packages/activity。Workspace と Project の2つの範囲。"],
+    ["Compass だけの機能", "Orchestrator（戦略側の役割の起動）", "n","n","y","new", "",
+      "現在の状態を見て、strategist・researcher・evaluator・manager のうち次に動くべき役割を起動します。",
+      "元は Shirube の manager-runner ですが、現在状態から判断する方式に作り直しています。",
+      "orchestrator/src（起動規則は plan.ts）。"],
+    ["Compass だけの機能", "Human の認証・所属・招待", "n","n","y","new", "",
+      "Google でログインし、Workspace の所属と権限（閲覧・編集・管理・所有）で操作を制限します。",
+      "元はありません。Wacha には Human の認証がありません。",
+      "packages/access の Human* と WorkspaceMembership・WorkspaceInvitation。"],
+    ["Compass だけの機能", "公開確認とリリース履歴", "n","n","y","new", "",
+      "受入した変更が本番に公開されたかを、開発の受入とは別の事実として記録・表示します。",
+      "元はありません。",
+      "packages/work/src/application/PublicationUseCases.ts と Web UI のリリース履歴。"],
+    ["Compass だけの機能", "Workers + D1 への配置", "n","n","y","new", "",
+      "Server を Cloudflare Workers と D1 で動かせます。Orchestrator と Ralph は別のプロセスから接続します。",
+      "元はありません。",
+      "server/src/worker.ts と D1 用の保存の実装（docs/cloudflare-deployment.md）。"],
+
+    ["新しく必要な機能（どこにもない）", "受入した成果を Outcome へ戻す処理の起動", "n","n","p","need", "優先：高。入口はあるが、呼ぶプロセスがない",
+      "Task が受入されたら、その結果と証拠の参照を Outcome 側へ送ります。全部の Project から届くと、評価できる状態になります。",
+      "これが動かないと Evaluator が起動されず、目標から評価までの1周が閉じません。Compass の目的の中心です。",
+      "Server に record_execution_evidence の入口はあります。Orchestrator も Ralph も呼びません。結合テストではテストが呼んでいます。"],
+    ["新しく必要な機能（どこにもない）", "規則・CI・配置設定の変更を Human が承認する仕組み", "n","p","n","need", "優先：高。設定だけで始められる",
+      "役割文書・手順・決まり・CI・配置設定への変更だけは、Agent が merge できないようにし、Human の承認を通します。",
+      "今は Agent が自分を縛る規則を書き換え、別の Agent が merge し、そのまま配信されます。Agent だけで回すなら、規則だけは Agent の外に置く必要があります。",
+      "agent-foundation は Ralph と MCP の設定ファイルの commit を拒否します。roles/・skills/・policies/ は対象外です。GitHub のブランチ保護と CODEOWNERS で始められます。"],
+    ["新しく必要な機能（どこにもない）", "Agent の sandbox と通信先の制限", "n","p","n","need", "優先：高。Git 操作のホスト側への移行と同時に行う",
+      "Agent を、作業フォルダと Compass の MCP だけに触れる環境で動かします。それ以外の通信と、ホストのファイルへのアクセスを止めます。",
+      "Agent は Task の本文や Web の内容を読みます。そこに紛れた指示で誤誘導されたとき、被害を作業フォルダの中に閉じ込めるためです。",
+      "agent-foundation は Codex の sandbox を使い、その影響と回避策を ralph/SANDBOX.md にまとめています。通信先の制限はありません。製品の設定例は権限確認を省略しています。"],
+    ["新しく必要な機能（どこにもない）", "Workspace の一時停止", "n","p","n","need", "優先：高",
+      "Human が画面から Workspace を止めると、Orchestrator と Ralph が新しい Agent を起動しなくなります。再開も画面から行います。",
+      "異常に気づいたとき、プロセスを探して落とす以外の止め方が要ります。remote 配置では Human がホストに入れません。",
+      "agent-foundation には役割単位の pause がありますが、ローカルのファイルです。Compass は archive すると止まりますが、元に戻す操作がありません。"],
+    ["新しく必要な機能（どこにもない）", "利用量の記録と、費用の上限", "n","n","n","need", "優先：高",
+      "Agent の実行ごとに使った量（時間・呼出し回数・token）を記録し、Workspace や目標ごとの上限を超えたら起動を止めます。",
+      "状態が進むたびに新しい起動が生まれるので、目標1つの費用に上限がありません。障害史にも、1 Task の呼出しが膨らんだ記録があります（I-26）。",
+      "Compass は Agent の実行状況（作業中・待機・エラー）を記録しますが、使った量は記録しません。Orchestrator の再試行上限は起動1件ごとです。"],
+    ["新しく必要な機能（どこにもない）", "戻せない操作の前の Human 確認", "n","n","n","need", "優先：中。本番公開から始める",
+      "本番への公開など、戻せない操作の前だけ Human の承認を待ちます。通常の実装・レビュー・merge は止めません。",
+      "Workers 配置では main への push がそのまま本番の配置です。目標の登録から公開まで、確認点が1つもありません。",
+      "相談は Agent が必要と判断したときだけ起きます。操作の種類で必ず止まる仕組みはありません。公開確認は、公開した後の記録です。"],
+    ["新しく必要な機能（どこにもない）", "外から来た文章の出どころを区別する決まり", "n","n","n","need", "優先：中。文書の追加から始められる",
+      "Task の本文・コメント・調査で読んだ Web の内容・Human の返信を、Agent に渡すときに出どころ付きで渡します。指示ではなく資料として扱う決まりを、共通の規則に置きます。",
+      "Researcher が読んだ Web の内容が、Strategist の判断、Task、コードへと伝わります。途中に紛れた指示を、役割の指示と区別する手がかりが今はありません。",
+      "roles/・policies/ にこの決まりはありません。Server が返す文脈にも、出どころの区別はありません。"],
+    ["新しく必要な機能（どこにもない）", "証拠と観測値の自動取得", "n","n","p","need", "優先：中。入口はあるが、手で記録している",
+      "CI の結果・公開の記録・計測の値を、Agent の報告ではなく機械から直接取り込み、評価の根拠にします。",
+      "実装・レビュー・受入・評価を同じ系統のモデルが行うので、根拠まで Agent が書くと、誤りが揃って通ります。評価だけは Agent の外の事実に寄せる必要があります。",
+      "目標の観測値の記録と、公開の記録の入口はあります。計測基盤や CD からの自動の送信は未接続です。"],
+    ["新しく必要な機能（どこにもない）", "複数のホストでの重複起動の抑止", "n","n","n","need", "優先：中。常駐運転の前に",
+      "Orchestrator や Ralph を複数の場所で動かしても、同じ対象に Agent が二重に起動しないよう、Server 側で起動の権利を管理します。",
+      "今の抑止は、同じホストのファイルとロックです。remote 配置や冗長化をすると効きません。",
+      "Task は Claim で排他されます。Orchestrator が起動する役割（strategist など）には、Server 側の排他がありません。"],
+    ["新しく必要な機能（どこにもない）", "Human への通知", "n","n","n","need", "優先：中",
+      "相談・承認待ち・停止・上限超過を、メールやチャットで Human に知らせます。",
+      "Agent だけで回すと、Human は画面を見ていません。相談に気づかなければ、その Task は待ったままです。",
+      "Web UI の「対応待ち」に一覧はあります。通知は無く、招待のメール送信も未接続です。"],
+    ["新しく必要な機能（どこにもない）", "実 Agent での通し検証", "n","n","p","need", "優先：高。機能を足す前に1周通す",
+      "検証用の Workspace で、実際の Agent が目標の登録から評価まで進むことを確かめる手順と環境です。",
+      "結合テストの Agent は固定の応答です。設計が実際の Agent で成り立つかは、まだ確かめられていません。",
+      "相談の応答と再開だけは、実 Agent（Codex）で検証済みです（scripts/verify-consultation-resumption.mjs）。目標から評価までの通しは未検証です。"],
+    ["新しく必要な機能（どこにもない）", "対話しながらの開発", "n","n","n","need", "優先：後。計画案あり（InteractiveWorkSession）",
+      "Human が実行中の Agent に指示を足しながら1つの Task を進め、区切りで通常のレビューと受入へ渡します。",
+      "今、Human が実装に関われるのは、相談への返信と完成後の受入だけです。細かい調整を一緒に進める入口がありません。",
+      "計画案が docs/planning/human-collaboration-and-autonomous-maintenance.md の3節にあります。実装はありません。"],
+    ["新しく必要な機能（どこにもない）", "目標と Outcome を Agent と一緒に練る場", "n","n","n","need", "優先：後",
+      "目標の登録や見直しのときに、Strategist と対話して、達成の確かめ方や Outcome の案を詰められる画面です。",
+      "目標の質が、その後の全ての作業の質を決めます。今は Human が1人でフォームに書き、保存しても対話は始まりません。",
+      "外部の MCP クライアントで Agent と整理してから登録する経路と、Strategist からの相談があります。画面の中での対話はありません。"],
+    ["新しく必要な機能（どこにもない）", "運用ログの振り返りと自律的な修復", "n","n","n","need", "優先：後。計画案あり",
+      "本番や Agent 実行のログを定期的に集め、同じ原因のエラーをまとめ、修正の Task か相談へつなげます。",
+      "公開した後の不具合を拾う経路が無いと、Outcome の評価が実態とずれます。Agent 運用の障害も、今は人が障害史に書いています。",
+      "計画案が同じ文書の2節にあります（packages/operations の案）。実装はありません。"]
+  ];
+  var order = ["done", "part", "todo", "new", "dev", "need"];
+  var counts = {}; order.forEach(function (k) { counts[k] = 0; });
+  D.forEach(function (r) { counts[r[5]]++; });
+  var filter = null;
+  var open = {};
+
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  var bar = document.getElementById("bar");
+  order.forEach(function (k) { var s = el("span", "c-" + k); s.style.flex = counts[k] + " 0 0"; s.title = S[k] + " " + counts[k]; bar.appendChild(s); });
+
+  var legend = document.getElementById("legend");
+  order.forEach(function (k) {
+    var b = el("button"); b.type = "button"; b.id = "f-" + k; b.setAttribute("aria-pressed", "false");
+    b.appendChild(el("span", "sw c-" + k)); b.appendChild(el("span", null, S[k])); b.appendChild(el("b", null, String(counts[k])));
+    b.addEventListener("click", function () { filter = filter === k ? null : k; render(); });
+    legend.appendChild(b);
+  });
+
+  var all = document.getElementById("toggle-all");
+  all.addEventListener("click", function () {
+    var any = Object.keys(open).some(function (k) { return open[k]; });
+    D.forEach(function (r, i) { open[i] = !any; });
+    render();
+  });
+
+  function detail(r) {
+    var box = el("div", "detail");
+    (r[5] === "need" ? [["どんな機能か", r[7]], ["なぜ必要か", r[8]], ["いま近いもの", r[9]]] : [["どんな機能か", r[7]], ["元の実装", r[8]], ["Compass の現状", r[9]]]).forEach(function (p) {
+      var d = el("div"); d.appendChild(el("h4", null, p[0])); d.appendChild(el("p", null, p[1])); box.appendChild(d);
+    });
+    return box;
+  }
+
+  var body = document.getElementById("rows");
+  function render() {
+    order.forEach(function (k) { document.getElementById("f-" + k).setAttribute("aria-pressed", String(filter === k)); });
+    var any = Object.keys(open).some(function (k) { return open[k]; });
+    all.textContent = any ? "詳細をすべて閉じる" : "詳細をすべて開く";
+    body.textContent = "";
+    var last = null;
+    D.forEach(function (r, i) {
+      if (filter && r[5] !== filter) return;
+      if (r[0] !== last) { last = r[0]; var g = el("tr", "group"); var th = el("th", null, r[0]); th.colSpan = 6; g.appendChild(th); body.appendChild(g); }
+      var tr = el("tr", "row" + (open[i] ? " is-open" : ""));
+      var name = el("td", "name");
+      var btn = el("button", "more"); btn.type = "button"; btn.id = "row-" + i;
+      btn.setAttribute("aria-expanded", String(!!open[i]));
+      btn.appendChild(el("span", "caret", open[i] ? "−" : "＋")); btn.appendChild(el("span", null, r[1]));
+      btn.addEventListener("click", function () { open[i] = !open[i]; render(); var b = document.getElementById("row-" + i); if (b) b.focus(); });
+      name.appendChild(btn); tr.appendChild(name);
+      [2, 3, 4].forEach(function (j) { var td = el("td", "src"); td.appendChild(el("span", "mk " + r[j], M[r[j]])); tr.appendChild(td); });
+      var st = el("td"); st.appendChild(el("span", "st " + r[5], S[r[5]])); tr.appendChild(st);
+      tr.appendChild(el("td", "memo", r[6]));
+      body.appendChild(tr);
+      if (open[i]) { var dr = el("tr", "detail-row"); var td = el("td"); td.colSpan = 6; td.appendChild(detail(r)); dr.appendChild(td); body.appendChild(dr); }
+    });
+  }
+  render();
+})();
+</script>

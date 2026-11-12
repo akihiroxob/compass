@@ -1,0 +1,230 @@
+<title>Compass の将来性</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* layout: 見立て → 歩みの図 → 実証済みと仮説の図 → 理由 → 分かれ目 → 自分の道具としての進め方 */
+:root {
+  --bg: #F2F5F7; --panel: #FFFFFF; --panel2: #E8EDF1; --fg: #15202B; --muted: #5A6875; --line: #C3CCD5;
+  --accent: #1B6B88; --accent-soft: #DCEBF1;
+  --good: #2A7549; --good-soft: #E1F1E7; --warn: #B4400E; --warn-soft: #FBE9DF;
+  --sans: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0F151B; --panel: #18212A; --panel2: #1F2A35; --fg: #E2E9EF; --muted: #96A4B1; --line: #3A4855;
+  --accent: #62B4D1; --accent-soft: #173543;
+  --good: #6DC390; --good-soft: #173224; --warn: #F08A4E; --warn-soft: #3A2217; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0F151B; --panel: #18212A; --panel2: #1F2A35; --fg: #E2E9EF; --muted: #96A4B1; --line: #3A4855;
+  --accent: #62B4D1; --accent-soft: #173543;
+  --good: #6DC390; --good-soft: #173224; --warn: #F08A4E; --warn-soft: #3A2217; color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.75;
+  padding-block: 40px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 52px; }
+header, section { display: flex; flex-direction: column; gap: 16px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; color: var(--accent); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.3; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 21px; line-height: 1.35; margin: 0; font-weight: 700; text-wrap: balance; }
+h3 { font-size: 15px; margin: 0; font-weight: 600; }
+p { margin: 0; max-width: 44em; }
+.lede { font-size: 17px; }
+.note { color: var(--muted); font-size: 13px; }
+code { font-family: var(--mono); font-size: .92em; }
+
+figure { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.scroll { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+.scroll svg { display: block; width: 100%; height: auto; min-width: 720px; }
+figcaption { font-size: 13px; color: var(--muted); max-width: 46em; }
+svg text { font-family: var(--sans); fill: var(--fg); font-size: 12px; }
+svg .tb { font-size: 13.5px; font-weight: 600; } svg .tm { fill: var(--muted); }
+svg .tgood { fill: var(--good); font-weight: 600; } svg .twarn { fill: var(--warn); font-weight: 600; } svg .tacc { fill: var(--accent); font-weight: 600; }
+svg .nd { fill: var(--panel2); stroke: var(--line); stroke-width: 1.2; }
+svg .nd-good { fill: var(--good-soft); stroke: var(--good); stroke-width: 1.8; }
+svg .nd-warn { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 1.6; stroke-dasharray: 5 4; }
+svg .nd-acc { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 5 4; }
+svg .nd-h { fill: var(--panel); stroke: var(--fg); stroke-width: 1.6; }
+svg .ln { fill: none; stroke: var(--fg); stroke-width: 1.3; }
+svg .ln-good { fill: none; stroke: var(--good); stroke-width: 2; }
+svg .ln-warn { fill: none; stroke: var(--warn); stroke-width: 1.6; stroke-dasharray: 5 4; }
+svg .mk { fill: var(--fg); } svg .mk-good { fill: var(--good); } svg .mk-warn { fill: var(--warn); }
+
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+.blk { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 3px solid var(--line); min-width: 0; }
+.blk.good { border-top-color: var(--good); } .blk.warn { border-top-color: var(--warn); } .blk.acc { border-top-color: var(--accent); }
+.blk p { font-size: 14px; }
+.blk ul { margin: 0; padding-left: 1.2em; font-size: 14px; display: flex; flex-direction: column; gap: 6px; }
+.test { background: var(--panel); border: 1px solid var(--accent); border-radius: 6px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+.test strong { font-size: 18px; line-height: 1.5; }
+ol.steps { margin: 0; padding-left: 1.4em; max-width: 46em; display: flex; flex-direction: column; gap: 10px; }
+ol.steps b { font-weight: 600; }
+ol.steps span { display: block; font-size: 13.5px; color: var(--muted); }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+  <marker id="a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0L8 4L0 8z"/></marker>
+  <marker id="a-good" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-good" d="M0 0L8 4L0 8z"/></marker>
+  <marker id="a-warn" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="mk-warn" d="M0 0L8 4L0 8z"/></marker>
+</defs></svg>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">COMPASS / OUTLOOK / 2026-11</div>
+  <h1>自分の道具としては、十分に続ける価値がある。ただし、核はまだ仮説のまま</h1>
+  <p class="lede">Compass は、作業管理（Wacha と Ralph）から始まり、方向づけと評価へ手を伸ばしてきました。作業管理の部分は、実際の開発で動いています。伸ばした先の「目標から評価まで」は実装がありますが、実際の Agent で1周したことがありません。将来性は、この1周を本物の目標で回せるかで決まります。</p>
+  <p class="note">これは事実の整理ではなく、コードと公開情報を読んだうえでの私の見立てです。市場の今後は分かりません。</p>
+</header>
+
+<section>
+  <h2>ここまでの歩み</h2>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 960 250" role="img" aria-label="作業管理と実行ループから始まり、1つの製品への統合、方向と評価への拡張を経て、次は1周を閉じる段階という流れ">
+        <path class="ln-good" d="M20 34 V28 H460 V34"/>
+        <text class="tgood" x="240" y="20" text-anchor="middle">実際の開発で動かした実績がある</text>
+        <path class="ln-warn" d="M500 34 V28 H940 V34"/>
+        <text class="twarn" x="720" y="20" text-anchor="middle">ここからは、まだ仮説</text>
+
+        <rect class="nd-good" x="20" y="50" width="200" height="110" rx="5"/>
+        <text class="tm" x="32" y="70">はじまり</text>
+        <text class="tb" x="32" y="92">作業管理と実行のループ</text>
+        <text x="32" y="112">Wacha ＋ Ralph</text>
+        <text class="tgood" x="32" y="146">今も開発を回している</text>
+
+        <rect class="nd-good" x="260" y="50" width="200" height="110" rx="5"/>
+        <text class="tm" x="272" y="70">統合</text>
+        <text class="tb" x="272" y="92">1つの製品にまとめる</text>
+        <text x="272" y="112">作業管理・画面・認証</text>
+        <text class="tgood" x="272" y="146">作業管理は取り込み済み</text>
+
+        <rect class="nd-warn" x="500" y="50" width="200" height="110" rx="5"/>
+        <text class="tm" x="512" y="70">拡張</text>
+        <text class="tb" x="512" y="92">方向づけと評価へ</text>
+        <text x="512" y="112">目標・Outcome・評価・相談</text>
+        <text class="twarn" x="512" y="146">実装あり。実運転は未実証</text>
+
+        <rect class="nd-acc" x="740" y="50" width="200" height="110" rx="5"/>
+        <text class="tm" x="752" y="70">次</text>
+        <text class="tb" x="752" y="92">1周を閉じる</text>
+        <text x="752" y="112">本物の目標で、評価まで</text>
+        <text class="tacc" x="752" y="146">ここが分かれ目</text>
+
+        <line class="ln" x1="220" y1="105" x2="257" y2="105" marker-end="url(#a)"/>
+        <line class="ln" x1="460" y1="105" x2="497" y2="105" marker-end="url(#a)"/>
+        <line class="ln" x1="700" y1="105" x2="737" y2="105" marker-end="url(#a)"/>
+
+        <text class="tm" x="20" y="196">実行の道具（Ralph）は、今も agent-foundation 版が動いています。製品の Ralph には、その知見がまだ入っていません。</text>
+        <text class="tm" x="20" y="218">範囲を広げるたびに作り込んできたので、動いている部分と、動かしたことのない部分の差が開いています。</text>
+      </svg>
+    </div>
+    <figcaption>左の2つは使い込まれています。右の2つが、Compass を他と違うものにする部分で、まだ試されていません。</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>1周のうち、どこまで確かめられているか</h2>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 760 300" role="img" aria-label="目標から評価までの輪のうち、実装とレビューと受入は実運用で動いており、目標から Outcome、分解、評価、次の方向の決め直しは未実証">
+        <rect class="nd-h" x="60" y="40" width="160" height="50" rx="5"/><text class="tb" x="140" y="62" text-anchor="middle">目標を置く</text><text class="tm" x="140" y="79" text-anchor="middle">Human</text>
+        <rect class="nd-warn" x="300" y="40" width="160" height="50" rx="5"/><text class="tb" x="380" y="62" text-anchor="middle">Outcome を決める</text><text class="tm" x="380" y="79" text-anchor="middle">Strategist</text>
+        <rect class="nd-warn" x="540" y="40" width="160" height="50" rx="5"/><text class="tb" x="620" y="62" text-anchor="middle">Task に分解する</text><text class="tm" x="620" y="79" text-anchor="middle">Manager</text>
+        <rect class="nd-good" x="540" y="200" width="160" height="50" rx="5"/><text class="tb" x="620" y="222" text-anchor="middle">実装する</text><text class="tm" x="620" y="239" text-anchor="middle">Worker</text>
+        <rect class="nd-good" x="300" y="200" width="160" height="50" rx="5"/><text class="tb" x="380" y="222" text-anchor="middle">レビュー・受入</text><text class="tm" x="380" y="239" text-anchor="middle">Reviewer・Manager</text>
+        <rect class="nd-warn" x="60" y="200" width="160" height="50" rx="5"/><text class="tb" x="140" y="222" text-anchor="middle">成果を評価する</text><text class="tm" x="140" y="239" text-anchor="middle">Evaluator</text>
+
+        <line class="ln-warn" x1="220" y1="65" x2="297" y2="65" marker-end="url(#a-warn)"/>
+        <line class="ln-warn" x1="460" y1="65" x2="537" y2="65" marker-end="url(#a-warn)"/>
+        <line class="ln-warn" x1="620" y1="90" x2="620" y2="197" marker-end="url(#a-warn)"/>
+        <line class="ln-good" x1="540" y1="225" x2="463" y2="225" marker-end="url(#a-good)"/>
+        <line class="ln-warn" x1="300" y1="225" x2="223" y2="225" marker-end="url(#a-warn)"/>
+        <path class="ln-warn" d="M140 200 V145 H380 V93" marker-end="url(#a-warn)"/>
+        <text class="twarn" x="262" y="137" text-anchor="middle">次の方向を決め直す</text>
+        <text class="twarn" x="262" y="268" text-anchor="middle">成果を戻す処理がない</text>
+        <text class="tgood" x="500" y="268" text-anchor="middle">毎日動いている</text>
+
+        <line class="ln-good" x1="60" y1="290" x2="96" y2="290"/><text x="104" y="294">実際の開発で動いた</text>
+        <line class="ln-warn" x1="260" y1="290" x2="296" y2="290"/><text x="304" y="294">実装はあるが、実際の Agent では未実証</text>
+      </svg>
+    </div>
+    <figcaption>確かめられているのは、輪の右下の一部です。Compass の価値は残りの部分にあります。</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>見立ての理由</h2>
+  <div class="grid3">
+    <div class="blk good">
+      <h3>続ける価値がある理由</h3>
+      <ul>
+        <li>実装の並行化は、大手が埋めていく領域です。「何を作るか」と「作ったものが効いたか」は、まだ誰も解けていません。Compass はそこを設計の中心に置いています。</li>
+        <li>実行の部分には、本物の運用の知見があります。障害史の38件は、動かした人しか持てない資産です。</li>
+        <li>自分の道具なら、他の人に選ばれる必要がありません。自分の開発が進めば、それで成り立ちます。実際に、Compass 自身の開発で成果が出ています。</li>
+      </ul>
+    </div>
+    <div class="blk warn">
+      <h3>厳しい点</h3>
+      <ul>
+        <li>核の仮説は、誰にも証明されていません。Agent が成果を証拠で評価して方向を決め直す、という部分です。評価に使う計測値の取り込みは未接続です。</li>
+        <li>範囲が広すぎます。画面・認証・配置・相談・履歴を同時に作り込む間、核の検証が後回しになっています。</li>
+        <li>実行の道具を2つ持っています。使っているのは agent-foundation 版で、製品の Ralph は使われていません。</li>
+        <li>費用の上限と停止がありません。自分の道具でも、払うのは自分です。</li>
+      </ul>
+    </div>
+    <div class="blk acc">
+      <h3>自分の道具だと変わること</h3>
+      <ul>
+        <li>導入の軽さ、対応する Agent の多さ、複数人での利用は、急がなくてよくなります。</li>
+        <li>大手との競合は問題になりません。実行の部分は、良いものが出たら乗り換えれば済みます。</li>
+        <li>安全性は変わらず必要です。Agent は自分のホストで、自分の権限を持って動きます。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>分かれ目</h2>
+  <div class="test">
+    <strong>本物のプロダクトと、数字で測れる本物の目標で、1周を回せるか。</strong>
+    <p>たとえば「ある機能の利用率を上げる」と目標を置きます。Agent が Outcome を決めて実装し、公開した後の数字で評価し、次の手を変えます。これが1回成り立てば、他の事例にない実証になります。成り立たなければ、どこで崩れるかが分かり、それが次の設計の根拠になります。</p>
+    <p class="note">Compass 自身の開発を題材にすると、目標が「機能を作ること」になりやすく、評価が受入と同じになります。利用者や数字のある別のプロダクトのほうが、評価の部分を試せます。</p>
+  </div>
+</section>
+
+<section>
+  <h2>自分の道具としての進め方</h2>
+  <div class="grid3">
+    <div class="blk acc">
+      <h3>先にやること</h3>
+      <ol class="steps">
+        <li><b>測れる目標を1つ選ぶ</b><span>数字が取れるプロダクトと、1〜2週間で動く目標にします。</span></li>
+        <li><b>実行は、今動いている Ralph をつなぐ</b><span>agent-foundation 版の接続先を Compass に向ける形が、最も早い見込みです。製品の Ralph への全面移植より先に試せます。</span></li>
+        <li><b>成果を戻す処理と、数字の取り込みを1本だけ通す</b><span>汎用にせず、選んだ目標の1つの数字だけで構いません。</span></li>
+        <li><b>費用の上限と停止を入れる</b><span>1周を任せて回す前に必要です。</span></li>
+        <li><b>規則と配置設定を保護する</b><span>GitHub の設定だけで始められます。</span></li>
+      </ol>
+    </div>
+    <div class="blk">
+      <h3>これ以上、磨かなくてよいもの</h3>
+      <ul>
+        <li>複数人のための機能（招待、権限の細かい区別、メール送信）</li>
+        <li>画面の作り込みと、部品のカタログ</li>
+        <li>Workers と D1 への配置（手元で回せるうちは不要）</li>
+        <li>製品の Ralph への全面的な移植（つなぐ方法で足りるなら後回し）</li>
+        <li>文書の精密さ（1周回すと、どの契約が要るかが変わります）</li>
+      </ul>
+      <p class="note">作ったものを捨てる、という意味ではありません。1周が通るまで、ここに時間を足さないという意味です。</p>
+    </div>
+    <div class="blk">
+      <h3>1周が通った後に考えること</h3>
+      <ul>
+        <li>対話しながらの開発（InteractiveWorkSession）</li>
+        <li>目標を Agent と一緒に練る場</li>
+        <li>実行の道具を自前で持ち続けるか、他の基盤に任せるか</li>
+        <li>他の人にも使ってもらうか。その場合は「評価と統制の層」に絞るのが筋です</li>
+      </ul>
+    </div>
+  </div>
+  <p class="note">「今動いている Ralph を Compass につなぐ」は、接続先を差し替える仕組み（<code>backends/</code>）があることからの見込みです。認証や役割の扱いが違うので、実際にどれだけの作業かは未確認です。</p>
+</section>
+</div>
