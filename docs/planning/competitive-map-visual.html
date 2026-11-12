@@ -1,0 +1,275 @@
+<title>Compass 類似事例マップ</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* layout: 位置づけの図 → 機能の比較表 → 事例ごとの詳細（開閉） → 強みと改善点 */
+:root {
+  --bg: #F2F5F7; --panel: #FFFFFF; --panel2: #E8EDF1; --fg: #15202B; --muted: #5A6875; --line: #C3CCD5;
+  --accent: #1B6B88; --accent-soft: #DCEBF1;
+  --good: #2A7549; --good-soft: #E1F1E7; --warn: #B4400E; --warn-soft: #FBE9DF;
+  --sans: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0F151B; --panel: #18212A; --panel2: #1F2A35; --fg: #E2E9EF; --muted: #96A4B1; --line: #3A4855;
+  --accent: #62B4D1; --accent-soft: #173543;
+  --good: #6DC390; --good-soft: #173224; --warn: #F08A4E; --warn-soft: #3A2217; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0F151B; --panel: #18212A; --panel2: #1F2A35; --fg: #E2E9EF; --muted: #96A4B1; --line: #3A4855;
+  --accent: #62B4D1; --accent-soft: #173543;
+  --good: #6DC390; --good-soft: #173224; --warn: #F08A4E; --warn-soft: #3A2217; color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.75;
+  padding-block: 40px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1100px; margin: 0 auto; display: flex; flex-direction: column; gap: 52px; }
+header, section { display: flex; flex-direction: column; gap: 16px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; color: var(--accent); }
+h1 { font-size: clamp(26px, 4vw, 36px); line-height: 1.25; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 21px; line-height: 1.35; margin: 0; font-weight: 700; text-wrap: balance; }
+h3 { font-size: 15px; margin: 0; font-weight: 600; }
+p { margin: 0; max-width: 44em; }
+.note { color: var(--muted); font-size: 13px; }
+a { color: var(--accent); }
+
+figure { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.scroll { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+.scroll svg { display: block; width: 100%; height: auto; min-width: 640px; }
+figcaption { font-size: 13px; color: var(--muted); max-width: 46em; }
+svg text { font-family: var(--sans); fill: var(--fg); font-size: 12px; }
+svg .tm { fill: var(--muted); } svg .tb { font-weight: 600; font-size: 13px; } svg .tacc { fill: var(--accent); font-weight: 600; }
+svg .ax { stroke: var(--fg); stroke-width: 1.2; fill: none; }
+svg .grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 3 5; }
+svg .zone { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; stroke-dasharray: 5 4; }
+svg .pt { fill: var(--fg); }
+svg .pt-c { fill: var(--accent); }
+svg .ring { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: 4 3; }
+svg .mk { fill: var(--fg); }
+
+.tablebox { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; min-width: 980px; font-size: 13px; line-height: 1.45; }
+th, td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: center; vertical-align: middle; }
+thead th { font-size: 12px; font-weight: 600; color: var(--fg); vertical-align: bottom; }
+th.dim { text-align: left; font-weight: 500; min-width: 190px; position: sticky; left: 0; background: var(--panel); }
+th.me, td.me { background: var(--accent-soft); }
+.m { font-family: var(--mono); font-size: 12px; display: inline-block; min-width: 40px; padding: 1px 4px; border-radius: 3px; border: 1px solid transparent; }
+.m.y { border-color: var(--fg); font-weight: 600; }
+.m.p { border: 1px dashed var(--fg); }
+.m.n, .m.u { color: var(--muted); }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; align-items: start; }
+details { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; min-width: 0; }
+summary { cursor: pointer; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+summary .kind { font-family: var(--mono); font-size: 11px; color: var(--accent); letter-spacing: .04em; }
+summary .ttl { font-weight: 600; display: flex; justify-content: space-between; gap: 8px; }
+summary .ttl::after { content: "＋"; font-family: var(--mono); color: var(--accent); }
+details[open] summary .ttl::after { content: "−"; }
+summary .one { font-size: 13px; color: var(--muted); }
+.body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.body h4 { margin: 0; font-size: 12px; color: var(--muted); font-weight: 600; }
+.body p { font-size: 13.5px; line-height: 1.65; }
+.body .src { font-size: 12px; overflow-wrap: anywhere; }
+
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 28px; }
+.col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.col > h3 { font-size: 17px; padding-bottom: 6px; border-bottom: 3px solid var(--good); }
+.col.fix > h3 { border-bottom-color: var(--warn); }
+.item { display: flex; flex-direction: column; gap: 2px; }
+.item b { font-weight: 600; }
+.item span { font-size: 13.5px; color: var(--muted); }
+ol.src { margin: 0; padding-left: 1.4em; font-size: 13px; display: flex; flex-direction: column; gap: 4px; overflow-wrap: anywhere; }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+  <marker id="ax" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="mk" d="M0 0L8 4L0 8z"/></marker>
+</defs></svg>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">COMPASS / SIMILAR WORK / 2026-11</div>
+  <h1>似た取り組みと比べた、Compass の位置</h1>
+  <p>Agent に開発を任せる仕組みは、多くの人が作っています。ほとんどは「実装をどう並行して回すか」を扱います。目標の管理まで扱うものは少なく、成果の評価まで扱うものは、調べた範囲では Compass だけでした。一方で、費用の上限・実行環境の隔離・実際の運用実績では、Compass が遅れています。</p>
+  <p class="note">2026年11月時点の公開情報による比較です。各製品の記述は、公式ページ・論文・紹介記事の読み取りで、実際に動かして確かめたものではありません。図の位置と、表の「あり・一部・なし」は私の判断です。</p>
+</header>
+
+<section>
+  <h2>位置づけ：扱う範囲と、任せる度合い</h2>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 760 470" role="img" aria-label="横軸が扱う範囲、縦軸が任せる度合いの図。多くの事例は実装だけを扱う左側にあり、方向づけと評価まで扱う右上には Paperclip と Compass がある">
+        <rect class="zone" x="470" y="40" width="262" height="170" rx="6"/>
+        <text class="tacc" x="482" y="60">目標から先を、Agent が続けて回す</text>
+        <line class="grid" x1="400" y1="30" x2="400" y2="400"/>
+        <line class="grid" x1="70" y1="215" x2="730" y2="215"/>
+        <line class="ax" x1="70" y1="400" x2="738" y2="400" marker-end="url(#ax)"/>
+        <line class="ax" x1="70" y1="400" x2="70" y2="24" marker-end="url(#ax)"/>
+        <text class="tb" x="400" y="440" text-anchor="middle">扱う範囲</text>
+        <text class="tm" x="74" y="420">実装だけ</text>
+        <text class="tm" x="400" y="420" text-anchor="middle">作業の分担・管理まで</text>
+        <text class="tm" x="730" y="420" text-anchor="end">目標の管理・成果の評価まで</text>
+        <text class="tb" x="24" y="215" text-anchor="middle" transform="rotate(-90 24 215)">任せる度合い</text>
+        <text class="tm" x="50" y="396" text-anchor="middle" transform="rotate(-90 50 396)">Human が都度操作</text>
+        <text class="tm" x="50" y="70" text-anchor="middle" transform="rotate(-90 50 70)">Agent が継続</text>
+
+        <circle class="pt" cx="136" cy="326" r="6"/><text x="148" y="330">並行実行の作業台（Vibe Kanban・Conductor・Claude Squad）</text>
+        <circle class="pt" cx="268" cy="362" r="6"/><text x="280" y="366">仕様駆動の手法（Spec Kit・Kiro・BMAD）</text>
+        <circle class="pt" cx="202" cy="240" r="6"/><text x="214" y="244">GitHub Agent HQ</text>
+        <circle class="pt" cx="242" cy="168" r="6"/><text x="254" y="172">Devin</text>
+        <circle class="pt" cx="300" cy="134" r="6"/><text x="312" y="138">OpenAI Symphony</text>
+        <circle class="pt" cx="281" cy="84" r="6"/><text x="293" y="88">Agyn</text>
+        <circle class="pt" cx="420" cy="104" r="6"/><text x="408" y="96" text-anchor="end">Gas Town</text>
+        <circle class="pt" cx="548" cy="100" r="6"/><text x="560" y="104">Paperclip</text>
+        <circle class="pt-c" cx="664" cy="150" r="7"/><circle class="ring" cx="664" cy="150" r="14"/>
+        <text class="tacc" x="664" y="184" text-anchor="middle">Compass</text>
+        <text class="tm" x="664" y="200" text-anchor="middle">設計上の位置。通し運転は未検証</text>
+      </svg>
+    </div>
+    <figcaption>左側に事例が集まっています。実装の並行化は、すでに多くの選択肢がある領域です。右上は Paperclip と Compass だけで、Compass は評価まで扱う分、さらに右にあります。ただし Compass の位置は設計上のもので、他は実際に動いています。</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>機能の比較</h2>
+  <div class="tablebox">
+    <table>
+      <thead><tr>
+        <th class="dim">観点</th><th class="me">Compass</th><th>Paperclip</th><th>Gas Town</th><th>Agyn</th><th>OpenAI<br>Symphony</th><th>Devin</th><th>GitHub<br>Agent HQ</th><th>並行実行の<br>作業台</th><th>仕様駆動の<br>手法</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <p class="note">あり＝その仕組みを持つ。一部＝近い仕組みがあるが範囲が狭い。なし＝持たない。不明＝調べた資料に記載がない。Compass の「あり」は実装があるという意味で、実 Agent での通し運転は未検証です。</p>
+</section>
+
+<section>
+  <h2>事例ごとの詳細</h2>
+  <p class="note">名前を押すと、どんなものか・Compass との違い・学べる点が開きます。</p>
+  <div class="cards">
+    <details><summary><span class="kind">組織を再現する</span><span class="ttl">Paperclip</span><span class="one">Agent の「会社」を運営する基盤。目標・組織図・予算・承認を持つ。最も近い事例</span></summary><div class="body">
+      <div><h4>どんなものか</h4><p>自分で動かす公開ソフトです（MIT）。組織の目標に仕事をひも付け、Agent に上司・肩書・担当を与えます。仕事の割当て・返信・定時の合図（heartbeat）で Agent が起きます。会社・Agent・Project ごとの予算があり、上限で止まります。Human は目標と予算を決め、採用の承認、一時停止、担当替えを行います。Claude Code・Codex・Cursor など多くの Agent を接続できます。</p></div>
+      <div><h4>Compass との違い</h4><p>目標はありますが、成果を証拠で判定する仕組みは公式の説明にありません。レビューと受入は、設定した承認の段階で行います。Compass のような、主体ごとの自己レビューの禁止や、PR の事実の照合は説明されていません。実行環境の隔離も説明がありません。</p></div>
+      <div><h4>学べる点</h4><p>予算と一時停止を最初から持っていること。Agent を起こす約束事が単純で、接続できる Agent が多いこと。1つのコマンドで始められる導入の軽さ。</p></div>
+      <p class="src">出典：<a href="https://paperclip.ing/llms.txt">paperclip.ing/llms.txt</a></p>
+    </div></details>
+
+    <details><summary><span class="kind">チームを再現する</span><span class="ttl">Gas Town（＋ Beads）</span><span class="one">20〜30 の Claude Code を並行で動かす。7つの役割と、Git に保存する作業管理</span></summary><div class="body">
+      <div><h4>どんなものか</h4><p>Steve Yegge が公開した仕組みです。窓口の Mayor、作業する Polecat、merge の順番を管理する Refinery、作業者を見張る Witness などの役割があります。作業と Agent の状態は、Git に保存する作業管理（Beads）に置きます。Agent が途中で落ちても、次の実行が続きから再開します。</p></div>
+      <div><h4>Compass との違い</h4><p>目標や成果の評価はありません。扱うのは、1つのコードベースでの実装の並行化です。状態を Git に置くので Server が要りません。その代わり、認可や Human の画面はありません。紹介記事は、費用が1時間に約100ドルかかった例や、同じ不具合を複数の Agent が直す混乱を報告しています。</p></div>
+      <div><h4>学べる点</h4><p>merge の順番を専任の役割が管理すること。作業の各段に受入の条件を持たせ、落ちても続きから再開できること。費用の上限なしで並行数を増やすと何が起きるかの実例。</p></div>
+      <p class="src">出典：<a href="https://cloudnativenow.com/features/gas-town-what-kubernetes-for-ai-coding-agents-actually-looks-like/">Cloud Native Now</a>、<a href="https://softwareengineeringdaily.com/2026/02/12/gas-town-beads-and-the-rise-of-agentic-development-with-steve-yegge/">Software Engineering Daily</a></p>
+    </div></details>
+
+    <details><summary><span class="kind">チームを再現する</span><span class="ttl">Agyn</span><span class="one">manager・researcher・engineer・reviewer の4役で、GitHub の PR を通して開発する</span></summary><div class="body">
+      <div><h4>どんなものか</h4><p>論文と公開の基盤です。manager が次に動かす Agent を決め、researcher が原因を調べて仕様を書き、engineer が実装し、reviewer が PR に指摘を書いて承認します。Agent ごとに GitHub のアカウントと、隔離された実行環境を持ちます。完了は、Agent の申告ではなく reviewer の承認で決まります。SWE-bench の500問で 72.2% を解いたと報告しています。</p></div>
+      <div><h4>Compass との違い</h4><p>役割の分け方と「完了は自己申告で決めない」考え方は Compass と同じです。違いは、目標・評価・Human の関与を扱わないことです。状態の正本は GitHub にあります。</p></div>
+      <div><h4>学べる点</h4><p>Agent ごとに実行環境を隔離し、GitHub のアカウントも分けていること。Compass は GitHub の同じアカウントを共有してよい設計で、ここが弱点です。</p></div>
+      <p class="src">出典：<a href="https://arxiv.org/html/2602.01465v2">arXiv 2602.01465</a></p>
+    </div></details>
+
+    <details><summary><span class="kind">チケットで動かす</span><span class="ttl">OpenAI Symphony</span><span class="one">課題管理をそのまま指令の入口にする。仕様書と参考実装として公開</span></summary><div class="body">
+      <div><h4>どんなものか</h4><p>課題管理（issue・task・milestone）の項目ごとに Agent を割り当て、終わるまで動かし続けます。止まった Agent は再起動します。Agent が計画を立てて新しい課題を作ることもでき、Human がそれを確認してから割り当てます。完成した仕事は Human が確認し、差し戻せます。製品ではなく、各社が自分用に作るための仕様書と参考実装です。</p></div>
+      <div><h4>Compass との違い</h4><p>役割・目標・評価は定めていません。既存の課題管理を使うので、新しい作業管理を持ち込みません。Compass は自前の作業管理を持つので、統制は強くできますが、既存の道具とは別になります。</p></div>
+      <p class="src">出典：<a href="https://infoq.com/news/2026/05/openai-symphony-agents">InfoQ</a></p>
+    </div></details>
+
+    <details><summary><span class="kind">商用の自律 Agent</span><span class="ttl">Devin</span><span class="one">クラウドで動く自律 Agent。大きな仕事を分けて、複数の Devin に任せられる</span></summary><div class="body">
+      <div><h4>どんなものか</h4><p>Cognition の商用製品です。1つの Devin が大きな仕事を分け、それぞれ隔離された VM で動く Devin に任せます。組織で共有する手順（Playbooks）と知識（Knowledge）を持ちます。2026年には、自社の設備で動かす形や、企業向けの費用と統制の仕組みを発表しています。</p></div>
+      <div><h4>Compass との違い</h4><p>扱うのは実装の委任です。成果は PR として Human に返ります。目標や評価はありません。Agent は Devin だけです。</p></div>
+      <div><h4>学べる点</h4><p>実行環境を VM で隔離していること。手順と知識を組織で共有する仕組みは、Compass の Skill・Knowledge と同じ発想で、運用実績があります。</p></div>
+      <p class="src">出典：<a href="https://cognition.ai/blog/devin-can-now-manage-devins">Cognition のブログ</a>。統制の詳細は二次情報で、未確認です。</p>
+    </div></details>
+
+    <details><summary><span class="kind">商用の管理基盤</span><span class="ttl">GitHub Agent HQ</span><span class="one">複数社の Agent に仕事を割り当て、権限と監査を GitHub で管理する</span></summary><div class="body">
+      <div><h4>どんなものか</h4><p>GitHub の上で、Copilot や他社の Agent に仕事を割り当てる「管制」の画面です。同じ仕事を複数の Agent に任せて比べることもできます。管理者は、使える Agent・モデル・アクセス範囲を決め、監査の記録を取れます。Agent が作ったコードにどの検査を走らせるかも制御できます。</p></div>
+      <div><h4>Compass との違い</h4><p>役割・目標・評価はありません。統制は、ブランチの保護や検査など、GitHub の既存の仕組みで行います。Compass が弱い「GitHub 側での強制」を最初から持っています。</p></div>
+      <div><h4>学べる点</h4><p>Agent の統制を、Agent の外にある基盤（ブランチ保護・必須の検査・監査の記録）で行うこと。Compass は Git の操作を Agent に任せているので、この層を使えていません。</p></div>
+      <p class="src">出典：<a href="https://github.blog/news-insights/company-news/welcome-home-agents/">GitHub のブログ</a>、<a href="https://www.techtarget.com/it-infrastructure/news/366633584/GitHub-Agent-HQ-opens-platform-to-third-party-coding-agents">TechTarget</a>。2025年末の記事で、現在の機能は未確認です。</p>
+    </div></details>
+
+    <details><summary><span class="kind">並行実行の作業台</span><span class="ttl">Vibe Kanban・Conductor・Claude Squad</span><span class="one">Human が複数の Agent を並べて動かし、差分を見て merge する道具</span></summary><div class="body">
+      <div><h4>どんなものか</h4><p>仕事ごとに作業フォルダ（worktree）を分け、複数の Agent を同時に動かします。Vibe Kanban はかんばんの画面、Conductor は Mac のアプリ、Claude Squad は端末の中で使います。Human が仕事を渡し、差分を確認して merge します。</p></div>
+      <div><h4>Compass との違い</h4><p>Human が常に操作します。役割・目標・評価はありません。Compass で計画中の「対話しながらの開発」に近い領域です。</p></div>
+      <div><h4>学べる点</h4><p>Human が Agent と組んで進めるときの画面の作り（仕事の一覧、差分、状態）。対話しながらの開発を作るときの参考になります。</p></div>
+      <p class="src">出典：<a href="https://crystl.dev/blog/best-ai-agent-orchestration-tools/">crystl.dev の比較記事</a>。販売側の記事を含みます。</p>
+    </div></details>
+
+    <details><summary><span class="kind">仕様駆動の手法</span><span class="ttl">Spec Kit・Kiro・BMAD</span><span class="one">仕様 → 計画 → 作業 → 実装 の順に文書を作らせる進め方</span></summary><div class="body">
+      <div><h4>どんなものか</h4><p>Spec Kit（GitHub）は、仕様・計画・作業の文書を順に作るための雛形と手順です。Kiro（AWS）は同じ流れを組み込んだ開発環境です。BMAD は、分析・製品・設計・開発・検査などの役割を Agent に演じさせる進め方です。</p></div>
+      <div><h4>Compass との違い</h4><p>扱うのは「何を作るか」を文書にする部分で、成果物は Repository の中の文書です。実行の管理・認可・評価は持ちません。Compass の Manager が Story と Task に分ける段階に当たります。</p></div>
+      <div><h4>学べる点</h4><p>仕様と計画を、実装の前に Human が確認できる文書にすること。Compass は目標と Outcome を Human と練る場が弱いので、この流れを取り込めます。</p></div>
+      <p class="src">出典：<a href="https://developertoolkit.ai/en/ecosystem/frameworks/spec-driven-frameworks/">developertoolkit.ai</a>、<a href="https://codemyspec.com/blog/bmad-method-explained">codemyspec.com</a></p>
+    </div></details>
+  </div>
+</section>
+
+<section>
+  <h2>比べて分かった、Compass の強みと改善点</h2>
+  <div class="two">
+    <div class="col">
+      <h3>良いところ</h3>
+      <div class="item"><b>成果の評価まで扱うのは、調べた範囲で Compass だけ</b><span>他は「仕事が終わったか」までです。Compass は、先に決めた成功条件を証拠で判定し、次の方向を決め直すところまで設計しています。</span></div>
+      <div class="item"><b>受入と達成を分けている</b><span>Task が受入されても、目標に近づいたとは扱いません。Agent の自己申告で進捗が良く見える問題を、構造で防いでいます。</span></div>
+      <div class="item"><b>決まりを Server が強制する</b><span>自己レビューの禁止、作業権の排他、PR の事実の照合を、Agent の善意ではなく Server が行います。多くの事例は、手順や指示文に頼っています。</span></div>
+      <div class="item"><b>Agent から Human への相談が仕組みになっている</b><span>会話・結論・待っていた仕事の再開まで扱います。他の事例の Human の関与は、割当てと最終確認が中心です。</span></div>
+      <div class="item"><b>戦略と実行で役割と範囲を分けている</b><span>Workspace で方向を決め、Project で実行します。1つの成果を複数の Project で分担できるのは、他にあまり見られません。</span></div>
+    </div>
+    <div class="col fix">
+      <h3>改善するところ</h3>
+      <div class="item"><b>費用の上限と一時停止がない</b><span>Paperclip は最初から予算と停止を持ちます。Gas Town は、上限なしで並行させると費用と混乱が膨らむ例を示しています。</span></div>
+      <div class="item"><b>実行環境を隔離していない</b><span>Devin は VM、Agyn は Agent ごとの環境で隔離します。Compass の製品側は、権限確認を省いた Agent がホストで動く設定例です。</span></div>
+      <div class="item"><b>統制が GitHub 側に届いていない</b><span>Agyn は Agent ごとにアカウントを分け、GitHub Agent HQ はブランチ保護と検査で縛ります。Compass は同じアカウントの共有を許し、merge の後に照合します。</span></div>
+      <div class="item"><b>動いた実績がない</b><span>他の事例は、粗くても実際に回っています。Compass は目標から評価までを実 Agent で通していません。設計の優位は、1周回して初めて確かめられます。</span></div>
+      <div class="item"><b>導入と接続が重い</b><span>Paperclip は1つのコマンドで始まり、10種類ほどの Agent をつなげます。Compass は Server・Orchestrator・Ralph の設定と認証の発行が要り、対応は Claude Code と Codex です。</span></div>
+      <div class="item"><b>merge の衝突を扱う役割がない</b><span>Gas Town は merge の順番を専任で管理します。Compass の製品側には、並行する変更の取り込みを調整する仕組みがありません。</span></div>
+    </div>
+  </div>
+  <p>進む方向としては、実装の並行化で競うより、「目標から評価まで」と「Server による統制」を伸ばすのが筋です。実行の部分は、隔離・予算・merge の管理など、他の事例で確かめられたやり方を取り入れられます。</p>
+</section>
+
+<section>
+  <h2>出典</h2>
+  <ol class="src">
+    <li><a href="https://paperclip.ing/llms.txt">Paperclip（公式の概要）</a></li>
+    <li><a href="https://cloudnativenow.com/features/gas-town-what-kubernetes-for-ai-coding-agents-actually-looks-like/">Cloud Native Now：Gas Town</a></li>
+    <li><a href="https://softwareengineeringdaily.com/2026/02/12/gas-town-beads-and-the-rise-of-agentic-development-with-steve-yegge/">Software Engineering Daily：Gas Town と Beads</a></li>
+    <li><a href="https://arxiv.org/html/2602.01465v2">Agyn（arXiv 2602.01465）</a></li>
+    <li><a href="https://infoq.com/news/2026/05/openai-symphony-agents">InfoQ：OpenAI Symphony</a></li>
+    <li><a href="https://cognition.ai/blog/devin-can-now-manage-devins">Cognition：Devin can now manage Devins</a></li>
+    <li><a href="https://github.blog/news-insights/company-news/welcome-home-agents/">GitHub：Agent HQ の発表</a></li>
+    <li><a href="https://www.techtarget.com/it-infrastructure/news/366633584/GitHub-Agent-HQ-opens-platform-to-third-party-coding-agents">TechTarget：Agent HQ</a></li>
+    <li><a href="https://crystl.dev/blog/best-ai-agent-orchestration-tools/">crystl.dev：並行実行の道具の比較</a></li>
+    <li><a href="https://developertoolkit.ai/en/ecosystem/frameworks/spec-driven-frameworks/">developertoolkit.ai：仕様駆動の手法の比較</a></li>
+    <li><a href="https://codemyspec.com/blog/bmad-method-explained">codemyspec.com：BMAD</a></li>
+  </ol>
+</section>
+</div>
+
+<script>
+(function () {
+  var M = { y: "あり", p: "一部", n: "なし", u: "不明" };
+  // Compass, Paperclip, Gas Town, Agyn, Symphony, Devin, Agent HQ, 並行実行, 仕様駆動
+  var R = [
+    ["目標・方向の管理", "y","y","n","n","n","n","n","n","p"],
+    ["成果を証拠で評価する", "y","n","n","n","n","n","n","n","n"],
+    ["役割の分担", "y","y","y","y","n","p","n","n","p"],
+    ["実装とレビュー・受入の分離", "y","p","p","y","p","p","y","p","n"],
+    ["作業の状態を1か所で管理", "y","y","y","p","y","y","y","p","n"],
+    ["Human への相談・承認", "p","y","p","n","y","y","y","y","y"],
+    ["費用の上限・一時停止", "n","y","n","u","u","p","p","n","n"],
+    ["実行環境の隔離", "n","u","u","y","u","y","y","p","n"],
+    ["Agent の種類を選べる", "p","y","p","p","p","n","y","y","y"],
+    ["実際に運用されている", "n","p","p","p","p","y","y","y","y"]
+  ];
+  var body = document.getElementById("rows");
+  R.forEach(function (r) {
+    var tr = document.createElement("tr");
+    var th = document.createElement("th"); th.className = "dim"; th.scope = "row"; th.textContent = r[0]; tr.appendChild(th);
+    for (var i = 1; i < r.length; i++) {
+      var td = document.createElement("td"); if (i === 1) td.className = "me";
+      var s = document.createElement("span"); s.className = "m " + r[i]; s.textContent = M[r[i]]; td.appendChild(s); tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  });
+})();
+</script>

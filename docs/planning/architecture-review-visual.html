@@ -1,0 +1,481 @@
+<title>Compass 構造レビュー</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* layout: 1列の読み物。図は幅いっぱい、比較は「現状｜改善後」の2列（狭い幅では縦積み） */
+:root {
+  --bg: #F2F5F7; --panel: #FFFFFF; --panel2: #E8EDF1; --fg: #15202B; --muted: #5A6875; --line: #AEB9C4;
+  --accent: #1B6B88; --accent-soft: #DCEBF1;
+  --warn: #B4400E; --warn-soft: #FBE9DF; --ok: #2A7549; --ok-soft: #E1F1E7;
+  --sans: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0F151B; --panel: #18212A; --panel2: #1F2A35; --fg: #E2E9EF; --muted: #96A4B1; --line: #4A5967;
+  --accent: #62B4D1; --accent-soft: #173543;
+  --warn: #F08A4E; --warn-soft: #3A2217; --ok: #6DC390; --ok-soft: #173224; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0F151B; --panel: #18212A; --panel2: #1F2A35; --fg: #E2E9EF; --muted: #96A4B1; --line: #4A5967;
+  --accent: #62B4D1; --accent-soft: #173543;
+  --warn: #F08A4E; --warn-soft: #3A2217; --ok: #6DC390; --ok-soft: #173224; color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 15px; line-height: 1.75;
+  padding-block: 40px 72px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1040px; margin: 0 auto; display: flex; flex-direction: column; gap: 56px; }
+header { display: flex; flex-direction: column; gap: 12px; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .08em; color: var(--accent); }
+h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.25; margin: 0; font-weight: 700; text-wrap: balance; }
+h2 { font-size: 22px; line-height: 1.35; margin: 0; font-weight: 700; text-wrap: balance; }
+h3 { font-size: 16px; margin: 0; font-weight: 600; }
+p { margin: 0; max-width: 42em; }
+.lede { font-size: 17px; color: var(--fg); }
+section { display: flex; flex-direction: column; gap: 20px; }
+.note { color: var(--muted); font-size: 13px; }
+
+figure { margin: 0; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.scroll { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; }
+.scroll svg { display: block; width: 100%; height: auto; }
+.wide svg { min-width: 760px; }
+figcaption { font-size: 13px; color: var(--muted); max-width: 46em; }
+
+svg text { font-family: var(--sans); fill: var(--fg); font-size: 11px; }
+.tb { font-size: 13px; font-weight: 600; }
+.tm { fill: var(--muted); }
+.tbad { fill: var(--warn); font-weight: 600; }
+.tok { fill: var(--ok); font-weight: 600; }
+.tacc { fill: var(--accent); font-weight: 600; }
+.nd { fill: var(--panel2); stroke: var(--line); stroke-width: 1.2; }
+.nd-ws { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.6; }
+.nd-h { fill: var(--panel); stroke: var(--fg); stroke-width: 1.6; }
+.nd-bad { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 1.6; }
+.nd-ok { fill: var(--ok-soft); stroke: var(--ok); stroke-width: 1.6; }
+.frame { fill: none; stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 5 4; }
+.frame-ws { fill: none; stroke: var(--accent); stroke-width: 1.6; }
+.ln { fill: none; stroke: var(--fg); stroke-width: 1.3; }
+.ln-bad { fill: none; stroke: var(--warn); stroke-width: 1.6; }
+.ln-ok { fill: none; stroke: var(--ok); stroke-width: 1.6; }
+.dash { stroke-dasharray: 5 4; }
+.mk { fill: var(--fg); } .mk-bad { fill: var(--warn); } .mk-ok { fill: var(--ok); }
+
+.verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+.verdict > div { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 3px solid var(--line); min-width: 0; }
+.verdict > div.good { border-top-color: var(--ok); }
+.verdict > div.bad { border-top-color: var(--warn); }
+.verdict p { font-size: 14px; }
+
+.pair { display: flex; flex-direction: column; gap: 12px; padding-top: 20px; border-top: 1px solid var(--line); }
+.pair-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; }
+.sev { font-family: var(--mono); font-size: 12px; padding: 1px 8px; border-radius: 3px; border: 1px solid var(--warn); color: var(--warn); white-space: nowrap; }
+.sev.mid { border-color: var(--muted); color: var(--muted); }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.tag { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; }
+.tag.now { color: var(--warn); } .tag.next { color: var(--ok); }
+
+.tablebox { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 13.5px; line-height: 1.6; }
+th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; color: var(--muted); font-weight: 600; }
+td:first-child { white-space: nowrap; }
+ol { margin: 0; padding-left: 1.4em; max-width: 44em; display: flex; flex-direction: column; gap: 6px; }
+code { font-family: var(--mono); font-size: .92em; }
+</style>
+
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk" d="M0 0L8 4L0 8z"/></marker>
+    <marker id="ar-bad" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-bad" d="M0 0L8 4L0 8z"/></marker>
+    <marker id="ar-ok" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="mk-ok" d="M0 0L8 4L0 8z"/></marker>
+  </defs>
+</svg>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">COMPASS / ARCHITECTURE REVIEW / 2026-11</div>
+  <h1>Compass の全体像と、Agent だけで回すときの弱点</h1>
+  <p class="lede">Compass は、Human が与えた目標から、専門の役割を持つ Agent が計画・実装・検証・評価を進めるための基盤です。前半で仕組みを図にし、後半で「Human を挟まずに回す」前提での懸念を、現状と改善後の図で比べます。</p>
+  <p class="note">改善後の図は提案で、確定した設計ではありません。根拠は 2026-11-12 時点の <code>feat/fit2cloudflare</code> ブランチのコードと文書です。</p>
+</header>
+
+<section>
+  <h2>一目で見る：誰が、何を、どの順で進めるか</h2>
+  <figure class="wide">
+    <div class="scroll">
+      <svg viewBox="0 0 960 370" role="img" aria-label="Human の目標から、Strategist、Manager、Worker、Reviewer、受入、Evaluator へ進み、評価が Strategist へ戻る流れ">
+        <!-- Researcher -->
+        <rect class="nd-ws" x="100" y="20" width="110" height="44" rx="4"/>
+        <text class="tb" x="155" y="39" text-anchor="middle">Researcher</text>
+        <text x="155" y="55" text-anchor="middle">調査して材料を残す</text>
+        <line class="ln dash" x1="180" y1="67" x2="180" y2="117" marker-start="url(#ar)" marker-end="url(#ar)"/>
+        <text class="tm" x="172" y="96" text-anchor="end">必要なとき</text>
+        <!-- return -->
+        <path class="ln" d="M882 120 V78 H240 V117" marker-end="url(#ar)"/>
+        <text x="560" y="70" text-anchor="middle">評価を受けて、次の Outcome か目標の完了かを判断する</text>
+        <!-- nodes -->
+        <rect class="nd-h" x="23" y="120" width="110" height="58" rx="4"/>
+        <text class="tb" x="78" y="144" text-anchor="middle">Human</text>
+        <text x="78" y="163" text-anchor="middle">目標を登録する</text>
+        <rect class="nd-ws" x="157" y="120" width="110" height="58" rx="4"/>
+        <text class="tb" x="212" y="144" text-anchor="middle">Strategist</text>
+        <text x="212" y="163" text-anchor="middle">Outcome を決める</text>
+        <rect class="nd" x="291" y="120" width="110" height="58" rx="4"/>
+        <text class="tb" x="346" y="144" text-anchor="middle">Manager</text>
+        <text x="346" y="163" text-anchor="middle">Task に分解する</text>
+        <rect class="nd" x="425" y="120" width="110" height="58" rx="4"/>
+        <text class="tb" x="480" y="144" text-anchor="middle">Worker</text>
+        <text x="480" y="163" text-anchor="middle">実装する</text>
+        <rect class="nd" x="559" y="120" width="110" height="58" rx="4"/>
+        <text class="tb" x="614" y="144" text-anchor="middle">Reviewer</text>
+        <text x="614" y="163" text-anchor="middle">レビューする</text>
+        <rect class="nd" x="693" y="120" width="110" height="58" rx="4"/>
+        <text class="tb" x="748" y="144" text-anchor="middle">Manager / Human</text>
+        <text x="748" y="163" text-anchor="middle">受入する</text>
+        <rect class="nd-ws" x="827" y="120" width="110" height="58" rx="4"/>
+        <text class="tb" x="882" y="144" text-anchor="middle">Evaluator</text>
+        <text x="882" y="163" text-anchor="middle">成功条件を判定する</text>
+        <!-- arrows -->
+        <line class="ln" x1="133" y1="149" x2="154" y2="149" marker-end="url(#ar)"/>
+        <line class="ln" x1="267" y1="149" x2="288" y2="149" marker-end="url(#ar)"/>
+        <line class="ln" x1="401" y1="149" x2="422" y2="149" marker-end="url(#ar)"/>
+        <line class="ln" x1="535" y1="149" x2="556" y2="149" marker-end="url(#ar)"/>
+        <line class="ln" x1="669" y1="149" x2="690" y2="149" marker-end="url(#ar)"/>
+        <line class="ln" x1="803" y1="149" x2="824" y2="149" marker-end="url(#ar)"/>
+        <!-- products -->
+        <text class="tm" x="78" y="198" text-anchor="middle">Intent</text>
+        <text class="tm" x="212" y="198" text-anchor="middle">Outcome＋成功条件</text>
+        <text class="tm" x="346" y="198" text-anchor="middle">Story / Task</text>
+        <text class="tm" x="480" y="198" text-anchor="middle">変更（PR）</text>
+        <text class="tm" x="614" y="198" text-anchor="middle">レビュー結果</text>
+        <text class="tm" x="748" y="198" text-anchor="middle">受入</text>
+        <text class="tm" x="882" y="198" text-anchor="middle">Evaluation</text>
+        <!-- launchers -->
+        <path class="ln" d="M23 216 V222 H133 V216"/>
+        <text x="78" y="240" text-anchor="middle">Web UI から操作</text>
+        <path class="ln" d="M157 216 V222 H401 V216"/>
+        <text x="279" y="240" text-anchor="middle">Orchestrator が起動</text>
+        <path class="ln" d="M425 216 V222 H669 V216"/>
+        <text x="547" y="240" text-anchor="middle">Ralph が起動</text>
+        <path class="ln-bad dash" d="M693 216 V222 H803 V216"/>
+        <text class="tbad" x="748" y="240" text-anchor="middle">自動の起動なし</text>
+        <path class="ln" d="M827 216 V222 H937 V216"/>
+        <text x="882" y="240" text-anchor="middle">Orchestrator が起動</text>
+        <!-- server -->
+        <rect class="nd" x="23" y="266" width="914" height="52" rx="4"/>
+        <text class="tb" x="480" y="288" text-anchor="middle">Compass Server</text>
+        <text x="480" y="306" text-anchor="middle">状態の正本・認可・業務規則を持つ。Human は Web UI、Agent は MCP からだけ操作する</text>
+        <!-- legend -->
+        <rect class="nd-ws" x="23" y="340" width="16" height="12" rx="2"/>
+        <text x="46" y="350">Workspace の役割（戦略）</text>
+        <rect class="nd" x="210" y="340" width="16" height="12" rx="2"/>
+        <text x="233" y="350">Project の役割（実行）</text>
+        <rect class="nd-h" x="380" y="340" width="16" height="12" rx="2"/>
+        <text x="403" y="350">Human</text>
+      </svg>
+    </div>
+    <figcaption>目標から評価までの1周。Agent を起動するのは Server ではなく、外で動く Orchestrator と Ralph です。製品の Ralph は受入を起動しません。開発で使っている agent-foundation 版の Ralph は、受入まで起動します。</figcaption>
+  </figure>
+
+  <figure class="wide">
+    <div class="scroll">
+      <svg viewBox="0 0 960 270" role="img" aria-label="Workspace の中に Intent と Outcome があり、Outcome が複数の Project の Story と Task に分かれ、Evidence が Evaluation に戻る構造">
+        <rect class="frame-ws" x="10" y="10" width="940" height="250" rx="6"/>
+        <text class="tb tacc" x="26" y="34">Workspace ── 戦略の境界（Mission / Vision / Principles）</text>
+        <rect class="nd-ws" x="30" y="90" width="130" height="54" rx="4"/>
+        <text class="tb" x="95" y="113" text-anchor="middle">Intent</text>
+        <text x="95" y="131" text-anchor="middle">Human の目標</text>
+        <rect class="nd-ws" x="210" y="90" width="170" height="54" rx="4"/>
+        <text class="tb" x="295" y="113" text-anchor="middle">Outcome</text>
+        <text x="295" y="131" text-anchor="middle">達成状態＋固定の成功条件</text>
+        <line class="ln" x1="160" y1="117" x2="207" y2="117" marker-end="url(#ar)"/>
+        <rect class="nd-ws" x="210" y="184" width="170" height="52" rx="4"/>
+        <text class="tb" x="295" y="206" text-anchor="middle">Evaluation</text>
+        <text x="295" y="223" text-anchor="middle">成功条件を Evidence で判定</text>
+        <line class="ln" x1="295" y1="184" x2="295" y2="147" marker-end="url(#ar)"/>
+        <text class="tm" x="30" y="196">Task の受入は、</text>
+        <text class="tm" x="30" y="212">Outcome の達成ではない</text>
+        <!-- projects -->
+        <text class="tm" x="444" y="48" text-anchor="end">Strategist が担当 Project を決める</text>
+        <line class="ln" x1="380" y1="108" x2="447" y2="98" marker-end="url(#ar)"/>
+        <line class="ln" x1="380" y1="128" x2="447" y2="190" marker-end="url(#ar)"/>
+        <rect class="nd" x="450" y="56" width="480" height="84" rx="4"/>
+        <text class="tb" x="464" y="76">Project A ── 実行の境界（Repository）</text>
+        <rect class="nd-h" x="470" y="88" width="110" height="40" rx="4"/>
+        <text x="525" y="112" text-anchor="middle">Story</text>
+        <rect class="nd-h" x="620" y="88" width="110" height="40" rx="4"/>
+        <text x="675" y="112" text-anchor="middle">Task</text>
+        <rect class="nd-h" x="770" y="88" width="140" height="40" rx="4"/>
+        <text x="840" y="112" text-anchor="middle">レビュー → 受入</text>
+        <line class="ln" x1="580" y1="108" x2="617" y2="108" marker-end="url(#ar)"/>
+        <line class="ln" x1="730" y1="108" x2="767" y2="108" marker-end="url(#ar)"/>
+        <rect class="nd" x="450" y="160" width="480" height="84" rx="4"/>
+        <text class="tb" x="464" y="180">Project B</text>
+        <rect class="nd-h" x="470" y="192" width="110" height="40" rx="4"/>
+        <text x="525" y="216" text-anchor="middle">Story</text>
+        <rect class="nd-h" x="620" y="192" width="110" height="40" rx="4"/>
+        <text x="675" y="216" text-anchor="middle">Task</text>
+        <rect class="nd-h" x="770" y="192" width="140" height="40" rx="4"/>
+        <text x="840" y="216" text-anchor="middle">レビュー → 受入</text>
+        <line class="ln" x1="580" y1="212" x2="617" y2="212" marker-end="url(#ar)"/>
+        <line class="ln" x1="730" y1="212" x2="767" y2="212" marker-end="url(#ar)"/>
+        <line class="ln dash" x1="450" y1="226" x2="383" y2="218" marker-end="url(#ar)"/>
+        <text class="tm" x="416" y="244" text-anchor="middle">Evidence</text>
+      </svg>
+    </div>
+    <figcaption>情報の持ち方。目標と達成状態は Workspace が持ち、作業は Project が持ちます。1つの Outcome を複数の Project が分担できます。</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>総評：骨格は良いが、Agent を「間違えるが誠実な作業者」としてしか見ていない</h2>
+  <div class="verdict">
+    <div class="good">
+      <h3>筋が良いところ</h3>
+      <p>状態と認可を Server に集め、Agent の起動を外に出した分離は正しい判断です。起動判断を現在状態だけで行うので、途中で落ちてもやり直せます。成功条件を先に固定し、受入と達成を分けた点も、Agent の自己申告を防ぐ土台になります。</p>
+    </div>
+    <div class="bad">
+      <h3>根本の弱点</h3>
+      <p>守っているのは手順の整合（誰が Claim したか、自己レビューでないか）です。Agent が誤誘導されたり乗っ取られたりした場合に、被害を閉じ込める仕組みがありません。Agent は自分の規則を書き換えられ、書込み権限とホストの shell を同時に持てます。</p>
+    </div>
+    <div class="bad">
+      <h3>進め方の弱点</h3>
+      <p>契約と文書は非常に精密ですが、実 Agent で目標から評価まで通した実績がありません。ループには人手が要る切れ目も残っています。1周も回していない仕組みに、精密さを先に積んでいます。</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>現状と改善後の比較</h2>
+
+  <div class="pair">
+    <div class="pair-head"><span class="sev">重大</span><h3>Agent が、自分を縛る規則を書き換えて配信できる</h3></div>
+    <p>役割の定義（<code>roles/</code>）・手順（<code>skills/</code>）・共通の決まり（<code>policies/</code>）は、Worker が変更する同じ Repository にあります。Worker が PR に含め、Reviewer（Agent）が merge すれば、Server はその内容を次の指示として配ります。Workers 配置では <code>main</code> への push がそのまま本番の配置になります。変更できるパスを制限する仕組みは、製品側には見つかりませんでした。</p>
+    <div class="cols">
+      <figure>
+        <span class="tag now">現状</span>
+        <div class="scroll">
+          <svg viewBox="0 0 440 250" role="img" aria-label="Worker が規則を変える PR を出し、Reviewer の Agent が merge し、Server が配信し、新しい規則で Worker が動く。Human の確認がない循環">
+            <rect class="nd" x="20" y="30" width="130" height="46" rx="4"/><text class="tb" x="85" y="58" text-anchor="middle">Worker（Agent）</text>
+            <rect class="nd" x="290" y="30" width="130" height="46" rx="4"/><text class="tb" x="355" y="58" text-anchor="middle">Reviewer（Agent）</text>
+            <rect class="nd" x="290" y="170" width="130" height="46" rx="4"/><text class="tb" x="355" y="198" text-anchor="middle">main ブランチ</text>
+            <rect class="nd" x="20" y="170" width="130" height="46" rx="4"/><text class="tb" x="85" y="198" text-anchor="middle">Server が配信</text>
+            <line class="ln-bad" x1="150" y1="53" x2="287" y2="53" marker-end="url(#ar-bad)"/><text class="tbad" x="220" y="44" text-anchor="middle">規則を変える PR</text>
+            <line class="ln-bad" x1="355" y1="76" x2="355" y2="167" marker-end="url(#ar-bad)"/><text class="tbad" x="347" y="140" text-anchor="end">Agent が merge</text>
+            <line class="ln-bad" x1="290" y1="193" x2="153" y2="193" marker-end="url(#ar-bad)"/><text class="tbad" x="220" y="212" text-anchor="middle">そのまま配信</text>
+            <line class="ln-bad" x1="85" y1="170" x2="85" y2="79" marker-end="url(#ar-bad)"/><text class="tbad" x="93" y="140">新しい規則で動く</text>
+            <text class="tb tbad" x="220" y="108" text-anchor="middle">Human の確認なし</text>
+          </svg>
+        </div>
+        <figcaption>規則の変更が、通常のコード変更と同じ経路で通ります。</figcaption>
+      </figure>
+      <figure>
+        <span class="tag next">改善後</span>
+        <div class="scroll">
+          <svg viewBox="0 0 440 250" role="img" aria-label="規則や CI の変更だけ Human の承認を通し、通常のコードは Reviewer が merge する">
+            <rect class="nd" x="20" y="30" width="130" height="46" rx="4"/><text class="tb" x="85" y="58" text-anchor="middle">Worker（Agent）</text>
+            <rect class="nd" x="290" y="30" width="130" height="46" rx="4"/><text class="tb" x="355" y="58" text-anchor="middle">Reviewer（Agent）</text>
+            <rect class="nd" x="290" y="170" width="130" height="46" rx="4"/><text class="tb" x="355" y="198" text-anchor="middle">main ブランチ</text>
+            <rect class="nd" x="20" y="170" width="130" height="46" rx="4"/><text class="tb" x="85" y="198" text-anchor="middle">Server が配信</text>
+            <rect class="nd-ok" x="155" y="100" width="130" height="44" rx="4"/><text class="tb" x="220" y="127" text-anchor="middle">Human が承認</text>
+            <line class="ln" x1="150" y1="53" x2="287" y2="53" marker-end="url(#ar)"/><text x="220" y="44" text-anchor="middle">PR</text>
+            <path class="ln-ok" d="M320 76 V122 H288" marker-end="url(#ar-ok)"/><text class="tok" x="312" y="96" text-anchor="end">規則・CI の変更</text>
+            <path class="ln-ok" d="M220 144 V186 H287" marker-end="url(#ar-ok)"/><text class="tok" x="228" y="166">承認後に merge</text>
+            <line class="ln" x1="390" y1="76" x2="390" y2="167" marker-end="url(#ar)"/><text x="384" y="158" text-anchor="end">通常のコード</text>
+            <line class="ln" x1="290" y1="206" x2="153" y2="206" marker-end="url(#ar)"/><text x="220" y="232" text-anchor="middle">配信</text>
+            <line class="ln" x1="85" y1="170" x2="85" y2="79" marker-end="url(#ar)"/>
+          </svg>
+        </div>
+        <figcaption>規則・CI・配置設定を保護パスにし、その変更だけ Human を通します。通常のコードの速度は変わりません。</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <div class="pair">
+    <div class="pair-head"><span class="sev">重大</span><h3>Agent が、書込み権限とホストの shell を同時に持つ</h3></div>
+    <p>製品の Ralph の設定例は、Claude Code の権限確認を省く指定（<code>dangerouslySkipPermissions: true</code>）です。PR の作成や merge は Agent が <code>gh</code> で行う手順なので、GitHub の書込み権限が Agent の実行環境に要ります。Task の本文や Web の内容に紛れた指示で Agent が誤誘導されると、その権限と通信手段がそのまま使われます。Server の照合は merge の後です。</p>
+    <div class="cols">
+      <figure>
+        <span class="tag now">現状</span>
+        <div class="scroll">
+          <svg viewBox="0 0 440 250" role="img" aria-label="Agent がホスト上で Compass の token と GitHub の権限を持ち、GitHub へ直接 push や merge を行い、外部とも通信できる">
+            <rect class="frame" x="10" y="20" width="250" height="215" rx="6"/><text class="tm" x="20" y="38">開発ホスト</text>
+            <rect class="nd-bad" x="30" y="60" width="210" height="60" rx="4"/>
+            <text class="tb" x="135" y="84" text-anchor="middle">Agent（権限確認を省略可）</text>
+            <text x="135" y="103" text-anchor="middle">shell・通信・権限を1つの中に持つ</text>
+            <rect class="nd" x="30" y="140" width="100" height="30" rx="4"/><text x="80" y="159" text-anchor="middle">Compass token</text>
+            <rect class="nd-bad" x="140" y="140" width="100" height="30" rx="4"/><text x="190" y="159" text-anchor="middle">GitHub の権限</text>
+            <rect class="nd" x="300" y="40" width="110" height="40" rx="4"/><text class="tb" x="355" y="65" text-anchor="middle">Server</text>
+            <rect class="nd" x="300" y="110" width="110" height="40" rx="4"/><text class="tb" x="355" y="135" text-anchor="middle">外部の通信先</text>
+            <rect class="nd" x="300" y="180" width="110" height="40" rx="4"/><text class="tb" x="355" y="205" text-anchor="middle">GitHub</text>
+            <line class="ln" x1="240" y1="75" x2="297" y2="62" marker-end="url(#ar)"/><text x="268" y="56" text-anchor="middle">MCP</text>
+            <line class="ln-bad" x1="240" y1="95" x2="297" y2="128" marker-end="url(#ar-bad)"/><text class="tbad" x="355" y="166" text-anchor="middle">任意に通信できる</text>
+            <line class="ln-bad" x1="240" y1="112" x2="297" y2="196" marker-end="url(#ar-bad)"/><text class="tbad" x="355" y="236" text-anchor="middle">直接 push / merge</text>
+            <path class="ln dash" d="M410 60 H428 V200 H413" marker-end="url(#ar)"/><text class="tm" x="434" y="130" text-anchor="middle" transform="rotate(90 434 130)">事後に照合</text>
+          </svg>
+        </div>
+        <figcaption>誤誘導された Agent は、持っている権限をすべて使えます。</figcaption>
+      </figure>
+      <figure>
+        <span class="tag next">改善後</span>
+        <div class="scroll">
+          <svg viewBox="0 0 440 250" role="img" aria-label="Agent は sandbox の中で作業し MCP だけに接続する。GitHub への書込みはホスト側の Ralph が行う">
+            <rect class="frame" x="10" y="20" width="250" height="215" rx="6"/><text class="tm" x="20" y="38">開発ホスト</text>
+            <rect class="nd-ok" x="25" y="48" width="180" height="78" rx="4"/>
+            <text class="tm" x="33" y="64">sandbox</text>
+            <text class="tb" x="115" y="90" text-anchor="middle">Agent</text>
+            <text x="115" y="108" text-anchor="middle">作業フォルダと MCP だけ</text>
+            <rect class="nd" x="25" y="165" width="180" height="52" rx="4"/>
+            <text class="tb" x="115" y="187" text-anchor="middle">Ralph（ホスト側）</text>
+            <text x="115" y="204" text-anchor="middle">GitHub の権限はここだけ</text>
+            <line class="ln" x1="115" y1="126" x2="115" y2="162" marker-end="url(#ar)"/><text x="123" y="149">結果のファイル</text>
+            <rect class="nd" x="300" y="40" width="110" height="40" rx="4"/><text class="tb" x="355" y="65" text-anchor="middle">Server</text>
+            <rect class="nd" x="300" y="110" width="110" height="40" rx="4"/><text class="tb" x="355" y="135" text-anchor="middle">外部の通信先</text>
+            <rect class="nd" x="300" y="180" width="110" height="40" rx="4"/><text class="tb" x="355" y="205" text-anchor="middle">GitHub</text>
+            <line class="ln-ok" x1="205" y1="70" x2="297" y2="60" marker-end="url(#ar-ok)"/><text class="tok" x="250" y="54" text-anchor="middle">MCP のみ</text>
+            <line class="ln-bad dash" x1="205" y1="100" x2="297" y2="128"/><text class="tb tbad" x="251" y="120" text-anchor="middle">×</text>
+            <text class="tok" x="355" y="166" text-anchor="middle">通信を遮断</text>
+            <line class="ln-ok" x1="205" y1="195" x2="297" y2="200" marker-end="url(#ar-ok)"/><text class="tok" x="355" y="236" text-anchor="middle">commit / PR / merge</text>
+            <path class="ln-ok dash" d="M410 60 H428 V200 H413" marker-end="url(#ar-ok)"/><text class="tok" x="434" y="130" text-anchor="middle" transform="rotate(90 434 130)">反映前に照合</text>
+          </svg>
+        </div>
+        <figcaption>Agent は判断と変更内容だけを返し、書込みはホスト側が行います。開発で使っている agent-foundation 版の Ralph は、すでにこの形です。</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <div class="pair">
+    <div class="pair-head"><span class="sev">高</span><h3>止める入口と、費用の上限がない</h3></div>
+    <p>目標を登録した後は、Outcome の決定から merge、Workers 配置なら本番への反映まで、Human の確認点がありません。Server には Workspace を一時停止する操作も、費用の上限もありません。Orchestrator の再試行上限は起動単位で、状態が進むたびに新しい起動が生まれます。止めるには、プロセスを落とすか Workspace を archive するしかありません。</p>
+    <div class="cols">
+      <figure>
+        <span class="tag now">現状</span>
+        <div class="scroll">
+          <svg viewBox="0 0 440 210" role="img" aria-label="目標の登録以降、Outcome、実装、merge、本番公開まで Agent だけで進む">
+            <text class="tm" x="36" y="50" text-anchor="middle">Human</text>
+            <rect class="nd-h" x="5" y="60" width="62" height="44" rx="4"/><text x="36" y="86" text-anchor="middle">目標</text>
+            <rect class="nd" x="97" y="60" width="62" height="44" rx="4"/><text x="128" y="86" text-anchor="middle">Outcome</text>
+            <rect class="nd" x="189" y="60" width="62" height="44" rx="4"/><text x="220" y="86" text-anchor="middle">実装</text>
+            <rect class="nd-bad" x="281" y="60" width="62" height="44" rx="4"/><text x="312" y="86" text-anchor="middle">merge</text>
+            <rect class="nd-bad" x="373" y="60" width="62" height="44" rx="4"/><text x="404" y="86" text-anchor="middle">本番公開</text>
+            <line class="ln" x1="67" y1="82" x2="94" y2="82" marker-end="url(#ar)"/>
+            <line class="ln" x1="159" y1="82" x2="186" y2="82" marker-end="url(#ar)"/>
+            <line class="ln" x1="251" y1="82" x2="278" y2="82" marker-end="url(#ar)"/>
+            <line class="ln-bad" x1="343" y1="82" x2="370" y2="82" marker-end="url(#ar-bad)"/>
+            <path class="ln" d="M97 118 V124 H435 V118"/>
+            <text x="266" y="142" text-anchor="middle">Agent だけで進む</text>
+            <text class="tb tbad" x="220" y="176" text-anchor="middle">止める入口・費用の上限がない</text>
+            <text class="tm" x="220" y="195" text-anchor="middle">戻せない操作（merge・公開）も自動</text>
+          </svg>
+        </div>
+        <figcaption>戻せる操作と戻せない操作が、同じ扱いです。</figcaption>
+      </figure>
+      <figure>
+        <span class="tag next">改善後</span>
+        <div class="scroll">
+          <svg viewBox="0 0 440 210" role="img" aria-label="本番公開の前だけ Human の承認を置き、Server が一時停止と費用の上限を持つ">
+            <text class="tm" x="36" y="50" text-anchor="middle">Human</text>
+            <rect class="nd-h" x="5" y="60" width="62" height="44" rx="4"/><text x="36" y="86" text-anchor="middle">目標</text>
+            <rect class="nd" x="97" y="60" width="62" height="44" rx="4"/><text x="128" y="86" text-anchor="middle">Outcome</text>
+            <rect class="nd" x="189" y="60" width="62" height="44" rx="4"/><text x="220" y="86" text-anchor="middle">実装</text>
+            <rect class="nd" x="281" y="60" width="62" height="44" rx="4"/><text x="312" y="86" text-anchor="middle">merge</text>
+            <rect class="nd" x="373" y="60" width="62" height="44" rx="4"/><text x="404" y="86" text-anchor="middle">本番公開</text>
+            <line class="ln" x1="67" y1="82" x2="94" y2="82" marker-end="url(#ar)"/>
+            <line class="ln" x1="159" y1="82" x2="186" y2="82" marker-end="url(#ar)"/>
+            <line class="ln" x1="251" y1="82" x2="278" y2="82" marker-end="url(#ar)"/>
+            <line class="ln-ok" x1="343" y1="82" x2="370" y2="82" marker-end="url(#ar-ok)"/>
+            <circle class="nd-ok" cx="356" cy="82" r="8"/>
+            <text class="tok" x="356" y="50" text-anchor="middle">Human の承認</text>
+            <line class="ln-ok" x1="356" y1="55" x2="356" y2="72"/>
+            <rect class="nd-ok" x="5" y="140" width="430" height="54" rx="4"/>
+            <text class="tb" x="220" y="162" text-anchor="middle">Server：Workspace の一時停止と、費用の上限</text>
+            <text x="220" y="181" text-anchor="middle">停止中・上限超過では Orchestrator と Ralph が起動しない</text>
+            <line class="ln-ok dash" x1="220" y1="140" x2="220" y2="107" marker-end="url(#ar-ok)"/>
+          </svg>
+        </div>
+        <figcaption>確認点は戻せない操作の前だけに置きます。停止と上限は Server の状態にし、起動する側がそれを読みます。</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <div class="pair">
+    <div class="pair-head"><span class="sev">高</span><h3>ループが途中で切れている</h3></div>
+    <p>製品の Compass では、Reviewer の後の受入を起動する仕組みがありません。Orchestrator も製品の Ralph の自動実行も、Manager の受入を起動しません。開発で使っている agent-foundation 版の Ralph は受入まで起動しているので、これは製品側へまだ取り込まれていない差分です。受入した成果を Outcome へ戻す処理（Evidence の還流）は、どちらにもありません。そのため、製品では Evaluator まで自動では届きません。</p>
+    <div class="cols">
+      <figure>
+        <span class="tag now">現状</span>
+        <div class="scroll">
+          <svg viewBox="0 0 440 190" role="img" aria-label="Worker と Reviewer は Ralph が起動するが、受入と還流を起動する仕組みがなく、Evaluator に届かない">
+            <rect class="nd" x="5" y="40" width="62" height="44" rx="4"/><text x="36" y="66" text-anchor="middle">Worker</text>
+            <rect class="nd" x="97" y="40" width="62" height="44" rx="4"/><text x="128" y="66" text-anchor="middle">Reviewer</text>
+            <rect class="nd-bad" x="189" y="40" width="62" height="44" rx="4" stroke-dasharray="5 4"/><text x="220" y="66" text-anchor="middle">受入</text>
+            <rect class="nd-bad" x="281" y="40" width="62" height="44" rx="4" stroke-dasharray="5 4"/><text x="312" y="66" text-anchor="middle">還流</text>
+            <rect class="nd-ws" x="373" y="40" width="62" height="44" rx="4"/><text x="404" y="66" text-anchor="middle">Evaluator</text>
+            <line class="ln" x1="67" y1="62" x2="94" y2="62" marker-end="url(#ar)"/>
+            <line class="ln-bad dash" x1="159" y1="62" x2="186" y2="62" marker-end="url(#ar-bad)"/>
+            <line class="ln-bad dash" x1="251" y1="62" x2="278" y2="62" marker-end="url(#ar-bad)"/>
+            <line class="ln-bad dash" x1="343" y1="62" x2="370" y2="62" marker-end="url(#ar-bad)"/>
+            <path class="ln" d="M5 98 V104 H159 V98"/><text x="82" y="122" text-anchor="middle">Ralph が起動</text>
+            <path class="ln-bad dash" d="M189 98 V104 H343 V98"/><text class="tbad" x="266" y="122" text-anchor="middle">起動する仕組みがない</text>
+            <path class="ln" d="M373 98 V104 H435 V98"/><text x="404" y="122" text-anchor="middle">Orchestrator</text>
+            <text class="tb tbad" x="220" y="162" text-anchor="middle">ここで人手が要り、評価まで届かない</text>
+          </svg>
+        </div>
+        <figcaption>製品の Ralph で自動で進むのは Reviewer までです。</figcaption>
+      </figure>
+      <figure>
+        <span class="tag next">改善後</span>
+        <div class="scroll">
+          <svg viewBox="0 0 440 190" role="img" aria-label="Orchestrator が受入待ちの Task に Manager を起動し、受入のときに還流まで行う">
+            <rect class="nd" x="5" y="40" width="62" height="44" rx="4"/><text x="36" y="66" text-anchor="middle">Worker</text>
+            <rect class="nd" x="97" y="40" width="62" height="44" rx="4"/><text x="128" y="66" text-anchor="middle">Reviewer</text>
+            <rect class="nd-ok" x="189" y="40" width="62" height="44" rx="4"/><text x="220" y="66" text-anchor="middle">受入</text>
+            <rect class="nd-ok" x="281" y="40" width="62" height="44" rx="4"/><text x="312" y="66" text-anchor="middle">還流</text>
+            <rect class="nd-ws" x="373" y="40" width="62" height="44" rx="4"/><text x="404" y="66" text-anchor="middle">Evaluator</text>
+            <line class="ln" x1="67" y1="62" x2="94" y2="62" marker-end="url(#ar)"/>
+            <line class="ln-ok" x1="159" y1="62" x2="186" y2="62" marker-end="url(#ar-ok)"/>
+            <line class="ln-ok" x1="251" y1="62" x2="278" y2="62" marker-end="url(#ar-ok)"/>
+            <line class="ln-ok" x1="343" y1="62" x2="370" y2="62" marker-end="url(#ar-ok)"/>
+            <path class="ln" d="M5 98 V104 H159 V98"/><text x="82" y="122" text-anchor="middle">Ralph が起動</text>
+            <path class="ln-ok" d="M189 98 V104 H343 V98"/><text class="tok" x="266" y="122" text-anchor="middle">受入を起動、受入時に還流</text>
+            <path class="ln" d="M373 98 V104 H435 V98"/><text x="404" y="122" text-anchor="middle">Orchestrator</text>
+            <text class="tb tok" x="220" y="162" text-anchor="middle">目標から評価まで、1周がつながる</text>
+          </svg>
+        </div>
+        <figcaption>agent-foundation 版にある受入の起動を製品へ取り込み、受入の処理の中で還流まで行います。図では Orchestrator に置いていますが、Ralph に置く形でも同じです。</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>懸念の一覧</h2>
+  <div class="tablebox">
+    <table>
+      <thead><tr><th>重大度</th><th>懸念</th><th>確認した事実</th><th>改善の方向</th></tr></thead>
+      <tbody>
+        <tr><td><span class="sev">重大</span></td><td>規則の自己改変</td><td><code>roles/</code> などが作業対象と同じ Repository にあり、変更パスの制限が製品側にない</td><td>規則・CI・配置設定を保護パスにし、変更は Human が承認する</td></tr>
+        <tr><td><span class="sev">重大</span></td><td>権限と shell の同居</td><td>設定例が権限確認の省略を有効にしている。merge は Agent が行う手順</td><td>Agent を sandbox に入れ、書込みはホスト側の Ralph に集める</td></tr>
+        <tr><td><span class="sev">高</span></td><td>職務分離が Compass の中だけ</td><td>Worker・Reviewer・Manager が同じ GitHub アカウントと token を使ってよい。自己レビューの禁止は Compass の主体単位</td><td>GitHub 側でも直接 push を禁じ、merge できる主体を1つに絞る</td></tr>
+        <tr><td><span class="sev">高</span></td><td>停止と上限がない</td><td>Server に一時停止と費用の上限がない</td><td>Workspace 単位の停止と上限を Server の状態にする</td></tr>
+        <tr><td><span class="sev">高</span></td><td>外から来た文章を指示と区別しない</td><td>Task・コメント・調査結果・Human の返信が Agent の文脈に入る。扱いの決まりが <code>roles/</code>・<code>policies/</code> にない</td><td>外部由来の内容に出どころを付け、指示として扱わない決まりを共通の規則に置く。Researcher の書込みを調査結果だけに絞る</td></tr>
+        <tr><td><span class="sev">高</span></td><td>ループの切れ目</td><td>製品では受入と還流を起動するプロセスがない。受入の起動は agent-foundation 版の Ralph にはある</td><td>agent-foundation 版の受入の起動を製品へ取り込み、還流を追加する</td></tr>
+        <tr><td><span class="sev mid">中</span></td><td>評価の独立性</td><td>実装・レビュー・受入・評価を同系統のモデルが行い、根拠も Agent が残す</td><td>根拠を機械の観測（CI・公開記録・計測値）に寄せ、評価だけ別のモデルにし、Human が抜き取りで確認する</td></tr>
+        <tr><td><span class="sev mid">中</span></td><td>実運転より先に精密化</td><td>結合テストの起動先は固定の応答。目標から評価までの実 Agent 運転は未検証</td><td>機能追加の前に、1つの目標を実 Agent で評価まで通す</td></tr>
+        <tr><td><span class="sev mid">中</span></td><td>Ralph が2つある</td><td>開発で動くのは agent-foundation 版。製品の <code>ralph/</code> は別実装で、障害対応の知見が入っていない</td><td>ホスト側で Git を扱う agent-foundation 版を土台に一本化する</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="note">未確認：GitHub のブランチ保護の設定、MCP への呼出し回数の制限、発行済み Credential の期限の運用。これらは Repository の外の設定か、今回読んでいない範囲です。</p>
+</section>
+
+<section>
+  <h2>進める順番</h2>
+  <ol>
+    <li>規則と配置設定を保護パスにし、<code>main</code> への直接 push を禁じる。設定だけで済み、最も効果が大きい。</li>
+    <li>Git の書込みをホスト側の Ralph に集め、Agent を sandbox に入れる。Ralph の一本化と同じ作業になる。</li>
+    <li>Workspace の一時停止と費用の上限を Server に入れる。</li>
+    <li>受入の起動を製品へ取り込み、還流を追加して、実 Agent で1つの目標を評価まで通す。</li>
+    <li>その後に、対話しながらの開発（InteractiveWorkSession）へ進む。</li>
+  </ol>
+</section>
+
+</div>

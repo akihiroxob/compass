@@ -1,5 +1,9 @@
 # Compass ドキュメント
 
+## 全体像
+
+- [Compassの全体像とAgentの動き](architecture-overview.md): 概念モデル・実行システム・Role・Agentの起動と協調の流れ・Humanの関与点をまとめた入口。
+
 ## 配置
 
 - [Workers + D1への配置](cloudflare-deployment.md): 配布物・明示migration・Google認証・Agent Credential・Workers Builds設定。
@@ -52,6 +56,10 @@
 - [移行計画](architecture-migration-plan.md): 現行のWorkspace移行と、Workspace導入前の構造移行でWachaへ登録したStory・Taskと受入条件。所有・scopeはADR 0001に従う。実装完了の記録ではない。
 - [Workspace移行 影響マップ](workspace-migration-impact-map.md): Workspace移行での現行コード・DB・API・MCP・UI・Orchestratorの変更先、互換期間、既存ID保全、データ変換・rollbackの確認点。変更先の定義で、実装完了の記録ではない。
 - [構造移行マッピング](architecture-migration-mapping.md): Workspace導入前の構造移行での全ファイルの配置・依存違反・互換性契約・移行単位。Workspace移行の変更先は含まない。
+- [アーキテクチャレビュー](planning/architecture-review.md): Agentだけで回す前提での安全性・方針・構成の懸念と改善の方向。現状と改善後の比較図は[ビジュアル版](planning/architecture-review-visual.html)。未確定の提案。
+- [移行マップ](planning/feature-gap-visual.html): Wacha・agent-foundationの機能がCompassへどこまで入ったかの対応表（移行済み・一部・未移行・Compassだけ）。調査時点の整理で、実装計画ではない。
+- [類似事例マップ](planning/competitive-map-visual.html): Agentに開発を任せる類似の取り組み（Paperclip・Gas Town・Agyn・OpenAI Symphony・Devin・GitHub Agent HQ等）とCompassの比較、強みと改善点。2026年11月時点の公開情報による調査で、確定した方針ではない。
+- [将来性の見立て](planning/outlook-visual.html): 作業管理から方向づけ・評価へ広げてきた経緯、実運用で確かめた範囲と未実証の範囲、自分の道具としての進め方。2026年11月時点の見立てで、確定した方針ではない。
 - [設計確認事項](planning/architecture-questions.md): 未確定事項。仕様として適用しない。
 - [Project画面の情報設計と視覚方針](planning/project-screen-design.md): UI整理Storyの後続Taskが使う画面構成案。実装済みの仕様ではない。
 - [Wacha Skill配布の改善メモ](planning/wacha-skill-delivery.md): Codex・ClaudeへのSkill登録を検討するための案。未採用。
