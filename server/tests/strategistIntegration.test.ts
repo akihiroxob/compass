@@ -1,3 +1,4 @@
+import { createNodeStaticAssets } from "../src/infrastructure/http/createNodeStaticAssets.ts";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -103,7 +104,7 @@ const withEnvironment = async (
         const database = createDatabase(path);
         await initializeSchema(database);
         signedIn = await createTestHuman(database, { email: "tester@example.com" });
-        const running = await listen(createApp(createApplicationServices(database, agentContextService)), port);
+        const running = await listen(createApp(createApplicationServices(database, agentContextService), { staticAssets: createNodeStaticAssets() }), port);
         const stop = async () => {
           await running.close();
           await database.destroy();

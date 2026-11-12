@@ -37,30 +37,7 @@ export const insertResearchRequest = async (
   now: number,
   observer: DirectionChangeObserver | null = null,
 ): Promise<ResearchRequest> => {
-  const row = await transaction
-    .insertInto("research_request")
-    .values({
-      id: crypto.randomUUID(),
-      workspace_id: workspaceId,
-      request_key: input.requestKey,
-      input_hash: inputHash(input),
-      kind: input.kind,
-      origin_intent_id: input.originIntentId,
-      origin_outcome_id: input.originOutcomeId,
-      question: input.question,
-      scope: input.scope,
-      completion_condition: input.completionCondition,
-      budget_total: input.budgetTotal,
-      budget_used: 0,
-      deadline_at: input.deadlineAt,
-      status: "requested",
-      stop_reason: null,
-      correlation_id: input.correlationId ?? crypto.randomUUID(),
-      created_at: now,
-      updated_at: now,
-    })
-    .returningAll()
-    .executeTakeFirstOrThrow();
+  const row = await transaction.insertInto("research_request").values(researchRequestRow(workspaceId, input, now)).returningAll().executeTakeFirstOrThrow();
   await notifyDirectionChange(observer, transaction, {
     type: "research_requested",
     workspaceId,
@@ -90,3 +67,24 @@ export const findResearchRequestByKey = async (
     .where("workspace_id", "=", workspaceId)
     .where("request_key", "=", requestKey)
     .executeTakeFirst();
+
+export const researchRequestRow = (workspaceId: string, input: CreateResearchRequestInput, now: number): Selectable<ResearchRequestTable> => ({
+  id: crypto.randomUUID(),
+  workspace_id: workspaceId,
+  request_key: input.requestKey,
+  input_hash: inputHash(input),
+  kind: input.kind,
+  origin_intent_id: input.originIntentId,
+  origin_outcome_id: input.originOutcomeId,
+  question: input.question,
+  scope: input.scope,
+  completion_condition: input.completionCondition,
+  budget_total: input.budgetTotal,
+  budget_used: 0,
+  deadline_at: input.deadlineAt,
+  status: "requested",
+  stop_reason: null,
+  correlation_id: input.correlationId ?? crypto.randomUUID(),
+  created_at: now,
+  updated_at: now,
+});

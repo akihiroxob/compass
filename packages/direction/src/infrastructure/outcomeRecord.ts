@@ -1,9 +1,10 @@
-import type { Kysely, Selectable, Transaction } from "kysely";
+import { sql } from "kysely";
+import type { CompiledQuery, Kysely, Selectable, Transaction } from "kysely";
 import { ConflictError, ValidationError } from "@compass/shared";
 import { Outcome, type EvaluationPlan, type EvaluationPlanInput, type OutcomeProblem, type ProblemEvidence, type SuccessCriterion } from "../domain/Outcome.ts";
 import type { CreateOutcomeInput, OutcomeProblemInput } from "../domain/OutcomeRepository.ts";
-import type { DirectionDatabase, OutcomeTable, SuccessCriterionTable } from "./schema.ts";
-import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
+import type { DirectionDatabase, OutcomeTable, OutcomeProblemTable, SuccessCriterionTable } from "./schema.ts";
+import { notifyDirectionChange, type DirectionChangeObserver, type DirectionChangeNotice } from "./directionChange.ts";
 
 type Executor = Kysely<DirectionDatabase> | Transaction<DirectionDatabase>;
 
@@ -49,6 +50,18 @@ const loadProblems = async (database: Executor, outcomeIds: string[]): Promise<O
     )
     .orderBy("e.position", "asc")
     .execute();
+  return outcomeProblemsFromRecords(problems, evidence);
+};
+
+export type OutcomeEvidenceRecord = {
+  problem_id: string; finding_id: string | null; synthesis_id: string | null;
+  finding_request_id: string | null; statement: string | null;
+  synthesis_request_id: string | null; conclusion: string | null; superseded: number | boolean;
+};
+
+export const outcomeProblemsFromRecords = (
+  problems: Selectable<OutcomeProblemTable>[], evidence: OutcomeEvidenceRecord[],
+): OutcomeProblem[] => {
   return problems.map((row) => ({
     id: row.id,
     outcomeId: row.outcome_id,
@@ -86,15 +99,18 @@ const withPlanId = (plan: EvaluationPlanInput, previous: EvaluationPlan | null):
 /**
  * 課題の一覧を置き換える。`id`付きの課題は同じOutcomeの既存の課題を引き継ぎ（作成日時を保つ）、他Outcomeの課題IDは拒否する。
  * 根拠は同じWorkspaceのFinding・Synthesisだけを受け付け、新たに関連付けるSynthesisが後の版に置き換え済みなら拒否する
- * （既に関連付け済みの参照は、その後に新しい版が出ても保持できる）。拒否はtransactionごと巻き戻す。
+ * （既に関連付け済みの参照は、その後に新しい版が出ても保持できる）。SQLは実行せず更新計画を返す。
+ * transaction外で計画するときは、呼出側がOutcomeの版とpreconditionsを更新と同じ原子的batchで検査する。
  */
-export const replaceOutcomeProblems = async (
-  transaction: Transaction<DirectionDatabase>,
+export const planOutcomeProblems = async (
+  transaction: Executor,
   workspaceId: string,
   outcomeId: string,
   problems: OutcomeProblemInput[],
   now: number,
-): Promise<void> => {
+): Promise<{ preconditions: CompiledQuery[]; mutations: CompiledQuery[] }> => {
+  const preconditions: CompiledQuery[] = [];
+  const mutations: CompiledQuery[] = [];
   const existing = await transaction
     .selectFrom("outcome_problem")
     .select(["id", "created_at", "evaluation_plan"])
@@ -109,11 +125,7 @@ export const replaceOutcomeProblems = async (
           await transaction
             .selectFrom("outcome_problem_evidence")
             .select(["problem_id", "synthesis_id"])
-            .where(
-              "problem_id",
-              "in",
-              existing.map((row) => row.id),
-            )
+            .where("problem_id", "in", transaction.selectFrom("outcome_problem").select("id").where("outcome_id", "=", outcomeId))
             .where("synthesis_id", "is not", null)
             .execute()
         ).map((row) => `${row.problem_id}:${row.synthesis_id}`),
@@ -130,30 +142,35 @@ export const replaceOutcomeProblems = async (
     for (const [position, reference] of problem.evidence.entries()) {
       const path = `problems.${index}.evidence.${position}.id`;
       if (reference.kind === "research_finding") {
-        const finding = await transaction
+        const findingQuery = transaction
           .selectFrom("research_finding")
           .select("id")
           .where("id", "=", reference.id)
-          .where("workspace_id", "=", workspaceId)
-          .executeTakeFirst();
+          .where("workspace_id", "=", workspaceId);
+        const finding = await findingQuery.executeTakeFirst();
+        preconditions.push(findingQuery.compile());
         if (!finding) issues.push({ path, message: "research finding was not found in this Workspace" });
         continue;
       }
-      const synthesis = await transaction
+      const synthesisQuery = transaction
         .selectFrom("research_synthesis")
         .select("id")
         .where("id", "=", reference.id)
-        .where("workspace_id", "=", workspaceId)
-        .executeTakeFirst();
+        .where("workspace_id", "=", workspaceId);
+      const synthesis = await synthesisQuery.executeTakeFirst();
+      preconditions.push(synthesisQuery.compile());
       if (!synthesis) {
         issues.push({ path, message: "research synthesis was not found in this Workspace" });
         continue;
       }
-      const newer = await transaction
+      const newerQuery = transaction
         .selectFrom("research_synthesis")
         .select("id")
-        .where("supersedes_id", "=", reference.id)
-        .executeTakeFirst();
+        .where("supersedes_id", "=", reference.id);
+      const newer = await newerQuery.executeTakeFirst();
+      if (!(problem.id !== undefined && linked.has(`${problem.id}:${reference.id}`))) {
+        preconditions.push(sql`SELECT 1 WHERE NOT EXISTS ${newerQuery}`.compile(transaction));
+      }
       if (newer && !(problem.id !== undefined && linked.has(`${problem.id}:${reference.id}`))) {
         throw new ConflictError(
           `Research synthesis ${reference.id} has been superseded by ${newer.id}; link the latest version instead`,
@@ -164,10 +181,10 @@ export const replaceOutcomeProblems = async (
   }
   if (issues.length > 0) throw new ValidationError("Outcome input is invalid", issues);
 
-  await transaction.deleteFrom("outcome_problem").where("outcome_id", "=", outcomeId).execute();
+  mutations.push(transaction.deleteFrom("outcome_problem").where("outcome_id", "=", outcomeId).compile());
   for (const [position, problem] of problems.entries()) {
     const id = problem.id ?? crypto.randomUUID();
-    await transaction
+    mutations.push(transaction
       .insertInto("outcome_problem")
       .values({
         id,
@@ -183,21 +200,25 @@ export const replaceOutcomeProblems = async (
         created_at: createdAt.get(id) ?? now,
         updated_at: now,
       })
-      .execute();
-    if (problem.evidence.length === 0) continue;
-    await transaction
-      .insertInto("outcome_problem_evidence")
-      .values(
-        problem.evidence.map((reference, index) => ({
-          problem_id: id,
-          workspace_id: workspaceId,
-          position: index,
-          finding_id: reference.kind === "research_finding" ? reference.id : null,
-          synthesis_id: reference.kind === "research_synthesis" ? reference.id : null,
-        })),
-      )
-      .execute();
+      .compile());
+    for (const [index, reference] of problem.evidence.entries()) {
+      mutations.push(transaction.insertInto("outcome_problem_evidence").values({
+        problem_id: id,
+        workspace_id: workspaceId,
+        position: index,
+        finding_id: reference.kind === "research_finding" ? reference.id : null,
+        synthesis_id: reference.kind === "research_synthesis" ? reference.id : null,
+      }).compile());
+    }
   }
+  return { preconditions, mutations };
+};
+
+export const replaceOutcomeProblems = async (
+  transaction: Transaction<DirectionDatabase>, workspaceId: string, outcomeId: string, problems: OutcomeProblemInput[], now: number,
+): Promise<void> => {
+  const plan = await planOutcomeProblems(transaction, workspaceId, outcomeId, problems, now);
+  for (const query of plan.mutations) await transaction.executeQuery(query);
 };
 
 /** OutcomeのrowにSuccess Criterion・課題をposition順で結び付ける。 */
@@ -220,6 +241,12 @@ export const loadOutcomes = async (
     )
     .orderBy("position", "asc")
     .execute();
+  return outcomesFromRecords(rows, criteria, problems);
+};
+
+export const outcomesFromRecords = (
+  rows: Selectable<OutcomeTable>[], criteria: Selectable<SuccessCriterionTable>[], problems: OutcomeProblem[],
+): Outcome[] => {
   return rows.map(
     (row) =>
       new Outcome({
@@ -265,56 +292,26 @@ export const insertOutcomeRow = async (
     .where("id", "=", intentId)
     .where("workspace_id", "=", workspaceId)
     .executeTakeFirstOrThrow();
-  const row = await transaction
-    .insertInto("outcome")
-    .values({
-      id,
-      workspace_id: workspaceId,
-      intent_id: intentId,
-      intent_version: intent.version,
-      title: input.title,
-      description: input.description,
-      hypothesis: input.hypothesis,
-      rationale: input.rationale,
-      status: "active",
-      cancel_reason: null,
-      origin_decision_id: originDecisionId,
-      revision: 1,
-      created_at: now,
-      updated_at: now,
-    })
-    .returningAll()
-    .executeTakeFirstOrThrow();
-  await transaction
-    .insertInto("success_criterion")
-    .values(
-      input.successCriteria.map((criterion, position) => ({
-        id: crypto.randomUUID(),
-        outcome_id: row.id,
-        position,
-        description: criterion.description,
-        measurement: criterion.measurement,
-        target: criterion.target,
-        created_at: now,
-      })),
-    )
-    .execute();
-  await replaceOutcomeProblems(transaction, workspaceId, row.id, input.problems, now);
-  await notifyDirectionChange(observer, transaction, {
-    type: "outcome_confirmed",
-    workspaceId,
-    recordId: row.id,
-    title: row.title,
-    refs: [
-      { kind: "outcome", id: row.id },
-      { kind: "intent", id: intentId },
-      ...(originDecisionId ? [{ kind: "decision" as const, id: originDecisionId }] : []),
-    ],
-    result: null,
-    reason: null,
-    principalId: null,
-    occurredAt: now,
-  });
+  const plan = await planOutcomeCreationRecord(transaction, workspaceId, intentId, id, originDecisionId, { ...input, intentVersion: intent.version }, now);
+  for (const query of plan.mutations) await transaction.executeQuery(query);
+  await notifyDirectionChange(observer, transaction, plan.notice);
+  const row = plan.row;
   const [outcome] = await loadOutcomes(transaction, [row]);
   return outcome!;
+};
+
+/** Outcome作成の採番・子要素・通知内容。保存時のIntent版とWorkspace状態は呼出側が保証する。 */
+export const planOutcomeCreationRecord = async (database: Executor, workspaceId: string, intentId: string, id: string,
+  originDecisionId: string | null, input: CreateOutcomeInput, now: number) => {
+  const row: Selectable<OutcomeTable> = { id, workspace_id: workspaceId, intent_id: intentId, intent_version: input.intentVersion,
+    title: input.title, description: input.description, hypothesis: input.hypothesis, rationale: input.rationale, status: "active",
+    cancel_reason: null, origin_decision_id: originDecisionId, revision: 1, created_at: now, updated_at: now };
+  const problems = await planOutcomeProblems(database, workspaceId, id, input.problems, now);
+  const notice: DirectionChangeNotice = { type: "outcome_confirmed", workspaceId, recordId: id, title: row.title,
+    refs: [{ kind: "outcome", id }, { kind: "intent", id: intentId }, ...(originDecisionId ? [{ kind: "decision" as const, id: originDecisionId }] : [])],
+    result: null, reason: null, principalId: null, occurredAt: now };
+  return { row, notice, preconditions: problems.preconditions, mutations: [database.insertInto("outcome").values(row).compile(),
+    ...input.successCriteria.map((criterion, position) => database.insertInto("success_criterion").values({ id: crypto.randomUUID(), outcome_id: id,
+      position, description: criterion.description, measurement: criterion.measurement, target: criterion.target, created_at: now }).compile()),
+    ...problems.mutations] };
 };

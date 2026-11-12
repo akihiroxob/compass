@@ -188,3 +188,10 @@ apm_modules/
 
 # Storybook generated catalog
 storybook-static/
+
+# Cloudflare local state and secrets
+.wrangler/
+.dev.vars
+.dev.vars.*
+/database/.generated/
+/server/.generated/

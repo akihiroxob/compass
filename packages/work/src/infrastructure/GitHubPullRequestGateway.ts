@@ -44,7 +44,7 @@ export class GitHubPullRequestGateway implements PullRequestGateway, RevisionGat
     this.apiBaseUrl = (options.apiBaseUrl ?? "https://api.github.com").replace(/\/+$/, "");
     this.token = options.token?.trim() || null;
     this.timeoutMs = options.timeoutMs ?? 15_000;
-    this.request = options.request ?? fetch;
+    this.request = options.request ?? globalThis.fetch.bind(globalThis);
   }
 
   /**
@@ -62,7 +62,7 @@ export class GitHubPullRequestGateway implements PullRequestGateway, RevisionGat
           ...(this.token ? { Authorization: `Bearer ${this.token}` } : {}),
         },
         signal: AbortSignal.timeout(this.timeoutMs),
-        redirect: "error",
+        redirect: "manual",
       });
     } catch (error) {
       throw new CoordinationError("GITHUB_UNAVAILABLE", `GitHub request failed: ${error instanceof Error ? error.name : "unknown error"}`);

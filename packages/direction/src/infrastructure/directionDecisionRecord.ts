@@ -31,6 +31,13 @@ const loadDecisions = async (
     .where("decision_id", "in", ids)
     .orderBy("position", "asc")
     .execute();
+  return decisionsFromRecords(rows, synthesisLinks, findingLinks);
+};
+
+export const decisionsFromRecords = (rows: Selectable<DirectionDecisionTable>[],
+  synthesisLinks: { decision_id: string; synthesis_id: string; version: number; position: number }[],
+  findingLinks: { decision_id: string; finding_id: string; position: number }[],
+): DirectionDecision[] => {
   return rows.map((row) => ({
     id: row.id,
     workspaceId: row.workspace_id,
@@ -67,7 +74,7 @@ export const findDecisionByRequestKey = (transaction: Transaction<DirectionDatab
  * 不一致は呼び出し側が`invalid_reference` / `synthesis_version_mismatch`として拒否する。
  */
 export const validateResearchReferences = async (
-  transaction: Transaction<DirectionDatabase>,
+  transaction: Executor,
   workspaceId: string,
   usedSyntheses: readonly { synthesisId: string; version: number }[],
   usedFindingIds: readonly string[],
@@ -99,12 +106,11 @@ export const validateResearchReferences = async (
     }
   }
   if (usedFindingIds.length > 0) {
-    const rows = await transaction
-      .selectFrom("research_finding")
-      .select("id")
-      .where("workspace_id", "=", workspaceId)
-      .where("id", "in", [...usedFindingIds])
-      .execute();
+    const rows: { id: string }[] = [];
+    for (let offset = 0; offset < usedFindingIds.length; offset += 90) {
+      rows.push(...await transaction.selectFrom("research_finding").select("id").where("workspace_id", "=", workspaceId)
+        .where("id", "in", usedFindingIds.slice(offset, offset + 90)).execute());
+    }
     const known = new Set(rows.map((row) => row.id));
     const missing = usedFindingIds.filter((id) => !known.has(id));
     if (missing.length > 0) return { kind: "invalid_reference", reference: "finding", ids: missing };
@@ -134,55 +140,23 @@ export const insertDirectionDecisionRow = async (
     .where("id", "=", input.intentId)
     .where("workspace_id", "=", workspaceId)
     .executeTakeFirstOrThrow();
-  const row = await transaction
-    .insertInto("direction_decision")
-    .values({
-      id,
-      workspace_id: workspaceId,
-      intent_id: input.intentId,
-      intent_version: intent.version,
-      outcome_id: outcomeId,
-      type,
-      judgment: input.judgment,
-      reason: input.reason,
-      options: JSON.stringify(input.options),
-      intent_brief_snapshot: JSON.stringify(intentBriefSnapshot),
-      evaluation_id: input.evaluationId ?? null,
-      principal_id: input.principalId,
-      run_ref: input.runRef,
-      request_key: input.requestKey,
-      input_hash: hash,
-      created_at: now,
-    })
-    .returningAll()
-    .executeTakeFirstOrThrow();
-  if (input.usedSyntheses.length > 0) {
-    await transaction
-      .insertInto("direction_decision_synthesis")
-      .values(
-        input.usedSyntheses.map((item, position) => ({
-          decision_id: row.id,
-          synthesis_id: item.synthesisId,
-          version: item.version,
-          position,
-        })),
-      )
-      .execute();
-  }
-  if (input.usedFindingIds.length > 0) {
-    await transaction
-      .insertInto("direction_decision_finding")
-      .values(
-        input.usedFindingIds.map((findingId, position) => ({
-          decision_id: row.id,
-          finding_id: findingId,
-          position,
-        })),
-      )
-      .execute();
-  }
-  const [decision] = await loadDecisions(transaction, [row]);
-  return decision!;
+  const plan = planDirectionDecisionRecord(transaction, workspaceId, id, type, outcomeId, intentBriefSnapshot, { ...input, intentVersion: intent.version }, hash, now);
+  for (const query of plan.mutations) await transaction.executeQuery(query);
+  return plan.decision;
+};
+
+export const planDirectionDecisionRecord = (database: Kysely<DirectionDatabase>, workspaceId: string, id: string,
+  type: DirectionDecision["type"], outcomeId: string | null, intentBriefSnapshot: IntentResearchSummary,
+  input: CommonDecisionFields, hash: string, now: number) => {
+  const row: Selectable<DirectionDecisionTable> = { id, workspace_id: workspaceId, intent_id: input.intentId, intent_version: input.intentVersion,
+    outcome_id: outcomeId, type, judgment: input.judgment, reason: input.reason, options: JSON.stringify(input.options),
+    intent_brief_snapshot: JSON.stringify(intentBriefSnapshot), evaluation_id: input.evaluationId ?? null,
+    principal_id: input.principalId, run_ref: input.runRef, request_key: input.requestKey, input_hash: hash, created_at: now };
+  const syntheses = input.usedSyntheses.map((item, position) => ({ decision_id: id, synthesis_id: item.synthesisId, version: item.version, position }));
+  const findings = input.usedFindingIds.map((finding_id, position) => ({ decision_id: id, finding_id, position }));
+  return { row, decision: decisionsFromRecords([row], syntheses, findings)[0]!, mutations: [database.insertInto("direction_decision").values(row).compile(),
+    ...syntheses.map((link) => database.insertInto("direction_decision_synthesis").values(link).compile()),
+    ...findings.map((link) => database.insertInto("direction_decision_finding").values(link).compile())] };
 };
 
 export type EvaluationReferenceRejection =
@@ -199,7 +173,7 @@ export type EvaluationReferenceRejection =
  * intent_completeはachievedの評価だけを根拠にできる。取消済みOutcomeの評価は根拠にしない。
  */
 export const validateEvaluationReference = async (
-  transaction: Transaction<DirectionDatabase>,
+  transaction: Executor,
   workspaceId: string,
   intentId: string,
   evaluationId: string,

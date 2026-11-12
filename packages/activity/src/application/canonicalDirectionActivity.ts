@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ActivityScope, type ActivityReference } from "../domain/Activity.ts";
-import type { ActivityStore } from "./port/ActivityStore.ts";
+import type { ActivityStore, NewActivity } from "./port/ActivityStore.ts";
 
 /**
  * Directionの重要な状態変更。ActivityはDirectionに依存しないため、serverがDirectionの通知からこの形へ変換して渡す。
@@ -46,19 +46,18 @@ const textOf = (value: string | null): string | null => (value?.trim() ? value.t
  * 重要なDirectionの状態変更から、canonical Activityを追記する。状態変更と同じtransactionのstoreで呼ぶ。
  * 変更されたrecordと種類で一意にするため、同じ変更から2件作られない。対象外の変更では何もしない。
  */
-export const recordCanonicalDirectionActivity = async (
-  store: ActivityStore,
+export const canonicalDirectionActivity = (
   change: DirectionChangeFact,
   newId: () => string = randomUUID,
-): Promise<void> => {
+): NewActivity | null => {
   const definition = directionActivities[change.type];
-  if (!definition) return;
+  if (!definition) return null;
   const title =
     change.title.length > maximumSummaryTitleLength ? `${change.title.slice(0, maximumSummaryTitleLength)}…` : change.title;
   const refs: ActivityReference[] = change.refs.map(({ kind, id }) => ({ kind, id }));
   // 取消・放棄・判断の理由は経緯なので本文に残す。その他の詳細は各recordを正とし、複製しない。
   const reason = textOf(change.reason);
-  await store.append({
+  return {
     id: newId(),
     scope: ActivityScope.WORKSPACE,
     workspaceId: change.workspaceId,
@@ -75,5 +74,10 @@ export const recordCanonicalDirectionActivity = async (
     recordedAt: change.occurredAt,
     dedupeKey: `direction_change:${change.type}:${change.recordId}`,
     inputHash: null,
-  });
+  };
+};
+
+export const recordCanonicalDirectionActivity = async (store: ActivityStore, change: DirectionChangeFact, newId?: () => string): Promise<void> => {
+  const activity = canonicalDirectionActivity(change, newId);
+  if (activity) await store.append(activity);
 };

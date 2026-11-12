@@ -1,7 +1,9 @@
+import type { ConsultationUnitOfWork } from "@compass/collaboration";
+import type { AccessInfrastructure } from "./accessInfrastructure.ts";
 import { createDirectionServices } from "./directionServices.ts";
-import { createDirectionFoundation } from "./directionFoundation.ts";
+import { createDirectionFoundation, type DirectionRepositoryOverrides } from "./directionFoundation.ts";
 import { createAccessServices } from "./accessServices.ts";
-import { createActivityServices } from "./activityServices.ts";
+import { createActivityServices, type ActivityInfrastructure } from "./activityServices.ts";
 import { createConsultationServices } from "./consultationServices.ts";
 import { createWorkServices } from "./workServices.ts";
 import type { ApplicationServices, OperationServices } from "../application/ApplicationServices.ts";
@@ -32,6 +34,7 @@ import {
   TaskCoordinationService,
   type PullRequestGateway,
   type RevisionGateway,
+  type WorkStore,
 } from "@compass/work";
 import {
   AuthenticateAccessCredentialUseCase,
@@ -87,13 +90,14 @@ export const createApplicationServices = (
   integrations: { pullRequests?: PullRequestGateway | null; revisions?: RevisionGateway | null } = {},
   /** Organizationの永続化契約。未指定時は同じDBを使うSQLite実装。 */
   organization: OrganizationInfrastructure = createSqliteOrganizationInfrastructure(applicationDatabase),
+  infrastructure: { access?: AccessInfrastructure; direction?: DirectionRepositoryOverrides; work?: WorkStore; activity?: ActivityInfrastructure; consultation?: (references: DirectionReferenceLookupService) => ConsultationUnitOfWork } = {},
 ): ApplicationServices => {
   // Project（Workspaceを含む）はOrganizationが所有する。Projectのarchiveも同じtransactionでcanonical Activityへ投影する。
   const {
     projectRepository,
     workspaceRepository,
   } = organization;
-  const directionFoundation = createDirectionFoundation(applicationDatabase, workspaceRepository, clock);
+  const directionFoundation = createDirectionFoundation(applicationDatabase, workspaceRepository, clock, infrastructure.direction);
   const {
     workspaceIntentRepository,
     workspaceOutcomeRepository,
@@ -120,7 +124,7 @@ export const createApplicationServices = (
     loginAttemptRepository,
     registerOrLoginHumanUseCase,
     identityProvider,
-  } = createAccessServices(applicationDatabase, clock, humanAuth);
+  } = createAccessServices(applicationDatabase, clock, humanAuth, infrastructure.access);
   const getProjectUseCase = new GetProjectUseCase(projectRepository);
   const {
     listActivitiesUseCase,
@@ -129,15 +133,15 @@ export const createApplicationServices = (
     getWorkspaceActivityUseCase,
     listWorkspaceActivityStreamUseCase,
     activityUnitOfWork,
-  } = createActivityServices(applicationDatabase);
+  } = createActivityServices(applicationDatabase, infrastructure.activity);
   // 相談（Collaboration）。照合・追記・受付記録と、scopeの状態・参照先Task/Story/Intent/Outcomeの読取りを同じtransactionで行う。
   // Web API（Human）とMCP（Agent）は同じuse caseへ委譲し、記録主体と判断の由来は入口が決める。
   // 文書反映Taskの起票はWorkの通常の起票処理を同じtransactionで使う。Story作成以外ではDirectionの参照を読まない。
   const directionReferenceLookup = new DirectionReferenceLookupService(projectRepository, workspaceOutcomeRepository, outcomeTargetProjectRepository);
   const {
     consultations,
-  } = createConsultationServices(applicationDatabase, directionReferenceLookup, clock);
-  const work = createWorkServices(applicationDatabase, directionReferenceLookup, accessCredentialRepository, clock, integrations);
+  } = createConsultationServices(applicationDatabase, directionReferenceLookup, clock, infrastructure.consultation?.(directionReferenceLookup));
+  const work = createWorkServices(applicationDatabase, directionReferenceLookup, accessCredentialRepository, clock, integrations, infrastructure.work);
   const {
     taskCoordinationService,
     recordPublicationUseCase,

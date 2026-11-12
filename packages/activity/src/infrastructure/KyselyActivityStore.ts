@@ -23,6 +23,34 @@ const toActivity = (row: ActivityRow): Activity => ({
   recordedAt: row.recorded_at,
 });
 
+/** SQLiteとD1で共有する保存値。 */
+export const activityValues = (activity: NewActivity) => ({
+      id: activity.id,
+      scope: activity.scope,
+      workspace_id: activity.workspaceId,
+      project_id: activity.projectId,
+      type: activity.type,
+      principal_id: activity.principalId,
+      role: activity.role,
+      summary: activity.summary,
+      body: activity.body,
+      refs: JSON.stringify(activity.refs),
+      corrects_activity_id: activity.correctsActivityId,
+      source: activity.source,
+      dedupe_key: activity.dedupeKey,
+      input_hash: activity.inputHash,
+      occurred_at: activity.occurredAt,
+      recorded_at: activity.recordedAt,
+    });
+
+/** 同じ列・dedupe規則で、即時実行または外側のbatchへの組込みに使う。 */
+export const insertActivityQuery = (database: Kysely<ActivityDatabase>, activity: NewActivity) =>
+  database
+    .insertInto("activity")
+    .values(activityValues(activity))
+    .onConflict((conflict) => conflict.column("dedupe_key").doNothing())
+    .returningAll();
+
 /**
  * `ActivityStore`のKysely（SQLite）実装。transactionを受け取れば、その中で読み書きする（状態変更と同時に確定する）。
  * 一意制約（`dedupe_key`）の衝突は`on conflict do nothing`で吸収し、並行した再送でも1件に収束させる。
@@ -31,29 +59,7 @@ export class KyselyActivityStore implements ActivityStore {
   constructor(private readonly db: Kysely<ActivityDatabase>) {}
 
   async append(activity: NewActivity) {
-    const inserted = await this.db
-      .insertInto("activity")
-      .values({
-        id: activity.id,
-        scope: activity.scope,
-        workspace_id: activity.workspaceId,
-        project_id: activity.projectId,
-        type: activity.type,
-        principal_id: activity.principalId,
-        role: activity.role,
-        summary: activity.summary,
-        body: activity.body,
-        refs: JSON.stringify(activity.refs),
-        corrects_activity_id: activity.correctsActivityId,
-        source: activity.source,
-        dedupe_key: activity.dedupeKey,
-        input_hash: activity.inputHash,
-        occurred_at: activity.occurredAt,
-        recorded_at: activity.recordedAt,
-      })
-      .onConflict((conflict) => conflict.column("dedupe_key").doNothing())
-      .returningAll()
-      .executeTakeFirst();
+    const inserted = await insertActivityQuery(this.db, activity).executeTakeFirst();
     if (inserted) return { activity: toActivity(inserted), created: true, inputHash: inserted.input_hash };
     const existing = await this.db
       .selectFrom("activity")
@@ -118,9 +124,10 @@ export class KyselyActivityStore implements ActivityStore {
     if (query.occurredFrom !== undefined) filtered = filtered.where("occurred_at", ">=", query.occurredFrom);
     if (query.occurredTo !== undefined) filtered = filtered.where("occurred_at", "<=", query.occurredTo);
     if (query.text !== undefined) {
-      const pattern = `%${query.text.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+      // D1のLIKE patternは50 bytesまで。literalの部分一致はinstrで同じ意味を保つ。
       filtered = filtered.where(
-        sql<boolean>`(summary like ${pattern} escape '\\' or coalesce(body, '') like ${pattern} escape '\\' or type like ${pattern} escape '\\' or principal_id like ${pattern} escape '\\')`,
+        sql<boolean>`(instr(lower(summary), lower(${query.text})) > 0 or instr(lower(coalesce(body, '')), lower(${query.text})) > 0
+          or instr(lower(type), lower(${query.text})) > 0 or instr(lower(principal_id), lower(${query.text})) > 0)`,
       );
     }
     // 種別の候補は、種別以外の条件に一致する記録の種別（現在のページに限らない）。

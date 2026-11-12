@@ -1,10 +1,8 @@
-import type { Kysely, Selectable, Transaction } from "kysely";
+import type { Kysely, Transaction } from "kysely";
 import { sql } from "kysely";
 import {
   isClosedResearchStatus,
-  type EvidenceReference,
   type IntentResearchSummary,
-  type ResearchFinding,
   type ResearchRequest,
   type ResearchRequestDetail,
   type ResearchResult,
@@ -27,176 +25,17 @@ import type {
 } from "../domain/ResearchRepository.ts";
 import type {
   DirectionDatabase,
-  ResearchEvidenceRefTable,
-  ResearchFindingTable,
-  ResearchRequestTable,
-  ResearchResultTable,
-  ResearchSynthesisTable,
 } from "./schema.ts";
 import { inputHash } from "@compass/shared";
 import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
+import { planResearchResultRecord, planResearchSynthesisRecord } from "./researchWriteRecord.ts";
+import { intentResearchSummaryFromRecords } from "./researchSummaryRecord.ts";
+import { loadResults, loadSyntheses, loadDetail, findRequestRow, researchSynthesesFromRecords } from "./researchReadRecord.ts";
 import { insertResearchRequest, toRequest } from "./researchRequestRecord.ts";
 import { notifyDirectionChange, type DirectionChangeObserver } from "./directionChange.ts";
 
 type Executor = Kysely<DirectionDatabase> | Transaction<DirectionDatabase>;
-
-const parseList = (value: string): string[] => JSON.parse(value) as string[];
-
 const byRowid = sql`rowid`;
-
-const toEvidence = (row: Selectable<ResearchEvidenceRefTable>): EvidenceReference => ({
-  id: row.id,
-  workspaceId: row.workspace_id,
-  resultId: row.result_id,
-  position: row.position,
-  kind: row.kind,
-  uri: row.uri,
-  retrievedAt: row.retrieved_at,
-  versionHash: row.version_hash,
-  resourceId: row.resource_id,
-});
-
-/** ResultのrowにEvidence参照とFindingを位置順で結び付ける。 */
-const loadResults = async (
-  database: Executor,
-  rows: Selectable<ResearchResultTable>[],
-): Promise<ResearchResult[]> => {
-  if (rows.length === 0) return [];
-  const resultIds = rows.map((row) => row.id);
-  const evidenceRows = await database
-    .selectFrom("research_evidence_ref")
-    .selectAll()
-    .where("result_id", "in", resultIds)
-    .orderBy("position", "asc")
-    .execute();
-  const findingRows: Selectable<ResearchFindingTable>[] = await database
-    .selectFrom("research_finding")
-    .selectAll()
-    .where("result_id", "in", resultIds)
-    .orderBy("position", "asc")
-    .execute();
-  const findingIds = findingRows.map((row) => row.id);
-  const evidenceLinks =
-    findingIds.length === 0
-      ? []
-      : await database
-          .selectFrom("research_finding_evidence")
-          .selectAll()
-          .where("finding_id", "in", findingIds)
-          .orderBy("position", "asc")
-          .execute();
-  const conflictLinks =
-    findingIds.length === 0
-      ? []
-      : await database
-          .selectFrom("research_finding_conflict")
-          .selectAll()
-          .where("finding_id", "in", findingIds)
-          .orderBy(byRowid, "asc")
-          .execute();
-
-  const findings = findingRows.map(
-    (row): ResearchFinding => ({
-      id: row.id,
-      workspaceId: row.workspace_id,
-      requestId: row.request_id,
-      resultId: row.result_id,
-      position: row.position,
-      statement: row.statement,
-      confidence: row.confidence,
-      observedAt: row.observed_at,
-      expiresAt: row.expires_at,
-      evidenceRefIds: evidenceLinks.filter((link) => link.finding_id === row.id).map((link) => link.evidence_ref_id),
-      conflictsWithFindingIds: conflictLinks
-        .filter((link) => link.finding_id === row.id)
-        .map((link) => link.conflicting_finding_id),
-      principalId: row.principal_id,
-      runRef: row.run_ref,
-      createdAt: row.created_at,
-    }),
-  );
-  return rows.map((row) => ({
-    id: row.id,
-    workspaceId: row.workspace_id,
-    requestId: row.request_id,
-    sequence: row.sequence,
-    summary: row.summary,
-    unknowns: parseList(row.unknowns),
-    options: parseList(row.options),
-    risks: parseList(row.risks),
-    budgetUsed: row.budget_used,
-    evidenceRefs: evidenceRows.filter((item) => item.result_id === row.id).map(toEvidence),
-    findings: findings.filter((item) => item.resultId === row.id),
-    principalId: row.principal_id,
-    runRef: row.run_ref,
-    createdAt: row.created_at,
-  }));
-};
-
-const loadSyntheses = async (
-  database: Executor,
-  rows: Selectable<ResearchSynthesisTable>[],
-): Promise<ResearchSynthesis[]> => {
-  if (rows.length === 0) return [];
-  const links = await database
-    .selectFrom("research_synthesis_finding")
-    .selectAll()
-    .where(
-      "synthesis_id",
-      "in",
-      rows.map((row) => row.id),
-    )
-    .orderBy("position", "asc")
-    .execute();
-  return rows.map((row) => ({
-    id: row.id,
-    workspaceId: row.workspace_id,
-    requestId: row.request_id,
-    version: row.version,
-    supersedesId: row.supersedes_id,
-    conclusion: row.conclusion,
-    findingIds: links.filter((link) => link.synthesis_id === row.id).map((link) => link.finding_id),
-    risks: parseList(row.risks),
-    options: parseList(row.options),
-    unknowns: parseList(row.unknowns),
-    validAsOf: row.valid_as_of,
-    principalId: row.principal_id,
-    runRef: row.run_ref,
-    createdAt: row.created_at,
-  }));
-};
-
-const loadDetail = async (
-  database: Executor,
-  requestRow: Selectable<ResearchRequestTable>,
-): Promise<ResearchRequestDetail> => {
-  const resultRows = await database
-    .selectFrom("research_result")
-    .selectAll()
-    .where("request_id", "=", requestRow.id)
-    .orderBy("sequence", "asc")
-    .execute();
-  const synthesisRows = await database
-    .selectFrom("research_synthesis")
-    .selectAll()
-    .where("request_id", "=", requestRow.id)
-    .orderBy(byRowid, "asc")
-    .execute();
-  return {
-    request: toRequest(requestRow),
-    results: await loadResults(database, resultRows),
-    syntheses: await loadSyntheses(database, synthesisRows),
-  };
-};
-
-/** 別WorkspaceのRequest IDは存在しないものとして扱う。 */
-const findRequestRow = (database: Executor, workspaceId: string, requestId: string) =>
-  database
-    .selectFrom("research_request")
-    .selectAll()
-    .where("id", "=", requestId)
-    .where("workspace_id", "=", workspaceId)
-    .executeTakeFirst();
 
 const findExistingIds = async (
   database: Executor,
@@ -349,7 +188,6 @@ export class SQLiteResearchRepository implements ResearchRepository {
             .select(["id", "expires_at"])
             .where("id", "in", findingIds)
             .execute();
-    const expiresById = new Map(findingRows.map((row) => [row.id, row.expires_at]));
     const now = this.clock();
 
     // research_finding_conflictは宣言方向が非対称（新Findingが既存Findingを指す）なので、
@@ -364,33 +202,7 @@ export class SQLiteResearchRepository implements ResearchRepository {
               eb.or([eb("finding_id", "in", findingIds), eb("conflicting_finding_id", "in", findingIds)]),
             )
             .execute();
-    const conflicts = conflictRows
-      .map((row) => ({ findingId: row.finding_id, conflictsWithFindingId: row.conflicting_finding_id }))
-      .sort(
-        (a, b) => a.findingId.localeCompare(b.findingId) || a.conflictsWithFindingId.localeCompare(b.conflictsWithFindingId),
-      );
-
-    const syntheses = latestRows.map((row) => {
-      const ids = links.filter((link) => link.synthesis_id === row.id).map((link) => link.finding_id);
-      const stale = ids.some((id) => {
-        const expiresAt = expiresById.get(id);
-        return expiresAt !== null && expiresAt !== undefined && expiresAt <= now;
-      });
-      return {
-        requestId: row.request_id,
-        synthesisId: row.id,
-        version: row.version,
-        conclusion: row.conclusion,
-        risks: parseList(row.risks),
-        options: parseList(row.options),
-        unknowns: parseList(row.unknowns),
-        findingIds: ids,
-        validAsOf: row.valid_as_of,
-        stale,
-      };
-    });
-
-    return { requests, syntheses, conflicts };
+    return intentResearchSummaryFromRecords(requestRows.map(toRequest), researchSynthesesFromRecords(synthesisRows, links), findingRows, conflictRows, now);
   }
 
   async findRelatedFindings(workspaceId: string, requestId: string, limit: number): Promise<RelatedResearchFindings> {
@@ -482,87 +294,9 @@ export class SQLiteResearchRepository implements ResearchRepository {
           .select((builder) => builder.fn.max<number>("sequence").as("sequence"))
           .where("request_id", "=", requestId)
           .executeTakeFirst();
-        const resultRow = await transaction
-          .insertInto("research_result")
-          .values({
-            id: crypto.randomUUID(),
-            workspace_id: workspaceId,
-            request_id: requestId,
-            sequence: (last?.sequence ?? 0) + 1,
-            request_key: input.requestKey,
-            input_hash: hash,
-            summary: input.summary,
-            unknowns: JSON.stringify(input.unknowns),
-            options: JSON.stringify(input.options),
-            risks: JSON.stringify(input.risks),
-            budget_used: input.budgetUsed,
-            principal_id: input.principalId,
-            run_ref: input.runRef,
-            created_at: now,
-          })
-          .returningAll()
-          .executeTakeFirstOrThrow();
-
-        const evidenceIds = input.evidenceRefs.map(() => crypto.randomUUID());
-        if (input.evidenceRefs.length > 0) {
-          await transaction
-            .insertInto("research_evidence_ref")
-            .values(
-              input.evidenceRefs.map((evidence, position) => ({
-                id: evidenceIds[position]!,
-                workspace_id: workspaceId,
-                result_id: resultRow.id,
-                position,
-                kind: evidence.kind,
-                uri: evidence.uri,
-                retrieved_at: evidence.retrievedAt,
-                version_hash: evidence.versionHash,
-                resource_id: evidence.resourceId,
-              })),
-            )
-            .execute();
-        }
-        for (const [position, finding] of input.findings.entries()) {
-          const findingId = crypto.randomUUID();
-          await transaction
-            .insertInto("research_finding")
-            .values({
-              id: findingId,
-              workspace_id: workspaceId,
-              request_id: requestId,
-              result_id: resultRow.id,
-              position,
-              statement: finding.statement,
-              confidence: finding.confidence,
-              observed_at: finding.observedAt,
-              expires_at: finding.expiresAt,
-              principal_id: input.principalId,
-              run_ref: input.runRef,
-              created_at: now,
-            })
-            .execute();
-          await transaction
-            .insertInto("research_finding_evidence")
-            .values(
-              finding.evidenceIndexes.map((evidenceIndex, evidencePosition) => ({
-                finding_id: findingId,
-                evidence_ref_id: evidenceIds[evidenceIndex]!,
-                position: evidencePosition,
-              })),
-            )
-            .execute();
-          if (finding.conflictsWithFindingIds.length > 0) {
-            await transaction
-              .insertInto("research_finding_conflict")
-              .values(
-                finding.conflictsWithFindingIds.map((conflictingId) => ({
-                  finding_id: findingId,
-                  conflicting_finding_id: conflictingId,
-                })),
-              )
-              .execute();
-          }
-        }
+        const plan = planResearchResultRecord(transaction, workspaceId, requestId, input, (last?.sequence ?? 0) + 1, now);
+        for (const query of plan.mutations) await transaction.executeQuery(query);
+        const resultRow = plan.row;
 
         await transaction
           .updateTable("research_request")
@@ -629,37 +363,9 @@ export class SQLiteResearchRepository implements ResearchRepository {
           version = previous.version + 1;
         }
 
-        const row = await transaction
-          .insertInto("research_synthesis")
-          .values({
-            id: crypto.randomUUID(),
-            workspace_id: workspaceId,
-            request_id: requestId,
-            request_key: input.requestKey,
-            input_hash: hash,
-            version,
-            supersedes_id: input.supersedesId,
-            conclusion: input.conclusion,
-            risks: JSON.stringify(input.risks),
-            options: JSON.stringify(input.options),
-            unknowns: JSON.stringify(input.unknowns),
-            valid_as_of: input.validAsOf,
-            principal_id: input.principalId,
-            run_ref: input.runRef,
-            created_at: now,
-          })
-          .returningAll()
-          .executeTakeFirstOrThrow();
-        await transaction
-          .insertInto("research_synthesis_finding")
-          .values(
-            input.findingIds.map((findingId, position) => ({
-              synthesis_id: row.id,
-              finding_id: findingId,
-              position,
-            })),
-          )
-          .execute();
+        const plan = planResearchSynthesisRecord(transaction, workspaceId, requestId, input, version, now);
+        for (const query of plan.mutations) await transaction.executeQuery(query);
+        const row = plan.row;
         if (request.status === "requested") {
           await transaction
             .updateTable("research_request")

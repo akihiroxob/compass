@@ -1,5 +1,9 @@
 # Compass ドキュメント
 
+## 配置
+
+- [Workers + D1への配置](cloudflare-deployment.md): 配布物・明示migration・Google認証・Agent Credential・Workers Builds設定。
+
 ## 障害史・発表素材
 
 - [エージェント開発のトラブルと対処](operations/troubleshooting-history.md): 原因の確度・対処・確認結果を残す追記型の障害史。現在仕様の正本とは分離する。

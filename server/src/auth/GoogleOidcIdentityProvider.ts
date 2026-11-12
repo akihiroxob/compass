@@ -63,7 +63,7 @@ export class GoogleOidcIdentityProvider implements HumanIdentityProvider {
     private readonly settings: GoogleOidcSettings,
     dependencies: GoogleOidcDependencies = {},
   ) {
-    this.fetch = dependencies.fetch ?? globalThis.fetch;
+    this.fetch = dependencies.fetch ?? globalThis.fetch.bind(globalThis);
     this.clock = dependencies.clock ?? Date.now;
     this.endpoints = dependencies.endpoints ?? googleEndpoints;
   }

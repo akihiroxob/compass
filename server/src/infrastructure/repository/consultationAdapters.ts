@@ -1,5 +1,5 @@
 
-import { ActivityScope, KyselyActivityStore } from "@compass/activity";
+import { ActivityScope, KyselyActivityStore, type ActivityStore } from "@compass/activity";
 import {
   type ConsultationFollowupLinks,
   type ConsultationScopeReader,
@@ -8,7 +8,7 @@ import {
 } from "@compass/collaboration";
 import { findProjectRepository, findWorkspaceStatus, SQLiteProjectRepository } from "@compass/organization";
 
-import { KyselyWorkStore, TaskCoordinationService, type DirectionReferenceLookupPort } from "@compass/work";
+import { KyselyWorkStore, TaskCoordinationService, type WorkStore, type DirectionReferenceLookupPort } from "@compass/work";
 import { asActivityDatabase, asDirectionDatabase, asOrganizationDatabase, asWorkDatabase } from "../database/contextDatabase.ts";
 import { projectRepositoryReferenceFinder } from "./organizationLinks.ts";
 import { workExternalReaders } from "./workReaders.ts";
@@ -61,14 +61,14 @@ export const consultationScopeReader = (executor: Parameters<typeof asOrganizati
  */
 export const consultationFollowupLinks = (
   executor: Parameters<typeof asOrganizationDatabase>[0],
-  options: { directionReferences: DirectionReferenceLookupPort; clock: () => number },
+  options: { directionReferences: DirectionReferenceLookupPort; clock: () => number; workStore?: WorkStore; activityStore?: ActivityStore },
 ): ConsultationFollowupLinks => {
   const organization = asOrganizationDatabase(executor);
   const work = asWorkDatabase(executor);
-  const activities = new KyselyActivityStore(asActivityDatabase(executor));
+  const activities = options.activityStore ?? new KyselyActivityStore(asActivityDatabase(executor));
   return {
     issueTask: async (actor, input, requestId) => {
-      const store = new KyselyWorkStore(work, workExternalReaders, workChangeActivityObserver);
+      const store = options.workStore ?? new KyselyWorkStore(work, workExternalReaders, workChangeActivityObserver);
       const service = new TaskCoordinationService(store, options.directionReferences, options.clock).forActiveRole(actor.role);
       const task = await service.issueTask(
         actor.principalId,
@@ -82,7 +82,7 @@ export const consultationFollowupLinks = (
       return row ? { id: row.id, title: row.title, status: row.status as FollowupTaskStatus } : null;
     },
     findAcceptedDeliverables: (projectId, taskId) =>
-      new KyselyWorkStore(work, workExternalReaders, workChangeActivityObserver).findAcceptedDeliverables(projectId, taskId),
+      (options.workStore ?? new KyselyWorkStore(work, workExternalReaders, workChangeActivityObserver)).findAcceptedDeliverables(projectId, taskId),
     findRepository: async (projectId, repositoryId) => (await findProjectRepository(organization, projectId, repositoryId)) ?? null,
     findProject: async (projectId) =>
       (await organization.selectFrom("project").select(["id", "name"]).where("id", "=", projectId).executeTakeFirst()) ?? null,

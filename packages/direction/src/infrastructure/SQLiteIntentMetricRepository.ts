@@ -17,7 +17,7 @@ import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
 
 type Executor = Kysely<DirectionDatabase> | Transaction<DirectionDatabase>;
 
-const toMetric = (row: Selectable<IntentMetricTable>): IntentMetric => ({
+export const intentMetricFromRow = (row: Selectable<IntentMetricTable>): IntentMetric => ({
   id: row.id,
   workspaceId: row.workspace_id,
   intentId: row.intent_id,
@@ -31,7 +31,7 @@ const toMetric = (row: Selectable<IntentMetricTable>): IntentMetric => ({
   updatedAt: row.updated_at,
 });
 
-const toObservation = (row: Selectable<IntentMetricObservationTable>): IntentMetricObservation => ({
+export const intentMetricObservationFromRow = (row: Selectable<IntentMetricObservationTable>): IntentMetricObservation => ({
   id: row.id,
   metricId: row.metric_id,
   periodStart: row.period_start,
@@ -47,7 +47,7 @@ const toObservation = (row: Selectable<IntentMetricObservationTable>): IntentMet
 });
 
 /** 記録者・記録時刻を除いた観測の内容。同じ内容の再送を新しい版にしない判定に使う。 */
-const sameContent = (row: Selectable<IntentMetricObservationTable>, input: IntentMetricObservationInput): boolean =>
+export const sameIntentMetricObservationContent = (row: Selectable<IntentMetricObservationTable>, input: IntentMetricObservationInput): boolean =>
   row.status === input.status &&
   row.value === input.value &&
   row.failure_reason === input.failureReason &&
@@ -56,7 +56,7 @@ const sameContent = (row: Selectable<IntentMetricObservationTable>, input: Inten
   row.observed_at === input.observedAt;
 
 /** 各対象期間の最新版だけに絞る条件。 */
-const latestRevisionOnly = sql<boolean>`intent_metric_observation.revision = (
+export const latestIntentMetricRevisionOnly = sql<boolean>`intent_metric_observation.revision = (
   select max(latest.revision) from intent_metric_observation as latest
   where latest.metric_id = intent_metric_observation.metric_id
     and latest.period_start = intent_metric_observation.period_start
@@ -124,7 +124,7 @@ export class SQLiteIntentMetricRepository implements IntentMetricRepository {
           })
           .returningAll()
           .executeTakeFirstOrThrow();
-        return { kind: "created", metric: toMetric(row) };
+        return { kind: "created", metric: intentMetricFromRow(row) };
       }
       if (
         existing.name === input.name &&
@@ -132,7 +132,7 @@ export class SQLiteIntentMetricRepository implements IntentMetricRepository {
         existing.target_value === input.targetValue &&
         existing.stale_after_days === input.staleAfterDays
       ) {
-        return { kind: "unchanged", metric: toMetric(existing) };
+        return { kind: "unchanged", metric: intentMetricFromRow(existing) };
       }
       if (existing.unit !== input.unit) {
         const observed = await transaction
@@ -156,7 +156,7 @@ export class SQLiteIntentMetricRepository implements IntentMetricRepository {
         .where("id", "=", existing.id)
         .returningAll()
         .executeTakeFirstOrThrow();
-      return { kind: "updated", metric: toMetric(row) };
+      return { kind: "updated", metric: intentMetricFromRow(row) };
     });
   }
 
@@ -192,8 +192,8 @@ export class SQLiteIntentMetricRepository implements IntentMetricRepository {
           .execute();
         const current = revisions[0];
         // 訂正後に届いた過去版と同一の要求（観測時刻を含む）は遅延再送として扱い、訂正を巻き戻さない。
-        if (current && revisions.some((revision) => sameContent(revision, input))) {
-          records.push({ kind: "unchanged", observation: toObservation(current) });
+        if (current && revisions.some((revision) => sameIntentMetricObservationContent(revision, input))) {
+          records.push({ kind: "unchanged", observation: intentMetricObservationFromRow(current) });
           continue;
         }
         const row = await transaction
@@ -215,9 +215,9 @@ export class SQLiteIntentMetricRepository implements IntentMetricRepository {
           })
           .returningAll()
           .executeTakeFirstOrThrow();
-        records.push({ kind: current ? "revised" : "created", observation: toObservation(row) });
+        records.push({ kind: current ? "revised" : "created", observation: intentMetricObservationFromRow(row) });
       }
-      return { kind: "recorded", metric: toMetric(metric), observations: records };
+      return { kind: "recorded", metric: intentMetricFromRow(metric), observations: records };
     });
   }
 
@@ -254,7 +254,7 @@ export class SQLiteIntentMetricRepository implements IntentMetricRepository {
         .selectFrom("intent_metric_observation")
         .selectAll()
         .where("metric_id", "=", metric.id)
-        .where(latestRevisionOnly);
+        .where(latestIntentMetricRevisionOnly);
       if (status) query = query.where("status", "=", status);
       return query.orderBy("period_end", "desc").orderBy("period_start", "desc").limit(1).executeTakeFirst();
     };
@@ -265,16 +265,16 @@ export class SQLiteIntentMetricRepository implements IntentMetricRepository {
       .where("metric_id", "=", metric.id)
       .where("period_end", ">=", range.from)
       .where("period_start", "<=", range.to)
-      .where(latestRevisionOnly)
+      .where(latestIntentMetricRevisionOnly)
       .orderBy("period_start", "asc")
       .orderBy("period_end", "asc")
       .execute();
     const [latest, lastObserved, points] = await Promise.all([latestOf(), latestOf("observed"), series]);
     return {
-      metric: toMetric(metric),
-      latest: latest ? toObservation(latest) : null,
-      lastObserved: lastObserved ? toObservation(lastObserved) : null,
-      series: points.map(toObservation),
+      metric: intentMetricFromRow(metric),
+      latest: latest ? intentMetricObservationFromRow(latest) : null,
+      lastObserved: lastObserved ? intentMetricObservationFromRow(lastObserved) : null,
+      series: points.map(intentMetricObservationFromRow),
     };
   }
 }

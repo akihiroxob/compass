@@ -1,4 +1,4 @@
-import type { Selectable, Transaction } from "kysely";
+import type { Kysely, Selectable, Transaction } from "kysely";
 import type { AdrHandoffRequest, AdrHandoffRequestPayload, AdrReference } from "../domain/AdrHandoff.ts";
 import type { DirectionDatabase, AdrHandoffRequestTable, AdrReferenceTable } from "./schema.ts";
 
@@ -41,7 +41,7 @@ export type AdrCandidateDecision = {
 
 /** decisionIdが同じWorkspaceの行を指す場合だけ、adr_candidate判定に必要な列を返す。 */
 export const findDecisionForHandoff = async (
-  transaction: Transaction<DirectionDatabase>,
+  transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
   workspaceId: string,
   decisionId: string,
 ): Promise<AdrCandidateDecision | null> => {
@@ -62,7 +62,7 @@ export const findDecisionForHandoff = async (
   };
 };
 
-const decisionEvidence = async (transaction: Transaction<DirectionDatabase>, decisionId: string) => {
+const decisionEvidence = async (transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>, decisionId: string) => {
   const [syntheses, findings] = await Promise.all([
     transaction
       .selectFrom("direction_decision_synthesis")
@@ -94,7 +94,7 @@ const buildExpectedAdrContent = (decision: AdrCandidateDecision): string => {
 };
 
 export const buildAdrHandoffPayload = async (
-  transaction: Transaction<DirectionDatabase>,
+  transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
   decision: AdrCandidateDecision,
   repository: { id: string; name: string; url: string },
   constraints: string[],
@@ -117,7 +117,7 @@ export const buildAdrHandoffPayload = async (
   };
 };
 
-export const findAdrHandoffRequestByKey = (transaction: Transaction<DirectionDatabase>, workspaceId: string, requestKey: string) =>
+export const findAdrHandoffRequestByKey = (transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>, workspaceId: string, requestKey: string) =>
   transaction
     .selectFrom("adr_handoff_request")
     .selectAll()
@@ -126,7 +126,7 @@ export const findAdrHandoffRequestByKey = (transaction: Transaction<DirectionDat
     .executeTakeFirst();
 
 export const findAdrHandoffRequestForReference = (
-  transaction: Transaction<DirectionDatabase>,
+  transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>,
   decisionId: string,
   repositoryId: string,
   correlationId: string,
@@ -139,7 +139,7 @@ export const findAdrHandoffRequestForReference = (
     .where("correlation_id", "=", correlationId)
     .executeTakeFirst();
 
-export const findAdrReferenceByKey = (transaction: Transaction<DirectionDatabase>, workspaceId: string, requestKey: string) =>
+export const findAdrReferenceByKey = (transaction: Kysely<DirectionDatabase> | Transaction<DirectionDatabase>, workspaceId: string, requestKey: string) =>
   transaction
     .selectFrom("adr_reference")
     .selectAll()

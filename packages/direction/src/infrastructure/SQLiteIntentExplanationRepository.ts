@@ -1,4 +1,5 @@
-import type { Kysely, Selectable } from "kysely";
+import { sql } from "kysely";
+import type { Kysely } from "kysely";
 import { inputHash } from "@compass/shared";
 import type {
   IntentExplanation,
@@ -12,69 +13,16 @@ import type {
   RecordIntentExplanationInput,
   RecordIntentExplanationResult,
 } from "../domain/IntentExplanationRepository.ts";
-import type { DirectionDatabase, IntentExplanationTable } from "./schema.ts";
+import type { DirectionDatabase } from "./schema.ts";
 import type { DirectionWorkspaceReaders } from "./directionWorkspaceReaders.ts";
 
-type Executor = Kysely<DirectionDatabase>;
+import { loadIntentExplanations, explanationReferenceQueries, planIntentExplanationRecord } from "./intentExplanationRecord.ts";
 
 /** 一覧で返す説明の上限（新しい順）。 */
 const listLimit = 50;
 
-const basisColumn = {
-  metric_observation: "observation_id",
-  finding: "finding_id",
-  synthesis: "synthesis_id",
-  evaluation: "evaluation_id",
-  decision: "decision_id",
-} as const;
-
+const idsSubquery = (ids: readonly string[]) => sql<string>`(SELECT value FROM json_each(${JSON.stringify(ids)}))`;
 const unique = (values: string[]): string[] => [...new Set(values)];
-
-/** 説明のrowから、項目・根拠・関連Outcomeを集めて組み立てる。 */
-const loadExplanations = async (executor: Executor, rows: Selectable<IntentExplanationTable>[]): Promise<IntentExplanation[]> => {
-  if (rows.length === 0) return [];
-  const ids = rows.map((row) => row.id);
-  const [items, basis, outcomes] = await Promise.all([
-    executor.selectFrom("intent_explanation_item").selectAll().where("explanation_id", "in", ids).orderBy("position", "asc").execute(),
-    executor.selectFrom("intent_explanation_basis").selectAll().where("explanation_id", "in", ids).orderBy("item_position", "asc").orderBy("position", "asc").execute(),
-    executor.selectFrom("intent_explanation_outcome").selectAll().where("explanation_id", "in", ids).orderBy("position", "asc").execute(),
-  ]);
-  return rows.map((row) => ({
-    id: row.id,
-    workspaceId: row.workspace_id,
-    intentId: row.intent_id,
-    metricKey: row.metric_key,
-    periodStart: row.period_start,
-    periodEnd: row.period_end,
-    version: row.version,
-    previousId: row.previous_id,
-    changeFromPrevious: row.change_from_previous,
-    relatedOutcomeIds: outcomes.filter((outcome) => outcome.explanation_id === row.id).map((outcome) => outcome.outcome_id),
-    items: items
-      .filter((item) => item.explanation_id === row.id)
-      .map((item) => ({
-        position: item.position,
-        kind: item.kind,
-        statement: item.statement,
-        confidence: item.confidence,
-        verification: item.verification,
-        basedOn: JSON.parse(item.based_on) as number[],
-        basis: basis
-          .filter((entry) => entry.explanation_id === row.id && entry.item_position === item.position)
-          .map((entry): IntentExplanationBasisReference => {
-            if (entry.observation_id !== null) return { type: "metric_observation", id: entry.observation_id };
-            if (entry.finding_id !== null) return { type: "finding", id: entry.finding_id };
-            if (entry.synthesis_id !== null) return { type: "synthesis", id: entry.synthesis_id };
-            if (entry.evaluation_id !== null) return { type: "evaluation", id: entry.evaluation_id };
-            return { type: "decision", id: entry.decision_id! };
-          }),
-      })),
-    principalId: row.principal_id,
-    runRef: row.run_ref,
-    requestKey: row.request_key,
-    createdAt: row.created_at,
-  }));
-};
 
 export class SQLiteIntentExplanationRepository implements IntentExplanationRepository {
   constructor(
@@ -100,7 +48,7 @@ export class SQLiteIntentExplanationRepository implements IntentExplanationRepos
         .executeTakeFirst();
       if (existing) {
         if (existing.input_hash !== hash) return { kind: "key_conflict", requestKey: input.requestKey };
-        const [explanation] = await loadExplanations(transaction, [existing]);
+        const [explanation] = await loadIntentExplanations(transaction, [existing]);
         return { kind: "replayed", explanation: explanation! };
       }
       const intent = await transaction
@@ -121,33 +69,8 @@ export class SQLiteIntentExplanationRepository implements IntentExplanationRepos
       if (!metric) return { kind: "metric_not_found" };
 
       const references: { path: string; id: string; message: string }[] = [];
-      const missing = async (path: string, id: string, found: Promise<unknown>, message: string) => {
-        if (!(await found)) references.push({ path, id, message });
-      };
-      for (const [itemIndex, item] of input.items.entries()) {
-        for (const [basisIndex, basis] of item.basis.entries()) {
-          const path = `items[${itemIndex}].basis[${basisIndex}]`;
-          switch (basis.type) {
-            case "metric_observation":
-              await missing(path, basis.id, transaction.selectFrom("intent_metric_observation").select("id").where("id", "=", basis.id).where("metric_id", "=", metric.id).executeTakeFirst(), `metric_observation ${basis.id} was not found in Metric ${input.metricKey} of this Intent`);
-              break;
-            case "finding":
-              await missing(path, basis.id, transaction.selectFrom("research_finding").select("id").where("id", "=", basis.id).where("workspace_id", "=", workspaceId).executeTakeFirst(), `finding ${basis.id} was not found in this Workspace`);
-              break;
-            case "synthesis":
-              await missing(path, basis.id, transaction.selectFrom("research_synthesis").select("id").where("id", "=", basis.id).where("workspace_id", "=", workspaceId).executeTakeFirst(), `synthesis ${basis.id} was not found in this Workspace`);
-              break;
-            case "evaluation":
-              await missing(path, basis.id, transaction.selectFrom("outcome_evaluation").select("id").where("id", "=", basis.id).where("workspace_id", "=", workspaceId).where("intent_id", "=", intentId).executeTakeFirst(), `evaluation ${basis.id} was not found for this Intent`);
-              break;
-            case "decision":
-              await missing(path, basis.id, transaction.selectFrom("direction_decision").select("id").where("id", "=", basis.id).where("workspace_id", "=", workspaceId).where("intent_id", "=", intentId).executeTakeFirst(), `decision ${basis.id} was not found for this Intent`);
-              break;
-          }
-        }
-      }
-      for (const [index, outcomeId] of input.relatedOutcomeIds.entries()) {
-        await missing(`relatedOutcomeIds[${index}]`, outcomeId, transaction.selectFrom("outcome").select("id").where("id", "=", outcomeId).where("workspace_id", "=", workspaceId).where("intent_id", "=", intentId).executeTakeFirst(), `outcome ${outcomeId} was not found for this Intent`);
+      for (const reference of explanationReferenceQueries(transaction, workspaceId, intentId, metric.id, input)) {
+        if (!(await transaction.executeQuery(reference.query)).rows.length) references.push({ path: reference.path, id: reference.id, message: reference.message });
       }
       if (references.length > 0) return { kind: "invalid_reference", references };
 
@@ -159,66 +82,9 @@ export class SQLiteIntentExplanationRepository implements IntentExplanationRepos
         .orderBy("version", "desc")
         .limit(1)
         .executeTakeFirst();
-      const row = await transaction
-        .insertInto("intent_explanation")
-        .values({
-          id: crypto.randomUUID(),
-          workspace_id: workspaceId,
-          intent_id: intentId,
-          metric_key: input.metricKey,
-          period_start: input.periodStart,
-          period_end: input.periodEnd,
-          version: (previous?.version ?? 0) + 1,
-          previous_id: previous?.id ?? null,
-          // 初回は比較対象が無い。前回が無いのに変化を書かせない。
-          change_from_previous: previous ? input.changeFromPrevious : null,
-          principal_id: principalId,
-          run_ref: input.runRef,
-          request_key: input.requestKey,
-          input_hash: hash,
-          created_at: at,
-        })
-        .returningAll()
-        .executeTakeFirstOrThrow();
-      for (const [position, item] of input.items.entries()) {
-        await transaction
-          .insertInto("intent_explanation_item")
-          .values({
-            explanation_id: row.id,
-            position,
-            kind: item.kind,
-            statement: item.statement,
-            confidence: item.confidence,
-            verification: item.verification,
-            based_on: JSON.stringify(item.basedOn),
-          })
-          .execute();
-        for (const [basisPosition, basis] of item.basis.entries()) {
-          await transaction
-            .insertInto("intent_explanation_basis")
-            .values({
-              explanation_id: row.id,
-              workspace_id: workspaceId,
-              item_position: position,
-              position: basisPosition,
-              observation_id: null,
-              finding_id: null,
-              synthesis_id: null,
-              evaluation_id: null,
-              decision_id: null,
-              [basisColumn[basis.type]]: basis.id,
-            })
-            .execute();
-        }
-      }
-      for (const [position, outcomeId] of input.relatedOutcomeIds.entries()) {
-        await transaction
-          .insertInto("intent_explanation_outcome")
-          .values({ explanation_id: row.id, workspace_id: workspaceId, outcome_id: outcomeId, position })
-          .execute();
-      }
-      const [explanation] = await loadExplanations(transaction, [row]);
-      return { kind: "recorded", explanation: explanation! };
+      const plan = planIntentExplanationRecord(transaction, workspaceId, intentId, principalId, input, at, previous);
+      for (const query of plan.mutations) await transaction.executeQuery(query);
+      return { kind: "recorded", explanation: plan.explanation };
     });
   }
 
@@ -234,7 +100,7 @@ export class SQLiteIntentExplanationRepository implements IntentExplanationRepos
       .orderBy("version", "desc")
       .limit(listLimit)
       .execute();
-    const explanations = await loadExplanations(this.database, rows);
+    const explanations = await loadIntentExplanations(this.database, rows);
     const bases = explanations.flatMap((explanation) => explanation.items.flatMap((item) => item.basis));
     const idsOf = (type: IntentExplanationBasisReference["type"]) => unique(bases.filter((basis) => basis.type === type).map((basis) => basis.id));
     const outcomeIds = unique(explanations.flatMap((explanation) => explanation.relatedOutcomeIds));
@@ -246,7 +112,7 @@ export class SQLiteIntentExplanationRepository implements IntentExplanationRepos
       this.readDecisions(idsOf("decision")),
       outcomeIds.length === 0
         ? Promise.resolve([])
-        : this.database.selectFrom("outcome").select(["id", "title", "status"]).where("id", "in", outcomeIds).where("workspace_id", "=", workspaceId).execute(),
+        : this.database.selectFrom("outcome").select(["id", "title", "status"]).where("id", "in", idsSubquery(outcomeIds)).where("workspace_id", "=", workspaceId).execute(),
     ]);
     const resolve = (basis: IntentExplanationBasisReference): ResolvedIntentExplanationBasis => {
       switch (basis.type) {
@@ -274,17 +140,15 @@ export class SQLiteIntentExplanationRepository implements IntentExplanationRepos
   private async readObservations(ids: string[]) {
     const result = new Map<string, { state: IntentExplanationBasisState; detail: Extract<ResolvedIntentExplanationBasis, { type: "metric_observation" }>["detail"] }>();
     if (ids.length === 0) return result;
-    const rows = await this.database.selectFrom("intent_metric_observation").selectAll().where("id", "in", ids).execute();
+    const rows = await this.database.selectFrom("intent_metric_observation").selectAll().select((eb) =>
+      eb.selectFrom("intent_metric_observation as latest").select((inner) => inner.fn.max<number>("latest.revision").as("revision"))
+        .whereRef("latest.metric_id", "=", "intent_metric_observation.metric_id")
+        .whereRef("latest.period_start", "=", "intent_metric_observation.period_start")
+        .whereRef("latest.period_end", "=", "intent_metric_observation.period_end").as("latest_revision"))
+      .where("id", "in", idsSubquery(ids)).execute();
     for (const row of rows) {
-      const latest = await this.database
-        .selectFrom("intent_metric_observation")
-        .select((builder) => builder.fn.max("revision").as("revision"))
-        .where("metric_id", "=", row.metric_id)
-        .where("period_start", "=", row.period_start)
-        .where("period_end", "=", row.period_end)
-        .executeTakeFirst();
       result.set(row.id, {
-        state: (latest?.revision ?? row.revision) > row.revision ? "revised" : "current",
+        state: (row.latest_revision ?? row.revision) > row.revision ? "revised" : "current",
         detail: {
           periodStart: row.period_start,
           periodEnd: row.period_end,
@@ -303,7 +167,7 @@ export class SQLiteIntentExplanationRepository implements IntentExplanationRepos
   private async readFindings(ids: string[], at: number) {
     const result = new Map<string, { state: IntentExplanationBasisState; detail: Extract<ResolvedIntentExplanationBasis, { type: "finding" }>["detail"] }>();
     if (ids.length === 0) return result;
-    const rows = await this.database.selectFrom("research_finding").selectAll().where("id", "in", ids).execute();
+    const rows = await this.database.selectFrom("research_finding").selectAll().where("id", "in", idsSubquery(ids)).execute();
     for (const row of rows) {
       result.set(row.id, {
         state: row.expires_at !== null && row.expires_at <= at ? "expired" : "current",
@@ -316,8 +180,8 @@ export class SQLiteIntentExplanationRepository implements IntentExplanationRepos
   private async readSyntheses(ids: string[]) {
     const result = new Map<string, { state: IntentExplanationBasisState; detail: Extract<ResolvedIntentExplanationBasis, { type: "synthesis" }>["detail"] }>();
     if (ids.length === 0) return result;
-    const rows = await this.database.selectFrom("research_synthesis").selectAll().where("id", "in", ids).execute();
-    const replaced = await this.database.selectFrom("research_synthesis").select("supersedes_id").where("supersedes_id", "in", ids).execute();
+    const rows = await this.database.selectFrom("research_synthesis").selectAll().where("id", "in", idsSubquery(ids)).execute();
+    const replaced = await this.database.selectFrom("research_synthesis").select("supersedes_id").where("supersedes_id", "in", idsSubquery(ids)).execute();
     const replacedIds = new Set(replaced.map((row) => row.supersedes_id));
     for (const row of rows) {
       result.set(row.id, {
@@ -331,7 +195,7 @@ export class SQLiteIntentExplanationRepository implements IntentExplanationRepos
   private async readEvaluations(ids: string[]) {
     const result = new Map<string, { state: IntentExplanationBasisState; detail: Extract<ResolvedIntentExplanationBasis, { type: "evaluation" }>["detail"] }>();
     if (ids.length === 0) return result;
-    const rows = await this.database.selectFrom("outcome_evaluation").select(["id", "outcome_id", "result", "method", "created_at"]).where("id", "in", ids).execute();
+    const rows = await this.database.selectFrom("outcome_evaluation").select(["id", "outcome_id", "result", "method", "created_at"]).where("id", "in", idsSubquery(ids)).execute();
     for (const row of rows) {
       result.set(row.id, { state: "current", detail: { outcomeId: row.outcome_id, result: row.result, method: row.method, createdAt: row.created_at } });
     }
@@ -341,7 +205,7 @@ export class SQLiteIntentExplanationRepository implements IntentExplanationRepos
   private async readDecisions(ids: string[]) {
     const result = new Map<string, { state: IntentExplanationBasisState; detail: Extract<ResolvedIntentExplanationBasis, { type: "decision" }>["detail"] }>();
     if (ids.length === 0) return result;
-    const rows = await this.database.selectFrom("direction_decision").select(["id", "type", "judgment", "outcome_id", "created_at"]).where("id", "in", ids).execute();
+    const rows = await this.database.selectFrom("direction_decision").select(["id", "type", "judgment", "outcome_id", "created_at"]).where("id", "in", idsSubquery(ids)).execute();
     for (const row of rows) {
       result.set(row.id, { state: "current", detail: { decisionType: row.type, judgment: row.judgment, outcomeId: row.outcome_id, createdAt: row.created_at } });
     }

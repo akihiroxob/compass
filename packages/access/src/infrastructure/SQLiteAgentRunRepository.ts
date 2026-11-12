@@ -4,7 +4,7 @@ import type { ProjectRole } from "../domain/ProjectRole.ts";
 import type { RoleScope } from "../domain/RoleScope.ts";
 import type { AccessDatabase, AgentRunTable } from "./schema.ts";
 
-const toAgentRun = (row: Selectable<AgentRunTable>): AgentRun => ({
+export const agentRunFromRow = (row: Selectable<AgentRunTable>): AgentRun => ({
   runId: row.run_id,
   scope: { kind: row.scope_kind, id: row.scope_id },
   principalId: row.principal_id,
@@ -21,7 +21,7 @@ const toAgentRun = (row: Selectable<AgentRunTable>): AgentRun => ({
   reason: row.reason,
 });
 
-const sameIdentity = (run: AgentRun, identity: AgentRunIdentity) =>
+export const sameAgentRunIdentity = (run: AgentRun, identity: AgentRunIdentity) =>
   run.scope.kind === identity.scope.kind && run.scope.id === identity.scope.id && run.principalId === identity.principalId && run.role === identity.role;
 
 /** scope（Workspace / Project）のいずれかに一致する条件。空なら何も一致しない。 */
@@ -36,7 +36,7 @@ export class SQLiteAgentRunRepository implements AgentRunRepository {
 
   private async find(transaction: Transaction<AccessDatabase>, runId: string): Promise<AgentRun | null> {
     const row = await transaction.selectFrom("agent_run").selectAll().where("run_id", "=", runId).executeTakeFirst();
-    return row ? toAgentRun(row) : null;
+    return row ? agentRunFromRow(row) : null;
   }
 
   async start(input: AgentRunStart): Promise<AgentRunRecordResult> {
@@ -66,9 +66,9 @@ export class SQLiteAgentRunRepository implements AgentRunRepository {
         .onConflict((conflict) => conflict.column("run_id").doNothing())
         .returningAll()
         .executeTakeFirst();
-      if (inserted) return { kind: "recorded", run: toAgentRun(inserted), changed: true };
+      if (inserted) return { kind: "recorded", run: agentRunFromRow(inserted), changed: true };
       const existing = (await this.find(transaction, input.runId))!;
-      return sameIdentity(existing, input) ? { kind: "recorded", run: existing, changed: false } : { kind: "identity_mismatch", run: existing };
+      return sameAgentRunIdentity(existing, input) ? { kind: "recorded", run: existing, changed: false } : { kind: "identity_mismatch", run: existing };
     });
   }
 
@@ -76,7 +76,7 @@ export class SQLiteAgentRunRepository implements AgentRunRepository {
     return this.database.transaction().execute(async (transaction): Promise<AgentRunRecordResult> => {
       const existing = await this.find(transaction, identity.runId);
       if (!existing) return { kind: "not_found" };
-      if (!sameIdentity(existing, identity)) return { kind: "identity_mismatch", run: existing };
+      if (!sameAgentRunIdentity(existing, identity)) return { kind: "identity_mismatch", run: existing };
       if (existing.status !== "running") return { kind: "recorded", run: existing, changed: false };
       const now = this.clock();
       const updated = await transaction
@@ -85,7 +85,7 @@ export class SQLiteAgentRunRepository implements AgentRunRepository {
         .where("run_id", "=", identity.runId)
         .returningAll()
         .executeTakeFirstOrThrow();
-      return { kind: "recorded", run: toAgentRun(updated), changed: true };
+      return { kind: "recorded", run: agentRunFromRow(updated), changed: true };
     });
   }
 
@@ -93,7 +93,7 @@ export class SQLiteAgentRunRepository implements AgentRunRepository {
     return this.database.transaction().execute(async (transaction): Promise<AgentRunRecordResult> => {
       const existing = await this.find(transaction, identity.runId);
       if (!existing) return { kind: "not_found" };
-      if (!sameIdentity(existing, identity)) return { kind: "identity_mismatch", run: existing };
+      if (!sameAgentRunIdentity(existing, identity)) return { kind: "identity_mismatch", run: existing };
       if (existing.status !== "running") {
         return existing.status === status ? { kind: "recorded", run: existing, changed: false } : { kind: "already_finished", run: existing };
       }
@@ -104,7 +104,7 @@ export class SQLiteAgentRunRepository implements AgentRunRepository {
         .where("run_id", "=", identity.runId)
         .returningAll()
         .executeTakeFirstOrThrow();
-      return { kind: "recorded", run: toAgentRun(updated), changed: true };
+      return { kind: "recorded", run: agentRunFromRow(updated), changed: true };
     });
   }
 
@@ -124,7 +124,7 @@ export class SQLiteAgentRunRepository implements AgentRunRepository {
       .where("rank", "=", 1)
       .orderBy("started_at", "desc")
       .execute();
-    return rows.map(toAgentRun);
+    return rows.map(agentRunFromRow);
   }
 
   async listByPrincipal(scopes: readonly RoleScope[], principalId: string, limit: number): Promise<AgentRun[]> {
@@ -138,6 +138,6 @@ export class SQLiteAgentRunRepository implements AgentRunRepository {
       .orderBy("run_id", "desc")
       .limit(limit)
       .execute();
-    return rows.map(toAgentRun);
+    return rows.map(agentRunFromRow);
   }
 }

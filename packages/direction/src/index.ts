@@ -78,3 +78,21 @@ export * from "./infrastructure/directionWorkspaceReaders.ts";
 export { recordOutcomeConfirmedEvent } from "./infrastructure/runtimeEventRecord.ts";
 
 export { recordRuntimeEvent } from "./infrastructure/runtimeEventRecord.ts";
+
+export { planOutcomeProblems, outcomesFromRecords, outcomeProblemsFromRecords, type OutcomeEvidenceRecord } from "./infrastructure/outcomeRecord.ts";
+export { insertOutcomeConfirmedEventQuery } from "./infrastructure/runtimeEventRecord.ts";
+
+export { researchRequestRow, toRequest as researchRequestFromRow } from "./infrastructure/researchRequestRecord.ts";
+export { researchResultsFromRecords, researchSynthesesFromRecords } from "./infrastructure/researchReadRecord.ts";
+export { planResearchResultRecord, planResearchSynthesisRecord } from "./infrastructure/researchWriteRecord.ts";
+export { insertRuntimeEventQuery } from "./infrastructure/runtimeEventRecord.ts";
+export { intentResearchSummaryFromRecords } from "./infrastructure/researchSummaryRecord.ts";
+export { planOutcomeCreationRecord } from "./infrastructure/outcomeRecord.ts";
+export { planDirectionDecisionRecord, decisionsFromRecords, validateResearchReferences, validateEvaluationReference } from "./infrastructure/directionDecisionRecord.ts";
+export { additionalResearchRequestKey, additionalResearchCorrelationId } from "./domain/AdditionalResearchRequest.ts";
+export { buildAdrHandoffPayload, findDecisionForHandoff, toRequest as adrHandoffRequestFromRow, toReference as adrReferenceFromRow } from "./infrastructure/adrHandoffRecord.ts";
+export { planOutcomeExecutionRecord } from "./infrastructure/outcomeExecutionRecordPlan.ts";
+export { toSummary as outcomeExecutionSummaryFromRow, toEvidence as outcomeExecutionEvidenceFromRow } from "./infrastructure/outcomeTargetExecutionRecord.ts";
+export { outcomeEvaluationFromRow, outcomeEvaluationReplay, outcomeEvaluationRow } from "./infrastructure/SQLiteOutcomeEvaluationRepository.ts";
+export { insertOutcomeEvaluatedEventQuery } from "./infrastructure/runtimeEventRecord.ts";
+export { loadIntentExplanations, explanationReferenceQueries, planIntentExplanationRecord } from "./infrastructure/intentExplanationRecord.ts";

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ActivityScope, type ActivityReference } from "../domain/Activity.ts";
-import type { ActivityStore } from "./port/ActivityStore.ts";
+import type { NewActivity, ActivityStore } from "./port/ActivityStore.ts";
 
 /**
  * Workの状態変更（Change Log 1件）。ActivityはWorkに依存しないため、serverがWorkのChangeからこの形へ変換して渡す。
@@ -57,16 +57,15 @@ const maximumSummaryTitleLength = 200;
 const textOf = (value: unknown): string | null => (typeof value === "string" && value.trim() ? value.trim() : null);
 
 /**
- * 重要なWorkの状態変更から、canonical Activityを追記する。状態変更と同じtransactionのstoreで呼ぶ。
+ * 重要なWorkの状態変更から、canonical Activityの保存値を組み立てる。
  * 生成元のChangeの`cursor`で一意にするため、同じChangeから2件作られない。対象外のChangeでは何もしない。
  */
-export const recordCanonicalWorkActivity = async (
-  store: ActivityStore,
+export const canonicalWorkActivity = (
   change: WorkChangeFact,
   newId: () => string = randomUUID,
-): Promise<void> => {
+): NewActivity | null => {
   const definition = workActivities[change.type];
-  if (!definition || !isCanonicalWorkChange(change.type, change.payload)) return;
+  if (!definition || !isCanonicalWorkChange(change.type, change.payload)) return null;
   const title =
     change.subject.title.length > maximumSummaryTitleLength
       ? `${change.subject.title.slice(0, maximumSummaryTitleLength)}…`
@@ -75,7 +74,7 @@ export const recordCanonicalWorkActivity = async (
   if (change.subject.kind === "task" && change.subject.storyId) refs.push({ kind: "story", id: change.subject.storyId });
   // 差戻し・取消の理由は判断の経緯なので本文に残す。その他の詳細はChange Logを正とし、複製しない。
   const reason = textOf(change.payload.reason);
-  await store.append({
+  return {
     id: newId(),
     scope: ActivityScope.PROJECT,
     workspaceId: change.workspaceId,
@@ -92,5 +91,10 @@ export const recordCanonicalWorkActivity = async (
     recordedAt: change.occurredAt,
     dedupeKey: `work_change:${change.cursor}`,
     inputHash: null,
-  });
+  };
+};
+
+export const recordCanonicalWorkActivity = async (store: ActivityStore, change: WorkChangeFact, newId: () => string = randomUUID): Promise<void> => {
+  const activity = canonicalWorkActivity(change, newId);
+  if (activity) await store.append(activity);
 };

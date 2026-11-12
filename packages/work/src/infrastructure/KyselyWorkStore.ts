@@ -1,5 +1,6 @@
 import type { ConsultationReadinessPort, TaskConsultationWait } from "../application/port/ConsultationReadinessPort.ts";
 import type { Kysely, Transaction } from "kysely";
+import { sql } from "kysely";
 import type { StoryStatus } from "../domain/StoryStatus.ts";
 import { TaskStatus } from "../domain/TaskStatus.ts";
 import type {
@@ -22,6 +23,8 @@ import type {
   WorkStore,
 } from "../application/port/WorkStore.ts";
 import type { WorkDatabase } from "./schema.ts";
+
+const idsQuery = (ids: readonly string[]) => sql<string>`(SELECT value FROM json_each(${JSON.stringify(ids)}))`;
 
 type Executor = Kysely<WorkDatabase> | Transaction<WorkDatabase>;
 
@@ -142,9 +145,8 @@ export class KyselyWorkStore implements WorkStore {
     return this.db
       .selectFrom("story")
       .selectAll()
-      .where((eb) =>
-        eb.or(refs.map(({ projectId, outcomeId }) => eb.and([eb("project_id", "=", projectId), eb("outcome_ref", "=", outcomeId)]))),
-      )
+      .where(sql<boolean>`EXISTS (SELECT 1 FROM json_each(${JSON.stringify(refs)}) AS ref
+        WHERE story.project_id = json_extract(ref.value, '$.projectId') AND story.outcome_ref = json_extract(ref.value, '$.outcomeId'))`)
       .orderBy("sort_order", "asc")
       .orderBy("created_at", "asc")
       .execute();
@@ -213,7 +215,7 @@ export class KyselyWorkStore implements WorkStore {
       .selectFrom("task")
       .selectAll()
       .where("project_id", "=", projectId)
-      .where("story_id", "in", storyIds)
+      .where("story_id", "in", idsQuery(storyIds))
       .execute();
   }
 
@@ -223,7 +225,7 @@ export class KyselyWorkStore implements WorkStore {
       .selectFrom("task")
       .innerJoin("story", (join) => join.onRef("story.id", "=", "task.story_id").onRef("story.project_id", "=", "task.project_id"))
       .select(({ fn }) => ["story.id as story_id", "task.status as status", fn.countAll<number>().as("count")])
-      .where("story.id", "in", storyIds)
+      .where("story.id", "in", idsQuery(storyIds))
       .groupBy(["story.id", "task.status"])
       .execute();
     return rows.map((row) => ({ story_id: row.story_id, status: row.status, count: Number(row.count) }));
@@ -439,7 +441,7 @@ export class KyselyWorkStore implements WorkStore {
       .where("project_id", "=", projectId);
     if (entityIds !== undefined) {
       if (entityIds.length === 0) return 0;
-      query = query.where("entity_id", "in", entityIds);
+      query = query.where("entity_id", "in", idsQuery(entityIds));
     }
     const row = await query.executeTakeFirst();
     return Number(row?.cursor ?? 0);
@@ -451,14 +453,14 @@ export class KyselyWorkStore implements WorkStore {
       .selectFrom("story")
       .select(["id", "outcome_ref", "correlation_id"])
       .where("project_id", "=", projectId)
-      .where("id", "in", entityIds)
+      .where("id", "in", idsQuery(entityIds))
       .execute();
     const tasks = await this.db
       .selectFrom("task")
       .innerJoin("story", "story.id", "task.story_id")
       .select(["task.id as id", "story.outcome_ref as outcome_ref", "story.correlation_id as correlation_id"])
       .where("task.project_id", "=", projectId)
-      .where("task.id", "in", entityIds)
+      .where("task.id", "in", idsQuery(entityIds))
       .execute();
     return [...stories, ...tasks];
   }

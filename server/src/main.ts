@@ -1,3 +1,4 @@
+import { createNodeStaticAssets } from "./infrastructure/http/createNodeStaticAssets.ts";
 import { serve } from "@hono/node-server";
 import { existsSync } from "node:fs";
 import { loadEnvFile } from "node:process";
@@ -41,6 +42,7 @@ const start = async () => {
 
   const app = createApp(services, {
     humanAuth: { mode: authConfig.mode, publicOrigin: authConfig.publicOrigin },
+    staticAssets: createNodeStaticAssets(),
   });
   serve({ fetch: app.fetch, port, hostname: authConfig.host }, (info) => {
     console.log(

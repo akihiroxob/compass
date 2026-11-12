@@ -6,12 +6,10 @@ import { registerRuntimeRoutes } from "./registerRuntimeRoutes.ts";
 import { registerWorkRoutes } from "./registerWorkRoutes.ts";
 import { registerActivityRoutes } from "./registerActivityRoutes.ts";
 import { registerCollaborationRoutes } from "./registerCollaborationRoutes.ts";
-import { serveStatic } from "@hono/node-server/serve-static";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { Hono } from "hono";
+import { Hono, type MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { fileURLToPath } from "node:url";
 import { createMcpServer } from "../../mcp/createMcpServer.ts";
 import { ACTIVE_ROLE_HEADER, MalformedAuthorizationError } from "../../auth/resolvePrincipal.ts";
 import { ConflictError, ForbiddenError, NotFoundError, UnauthenticatedError, ValidationError } from "@compass/shared";
@@ -22,10 +20,13 @@ import { CsrfRejectedError, registerHumanAuthRoutes, type HumanAuthHttpOptions }
 export const createApp = (
   services: ApplicationServices,
   /** Human認証（Session Cookie・`/auth/*`）。server起動時は設定から必ず渡す。無ければ認証routeを登録しない。 */
-  options: { humanAuth?: HumanAuthHttpOptions } = {},
+  options: {
+    humanAuth?: HumanAuthHttpOptions;
+    /** 実行環境に応じたWeb UI配信。API・MCPの処理後だけ呼び出す。 */
+    staticAssets?: { files: MiddlewareHandler; index: MiddlewareHandler };
+  } = {},
 ) => {
   const app = new Hono();
-  const publicRoot = fileURLToPath(new URL("../../../public", import.meta.url));
 
   // OIDC callbackのcode / state等をrequest logへ残さないよう、`/auth/*`のquery文字列を伏せる。
   app.use(logger((message, ...rest) => console.log(message.replace(/(\/auth\/\S*?)\?\S*/, "$1?[redacted]"), ...rest)));
@@ -81,8 +82,10 @@ export const createApp = (
     return transport.handleRequest(c.req.raw);
   });
 
-  app.use("/*", serveStatic({ root: publicRoot }));
-  app.get("*", serveStatic({ root: publicRoot, path: "index.html" }));
+  if (options.staticAssets) {
+    app.use("/*", options.staticAssets.files);
+    app.get("*", options.staticAssets.index);
+  }
 
   app.onError((error, c) => {
     if (error instanceof ValidationError) {

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ActivityScope } from "../domain/Activity.ts";
-import type { ActivityStore } from "./port/ActivityStore.ts";
+import type { ActivityStore, NewActivity } from "./port/ActivityStore.ts";
 
 /**
  * Project（Organizationが所有）の重要な状態変更。ActivityはOrganizationに依存しないため、serverが通知からこの形へ変換して渡す。
@@ -19,20 +19,13 @@ export type ProjectChangeFact = {
 
 const maximumSummaryTitleLength = 200;
 
-/**
- * Projectのarchiveから、project scopeのcanonical Activityを追記する。状態変更と同じtransactionのstoreで呼ぶ。
- * 一意キーはDirectionが通知していた時期と同じ（`direction_change:project_archived:{projectId}`）にし、移設の前後で重複させない。
- */
-export const recordCanonicalProjectActivity = async (
-  store: ActivityStore,
-  change: ProjectChangeFact,
-  newId: () => string = randomUUID,
-): Promise<void> => {
+/** 既存のdedupe keyを保ち、同じProject archiveを重複記録しない。 */
+export const canonicalProjectActivity = (change: ProjectChangeFact, newId: () => string = randomUUID): NewActivity => {
   const title =
     change.title.length > maximumSummaryTitleLength ? `${change.title.slice(0, maximumSummaryTitleLength)}…` : change.title;
   // archiveの理由は経緯なので本文に残す。
   const reason = change.reason?.trim() ? change.reason.trim() : null;
-  await store.append({
+  return {
     id: newId(),
     scope: ActivityScope.PROJECT,
     workspaceId: change.workspaceId,
@@ -49,5 +42,10 @@ export const recordCanonicalProjectActivity = async (
     recordedAt: change.occurredAt,
     dedupeKey: `direction_change:${change.type}:${change.projectId}`,
     inputHash: null,
-  });
+  };
+};
+
+/** Project archiveと同じtransactionのstoreに追記する。 */
+export const recordCanonicalProjectActivity = async (store: ActivityStore, change: ProjectChangeFact, newId?: () => string): Promise<void> => {
+  await store.append(canonicalProjectActivity(change, newId));
 };

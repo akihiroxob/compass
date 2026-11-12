@@ -39,6 +39,10 @@ CLIの単体テストは`cli/tests/`、DBツールは`database/tests/`に置き�
 
 SQLite DBの準備には`COMPASS_DB_PATH=/path/to/compass.db npm run db:migrate`で`database/migrations/`のSQLを適用します。Server・CLIの起動はマイグレーションを実行しません。適用履歴は`compass_schema_migration`に保存され、再実行時は未適用分だけを適用します。履歴がない既存DBは自動的に初期化済みと判断せず、内容を保持してエラーにします。
 
+D1向けの配布SQLは`npm run db:prepare:d1`で`database/.generated/d1-migrations/`へ生成します。共通SQL（`database/migrations/`）とD1専用SQL（`database/d1/migrations/`）の内容・ファイル名を維持し、同名の衝突はエラーにします。このコマンドはDBへ適用しません。生成物はGit管理せず、SQLの正本を直接編集します。
+
+WorkersでのWeb UI・API・MCPの起動、D1への明示migration、Google認証、mainへのPushによる配置設定は[Cloudflareへの配置](docs/cloudflare-deployment.md)を参照してください。`npm run worker:build`でアップロードせず配布物を検査できます。
+
 リリース前の開発DBは再作成できます。マイグレーション履歴がない既存DBは自動変更しません。必要なデータを確認したうえで、新しいDBへマイグレーションを適用してください。
 
 portが使用中なら既存プロセスを停止せず、同じ認証設定に`PORT=52000`等を加えて起動します。開発用の`npm run dev`はserverとViteを起動します。Viteの画面を使う場合は、そのoriginを`COMPASS_PUBLIC_ORIGIN`へ指定してください。

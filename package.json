@@ -14,6 +14,7 @@
     "start": "tsx server/src/main.ts",
     "cli": "tsx cli/src/main.ts",
     "db:migrate": "node --import tsx database/src/main.ts",
+    "db:prepare:d1": "node --import tsx database/src/prepareD1.ts",
     "dev": "npm-run-all --parallel dev:server dev:frontend",
     "dev:server": "tsx watch server/src/main.ts",
     "dev:frontend": "vite --config server/src/web/vite.config.ts",
@@ -26,7 +27,13 @@
     "catalog:dev": "npm run catalog:dev --workspace server",
     "catalog:build": "npm run catalog:build --workspace server",
     "test:tools": "node --import tsx --test cli/tests/*.test.ts database/tests/*.test.ts",
-    "test:integration": "node --import tsx --test tests/integration/*.test.ts"
+    "test:integration": "node --import tsx --test tests/integration/*.test.ts",
+    "worker:prepare": "npm run build && node scripts/prepare-worker.mjs",
+    "worker:build": "wrangler deploy --dry-run --outdir server/.generated/bundle",
+    "worker:dev": "wrangler dev",
+    "worker:deploy": "wrangler deploy",
+    "db:migrate:d1:local": "npm run db:prepare:d1 && wrangler d1 migrations apply compass --local",
+    "db:migrate:d1:remote": "npm run db:prepare:d1 && wrangler d1 migrations apply compass --remote"
   },
   "devDependencies": {
     "npm-run-all": "^4.1.5"
