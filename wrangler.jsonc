@@ -1,29 +1,37 @@
 {
-	"$schema": "./node_modules/wrangler/config-schema.json",
-	"name": "compass",
-	"main": "server/.generated/worker.mjs",
-	"compatibility_date": "2026-11-10",
-	"keep_vars": true,
-	"build": {
-		"command": "npm run worker:prepare"
-	},
-	"assets": {
-		"directory": "server/public",
-		"binding": "ASSETS",
-		"run_worker_first": true,
-		"html_handling": "none",
-	},
-	"d1_databases": [
-		{
-			"binding": "compass",
-			"database_name": "compass",
-			// Replace with the ID returned by `wrangler d1 create compass` before deploying.
-			"database_id": "9c37c0f9-d5ee-4c4f-b2a8-98e89249fa56",
-			"migrations_dir": "database/.generated/d1-migrations",
-			"remote": true,
-		},
-	],
-	"observability": {
-		"enabled": true
-	},
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "compass",
+  "main": "server/.generated/worker.mjs",
+  "compatibility_date": "2026-11-10",
+  "keep_vars": true,
+  "build": {
+    "command": "npm run worker:prepare",
+  },
+  "assets": {
+    "directory": "server/public",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none",
+  },
+  "d1_databases": [
+    {
+      "binding": "compass",
+      "database_name": "compass",
+      // Replace with the ID returned by `wrangler d1 create compass` before deploying.
+      "database_id": "9c37c0f9-d5ee-4c4f-b2a8-98e89249fa56",
+      "migrations_dir": "database/.generated/d1-migrations",
+      "remote": true,
+    },
+  ],
+  "observability": {
+    "enabled": true,
+  },
+  "previews": {
+    "d1_databases": [
+      {
+        "binding": "compass",
+        "database_id": "9c37c0f9-d5ee-4c4f-b2a8-98e89249fa56",
+      },
+    ],
+  },
 }
