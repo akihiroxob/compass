@@ -86,6 +86,8 @@ npm run worker:deploy
 
 D1はSQL前提条件・変更・Receipt・Activityを原子的batchで確定する。callback型DB transactionは提供しない。前提条件が変わった場合のみ上限付きで再読取し、通信断など成否不明の書込を無条件に再実行しない。受付記録のある操作は同じrequest IDで照合する。
 
+D1のSQL長・bind数・文字列値・SQL関数引数には上限がある。保存前の検査と保存予定行の参照は、小分けのJSONや元の値を用いてSQLを組み立てる。これらの断片も一つの原子的batchで確定し、途中までの保存を許さない。Activityのliteral部分一致はLIKE patternの上限に依存しないSQLを使う。
+
 D1とWorkersの実行時間・値サイズ・bind数・query数には上限がある。大量データの移行や大規模な一括更新を通常の操作と同じ負荷で扱える保証はない。実データ量に応じて確認する。
 
 参照: [Workers静的配信設定](https://developers.cloudflare.com/workers/static-assets/binding/)、[Workers Builds設定](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)、[D1上限](https://developers.cloudflare.com/d1/platform/limits/)。

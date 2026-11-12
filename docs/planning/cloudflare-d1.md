@@ -33,7 +33,7 @@ D1にcallback transactionはない。Node用のtransactionをno-opに置き換�
 - ActivityのD1 Unit of WorkとDIは実装済み。既存の保存値・読取SQLを共有し、参照先の状態とdedupe照合・追記を同じbatchで検査・保存する。同時再送の収束、入力違いの拒否、訂正、保存前の読取、失敗時の巻戻し、archive後の成功済み再送を検証済み。
 - CollaborationのD1 Unit of WorkとDIは実装済み。相談の保存値・読取SQLと業務判断をSQLiteと共有し、相談・Work文書反映Task・両方のReceipt・Change・Activityを同じ保存計画で確定する。同時再送・Human返信の競合・応答leaseの排他／期限／更新・古い版の応答拒否・解決／取消・100件超の認可scope・文書反映Taskの生成と全体巻戻しを検証済み。Workのcanonical Activityも同じ計画へ重ねる。Workspace相談の明示引継ぎと受入済みWork証跡による成果物参照の照合もD1で検証済み。
 - Workers Bootstrap・全ContextのD1 DI・資産bundle生成・Wrangler設定・配置文書は実装済み。配布bundleをworkerdで動かし、未migration時の503、UI配信、署名付きGoogle互換fixtureでのOIDC callback・Human API・Agent Credential・MCPでのClaim／GitHub互換fixtureによるPR登録・Role Context取得・専用Runtime Credentialによる公開記録API／同一観測の再送を検証済み。実Google・実GitHub・Cloudflare実環境への配置は未検証。
-- Project archive／Target解除の保存直前競合もD1で検証済み。残る確認: 大きい本文・大量更新時のD1上限。実環境のD1 ID・公開origin・Google設定・Secretは配置時に設定する。
+- Project archive／Target解除の保存直前競合もD1で検証済み。100列・200Task合計2.4MB・JSON化で2MBを超える改行本文の保存と参照も確認済み。SQL長・bind数・文字列値・json_object引数の公開上限をテスト接続でも照合する。実環境の性能・CPU／通信等は未測定。実環境のD1 ID・公開origin・Google設定・Secretは配置時に設定する。
 
 D1原子的batchの前提検査は`database/d1/migrations/0000_d1_atomic_guards.sql`のCHECK制約を使う。前提不成立を例外にしてbatch全体を巻き戻し、成功時は検査行を同じbatchで削除する。D1専用migrationとして共通の初期schemaと一緒に配布する。`npm run db:prepare:d1`は配布物だけを生成し、DBへ適用しない。
 
