@@ -20,7 +20,6 @@
       // Replace with the ID returned by `wrangler d1 create compass` before deploying.
       "database_id": "9c37c0f9-d5ee-4c4f-b2a8-98e89249fa56",
       "migrations_dir": "database/.generated/d1-migrations",
-      "remote": true,
     },
   ],
   "observability": {
