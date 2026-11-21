@@ -11,6 +11,7 @@ import { WorkspaceAgentDetail, WorkspaceAgentList } from "../agent";
 import { WorkspaceWaitingList } from "../consultation";
 import { useSession } from "../auth";
 import { CredentialSection } from "../credential";
+import { McpConnectionSection } from "../mcp-connection";
 import { DirectionPanel, loadDirection, loadOutcomeDetail } from "../direction";
 import { AgentSettingsSection } from "../grant";
 import { humanRoleLabels, RoleHelpButton, WorkspaceInvitationSection, WorkspaceMembershipSection, type HumanRole } from "../member";
@@ -252,6 +253,7 @@ const SettingsContent = ({ workspace, myRole, reload }: { workspace: Workspace; 
       <TextList title="Principles" values={workspace.principles} />
       <TextList title="Constraints" values={workspace.constraints} />
       <ManageSection workspace={workspace} myRole={myRole} reload={reload} />
+      <McpConnectionSection scope={scope} workspaceId={workspace.id} canManageCredentials={canManageCredential} />
       <AgentSettingsSection scope={scope} readOnly={archived || !canOperateWorkspace(myRole, "grant.manage")} showCredentials={canManageCredential} />
       {canManageCredential ? <CredentialSection scope={scope} readOnly={archived} /> : (
         <section className="detail-section" aria-labelledby="workspace-credential-heading">

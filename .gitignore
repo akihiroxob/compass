@@ -193,5 +193,6 @@ storybook-static/
 .wrangler/
 .dev.vars
 .dev.vars.*
+!.dev.vars.example
 /database/.generated/
 /server/.generated/

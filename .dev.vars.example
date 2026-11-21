@@ -1,0 +1,15 @@
+# .dev.vars にコピーし、仮の値を実際の設定値に置き換えてください。実際のSecretはコミットしないでください。
+# ローカルのWorkersもGoogle認証を使います（認証モードはremote固定）。
+# 起動コマンド: npm run worker:dev
+COMPASS_PUBLIC_ORIGIN=https://localhost:8787
+
+# Google OAuthクライアントの承認済みリダイレクトURIに以下を登録してください。
+# https://localhost:8787/auth/google/callback
+COMPASS_GOOGLE_CLIENT_ID=REPLACE_WITH_GOOGLE_CLIENT_ID
+COMPASS_GOOGLE_CLIENT_SECRET=REPLACE_WITH_GOOGLE_CLIENT_SECRET
+
+# 初期platform ownerがログインするまで必須です。
+COMPASS_INITIAL_OWNER_EMAIL=owner@example.com
+
+# 任意: PR・commitの照合に使う、Repositoryの読み取り権限を持つトークン。
+# COMPASS_GITHUB_TOKEN=

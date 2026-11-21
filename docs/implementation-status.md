@@ -134,6 +134,8 @@ Workspaceの「Agent管理」（一覧`/workspaces/:workspaceId/agents`・詳細
 
 ## Workspace設定（Web UI）
 
+WorkspaceとProjectの設定には共通の「MCP接続」案内がある。現在のoriginに対する`/mcp`、対象Workspace／Project ID、AgentのRole割当・同じscopeのCredential発行への導線、Roleに応じたJSON設定例（Bearerと`X-Compass-Active-Role`）とコピー、Role Context取得のTool／引数を表示する。WorkspaceではStrategist／Researcher／Evaluator、ProjectではManager／Worker／Reviewerを選ぶ。案内からSecretを入力・保存しない。Credential管理権限が無いMemberには管理者への発行依頼を案内する。
+
 Workspaceの「設定」（`/workspaces/:workspaceId/settings`。`features/workspace/WorkspacePages.tsx`の`SettingsContent`）は、Workspaceの基本情報・方向（名前・Mission・Vision・Principles・Constraintsの現在値）と、その編集（`/workspaces/:workspaceId/edit`。administrator以上）・archive（owner）の導線（`ManageSection`。archived時は出さない）、Workspace scopeのDirection AgentとCredentialを管理し、Humanの管理は専用の「Member管理」（`/workspaces/:workspaceId/settings/members`。`MembersContent`。Shellでは「設定」に属する）へ分ける。導線の表示はWorkspace Membershipの`myRole`と権限表`humanWorkspacePermissions`で決め、拒否は常にserverが行う。Humanは同じWorkspace Membershipで配下Projectを利用する。AgentのWorkspace / Project Grantは互いに継承しない。
 
 - Member管理（`features/member/WorkspaceMembershipSection.tsx`・`RoleHelp.tsx`）: 参加者の一覧はviewer以上。名前・メールで検索でき（`filterMembers`）、20件ずつページングする（`paginateMembers`。`members.ts`）。ownerだけにRole変更・除外（確認パネル）を出し、除外の確認ではWorkspaceと配下のすべてのProjectを利用できなくなることを示す。最後のownerは導線を無効にして理由を示す（serverも`409 LAST_OWNER`）。owner以外とarchivedのWorkspaceには変更できない理由を出す。読込失敗は再読込を、取得結果が空・検索0件・多数件はそれぞれ別の表示にし、ゼロ件へ偽装しない。Roleの説明は常設せず、見出し横の「権限について」から共通`Dialog`（×・Escape・背景で閉じ、開いたボタンへfocusを戻す）で開く。Memberを一覧から直接追加する入口は無く、参加は招待で行う。

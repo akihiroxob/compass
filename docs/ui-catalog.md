@@ -57,6 +57,7 @@ devはループバックだけでlistenする。終了は`Ctrl+C`。静的build�
 | `Components/Dialog` | `Centered`で見出し・×・本文の折返し、Escape・背景・×で閉じてfocusが開いたボタンへ戻ること。`EndWithHeader`で右端の全高と、×とSelectを同じ行に置く配置 |
 | `Components/ViewSwitch` | md/sm、件数と選択中表示。NavigationでURLとaria-currentの切替を確認 |
 | `Patterns/SharedUI` | 同sizeの操作列、標準HTML検証つきフォーム、確認の見出しfocus・キャンセル・確定、pending/error/読込/空状態。`ColumnsAndLists`で主列・補助列、`ColumnsInNarrowParent`で親layoutの幅が足りない場合の1列、罫線区切りの一覧（リンク行のhover・長い文言の折返し）、補助列の縦積み、状態badge。`Cards`でProjectカード（開ける・開けない） |
+| `Patterns/McpConnection` | `Workspace`・`Project`で対象scopeのRole・設定例・Tool引数を確認。`Viewer`はCredential発行リンクを出さず管理者への依頼を案内する。PC・390pxの表示、Role変更、URL／設定例のコピーとClipboardが使えない場合の案内を確認する |
 | `Patterns/RoleHelp` | `Closed`で操作列のボタンと、開いたDialogのRole説明・適用範囲、×・Escapeで閉じて操作元へfocusが戻ること。`LongWorkspaceName`で長い名前の折返し。狭幅（390px）で横にはみ出さないこと |
 | `Patterns/Shell` | `WithMenu`でheader・左のメニュー、狭い画面（390px）で名前アイコンの右のメニューボタンから右端のDialogを開く配置。slotの中身はlocalのリンクで、Workspace・Projectのメニューの見た目は製品画面で確認する。`PublicFrame`でheaderだけの枠 |
 | `Patterns/OverviewLayout` | Mission・Visionの帯（Visionの未設定・長い文言）と、帯の下のPageColumns。本文の幅が足りれば2列、足りなければ1列 |
