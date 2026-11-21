@@ -5,6 +5,7 @@ import { Button, Field, LinkButton, TextInput, ViewSwitch } from "./ui";
 import { PageColumns } from "./PageColumns";
 import { ConfirmPanel } from "./ReasonPanel";
 import { ErrorState, Loading, StateCard } from "./StateCard";
+import { TextListInput } from "./ListInputs";
 
 const meta = {
   title: "Patterns/SharedUI",
@@ -31,6 +32,16 @@ export const Form: Story = {
       <div className="form-actions"><Button type="submit">保存する</Button></div>
       {saved && <StateCard role="status">入力を確認しました（API送信なし）。</StateCard>}
     </form>;
+  },
+};
+export const TextLists: Story = {
+  render: function TextLists() {
+    const [principles, setPrinciples] = useState<string[]>([]);
+    const [notes, setNotes] = useState([""]);
+    return <div className="form-section">
+      <TextListInput legend="判断の原則" description="複数の選択肢があるときに、何を優先するかを決める考え方です。" name="principles" values={principles} setValues={setPrinciples} placeholder="機能数より使いやすさを優先する。" invalid={new Set()} />
+      <TextListInput legend="メモ" name="notes" values={notes} setValues={setNotes} placeholder="メモを入力" invalid={new Set()} />
+    </div>;
   },
 };
 export const Confirmation: Story = {

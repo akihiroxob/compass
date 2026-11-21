@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { fieldId } from "../api";
 import { fieldProps } from "./FormErrorSummary";
 import { Button, TextInput } from "./ui";
@@ -5,6 +6,16 @@ import { Button, TextInput } from "./ui";
 /** リンク1行の入力値。`id`は保存済みの行だけが持つ。共通部品は自身のpropsの形だけを持ち、Featureの型に依存しない。 */
 type LinkRow = { id?: string; name: string; url: string; kind: string };
 
-export const TextListInput = ({ legend, name, values, setValues, placeholder, invalid }: { legend: string; name: string; values: string[]; setValues: (values: string[]) => void; placeholder: string; invalid: ReadonlySet<string> }) => <fieldset className="repeat-field"><legend>{legend}</legend>{values.map((value, index) => <div className="repeat-row" key={index}><TextInput {...fieldProps(invalid, fieldId(`${name}.${index}`))} aria-label={`${legend} ${index + 1}`} value={value} placeholder={placeholder} onChange={(event) => setValues(values.map((item, i) => i === index ? event.target.value : item))} /><Button variant="text" onClick={() => setValues(values.filter((_, i) => i !== index))}>削除</Button></div>)}<Button variant="text" onClick={() => setValues([...values, ""])}>＋ {legend}を追加</Button></fieldset>;
+export const TextListInput = ({ legend, description, name, values, setValues, placeholder, invalid }: { legend: string; description?: string; name: string; values: string[]; setValues: (values: string[]) => void; placeholder?: string; invalid: ReadonlySet<string> }) => {
+  const descriptionId = useId();
+  return (
+    <fieldset className="repeat-field" aria-describedby={description ? descriptionId : undefined}>
+      <legend>{legend}</legend>
+      {description && <p id={descriptionId} className="section-note">{description}</p>}
+      {values.map((value, index) => <div className="repeat-row" key={index}><TextInput {...fieldProps(invalid, fieldId(`${name}.${index}`))} aria-label={`${legend} ${index + 1}`} value={value} placeholder={placeholder} onChange={(event) => setValues(values.map((item, i) => i === index ? event.target.value : item))} /><Button variant="text" onClick={() => setValues(values.filter((_, i) => i !== index))}>削除</Button></div>)}
+      <Button variant="text" onClick={() => setValues([...values, ""])}>＋ {legend}を追加</Button>
+    </fieldset>
+  );
+};
 
 export const LinkListInput = ({ legend, name, values, setValues, invalid, withKind = false, withName = true, readOnly = false }: { legend: string; name: string; values: LinkRow[]; setValues: (values: LinkRow[]) => void; invalid: ReadonlySet<string>; withKind?: boolean; withName?: boolean; readOnly?: boolean }) => <fieldset className="repeat-field"><legend>{legend}</legend>{values.map((value, index) => <div className="repeat-row links" key={index}>{withName && <TextInput readOnly={readOnly} {...fieldProps(invalid, fieldId(`${name}.${index}.name`))} aria-label={`${legend} ${index + 1}の名前`} value={value.name} placeholder="名前" onChange={(event) => setValues(values.map((item, i) => i === index ? { ...item, name: event.target.value } : item))} />}<TextInput readOnly={readOnly} {...fieldProps(invalid, fieldId(`${name}.${index}.url`))} aria-label={`${legend} ${index + 1}のURL`} type="url" value={value.url} placeholder="https://..." onChange={(event) => setValues(values.map((item, i) => i === index ? { ...item, url: event.target.value } : item))} />{withKind && <TextInput readOnly={readOnly} {...fieldProps(invalid, fieldId(`${name}.${index}.kind`))} aria-label={`${legend} ${index + 1}の種類`} value={value.kind} placeholder="種類（任意）" onChange={(event) => setValues(values.map((item, i) => i === index ? { ...item, kind: event.target.value } : item))} />}{!readOnly && <Button variant="text" aria-label={`${legend} ${index + 1}を削除`} onClick={() => setValues(values.filter((_, i) => i !== index))}>削除</Button>}</div>)}{!readOnly && <Button variant="text" onClick={() => setValues([...values, { name: "", url: "", kind: "" }])}>＋ {legend}を追加</Button>}{readOnly && values.length === 0 && <p className="unset">未設定</p>}</fieldset>;

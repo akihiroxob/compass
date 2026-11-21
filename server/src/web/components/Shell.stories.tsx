@@ -28,7 +28,7 @@ export const WithMenu: Story = {
       {...args}
       switcher={<Select aria-label="Workspaceを切り替える" defaultValue="a"><option value="a">Taneru</option><option value="b">Petari</option></Select>}
       navigation={<SampleNavigation />}
-      footer={<Link to="/projects">参加中のProject</Link>}
+      footer={<Link to="/">Workspace一覧</Link>}
     >
       <main><h1>本文</h1><p>狭い画面ではheader右のメニューから開きます。</p></main>
     </Shell>
@@ -37,4 +37,11 @@ export const WithMenu: Story = {
 
 export const PublicFrame: Story = {
   render: (args) => <Shell {...args}><main><h1>ログイン</h1></main></Shell>,
+};
+
+export const WithoutFooter: Story = {
+  args: {
+    navigation: <SampleNavigation />,
+    children: <main><h1>Workspace</h1></main>,
+  },
 };

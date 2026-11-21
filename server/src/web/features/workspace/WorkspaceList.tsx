@@ -98,9 +98,10 @@ export const WorkspaceList = () => {
       </div>
       {workspaces.length === 0 ? (
         <StateCard>
-          <p>参加しているWorkspaceはありません。Workspaceは、Mission・Visionを共有して複数のProjectで成果を実現する単位です。Workspaceを作成するとあなたがownerになり、Projectを追加できます。</p>
-          <p>既存のWorkspaceに参加するには、そのWorkspaceのownerにMembershipの追加を依頼してください。</p>
-          <div className="action-row"><LinkButton to={workspaceCreatePath}>Workspaceを作成</LinkButton><LinkButton variant="secondary" to="/projects">参加中のProject</LinkButton></div>
+          <h2>Workspaceはまだありません</h2>
+          <p>Workspaceを作成するとあなたがownerになり、Projectを追加できます。</p>
+          <p>既存のWorkspaceに参加するには、そのWorkspaceのownerに招待を依頼してください。</p>
+          <div className="action-row"><LinkButton to={workspaceCreatePath}>Workspaceを作成</LinkButton></div>
         </StateCard>
       ) : (
         <section className="workspace-cards" aria-label={`${workspaces.length}件のWorkspace`}>

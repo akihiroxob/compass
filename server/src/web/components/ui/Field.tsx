@@ -2,8 +2,8 @@ import type { ComponentPropsWithRef, ReactNode } from "react";
 
 export type FieldProps = {
   label: ReactNode;
-  /** 必須の表示（「必須」）。入力の検証は入力部品の`required`が行うため、両方に指定する。 */
-  required?: boolean;
+  /** 必須の表示。trueは「必須」、文字列は指定した表示を使う。入力部品にもrequiredを指定する。 */
+  required?: boolean | string;
   /** 入力の説明（文字数・書き方等）。labelに含めて読み上げる。 */
   description?: ReactNode;
   /** labelを見た目から隠し、読み上げにだけ残す（一覧の行内の選択等）。 */
@@ -25,7 +25,7 @@ export const Field = ({ label, required = false, description, labelHidden = fals
     ) : (
       <span className="field-label">
         {label}
-        {required && <> <span className="field-required">必須</span></>}
+        {required !== false && <> <span className="field-required">{required === true ? "必須" : required}</span></>}
       </span>
     )}
     {description !== undefined && <small className="field-description">{description}</small>}

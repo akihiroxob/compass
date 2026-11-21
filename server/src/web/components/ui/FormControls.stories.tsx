@@ -12,6 +12,12 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Playground: Story = {};
+export const RequiredMarker: Story = {
+  render: () => <div className="form-section">
+    <p>＊の項目は入力が必要です。</p>
+    <Field label="Workspace名" required="＊"><TextInput required /></Field>
+  </div>,
+};
 export const Fields: Story = {
   render: () => <div className="form-section">
     {(["md", "sm"] as const).map((size) => <div className="form-section" key={size}>

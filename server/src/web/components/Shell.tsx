@@ -50,7 +50,7 @@ export const Shell = ({ switcher, navigation, footer, session, account, children
     );
   }
   const compact = narrow && account !== undefined;
-  const menu = <>{navigation}<div className="app-menu-footer">{footer}{compact && session}</div></>;
+  const menu = <>{navigation}{(footer !== undefined || compact) && <div className="app-menu-footer">{footer}{compact && session}</div>}</>;
   return (
     <>
       <a href="#app-content" className="skip-link">本文へ移動</a>

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { classifyError, loadFailureMessage, request } from "../../api";
 import { Button, Select } from "../../components/ui";
-import { projectMenuViews, projectViewPath, workspaceApiPath, workspaceCreatePath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath } from "../../paths";
+import { projectMenuViews, projectViewPath, workspaceApiPath, workspacePath, workspaceProjectCreatePath, workspaceProjectsPath } from "../../paths";
 import { canOperateWorkspace } from "../access";
 import type { HumanRole } from "../member";
 import { projectViewLabels } from "../project";
@@ -27,7 +27,7 @@ export const WorkspaceSwitcher = () => {
       </div>
     );
   }
-  if (workspaces !== null && workspaces.length === 0 && current === null) return <Link to={workspaceCreatePath} className="text-link">Workspaceを作成</Link>;
+  if (workspaces !== null && workspaces.length === 0 && current === null) return null;
   const loading = workspaces === null || (resolving && current === null);
   const options = workspaces === null ? [] : current && !workspaces.some(({ id }) => id === current.id) ? [...workspaces, current] : workspaces;
   return (

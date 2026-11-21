@@ -18,7 +18,7 @@ const workspaceNotFound = "Workspaceが見つからないか、このWorkspace�
 
 type WorkspaceFormProps = {
   initial: WorkspaceFormValues;
-  heading: { eyebrow: string; title: string; lede: string };
+  heading: { title: string; lede: string };
   submitLabel: string;
   pendingLabel: string;
   back: { to: string; label: string };
@@ -56,20 +56,16 @@ const WorkspaceForm = ({ initial, heading, submitLabel, pendingLabel, back, save
   return (
     <main className="narrow">
       <Link to={back.to} className="back-link">← {back.label}</Link>
-      <div className="page-heading"><div><p className="eyebrow">{heading.eyebrow}</p><h1>{heading.title}</h1></div></div>
+      <div className="page-heading"><h1>{heading.title}</h1></div>
       <p className="lede">{heading.lede}</p>
       {error && <FormErrorSummary error={error} conflict={{ title: "保存が競合しました。入力内容は残っています" }} detailTo={back.to} archivedScope="Workspace" />}
       <form onSubmit={submit} className="project-form">
         <section className="form-section">
-          <h2>Identity</h2>
-          <Field label="Workspace名" required><TextInput {...fieldProps(invalid, "field-name")} required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /></Field>
-        </section>
-        <section className="form-section">
-          <h2>Direction</h2>
-          <Field label="Mission" required description="このWorkspaceが存在する理由。所属するすべてのProjectで共有します"><TextArea {...fieldProps(invalid, "field-mission")} required maxLength={2000} rows={5} value={mission} onChange={(event) => setMission(event.target.value)} /></Field>
-          <Field label="Vision" description="最終的に実現したい状態"><TextArea {...fieldProps(invalid, "field-vision")} maxLength={2000} rows={5} value={vision} onChange={(event) => setVision(event.target.value)} /></Field>
-          <TextListInput legend="Principles" name="principles" invalid={invalid} values={principles} setValues={setPrinciples} placeholder="迷ったときの判断原則" />
-          <TextListInput legend="Constraints" name="constraints" invalid={invalid} values={constraints} setValues={setConstraints} placeholder="超えてはいけない制約" />
+          <Field label="Workspace名" required="＊"><TextInput {...fieldProps(invalid, "field-name")} required maxLength={100} placeholder="学びの支援" value={name} onChange={(event) => setName(event.target.value)} /></Field>
+          <Field label="Mission" required="＊" description="このWorkspaceで取り組む目的や、届けたい価値です。"><TextArea {...fieldProps(invalid, "field-mission")} required maxLength={2000} rows={5} placeholder="学びたい人が、自分に合う学び方を見つけられるようにする。" value={mission} onChange={(event) => setMission(event.target.value)} /></Field>
+          <Field label="Vision" description="活動を続けた先で、実現したい社会や利用者の状態です。"><TextArea {...fieldProps(invalid, "field-vision")} maxLength={2000} rows={5} placeholder="誰もが学びを続け、新しいことに挑戦できる社会。" value={vision} onChange={(event) => setVision(event.target.value)} /></Field>
+          <TextListInput legend="判断の原則" description="複数の選択肢があるときに、何を優先するかを決める考え方です。" name="principles" invalid={invalid} values={principles} setValues={setPrinciples} placeholder="機能数より使いやすさを優先する。" />
+          <TextListInput legend="制約" description="予算・技術・運用など、活動で守る必要がある条件です。" name="constraints" invalid={invalid} values={constraints} setValues={setConstraints} placeholder="個人情報を外部サービスに送信しない。" />
         </section>
         <div className="form-actions"><LinkButton to={back.to} variant="secondary">キャンセル</LinkButton><Button type="submit" pending={isSubmitting}>{isSubmitting ? pendingLabel : submitLabel}</Button></div>
       </form>
@@ -81,7 +77,7 @@ const WorkspaceForm = ({ initial, heading, submitLabel, pendingLabel, back, save
 export const WorkspaceCreatePage = () => (
   <WorkspaceForm
     initial={emptyWorkspaceFormValues}
-    heading={{ eyebrow: "New workspace", title: "Workspaceを作成", lede: "Workspaceは、Missionを共有して複数のProjectで成果を実現する単位です。必須なのは名前とMissionです。作成後にProjectを追加します。" }}
+    heading={{ title: "Workspaceを作成", lede: "WorkspaceでMission・Visionを共有し、複数のProjectを進めます。ProjectはWorkspaceの作成後に追加できます。" }}
     submitLabel="Workspaceを作成"
     pendingLabel="作成中..."
     back={{ to: "/", label: "ホーム" }}
@@ -121,7 +117,7 @@ export const WorkspaceEditPage = () => (
     {(workspace) => (
       <WorkspaceForm
         initial={workspaceFormValues(workspace)}
-        heading={{ eyebrow: "Edit workspace", title: "Workspaceを編集", lede: "変更した内容は保存するまで反映されません。Mission等は所属するすべてのProjectで共有されます。" }}
+        heading={{ title: "Workspaceを編集", lede: "変更した内容は保存するまで反映されません。Mission等は所属するすべてのProjectで共有されます。" }}
         submitLabel="変更を保存"
         pendingLabel="保存中..."
         back={{ to: workspacePath(workspace.id), label: "Workspaceの概要" }}

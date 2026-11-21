@@ -23,7 +23,7 @@
 | 起動 | `app/main.tsx` | `index.html`の入口。`StrictMode`・`BrowserRouter`・全体のstyle（`app/main.scss`）を読み、`App`を描画する |
 | routing | `app/App.tsx` | 全routeを定義し、各Featureの画面を公開入口から割り当てる。`/login`・`/invite`は`PublicLayout`、それ以外（未定義のURLの`NotFoundPage`を含む）は`AuthenticatedLayout`の子route |
 | Session無しの枠 | `app/AppLayout.tsx`の`PublicLayout` | Shellのheaderに`SessionMenu`（auth）だけを出す。Session復元中・接続失敗は、同じ枠（`PublicFrame`）を`AuthGate`の`layout`として渡して表示する |
-| ログイン後の枠 | `app/AppLayout.tsx`の`AuthenticatedLayout` | `AuthGate`（auth。Sessionの復元・未ログイン時のログイン画面への移動）→ `WorkspaceNavigationProvider`（workspace。URLから現在のWorkspace）→ Shellの順に合成し、Shellの`switcher`へ`WorkspaceSwitcher`、`navigation`へ`WorkspaceNav`・`WorkspaceProjectNav`、`footer`へ横断した判断待ち・参加中のProject・Workspaceの作成、`session`へ`SessionMenu`、`account`へ`SessionAvatar`を渡す。画面は`Outlet`へ描画する |
+| ログイン後の枠 | `app/AppLayout.tsx`の`AuthenticatedLayout` | `AuthGate`（auth。Sessionの復元・未ログイン時のログイン画面への移動）→ `WorkspaceNavigationProvider`（workspace。URLから現在のWorkspace）→ Shellの順に合成し、Shellの`switcher`へ`WorkspaceSwitcher`、`navigation`へ`WorkspaceNav`・`WorkspaceProjectNav`、`session`へ`SessionMenu`、`account`へ`SessionAvatar`を渡す。Workspace一覧（`/`）とWorkspace作成（`/workspaces/new`）では`navigation`を渡さず、左メニューとスマホのメニューボタンを表示しない。メニューにはWorkspaceの切替と、そのWorkspace・Projectの項目を表示する。画面は`Outlet`へ描画する |
 | 枠の表示 | `components/Shell.tsx` | 上端のheader（brand・Session）・メニュー・本文の配置とskip linkだけを持つ表示部品。`navigation`を渡すとDesktopは左のメニュー、狭い画面（700px以下）はheaderの名前アイコン（`account`）の右のメニューボタンから右端の`Dialog`で同じメニューと`session`を開く。省略するとheaderだけになる |
 | 認可ゲート | `features/access/`の`ProjectOperationGate`・`WorkspaceDirectionGate` | 作成・編集の画面を直接開いたときに操作できなければ、フォームの代わりに理由と戻り先を出す。枠はroute layoutが持つ |
 
@@ -56,7 +56,7 @@ Feature内のfileは自身の`index`を経由せず内部fileを直接参照す�
 | `LinkButton` | `react-router-dom`の`Link`のprops（`className`・`style`を除く）と`variant`（`primary`既定・`secondary`）・`size` | 通常の`<a href>`。class `button` / `secondary-button`、`size="sm"`で`compact` |
 | `Button` | `<button>`の標準属性とref（`className`・`style`を除く）、`variant`（`primary`既定・`secondary`・`text`）・`size`・`tone="danger"`・`pending` | `<button>`。`type`の既定は`button`で、送信は`type="submit"`を明示する。`pending`で`disabled`と`aria-busy="true"`。`text`は枠の無い文字だけのボタン（`text-button`。sizeを持たない） |
 | `ViewSwitch` | `label`（`nav`のaria-label）・`items`（`key`・`to`・`label`・`current`・任意の`count`）・`size` | `<nav>`内の`<a href>`。選択中の項目に`aria-current="page"` |
-| `Field` | `label`・`required`（「必須」の表示）・`description`（説明）・`labelHidden`（読み上げだけのlabel）・`layout`（`stack`既定・`inline`）・`children`（入力部品1つ） | 入力を包む`<label class="field">`。説明もlabelに含めて読み上げる |
+| `Field` | `label`・`required`（`true`で「必須」、文字列でその文言）・`description`（説明）・`labelHidden`（読み上げだけのlabel）・`layout`（`stack`既定・`inline`）・`children`（入力部品1つ） | 入力を包む`<label class="field">`。説明もlabelに含めて読み上げる |
 | `TextInput` | `<input>`の標準属性とref（`className`・`style`・`size`を除く）、`type`（`text`既定・`email`・`url`・`search`・`password`・`number`・`tel`）・`size` | `<input class="input">`。`required`で`aria-required="true"`も付く |
 | `TextArea` | `<textarea>`の標準属性とref（`className`・`style`を除く） | `<textarea class="textarea">`。高さは`rows` |
 | `Select` | `<select>`の標準属性とref（`className`・`style`・`size`・`multiple`を除く）、`size`。選択肢は`<option>`・`<optgroup>`を子に渡す | `<select class="select">`。nativeの矢印を消し、共通の矢印を右端から`--field-select-arrow-inset`（14px）内側に描き、右paddingを`--field-select-padding-right`（42px）にして文字と矢印の領域を分ける |
@@ -168,7 +168,7 @@ Sassの入口は`app/main.scss`（`app/main.tsx`が読む）で、共有 → 部
 | 共有 | `styles/_layout.scss` | 複数のFeature・appが使うlayout・区画・操作列（`.action-row`・`.list-toolbar`・`.form-actions`）・一覧・カード・文字の型・状態badge |
 | 基本部品 | `components/ui/_button.scss`・`_view-switch.scss`・`_field.scss`・`_icon-button.scss`・`_dialog.scss` | Button・LinkButton・ViewSwitch・Field・Fieldset・入力部品・IconButton・Dialogの内側の見た目と状態 |
 | 組合せUI | `components/_shell.scss`・`_state-card.scss`・`_reason-panel.scss`・`_list-inputs.scss`・`_page-columns.scss` | Shell・StateCard・ConfirmPanel・ListInputs・PageColumnsの見た目 |
-| app | `app/_app.scss` | 未定義のURLの画面、メニューの下端の横断した判断待ち・参加中のProject・Workspaceの作成へのリンク |
+| app | `app/_app.scss` | 未定義のURLの画面 |
 | Feature | `features/<機能>/_<機能>.scss` | そのFeatureだけが使うclass（Shellのslotに置くSession・Workspaceの切替/ナビゲーションの見た目を含む） |
 
 1つのFeatureだけが使うclassはそのFeatureのpartialへ、2つ以上のFeature・appが使うclassは`styles/_layout.scss`へ置く。利用側の文脈による調整（例: `.app-menu-footer .session-menu`）は、調整されるclassを所有するpartialに書く。
@@ -204,3 +204,15 @@ rootの`npm run check:ui`は`server`の同名scriptへ委譲し、検査自体�
 [UIカタログ](ui-catalog.md)で製品の実部品・同じ`app/main.scss`・現行tokenを確認できる。`npm run catalog:dev`・`npm run catalog:build`をRepository rootで実行する。基本部品は`components/ui`近傍のstoryから同じ公開入口を使い、組合せとtokenも近傍のstoryに置く。previewは`MemoryRouter`だけを供給し、実運用サービスを使わない。
 
 4つの正本（UI方針・token・部品・カタログ）、部品を変更するときのWorker・Reviewer・Managerの手順、配信assetとbuildの対応は[UIカタログの運用手順](ui-catalog.md#運用手順)に従う。`check:ui`はstoryを含む全sourceを検査する。`components/ui/*.stories.tsx`のStorybook型importだけを限定的に許可し、storyのnative基本部品・基本部品のstyle上書き・操作列sizeも検査する。製品からstoryへの依存は禁止する。部品・SCSSの例外を増やすためにstoryを使わない。
+
+### Workspace一覧
+
+Workspace一覧はヘッダーと本文で構成し、ProjectへはWorkspaceを開いてから移動する。PCではカード内の基本情報・問題・対応待ちを横に並べる。スマホでは基本情報を上段、問題と対応待ちを下段の横並びにする。Mission・Visionのラベルは本文の左に置き、Visionは最大2行で表示する。
+
+Workspaceが0件の場合は「Workspaceはまだありません」と作成ボタン、既存Workspaceへの招待をownerに依頼する案内を表示する。
+
+### Workspaceの作成・編集
+
+フォームはWorkspace名・Mission・Vision・判断の原則・制約を一つの区画に並べる。名前とMissionに「＊」を付け、入力部品の`required`で未入力を検証する。各項目の説明は入力する内容を示す「です・ます」調の文でそろえる。判断の原則と制約は、入力行が0件でも説明を表示する。可変行の説明には`TextListInput`の`description`を使い、`aria-describedby`で入力の組と関連付ける。
+
+プレースホルダーには具体例を表示し、「例：」は付けない。作成時の入力値は空欄とし、編集時は保存済みの値を表示する。プレースホルダーは入力値として保存しない。

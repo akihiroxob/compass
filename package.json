@@ -30,7 +30,7 @@
     "test:integration": "node --import tsx --test tests/integration/*.test.ts",
     "worker:prepare": "npm run build && node scripts/prepare-worker.mjs",
     "worker:build": "wrangler deploy --dry-run --outdir server/.generated/bundle",
-    "worker:dev": "wrangler dev --local-protocol https --port 8787",
+    "worker:dev": "wrangler dev --local-protocol http --port 8787",
     "worker:deploy": "wrangler deploy",
     "db:migrate:d1:local": "npm run db:prepare:d1 && wrangler d1 migrations apply compass --local",
     "db:migrate:d1:remote": "npm run db:prepare:d1 && wrangler d1 migrations apply compass --remote"
