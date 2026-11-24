@@ -9,6 +9,15 @@ Projectのリリース履歴では、何を提供したかを細かく残し、�
 
 ## 決定
 
+```mermaid
+flowchart LR
+  R[外部Runtimeの公開確認] --> P[Workの公開原記録]
+  P --> S[公開状況の導出]
+  S --> L[リリース履歴]
+```
+
+Taskの受入・PRのmergeと、公開・Outcomeの効果は区別する。
+
 - 公開確認は、外部のRuntime（CD・デプロイ通知・稼働確認）が送る原記録（`publication_record`）としてWorkが保持する。内容はProjectに登録したRepository・公開先の参照（`target`。例 `production`）・公開先URL・公開されているrevision（完全なcommit SHA）・確認日時（`observedAt`）・方式のラベル（`method`）・根拠の参照（`deployment` / `ci` / `url`のURI。本文は持たない）と、記録した主体・受付時刻とする。追記専用で、同じRepository・公開先・revision・確認日時の再送は同じ記録に収束し、内容が違えば上書きしない。
 - デプロイ方式によらず同じ契約（Web API `POST /api/projects/:projectId/publications`・MCP `record_publication`）を使う。方式別の専用管理画面・Entity・必須の「成果」Entityは設けない。入力元はProjectの設定で発行するProject Runtime Credential（scope `publication:write`）とし、Agent Grant・Human Sessionでは記録しない。
 - 変更の単位はWorkの既存の記録から導出する。PRを登録したTaskは現在のPRのmerge SHA（受入で照合したSHAを優先）、PRの無い受入済みTaskは受入成果物のCommitを対象Commitとする。Story経由でOutcome、Task・PR・対象Commitへ辿れる。新しい保存Entityを作らない。

@@ -1,6 +1,12 @@
 # アーキテクチャレビュー（Agentだけで回す前提）
 
-設計検討用のレビュー。確定した設計・実装済みの仕様としては扱わない。対象は2026-11-12時点の`feat/fit2cloudflare`ブランチのコードと文書。現状と改善後の比較図は [architecture-review-visual.html](architecture-review-visual.html)、現行の構成は [Compassの全体像とAgentの動き](../architecture-overview.md) を参照する。
+設計検討用のレビュー。確定した設計・実装済みの仕様としては扱わない。
+
+| 確認対象 | 参照先 |
+| --- | --- |
+| レビュー対象 | 2026-11-12時点の`feat/fit2cloudflare`ブランチのコードと文書 |
+| 現状と改善後の比較図 | [architecture-review-visual.html](architecture-review-visual.html) |
+| 現行の構成 | [Compassの全体像とAgentの動き](../architecture-overview.md) |
 
 ## 総評
 

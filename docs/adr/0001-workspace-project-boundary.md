@@ -8,7 +8,9 @@
 
 現行実装のProjectは、Mission・Vision・Principles・Constraints等の戦略、Intent / Outcome以下のDirection、Story / Task以下の実行、Repository等のResourceを1つの単位で兼ねている。複数Projectで1つの成果を目指せず、ProjectとRepositoryの区別も曖昧になる。
 
-Workspaceを導入し、戦略単位と実行単位を分ける。Story・Task・Grant・Credential・Change Log・ActivityのProject scopeを維持し、DirectionのWorkspace scopeと区別する。リリース前の開発DBは破棄・再作成できるため、旧データの変換を実装の前提にしない。
+Workspaceを導入し、戦略単位と実行単位を分ける。Story・Task・Grant・Credential・Change Log・ActivityのProject scopeを維持し、DirectionのWorkspace scopeと区別する。
+
+リリース前の開発DBは破棄・再作成できるため、旧データの変換を実装の前提にしない。
 
 ## 決定
 
@@ -40,6 +42,17 @@ DirectionのscopeはWorkspace、WorkのscopeはProjectとする。Project固有�
 Workspaceに固有のSkill・Knowledge・Policy・Role Definitionは持たせない。
 
 ### OutcomeとTarget Project
+
+```mermaid
+flowchart TD
+  W[Workspace] --> O[Outcome]
+  W --> A[Project A]
+  W --> B[Project B]
+  O -->|Target| A
+  O -->|Target| B
+  A --> SA[AのStory・Task]
+  B --> SB[BのStory・Task]
+```
 
 OutcomeとProjectの関連を`OutcomeTargetProject`（`outcomeId`・`projectId`・`createdAt`）としてDirectionが所有する。必要になるまでstatus・priority等を持たせない。
 

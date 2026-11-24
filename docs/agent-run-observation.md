@@ -1,6 +1,8 @@
 # Agent実行観測
 
-AccessがPrincipal・activeRole・Workspace / Project scopeに紐づくrunを`agent_run`へ永続化する。Runnerが報告した事実であり、プロセスの生存保証・Activity・workflow checkpointには使わない。
+AccessがPrincipal・activeRole・Workspace / Project scopeに紐づくrunを`agent_run`へ永続化する。
+
+Runnerが報告した事実であり、プロセスの生存保証・Activity・workflow checkpointには使わない。
 
 ## 記録と認可
 
@@ -12,6 +14,14 @@ MCP `record_agent_run`は`runId`・`scope: { kind, id }`・`source: ralph | orch
 - `observed`は実行中だけ最終観測・期限を更新する。終了後の遅延観測は変更しない。reason・provider・作業参照内のCompass token／Bearer値は伏字にし、run IDにCompass tokenを含められない。
 
 ## 参照と表示
+
+| 観測 | 扱い・表示 |
+| --- | --- |
+| 期限内の実行中 | Agent一覧・詳細で代表runとして優先 |
+| 正常終了 | 前回の終了の報告として「待機」 |
+| 異常終了 | エラー |
+| 観測途絶・報告なし | 理由付きの「不明」 |
+| 読込失敗 | 取得不能 |
 
 Humanの`GET /api/workspaces/:workspaceId/agent-runs`はWorkspace Membership viewer以上に公開する。Workspaceとactiveな所属Projectの、Principal・scope・Roleごとの最新runを返す。`?principalId=`はそのPrincipalの履歴を新しい開始順で最大20件返す。`asOf`はServerの読取時刻。`observation`は期限内の実行中`running`、観測途絶`stale`、正常終了`succeeded`、異常終了`failed`。
 

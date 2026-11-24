@@ -1,12 +1,23 @@
 # Work用D1 Unit of Workの実装方針
 
-WorkのD1用保存計画と、残る結合検証の条件。基本のUnit of Work・DIは実装済みで、Collaborationからの文書反映Taskは同一計画へ接続済み。現在のD1対応状況は[Workers + D1対応計画](cloudflare-d1.md)に記載する。
+WorkのD1用保存計画と、残る結合検証の条件を示す。
+
+基本のUnit of Work・DIは実装済みで、Collaborationからの文書反映Taskは同一計画へ接続済み。現在のD1対応状況は[Workers + D1対応計画](cloudflare-d1.md)に記載する。
 
 ## 維持する契約
 
 `WorkStore.transaction()`はApplicationが使うUnit of Workの境界とする。Task／Claimの規則、自己レビュー・自己受入禁止、Command Receiptの再送判定は既存Applicationへ残す。SQLite実装は維持する。
 
-D1ではcallback内でDBへ逐次書き込まない。読取条件・更新SQL・履歴・Activityを計画し、最後に`D1AtomicBatch`で一括確定する。更新後の再読取は計画内の変更も反映して返す。例外時には計画を破棄する。D1 Dialectのcallback transaction拒否は維持する。
+D1ではcallback内でDBへ逐次書き込まない。読取条件・更新SQL・履歴・Activityを計画し、最後に`D1AtomicBatch`で一括確定する。
+
+更新後の再読取は計画内の変更も反映して返す。例外時には計画を破棄する。D1 Dialectのcallback transaction拒否は維持する。
+
+```mermaid
+flowchart LR
+  R[読取条件を記録] --> P[更新SQL・履歴・Activityを計画]
+  P --> B[D1AtomicBatchで一括確定]
+  P -->|例外| X[計画を破棄]
+```
 
 ## 保存計画
 

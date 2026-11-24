@@ -2,7 +2,19 @@
 
 ## 状態と操作
 
-Projectは作成時active。ownerがWeb UIから理由を指定するとarchivedへ遷移する。Web APIは`POST /api/projects/:projectId/archive`。理由はtrim後1〜2,000文字。復帰・物理削除・MCP・CLIによるarchiveは提供しない。
+Projectは作成時active。ownerがWeb UIから理由を指定するとarchivedへ遷移する。
+
+| 項目 | 規則 |
+| --- | --- |
+| Web API | `POST /api/projects/:projectId/archive` |
+| 理由 | trim後1〜2,000文字 |
+| 提供しない操作 | 復帰・物理削除・MCP・CLIによるarchive |
+
+```mermaid
+stateDiagram-v2
+  [*] --> active
+  active --> archived: ownerが理由を指定
+```
 
 `status`、`archivedAt`、`archiveReason`を保存し、`updatedAt`をarchive日時に更新する。所属Workspaceの状態は変えない（最後のactive Projectでも同じ）。WorkspaceのarchiveはWorkspace ownerによる別の操作（`POST /api/workspaces/:workspaceId/archive`）で、Project RoleだけではWorkspaceを停止できない。再archiveは409で拒否し、理由や日時を上書きしない。
 

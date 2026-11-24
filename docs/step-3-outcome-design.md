@@ -1,6 +1,16 @@
 # Outcome・成功条件の現行仕様
 
-OutcomeはIntentへ近づくために実現する観測可能な状態。Directionが所有する。型は [Outcome.ts](../packages/direction/src/domain/Outcome.ts)、入力規則は [outcomeSchema.ts](../packages/direction/src/application/outcomeSchema.ts)。
+OutcomeはIntentへ近づくために実現する観測可能な状態で、Directionが所有する。
+
+型は [Outcome.ts](../packages/direction/src/domain/Outcome.ts)、入力規則は [outcomeSchema.ts](../packages/direction/src/application/outcomeSchema.ts) を参照する。
+
+```mermaid
+flowchart LR
+  I[Intent] --> O[Outcome]
+  O --> C[作成時に固定する成功条件]
+  E[Evidence] --> V[評価]
+  C --> V
+```
 
 ## 項目と固定条件
 

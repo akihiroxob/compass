@@ -1,6 +1,8 @@
 # Wacha向けアーキテクチャ移行計画
 
-本書は [統合設計](../compass-codex-architecture-handoff.md) と [ADR 0001 WorkspaceとProjectの境界](adr/0001-workspace-project-boundary.md) を実装するための作業計画。現行の移行は [Workspace移行](#workspace移行)。所有関係・scopeの正本はADR 0001とし、本書の表と食い違う場合はADRに従う。WachaへのStory・Task登録は実装・実行の完了を意味しない。
+本書は [統合設計](../compass-codex-architecture-handoff.md) と [ADR 0001 WorkspaceとProjectの境界](adr/0001-workspace-project-boundary.md) を実装するための作業計画。現行の移行は [Workspace移行](#workspace移行)を参照する。
+
+所有関係・scopeの正本はADR 0001とし、本書の表と食い違う場合はADRに従う。WachaへのStory・Task登録は実装・実行の完了を意味しない。
 
 ## 構造移行（Workspace移行前）
 

@@ -1,12 +1,24 @@
 # Compass の全体像と Agent の動き
 
-Compass の構成と、Human・Agent がどう協調するかを1つにまとめた入口文書。詳細な契約は各設計文書、実装済みかどうかは [実装状況](implementation-status.md) を正とする。設計の正本は [Architecture Handoff](../compass-codex-architecture-handoff.md) と [ADR](adr/)。
+Compass の構成と、Human・Agent がどう協調するかをまとめた入口文書。
+
+詳細な契約は各設計文書、実装済みかどうかは [実装状況](implementation-status.md) を正とする。設計の正本は [Architecture Handoff](../compass-codex-architecture-handoff.md) と [ADR](adr/)。
 
 ## Compass とは
 
 Human が与えた方向（Mission・目標）から、複数の専門 Role を持つ Agent が調査・計画・実装・レビュー・受入・評価を進めるための Control Plane。状態の正本・認可・業務規則は Server が持ち、Agent の起動は Server の外の実行システムが行う。
 
 ## 概念モデル
+
+```mermaid
+flowchart TD
+  W[Workspace] --> I[Intent]
+  I --> O[Outcomeと固定の成功条件]
+  O --> A[Target Project A]
+  O --> B[Target Project B]
+  A --> SA[Story・Task]
+  B --> SB[Story・Task]
+```
 
 ```text
 Workspace（戦略の境界: Mission / Vision / Principles / Constraints）

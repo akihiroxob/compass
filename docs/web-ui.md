@@ -1,6 +1,17 @@
 # Web UIの構成
 
-`server/src/web`のReact UIの配置・共通部品・構造検査の現行の対応付け。共通の方針は配信Skillの`principles/frontend-architecture.md`・`tips/frontend-quality-gates.md`に従い、このProjectの実際のpathと検査範囲をここに定める。
+`server/src/web`のReact UIの配置・共通部品・構造検査の現行の対応を示す。
+
+共通の方針は配信Skillの`principles/frontend-architecture.md`・`tips/frontend-quality-gates.md`に従い、このProjectの実際のpathと検査範囲をここに定める。
+
+```mermaid
+flowchart LR
+  A[app] --> F[Featureの公開入口]
+  A --> C[共通層]
+  F --> C
+```
+
+共通層はFeature・appに依存しない。
 
 ## 配置と依存
 

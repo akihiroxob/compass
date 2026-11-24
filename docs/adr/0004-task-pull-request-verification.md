@@ -5,9 +5,22 @@
 
 ## 背景
 
-Repositoryを変更するTaskでは、Worker→Reviewer→Managerが同じPRとSHAを対象に判断する必要がある。既存の受入成果物（`accept_task`の`deliverables`の`pullRequestUrl`）は、Managerが確認した参照をそのまま保存するもので、ServerはGitHubに問い合わせない。この参照だけでは、PRが実在し、対象Repositoryに属し、openであったことを区別できない。GitHubは外部システムで、応答なし・失敗・応答の消失が起こる。
+Repositoryを変更するTaskでは、Worker→Reviewer→Managerが同じPRとSHAを対象に判断する必要がある。
+
+既存の受入成果物（`accept_task`の`deliverables`の`pullRequestUrl`）は、Managerが確認した参照をそのまま保存するもので、ServerはGitHubに問い合わせない。この参照だけでは、PRが実在し、対象Repositoryに属し、openであったことを区別できない。
+
+GitHubは外部システムで、応答なし・失敗・応答の消失が起こる。
 
 ## 決定
+
+```mermaid
+flowchart LR
+  W[Workerの現在のWork Claim] --> S[ServerへPR登録を依頼]
+  S --> G[GitHubからPRを読み取る]
+  G --> C[Repository・open・非draftを確認]
+  C --> R[保存時にClaim・状態・PRを再検査]
+  R --> T[Workへ確認した事実を保存]
+```
 
 - TaskのPRはWorkが所有する。Workerは現在のWork Claimで、Projectに登録したRepositoryとPR番号を指定して登録する。ServerがGitHubからPRを読み、そのRepositoryのopenでdraftでないPRだけを保存する。保存する値はGitHubで確認した番号・URL・state・head / base・mergeの事実と確認時刻とし、Agentの入力した値を事実として扱わない。
 - 受入成果物の`pullRequestUrl`、CommentのURL等の参照は、GitHubで確認したPRとして扱わない。

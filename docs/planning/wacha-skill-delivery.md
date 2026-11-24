@@ -14,7 +14,18 @@ Wachaの受入など、複数のMCP操作と製品判断を伴う手順を、Cod
 | Wacha MCP | 現在のStory・Task・Comment・Change Log、Claim、受入・差戻しなどの認可付き操作 |
 | Compassの文書 | Project固有の正本、実装状況、未確定事項 |
 
-まず`accept-task`を対象にする。手順の本文はGitで一元管理し、Codexの`.agents/skills/`とClaudeの`.claude/skills/`へ配布する方法を決める。複製する場合は内容の差分を検査し、Wachaの`get_skill_context`にも同じ手順を残す期間は正本と更新方法を明示する。
+まず`accept-task`を対象にする。手順の本文はGitで一元管理し、Codexの`.agents/skills/`とClaudeの`.claude/skills/`へ配布する方法を決める。
+
+複製する場合は内容の差分を検査し、Wachaの`get_skill_context`にも同じ手順を残す期間は正本と更新方法を明示する。
+
+```mermaid
+flowchart LR
+  G[Gitで一元管理する手順] --> C[CodexのSkill]
+  G --> L[ClaudeのSkill]
+  G --> M[WachaのSkill本文配信]
+```
+
+この図は配布方法の検討対象を示すもので、採用・実装済みを意味しない。
 
 ## `accept-task`に必要な内容
 

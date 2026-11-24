@@ -5,7 +5,16 @@
 
 ## 決定
 
-Intent（ビジネス目標）の到達点・推移は、Directionが所有する観測項目（`intent_metric`）と対象期間ごとの観測値（`intent_metric_observation`）で表す。観測項目は単位・任意の目標値・鮮度の期限を明示的に持ち、目標値・比率をIntentの説明文から生成しない。Outcomeの成功条件・Evaluation・Execution Evidenceとは別の記録とし、新しい必須階層や独立したSuccess Metrics管理UIを追加しない。
+Intent（ビジネス目標）の到達点・推移は、Directionが所有する観測項目（`intent_metric`）と対象期間ごとの観測値（`intent_metric_observation`）で表す。
+
+観測項目は単位・任意の目標値・鮮度の期限を明示的に持ち、目標値・比率をIntentの説明文から生成しない。Outcomeの成功条件・Evaluation・Execution Evidenceとは別の記録とし、新しい必須階層や独立したSuccess Metrics管理UIを追加しない。
+
+| 記録 | 内容 |
+| --- | --- |
+| 観測項目 | 単位・任意の目標値・鮮度の期限 |
+| 観測値 | 対象期間ごとの値・取得失敗と、その版 |
+| 定義の担当 | StrategistのWorkspace Grant |
+| 記録の担当 | EvaluatorのWorkspace Grant |
 
 観測値は対象期間（暦日）ごとの版を追記する。既存のいずれかの版と同じ内容（観測時刻を含む）の再送は新しい版を作らず、訂正は次の版になる。取得失敗は値なしの観測として残し、観測の無い期間は保存・応答しない。読み取りは`unmeasured`・`failed`・`stale`・`observed`を区別し、ゼロや推測値で時系列を埋めない。
 

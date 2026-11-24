@@ -1,6 +1,8 @@
 # 構造移行マッピング
 
-[移行計画](architecture-migration-plan.md)のTask 01で確定した、現行コードから[統合設計](../compass-codex-architecture-handoff.md)への対応・依存違反・互換性契約・移行単位。Task 02以降はこの文書を前提に着手する。記載は移行先の定義であり、移行の完了を意味しない。
+[移行計画](architecture-migration-plan.md)のTask 01で確定した、現行コードから[統合設計](../compass-codex-architecture-handoff.md)への対応・依存違反・互換性契約・移行単位を示す。
+
+Task 02以降はこの文書を前提に着手する。記載は移行先の定義であり、移行の完了を意味しない。
 
 本書はWorkspace導入前の構造移行を対象とする。本書でProjectを`packages/direction`へ置く対応は構造移行時点の配置で、Workspace移行後はWorkspace・Project・ProjectResourceを`packages/organization`、DirectionをWorkspace scopeとする（[ADR 0001](adr/0001-workspace-project-boundary.md)）。Workspace移行の変更先は本書ではなくADR 0001と[Workspace移行 影響マップ](workspace-migration-impact-map.md)で定める。
 

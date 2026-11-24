@@ -23,7 +23,9 @@
 | Workspace Orchestration Stateとdispatch | Human回答や振り返りの未処理状態を起動条件へ追加。分類や修正方針は起動されたRoleが判断 |
 | Compass製品側Ralph | 現在はWorker/Reviewerの一回ごとの起動方式。対話入力・中断・再開・Review引継ぎの実行契約を追加 |
 
-稼働中のagent-foundation版RalphとCompass製品側の`ralph/`は別実装。統合先の契約をCompassに定義し、移行に必要な接続だけをagent-foundationへ提供する。両方へ別の業務判断を重複実装しない。
+稼働中のagent-foundation版RalphとCompass製品側の`ralph/`は別実装として扱う。
+
+統合先の契約をCompassに定義し、移行に必要な接続だけをagent-foundationへ提供する。両方へ別の業務判断を重複実装しない。
 
 ## 1. 人への相談と判断待ち一覧
 
@@ -40,6 +42,13 @@
 会話と結論は分ける。判断の訂正は追跡可能にし、元のHuman発言をAgentが書き換えない。本文がRepository正本のADR・仕様は複製せず、結論の要約と参照を保持する。
 
 ### scopeとRole
+
+| 相談の決定対象 | scope | 整理するRole |
+| --- | --- | --- |
+| Task・Story・Repository・実装・Project固有運用 | Project | Manager |
+| Intent・Outcome・Target選択・戦略・貢献配分 | Workspace | Strategist |
+
+この表も設計検討用の案であり、確定した仕様ではない。
 
 - Task/Story/Repository/実装・Project固有運用: Project scope、Managerが整理する。
 - Intent/Outcome/Target選択・戦略・貢献配分: Workspace scope、Strategistが整理する。

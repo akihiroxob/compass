@@ -1,6 +1,13 @@
 # Intentの現行仕様
 
-IntentはHumanが現在実現したい状態。Workspaceの継続的な存在理由であるMissionと区別する。型は [Intent.ts](../packages/direction/src/domain/Intent.ts)、入力規則は [intentSchema.ts](../packages/direction/src/application/intentSchema.ts)。
+IntentはHumanが現在実現したい状態を表す。Workspaceの継続的な存在理由であるMissionと区別する。
+
+型は [Intent.ts](../packages/direction/src/domain/Intent.ts)、入力規則は [intentSchema.ts](../packages/direction/src/application/intentSchema.ts) を参照する。
+
+| 概念 | 表すもの |
+| --- | --- |
+| Mission | Workspaceの継続的な存在理由 |
+| Intent | Humanが現在実現したい状態 |
 
 ## 項目と状態
 

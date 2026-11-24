@@ -1,6 +1,8 @@
 # Workspace移行 影響マップ
 
-[ADR 0001 WorkspaceとProjectの境界](adr/0001-workspace-project-boundary.md)を現行コードへ適用するときの、ファイル単位の変更先・schema・公開入口・検証条件。[移行計画](architecture-migration-plan.md)のWorkspace Story 02〜12の各Taskは、着手時に本書の該当行を前提として確認する。記載は変更先の定義であり、実装の完了を意味しない。
+[ADR 0001 WorkspaceとProjectの境界](adr/0001-workspace-project-boundary.md)を現行コードへ適用するときの、ファイル単位の変更先・schema・公開入口・検証条件を示す。
+
+[移行計画](architecture-migration-plan.md)のWorkspace Story 02〜12の各Taskは、着手時に本書の該当行を前提として確認する。記載は変更先の定義であり、実装の完了を意味しない。
 
 Compassはリリース前のため、開発DBはtableのDROPまたはDB file削除で再作成してよい。旧DBのデータ変換・IDやCredentialの引継ぎ・旧server互換を必須にしない。開発用WachaのDBは再作成対象に含めない。旧列・旧table・互換migrationコードは関連Taskで削除できる。新規DBの正しいscope・FK・index・保存と、同じschemaでの再起動を検証する。実行中のDBを削除する場合は、先にDBを開いているCompassプロセスを停止する。
 

@@ -1,6 +1,8 @@
 # Compass Orchestrator
 
-Workspace ごとに Compass Server の現在状態を読み、次に起動すべき専門 Role の Agent を起動する Batch Application です。Server とは独立して実行・build・deploy し、Server とは MCP（`/mcp`）だけで接続します。Server の DB・package は直接使いません。
+Workspace ごとに Compass Server の現在状態を読み、次に起動すべき専門 Role の Agent を起動する Batch Application です。
+
+Server とは独立して実行・build・deploy し、MCP（`/mcp`）だけで接続します。Server の DB・package は直接使いません。
 
 ## 責務
 
@@ -10,6 +12,15 @@ Workspace ごとに Compass Server の現在状態を読み、次に起動すべ
 - Direction / Work の状態を書き換えない（読むだけ）。Worker / Reviewer の実行ループは Ralph の責務
 
 ## 起動規則
+
+```mermaid
+flowchart LR
+  S[Serverの現在状態] --> P[明示的な規則で起動対象を判定]
+  P --> D[dispatch keyで重複を確認]
+  D --> A[対象scopeのAgentを起動]
+  A --> C[AgentがRole Contextを取得]
+  C --> J[専門Roleが判断]
+```
 
 Server の `get_workspace_orchestration_state` の`activeIntents`全件に対し、`outcomes[].intentId`とResearchの`originIntentId`で分離して次の規則で起動します（handoff v2「20」）。
 
@@ -26,7 +37,11 @@ Server の `get_workspace_orchestration_state` の`activeIntents`全件に対し
 
 各dispatchは関連する`intentId`を持ち、promptと`COMPASS_INTENT_ID`へ渡します。Strategistは`get_strategist_context({ workspaceId, intentId })`で対象だけを読みます。別目標の完了・Research待ちで他目標を停止しません。相談・Intent由来でないResearchにはIntent IDを付けません。
 
-最新 Evaluation が判断済みの Outcome は進行中とみなしません。archived の Workspace では何も起動せず、archived Project の manager は起動しません。Intent 作成時に Research Request は自動で作られず、Research の要否は起動された Strategist が判断します。どの Project を Target にするか、Target の解除・再割当・Outcome の見直し、Story の分割は起動された Role が判断し、Orchestrator は推論しません。同じ状態からは同じ key になり、再計画で状態が変われば新しい key になります。
+最新 Evaluation が判断済みの Outcome は進行中とみなしません。archived の Workspace では何も起動せず、archived Project の manager は起動しません。
+
+Intent 作成時に Research Request は自動で作られず、Research の要否は起動された Strategist が判断します。どの Project を Target にするか、Target の解除・再割当・Outcome の見直し、Story の分割は起動された Role が判断し、Orchestrator は推論しません。
+
+同じ状態からは同じ key になり、再計画で状態が変われば新しい key になります。
 
 ## 重複起動の抑止
 
@@ -41,7 +56,9 @@ Server の `get_workspace_orchestration_state` の`activeIntents`全件に対し
 - Agent の PID を記録するまで Role のコマンドを始めない。Agent の shell は fd 3 で Orchestrator の開始合図を待ち、合図の前に Orchestrator が停止すると（fd 3 が EOF）コマンドを実行せず終了する。spawn 後・PID 記録前に停止しても、PID の無い記録を回収して起動した次の試行と旧 Agent が同時に動かない
 - 状態が進んで計画から消えた key の記録は Workspace ごとに捨てる（状態を読めなかった Workspace の記録は残す）
 
-起動記録は重複抑止のためだけのもので、Compass の状態の正本ではありません。失っても現在状態から起動判断をやり直せます（その場合、実行中の Agent と重複し得ます）。`stateDir` を共有しない複数ホストでの並行実行は重複を抑止できません。Agent の Role 側の冪等性（同じ Evaluation への Decision は1件、同じ Outcome の Story は1件）は Server が強制します。
+起動記録は重複抑止のためだけのもので、Compass の状態の正本ではありません。失っても現在状態から起動判断をやり直せます。その場合、実行中の Agent と重複し得ます。
+
+`stateDir` を共有しない複数ホストでの並行実行は重複を抑止できません。Agent の Role 側の冪等性（同じ Evaluation への Decision は1件、同じ Outcome の Story は1件）は Server が強制します。
 
 ## 設定
 
@@ -166,7 +183,9 @@ Project相談はWorkspace Direction dispatch・Intent・Outcomeから独立し�
 }
 ```
 
-`PROJECT_RUNTIME_TOKEN`は対象ProjectのRuntime Credential（`runtime:state:read`）。起動されるManagerへは渡さず、Manager自身のProject Agent Credentialを`agentEnv`のMCP設定で渡します。既存の`workspaces[].projects[]`へ`tokenEnv`を加える構成も利用できます。同じProjectを両方へ登録しないでください。
+`PROJECT_RUNTIME_TOKEN`は対象ProjectのRuntime Credential（`runtime:state:read`）です。起動されるManagerへは渡さず、Manager自身のProject Agent Credentialを`agentEnv`のMCP設定で渡します。
+
+既存の`workspaces[].projects[]`へ`tokenEnv`を加える構成も利用できます。同じProjectを両方へ登録しないでください。
 
 `get_project_consultation_state`は未処理の相談ID・入力版だけを返し、`<workspaceId>:<projectId>:manager:consultation:<id>:<inputRevision>`をkeyに起動します。`COMPASS_INPUT_REVISION`と起動Contextを渡し、応答lease・`expectedRevision`の操作と意味の判断はManagerへ委ねます。Humanが追加返信すれば新しい入力版になります。正常終了しても同じ入力版が未処理なら成功扱いにせず、backoff・試行上限で再試行し、失敗理由をOperational Logとdispatch記録へ残します。上限に達してもServerの未処理入力は消しません。
 

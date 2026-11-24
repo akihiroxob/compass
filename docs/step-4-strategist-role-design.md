@@ -4,7 +4,14 @@
 
 remote modeではAgent CredentialでPrincipalを認証する。公開入口のRole GrantはProject・Principal・Roleの組で保持し、発行してもAgentは起動しない。内部applicationのWorkspace Grantは下記で説明する。新規Project Grantは`manager` / `worker` / `reviewer`と`runtime`だけを受け付ける。`strategist` / `researcher` / `evaluator`はWorkspace Roleのため、新規Project Grantには指定できない（400 `VALIDATION_ERROR`）。`runtime`はtrusted-localで名前Bearerを使うための開発用Grantで、Role-scope認可の対象外。Project scopeのRuntime入口（`requireScope`）だけで数え、Workspace scopeのRuntime入口（`requireWorkspaceScope`）はWorkspace Runtime Credentialだけを受け付ける。remote modeはRuntime Credentialのscopeで認可する。旧Roleの保存済みGrantは一覧・取消の対象として残す。
 
-HumanはProject詳細のWeb UIからGrantを管理する。一覧はviewer以上、発行・取消はadministrator以上。Human MembershipとAgent Grantを相互代用しない。archived ProjectではGrant変更を拒否する。
+HumanはProject詳細のWeb UIからGrantを管理する。
+
+| 操作 | 必要なHumanのRole |
+| --- | --- |
+| 一覧 | viewer以上 |
+| 発行・取消 | administrator以上 |
+
+Human MembershipとAgent Grantを相互代用しない。archived ProjectではGrant変更を拒否する。
 
 MCPの専用toolはapplication層で必要なRoleを検査する。remote modeの参照系も対象ProjectのGrantを検査する。CredentialとRuntime scopeの詳細は [認証仕様](step-6-human-auth-design.md) を参照する。
 

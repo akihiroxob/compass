@@ -5,7 +5,15 @@
 
 ## 決定
 
-Intentは保存のたびに増える`version`（作成時1）と、実現したい状態・達成条件（意味）が最後に変わった`meaningVersion`を持つ。版ごとの内容・変更主体・理由・意味変更の有無を追記専用の`intent_revision`に残す。Outcomeの意味を理由なしに変えることだけを求め、「Outcomeを持つIntentの意味は変更不可」という全面禁止は置かない。
+Intentは保存のたびに増える`version`（作成時1）と、実現したい状態・達成条件（意味）が最後に変わった`meaningVersion`を持つ。
+
+版ごとの内容・変更主体・理由・意味変更の有無を追記専用の`intent_revision`に残す。Outcomeの意味を理由なしに変えることだけを求め、「Outcomeを持つIntentの意味は変更不可」という全面禁止は置かない。
+
+| 版 | 表すもの |
+| --- | --- |
+| `version` | 保存の版。内容が変わらない保存では進めない |
+| `meaningVersion` | 実現したい状態・達成条件が最後に変わった版 |
+| 関連記録の`intentVersion` | Outcome・判断・評価を作成したときの根拠の版 |
 
 - 更新（Web API `PATCH`・MCP `update_intent`）は編集の元にした`expectedVersion`を必須とする。現在版と異なる場合は何も変えず`CONFLICT`（`conflict: intent_version`・`currentVersion`）を返し、利用者・Agentは現在の内容を読み直して確認してから再実行する。古い画面・古い判断を現在版として保存しない。内容が変わらない保存は版を進めない。
 - Outcomeを持つIntentの`desiredState` / `completionDefinition`を変えるときは`reason`を必須にする。変更主体は認可済みの入口が固定した主体（Humanは`human:{id}`・operator、Agentは各Principal・role）で、Agentの操作をHumanとして記録しない。

@@ -4,7 +4,17 @@
 
 既存の `akihiroxob/compass` 実装に対して、Workspace を上位概念として導入し、COMPASS を「開発チームの自動化」から「自律ソフトウェア組織の Control Plane」へ拡張する。
 
-この文書は新規実装の理想図ではない。2026-10-05 時点の `main` の既存コードを前提に、壊す箇所・残す箇所・移行順序を明示する。
+この文書は2026-10-05 時点の `main` の既存コードを前提に、壊す箇所・残す箇所・移行順序を明示する。新規実装の理想図ではない。
+
+```mermaid
+flowchart TD
+  W[Workspaceの戦略] --> D[Workspace scopeのDirection]
+  D --> O[複数ProjectにまたがるOutcome]
+  O --> P[ProjectごとのStory・Task]
+  R[Ralph] --> E[Worker・Reviewerのexecution loop]
+```
+
+Orchestratorは状態だけを判定し、Project選択を含む知的判断は専門Roleへ委譲する。
 
 最重要原則:
 

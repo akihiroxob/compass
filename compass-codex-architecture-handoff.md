@@ -4,7 +4,7 @@
 
 既存の Wacha / Shirube / agent-foundation を、COMPASS という1つのモノレポへ段階的に統合する。
 
-この文書は、Codex が統合作業を行う際の設計上の正本として使うことを目的とする。
+この文書は、Codex が統合作業を行う際の設計上の正本として使う。
 
 Workspace と Project の境界は [ADR 0001](docs/adr/0001-workspace-project-boundary.md) で確定した。本書の Direction / Access / Activity / Orchestrator の scope は同 ADR に従う。
 
@@ -57,14 +57,12 @@ compass/
 
 `server` / `orchestrator` / `ralph` は、同一 Application の別エントリポイントではなく、COMPASS を構成する独立した実行システムとして扱う。
 
-それぞれ独立して、
-
-- 実行できる
-- ビルドできる
-- デプロイできる
-- 異なるライフサイクルを持てる
-
-ことを前提とする。
+| 独立させるもの | 前提 |
+| --- | --- |
+| 実行 | それぞれ独立して実行できる |
+| ビルド | それぞれ独立してビルドできる |
+| デプロイ | それぞれ独立してデプロイできる |
+| ライフサイクル | 異なるライフサイクルを持てる |
 
 ---
 

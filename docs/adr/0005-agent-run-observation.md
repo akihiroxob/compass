@@ -5,7 +5,16 @@
 
 ## 決定
 
-Principal・activeRole・scopeに紐づくRunnerの実行観測をAccessの`agent_run`に永続化する。Grant・Credential・Claimからプロセスの生存を推測しない。開始・最終観測・終了（成功／失敗）だけを扱い、外部agent-foundationの全面集約は行わない。
+Principal・activeRole・scopeに紐づくRunnerの実行観測をAccessの`agent_run`に永続化する。
+
+Grant・Credential・Claimからプロセスの生存を推測しない。開始・最終観測・終了（成功／失敗）だけを扱い、外部agent-foundationの全面集約は行わない。
+
+| 記録 | 意味 |
+| --- | --- |
+| Grant | 担当権限 |
+| Credential | 接続資格 |
+| Claim | 期限付き作業権 |
+| run | Runnerから報告された実行観測 |
 
 Agent自身はそのCredentialのscopeとactiveRole、Orchestratorは対象scopeのRuntime Credential `agent:run:write`で報告する。どちらも指定PrincipalのRole GrantをServerで検証する。run IDは一意とし、別Principal・Role・scopeへの上書きを拒否する。時刻はServer時計、認証情報は伏字にする。
 

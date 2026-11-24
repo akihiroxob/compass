@@ -15,9 +15,20 @@
 | Orchestrator | Workspace単位の現在状態確認、条件を満たす専門Roleの起動 |
 | Ralph | Project内のWorker / Reviewerの実行ループ |
 
-Humanの正規入口はWeb UI、AgentはMCP。Web APIとMCPは共通のapplication層へ委譲する。ServerのWeb・API・MCPは同一サーバーで提供し、OrchestratorとRalphは独立して実行・build・deployする。
+Humanの正規入口はWeb UI、AgentはMCP。Web APIとMCPは共通のapplication層へ委譲する。
+
+ServerのWeb・API・MCPは同一サーバーで提供し、OrchestratorとRalphは独立して実行・build・deployする。
 
 ## DirectionからWorkへの引き渡し
+
+```mermaid
+flowchart LR
+  S[Strategist] -->|担当Projectを明示| O[DirectionのOutcomeとTarget]
+  O -->|Outcomeを参照| M[Target Projectのmanager]
+  M --> W[WorkのStory・Task]
+  W --> E[全Target ProjectのEvidence]
+  E --> V[固定した成功条件による評価]
+```
 
 WorkspaceはMission / Visionを共有する戦略単位、Projectは1つのWorkspaceに属する実行境界。WorkspaceをGitHub Organizationと、ProjectをRepositoryと同一視しない。
 

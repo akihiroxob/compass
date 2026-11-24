@@ -5,7 +5,17 @@
 
 ## 決定
 
-Workspaceは複数のビジネス目標を同時に扱う。Active Intentの件数制約を設けず、作成時に他のIntentを変更しない。Intentの終端・関連Outcome・Researchの取消は対象Intentだけに作用する。
+Workspaceは複数のビジネス目標を同時に扱う。Active Intentの件数制約を設けず、作成時に他のIntentを変更しない。
+
+Intentの終端・関連Outcome・Researchの取消は対象Intentだけに作用する。
+
+```mermaid
+flowchart TD
+  W[Workspace] --> A[Active Intent A]
+  W --> B[Active Intent B]
+  A --> SA[AのOutcome・Research・評価・dispatch]
+  B --> SB[BのOutcome・Research・評価・dispatch]
+```
 
 Orchestration Stateは`activeIntents`と、`intentId`を持つOutcomeを返す。Orchestratorは全Active Intentを個別に判定し、関連Research・評価・Targetの状態を他目標と混ぜない。dispatch keyによる重複抑止・再計画・Workspace/ProjectのActor scopeを維持し、起動対象のIntent IDをAgentへ渡す。Researchの要否はStrategistが判断する。
 

@@ -1,6 +1,8 @@
 # Workers + D1への配置
 
-Compass ServerはWorkersでWeb UI・Web API・MCPを提供する。Node＋SQLiteの開発起動は`npm start`／`npm run dev`を使う。RalphとOrchestratorは別プロセスとして実行し、配置したServerへ接続する。
+Compass ServerはWorkersでWeb UI・Web API・MCPを提供する。
+
+Node＋SQLiteの開発起動は`npm start`／`npm run dev`を使う。RalphとOrchestratorは別プロセスとして実行し、配置したServerへ接続する。
 
 ## 配布物
 
@@ -15,6 +17,14 @@ Compass ServerはWorkersでWeb UI・Web API・MCPを提供する。Node＋SQLite
 Role・Skill・Knowledge・Policyは`roles/`・`skills/`・`knowledge/`・`policies/`のMarkdownをビルド時に同梱する。実行時にGitやサーバーのfilesystemから更新を取得しない。配信元revisionは`COMPASS_DEPLOY_REVISION`、未指定時はWorkers Buildsの`WORKERS_CI_COMMIT_SHA`を使い、有効な40桁SHAでなければ不明とする。文書の内容はrevisionの有無に関係なく、そのデプロイに含まれるものを配信する。
 
 ## D1の準備
+
+```mermaid
+flowchart LR
+  L[Cloudflareへログイン] --> D[D1を作成]
+  D --> I[database_idを設定]
+  I --> M[migrationを明示適用]
+  M --> W[Workerを起動・配置]
+```
 
 Cloudflareへログインし、D1を作成する。
 
@@ -32,7 +42,11 @@ npm run db:migrate:d1:local
 npm run db:migrate:d1:remote
 ```
 
-`local`はWranglerのローカルD1、`remote`は設定したCloudflareのDBへ適用する。両コマンドは先に`npm run db:prepare:d1`で配布SQLを生成する。Wranglerの`d1_migrations`が適用履歴を保持する。Node＋SQLiteの`COMPASS_DB_PATH`や`compass_schema_migration`とは別管理になる。Serverと`worker:dev`・`worker:deploy`はschema作成・migrationを実行しない。未適用DBを起動しても初期化しない。
+`local`はWranglerのローカルD1、`remote`は設定したCloudflareのDBへ適用する。両コマンドは先に`npm run db:prepare:d1`で配布SQLを生成する。
+
+Wranglerの`d1_migrations`が適用履歴を保持する。Node＋SQLiteの`COMPASS_DB_PATH`や`compass_schema_migration`とは別管理になる。
+
+Serverと`worker:dev`・`worker:deploy`はschema作成・migrationを実行しない。未適用DBを起動しても初期化しない。
 
 ## Human・Agentの認証
 

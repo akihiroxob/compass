@@ -18,7 +18,16 @@ ProjectはOrganization（`packages/organization`）が所有する実行境界�
 | archivedAt / archiveReason | archive日時・理由。active時はnull |
 | id / createdAt / updatedAt | serverが管理 |
 
-Mission / Vision / Principles / Constraintsは所属Workspaceに保持し、Project（Entity）はname・description（目的）・status・Repository / Resourceを持つ。RepositoryはProjectのResourceの一つで、複数件を持ち、ProjectをRepositoryと1:1に固定しない。未入力のdescription / visionはnull。
+Mission / Vision / Principles / Constraintsは所属Workspaceに保持し、Project（Entity）はname・description（目的）・status・Repository / Resourceを持つ。
+
+RepositoryはProjectのResourceの一つで、複数件を持ち、ProjectをRepositoryと1:1に固定しない。未入力のdescription / visionはnull。
+
+```mermaid
+flowchart TD
+  W[Workspaceの戦略値] --> P[所属Projectが参照]
+  P --> R[Repository]
+  P --> S[Resource]
+```
 
 ## 作成と更新
 

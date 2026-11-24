@@ -1,6 +1,10 @@
 # 相談（Collaboration）
 
-Agentが既存の要件・方針・権限の範囲で決められない問題をHumanへ問い、会話と結論をCompassへ残す。所有Contextは`packages/collaboration`（[ADR 0002](adr/0002-collaboration-context.md)）。Project相談とWorkspace相談、閲覧できる全scopeの横断一覧、Project相談でのTask単位の相談待ち・Manager応答起動・自動再開、Workspace相談のStrategist応答起動、Project・Workspace相談の結論から仕様・Policy・ADRの文書反映Taskへの引継ぎと受入済み成果物の参照までを接続する。
+Agentが既存の要件・方針・権限の範囲で決められない問題をHumanへ問い、会話と結論をCompassへ残す。所有Contextは`packages/collaboration`（[ADR 0002](adr/0002-collaboration-context.md)）。
+
+Project相談とWorkspace相談、閲覧できる全scopeの横断一覧を接続する。
+
+Project相談ではTask単位の相談待ち・Manager応答起動・自動再開、Workspace相談ではStrategist応答起動を接続する。Project・Workspace相談の結論から、仕様・Policy・ADRの文書反映Taskへの引継ぎと受入済み成果物の参照までを接続する。
 
 ## scope
 
@@ -9,7 +13,20 @@ Agentが既存の要件・方針・権限の範囲で決められない問題を
 | `project` | Projectの要件・設計 | 所属Workspace・Project | Manager | `url`・`project_resource`・`task`・`story`・`consultation`（同じProject） |
 | `workspace` | WorkspaceのDirection（Intent・Outcome・優先順位等） | Workspace（Projectなし） | Strategist | `url`・`intent`・`outcome`（`intentId`付き）・`consultation`（同じWorkspace） |
 
-scopeは決定対象の所有で決め、影響するProject数では決めない。相談は自分のscopeでだけ見つかり、Project相談をWorkspaceのIDで、Workspace相談をProjectのIDで指しても`NOT_FOUND`。scopeをまたぐ自動転送・親子相談は作らず、別scopeの判断は別の相談として作り、権限のある相談・成果を参照する。DBは`scope`と`project_id`の有無を一致させる。
+scopeは決定対象の所有で決め、影響するProject数では決めない。相談は自分のscopeでだけ見つかり、Project相談をWorkspaceのIDで、Workspace相談をProjectのIDで指しても`NOT_FOUND`。
+
+scopeをまたぐ自動転送・親子相談は作らず、別scopeの判断は別の相談として作り、権限のある相談・成果を参照する。DBは`scope`と`project_id`の有無を一致させる。
+
+```mermaid
+flowchart LR
+  A[Agentが相談を起票] --> H[Humanが返信]
+  H --> R[scopeに応じてManager・Strategistが応答]
+  R --> Q[追加質問]
+  Q --> H
+  R --> C[根拠付きの結論を保存]
+```
+
+Humanの明示決定は、Agentによる結論整理と区別する。
 
 ## 保存するもの
 

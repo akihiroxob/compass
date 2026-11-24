@@ -4,8 +4,10 @@
 
 ## 製品判断が必要な項目
 
-- Project概念図の`Goal`と現在の`Vision`の関係。概念図だけを根拠にfield名を変更しない。
-- 初期Role候補に記載のない既存`evaluator`の扱い。Evaluation責務の廃止は確定していない。
+| 確認すること | 確認が終わるまでの扱い |
+| --- | --- |
+| Project概念図の`Goal`と現在の`Vision`の関係 | 概念図だけを根拠にfield名を変更しない |
+| 初期Role候補に記載のない既存`evaluator`の扱い | Evaluation責務の廃止は確定していない |
 
 移行中はどちらも現行のまま維持する（[構造移行マッピング](../architecture-migration-mapping.md)）。
 

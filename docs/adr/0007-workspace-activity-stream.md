@@ -23,7 +23,13 @@ Workspaceの権限あるHumanは、Workspace共通と配下の全Project（archi
 | Collaboration / Work | — | コメント追加、相談の会話・応答lease（コメント本文の抜粋も載せない） |
 | 運用 | — | Operational Log（stdout）、Runtime event、Agent実行観測 |
 
-Change Logは正確な状態変更の追記記録（Claim操作を含む）、Operational Logは運用ログ、Activityは意味のある履歴で、互いを置き換えない。差戻し・取消の理由と受入の根拠はActivityの本文・参照に付随し、詳細はChange Log・原記録を正とする。
+| 記録 | 役割 |
+| --- | --- |
+| Change Log | Claim操作を含む、正確な状態変更の追記記録 |
+| Operational Log | 運用ログ |
+| Activity | 意味のある履歴 |
+
+これらの記録は互いを置き換えない。差戻し・取消の理由と受入の根拠はActivityの本文・参照に付随し、詳細はChange Log・原記録を正とする。
 
 ## 順序・cursor・検索
 

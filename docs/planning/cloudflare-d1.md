@@ -2,11 +2,21 @@
 
 ## 完了条件
 
-Node＋SQLiteの開発起動・明示migration・業務規則を維持し、別のWorkers起動経路でWeb UI・API・MCPを提供する。D1用Repositoryは既存のDomain/Application契約を実装する。D1 migrationは明示実行とし、アプリ起動時に適用しない。認可・Claim・自己レビュー/自己受入禁止・受付記録・Activityとの一貫性を維持する。ローカルコミットまで実施し、Pushは改めて許可を得る。
+Node＋SQLiteの開発起動・明示migration・業務規則を維持し、別のWorkers起動経路でWeb UI・API・MCPを提供する。D1用Repositoryは既存のDomain/Application契約を実装する。
+
+D1 migrationは明示実行とし、アプリ起動時に適用しない。認可・Claim・自己レビュー/自己受入禁止・受付記録・Activityとの一貫性を維持する。
+
+ローカルコミットまで実施し、Pushは改めて許可を得る。
 
 ## 保存処理
 
-D1の`batch()`で、SQL前提条件・更新・関連履歴を一括確定する。事前の読取だけを根拠に更新せず、読んだ版・状態・認可などの必要条件をbatch内で再検査する。前提不成立時の再読取・業務判定はRepository/Applicationに置く。通信エラーを競合扱いで無条件再実行しない。Command Receiptのある操作は同じrequest IDで成否を照合する。
+D1の`batch()`で、SQL前提条件・更新・関連履歴を一括確定する。事前の読取だけを根拠に更新せず、読んだ版・状態・認可などの必要条件をbatch内で再検査する。
+
+| 状況 | 対応 |
+| --- | --- |
+| 前提不成立 | Repository/Applicationで再読取・業務判定を行う |
+| 通信エラー | 競合扱いで無条件に再実行しない |
+| Command Receiptのある操作 | 同じrequest IDで成否を照合する |
 
 D1にcallback transactionはない。Node用のtransactionをno-opに置き換えたり、リクエストをJSのロックで直列化するだけで原子性を保証したりしない。D1専用Repositoryを追加し、SQLite実装は維持する。
 

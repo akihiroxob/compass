@@ -6,7 +6,18 @@
 
 Research Request / Result / Finding / Synthesis、Direction Decision、EvaluationはWorkspace scopeとする。EvidenceやADR等のProject固有の成果物はProject Resourceを参照する。
 
-IntentまたはEvaluationを受けて、Strategistが次に追うOutcomeを判断する。情報が十分ならOutcomeを定義し、不足する場合にResearchを依頼する。ResearchをIntentとOutcomeの間の必須工程にしない。
+IntentまたはEvaluationを受けて、Strategistが次に追うOutcomeを判断する。
+
+情報が十分ならOutcomeを定義し、不足する場合にResearchを依頼する。ResearchをIntentとOutcomeの間の必須工程にしない。
+
+```mermaid
+flowchart LR
+  I[Intent・Evaluation] --> S[Strategistが判断]
+  S -->|情報が十分| O[Outcomeを定義]
+  S -->|情報が不足| R[Researchを依頼]
+  R --> F[Researcherが調査結果を返す]
+  F --> S
+```
 
 Researcherは調査結果・Evidence・選択肢・リスク・不明点を返す。Outcomeや最終方針は決めず、結果を受けたStrategistが判断する。OrchestratorはResearchの必要性を判断せず、現在状態から該当Roleを起動する。
 

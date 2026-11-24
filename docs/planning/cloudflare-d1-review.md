@@ -4,7 +4,14 @@
 
 ## 何ができるようになったか
 
-CompassのWeb UI・Web API・MCPをCloudflare Workersで動かし、DBとしてD1を使うための実装を追加した。普段のローカル開発で使うNode＋SQLiteは維持している。Ralph・OrchestratorをWorkersへ移す変更ではなく、両者が接続するServerの配置先を追加する変更になる。
+CompassのWeb UI・Web API・MCPをCloudflare Workersで動かし、DBとしてD1を使うための実装を追加した。普段のローカル開発で使うNode＋SQLiteは維持している。
+
+Ralph・OrchestratorをWorkersへ移す変更ではなく、両者が接続するServerの配置先を追加する変更になる。
+
+| Serverの配置先 | DB |
+| --- | --- |
+| Node | SQLite |
+| Cloudflare Workers | D1 |
 
 HumanはGoogle認証でログインし、Agent／RuntimeはCompassで発行したCredentialで接続する。Role・Skill・Knowledge・Policyは、そのときデプロイした内容を配信する。
 

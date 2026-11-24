@@ -1,6 +1,17 @@
 # UIカタログ
 
-製品の共通部品の用途・API・使用例・状態を、Storybook React/Viteで確認する。製品と同じtoken・SCSSを読むため、[Web UIの視覚方針](web-ui.md#視覚方針)（青藍・白・青灰色、サンセリフ）がカタログと製品の両方へ同じbuildで反映される。[ムードボード](design/compass-moodboard-blue.png)は視覚方向の参照であり、架空のデータ・進捗率・Agent表示は業務仕様にしない。情報構造・密度の参照は`/Users/aokayama/git/compass-prototype`（ローカル参照URL `http://localhost:8443/`）。現行の配置・API・UI検査は[Web UI](web-ui.md)を正本とする。
+製品の共通部品の用途・API・使用例・状態を、Storybook React/Viteで確認する。
+
+製品と同じtoken・SCSSを読むため、[Web UIの視覚方針](web-ui.md#視覚方針)（青藍・白・青灰色、サンセリフ）がカタログと製品の両方へ同じbuildで反映される。
+
+[ムードボード](design/compass-moodboard-blue.png)は視覚方向の参照であり、架空のデータ・進捗率・Agent表示は業務仕様にしない。情報構造・密度の参照は`/Users/aokayama/git/compass-prototype`（ローカル参照URL `http://localhost:8443/`）。現行の配置・API・UI検査は[Web UI](web-ui.md)を正本とする。
+
+```mermaid
+flowchart TD
+  T[共有token・SCSS] --> C[製品の共通部品]
+  C --> P[製品画面]
+  C --> S[Storybookの状態例]
+```
 
 ## 起動とbuild
 

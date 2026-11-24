@@ -1,15 +1,35 @@
 # Compass Ralph
 
-Compass の Work（Story / Task）の現在状態を監視し、Claude Code または Codex の Worker・Reviewer を1 Task ずつ使い捨てで起動する Loop Application です。Server とは独立して実行・deploy し、Server とは MCP（`/mcp`）だけで接続します。Server の DB・package は直接使いません。bash で実装しています。
+Compass の Work（Story / Task）の現在状態を監視し、Claude Code または Codex の Worker・Reviewer を1 Task ずつ使い捨てで起動する Loop Application です。
+
+Server とは独立して実行・deploy し、MCP（`/mcp`）だけで接続します。Server の DB・package は直接使いません。bash で実装しています。
 
 ## 責務
+
+```mermaid
+flowchart LR
+  R[Ralphが候補の有無を確認] --> A[Worker・Reviewerを起動]
+  A --> C[AgentがRole Contextを取得]
+  C --> T[AgentがTaskを処理]
+  T --> S[Commentと状態遷移でServerへ結果を返す]
+```
 
 - Ralph: Task の有無の確認（`list_tasks` の `availableFor`）、Agent プロセスの起動、失敗時の待機と再試行
 - Compass Server: Task・Claim・Review の状態、認可、自己レビュー禁止の強制
 - 起動された Agent: `get_role_context` で Role Context を取得し、その指示に従って Task を処理し、Task Comment と状態遷移で結果を Compass へ返す
 - Agent provider（`providers/`）: Claude Code・Codex 固有の起動処理
 
-Ralph は Git・GitHub の操作と Task の状態遷移を代行しません。PR を作る Task では、起動された Agent が Role Context の手順（`knowledge/tips/github-workflow.md`）で branch の push・PR の作成と登録（Worker）、レビュー根拠のコメントと merge（Reviewer）、merge commit での受入（Manager）を行い、Server が完了・レビュー・受入のたびに GitHub の事実を照合します（[ADR 0005](../docs/adr/0005-task-pull-request-transition-verification.md)）。Agent の実行環境に GitHub の認証（`gh` 等）を用意してください。Server が照合に使う GitHub の読取は Server 側の設定（`COMPASS_GITHUB_TOKEN`）です。
+Ralph は Git・GitHub の操作と Task の状態遷移を代行しません。
+
+PR を作る Task では、起動された Agent が Role Context の手順（`knowledge/tips/github-workflow.md`）で次の操作を行います。
+
+- Worker: branch の push・PR の作成と登録
+- Reviewer: レビュー根拠のコメントと merge
+- Manager: merge commit での受入
+
+Server は完了・レビュー・受入のたびに GitHub の事実を照合します（[ADR 0005](../docs/adr/0005-task-pull-request-transition-verification.md)）。
+
+Agent の実行環境に GitHub の認証（`gh` 等）を用意してください。Server が照合に使う GitHub の読取は Server 側の設定（`COMPASS_GITHUB_TOKEN`）です。
 
 Ralph は Role の手順・Skill 本文を持ちません。`prompts/` は対象 Project と Role Context の取得を指示するだけの起動指示です。Role 本文は repo の `roles/` を正本として MCP から取得されます。Storyへの分解はOrchestratorが起動するManagerの責務です。受入段階の保存済み実行は任意の`manager`設定で再開できます。
 
@@ -30,7 +50,9 @@ Worker と Reviewer は別 Principal・別 Credential で接続します。Proje
 
 ## 設定
 
-設定は JSON file で渡します（[examples/config.json](examples/config.json)）。稼働中の既存 Ralph（agent-foundation から install し `.ralph/config.json` を読むもの）と混同しないよう、既定の設定 path は持ちません。`--config` または `COMPASS_RALPH_CONFIG` で指定します。
+設定は JSON file で渡します（[examples/config.json](examples/config.json)）。`--config` または `COMPASS_RALPH_CONFIG` で指定します。
+
+稼働中の既存 Ralph（agent-foundation から install し `.ralph/config.json` を読むもの）と混同しないよう、既定の設定 path は持ちません。
 
 | 項目 | 内容 |
 | --- | --- |
@@ -101,7 +123,9 @@ Orchestrator と接続した Workspace 境界の E2E（`orchestrator/tests/integ
 
 ## 相談待ちと保存済み実行の再開
 
-現在Claimの担当が`consultation-task-resumption` Skillに従い、未commit/未追跡成果物と前回Contextを先に保存して`wait_for_consultation`を呼ぶと、Taskのstatusと段階を保持してClaimだけが解放されます。会話・結論はCompass Serverが所有し、Workは参照と待機情報だけを保存します。稼働中のagent-foundation版Ralph・Wachaの開発Task保留とは別の、Compass製品の契約です。
+現在Claimの担当が`consultation-task-resumption` Skillに従い、未commit/未追跡成果物と前回Contextを先に保存して`wait_for_consultation`を呼ぶと、Taskのstatusと段階を保持してClaimだけが解放されます。
+
+会話・結論はCompass Serverが所有し、Workは参照と待機情報だけを保存します。稼働中のagent-foundation版Ralph・Wachaの開発Task保留とは別の、Compass製品の契約です。
 
 Ralphは`list_consultation_resumptions`をpollingし、同じ`projectRoot`の`ready`実行を優先します。`runtime/consultation-context.mjs`が保存済みContext・HEAD・未commit差分・未追跡成果物を検査し、`resume_consultation_task`で元段階のClaimを取得してAgentへ渡します。手動`ralph resume`は不要です。通常Taskは引き続きAgentが選択・Claimします。Serverが保存した絶対pathと同じ`projectRoot`を指定し、移動・削除せず保持してください。
 

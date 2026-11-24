@@ -5,11 +5,21 @@
 
 ## 背景
 
-[ADR 0004](0004-task-pull-request-verification.md)で、TaskのPRはServerがGitHubで確認した事実として登録できるようになった。Worker→Reviewer→Managerが同じPR・SHAを対象に判断するには、状態遷移のたびにその事実を照合する必要がある。運用ではCIを設定しないRepositoryがあり、Worker・Reviewer・Managerが同じGitHubアカウント・tokenを共有することもある。GitHubの自己Approveはできないため、レビューの根拠に使えない。
+[ADR 0004](0004-task-pull-request-verification.md)で、TaskのPRはServerがGitHubで確認した事実として登録できるようになった。Worker→Reviewer→Managerが同じPR・SHAを対象に判断するには、状態遷移のたびにその事実を照合する必要がある。
+
+運用ではCIを設定しないRepositoryがあり、Worker・Reviewer・Managerが同じGitHubアカウント・tokenを共有することもある。GitHubの自己Approveはできないため、レビューの根拠に使えない。
 
 CompassにはProject単位のGitHub workflow設定やTaskの完了方式（PR / 証跡）の区別がない。PRを作らないTask（調査・文書以外の運用・ローカルRepository）も同じWorkで扱う。
 
 ## 決定
+
+| 段階 | 照合する主な事実 |
+| --- | --- |
+| 完了 | 現在のWork Claimで登録したopen・非draftのPRとhead |
+| レビュー | レビューしたheadでのmerge、現在のReview Claimの根拠コメント、指定された必須CI |
+| 受入 | レビューで照合したheadと現在のmerge SHA、Managerの検証根拠 |
+
+PRを登録していないTaskは、従来の照合なし・Managerの直接受入可の経路を維持する。
 
 - PRを登録したTaskを「PR運用のTask」とし、完了・レビュー・受入でGitHubの現在の事実を照合する。PRを登録していないTaskは従来の経路（照合なし・Managerの直接受入可）のままとする。Repositoryを変更するTaskでPRを登録することはRole手順で求め、Reviewerは登録のないPR運用をレビューで差し戻す。
 - 照合の対象は現在のPR（登録順の最後）。GitHubの読取はSQLiteのtransactionの外で行い、保存時に現在のPR・Claim・状態を再検査する。base branchが登録時から変わったPRは照合しない。

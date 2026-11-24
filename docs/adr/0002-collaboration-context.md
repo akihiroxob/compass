@@ -5,9 +5,18 @@
 
 ## 背景
 
-Agentが既存の要件・方針・権限では決められない設計・要件の問題をHumanへ問い、非同期の会話と結論をCompassへ残す必要がある。会話・結論・応答の実行権は、Workの作業単位（Task・Claim）、Directionの戦略判断（Direction Decision）、Activityの履歴のいずれとも、言語・ライフサイクル・規則が異なる。
+Agentが既存の要件・方針・権限では決められない設計・要件の問題をHumanへ問い、非同期の会話と結論をCompassへ残す必要がある。
+
+会話・結論・応答の実行権は、Workの作業単位（Task・Claim）、Directionの戦略判断（Direction Decision）、Activityの履歴のいずれとも、言語・ライフサイクル・規則が異なる。
 
 ## 決定
+
+| 所有Context | 所有するもの |
+| --- | --- |
+| Collaboration | 相談の会話・結論・応答lease |
+| Work | Task・Claim、Taskの相談待ち・再開 |
+| Direction | Intentに関する戦略判断 |
+| Activity | 意味のある履歴。会話全文は二重保存しない |
 
 - `packages/collaboration`をBounded Contextとして追加し、Consultation・Message・Resolution・応答lease・受付記録を所有する。use caseは作成・一覧・詳細・返信・結論・取消・応答leaseと横断一覧で、空の構造を先に作らない。
 - Consultationのscopeは決定対象の所有で決め、Project scope（所属Workspace IDとProject IDを保持）とWorkspace scope（Workspace IDだけを保持）とする。scopeをまたぐ転送・親子相談は作らず、相談は自分のscopeでだけ見つかる。

@@ -1,5 +1,13 @@
 # Compass ドキュメント
 
+| 確認したいこと | 読む文書 |
+| --- | --- |
+| 製品とAgentの全体像 | [Compassの全体像とAgentの動き](architecture-overview.md) |
+| 現在の起動・接続・操作 | [README](../README.md) |
+| 確定した設計 | [Architecture Handoff](../compass-codex-architecture-handoff.md)と下記のADR |
+| 実装済み・未接続・未検証 | [実装状況](implementation-status.md) |
+| 未確定の案・今後のTask | 下記「Wachaへの引き継ぎ」 |
+
 ## 全体像
 
 - [Compassの全体像とAgentの動き](architecture-overview.md): 概念モデル・実行システム・Role・Agentの起動と協調の流れ・Humanの関与点をまとめた入口。

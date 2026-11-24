@@ -7,7 +7,15 @@
 
 Intent（ビジネス目標）の観測についてのAgentの説明を、Directionが所有する追記専用の`intent_explanation`として保存する。説明は観測項目・分析期間・前回の版・関連Outcomeを持ち、項目を`fact`（事実）・`hypothesis`（原因の仮説）・`proposal`（次の提案）に分ける。根拠は既存の記録（観測値・Research Finding / Synthesis・Outcome Evaluation・Direction Decision）のIDで参照し、本文・値は複製せず読み取り時に原記録から解決する。
 
-事実は根拠を必須とし、仮説は先行する事実・確からしさ・確認方法を必須とし、提案は先行する事実・仮説を指す。観測値・Evaluationを事実の根拠にでき、Synthesis・Decisionは仮説・提案の根拠にする。根拠が訂正・置換・期限切れになっても説明は書き換えず、読み取りで根拠の状態と`basisOutdated`を示す。説明が無い場合や観測が未計測・取得失敗・古い場合は、説明を生成せずその状態を返す。
+| 説明の種別 | 必須の情報・参照 |
+| --- | --- |
+| 事実 | 根拠。観測値・Evaluationを根拠にできる |
+| 仮説 | 先行する事実・確からしさ・確認方法 |
+| 提案 | 先行する事実・仮説への参照 |
+
+Synthesis・Decisionは仮説・提案の根拠にする。
+
+根拠が訂正・置換・期限切れになっても説明は書き換えず、読み取りで根拠の状態と`basisOutdated`を示す。説明が無い場合や観測が未計測・取得失敗・古い場合は、説明を生成せずその状態を返す。
 
 記録はStrategistのWorkspace Grantで認可し、参照はWorkspaceの参照者とHumanのWorkspace Membershipに公開する。説明の記録はIntent・Outcomeの状態を変えず、Agentの実稼働・施策の効果・目標の達成の証拠にしない。
 

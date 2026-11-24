@@ -2,6 +2,16 @@
 
 Projectの方向と実行を管理するアプリケーションです。HumanはWeb UI、AgentはMCPから操作します。
 
+```mermaid
+flowchart LR
+  H[Human] --> UI[Web UI]
+  UI --> S[Compass Server]
+  O[Orchestrator] -->|MCPで現在状態を取得| S
+  O -->|専門Roleを起動| A[Agent]
+  R[Ralph] -->|Worker・Reviewerを起動| A
+  A -->|MCP| S
+```
+
 ## ドキュメント
 
 - [文書一覧](docs/README.md)
@@ -11,7 +21,15 @@ Projectの方向と実行を管理するアプリケーションです。Human�
 - [Orchestrator](orchestrator/README.md)
 - [Ralph](ralph/README.md)
 
-以下は現在の実装の利用方法です。npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/organization`・`packages/direction`・`packages/work`・`packages/access`・`packages/activity`・`packages/shared`の業務コードを配線します（`packages/organization`はWorkspace・Projectを所有します。Workspaceの公開入口はHuman向けWeb APIの作成・参照・更新・既存WorkspaceへのProject追加・archiveと、それを使うWeb UIのWorkspace Selector・Shell・作成/編集/Project追加/archiveの導線です。Mission等はWorkspace administratorがWorkspaceの更新で変更し、Projectの更新では受け取りません。Projectのarchiveは所属Workspaceの状態を変えません）。`orchestrator/`はProject横断の現在状態から専門RoleのAgentを起動する独立したBatchで、ServerとはMCPだけで接続します。`ralph/`はWorker / ReviewerのAgentを1 Taskずつ起動する独立したLoopで、同じくMCPだけで接続します。`manager`の名前は維持します。実装変更はWacha経由で行います。
+以下は現在の実装の利用方法です。
+
+npm workspacesの`server/`がWeb UI・API・MCPを提供し、`packages/organization`・`packages/direction`・`packages/work`・`packages/access`・`packages/activity`・`packages/shared`の業務コードを配線します。`packages/organization`はWorkspace・Projectを所有します。
+
+Workspaceの公開入口はHuman向けWeb APIの作成・参照・更新・既存WorkspaceへのProject追加・archiveと、それを使うWeb UIのWorkspace Selector・Shell・作成/編集/Project追加/archiveの導線です。Mission等はWorkspace administratorがWorkspaceの更新で変更し、Projectの更新では受け取りません。Projectのarchiveは所属Workspaceの状態を変えません。
+
+`orchestrator/`はProject横断の現在状態から専門RoleのAgentを起動する独立したBatchで、ServerとはMCPだけで接続します。`ralph/`はWorker / ReviewerのAgentを1 Taskずつ起動する独立したLoopで、同じくMCPだけで接続します。
+
+`manager`の名前は維持します。実装変更はWacha経由で行います。
 
 ## 起動
 
@@ -31,7 +49,13 @@ COMPASS_AUTH_MODE=trusted-local COMPASS_INITIAL_OWNER_EMAIL=you@example.com npm 
 
 ブラウザで`/login`を開き、初期ownerのemailでログインします。trusted-localはloopback限定の開発用で、emailの本人確認を行いません。`NODE_ENV=production`では起動を拒否します。
 
-設定項目は [.env.example](.env.example) を参照してください。 `COMPASS_DEPLOY_REVISION`にデプロイしたCompassの40桁のGit SHAを指定すると、Role・Skillの取得結果とAgent管理画面へ参考情報として表示します。未設定または不正な値は不明として扱います。起動ディレクトリに`.env`があればserverが読み込みます。`.env.example`自体は読み込みません。`PORT`は`.env`読込前に確定するため、シェルの環境変数として渡してください。既定portは51800、`COMPASS_DB_PATH`はSQLiteの保存先、`COMPASS_CLAIM_TTL_MS`はClaim有効期間（既定30分）です。Server・CLIは必要なschemaが準備済みであることを前提に動作します。
+設定項目は [.env.example](.env.example) を参照してください。
+
+`COMPASS_DEPLOY_REVISION`にデプロイしたCompassの40桁のGit SHAを指定すると、Role・Skillの取得結果とAgent管理画面へ参考情報として表示します。未設定または不正な値は不明として扱います。
+
+起動ディレクトリに`.env`があればserverが読み込みます。`.env.example`自体は読み込みません。`PORT`は`.env`読込前に確定するため、シェルの環境変数として渡してください。
+
+既定portは51800、`COMPASS_DB_PATH`はSQLiteの保存先、`COMPASS_CLAIM_TTL_MS`はClaim有効期間（既定30分）です。Server・CLIは必要なschemaが準備済みであることを前提に動作します。
 
 保守用のGrant CLIは`cli/`、DBのマイグレーションツールとSQLは`database/`に置きます。CLIは既存packageのUse Caseを呼び、Serverには依存しません。
 
@@ -62,7 +86,14 @@ npm start
 
 公開originはhttps必須で、TLSは前段のproxy等で終端します。proxyはOriginとCookieを転送してください。必須設定が欠けると起動を拒否します。
 
-登録は招待制です。初期ownerがログインした後、Workspaceの「設定」の招待欄からWorkspaceのownerが招待を発行し、表示されたリンクを相手へ渡します。メール送信は行いません。相手は招待先emailのGoogleアカウントでログインし、そのWorkspaceのMemberになって配下のすべてのProjectを招待のRoleで利用します。MemberのRole変更・除外はWorkspaceの「設定」で行います。platform ownerにWorkspace Membershipを迂回する権限はありません。
+登録は招待制です。
+
+1. 初期ownerがログインします。
+2. Workspaceのownerが、Workspaceの「設定」の招待欄から招待を発行します。
+3. 表示されたリンクを相手へ渡します。メール送信は行いません。
+4. 相手が招待先emailのGoogleアカウントでログインします。そのWorkspaceのMemberになって、配下のすべてのProjectを招待のRoleで利用します。
+
+MemberのRole変更・除外はWorkspaceの「設定」で行います。platform ownerにWorkspace Membershipを迂回する権限はありません。
 
 Sessionは発行から7日または無操作24時間で失効します。secretはリポジトリへ保存しません。認証・権限・Cookie・CSRFの詳細は [認証仕様](docs/step-6-human-auth-design.md) を参照してください。
 
@@ -115,7 +146,9 @@ RuntimeにはAgentとは別のCredentialとscopeを発行します。Credential�
 | 公開確認の記録 | `record_publication`（Web API `POST /api/projects/:projectId/publications`） | Project Runtime Credential（`publication:write`） |
 | Orchestrator向けの現在状態 | `get_workspace_orchestration_state` | Workspace Runtime Credential（`runtime:state:read`） |
 
-eventの`nextCursor`はページ送り専用で、再開位置には使いません。再開は`resumeCursor`または0から行います。配送はat-least-onceで、ack再送には同じ`attemptId`を使います。Task受入をOutcome達成として扱わず、Evidenceを評価へ渡します。
+eventの`nextCursor`はページ送り専用で、再開位置には使いません。再開は`resumeCursor`または0から行います。
+
+配送はat-least-onceで、ack再送には同じ`attemptId`を使います。Task受入をOutcome達成として扱わず、Evidenceを評価へ渡します。
 
 Orchestrator（[orchestrator/README.md](orchestrator/README.md)）はWorkspace Runtime Credentialで読む`get_workspace_orchestration_state`の現在状態から起動を判断し（Workspace RoleはWorkspace、managerはTarget Projectを対象に、scopeごとのAgent Credential設定で起動する）、Activity cursorやRuntime eventのcursorをworkflow checkpointにしません。Intent作成時にResearch Requestは自動で作られず、OrchestratorがStrategistを起動してResearchの要否を判断させます。実Agentを起動した運用・Lv6自律運転は未検証です。
 

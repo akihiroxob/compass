@@ -6,9 +6,20 @@
 
 ## 背景
 
-Workspaceを一つのビジネス、そのProjectを関連するプロダクトとして利用する。Humanの参加とRoleをWorkspace・Projectでそれぞれ管理すると、参加・招待・権限変更の操作が細かくなり、Workspace内で仕事を横断して把握する利用体験に合わない。
+Workspaceを一つのビジネス、そのProjectを関連するプロダクトとして利用する。
+
+Humanの参加とRoleをWorkspace・Projectでそれぞれ管理すると、参加・招待・権限変更の操作が細かくなり、Workspace内で仕事を横断して把握する利用体験に合わない。
 
 ## 決定
+
+```mermaid
+flowchart LR
+  H[Human] --> M[Workspace MembershipとRole]
+  M --> W[Workspaceの操作]
+  M --> P[配下の全Projectの操作]
+```
+
+AgentのGrant・CredentialはこのHuman向けの所属モデルと分ける。
 
 - Humanの所属とRoleはWorkspace Membershipを唯一の管理単位とする。Roleはowner / administrator / editor / viewerとし、Workspaceと配下のすべてのProjectへ同じRoleを適用する。
 - Human向けのProject Membership、Project別Roleの上書き、Projectごとの参加・招待・取消・Owner付与は設けない。Workspaceでの権限変更・除外は、配下の全Projectへの次の操作にも反映する。

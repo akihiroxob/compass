@@ -1,6 +1,20 @@
 # Roleのブラウザ検証データ
 
-Worker・Reviewer・Managerの専用プレビューは、`.ralph/config.json`の`verification.browser.setupCommands`で、`npm ci --ignore-scripts`・`npm rebuild better-sqlite3`・`scripts/prepare-browser-verification.mjs`の順に実行してから起動する。準備コマンドはホスト側で、検証対象Worktreeをcwdとして動く。依存関係もそのWorktree内へインストールし、親Repositoryのworkspace参照を使わない。
+Worker・Reviewer・Managerの専用プレビューは、`.ralph/config.json`の`verification.browser.setupCommands`で次の順に準備してから起動する。
+
+1. `npm ci --ignore-scripts`
+2. `npm rebuild better-sqlite3`
+3. `scripts/prepare-browser-verification.mjs`
+
+準備コマンドはホスト側で、検証対象Worktreeをcwdとして動く。依存関係もそのWorktree内へインストールし、親Repositoryのworkspace参照を使わない。
+
+```mermaid
+flowchart LR
+  S[対象Worktreeで準備] --> P[専用プレビューを起動]
+  P --> B[PC・狭い画面で操作]
+  B --> I[保存画像を実見]
+  I --> E[SHA・asset・結果と証跡を対応付ける]
+```
 
 ReviewerはPR head、Managerは統合SHAを照合する。Workerは検証時HEADと未コミット差分を区別する。画像・操作記録・配信assetと対象SHAの対応を、返された`artifactDirectory`（`.ralph/verification/<claimId>/browser/`）内の絶対pathに保存して報告する。Worktree内の相対pathだけを引き継がない。Reviewerは証跡が不足する場合も専用プレビューで再確認する。`prototype` profileは`docs/planning/prototypes/`の採用試作を提供する。
 

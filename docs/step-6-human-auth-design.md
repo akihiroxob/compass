@@ -2,7 +2,15 @@
 
 ## 責務と入口
 
-HumanはGoogle OIDCで認証し、CompassのWeb SessionでWeb UIを操作する。Human Membership、Agent Role Grant、Runtime scopeは別の認可モデル。
+HumanはGoogle OIDCで認証し、CompassのWeb SessionでWeb UIを操作する。
+
+| 操作主体 | 認可モデル |
+| --- | --- |
+| Human | Human Membership |
+| Agent | Agent Role Grant |
+| Runtime | Runtime scope |
+
+これらは別の認可モデルとして扱う。
 
 | 主体 | 資格情報 | 認可 |
 | --- | --- | --- |
